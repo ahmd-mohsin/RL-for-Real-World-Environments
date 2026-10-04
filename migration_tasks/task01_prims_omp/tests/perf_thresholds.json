@@ -1,0 +1,14 @@
+{
+  "n": 67108864,
+  "note": "max_ratio = candidate median / original CUDA median, both measured on the same GPU in the same grading run (interleaved, best of 3 rounds). The reduce bar is looser because a 1-element OpenMP launch + download costs ~63 us on clang 18 vs a few us for CUDA, and the best plain OpenMP streaming read reaches ~1.27x CUDA.",
+  "max_ratio": {
+    "exclusive_scan_u32": 1.30,
+    "inclusive_scan_u32": 1.30,
+    "reduce_sum_f32": 1.60,
+    "reduce_max_f32": 1.60,
+    "histogram256": 1.30,
+    "radix_sort_u64_44bit": 1.50,
+    "radix_sort_u32_32bit": 1.50,
+    "compact_indices": 1.45
+  }
+}

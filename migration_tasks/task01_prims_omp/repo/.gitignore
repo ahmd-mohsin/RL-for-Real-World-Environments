@@ -1,0 +1,6 @@
+build/
+build-*/
+*.ppm
+*.pfm
+compile_commands.json
+.cache/

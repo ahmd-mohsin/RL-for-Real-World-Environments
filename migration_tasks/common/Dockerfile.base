@@ -1,0 +1,19 @@
+# Base image for the CUDA -> OpenMP offload / Kokkos migration tasks.
+#
+# Toolchains:
+#   gcc 13               builds the original CUDA sources against the emulated backend
+#   clang 18 + offload   OpenMP target offload; on CPU-only machines the host plugin
+#                        acts as a device with its own memory, so missing map
+#                        clauses fail exactly as they would on a GPU
+FROM ubuntu:24.04
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build git ca-certificates ripgrep python3 \
+      clang-18 clang-tools-18 lld-18 llvm-18 libomp-18-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/usr/lib/llvm-18/bin:${PATH} \
+    LD_LIBRARY_PATH=/usr/lib/llvm-18/lib \
+    OMP_TARGET_OFFLOAD=MANDATORY
+WORKDIR /testbed
