@@ -1,0 +1,6 @@
+# Development image for building and testing the synthetic repo on CPU (emulated CUDA backend).
+FROM ubuntu:24.04
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates ripgrep python3 \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
