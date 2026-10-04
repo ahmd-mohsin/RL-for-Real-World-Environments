@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.env
+# Downloaded datasets and cloned repos (large; re-pull with scripts/)
+RL-Environments/**
+!RL-Environments/README.md
+.DS_Store
