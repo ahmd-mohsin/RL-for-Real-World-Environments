@@ -1,0 +1,45 @@
+# One coding task = one sandbox. This file is the contract that ties the four parts together.
+# Layout follows Harbor's task.toml so the task can later be ported to Harbor/MiMo-style trainers.
+
+[task]
+id = "python-slugify__modern-hard-cut-delimiters"
+source = "https://github.com/un33k/python-slugify/pull/200"
+language = "python"
+category = "bug_fix"
+instruction = "instruction.md"
+
+[image]                                  # Part 1: Image
+dockerfile = "image/Dockerfile"
+tag = "rlsandbox/python-slugify:modern-hard-cut"
+repo_url = "https://github.com/un33k/python-slugify.git"
+base_commit = "c442cd4cb61763c85b078d6ea83b5959c3ff364a"   # parent of the upstream fix 8f9a550
+python = "3.12"
+workdir = "/testbed"
+
+[runtime]                                # Part 2: Runtime
+cpus = 2
+memory_mb = 2048
+network = "none"                         # no internet during the rollout: blocks fetching the upstream fix
+agent_timeout_sec = 1800
+command_timeout_sec = 120                # per tool call
+
+[interface]                              # Part 3: Interface
+tools = ["bash", "view", "str_replace", "create", "submit"]
+max_steps = 50
+
+[grading]                                # Part 4: Grading hooks
+tests_patch = "grading/tests.patch"      # hidden; copied in only after the agent submits
+test_command = "bash /testbed/run_tests.sh"
+fail_to_pass = [
+  "tests/test_release.py::ReleaseRegressionTests::test_modern_hard_cut_does_not_end_in_post_replacement_delimiters",
+  "tests/test_release.py::ReleaseRegressionTests::test_modern_word_boundary_hard_cut_keeps_delimiters_with_the_next_word",
+]
+pass_to_pass = "tests/"                  # the whole existing suite must stay green
+verifier_timeout_sec = 600
+mode = "separate"                        # grade in a fresh container; only the agent's diff crosses over
+# Agent edits to these paths are discarded before grading (test harness is not the agent's to change).
+protected_paths = ["tests/*", "*conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "run_tests.sh"]
+reward = "binary"                        # 1.0 iff fail_to_pass and pass_to_pass both pass
+
+[solution]
+patch = "solution/solution.patch"        # the upstream fix; used only to validate the task

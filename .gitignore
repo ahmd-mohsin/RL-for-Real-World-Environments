@@ -5,3 +5,6 @@ __pycache__/
 RL-Environments/**
 !RL-Environments/README.md
 .DS_Store
+
+# Working notes
+plan.md

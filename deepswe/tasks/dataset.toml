@@ -1,0 +1,462 @@
+# Dataset manifest for datacurve/deep-swe-1-1
+# Add tasks using: harbor add <org>/<name>
+# Publish using: harbor publish
+
+[dataset]
+name = "datacurve/deep-swe-1-1"
+description = "DeepSWE: Measuring frontier coding agents on original, long-horizon engineering tasks"
+authors = []
+keywords = []
+
+[[tasks]]
+name = "datacurve/abs-module-cache-flags"
+digest = "sha256:5a7494e1a5a255d71df7a28d7c19ea700bb6d159717af46b724dc5cabaf0a0d3"
+
+[[tasks]]
+name = "datacurve/abs-stepped-slices"
+digest = "sha256:ec1f51dd9cce6791baa7dd9275c89e018fe1be6f319c9ecc7e86371a9d22f901"
+
+[[tasks]]
+name = "datacurve/actionlint-action-pinning-lint"
+digest = "sha256:31f1f6c3b4054e331c40f906409102c23a53f2b9667a3fe779dec4d2704ad4aa"
+
+[[tasks]]
+name = "datacurve/adaptix-name-mapping-aliases"
+digest = "sha256:08a642016fe65ee277b812bfcf73069a0d4edff6118a19d7155a416876cfaec5"
+
+[[tasks]]
+name = "datacurve/aiomonitor-task-snapshots-diff"
+digest = "sha256:04b729d3eec2edca17600ea2c74b8eb93fbb6c43801045a672cf9a2393131da3"
+
+[[tasks]]
+name = "datacurve/anko-default-function-arguments"
+digest = "sha256:e6fe0ccd99745078b0b8aa6c95417aa43e5869e6e3a96ab92f0d1cc82700c44a"
+
+[[tasks]]
+name = "datacurve/anko-typed-variable-bindings"
+digest = "sha256:f1cd4a3ad97b348fe00c55d5d54f537b0d7e8a00234dd887a0cfe17baa2f60ff"
+
+[[tasks]]
+name = "datacurve/arcane-drift-detection-baselines"
+digest = "sha256:6b71d29f485680a0f6866ebac956588e9bb1362b2c7a553f073651363ce8908a"
+
+[[tasks]]
+name = "datacurve/arktype-json-schema-refs-dependencies"
+digest = "sha256:ea2d8499e343b7178a2ae242a2ddbbdaab29537e7e6eb1e193c8d1fe03fec6a6"
+
+[[tasks]]
+name = "datacurve/awilix-async-container-initialization"
+digest = "sha256:1ba4c58ebf8cc0bc0d1ae7fe26cee9e67c4ef5145d2dd4000d616bc7e9d86779"
+
+[[tasks]]
+name = "datacurve/bandit-incremental-cache-control"
+digest = "sha256:bea488927a2c5b4a9ca3151bdbc4ecbe9be19146c39fc31d4ffcdfc12ba7fa55"
+
+[[tasks]]
+name = "datacurve/bandit-interprocedural-taint-checks"
+digest = "sha256:041f2ca6b7e9d15ee64d79e6392557b0009ed506217614b1b18852fb529fd816"
+
+[[tasks]]
+name = "datacurve/bandit-structured-nosec-directives"
+digest = "sha256:503a189b239063ccb4ab5c8af9e7a4f933fb066a3918a1307dc6827569d21f9e"
+
+[[tasks]]
+name = "datacurve/boa-hierarchical-evaluation-cancellation"
+digest = "sha256:0855ce43f69e83dbb402f790df27d882f26db8e3513e0769184fa763e5aac8ad"
+
+[[tasks]]
+name = "datacurve/cattrs-partial-structuring-recovery"
+digest = "sha256:be17c825f5b8f2fdd7e3bc9898ec919eb8304a29b0e9c7df4a2bb927ca5fa0cf"
+
+[[tasks]]
+name = "datacurve/clack-async-autocomplete-options"
+digest = "sha256:9d72847512a081b06c89648a2af09b3efe4f6d050be050caa3ba838c10b8ea94"
+
+[[tasks]]
+name = "datacurve/claude-code-by-agents-recursive-delegation"
+digest = "sha256:8504a45e7629eddb575101213844000ab09875a97d1d35e6673573367fa56f1b"
+
+[[tasks]]
+name = "datacurve/cliffy-config-file-parsing"
+digest = "sha256:9486b56a3f7364563c4d8c4d6c0faa77e7bff77a29b6b781d3986d7f5fb679bb"
+
+[[tasks]]
+name = "datacurve/csstree-shorthand-expansion-compression"
+digest = "sha256:8dd25eff115a4f8d845a7b9cf90f63220428017fde7287e682b14664a6930b26"
+
+[[tasks]]
+name = "datacurve/dasel-html-document-format"
+digest = "sha256:fa0596f4d16d4d6087da6357656145b4566c1fd4d1e330cbb6761f7db04dcffb"
+
+[[tasks]]
+name = "datacurve/dateutil-rfc5545-timezone-interop"
+digest = "sha256:0d14450d61a8a0c759640413adcba3726700fdf5bb78292b3bc1ac4d5730348b"
+
+[[tasks]]
+name = "datacurve/drizzle-orm-window-function-builders"
+digest = "sha256:773f5be7e8511cfa7a38da3271ee68b6c10e5e83f65d1c0cfc87127f5be0ec19"
+
+[[tasks]]
+name = "datacurve/dynamodb-toolbox-conditional-attribute-requirements"
+digest = "sha256:d3327ffd362314ed24028f8ba66a087719942b5f583c31c08845371d02f589c9"
+
+[[tasks]]
+name = "datacurve/dynamodb-toolbox-lazy-recursive-schemas"
+digest = "sha256:f3762f543b1b74c80bf202c75745a763fc3a5b6c2c9dcdb48c9912613ac719a2"
+
+[[tasks]]
+name = "datacurve/effect-sse-httpapi-streaming"
+digest = "sha256:f6c5faa6c73ce5748aac7141d5603d7acf0d9d51352614bdc8240bac22bf71e2"
+
+[[tasks]]
+name = "datacurve/eicrud-keyset-pagination-cursor"
+digest = "sha256:5db1614bf988a94f3fe8cf16ac6a51c731ad137abfb5409c95d48c1fdfe0c0bb"
+
+[[tasks]]
+name = "datacurve/etree-xml-diff-patch"
+digest = "sha256:4bf36b17b56e424d24ffb581b74ef0d32e8e1f5e903816f585c7ed85b919866f"
+
+[[tasks]]
+name = "datacurve/expr-try-catch-errors"
+digest = "sha256:0be882350ec0034c2b8ceefa4acb289fa80071b17277a8e7b95cef556c48d720"
+
+[[tasks]]
+name = "datacurve/fastapi-deprecation-response-headers"
+digest = "sha256:f797f2edbeffcbcfecc4ad45a42bf52d3763e1250d3eabee51be7831851a0d24"
+
+[[tasks]]
+name = "datacurve/fastapi-implicit-head-options"
+digest = "sha256:d3552fec32f1ae74b9420719f791ebec83dc3112fda594f753c924227559b794"
+
+[[tasks]]
+name = "datacurve/fd-deterministic-multi-key-sorting"
+digest = "sha256:3d2d4d88e83662ca5a213a9e851f3bf111870bbfac206a2c4662a4ba0a6a7879"
+
+[[tasks]]
+name = "datacurve/geo-shapeindex-serialization"
+digest = "sha256:8d16aabee94c6e07d7771e849a7e5c79970f1d9052c2c28c7b1d183e01f5298d"
+
+[[tasks]]
+name = "datacurve/go-critic-doc-link-checker"
+digest = "sha256:9b284d68e55e917658aa57369541f0d51b51f2d11087560737a05107f7155028"
+
+[[tasks]]
+name = "datacurve/go-genai-streamed-function-args"
+digest = "sha256:597509e5d7ad8acfbc611a4c5eaeedfbc8787919716f640d0a292d2c073e6e29"
+
+[[tasks]]
+name = "datacurve/go-git-worktree-merge-conflicts"
+digest = "sha256:e7babefb4cfabcd357ccfcfc5e8411decb7843b222a3e745881a825f2762aed9"
+
+[[tasks]]
+name = "datacurve/goreleaser-retry-publish-auditing"
+digest = "sha256:7377c343ba44b493771da2627845043cb9020b444fa5e1d3903a2cbcea75ae58"
+
+[[tasks]]
+name = "datacurve/gql-incremental-graphql-delivery"
+digest = "sha256:ebfc60ff28ca0b943a9cc827268c6848cc6af8dc30befd605a6b66e343b5786f"
+
+[[tasks]]
+name = "datacurve/happy-dom-abort-pending-body-reads"
+digest = "sha256:f3ab5db66e460b35cc27a9fcf2a26156662f3e31b81f38dab90d2d2edb0812aa"
+
+[[tasks]]
+name = "datacurve/happy-dom-deterministic-intersectionobserver"
+digest = "sha256:831c90639b4ee77dbd7df71c221a882d3b8ce5d93c5528f68863a648248f2428"
+
+[[tasks]]
+name = "datacurve/helm-array-merge-strategies"
+digest = "sha256:07bab64017ac096688a9c6a5e9e8c7c45ff1848f1f7d2fb4d5ad415df8063ff7"
+
+[[tasks]]
+name = "datacurve/helm-unified-manifest-stream"
+digest = "sha256:b0d8186016bac59975f8a60d66db53046a7a893b81b7528648b6534f4599dd08"
+
+[[tasks]]
+name = "datacurve/httpx-deterministic-cookie-store"
+digest = "sha256:2d72668a7290a29c19be555a411311727510ec8adbf15ac0b4c1ba8d15447d59"
+
+[[tasks]]
+name = "datacurve/httpx-multipart-response-parsing"
+digest = "sha256:cf5641f0fd1a4ce9e505812d5af525a355f8f16f6d7ece9e27c2bb37fde7e011"
+
+[[tasks]]
+name = "datacurve/httpx-streaming-json-iteration"
+digest = "sha256:457cb94b7b3c5fff6f5c51fb8425f07fbcf142b285531b1f2a620a40b7e490a8"
+
+[[tasks]]
+name = "datacurve/igel-persist-feature-schema"
+digest = "sha256:22689d78dc2a135df3c03d1e8721d1da936f5a0d3cc0012fc1781e4c18b11db6"
+
+[[tasks]]
+name = "datacurve/ink-grid-box-layout"
+digest = "sha256:7e9919fa42dfab140a1e8c80bdb6de0ae48147813846a043e2e514c26b787332"
+
+[[tasks]]
+name = "datacurve/ipython-session-bundle-replay"
+digest = "sha256:79e3ce07aec9b06eb160ca887fc9977ec2a0c9ca91342349ed44c809689fb3ae"
+
+[[tasks]]
+name = "datacurve/katex-multicolumn-array-spans"
+digest = "sha256:ed2f160d7833382627b105c775cab8fca835fb7b6c39174967a43c055a9edc88"
+
+[[tasks]]
+name = "datacurve/kcp-go-multiplexed-kcp-streams"
+digest = "sha256:cb52c33b1cc48a05d562c1e136d3dd5e1e07faed081e96c791e22737c3dac564"
+
+[[tasks]]
+name = "datacurve/kea-atomic-signal-selectors"
+digest = "sha256:1630f3d2e10b5d784415db017c80cacad87b0e3a26b6282ec218ab8d5668a308"
+
+[[tasks]]
+name = "datacurve/kgateway-consistent-hash-policy"
+digest = "sha256:0ddc1a6d7a9a68305f547f46af01524363de1657ec21e41d0bace64d1d8645f1"
+
+[[tasks]]
+name = "datacurve/kombu-single-active-consumer-priority"
+digest = "sha256:f42e9d816745e341e2fb9982d50c339d0a15bfc452fac934f2d678aabc2116fb"
+
+[[tasks]]
+name = "datacurve/kombu-virtual-queue-dead-lettering"
+digest = "sha256:78a03a9f9dda5c0c88340201e10e1ace1bdc06cfe885fe72d3898d758d4089b6"
+
+[[tasks]]
+name = "datacurve/koota-composite-trait-aspects"
+digest = "sha256:c79e52fc2f5d33836bfbc4064611b78c1567059ce4a2d01933f7015402b9c112"
+
+[[tasks]]
+name = "datacurve/koota-deferred-mutation-buffer"
+digest = "sha256:4f2cbe212c0fabe060c69f4ac0fd4da9e27433045b0af6e728c91e79e79b8ed5"
+
+[[tasks]]
+name = "datacurve/koota-entity-snapshot-rollback"
+digest = "sha256:541e45b18050e5e60d26a8c9d44ebc8f04e55922c11f810069dcc4b1f9571d26"
+
+[[tasks]]
+name = "datacurve/koota-pair-relation-tracking"
+digest = "sha256:d4fd41547341aea3cc740a7be43e2fe020fab522d4cb454c2632ba6e10c2fb9f"
+
+[[tasks]]
+name = "datacurve/koota-query-predicates"
+digest = "sha256:d58de88490afa4db72444aae92ed153d90073369586f37b6fd7e55481eed7298"
+
+[[tasks]]
+name = "datacurve/kysely-window-grouping-helpers"
+digest = "sha256:50056b7fa8982c1342164570b5ade43ae7defb6386c4316d9bdb155aff99b5f7"
+
+[[tasks]]
+name = "datacurve/langchain-request-coalescing"
+digest = "sha256:32709e89fbbc5a8631f545a5a1154511427fde7a358bbe4322fd3df36abbf2b8"
+
+[[tasks]]
+name = "datacurve/mashumaro-flattened-dataclass-fields"
+digest = "sha256:e4dfcd534deea0d5938b07640f5e7c65cb5e8a2d1a24e1eb0820d97d39ccb3e8"
+
+[[tasks]]
+name = "datacurve/meriyah-explicit-resource-declarations"
+digest = "sha256:e39029c0928075d5866a12e58d920f09ea83be68323b8db8444bbea2b3157281"
+
+[[tasks]]
+name = "datacurve/mnamer-daemon-watch-lifecycle"
+digest = "sha256:d87079702284a1f952c748e344a5061dad0b2a600889426dd9981309cbb32bd8"
+
+[[tasks]]
+name = "datacurve/mobly-grouped-test-barriers"
+digest = "sha256:6a9e13f1699ac4df069fb84e6ef81f27dcf50b3210a27eb6cb18da5c24809e6d"
+
+[[tasks]]
+name = "datacurve/narwhals-rolling-window-suite"
+digest = "sha256:f78da630e398c5c363343f857d91c7eab2522d02b8f9b78451990554ed1635ab"
+
+[[tasks]]
+name = "datacurve/numba-stencil-boundary-modes"
+digest = "sha256:d9f915eced1b63bf06e815dc251ff6ab9b557ad04bc3c8e0e2110790cbcb01d9"
+
+[[tasks]]
+name = "datacurve/obsidian-linter-auto-table-of-contents"
+digest = "sha256:74da163bf084efc443a357ba302bb1c56ec1ffe01596a03fdfb9f3a046958226"
+
+[[tasks]]
+name = "datacurve/obsidian-linter-link-format-conversion"
+digest = "sha256:1d94788735fb9cceb63881d10f30f3c27e670f408a6c0b748ab3fea0f088e262"
+
+[[tasks]]
+name = "datacurve/obsidian-linter-scoped-ignore-markers"
+digest = "sha256:f645644e2b423e672be1c2f1f99e5d9c1b675861f31bd00031de8bfc0d89775c"
+
+[[tasks]]
+name = "datacurve/ofetch-per-origin-circuit-breaker"
+digest = "sha256:014831d78f083474ea3df0bb8a00a9279b0a403d20a021b1d15ae4e2c62dad80"
+
+[[tasks]]
+name = "datacurve/onedump-dump-encryption-pipeline"
+digest = "sha256:8ad63bcdd9236687e85b36e6d7cbc4389567fd1ef1d88cb7018b60bb1f75a36b"
+
+[[tasks]]
+name = "datacurve/opa-rego-rule-profiling"
+digest = "sha256:7ed0564dc6636e771db4ddf6367710fc566f7ce23c42b8d7da5ca89c7f22e10d"
+
+[[tasks]]
+name = "datacurve/opa-template-string-reconstruction"
+digest = "sha256:7d07dabb88874e384c70a133c02848a5d80c5df49073c283cc116fabc460244a"
+
+[[tasks]]
+name = "datacurve/optique-conditional-option-dependencies"
+digest = "sha256:4790d791d82db04581fdeb9ba2e90636b073f2d9dc006fccb682387484403e53"
+
+[[tasks]]
+name = "datacurve/oxvg-structural-selector-preservation"
+digest = "sha256:5d24d9c2066123fda6160aaccdb2a8dbe46e82e7d2f6c6e3e7dfe43a2d178437"
+
+[[tasks]]
+name = "datacurve/participle-grammar-conflict-analysis"
+digest = "sha256:ac78172cfb52c65a7d76308a039d566f13711f8c129906d081932eb1f2616135"
+
+[[tasks]]
+name = "datacurve/pebble-durability-wait-apis"
+digest = "sha256:4a724cd2e1ca2466fecd36eb17952d4d50fd003c127a37c993d69ee7e74d7de7"
+
+[[tasks]]
+name = "datacurve/pest-character-class-coalescing"
+digest = "sha256:3b33edbbdef65c11eb687754d5f5b4584cfc458bee0c98b684a76fe8b0197a95"
+
+[[tasks]]
+name = "datacurve/prometheus-transactional-reload-status"
+digest = "sha256:02bf76fbcad87fab1472b0f1d689dbf8496f1bf0ff43c6c4c2a8538fe7ed6936"
+
+[[tasks]]
+name = "datacurve/prometheus-typed-label-sorting"
+digest = "sha256:a1815ea7290d189cb196def9760d68c094b70de07f378d7184981d25768db725"
+
+[[tasks]]
+name = "datacurve/psd-tools-blend-range-api"
+digest = "sha256:cbcfa63341c605baa43292708cf2d670bc49e9d9a5e838488dff42dc40b5f4c9"
+
+[[tasks]]
+name = "datacurve/pwntools-tube-multiplexing"
+digest = "sha256:824a9690abb14e8a1c67cae3763a9e25882cf8b9b5e39c0ff012030d053c5940"
+
+[[tasks]]
+name = "datacurve/python-statemachine-state-data-scoping"
+digest = "sha256:b4050e99723188a5e38651479997c8f6f94569599200727b162d620322fc9efd"
+
+[[tasks]]
+name = "datacurve/query-persist-restored-query-state"
+digest = "sha256:9353a5491721138bb112e7ef8896b2ddfb05b5859b1c12aed7f59a64af881a56"
+
+[[tasks]]
+name = "datacurve/quill-shared-toolbar-focus"
+digest = "sha256:37c86f3070296a5d8da2a28ee68f2b604bbf03a3c0223d68187343a4b99ff47b"
+
+[[tasks]]
+name = "datacurve/returns-validated-error-accumulation"
+digest = "sha256:e0c512aa651a567119cefc8b52c1c13d3023f7d3e315accd40ca956807b9de44"
+
+[[tasks]]
+name = "datacurve/scc-bounded-memory-spilling"
+digest = "sha256:1bfd7f98a038921d944fdd1220475075e6c5145ffab0d35837f80805b7d43d0a"
+
+[[tasks]]
+name = "datacurve/scriggo-method-declarations"
+digest = "sha256:16359822f1f4dffa6fd21b2ab847a85eebee687a1f6f6963cbbf9292eccd75b5"
+
+[[tasks]]
+name = "datacurve/skrub-duration-encoding"
+digest = "sha256:38ce3b28cd877474f950e3aaae32d870e93cd7d6974d31afa2220053ea5ea760"
+
+[[tasks]]
+name = "datacurve/sql-formatter-bigquery-pipe-formatting"
+digest = "sha256:a18d7d3c1554bf50f9e4c7828cb68e2e54333da2b0bd64cf6becf1326b6a5627"
+
+[[tasks]]
+name = "datacurve/sqlfmt-create-table-ddl-formatting"
+digest = "sha256:e723dcb5a49d4886742bcc60740fc29f77510bdf279c065b59f1c52950709764"
+
+[[tasks]]
+name = "datacurve/sqlite-utils-safe-import-checkpoints"
+digest = "sha256:5ee1b5c5344de392886bc6deb8904c11c8e2d05f3c903da6427598e07b6530fa"
+
+[[tasks]]
+name = "datacurve/superjson-error-stack-serialization"
+digest = "sha256:31c28cfd2fdb9e2346d7969abd63e7dd660f5c592a7ccd8a1cfc164fc9a9428d"
+
+[[tasks]]
+name = "datacurve/task-task-graph-export"
+digest = "sha256:dcd508d6175f2c640b68418045ca006877443203218f7ae2012d025519720c92"
+
+[[tasks]]
+name = "datacurve/tengo-callable-instance-isolation"
+digest = "sha256:5789cc89e6c3bd2475e5c7d93f1096063e8dbdc72f5328314c0b82b970f2a6fd"
+
+[[tasks]]
+name = "datacurve/tengo-destructuring-bindings"
+digest = "sha256:0291c145836d8a1e0a379cbd04479b338259718aa7b929a151900425422e9a4b"
+
+[[tasks]]
+name = "datacurve/termenv-preserve-ansi-resets"
+digest = "sha256:8b71b1738f50a7954f54e564d6a570d6f26f99419591ada51a506ee6a1d77655"
+
+[[tasks]]
+name = "datacurve/testem-bail-on-test-failure"
+digest = "sha256:407923c560365c967f6163e45466d2c38c9a8838376f799c1670c01a2e067cb2"
+
+[[tasks]]
+name = "datacurve/testem-per-launcher-reports"
+digest = "sha256:7f9537e2adffecc055fb711f501fd5578182c78b22dc795c954770e41bd08e59"
+
+[[tasks]]
+name = "datacurve/textual-kitty-key-phases"
+digest = "sha256:d24431e582444cf746973d242b652c721f4a8b2aa602fc0a8d50438fc4f248cf"
+
+[[tasks]]
+name = "datacurve/textual-richlog-follow-state"
+digest = "sha256:67676d34c2f2f18598c0590c9349d96aaa916fc1f141a2ba92cd1c5f8ba19d96"
+
+[[tasks]]
+name = "datacurve/tomlkit-toml-table-converters"
+digest = "sha256:306e680fa55d0a238baf9b8630ff69b289208d5a69b9a3de414465106ab888ee"
+
+[[tasks]]
+name = "datacurve/true-myth-iterable-collection-combinators"
+digest = "sha256:42c8e3e115cd77f76535bb4cc7389cde68ff4b53f529e8b3d4b931e2ded7644d"
+
+[[tasks]]
+name = "datacurve/ts-pattern-match-each"
+digest = "sha256:516497fbe2c9c29a206408824615dcb5e23e52ca43d8b244c4a06c56c99a4436"
+
+[[tasks]]
+name = "datacurve/updo-policy-alerting"
+digest = "sha256:2c9dae856cc9e2181df8747bb09528ef039431ab00c9074fd3c3dcf6a7774fd8"
+
+[[tasks]]
+name = "datacurve/valibot-recursive-schema-composition"
+digest = "sha256:01e65b77f5e41eb99944a6eff531112eaebd2824097ac938221b3c9780cd755f"
+
+[[tasks]]
+name = "datacurve/vitest-duration-sharding"
+digest = "sha256:38fcedd5c2e675047e2de19ab1635ac7b7fea029586ee9da97c14e4c651e5257"
+
+[[tasks]]
+name = "datacurve/vulture-persistent-analysis-cache"
+digest = "sha256:1ad42b3ba7fdb6b2f7b383ce81f421030c38a90cc0b664951ce0f55878582533"
+
+[[tasks]]
+name = "datacurve/wasmi-trap-coredumps"
+digest = "sha256:dd0e6a3b1d817b3be553a67ed8029829faec50d3cce0ae66f0abb51d2d070184"
+
+[[tasks]]
+name = "datacurve/wazero-multi-module-snapshots"
+digest = "sha256:ba411aa3fed8fd8970f656a8457ec921c33676d89c9d3b5a1242981bae28b93e"
+
+[[tasks]]
+name = "datacurve/yaegi-go-embed-directives"
+digest = "sha256:88e966b1ffd29dad042ecfc9a40c58c18ce740c2dceab76943cf815192cbc11c"
+
+[[tasks]]
+name = "datacurve/yjs-map-conflict-detection"
+digest = "sha256:f17097a184eb0562f71a2387a49d9ed2c37bce1da2a54b04e91303de5402e670"
+
+[[tasks]]
+name = "datacurve/ytt-jsonpath-query-api"
+digest = "sha256:bdc122dbb8b10fc2e0a2741302e51784e2f7c7df3840681a45169130d39c89e1"
+
