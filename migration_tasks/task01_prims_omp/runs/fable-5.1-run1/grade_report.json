@@ -1,0 +1,170 @@
+{
+  "task": "task01_prims_omp",
+  "gates": {
+    "static": {
+      "pass": true,
+      "violations": [],
+      "count": 0
+    },
+    "build_gpu": {
+      "pass": true,
+      "log": "ninja: Entering directory `/tmp/tsr-grade-zqeny7is/build-gpu'\n[1/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/team.cpp.o\n[2/17] Building CXX object src/CMakeFiles/tsr_prims.dir/device/error.cpp.o\n[3/17] Building CXX object tests/CMakeFiles/tsr_offload_probe.dir/offload_probe.cpp.o\n[4/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/histogram.cpp.o\n[5/17] Building CXX object src/CMakeFiles/tsr_prims.dir/device/memory.cpp.o\n[6/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/bitonic_sort.cpp.o\n[7/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/compact.cpp.o\n[8/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/reduce.cpp.o\n[9/17] Building CXX object tests/CMakeFiles/tsr_perf_bench.dir/perf_bench.cpp.o\n[10/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/scan.cpp.o\n[11/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/radix_sort.cpp.o\n[12/17] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims_hidden.cpp.o\n[13/17] Linking CXX shared library src/libtsr_prims.so\n[14/17] Linking CXX executable tests/tsr_perf_bench\n[15/17] Linking CXX executable tests/tsr_offload_probe\n[16/17] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_main.cpp.o\n[17/17] Linking CXX executable tests/tsr_tests"
+    },
+    "tests_gpu": {
+      "pass": true,
+      "returncode": 0,
+      "summary": [
+        "[doctest] test cases:  15 |  15 passed | 0 failed | 0 skipped",
+        "[doctest] assertions: 133 | 133 passed | 0 failed |"
+      ],
+      "log": "===============================================================================\n[doctest] test cases:  15 |  15 passed | 0 failed | 0 skipped\n[doctest] assertions: 133 | 133 passed | 0 failed |\n[doctest] Status: SUCCESS!"
+    },
+    "offload": {
+      "pass": true,
+      "rows": [
+        {
+          "primitive": "exclusive_scan",
+          "n": 1048576,
+          "kernels": 2,
+          "d2h": 0
+        },
+        {
+          "primitive": "inclusive_scan",
+          "n": 1048576,
+          "kernels": 2,
+          "d2h": 0
+        },
+        {
+          "primitive": "exclusive_scan_total",
+          "n": 1048576,
+          "kernels": 2,
+          "d2h": 4
+        },
+        {
+          "primitive": "reduce",
+          "n": 1048576,
+          "kernels": 1,
+          "d2h": 0
+        },
+        {
+          "primitive": "histogram256",
+          "n": 1048576,
+          "kernels": 1,
+          "d2h": 0
+        },
+        {
+          "primitive": "radix_sort_pairs",
+          "n": 1048576,
+          "kernels": 22,
+          "d2h": 0
+        },
+        {
+          "primitive": "bitonic_sort_pairs",
+          "n": 1000,
+          "kernels": 1,
+          "d2h": 0
+        },
+        {
+          "primitive": "sort_pairs",
+          "n": 1048576,
+          "kernels": 22,
+          "d2h": 0
+        },
+        {
+          "primitive": "compact_indices",
+          "n": 1048576,
+          "kernels": 2,
+          "d2h": 4
+        }
+      ],
+      "problems": []
+    },
+    "link": {
+      "pass": true,
+      "problems": []
+    },
+    "build_host": {
+      "pass": true,
+      "log": "ninja: Entering directory `/tmp/tsr-grade-zqeny7is/build-host'\n[1/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/team.cpp.o\n[2/17] Building CXX object src/CMakeFiles/tsr_prims.dir/device/error.cpp.o\n[3/17] Building CXX object tests/CMakeFiles/tsr_offload_probe.dir/offload_probe.cpp.o\n[4/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/histogram.cpp.o\n[5/17] Building CXX object src/CMakeFiles/tsr_prims.dir/device/memory.cpp.o\n[6/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/compact.cpp.o\n[7/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/bitonic_sort.cpp.o\n[8/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/reduce.cpp.o\n[9/17] Building CXX object tests/CMakeFiles/tsr_perf_bench.dir/perf_bench.cpp.o\n[10/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/radix_sort.cpp.o\n[11/17] Building CXX object src/CMakeFiles/tsr_prims.dir/prims/scan.cpp.o\n[12/17] Linking CXX shared library src/libtsr_prims.so\n[13/17] Linking CXX executable tests/tsr_perf_bench\n[14/17] Linking CXX executable tests/tsr_offload_probe\n[15/17] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims_hidden.cpp.o\n[16/17] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_main.cpp.o\n[17/17] Linking CXX executable tests/tsr_tests"
+    },
+    "tests_host": {
+      "pass": true,
+      "returncode": 0,
+      "summary": [
+        "[doctest] test cases:  15 |  15 passed | 0 failed | 0 skipped",
+        "[doctest] assertions: 133 | 133 passed | 0 failed |"
+      ],
+      "log": "===============================================================================\n[doctest] test cases:  15 |  15 passed | 0 failed | 0 skipped\n[doctest] assertions: 133 | 133 passed | 0 failed |\n[doctest] Status: SUCCESS!\nOMP: Warning #96: Cannot form a team with 96 threads, using 5 instead.\nOMP: Hint Consider unsetting KMP_DEVICE_THREAD_LIMIT (KMP_ALL_THREADS), KMP_TEAMS_THREAD_LIMIT, and OMP_THREAD_LIMIT (if any are set)."
+    },
+    "perf": {
+      "pass": true,
+      "cases": [
+        {
+          "case": "exclusive_scan_u32",
+          "cuda_ms": 1.179,
+          "port_ms": 0.9986,
+          "ratio": 0.847,
+          "max_ratio": 1.3,
+          "pass": true
+        },
+        {
+          "case": "inclusive_scan_u32",
+          "cuda_ms": 1.1796,
+          "port_ms": 1.0373,
+          "ratio": 0.879,
+          "max_ratio": 1.3,
+          "pass": true
+        },
+        {
+          "case": "reduce_sum_f32",
+          "cuda_ms": 0.2953,
+          "port_ms": 0.3663,
+          "ratio": 1.24,
+          "max_ratio": 1.6,
+          "pass": true
+        },
+        {
+          "case": "reduce_max_f32",
+          "cuda_ms": 0.3012,
+          "port_ms": 0.3797,
+          "ratio": 1.261,
+          "max_ratio": 1.6,
+          "pass": true
+        },
+        {
+          "case": "histogram256",
+          "cuda_ms": 0.4405,
+          "port_ms": 0.388,
+          "ratio": 0.881,
+          "max_ratio": 1.3,
+          "pass": true
+        },
+        {
+          "case": "radix_sort_u64_44bit",
+          "cuda_ms": 26.3599,
+          "port_ms": 29.2001,
+          "ratio": 1.108,
+          "max_ratio": 1.5,
+          "pass": true
+        },
+        {
+          "case": "radix_sort_u32_32bit",
+          "cuda_ms": 15.2901,
+          "port_ms": 15.5868,
+          "ratio": 1.019,
+          "max_ratio": 1.5,
+          "pass": true
+        },
+        {
+          "case": "compact_indices",
+          "cuda_ms": 2.0316,
+          "port_ms": 0.5277,
+          "ratio": 0.26,
+          "max_ratio": 1.45,
+          "pass": true
+        }
+      ]
+    }
+  },
+  "reward": 1.0
+}
