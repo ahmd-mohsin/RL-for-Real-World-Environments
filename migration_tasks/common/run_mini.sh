@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Single-attempt mini-swe-agent run of a migration task inside its GPU sandbox.
-#   run_mini.sh <task_dir> <model> "<ssh command to the sandbox>" <out_dir>
+#   run_mini.sh <task_dir> <model> "<ssh command to the sandbox>" <out_dir> [extra mini -c overrides...]
 # The API key is read from the project .env (OPENROUTER_API_KEY) and stays local.
 set -euo pipefail
 TASK=$(cd "$1" && pwd); MODEL=$2; SSH=$3; OUT=$4
+shift 4
+EXTRA=()
+for o in "$@"; do EXTRA+=(-c "$o"); done
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' "$ROOT/.env" | cut -d= -f2-)
@@ -14,6 +17,7 @@ MINI=${MINI:-mini}
 "$MINI" -c "$HERE/mswea/migration.yaml" \
   -c "model.model_name=$MODEL" \
   -c "environment.ssh=$SSH" \
+  "${EXTRA[@]}" \
   -t "$(cat "$TASK/instruction.md")" \
   --yolo --exit-immediately \
   -o "$OUT/trajectory.json" 2>&1 | tee "$OUT/console.log"
