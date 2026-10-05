@@ -1,0 +1,19 @@
+{
+  "note": "max_ratio = candidate median / original CUDA median, both on the same GPU in the same grading run (interleaved, best of 3 rounds). Only stages where the CUDA build needs >= 0.4 ms are gated individually; every stage is inside the gated frame times. The CUDA build sorts intersections with CUB.",
+  "max_ratio": {
+    "splats/frame": 1.25,
+    "mesh/frame": 1.25,
+    "hybrid/frame": 1.25,
+    "hybrid_half/multiview8": 1.25,
+    "splats/bin_splats": 1.40,
+    "hybrid/bin_splats": 1.40,
+    "mesh/shade_surface": 1.30,
+    "hybrid/shade_surface": 1.30,
+    "splats/rasterize_splats": 1.50,
+    "hybrid/rasterize_splats": 1.50,
+    "mesh/bin_mesh_faces": 1.25,
+    "hybrid/bin_mesh_faces": 1.25,
+    "mesh/rasterize_mesh_fine": 1.25,
+    "hybrid/rasterize_mesh_fine": 1.25
+  }
+}
