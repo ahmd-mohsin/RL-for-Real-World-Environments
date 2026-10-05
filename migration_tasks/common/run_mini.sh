@@ -7,6 +7,7 @@ TASK=$(cd "$1" && pwd); MODEL=$2; SSH=$3; OUT=$4
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' "$ROOT/.env" | cut -d= -f2-)
+export MSWEA_CONFIGURED=true
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$OUT"
 MINI=${MINI:-mini}
