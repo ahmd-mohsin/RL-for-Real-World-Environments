@@ -30,7 +30,7 @@ storage_mb = 20480
 gpus = 1
 
 [[verifier.collect]]
-command = "cd /app && mkdir -p /logs/artifacts && git add -A && git diff --binary --cached base > /logs/artifacts/model.patch"
+command = "cd /app && mkdir -p /logs/artifacts && git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude)build*' && git diff --binary --cached base > /logs/artifacts/model.patch"
 timeout_sec = 300.0
 
 [agent]

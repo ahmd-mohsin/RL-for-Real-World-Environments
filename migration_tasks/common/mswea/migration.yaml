@@ -1,0 +1,78 @@
+# mini-swe-agent config for the GPU kernel-migration tasks.
+#   ../run_mini.sh <task_dir> <model> <ssh-command> <out_dir>
+agent:
+  system_template: |
+    You are an expert GPU and HPC software engineer working autonomously on a Linux machine with an NVIDIA RTX 4090.
+    You can execute bash commands through the bash tool.
+  instance_template: |
+    {{task}}
+
+    ## Working rules
+
+    - The repository is in /app. Every command runs in a fresh subshell starting in /app: `cd` and exported
+      variables do not persist (prefix commands, or write them to a file and `source` it).
+    - A command times out after 1800 s. Build with `ninja` / `cmake --build -j` and keep benchmark runs bounded.
+    - The machine has no network access and nobody will answer questions. Work until the task is completely
+      done, verifying your work yourself by building, testing and benchmarking on the GPU.
+    - Edit files with heredocs (`cat <<'EOF' > file`), `sed -i`, or small python scripts.
+    - When you are completely finished, submit by running exactly `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+      on its own. After that you cannot continue. The state of /app at that point is graded as-is.
+
+    <system_information>
+    Linux x86_64, Ubuntu 24.04, NVIDIA RTX 4090 (sm_89), CUDA 12.8 at /usr/local/cuda,
+    clang 18 with OpenMP offload (NVPTX + host plugins) at /usr/lib/llvm-18, cmake, ninja, gdb, git.
+    </system_information>
+  step_limit: 250
+  cost_limit: 60.0
+  mode: yolo
+  confirm_exit: false
+environment:
+  environment_class: mswea.ext.SSHEnvironment
+  cwd: /app
+  timeout: 1800
+  env:
+    PATH: /usr/lib/llvm-18/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    LD_LIBRARY_PATH: /usr/lib/llvm-18/lib
+    CUDA_HOME: /usr/local/cuda
+    OMP_TARGET_OFFLOAD: MANDATORY
+    PAGER: cat
+    MANPAGER: cat
+    GIT_PAGER: cat
+model:
+  model_class: mswea.ext.LongOpenRouterModel
+  model_name: anthropic/claude-fable-5.1
+  request_timeout: 1200
+  set_cache_control: default_end
+  model_kwargs:
+    max_tokens: 32000
+    reasoning:
+      effort: high
+  observation_template: |
+    {%- if output.output | length < 12000 -%}
+    <returncode>{{ output.returncode }}</returncode>
+    {%- if output.exception_info %}
+    <exception>{{ output.exception_info }}</exception>
+    {%- endif %}
+    <output>
+    {{ output.output }}
+    </output>
+    {%- else -%}
+    <returncode>{{ output.returncode }}</returncode>
+    {%- if output.exception_info %}
+    <exception>{{ output.exception_info }}</exception>
+    {%- endif %}
+    <warning>Output too long: {{ output.output | length - 12000 }} characters elided from the middle.</warning>
+    <output_head>
+    {{ output.output[:6000] }}
+    </output_head>
+    <output_tail>
+    {{ output.output[-6000:] }}
+    </output_tail>
+    {%- endif -%}
+  format_error_template: |
+    Tool call error:
+    <error>
+    {{error}}
+    </error>
+    Every response must call the `bash` tool at least once, e.g. {"command": "ls"}.
+    To finish, run exactly `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` on its own.
