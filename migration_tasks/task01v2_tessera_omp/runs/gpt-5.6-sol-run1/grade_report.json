@@ -1,0 +1,115 @@
+{
+  "task": "task01_prims_omp",
+  "gates": {
+    "static": {
+      "pass": true,
+      "violations": [],
+      "count": 0
+    },
+    "build_gpu": {
+      "pass": true,
+      "log": "/tmp/tsr-grade-3cs48ccq/candidate/include/tsr/raster/mesh_raster.h:16:15: warning: declaration is not declared in any declare target region [-Wopenmp-target]\n   16 | constexpr int kMaxFacesPerPixel = 8;\n      |               ^\n/tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:232:17: note: used here\n  232 |         Pixel q[kMaxFacesPerPixel];\n      |                 ^~~~~~~~~~~~~~~~~\n1 warning generated.\nIn file included from /tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:12:\n/tmp/tsr-grade-3cs48ccq/candidate/include/tsr/raster/mesh_raster.h:16:15: warning: declaration is not declared in any declare target region [-Wopenmp-target]\n   16 | constexpr int kMaxFacesPerPixel = 8;\n      |               ^\n/tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:232:17: note: used here\n  232 |         Pixel q[kMaxFacesPerPixel];\n      |                 ^~~~~~~~~~~~~~~~~\n1 warning generated.\n[17/41] Building CXX object src/CMakeFiles/tessera.dir/render/surface.cpp.o\n[18/41] Building CXX object src/CMakeFiles/tessera.dir/io/image.cpp.o\n[19/41] Building CXX object src/CMakeFiles/tessera.dir/post/tonemap.cpp.o\n[20/41] Building CXX object src/CMakeFiles/tessera.dir/encode/hashgrid.cpp.o\n[21/41] Building CXX object src/CMakeFiles/tessera.dir/render/renderer.cpp.o\n[22/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_encode.cpp.o\n[23/41] Building CXX object src/CMakeFiles/tessera.dir/scene/scene.cpp.o\n[24/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_geom.cpp.o\n[25/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_bin.cpp.o\n[26/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_post_scene.cpp.o\n[27/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_mesh.cpp.o\n[28/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_golden.cpp.o\n[29/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_raster.cpp.o\n[30/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims.cpp.o\n[31/41] Building CXX object tests/CMakeFiles/tsr_offload_probe.dir/offload_probe.cpp.o\n[32/41] Building CXX object src/CMakeFiles/tessera.dir/sched/frame_scheduler.cpp.o\n[33/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_main.cpp.o\n[34/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_render.cpp.o\n[35/41] Linking CXX shared library src/libtessera.so\n[36/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims_hidden.cpp.o\n[37/41] Linking CXX executable tests/tsr_offload_probe\n[38/41] Building CXX object tests/CMakeFiles/tsr_bench.dir/bench_tessera.cpp.o\n[39/41] Linking CXX executable tests/tsr_bench\n[40/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_stress.cpp.o\n[41/41] Linking CXX executable tests/tsr_tests"
+    },
+    "tests_gpu": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "[doctest] test cases:    64 |    63 passed | 1 failed | 0 skipped",
+        "[doctest] assertions: 31085 | 31084 passed | 1 failed |"
+      ],
+      "log": "/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: splats_axis_aligned_640x640: >1 0%  >8 0%  mean 9.27734e-05  max 1  isects 4141093/4141093  visible 79994/79994  surface 0/0\n  logged: c.name := splats_axis_aligned_640x640\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: mesh_960x540: >1 0%  >8 0%  mean 0.000856481  max 1  isects 65516/65516  visible 2000/2000  surface 257564/257564\n  logged: c.name := mesh_960x540\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: mesh_k8_cull_717x405: >1 0%  >8 0%  mean 0.000719734  max 1  isects 54575/54575  visible 1999/1999  surface 160261/160261\n  logged: c.name := mesh_k8_cull_717x405\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_1280x720: >1 0.000217014%  >8 0%  mean 0.00150282  max 3  isects 5919406/5919405  visible 150000/150000  surface 428741/428741\n  logged: c.name := hybrid_1280x720\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_notonemap_513x1025: >1 0%  >8 0%  mean 0.000119812  max 1  isects 2868869/2868869  visible 47110/47110  surface 515221/515221\n  logged: c.name := hybrid_notonemap_513x1025\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_bin16_480x272: >1 0.00765931%  >8 0%  mean 0.00117187  max 6  isects 446255/446255  visible 29973/29973  surface 72327/72327\n  logged: c.name := hybrid_bin16_480x272\n\n===============================================================================\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_prims_hidden.cpp:297:\nTEST CASE:  sort: 32-bit key instantiations and empty bit range\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_prims_hidden.cpp:330: ERROR: CHECK_THROWS_AS( prims::radix_sort_pairs(kin.data(), kin.data(), vin.data(), vout.data(), n, 0, 32, arena, nullptr), tsr::Error ) did NOT throw at all!\n\n===============================================================================\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:148:\nTEST CASE:  stress: binning order with massive depth ties\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 6x4 tile 16: 34 intersections\n  logged: c.gw := 6\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 20x12 tile 16: 504 intersections\n  logged: c.gw := 20\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 40x24 tile 8: 7907 intersections\n  logged: c.gw := 40\n          c.tile := 8\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 90x50 tile 16: 22671 intersections\n  logged: c.gw := 90\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 200x112 tile 4: 647315 intersections\n  logged: c.gw := 200\n          c.tile := 4\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 300x170 tile 16: 1076400 intersections\n  logged: c.gw := 300\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 500x280 tile 16: 13558324 intersections\n  logged: c.gw := 500\n          c.tile := 16\n\n===============================================================================\n[doctest] test cases:    64 |    63 passed | 1 failed | 0 skipped\n[doctest] assertions: 31085 | 31084 passed | 1 failed |\n[doctest] Status: FAILURE!"
+    },
+    "offload": {
+      "pass": false,
+      "rows": [
+        {
+          "stage": "transform_faces",
+          "kernels": 1,
+          "d2h": 84,
+          "budget": 64
+        },
+        {
+          "stage": "bin_mesh_faces",
+          "kernels": 6,
+          "d2h": 16,
+          "budget": 64
+        },
+        {
+          "stage": "rasterize_mesh_fine",
+          "kernels": 2,
+          "d2h": 12,
+          "budget": 64
+        },
+        {
+          "stage": "shade_surface",
+          "kernels": 13,
+          "d2h": 124,
+          "budget": 64
+        },
+        {
+          "stage": "project_gaussians",
+          "kernels": 1,
+          "d2h": 84,
+          "budget": 64
+        },
+        {
+          "stage": "compute_splat_colors",
+          "kernels": 1,
+          "d2h": 12,
+          "budget": 64
+        },
+        {
+          "stage": "bin_splats",
+          "kernels": 36,
+          "d2h": 8,
+          "budget": 64
+        },
+        {
+          "stage": "rasterize_splats",
+          "kernels": 1,
+          "d2h": 0,
+          "budget": 64
+        },
+        {
+          "stage": "tonemap",
+          "kernels": 9,
+          "d2h": 1032,
+          "budget": 4096
+        },
+        {
+          "stage": "frame",
+          "kernels": 74,
+          "d2h": 4609376,
+          "budget": 4616192
+        }
+      ],
+      "problems": [
+        "transform_faces: 84 bytes copied device->host (budget 64)",
+        "shade_surface: 124 bytes copied device->host (budget 64)",
+        "project_gaussians: 84 bytes copied device->host (budget 64)"
+      ]
+    },
+    "link": {
+      "pass": true,
+      "problems": []
+    },
+    "build_host": {
+      "pass": true,
+      "log": "   16 | constexpr int kMaxFacesPerPixel = 8;\n      |               ^\n/tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:232:17: note: used here\n  232 |         Pixel q[kMaxFacesPerPixel];\n      |                 ^~~~~~~~~~~~~~~~~\n1 warning generated.\nIn file included from /tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:12:\n/tmp/tsr-grade-3cs48ccq/candidate/include/tsr/raster/mesh_raster.h:16:15: warning: declaration is not declared in any declare target region [-Wopenmp-target]\n   16 | constexpr int kMaxFacesPerPixel = 8;\n      |               ^\n/tmp/tsr-grade-3cs48ccq/candidate/src/raster/mesh_raster.cpp:232:17: note: used here\n  232 |         Pixel q[kMaxFacesPerPixel];\n      |                 ^~~~~~~~~~~~~~~~~\n1 warning generated.\n[16/41] Building CXX object src/CMakeFiles/tessera.dir/encode/mlp.cpp.o\n[17/41] Building CXX object src/CMakeFiles/tessera.dir/render/surface.cpp.o\n[18/41] Building CXX object src/CMakeFiles/tessera.dir/post/tonemap.cpp.o\n[19/41] Building CXX object src/CMakeFiles/tessera.dir/io/image.cpp.o\n[20/41] Building CXX object src/CMakeFiles/tessera.dir/render/renderer.cpp.o\n[21/41] Building CXX object src/CMakeFiles/tessera.dir/encode/hashgrid.cpp.o\n[22/41] Building CXX object src/CMakeFiles/tessera.dir/scene/scene.cpp.o\n[23/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_encode.cpp.o\n[24/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_bin.cpp.o\n[25/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_geom.cpp.o\n[26/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_post_scene.cpp.o\n[27/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_mesh.cpp.o\n[28/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_golden.cpp.o\n[29/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_raster.cpp.o\n[30/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims.cpp.o\n[31/41] Building CXX object tests/CMakeFiles/tsr_offload_probe.dir/offload_probe.cpp.o\n[32/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_main.cpp.o\n[33/41] Building CXX object src/CMakeFiles/tessera.dir/sched/frame_scheduler.cpp.o\n[34/41] Linking CXX shared library src/libtessera.so\n[35/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_prims_hidden.cpp.o\n[36/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_render.cpp.o\n[37/41] Linking CXX executable tests/tsr_offload_probe\n[38/41] Building CXX object tests/CMakeFiles/tsr_bench.dir/bench_tessera.cpp.o\n[39/41] Linking CXX executable tests/tsr_bench\n[40/41] Building CXX object tests/CMakeFiles/tsr_tests.dir/test_stress.cpp.o\n[41/41] Linking CXX executable tests/tsr_tests"
+    },
+    "tests_host": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "[doctest] test cases:    64 |    63 passed | 1 failed | 0 skipped",
+        "[doctest] assertions: 31085 | 31084 passed | 1 failed |"
+      ],
+      "log": "\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: mesh_960x540: >1 0.000192901%  >8 0%  mean 0.00174576  max 3  isects 65516/65516  visible 2000/2000  surface 257564/257564\n  logged: c.name := mesh_960x540\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: mesh_k8_cull_717x405: >1 0%  >8 0%  mean 0.00222463  max 1  isects 54575/54575  visible 1999/1999  surface 160261/160261\n  logged: c.name := mesh_k8_cull_717x405\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_1280x720: >1 0.000325521%  >8 0%  mean 0.00384223  max 3  isects 5919405/5919405  visible 150000/150000  surface 428741/428741\n  logged: c.name := hybrid_1280x720\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_notonemap_513x1025: >1 0%  >8 0%  mean 0.000230115  max 1  isects 2868869/2868869  visible 47110/47110  surface 515221/515221\n  logged: c.name := hybrid_notonemap_513x1025\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_golden.cpp:79: MESSAGE: hybrid_bin16_480x272: >1 0.00765931%  >8 0%  mean 0.00189951  max 6  isects 446255/446255  visible 29973/29973  surface 72327/72327\n  logged: c.name := hybrid_bin16_480x272\n\n===============================================================================\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_prims_hidden.cpp:297:\nTEST CASE:  sort: 32-bit key instantiations and empty bit range\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_prims_hidden.cpp:330: ERROR: CHECK_THROWS_AS( prims::radix_sort_pairs(kin.data(), kin.data(), vin.data(), vout.data(), n, 0, 32, arena, nullptr), tsr::Error ) did NOT throw at all!\n\n===============================================================================\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:148:\nTEST CASE:  stress: binning order with massive depth ties\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 6x4 tile 16: 34 intersections\n  logged: c.gw := 6\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 20x12 tile 16: 504 intersections\n  logged: c.gw := 20\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 40x24 tile 8: 7907 intersections\n  logged: c.gw := 40\n          c.tile := 8\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 90x50 tile 16: 22671 intersections\n  logged: c.gw := 90\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 200x112 tile 4: 647315 intersections\n  logged: c.gw := 200\n          c.tile := 4\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 300x170 tile 16: 1076401 intersections\n  logged: c.gw := 300\n          c.tile := 16\n\n/tmp/tsr-grade-3cs48ccq/candidate/tests/test_stress.cpp:166: MESSAGE: plane 500x280 tile 16: 13558325 intersections\n  logged: c.gw := 500\n          c.tile := 16\n\n===============================================================================\n[doctest] test cases:    64 |    63 passed | 1 failed | 0 skipped\n[doctest] assertions: 31085 | 31084 passed | 1 failed |\n[doctest] Status: FAILURE!\nOMP: Warning #96: Cannot form a team with 64 threads, using 32 instead.\nOMP: Hint Consider unsetting KMP_DEVICE_THREAD_LIMIT (KMP_ALL_THREADS), KMP_TEAMS_THREAD_LIMIT, and OMP_THREAD_LIMIT (if any are set)."
+    },
+    "perf": {
+      "pass": false,
+      "skipped": "earlier gate failed"
+    }
+  },
+  "reward": 0.0
+}
