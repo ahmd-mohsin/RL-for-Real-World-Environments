@@ -37,14 +37,14 @@ The compiled extension is a constant source of pain: it pins a CUDA toolkit, tak
 | case | max time / CUDA extension |
 |---|---|
 | `fps` (16 × 16k points, ratio 0.25; 4 × 65k points, ratio 0.0625) | 0.50 |
-| `knn` k = 16 / k = 64 | 1.00 / 0.25 |
+| `knn` k = 16 / k = 64 | 0.60 / 0.25 |
 | `three_nn` | 0.75 |
 | `radius`, `ball_query` | 1.10 |
 | `group_points` forward / backward | 1.15 / 1.20 |
 | `three_interpolate` forward / backward | 1.35 / 1.30 |
 | `segment_csr` (sum, max), `gather_csr` | 1.30 |
 | `scatter` (sum, mean, max, highly contended sum) | 1.25 |
-| `pcnet` training step / inference (8 × 4096 points) | 0.80 / 0.65 |
+| `pcnet` training step / inference (8 × 4096 points) | 0.65 / 0.50 |
 
 ## Grading
 

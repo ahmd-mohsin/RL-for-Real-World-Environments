@@ -1,0 +1,56 @@
+{
+  "task": "task02_pcops_triton",
+  "gates": {
+    "static": {
+      "pass": true,
+      "violations": [],
+      "count": 0
+    },
+    "install": {
+      "pass": true,
+      "log": "",
+      "compiled_files": []
+    },
+    "ops": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "6 failed, 132 passed in 22.16s"
+      ],
+      "failed": [
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-mean] - assert False",
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-min] - assert False",
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-max] - assert False",
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-mean] - assert False",
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-min] - assert False",
+        "FAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-max] - assert False"
+      ],
+      "log": "            assert got.dtype == dtype and torch.allclose(got.double(), want.double(), rtol=tol, atol=tol * 20)\n        else:\n>           assert torch.equal(got, want)\nE           assert False\nE            +  where False = <built-in method equal of type object at 0x787e678e5180>(tensor([[  9,   2,   5, -25,   3,  -7,   2,   3,  -2, -21,   3,  11,   0,   0],\\n        [ -6,   0,   0,   5,   1,  -7,...2, -15,  -2,   3, -18,   1,   0,   0],\\n        [ -9,  11,   3,  -1,  17, -11,  -5,  15, -14,   7,  13, -16,   0,   0]]), tensor([[  9,   2,   5, -26,   3,  -8,   2,   3,  -3, -21,   3,  11,   0,   0],\\n        [ -7,  -1,   0,   5,   1,  -8,...2, -16,  -3,   3, -19,   1,   0,   0],\\n        [-10,  11,   3,  -2,  17, -12,  -6,  15, -15,   7,  13, -16,   0,   0]]))\nE            +    where <built-in method equal of type object at 0x787e678e5180> = torch.equal\n\ntest_hidden_ops.py:324: AssertionError\n_______________________ test_scatter_dtypes[dtype5-min] ________________________\n\nreduce = 'min', dtype = torch.int64\n\n    @pytest.mark.parametrize(\"reduce\", [\"sum\", \"mean\", \"min\", \"max\"])\n    @pytest.mark.parametrize(\"dtype\", [torch.float32, torch.float64, torch.float16, torch.bfloat16, torch.int32, torch.int64])\n    def test_scatter_dtypes(reduce, dtype):\n        g = torch.Generator().manual_seed(30)\n        src = (torch.randn(5, 60, generator=g) * 20).to(dtype)\n        index = torch.randint(0, 12, (60,), generator=g)\n        got = pcops.scatter(dev(src), dev(index), dim=1, dim_size=14, reduce=reduce).cpu()\n        want = ref.scatter(src.double() if dtype.is_floating_point else src, index, 1, 14, reduce)\n        if dtype.is_floating_point:\n            tol = 1e-6 if dtype in (torch.float32, torch.float64) else 3e-2\n            assert got.dtype == dtype and torch.allclose(got.double(), want.double(), rtol=tol, atol=tol * 20)\n        else:\n>           assert torch.equal(got, want)\nE           assert False\nE            +  where False = <built-in method equal of type object at 0x787e678e5180>(tensor([[                -29,                 -15,                 -27,\\n                         -38,                 ...                      7,                   2,                 -24,\\n         9223372036854775807, 9223372036854775807]]), tensor([[-29, -15, -27, -38, -19, -23, -22, -29, -26, -21, -17,  -3,   0,   0],\\n        [-11, -22, -13, -16, -39, -28,...1, -49, -21,   3, -45,  -4,   0,   0],\\n        [-15,   1, -12, -13, -37, -28, -26,  -6, -43,   7,   2, -24,   0,   0]]))\nE            +    where <built-in method equal of type object at 0x787e678e5180> = torch.equal\n\ntest_hidden_ops.py:324: AssertionError\n_______________________ test_scatter_dtypes[dtype5-max] ________________________\n\nreduce = 'max', dtype = torch.int64\n\n    @pytest.mark.parametrize(\"reduce\", [\"sum\", \"mean\", \"min\", \"max\"])\n    @pytest.mark.parametrize(\"dtype\", [torch.float32, torch.float64, torch.float16, torch.bfloat16, torch.int32, torch.int64])\n    def test_scatter_dtypes(reduce, dtype):\n        g = torch.Generator().manual_seed(30)\n        src = (torch.randn(5, 60, generator=g) * 20).to(dtype)\n        index = torch.randint(0, 12, (60,), generator=g)\n        got = pcops.scatter(dev(src), dev(index), dim=1, dim_size=14, reduce=reduce).cpu()\n        want = ref.scatter(src.double() if dtype.is_floating_point else src, index, 1, 14, reduce)\n        if dtype.is_floating_point:\n            tol = 1e-6 if dtype in (torch.float32, torch.float64) else 3e-2\n            assert got.dtype == dtype and torch.allclose(got.double(), want.double(), rtol=tol, atol=tol * 20)\n        else:\n>           assert torch.equal(got, want)\nE           assert False\nE            +  where False = <built-in method equal of type object at 0x787e678e5180>(tensor([[                  37,                   18,                   37,\\n                            2,             ...                  7,                   20,                   -8,\\n         -9223372036854775808, -9223372036854775808]]), tensor([[ 37,  18,  37,   2,  21,   0,  19,  34,  16, -21,  16,  25,   0,   0],\\n        [ -3,  11,  19,  24,  35,   3,...7,   4,  22,   3,  -1,   6,   0,   0],\\n        [  2,  28,  16,  14,  45,  19,   4,  32,   9,   7,  20,  -8,   0,   0]]))\nE            +    where <built-in method equal of type object at 0x787e678e5180> = torch.equal\n\ntest_hidden_ops.py:324: AssertionError\n=========================== short test summary info ============================\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-mean] - assert False\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-min] - assert False\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype4-max] - assert False\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-mean] - assert False\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-min] - assert False\nFAILED test_hidden_ops.py::test_scatter_dtypes[dtype5-max] - assert False\n6 failed, 132 passed in 22.16s"
+    },
+    "hard": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "1 failed, 36 passed in 48.44s"
+      ],
+      "failed": [
+        "FAILED test_hidden_hard.py::test_fps_huge_example_and_many_tiny_examples - As..."
+      ],
+      "log": "...................................F.                                    [100%]\n=================================== FAILURES ===================================\n_________________ test_fps_huge_example_and_many_tiny_examples _________________\n\n    def test_fps_huge_example_and_many_tiny_examples():\n        pos = rnd(150_000, 3, seed=18)\n        ptr = torch.tensor([0, 150_000], device=DEV)\n>       assert ref.check_fps(pos.cpu(), ptr.cpu(), 0.002, pcops.fps(pos, ptr, 0.002)) == []\nE       AssertionError: assert ['example 0: ...379211229206'] == []\nE         \nE         Left contains one more item: 'example 0: sample 1 = 8266 has distance 0.30717500716155577 < max 1.9443379211229206'\nE         Use -v to get more diff\n\ntest_hidden_hard.py:288: AssertionError\n=========================== short test summary info ============================\nFAILED test_hidden_hard.py::test_fps_huge_example_and_many_tiny_examples - As...\n1 failed, 36 passed in 48.44s"
+    },
+    "app": {
+      "pass": true,
+      "returncode": 0,
+      "summary": [
+        "14 passed in 31.45s"
+      ],
+      "failed": [],
+      "log": "..............                                                           [100%]\n14 passed in 31.45s"
+    },
+    "perf": {
+      "pass": false,
+      "skipped": "earlier gate failed"
+    }
+  },
+  "reward": 0.0
+}

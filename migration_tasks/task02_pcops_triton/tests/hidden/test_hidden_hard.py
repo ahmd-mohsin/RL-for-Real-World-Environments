@@ -317,3 +317,10 @@ def test_every_operator_launches_triton_kernels():
         hook_owner.launch_enter_hook = old
     missing = [n for n in calls if counts.get(n, 0) == 0]
     assert not missing, f"operators that launched no Triton kernel: {missing}"
+
+
+def test_grid_cluster_millions_of_points():
+    pos = rnd(3_000_000, 3, seed=20) * 50 - 10
+    size = torch.tensor([0.37, 0.5, 2.25], device=DEV)
+    got = pcops.grid_cluster(pos, size)
+    assert torch.equal(got.cpu(), ref.grid(pos.cpu(), size.cpu()))

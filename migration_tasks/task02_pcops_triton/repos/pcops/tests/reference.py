@@ -99,10 +99,12 @@ def radius(x, y, r, ptr_x=None, ptr_y=None, max_num_neighbors=32, ignore_same_in
 
 
 def grid(pos, size, start=None, end=None):
-    pos = pos.double().cpu().view(pos.size(0), -1)
-    size = size.double().cpu()
-    start = pos.min(0).values if start is None else start.double().cpu()
-    end = pos.max(0).values if end is None else end.double().cpu()
+    """Cell ids computed in the input dtype, as the kernel does (a float64
+    reference disagrees with float32 kernels on points that sit on a cell edge)."""
+    pos = pos.cpu().view(pos.size(0), -1)
+    size = size.cpu().to(pos.dtype)
+    start = pos.min(0).values if start is None else start.cpu().to(pos.dtype)
+    end = pos.max(0).values if end is None else end.cpu().to(pos.dtype)
     c = torch.zeros(pos.size(0), dtype=torch.long)
     k = 1
     for d in range(pos.size(1)):

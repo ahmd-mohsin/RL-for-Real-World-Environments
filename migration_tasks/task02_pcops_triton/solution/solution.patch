@@ -2178,10 +2178,10 @@ index 28e750a..bb71904 100644
      ball_query,
 diff --git a/pcops/_kernels.py b/pcops/_kernels.py
 new file mode 100644
-index 0000000..6dfce98
+index 0000000..88e056f
 --- /dev/null
 +++ b/pcops/_kernels.py
-@@ -0,0 +1,466 @@
+@@ -0,0 +1,472 @@
 +"""Triton kernels of pcops.
 +
 +Conventions: float inputs are converted to float32 for arithmetic (op-math)
@@ -2486,8 +2486,14 @@ index 0000000..6dfce98
 +        st = tl.load(start + d).to(ACC)
 +        en = tl.load(end + d).to(ACC)
 +        p = tl.load(pos + o * D + d, mask=v, other=0.0).to(ACC) - st
-+        c += (p / sz).to(tl.int64) * k
-+        k = k * (((en - st) / sz).to(tl.int64) + 1)
++        # IEEE round-to-nearest division: Triton's `/` is approximate for fp32
++        # and flips the cell of points that sit on a cell boundary
++        if ACC == tl.float32:
++            c += tl.math.div_rn(p, sz).to(tl.int64) * k
++            k = k * (tl.math.div_rn(en - st, sz).to(tl.int64) + 1)
++        else:  # float64 division is already IEEE rounded
++            c += (p / sz).to(tl.int64) * k
++            k = k * (((en - st) / sz).to(tl.int64) + 1)
 +    tl.store(out + o, c, mask=v)
 +
 +
@@ -2650,10 +2656,10 @@ index 0000000..6dfce98
 +    tl.atomic_min(arg + dst, e.to(tl.int64), mask=hit, sem="relaxed")
 diff --git a/pcops/_ops.py b/pcops/_ops.py
 new file mode 100644
-index 0000000..51fb4bd
+index 0000000..39a8bfb
 --- /dev/null
 +++ b/pcops/_ops.py
-@@ -0,0 +1,298 @@
+@@ -0,0 +1,301 @@
 +"""Registration of the Triton implementations as torch.ops.pcops.*.
 +
 +Each operator is a torch.library.custom_op with the schema of the former
@@ -2730,9 +2736,12 @@ index 0000000..51fb4bd
 +    if m > 0 and x.size(0) > 0:
 +        ex = _example_of_rows(ptr_y, m)
 +        KP = max(triton.next_power_of_2(k), 4)
-+        BX = max(64, KP)
-+        BQ = 32 if KP <= 16 else 8
-+        K.knn_kernel[(triton.cdiv(m, BQ),)](x, y, ptr_x, ex, col, m, k, D=x.size(1), BQ=BQ, BX=BX, KP=KP, COSINE=cosine, num_warps=4)
++        # many small programs keep the GPU occupied (tuned on an RTX 5090)
++        if KP <= 16:
++            BQ, BX = 2, 32
++        else:
++            BQ, BX = 1, max(256, KP)
++        K.knn_kernel[(triton.cdiv(m, BQ),)](x, y, ptr_x, ex, col, m, k, D=x.size(1), BQ=BQ, BX=BX, KP=KP, COSINE=cosine, num_warps=1)
 +    row = torch.arange(m, device=x.device).repeat_interleave(k)
 +    mask = col != -1
 +    return torch.stack([row.masked_select(mask), col.masked_select(mask)], 0)

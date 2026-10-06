@@ -3,7 +3,7 @@
   "max_ratio": {
     "fps_16x16k_r0.25": 0.5,
     "fps_4x65k_r0.0625": 0.5,
-    "knn_k16": 1.0,
+    "knn_k16": 0.6,
     "knn_k64": 0.25,
     "radius_r0.05_m64": 1.1,
     "ball_query_r0.1_s32": 1.1,
@@ -19,7 +19,7 @@
     "scatter_mean": 1.25,
     "scatter_max": 1.25,
     "scatter_sum_contended": 1.25,
-    "pcnet_train_step": 0.8,
-    "pcnet_inference": 0.65
+    "pcnet_train_step": 0.65,
+    "pcnet_inference": 0.5
   }
 }
