@@ -23,6 +23,7 @@ The work was developed without a GPU (Triton interpreter mode on CPU against a C
 
 - **Exact tie-breaking.** kNN and three_nn keep the earliest index on equal distances (strict `<` insertion). Radius and ball query return the first hits in index order; ball query pads with the first hit and leaves 0 when there is none. `torch.topk`, `argsort` and atomic compaction all break ties differently. The checks use integer lattices, where squared distances are exact.
 - **FPS race and properties.** The CUDA FPS reduction is racy on ties, so FPS is checked by property: each sample maximises the minimum distance, capped at 5e4. Other cases: any dimensionality (the original accepts D ≠ 3), `random_start`, and examples of 0, 1 or 150k points.
+- **Approximate division.** Triton's fp32 `/` lowers to an approximate division (≤ 2 ulp). `grid_cluster` on 3M points then puts boundary points in the wrong cell. `tl.math.div_rn` (fp32 only; fp64 is already IEEE) matches CUDA. Found because GPT's run crashed on large grids, which led to a 3M-point test.
 - **Interpreter versus compiler.** Code that passes `TRITON_INTERPRET=1` can fail to compile. Loop-carried values must keep one dtype (int64 `start` versus int32 `argmax`).
 - **Registration contract.** Every operator is run through `torch.library.opcheck`: schema, fake tensors, autograd registration, AOT dispatch with dynamic shapes. The backward operators stay registered, and data-dependent sizes use `new_dynamic_size`.
 - **Determinism.** Every operator except `scatter` is bitwise reproducible, including a 3M-row fp32 `segment_csr`. An atomics-based `segment_csr` fails this.
@@ -33,7 +34,7 @@ The work was developed without a GPU (Triton interpreter mode on CPU against a C
 ## Reference port design (`solution/solution.patch`, 29 files)
 
 - **fps:** each example's coordinates and running distances stay in registers for the whole run (examples up to 8192 points, D ≤ 3). A chunked global-memory kernel handles larger examples. One example per program.
-- **knn:** packed int64 keys (order-preserving float bits, then the index) and a bitonic top-k merge per 64-point tile: `min(A[i], B[k-1-i])`, then re-sort. Cosine distance uses a signed-float order transform.
+- **knn:** many small programs (BQ=2 / BX=32 for k ≤ 16, BQ=1 / BX=256 above, one warp), packed int64 keys (order-preserving float bits, then the index) and a bitonic top-k merge per 64-point tile: `min(A[i], B[k-1-i])`, then re-sort. Cosine distance uses a signed-float order transform.
 - **three_nn:** three min-extractions per tile plus a 3-element insertion network, instead of a full sort.
 - **radius / ball_query:** prefix-sum compaction per tile (ordered, no atomics), tuned to BQ=8/BX=256 and BQ=64/BX=128 on the 5090.
 - **segment_csr / gather_csr:** one program per segment for the reduction. `gather_csr` uses a binary search per output row in 256×32 tiles, and writes every row so no memset is needed.
@@ -46,14 +47,14 @@ The work was developed without a GPU (Triton interpreter mode on CPU against a C
 |---|---|---|---|---|
 | fps 16×16k r0.25 | 112.2 | 30.0 | 0.27 | 0.50 |
 | fps 4×65k r0.0625 | 432.7 | 110.5 | 0.26 | 0.50 |
-| knn k16 / k64 | 22.1 / 132.5 | 19.3 / 6.4 | 0.87 / 0.05 | 1.00 / 0.25 |
+| knn k16 / k64 | 18.6–26 / 130.6 | 7.8 / 2.9 | 0.30–0.42 / 0.02 | 0.60 / 0.25 |
 | radius / ball_query | 4.79 / 1.92 | 3.88 / 1.55 | 0.81 / 0.81 | 1.10 |
 | three_nn | 6.68 | 3.08 | 0.46 | 0.75 |
 | group fwd / bwd | 1.15 / 3.20 | 1.04 / 3.07 | 0.91 / 0.96 | 1.15 / 1.20 |
 | three_interpolate fwd / bwd | 0.43 / 1.53 | 0.48 / 1.65 | 1.12 / 1.08 | 1.35 / 1.30 |
 | segment sum / max, gather_csr | 0.33 / 0.35 / 0.71 | 0.34 / 0.37 / 0.74 | ≤ 1.08 | 1.30 |
 | scatter sum / mean / max / contended | 1.9 / 3.5 / 3.6 / 1.7 | ≈ same | ≤ 1.01 | 1.25 |
-| pcnet train step / inference | 14.5 / 11.6 | 8.0 / 4.9 | 0.55 / 0.42 | 0.80 / 0.65 |
+| pcnet train step / inference | 14.5 / 11.6 | 6.7 / 3.6 | 0.46 / 0.31 | 0.65 / 0.50 |
 
 ## Grader validation (`tests/grade.py`)
 
@@ -64,4 +65,4 @@ The work was developed without a GPU (Triton interpreter mode on CPU against a C
 | straightforward Triton FPS (256-point chunks like the CUDA block) | pass | pass | pass | pass | pass | FAIL (fps 1.15×, pcnet 0.98–1.0×) | 0 |
 | **reference port** (in the task image via `tests/test.sh`, 3 runs) | pass | pass | 138/138 | 37/37 | 8 + pcnet/pcdata | 20/20 | **1** |
 
-The hidden suite has 183 test checks plus 20 performance cases. The CUDA extension passes every correctness check except the Triton-launch check (by design).
+The hidden suite has 184 test checks plus 20 performance cases. A GPT 5.6 sol single attempt scored 0; see `runs/gpt-5.6-sol-run1/RESULT.md`. The CUDA extension passes every correctness check except the Triton-launch check (by design).
