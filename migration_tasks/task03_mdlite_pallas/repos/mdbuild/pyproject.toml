@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdbuild"
+version = "0.4.0"
+requires-python = ">=3.10"
+dependencies = ["numpy", "mdlite"]
+
+[tool.setuptools]
+packages = ["mdbuild"]

@@ -1,0 +1,13 @@
+# Base toolchain for task03_mdlite_pallas: CUDA 12.8 (nvcc, cuFFT) for the original
+# engine, and JAX with the CUDA 12 plugin plus Pallas for the port.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-dev cmake git ca-certificates build-essential less vim-tiny procps \
+ && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install -q --upgrade pip setuptools wheel \
+ && /opt/venv/bin/pip install -q "jax[cuda12]==0.11.2" numpy scipy pytest
+ENV PATH=/opt/venv/bin:/usr/local/cuda/bin:$PATH
+# the system CUDA libraries on LD_LIBRARY_PATH shadow the newer ones JAX ships with
+ENV LD_LIBRARY_PATH=
+ENV CUDAARCHS=120
