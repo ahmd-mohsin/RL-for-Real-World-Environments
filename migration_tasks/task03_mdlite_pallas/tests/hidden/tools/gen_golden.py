@@ -101,6 +101,31 @@ def gen_dynamics():
     np.savez_compressed(C.DATA / "golden_dynamics.npz", **out)
 
 
+def start_checkpoint(path, sname, step):
+    s = md.load_system(C.sysfile(sname))
+    md.write_checkpoint(path, step=step, box=s.box, positions=s.positions, velocities=s.velocities, seed=0, dt=0.002)
+
+
+def gen_rng_high():
+    out = {}
+    for name, sname, extra, step0 in C.RNG_HIGH_CASES:
+        cfg = C.merged(C.DYN_BASE, extra)
+        sim = md.Simulation(C.sysfile(sname), cfg)
+        if step0 is not None:
+            cp = Path(f"/tmp/{name}.mdcpt")
+            start_checkpoint(cp, sname, step0)
+            sim.load_checkpoint(cp)
+        for k in range(1, C.RNG_HIGH_STEPS + 1):
+            sim.run(1)
+            out[f"{name}/x{k}"] = sim.positions
+            out[f"{name}/v{k}"] = sim.velocities
+            out[f"{name}/L{k}"] = sim.box
+        out[f"{name}/step"] = np.array(sim.step)
+        sim.close()
+        print("rng_high", name, flush=True)
+    np.savez_compressed(C.DATA / "golden_rng_high.npz", **out)
+
+
 def gen_scale():
     out = {}
     for name, sname, cfg, n in C.SCALE_CASES:
@@ -154,10 +179,10 @@ def gen_physics():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", choices=["systems", "forces", "dynamics", "scale", "physics"])
+    ap.add_argument("--only", choices=["systems", "forces", "dynamics", "rng_high", "scale", "physics"])
     a = ap.parse_args()
     C.DATA.mkdir(parents=True, exist_ok=True)
-    for name, fn in (("systems", gen_systems), ("forces", gen_forces), ("dynamics", gen_dynamics), ("scale", gen_scale),
+    for name, fn in (("systems", gen_systems), ("forces", gen_forces), ("dynamics", gen_dynamics), ("rng_high", gen_rng_high), ("scale", gen_scale),
                      ("physics", gen_physics)):
         if a.only in (None, name):
             fn()

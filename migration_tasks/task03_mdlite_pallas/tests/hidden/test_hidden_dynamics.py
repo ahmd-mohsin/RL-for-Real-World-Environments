@@ -215,3 +215,65 @@ def test_outputs_flushed_on_finish(tmp_path):
     sim.finish()
     assert len((tmp_path / "energy.csv").read_text().splitlines()) == 4
     sim.close()
+
+
+RH = np.load(C.DATA / "golden_rng_high.npz")
+
+
+@pytest.mark.parametrize("name,sname,extra,step0", C.RNG_HIGH_CASES, ids=[c[0] for c in C.RNG_HIGH_CASES])
+def test_rng_high_words(name, sname, extra, step0, tmp_path):
+    """Seeds above 2^32 and step counters above 2^32 (restart from a crafted checkpoint) use the
+    high Philox key / counter words exactly as the engine does."""
+    cfg = C.merged(C.DYN_BASE, extra)
+    with md.Simulation(C.sysfile(sname), cfg) as sim:
+        if step0 is not None:
+            s = md.load_system(C.sysfile(sname))
+            md.write_checkpoint(tmp_path / "c.mdcpt", step=step0, box=s.box, positions=s.positions, velocities=s.velocities,
+                                seed=0, dt=0.002)
+            sim.load_checkpoint(tmp_path / "c.mdcpt")
+            assert sim.step == step0
+        for k in range(1, C.RNG_HIGH_STEPS + 1):
+            sim.run(1)
+            dx = np.abs(sim.positions - RH[f"{name}/x{k}"]).max()
+            assert dx <= 2e-6 * k, f"step +{k}: {dx:.3e}"
+            if f"{name}/v{k}" in RH:
+                dv = np.abs(sim.velocities - RH[f"{name}/v{k}"]).max()
+                assert dv <= 5e-4 * k, f"step +{k}: velocity {dv:.3e}"
+            assert np.abs(sim.box - RH[f"{name}/L{k}"]).max() <= 1e-7 * k
+        assert sim.step == int(RH[f"{name}/step"])
+
+
+def test_independent_simulations_in_one_process():
+    """Several simulations with different settings, interleaved in one process, give exactly the
+    results of running each alone (no shared module state or stale compiled kernels)."""
+    specs = [("salt_eq", C.merged(C.DYN_BASE, {"integrator": "baoab", "tau_t": 0.2})),
+             ("salt_eq", C.merged(C.DYN_BASE, {"coulombtype": "reaction-field", "epsilon_rf": 0, "cutoff": 1.0})),
+             ("alkane_cons_eq", C.merged(C.DYN_BASE, {"cutoff": 1.0, "pme_order": 6, "fourier_spacing": 0.1})),
+             ("lj_eq", C.merged(C.DYN_BASE, {"cutoff": 1.1, "coulombtype": "cutoff", "vdw_modifier": "force-switch",
+                                             "rvdw_switch": 0.95}))]
+    alone = []
+    for sname, cfg in specs:
+        with md.Simulation(C.sysfile(sname), cfg) as sim:
+            sim.run(12)
+            alone.append(sim.positions)
+    sims = [md.Simulation(C.sysfile(sname), cfg) for sname, cfg in specs]
+    for _ in range(4):
+        for sim in sims:
+            sim.run(3)
+    for sim, ref in zip(sims, alone):
+        np.testing.assert_array_equal(sim.positions, ref)
+        sim.close()
+
+
+def test_system_object_is_copied():
+    s = md.load_system(C.sysfile("salt_eq"))
+    cfg = C.merged(C.DYN_BASE, {"nstcomm": 0})
+    with md.Simulation(s, cfg) as a:
+        s.positions[:] += 0.37
+        s.charge[:] = 0.0
+        s.box[:] = 99.0
+        a.run(5)
+        xa = a.positions
+    with md.Simulation(C.sysfile("salt_eq"), cfg) as b:
+        b.run(5)
+        np.testing.assert_array_equal(xa, b.positions)

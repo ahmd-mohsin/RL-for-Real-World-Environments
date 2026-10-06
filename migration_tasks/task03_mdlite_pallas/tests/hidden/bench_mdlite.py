@@ -41,8 +41,11 @@ def main():
                 sim.run(n)
                 sim.finish()
                 best = min(best, (time.perf_counter() - t0) / n)
+            e = sim.energies()
             sim.close()
-        print(json.dumps({"case": name, "ms_per_step": round(best * 1e3, 4)}), flush=True)
+        # end-state physics, checked against the original's so that a benchmark run cannot skip work
+        print(json.dumps({"case": name, "ms_per_step": round(best * 1e3, 4), "pot_per_atom": e["potential"] / sim.natoms,
+                          "temperature": e["temperature"], "steps": 200 + 3 * n}), flush=True)
 
 
 if __name__ == "__main__":

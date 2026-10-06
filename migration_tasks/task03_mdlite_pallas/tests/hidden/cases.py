@@ -83,6 +83,11 @@ def build_systems():
     out["three_atoms"] = System(box=[2.5, 2.5, 2.5], types=t, type=[0, 1, 0], molecule=[0, 1, 2], charge=[0.4, -0.7, 0.3],
                                 mass=[12.0, 1.0, 30.0], positions=[[0.1, 0.1, 0.1], [0.5, 0.2, 2.4], [1.3, 1.2, 0.05]])
 
+    out["one_atom_v"] = System(box=[3.0, 3.1, 3.2], types=t, type=[0], molecule=[0], charge=[0.0], mass=[12.0],
+                               positions=[[0.3, 2.9, -0.1]], velocities=[[0.4, -0.3, 0.2]])
+    out["three_atoms_v"] = System(box=[2.5, 2.5, 2.5], types=t, type=[0, 1, 0], molecule=[0, 1, 2], charge=[0.4, -0.7, 0.3],
+                                  mass=[12.0, 1.0, 30.0], positions=[[0.1, 0.1, 0.1], [0.5, 0.2, 2.4], [1.3, 1.2, 0.05]],
+                                  velocities=[[0.3, 0.1, -0.2], [1.5, -2.0, 0.7], [-0.1, 0.05, 0.12]])
     # exotic topology: linear angles, planar/collinear dihedrals, mult 0, nrexcl 5, cross-molecule exclusions
     n = 60
     xs = []
@@ -108,6 +113,10 @@ def build_systems():
                            positions=xs, bonds=bonds, angles=angles, dihedrals=dihs, pairs=pairs,
                            exclusions=[(0, 59), (7, 33), (12, 13)], nbfix=[(0, 2, 0.31, 0.2)], fudge_lj=0.5, fudge_qq=0.8333,
                            nrexcl=5)
+
+    ex = out["exotic"].copy()
+    ex.velocities = rng.normal(scale=0.3, size=(ex.natoms, 3))
+    out["exotic_v"] = ex
 
     # an excluded pair at zero distance (PME exclusion limit) and a zero-charge PME system
     s = mb.spce_water(200, seed=11)
@@ -200,6 +209,28 @@ DYN_CASES = [
                                 "tcoupl": "csvr", "tau_t": 0.1}),
 ]
 DYN_CHECK_STEPS = (1, 2, 10, 50, 100)
+
+# RNG words beyond 32 bits: seed high word (Philox key 1) and step high word (counter 2),
+# the latter reached by restarting from a crafted checkpoint just below 2^32 steps
+BIG_SEED = (1 << 40) + 987654321
+BIG_STEP = (1 << 32) - 3
+RNG_HIGH_CASES = [
+    ("seed_hi_baoab", "salt_eq", {"integrator": "baoab", "tau_t": 0.2, "seed": BIG_SEED}, None),
+    ("step_hi_baoab", "salt_eq", {"integrator": "baoab", "tau_t": 0.2, "seed": 4242}, BIG_STEP),
+    ("step_hi_crescale", "salt_eq", {"tcoupl": "csvr", "tau_t": 0.1, "nsttcouple": 1, "pcoupl": "c-rescale", "tau_p": 0.3,
+                                     "nstpcouple": 1, "compressibility": 4.5e-4, "seed": BIG_SEED + 1}, BIG_STEP),
+    # CSVR resampling draws a different number of normals for dof = 3 (gamma(1)), dof - 1 odd
+    # (normal + gamma) and even (gamma only); tau -> 0 makes the damping factor vanish
+    ("csvr_one_atom", "one_atom_v", {"cutoff": 1.0, "tcoupl": "csvr", "tau_t": 0.05, "nsttcouple": 1, "nstcomm": 0}, None),
+    ("csvr_three_comm", "three_atoms_v", {"cutoff": 1.0, "tcoupl": "csvr", "tau_t": 0.05, "nsttcouple": 1, "nstcomm": 1}, None),
+    ("csvr_three_nocomm", "three_atoms_v", {"cutoff": 1.0, "tcoupl": "csvr", "tau_t": 0.05, "nsttcouple": 2, "nstcomm": 0}, None),
+    ("csvr_exotic_tau0", "exotic_v", {"cutoff": 1.0, "tcoupl": "csvr", "tau_t": 1e-6, "nsttcouple": 1, "ref_t": 280,
+                                      "fourier_spacing": 0.1}, None),
+    # loose constraint tolerances: the exact SHAKE / RATTLE convergence tests decide the positions
+    ("loose_shake", "salt_eq", {"shake_tol": 1e-4, "integrator": "baoab", "tau_t": 0.5}, None),
+    ("loose_shake_alkane", "alkane_cons_eq", {"cutoff": 1.0, "shake_tol": 3e-5, "shake_maxiter": 40}, None),
+]
+RNG_HIGH_STEPS = 6
 
 # large systems: energies after a short run, and positions of a subset of atoms
 SCALE_CASES = [
