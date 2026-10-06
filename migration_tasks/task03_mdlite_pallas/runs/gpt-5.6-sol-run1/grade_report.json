@@ -1,0 +1,83 @@
+{
+  "task": "task03_mdlite_pallas",
+  "gates": {
+    "static": {
+      "pass": true,
+      "violations": [],
+      "count": 0
+    },
+    "install": {
+      "pass": true,
+      "log": "",
+      "compiled_files": []
+    },
+    "api": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "3 failed, 31 passed in 235.04s (0:03:55)"
+      ],
+      "failed": [
+        "FAILED test_hidden_api.py::test_config_syntax_accepted - mdlite.simulation.Md...",
+        "FAILED test_hidden_api.py::test_shake_failure_is_reported - AssertionError: R...",
+        "FAILED test_hidden_api.py::test_cli_matches_api - Failed: DID NOT RAISE Mdlit..."
+      ],
+      "log": ">       with md.Simulation(small(), text) as sim:\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\ntest_hidden_api.py:72: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <mdlite.simulation.Simulation object at 0x75a5d3fa10a0>\nsystem = System(box=array([2.5, 2.5, 2.5]), types=array([(b'A', 0.3 , 0.6), (b'B', 0.25, 0.3)],\n      dtype=[('name', 'S8'), ('...'<i4'), ('d', '<f8')]), exclusions=array([], dtype=[('i', '<i4'), ('j', '<i4')]), fudge_lj=1.0, fudge_qq=1.0, nrexcl=3)\nconfig = '# comment\\nCUTOFF = 1.0 ; trailing comment\\n Coulombtype=Reaction-Field\\nepsilon-rf = 0x1.4p+1\\nGEN_VEL = On\\ngen_temp=1e2\\n\\n\\tdispcorr = enerpres\\r\\nnstcomm = 0\\n'\noutput_dir = None\n\n    def __init__(self,system,config=None,output_dir=None):\n      try:\n        self.system=system if isinstance(system,System) else load_system(system)\n        validate_system(self.system,MdliteError)\n        self.cfg=parse_config(config_text(config))\n      except MdliteError:raise\n>     except Exception as e:raise MdliteError(str(e)) from None\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE     mdlite.simulation.MdliteError: config: 'epsilon_rf' expects a number, got '0x1.4p+1'\n\n../site/mdlite/simulation.py:60: MdliteError\n________________________ test_shake_failure_is_reported ________________________\n\n    def test_shake_failure_is_reported():\n        s = md.load_system(C.sysfile(\"water\"))\n        with md.Simulation(s, {\"cutoff\": 0.9, \"dt\": 0.002}) as sim:\n            v = sim.velocities\n            v[:30] = 400.0 * np.random.default_rng(0).normal(size=(30, 3))   # absurd velocities rotate bonds too far\n            sim.velocities = v\n>           with pytest.raises(md.MdliteError, match=\"SHAKE|RATTLE\"):\nE           AssertionError: Regex pattern did not match.\nE             Expected regex: 'SHAKE|RATTLE'\nE             Actual message: 'constraint solver did not converge at step 5'\n\ntest_hidden_api.py:141: AssertionError\n_____________________________ test_cli_matches_api _____________________________\n\ntmp_path = PosixPath('/tmp/mdlite-grade-5_dbhybi/home/pt/test_cli_matches_api0')\n\n    def test_cli_matches_api(tmp_path):\n        sysp = C.sysfile(\"alkane_cons_eq\")\n        cfgp = tmp_path / \"run.cfg\"\n        cfgp.write_text(\"cutoff = 1.0\\nintegrator = baoab\\ntau_t = 0.3\\nnsteps = 40\\nnstenergy = 10\\nnstxout = 20\\nseed = 9\\n\")\n        out = tmp_path / \"cli\"\n        r = subprocess.run([sys.executable, \"-m\", \"mdlite.cli\", \"run\", \"-s\", sysp, \"-c\", str(cfgp), \"-o\", str(out)],\n                           capture_output=True, text=True, timeout=1800)\n        assert r.returncode == 0, r.stderr\n        info = json.loads((out / \"log.json\").read_text())\n        assert info[\"final_step\"] == 40\n>       with pytest.raises(md.MdliteError):\nE       Failed: DID NOT RAISE MdliteError\n\ntest_hidden_api.py:165: Failed\n=========================== short test summary info ============================\nFAILED test_hidden_api.py::test_config_syntax_accepted - mdlite.simulation.Md...\nFAILED test_hidden_api.py::test_shake_failure_is_reported - AssertionError: R...\nFAILED test_hidden_api.py::test_cli_matches_api - Failed: DID NOT RAISE Mdlit...\n3 failed, 31 passed in 235.04s (0:03:55)"
+    },
+    "forces": {
+      "pass": true,
+      "returncode": 0,
+      "summary": [
+        "35 passed in 747.31s (0:12:27)"
+      ],
+      "failed": [],
+      "log": "...................................                                      [100%]\n35 passed in 747.31s (0:12:27)"
+    },
+    "dynamics": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "7 failed, 33 passed in 689.23s (0:11:29)"
+      ],
+      "failed": [
+        "FAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[csvr]",
+        "FAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[baoab_crescale]",
+        "FAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[alkane_cons_baoab]",
+        "FAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[berendsen]",
+        "FAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[baoab_crescale]",
+        "FAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[alkane_cons_baoab]",
+        "FAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[crescale]"
+      ],
+      "log": "        a = tmp_path / \"a\"; b1 = tmp_path / \"b1\"; b2 = tmp_path / \"b2\"\n        for d in (a, b1, b2):\n            d.mkdir()\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=a) as sim:\n            sim.run(90)\n            sim.save_checkpoint(a / \"end.mdcpt\")\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=b1) as sim:\n            sim.run(33)                       # 33 is not a multiple of nstenergy, nsttcouple or nstpcouple\n            sim.save_checkpoint(b1 / \"mid.mdcpt\")\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=b2) as sim:\n            sim.load_checkpoint(b1 / \"mid.mdcpt\")\n            assert sim.step == 33\n            sim.run(57)\n            sim.save_checkpoint(b2 / \"end.mdcpt\")\n>       assert (a / \"end.mdcpt\").read_bytes() == (b2 / \"end.mdcpt\").read_bytes()\nE       AssertionError: assert b'MDCPT\\x00\\x...\\xe5\\xd4\\xfds' == b'MDCPT\\x00\\x...xbf\\xe1x.\\xd3'\nE         \nE         At index 24 diff: b'9' != b'Y'\nE         Use -v to get more diff\n\ntest_hidden_dynamics.py:122: AssertionError\n_________________ test_restart_is_bitwise_continuous[crescale] _________________\n\nname = 'crescale'\ntmp_path = PosixPath('/tmp/mdlite-grade-5_dbhybi/home/pt/test_restart_is_bitwise_contin4')\n\n    @pytest.mark.parametrize(\"name\", [\"nve_comm\", \"csvr\", \"baoab_crescale\", \"alkane_cons_baoab\", \"crescale\"])\n    def test_restart_is_bitwise_continuous(name, tmp_path):\n        sname, cfg = _dyn(name)\n        cfg = dict(cfg, nstenergy=3)\n        a = tmp_path / \"a\"; b1 = tmp_path / \"b1\"; b2 = tmp_path / \"b2\"\n        for d in (a, b1, b2):\n            d.mkdir()\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=a) as sim:\n            sim.run(90)\n            sim.save_checkpoint(a / \"end.mdcpt\")\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=b1) as sim:\n            sim.run(33)                       # 33 is not a multiple of nstenergy, nsttcouple or nstpcouple\n            sim.save_checkpoint(b1 / \"mid.mdcpt\")\n        with md.Simulation(C.sysfile(sname), cfg, output_dir=b2) as sim:\n            sim.load_checkpoint(b1 / \"mid.mdcpt\")\n            assert sim.step == 33\n            sim.run(57)\n            sim.save_checkpoint(b2 / \"end.mdcpt\")\n>       assert (a / \"end.mdcpt\").read_bytes() == (b2 / \"end.mdcpt\").read_bytes()\nE       AssertionError: assert b'MDCPT\\x00\\x...9\\x9b\\xee\\x88' == b'MDCPT\\x00\\x...r\\xf5\\x1c\\xff'\nE         \nE         At index 24 diff: b'W' != b'k'\nE         Use -v to get more diff\n\ntest_hidden_dynamics.py:122: AssertionError\n=========================== short test summary info ============================\nFAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[csvr]\nFAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[baoab_crescale]\nFAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[alkane_cons_baoab]\nFAILED test_hidden_dynamics.py::test_bitwise_determinism_and_chunking[berendsen]\nFAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[baoab_crescale]\nFAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[alkane_cons_baoab]\nFAILED test_hidden_dynamics.py::test_restart_is_bitwise_continuous[crescale]\n7 failed, 33 passed in 689.23s (0:11:29)"
+    },
+    "physics": {
+      "pass": false,
+      "returncode": 1,
+      "summary": [
+        "1 failed, 3 passed in 692.96s (0:11:32)"
+      ],
+      "failed": [
+        "FAILED test_hidden_physics.py::test_nve_energy_conservation - AssertionError:..."
+      ],
+      "log": "F...                                                                     [100%]\n=================================== FAILURES ===================================\n_________________________ test_nve_energy_conservation _________________________\n\ntmp_path = PosixPath('/tmp/mdlite-grade-5_dbhybi/home/pt/test_nve_energy_conservation0')\n\n    def test_nve_energy_conservation(tmp_path):\n        \"\"\"40 ps of salt water at a 2 fs time step with SHAKE/RATTLE and PME.\"\"\"\n        cfg = {\"cutoff\": 0.9, \"dt\": 0.002, \"nstcomm\": 0, \"nstenergy\": 250, \"seed\": 5}\n        with md.Simulation(C.sysfile(\"salt_eq\"), cfg, output_dir=tmp_path) as sim:\n            sim.run(20000)\n            sim.finish()\n            x = sim.positions\n            s = sim.system\n        e = md.read_energy(tmp_path / \"energy.csv\")\n        n = s.natoms\n        fit = np.polyfit(e[\"time\"], e[\"total\"], 1)\n        drift = fit[0] * 1000.0 / n\n        fluct = np.std(e[\"total\"] - np.polyval(fit, e[\"time\"]))\n>       assert abs(drift) <= max(5 * abs(PHYS[\"nve_drift\"]), 0.003), f\"energy drift {drift:.4g} kJ/mol/ns/atom\"\nE       AssertionError: energy drift 0.0047 kJ/mol/ns/atom\nE       assert np.float64(0.004699814522313288) <= 0.003\nE        +  where np.float64(0.004699814522313288) = abs(np.float64(0.004699814522313288))\nE        +  and   0.003 = max((5 * 0.00027010426513746186), 0.003)\nE        +    where 0.00027010426513746186 = abs(-0.00027010426513746186)\n\ntest_hidden_physics.py:27: AssertionError\n=========================== short test summary info ============================\nFAILED test_hidden_physics.py::test_nve_energy_conservation - AssertionError:...\n1 failed, 3 passed in 692.96s (0:11:32)"
+    },
+    "app": {
+      "pass": true,
+      "returncode": 0,
+      "summary": [
+        "16 passed in 105.50s (0:01:45)"
+      ],
+      "failed": [],
+      "log": "................                                                         [100%]\n16 passed in 105.50s (0:01:45)"
+    },
+    "fresh": {
+      "pass": true,
+      "failures": []
+    },
+    "perf": {
+      "pass": false,
+      "skipped": "earlier gate failed"
+    }
+  },
+  "reward": 0.0
+}

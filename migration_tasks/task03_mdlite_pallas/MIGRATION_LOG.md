@@ -65,4 +65,24 @@ See `DESIGN_NOTES.md`. In short:
 
 ## Results
 
-(filled in below after grading)
+**Grader validation** (task image, `tests/test.sh`, hardened grader):
+
+| candidate | reward | caught by |
+|---|---|---|
+| **reference port** | **1.0** | perf 0.267 / 0.328 / 0.38 / 0.276 of CUDA (bars 0.45 / 0.55 / 0.60 / 0.55) |
+| original CUDA engine | 0 | static |
+| `jax.random` instead of Philox | 0 | 7 dynamics trajectories, 1M-atom BAOAB |
+| float32 PME grid (float scatter-add) | 0 | 11 determinism/restart tests, FD consistency, NVE drift |
+| single float32 coordinates (no hi/lo) | 0 | far-images forces, image invariance, NVE drift |
+| neighbour lists truncated instead of grown | 0 | droplet and dense-corner forces and trajectories |
+| A&S 7.1.26 erfc (1.5e-7 absolute) | 0 | PME forces (order 8, salt, far images), C-rescale trajectory, NVE drift |
+| loose-SHAKE criterion \|r−d\|/d | (test only) | loose_shake trajectory at step 2 |
+| reference port plus a tampering `setup.py` | 1.0 | every write to the originals, venv and grader was blocked (unprivileged install) |
+
+**Hidden suite:** about 117 tests (api 34, forces 35, dynamics 40, physics 4, plus pristine consumer suites), a fresh gate with a secret seed, and 4 perf bars.
+
+**GPT 5.6 sol single attempt:** reward 0. See `runs/gpt-5.6-sol-run1/RESULT.md`. It passed forces and the fresh gate, but failed:
+- bitwise determinism, call-splitting invariance and restarts;
+- NVE drift;
+- three API contracts (hex floats, error text, missing output directory);
+- performance, at 1.7–2.9x slower than CUDA against bars of 0.45–0.6.
