@@ -1,0 +1,10 @@
+# keep hidden tests, the reference solution and notes out of the agent image
+tests/
+solution/
+runs/
+DESIGN_NOTES.md
+MIGRATION_LOG.md
+**/build/
+**/__pycache__/
+**/*.egg-info/
+**/*.so

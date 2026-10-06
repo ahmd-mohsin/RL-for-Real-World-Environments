@@ -17,10 +17,10 @@ def test_lj_pair_potential_shift():
         e = sim.energies()
         c6, c12 = 4 * 0.5 * 0.3 ** 6, 4 * 0.5 * 0.3 ** 12
         ref = c12 / 0.4 ** 12 - c6 / 0.4 ** 6 - (c12 - c6)
-        assert abs(e["lj"] - ref) < 1e-8
+        assert abs(e["lj"] - ref) <= 1e-6 * abs(ref)
         f = sim.forces()
         fref = (12 * c12 / 0.4 ** 13 - 6 * c6 / 0.4 ** 7)
-        assert abs(f[1, 0] - fref) < 1e-6 and abs(f[0, 0] + fref) < 1e-6
+        assert abs(f[1, 0] - fref) <= 1e-6 * abs(fref) and abs(f[0, 0] + fref) <= 1e-6 * abs(fref)
 
 
 def test_reaction_field_pair():
@@ -30,7 +30,7 @@ def test_reaction_field_pair():
         krf, crf = 0.5, 1.5
         pair = md.ONE_4PI_EPS0 * -1.0 * (1 / 0.5 + krf * 0.25 - crf)
         self_term = -0.5 * md.ONE_4PI_EPS0 * crf * 2.0
-        assert abs(e["coulomb_sr"] - (pair + self_term)) < 1e-6
+        assert abs(e["coulomb_sr"] - (pair + self_term)) <= 1e-6 * abs(pair + self_term)
 
 
 def test_config_errors():

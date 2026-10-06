@@ -1,0 +1,9 @@
+{
+  "max_ratio": {
+    "water_pme_csvr": 0.45,
+    "lj_256k_baoab": 0.55,
+    "salt_npt_crescale": 0.6,
+    "alkane_rf_flex": 0.55
+  },
+  "note": "port ms/step divided by the CUDA original's ms/step on the same GPU; best of 3 interleaved rounds, one re-measure on failure. Reference port (RTX 5090): 0.27 / 0.33 / 0.38 / 0.30."
+}

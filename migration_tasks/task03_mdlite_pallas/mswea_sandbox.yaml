@@ -1,0 +1,32 @@
+# mini-swe-agent overrides for task03 in a no-network Docker sandbox on the lab GPU host
+# (used on top of common/mswea/migration.yaml; see runs/*/RESULT.md for the exact command).
+agent:
+  instance_template: |
+    {{task}}
+
+    ## Working rules
+
+    - Every command runs in a fresh shell inside the task sandbox, starting in /workspace: `cd` and exported
+      variables do not persist (prefix commands, or write them to a file and `source` it).
+    - A command times out after 1800 s. Keep benchmark runs bounded.
+    - The sandbox has no network access and nobody will answer questions. Work until the task is completely
+      done, verifying your work yourself on the GPU.
+    - Edit files with heredocs (`cat <<'EOF' > file`), `sed -i`, or small python scripts.
+    - When you are completely finished, submit by running exactly `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+      on its own. After that you cannot continue. The state of /workspace at that point is graded as-is.
+
+    <system_information>
+    Linux x86_64, Ubuntu 24.04, NVIDIA RTX 5090 (Blackwell, sm_120, 32 GB), CUDA 12.8 at /usr/local/cuda,
+    Python 3.12 with JAX 0.11.2 (CUDA 12 plugin, Pallas with the Triton backend), NumPy, SciPy and pytest in /opt/venv.
+    LD_LIBRARY_PATH is empty on purpose (JAX ships its own CUDA libraries).
+    </system_information>
+environment:
+  cwd: /workspace
+  network_guard: false
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    GIT_PAGER: cat
+    PYTHONUNBUFFERED: "1"
+    LD_LIBRARY_PATH: ""
+    PATH: /opt/venv/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
