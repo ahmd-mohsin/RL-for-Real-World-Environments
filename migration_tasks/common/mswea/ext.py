@@ -37,6 +37,8 @@ class SSHEnvironmentConfig(LocalEnvironmentConfig):
     cwd: str = "/app"
     timeout: int = 1800
     network_guard: bool = True
+    docker_container: str = ""
+    """when set, every command runs inside this container on the ssh host (docker exec)"""
 
 
 class SSHEnvironment(LocalEnvironment):
@@ -51,7 +53,12 @@ class SSHEnvironment(LocalEnvironment):
             return output
         timeout = timeout or self.config.timeout
         exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in self.config.env.items())
-        remote = f"{'export ' + exports + '; ' if exports else ''}cd {shlex.quote(cwd or self.config.cwd)} && timeout {timeout} bash -s 2>&1"
+        if self.config.docker_container:
+            envs = " ".join(f"-e {shlex.quote(f'{k}={v}')}" for k, v in self.config.env.items())
+            remote = (f"docker exec -i {envs} -w {shlex.quote(cwd or self.config.cwd)} {shlex.quote(self.config.docker_container)} "
+                      f"timeout {timeout} bash -s 2>&1")
+        else:
+            remote = f"{'export ' + exports + '; ' if exports else ''}cd {shlex.quote(cwd or self.config.cwd)} && timeout {timeout} bash -s 2>&1"
         ssh = shlex.split(self.config.ssh) + ["-o", "BatchMode=yes", "-o", "ServerAliveInterval=30", remote]
         try:
             p = subprocess.run(ssh, input=command, capture_output=True, text=True, errors="replace", timeout=timeout + 120)
