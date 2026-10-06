@@ -1,0 +1,25 @@
+{
+  "note": "max_ratio = candidate median / original CUDA extension median on the same GPU (interleaved, best of 3 rounds). Ratios below 1 require beating the CUDA original where its algorithm is weak (block-per-example FPS, thread-per-query insertion sort, sequential 3-NN).",
+  "max_ratio": {
+    "fps_16x16k_r0.25": 0.5,
+    "fps_4x65k_r0.0625": 0.5,
+    "knn_k16": 1.0,
+    "knn_k64": 0.25,
+    "radius_r0.05_m64": 1.1,
+    "ball_query_r0.1_s32": 1.1,
+    "group_points_c64_s32": 1.15,
+    "group_points_backward": 1.2,
+    "three_nn": 0.75,
+    "three_interpolate_c128": 1.35,
+    "three_interpolate_backward": 1.3,
+    "segment_csr_sum": 1.3,
+    "segment_csr_max": 1.3,
+    "gather_csr": 1.3,
+    "scatter_sum": 1.25,
+    "scatter_mean": 1.25,
+    "scatter_max": 1.25,
+    "scatter_sum_contended": 1.25,
+    "pcnet_train_step": 0.8,
+    "pcnet_inference": 0.65
+  }
+}

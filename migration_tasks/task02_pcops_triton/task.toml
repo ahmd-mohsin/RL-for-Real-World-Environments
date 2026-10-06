@@ -1,0 +1,47 @@
+schema_version = "1.3"
+artifacts = ["/logs/artifacts/model.patch"]
+
+[task]
+name = "rlsandbox/task02-pcops-triton"
+description = "Port the pcops PyTorch CUDA extension (15 point-cloud / sparse-reduction operators vendored from pytorch_cluster, pytorch_scatter and PointNet++) to Triton across a 3-repo workspace: identical integer outputs and tie-breaking, opcheck-clean registrations, deterministic, stream/thread safe, pristine downstream app reproduces CUDA logits and training, and per-op speed bars that require beating the CUDA kernels where they are weak."
+authors = ["ahmd-mohsin"]
+keywords = ["cuda", "openmp", "offload", "kernel-migration", "performance", "gpu"]
+
+[metadata]
+task_id = "task02_pcops_triton"
+display_title = "Replace the pcops CUDA extension with Triton kernels"
+category = "kernel-migration"
+language = "python"
+source = "pcops: vendored pytorch_cluster + pytorch_scatter (MIT) and original PointNet++ kernels; pcnet, pcdata: original"
+difficulty = "hard"
+gpu = "NVIDIA RTX 5090 (sm_120)"
+
+[verifier]
+network_mode = "no-network"
+environment_mode = "separate"
+timeout_sec = 3600.0
+command = "bash /tests/test.sh"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 16
+memory_mb = 32768
+storage_mb = 20480
+gpus = 1
+
+[[verifier.collect]]
+command = "cd /workspace/pcops && mkdir -p /logs/artifacts && git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude)build*' ':(exclude)*.egg-info' && git diff --binary --cached base > /logs/artifacts/model.patch"
+timeout_sec = 300.0
+
+[agent]
+network_mode = "no-network"
+timeout_sec = 43200.0
+
+[environment]
+build_timeout_sec = 3600.0
+dockerfile = "environment/Dockerfile"
+os = "linux"
+cpus = 16
+memory_mb = 32768
+storage_mb = 30720
+gpus = 1

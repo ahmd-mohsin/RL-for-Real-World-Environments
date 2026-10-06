@@ -1,0 +1,3006 @@
+diff --git a/csrc/cluster/cuda/fps_cuda.cu b/csrc/cluster/cuda/fps_cuda.cu
+deleted file mode 100644
+index 84e27f2..0000000
+--- a/csrc/cluster/cuda/fps_cuda.cu
++++ /dev/null
+@@ -1,111 +0,0 @@
+-#include "fps_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-
+-#include "utils.cuh"
+-
+-#define THREADS 256
+-
+-template <typename scalar_t>
+-__global__ void fps_kernel(const scalar_t *src, const int64_t *ptr,
+-                           const int64_t *out_ptr, const int64_t *start,
+-                           scalar_t *dist, int64_t *out, int64_t dim) {
+-
+-  const int64_t thread_idx = threadIdx.x;
+-  const int64_t batch_idx = blockIdx.x;
+-
+-  const int64_t start_idx = ptr[batch_idx];
+-  const int64_t end_idx = ptr[batch_idx + 1];
+-
+-  __shared__ scalar_t best_dist[THREADS];
+-  __shared__ int64_t best_dist_idx[THREADS];
+-
+-  if (thread_idx == 0) {
+-    out[out_ptr[batch_idx]] = start_idx + start[batch_idx];
+-  }
+-
+-  for (int64_t m = out_ptr[batch_idx] + 1; m < out_ptr[batch_idx + 1]; m++) {
+-    __syncthreads();
+-    int64_t old = out[m - 1];
+-
+-    scalar_t best = (scalar_t)-1.;
+-    int64_t best_idx = 0;
+-
+-    for (int64_t n = start_idx + thread_idx; n < end_idx; n += THREADS) {
+-      scalar_t tmp, dd = (scalar_t)0.;
+-      for (int64_t d = 0; d < dim; d++) {
+-        tmp = src[dim * old + d] - src[dim * n + d];
+-        dd += tmp * tmp;
+-      }
+-      dd = min(dist[n], dd);
+-      dist[n] = dd;
+-      if (dd > best) {
+-        best = dd;
+-        best_idx = n;
+-      }
+-    }
+-
+-    best_dist[thread_idx] = best;
+-    best_dist_idx[thread_idx] = best_idx;
+-
+-    for (int64_t i = 1; i < THREADS; i *= 2) {
+-      __syncthreads();
+-      if ((thread_idx + i) < THREADS &&
+-          best_dist[thread_idx] < best_dist[thread_idx + i]) {
+-        best_dist[thread_idx] = best_dist[thread_idx + i];
+-        best_dist_idx[thread_idx] = best_dist_idx[thread_idx + i];
+-      }
+-    }
+-
+-    __syncthreads();
+-    if (thread_idx == 0) {
+-      out[m] = best_dist_idx[0];
+-    }
+-  }
+-}
+-
+-torch::Tensor fps_cuda(torch::Tensor src, torch::Tensor ptr,
+-                       torch::Tensor ratio, bool random_start) {
+-
+-  CHECK_CUDA(src);
+-  CHECK_CUDA(ptr);
+-  CHECK_CUDA(ratio);
+-  CHECK_INPUT(ptr.dim() == 1);
+-  c10::cuda::MaybeSetDevice(src.get_device());
+-
+-  src = src.view({src.size(0), -1}).contiguous();
+-  ptr = ptr.contiguous();
+-  auto batch_size = ptr.numel() - 1;
+-
+-  auto deg = ptr.narrow(0, 1, batch_size) - ptr.narrow(0, 0, batch_size);
+-  auto out_ptr = deg.toType(ratio.scalar_type()) * ratio;
+-  out_ptr = out_ptr.ceil().toType(torch::kLong).cumsum(0);
+-  out_ptr = torch::cat({torch::zeros({1}, ptr.options()), out_ptr}, 0);
+-
+-  torch::Tensor start;
+-  if (random_start) {
+-    start = torch::rand(batch_size, src.options());
+-    start = (start * deg.toType(ratio.scalar_type())).toType(torch::kLong);
+-  } else {
+-    start = torch::zeros({batch_size}, ptr.options());
+-  }
+-
+-  auto dist = torch::full(src.size(0), 5e4, src.options());
+-
+-  // pcops: .item() synchronises with the current stream; the upstream
+-  // cudaMemcpy on the legacy stream raced with non-default streams (and the
+-  // malloc'ed buffer leaked).
+-  const auto out_size = out_ptr[-1].item<int64_t>();
+-  auto out = torch::empty({out_size}, out_ptr.options());
+-
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  auto scalar_type = src.scalar_type();
+-  AT_DISPATCH_FLOATING_TYPES_AND(at::ScalarType::Half, scalar_type, "_", [&] {
+-    fps_kernel<scalar_t><<<batch_size, THREADS, 0, stream>>>(
+-        src.data_ptr<scalar_t>(), ptr.data_ptr<int64_t>(),
+-        out_ptr.data_ptr<int64_t>(), start.data_ptr<int64_t>(),
+-        dist.data_ptr<scalar_t>(), out.data_ptr<int64_t>(), src.size(1));
+-  });
+-
+-  return out;
+-}
+diff --git a/csrc/cluster/cuda/fps_cuda.h b/csrc/cluster/cuda/fps_cuda.h
+deleted file mode 100644
+index 9a7a164..0000000
+--- a/csrc/cluster/cuda/fps_cuda.h
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-torch::Tensor fps_cuda(torch::Tensor src, torch::Tensor ptr,
+-                       torch::Tensor ratio, bool random_start);
+diff --git a/csrc/cluster/cuda/grid_cuda.cu b/csrc/cluster/cuda/grid_cuda.cu
+deleted file mode 100644
+index f9e1602..0000000
+--- a/csrc/cluster/cuda/grid_cuda.cu
++++ /dev/null
+@@ -1,72 +0,0 @@
+-#include "grid_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-
+-#include "utils.cuh"
+-
+-#define THREADS 1024
+-#define BLOCKS(N) (N + THREADS - 1) / THREADS
+-
+-template <typename scalar_t>
+-__global__ void grid_kernel(const scalar_t *pos, const scalar_t *size,
+-                            const scalar_t *start, const scalar_t *end,
+-                            int64_t *out, int64_t D, int64_t numel) {
+-  const int64_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-
+-  if (thread_idx < numel) {
+-    int64_t c = 0, k = 1;
+-    for (int64_t d = 0; d < D; d++) {
+-      scalar_t p = pos[thread_idx * D + d] - start[d];
+-      c += (int64_t)(p / size[d]) * k;
+-      k *= (int64_t)((end[d] - start[d]) / size[d]) + 1;
+-    }
+-    out[thread_idx] = c;
+-  }
+-}
+-
+-torch::Tensor grid_cuda(torch::Tensor pos, torch::Tensor size,
+-                        std::optional<torch::Tensor> optional_start,
+-                        std::optional<torch::Tensor> optional_end) {
+-  CHECK_CUDA(pos);
+-  CHECK_CUDA(size);
+-  c10::cuda::MaybeSetDevice(pos.get_device());
+-
+-  if (optional_start.has_value())
+-    CHECK_CUDA(optional_start.value());
+-  if (optional_start.has_value())
+-    CHECK_CUDA(optional_start.value());
+-
+-  pos = pos.view({pos.size(0), -1}).contiguous();
+-  size = size.contiguous();
+-
+-  CHECK_INPUT(size.numel() == pos.size(1));
+-
+-  if (!optional_start.has_value())
+-    optional_start = std::get<0>(pos.min(0));
+-  else {
+-    optional_start = optional_start.value().contiguous();
+-    CHECK_INPUT(optional_start.value().numel() == pos.size(1));
+-  }
+-
+-  if (!optional_end.has_value())
+-    optional_end = std::get<0>(pos.max(0));
+-  else {
+-    optional_start = optional_start.value().contiguous();
+-    CHECK_INPUT(optional_start.value().numel() == pos.size(1));
+-  }
+-
+-  auto start = optional_start.value();
+-  auto end = optional_end.value();
+-
+-  auto out = torch::empty({pos.size(0)}, pos.options().dtype(torch::kLong));
+-
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  AT_DISPATCH_ALL_TYPES_AND(at::ScalarType::Half, pos.scalar_type(), "_", [&] {
+-    grid_kernel<scalar_t><<<BLOCKS(out.numel()), THREADS, 0, stream>>>(
+-        pos.data_ptr<scalar_t>(), size.data_ptr<scalar_t>(),
+-        start.data_ptr<scalar_t>(), end.data_ptr<scalar_t>(),
+-        out.data_ptr<int64_t>(), pos.size(1), out.numel());
+-  });
+-
+-  return out;
+-}
+diff --git a/csrc/cluster/cuda/grid_cuda.h b/csrc/cluster/cuda/grid_cuda.h
+deleted file mode 100644
+index c63be0c..0000000
+--- a/csrc/cluster/cuda/grid_cuda.h
++++ /dev/null
+@@ -1,7 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-torch::Tensor grid_cuda(torch::Tensor pos, torch::Tensor size,
+-                        std::optional<torch::Tensor> optional_start,
+-                        std::optional<torch::Tensor> optional_end);
+diff --git a/csrc/cluster/cuda/knn_cuda.cu b/csrc/cluster/cuda/knn_cuda.cu
+deleted file mode 100644
+index 77acc08..0000000
+--- a/csrc/cluster/cuda/knn_cuda.cu
++++ /dev/null
+@@ -1,135 +0,0 @@
+-#include "radius_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-
+-#include "utils.cuh"
+-
+-#define THREADS 256
+-
+-template <typename scalar_t> struct Cosine {
+-  static inline __device__ scalar_t dot(const scalar_t *a, const scalar_t *b,
+-                                        int64_t n_a, int64_t n_b,
+-                                        int64_t size) {
+-    scalar_t result = 0;
+-    for (int64_t i = 0; i < size; i++) {
+-      result += a[n_a * size + i] * b[n_b * size + i];
+-    }
+-    return result;
+-  }
+-
+-  static inline __device__ scalar_t norm(const scalar_t *a, int64_t n_a,
+-                                         int64_t size) {
+-    scalar_t result = 0;
+-    for (int64_t i = 0; i < size; i++) {
+-      result += a[n_a * size + i] * a[n_a * size + i];
+-    }
+-    return sqrt(result);
+-  }
+-};
+-
+-template <typename scalar_t>
+-__global__ void
+-knn_kernel(const scalar_t *__restrict__ x, const scalar_t *__restrict__ y,
+-           const int64_t *__restrict__ ptr_x, const int64_t *__restrict__ ptr_y,
+-           int64_t *__restrict__ row, int64_t *__restrict__ col,
+-           const int64_t k, const int64_t n, const int64_t m, const int64_t dim,
+-           const int64_t num_examples, const bool cosine) {
+-
+-  const int64_t n_y = blockIdx.x * blockDim.x + threadIdx.x;
+-  if (n_y >= m)
+-    return;
+-
+-  const int64_t example_idx = get_example_idx(n_y, ptr_y, num_examples);
+-
+-  scalar_t best_dist[100];
+-  int64_t best_idx[100];
+-
+-  for (int e = 0; e < k; e++) {
+-    best_dist[e] = 1e10;
+-    best_idx[e] = -1;
+-  }
+-
+-  for (int64_t n_x = ptr_x[example_idx]; n_x < ptr_x[example_idx + 1]; n_x++) {
+-    scalar_t tmp_dist = 0;
+-
+-    if (cosine) {
+-      tmp_dist = Cosine<scalar_t>::dot(x, y, n_x, n_y, dim) /
+-                 (Cosine<scalar_t>::norm(x, n_x, dim) *
+-                  Cosine<scalar_t>::norm(y, n_y, dim));
+-      tmp_dist = 1. - tmp_dist;
+-    } else {
+-      for (int64_t d = 0; d < dim; d++) {
+-        tmp_dist += (x[n_x * dim + d] - y[n_y * dim + d]) *
+-                    (x[n_x * dim + d] - y[n_y * dim + d]);
+-      }
+-    }
+-
+-    for (int64_t e1 = 0; e1 < k; e1++) {
+-      if (best_dist[e1] > tmp_dist) {
+-        for (int64_t e2 = k - 1; e2 > e1; e2--) {
+-          best_dist[e2] = best_dist[e2 - 1];
+-          best_idx[e2] = best_idx[e2 - 1];
+-        }
+-        best_dist[e1] = tmp_dist;
+-        best_idx[e1] = n_x;
+-        break;
+-      }
+-    }
+-  }
+-
+-  for (int64_t e = 0; e < k; e++) {
+-    row[n_y * k + e] = n_y;
+-    col[n_y * k + e] = best_idx[e];
+-  }
+-}
+-
+-torch::Tensor knn_cuda(const torch::Tensor x, const torch::Tensor y,
+-                       std::optional<torch::Tensor> ptr_x,
+-                       std::optional<torch::Tensor> ptr_y, const int64_t k,
+-                       const bool cosine) {
+-
+-  CHECK_CUDA(x);
+-  CHECK_CONTIGUOUS(x);
+-  CHECK_INPUT(x.dim() == 2);
+-  CHECK_CUDA(y);
+-  CHECK_CONTIGUOUS(y);
+-  CHECK_INPUT(y.dim() == 2);
+-  CHECK_INPUT(x.size(1) == y.size(1));
+-  AT_ASSERTM(k <= 100, "`k` needs to smaller than or equal to 100");
+-
+-  if (ptr_x.has_value()) {
+-    CHECK_CUDA(ptr_x.value());
+-    CHECK_INPUT(ptr_x.value().dim() == 1);
+-  } else
+-    ptr_x = torch::arange(0, x.size(0) + 1, x.size(0),
+-                          x.options().dtype(torch::kLong));
+-
+-  if (ptr_y.has_value()) {
+-    CHECK_CUDA(ptr_y.value());
+-    CHECK_INPUT(ptr_y.value().dim() == 1);
+-  } else
+-    ptr_y = torch::arange(0, y.size(0) + 1, y.size(0),
+-                          y.options().dtype(torch::kLong));
+-
+-  CHECK_INPUT(ptr_x.value().numel() == ptr_y.value().numel());
+-
+-  c10::cuda::MaybeSetDevice(x.get_device());
+-
+-  auto row = torch::empty({y.size(0) * k}, ptr_y.value().options());
+-  auto col = torch::full(y.size(0) * k, -1, ptr_y.value().options());
+-
+-  dim3 BLOCKS((y.size(0) + THREADS - 1) / THREADS);
+-
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  auto scalar_type = x.scalar_type();
+-  AT_DISPATCH_FLOATING_TYPES_AND(at::ScalarType::Half, scalar_type, "_", [&] {
+-    knn_kernel<scalar_t><<<BLOCKS, THREADS, 0, stream>>>(
+-        x.data_ptr<scalar_t>(), y.data_ptr<scalar_t>(),
+-        ptr_x.value().data_ptr<int64_t>(), ptr_y.value().data_ptr<int64_t>(),
+-        row.data_ptr<int64_t>(), col.data_ptr<int64_t>(), k, x.size(0),
+-        y.size(0), x.size(1), ptr_x.value().numel() - 1, cosine);
+-  });
+-
+-  auto mask = col != -1;
+-  return torch::stack({row.masked_select(mask), col.masked_select(mask)}, 0);
+-}
+diff --git a/csrc/cluster/cuda/knn_cuda.h b/csrc/cluster/cuda/knn_cuda.h
+deleted file mode 100644
+index 56c1710..0000000
+--- a/csrc/cluster/cuda/knn_cuda.h
++++ /dev/null
+@@ -1,8 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-torch::Tensor knn_cuda(torch::Tensor x, torch::Tensor y,
+-                       std::optional<torch::Tensor> ptr_x,
+-                       std::optional<torch::Tensor> ptr_y, int64_t k,
+-                       bool cosine);
+diff --git a/csrc/cluster/cuda/radius_cuda.cu b/csrc/cluster/cuda/radius_cuda.cu
+deleted file mode 100644
+index 9a18d54..0000000
+--- a/csrc/cluster/cuda/radius_cuda.cu
++++ /dev/null
+@@ -1,96 +0,0 @@
+-#include "radius_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-
+-#include "utils.cuh"
+-
+-#define THREADS 256
+-
+-template <typename scalar_t>
+-__global__ void
+-radius_kernel(const scalar_t *__restrict__ x, const scalar_t *__restrict__ y,
+-              const int64_t *__restrict__ ptr_x,
+-              const int64_t *__restrict__ ptr_y, int64_t *__restrict__ row,
+-              int64_t *__restrict__ col, const scalar_t r, const int64_t n,
+-              const int64_t m, const int64_t dim, const int64_t num_examples,
+-              const int64_t max_num_neighbors,
+-              const bool ignore_same_index) {
+-
+-  const int64_t n_y = blockIdx.x * blockDim.x + threadIdx.x;
+-  if (n_y >= m)
+-    return;
+-
+-  int64_t count = 0;
+-  const int64_t example_idx = get_example_idx(n_y, ptr_y, num_examples);
+-
+-  for (int64_t n_x = ptr_x[example_idx]; n_x < ptr_x[example_idx + 1]; n_x++) {
+-    scalar_t dist = 0;
+-    for (int64_t d = 0; d < dim; d++) {
+-      dist += (x[n_x * dim + d] - y[n_y * dim + d]) *
+-              (x[n_x * dim + d] - y[n_y * dim + d]);
+-    }
+-
+-    if (dist < r && !(ignore_same_index && n_y == n_x)) {
+-      row[n_y * max_num_neighbors + count] = n_y;
+-      col[n_y * max_num_neighbors + count] = n_x;
+-      count++;
+-    }
+-
+-    if (count >= max_num_neighbors)
+-      break;
+-  }
+-}
+-
+-torch::Tensor radius_cuda(const torch::Tensor x, const torch::Tensor y,
+-                          std::optional<torch::Tensor> ptr_x,
+-                          std::optional<torch::Tensor> ptr_y, const double r,
+-                          const int64_t max_num_neighbors,
+-                          const bool ignore_same_index) {
+-  CHECK_CUDA(x);
+-  CHECK_CONTIGUOUS(x);
+-  CHECK_INPUT(x.dim() == 2);
+-  CHECK_CUDA(y);
+-  CHECK_CONTIGUOUS(y);
+-  CHECK_INPUT(y.dim() == 2);
+-  CHECK_INPUT(x.size(1) == y.size(1));
+-
+-  c10::cuda::MaybeSetDevice(x.get_device());
+-
+-  if (ptr_x.has_value()) {
+-    CHECK_CUDA(ptr_x.value());
+-    CHECK_INPUT(ptr_x.value().dim() == 1);
+-  } else
+-    ptr_x = torch::arange(0, x.size(0) + 1, x.size(0),
+-                          x.options().dtype(torch::kLong));
+-
+-  if (ptr_y.has_value()) {
+-    CHECK_CUDA(ptr_y.value());
+-    CHECK_INPUT(ptr_y.value().dim() == 1);
+-  } else
+-    ptr_y = torch::arange(0, y.size(0) + 1, y.size(0),
+-                          y.options().dtype(torch::kLong));
+-
+-  CHECK_INPUT(ptr_x.value().numel() == ptr_y.value().numel());
+-
+-  auto row =
+-      torch::full(y.size(0) * max_num_neighbors, -1, ptr_y.value().options());
+-  auto col =
+-      torch::full(y.size(0) * max_num_neighbors, -1, ptr_y.value().options());
+-
+-  dim3 BLOCKS((y.size(0) + THREADS - 1) / THREADS);
+-
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  auto scalar_type = x.scalar_type();
+-  AT_DISPATCH_FLOATING_TYPES_AND2(
+-      at::ScalarType::Half, at::ScalarType::BFloat16, scalar_type, "_", [&] {
+-        radius_kernel<scalar_t><<<BLOCKS, THREADS, 0, stream>>>(
+-            x.data_ptr<scalar_t>(), y.data_ptr<scalar_t>(),
+-            ptr_x.value().data_ptr<int64_t>(),
+-            ptr_y.value().data_ptr<int64_t>(), row.data_ptr<int64_t>(),
+-            col.data_ptr<int64_t>(), r * r, x.size(0), y.size(0), x.size(1),
+-            ptr_x.value().numel() - 1, max_num_neighbors, ignore_same_index);
+-      });
+-
+-  auto mask = row != -1;
+-  return torch::stack({row.masked_select(mask), col.masked_select(mask)}, 0);
+-}
+diff --git a/csrc/cluster/cuda/radius_cuda.h b/csrc/cluster/cuda/radius_cuda.h
+deleted file mode 100644
+index d0a8282..0000000
+--- a/csrc/cluster/cuda/radius_cuda.h
++++ /dev/null
+@@ -1,9 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-torch::Tensor radius_cuda(torch::Tensor x, torch::Tensor y,
+-                          std::optional<torch::Tensor> ptr_x,
+-                          std::optional<torch::Tensor> ptr_y, double r,
+-                          int64_t max_num_neighbors,
+-                          bool ignore_same_index);
+diff --git a/csrc/cluster/cuda/utils.cuh b/csrc/cluster/cuda/utils.cuh
+deleted file mode 100644
+index f117ed6..0000000
+--- a/csrc/cluster/cuda/utils.cuh
++++ /dev/null
+@@ -1,19 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-#define CHECK_CUDA(x)                                                          \
+-  AT_ASSERTM(x.device().is_cuda(), #x " must be CUDA tensor")
+-#define CHECK_INPUT(x) AT_ASSERTM(x, "Input mismatch")
+-#define CHECK_CONTIGUOUS(x)                                                    \
+-  AT_ASSERTM(x.is_contiguous(), #x " must be contiguous")
+-
+-__forceinline__ __device__ int64_t get_example_idx(int64_t idx,
+-                                                   const int64_t *ptr,
+-                                                   const int64_t num_examples) {
+-  for (int64_t i = 0; i < num_examples; i++) {
+-    if (ptr[i + 1] > idx)
+-      return i;
+-  }
+-  return num_examples - 1;
+-}
+diff --git a/csrc/cluster/extensions.h b/csrc/cluster/extensions.h
+deleted file mode 100644
+index 91c4df1..0000000
+--- a/csrc/cluster/extensions.h
++++ /dev/null
+@@ -1,2 +0,0 @@
+-#include "macros.h"
+-#include <torch/torch.h>
+diff --git a/csrc/cluster/macros.h b/csrc/cluster/macros.h
+deleted file mode 100644
+index 024b83b..0000000
+--- a/csrc/cluster/macros.h
++++ /dev/null
+@@ -1,21 +0,0 @@
+-#pragma once
+-
+-#ifdef _WIN32
+-#if defined(torchcluster_EXPORTS)
+-#define CLUSTER_API __declspec(dllexport)
+-#else
+-#define CLUSTER_API __declspec(dllimport)
+-#endif
+-#else
+-#define CLUSTER_API
+-#endif
+-
+-#if (defined __cpp_inline_variables) || __cplusplus >= 201703L
+-#define CLUSTER_INLINE_VARIABLE inline
+-#else
+-#ifdef _MSC_VER
+-#define CLUSTER_INLINE_VARIABLE __declspec(selectany)
+-#else
+-#define CLUSTER_INLINE_VARIABLE __attribute__((weak))
+-#endif
+-#endif
+diff --git a/csrc/pcops.cpp b/csrc/pcops.cpp
+deleted file mode 100644
+index 95eb719..0000000
+--- a/csrc/pcops.cpp
++++ /dev/null
+@@ -1,122 +0,0 @@
+-// pcops - operator registration.
+-//
+-// Every operator lives in the `pcops` namespace of the PyTorch dispatcher
+-// (torch.ops.pcops.*) with a CUDA kernel. Autograd formulas and the fake
+-// (meta) implementations used by torch.compile are registered from Python,
+-// see pcops/_registration.py.
+-#include <Python.h>
+-#include <torch/library.h>
+-#include <torch/torch.h>
+-
+-#include "cluster/cuda/fps_cuda.h"
+-#include "cluster/cuda/grid_cuda.h"
+-#include "cluster/cuda/knn_cuda.h"
+-#include "cluster/cuda/radius_cuda.h"
+-#include "pointnet/pointnet_cuda.h"
+-#include "scatter/cuda/scatter_cuda.h"
+-#include "scatter/cuda/segment_csr_cuda.h"
+-
+-// `import pcops._C` loads this library, whose static initialisers register the
+-// operators; the module itself is empty.
+-extern "C" PyObject *PyInit__C(void)
+-{
+-    static struct PyModuleDef module_def = {PyModuleDef_HEAD_INIT, "_C", nullptr, -1, nullptr};
+-    return PyModule_Create(&module_def);
+-}
+-
+-namespace
+-{
+-torch::Tensor fps(torch::Tensor src, torch::Tensor ptr, double ratio, bool random_start)
+-{
+-    TORCH_CHECK(ratio > 0.0 && ratio <= 1.0, "fps: ratio must be in (0, 1], got ", ratio);
+-    auto r = torch::full({ptr.numel() - 1}, ratio, src.options());
+-    return fps_cuda(src, ptr, r, random_start);
+-}
+-
+-torch::Tensor knn(torch::Tensor x, torch::Tensor y, std::optional<torch::Tensor> ptr_x, std::optional<torch::Tensor> ptr_y,
+-                  int64_t k, bool cosine)
+-{
+-    return knn_cuda(x.contiguous(), y.contiguous(), ptr_x, ptr_y, k, cosine);
+-}
+-
+-torch::Tensor radius(torch::Tensor x, torch::Tensor y, std::optional<torch::Tensor> ptr_x, std::optional<torch::Tensor> ptr_y,
+-                     double r, int64_t max_num_neighbors, bool ignore_same_index)
+-{
+-    return radius_cuda(x.contiguous(), y.contiguous(), ptr_x, ptr_y, r, max_num_neighbors, ignore_same_index);
+-}
+-
+-torch::Tensor grid(torch::Tensor pos, torch::Tensor size, std::optional<torch::Tensor> start, std::optional<torch::Tensor> end)
+-{
+-    return grid_cuda(pos, size, start, end);
+-}
+-
+-// Returns (out, arg_out); arg_out is an empty int64 tensor for sum and mean.
+-std::tuple<torch::Tensor, torch::Tensor> segment_csr(torch::Tensor src, torch::Tensor indptr, std::string reduce)
+-{
+-    TORCH_CHECK(reduce == "sum" || reduce == "mean" || reduce == "min" || reduce == "max", "segment_csr: unsupported reduce '", reduce, "'");
+-    auto result = segment_csr_cuda(src, indptr, std::nullopt, reduce);
+-    auto arg    = std::get<1>(result);
+-    return {std::get<0>(result), arg.has_value() ? arg.value() : torch::empty({0}, indptr.options())};
+-}
+-
+-torch::Tensor gather_csr(torch::Tensor src, torch::Tensor indptr) { return gather_csr_cuda(src, indptr, std::nullopt); }
+-
+-// reduce in {sum, mean, min, max}; index has the shape of src. As in
+-// torch_scatter.scatter_mean, mean divides the sums by the element counts
+-// clamped to >= 1 (floor division for integer types).
+-std::tuple<torch::Tensor, torch::Tensor> scatter(torch::Tensor src, torch::Tensor index, int64_t dim, int64_t dim_size, std::string reduce)
+-{
+-    TORCH_CHECK(reduce == "sum" || reduce == "mean" || reduce == "min" || reduce == "max", "scatter: unsupported reduce '", reduce, "'");
+-    dim = dim < 0 ? dim + src.dim() : dim;
+-    if(reduce == "mean")
+-    {
+-        auto sum   = std::get<0>(scatter_cuda(src, index, dim, std::nullopt, dim_size, "sum"));
+-        auto ones  = torch::ones(index.sizes(), src.options());
+-        auto count = std::get<0>(scatter_cuda(ones, index, dim, std::nullopt, dim_size, "sum"));
+-        count.masked_fill_(count < 1, 1);
+-        auto out = sum.is_floating_point() ? sum.div_(count) : sum.div_(count, "floor");
+-        return {out, torch::empty({0}, index.options())};
+-    }
+-    auto result = scatter_cuda(src, index, dim, std::nullopt, dim_size, reduce);
+-    auto arg    = std::get<1>(result);
+-    return {std::get<0>(result), arg.has_value() ? arg.value() : torch::empty({0}, index.options())};
+-}
+-} // namespace
+-
+-TORCH_LIBRARY(pcops, m)
+-{
+-    m.def("fps(Tensor src, Tensor ptr, float ratio, bool random_start) -> Tensor");
+-    m.def("knn(Tensor x, Tensor y, Tensor? ptr_x, Tensor? ptr_y, int k, bool cosine) -> Tensor");
+-    m.def("radius(Tensor x, Tensor y, Tensor? ptr_x, Tensor? ptr_y, float r, int max_num_neighbors, bool ignore_same_index) -> Tensor");
+-    m.def("grid(Tensor pos, Tensor size, Tensor? start, Tensor? end) -> Tensor");
+-    m.def("segment_csr(Tensor src, Tensor indptr, str reduce) -> (Tensor, Tensor)");
+-    m.def("gather_csr(Tensor src, Tensor indptr) -> Tensor");
+-    m.def("scatter(Tensor src, Tensor index, int dim, int dim_size, str reduce) -> (Tensor, Tensor)");
+-    m.def("ball_query(Tensor new_xyz, Tensor xyz, float radius, int nsample) -> Tensor");
+-    m.def("group_points(Tensor features, Tensor idx) -> Tensor");
+-    m.def("group_points_backward(Tensor grad_out, Tensor idx, int n) -> Tensor");
+-    m.def("gather_points(Tensor features, Tensor idx) -> Tensor");
+-    m.def("gather_points_backward(Tensor grad_out, Tensor idx, int n) -> Tensor");
+-    m.def("three_nn(Tensor unknown, Tensor known) -> (Tensor, Tensor)");
+-    m.def("three_interpolate(Tensor features, Tensor idx, Tensor weight) -> Tensor");
+-    m.def("three_interpolate_backward(Tensor grad_out, Tensor idx, Tensor weight, int m) -> Tensor");
+-}
+-
+-TORCH_LIBRARY_IMPL(pcops, CUDA, m)
+-{
+-    m.impl("fps", &fps);
+-    m.impl("knn", &knn);
+-    m.impl("radius", &radius);
+-    m.impl("grid", &grid);
+-    m.impl("segment_csr", &segment_csr);
+-    m.impl("gather_csr", &gather_csr);
+-    m.impl("scatter", &scatter);
+-    m.impl("ball_query", &pcops::ball_query_cuda);
+-    m.impl("group_points", &pcops::group_points_cuda);
+-    m.impl("group_points_backward", &pcops::group_points_backward_cuda);
+-    m.impl("gather_points", &pcops::gather_points_cuda);
+-    m.impl("gather_points_backward", &pcops::gather_points_backward_cuda);
+-    m.impl("three_nn", &pcops::three_nn_cuda);
+-    m.impl("three_interpolate", &pcops::three_interpolate_cuda);
+-    m.impl("three_interpolate_backward", &pcops::three_interpolate_backward_cuda);
+-}
+diff --git a/csrc/pointnet/pointnet_cuda.cu b/csrc/pointnet/pointnet_cuda.cu
+deleted file mode 100644
+index e4f4222..0000000
+--- a/csrc/pointnet/pointnet_cuda.cu
++++ /dev/null
+@@ -1,445 +0,0 @@
+-// pcops - PointNet++ set-abstraction / feature-propagation operators.
+-//
+-//   ball_query         first `nsample` neighbours (in index order) within a radius
+-//   group_points       gather features of grouped neighbours (+ backward)
+-//   gather_points      gather features of sampled points (+ backward)
+-//   three_nn           three nearest known points of every unknown point
+-//   three_interpolate  inverse-distance interpolation from three neighbours (+ backward)
+-//
+-// Layouts follow PointNet++: xyz is [B, N, 3] (point-major), features are
+-// [B, C, N] (channel-major). All index tensors are int32. Distances are
+-// computed in the op-math type of the input (float for half/bfloat16).
+-#include "pointnet_cuda.h"
+-
+-#include <ATen/OpMathType.h>
+-#include <ATen/cuda/Atomic.cuh>
+-#include <ATen/cuda/CUDAContext.h>
+-#include <c10/cuda/CUDAGuard.h>
+-
+-#define PN_THREADS 256
+-
+-namespace pcops
+-{
+-namespace
+-{
+-inline int64_t pn_blocks(int64_t n) { return (n + PN_THREADS - 1) / PN_THREADS; }
+-
+-// One thread per query point. Neighbours are taken in increasing point
+-// index; the first neighbour found fills every slot so that rows with fewer
+-// than nsample neighbours are padded with it. Queries without any neighbour
+-// keep index 0 (the output is zero-initialised).
+-template<typename scalar_t>
+-__global__ void ball_query_kernel(int64_t b, int64_t n, int64_t m, float radius2, int64_t nsample,
+-                                  const scalar_t *__restrict__ new_xyz, // [B, M, 3]
+-                                  const scalar_t *__restrict__ xyz,     // [B, N, 3]
+-                                  int32_t *__restrict__ idx)            // [B, M, S]
+-{
+-    using acc_t     = at::opmath_type<scalar_t>;
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * m)
+-    {
+-        return;
+-    }
+-    const int64_t bi = t / m;
+-    const scalar_t *q = new_xyz + t * 3;
+-    const scalar_t *p = xyz + bi * n * 3;
+-    int32_t *out      = idx + t * nsample;
+-    const acc_t qx = q[0], qy = q[1], qz = q[2];
+-    int64_t cnt    = 0;
+-    for(int64_t k = 0; k < n && cnt < nsample; ++k)
+-    {
+-        const acc_t dx = static_cast<acc_t>(p[k * 3 + 0]) - qx;
+-        const acc_t dy = static_cast<acc_t>(p[k * 3 + 1]) - qy;
+-        const acc_t dz = static_cast<acc_t>(p[k * 3 + 2]) - qz;
+-        const acc_t d2 = dx * dx + dy * dy + dz * dz;
+-        if(d2 < static_cast<acc_t>(radius2))
+-        {
+-            if(cnt == 0)
+-            {
+-                for(int64_t s = 0; s < nsample; ++s)
+-                {
+-                    out[s] = static_cast<int32_t>(k);
+-                }
+-            }
+-            out[cnt++] = static_cast<int32_t>(k);
+-        }
+-    }
+-}
+-
+-template<typename scalar_t>
+-__global__ void group_points_kernel(int64_t b, int64_t c, int64_t n, int64_t m, int64_t s,
+-                                    const scalar_t *__restrict__ features, // [B, C, N]
+-                                    const int32_t *__restrict__ idx,       // [B, M, S]
+-                                    scalar_t *__restrict__ out)            // [B, C, M, S]
+-{
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * m * s)
+-    {
+-        return;
+-    }
+-    const int64_t si = t % s;
+-    const int64_t mi = (t / s) % m;
+-    const int64_t ci = (t / (s * m)) % c;
+-    const int64_t bi = t / (s * m * c);
+-    const int32_t k  = idx[(bi * m + mi) * s + si];
+-    out[t]           = features[(bi * c + ci) * n + k];
+-}
+-
+-template<typename scalar_t>
+-__global__ void group_points_grad_kernel(int64_t b, int64_t c, int64_t n, int64_t m, int64_t s,
+-                                         const scalar_t *__restrict__ grad_out, // [B, C, M, S]
+-                                         const int32_t *__restrict__ idx,       // [B, M, S]
+-                                         scalar_t *__restrict__ grad_features)  // [B, C, N]
+-{
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * m * s)
+-    {
+-        return;
+-    }
+-    const int64_t si = t % s;
+-    const int64_t mi = (t / s) % m;
+-    const int64_t ci = (t / (s * m)) % c;
+-    const int64_t bi = t / (s * m * c);
+-    const int32_t k  = idx[(bi * m + mi) * s + si];
+-    gpuAtomicAdd(grad_features + (bi * c + ci) * n + k, grad_out[t]);
+-}
+-
+-template<typename scalar_t>
+-__global__ void gather_points_kernel(int64_t b, int64_t c, int64_t n, int64_t m, const scalar_t *__restrict__ features,
+-                                     const int32_t *__restrict__ idx, scalar_t *__restrict__ out)
+-{
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * m)
+-    {
+-        return;
+-    }
+-    const int64_t mi = t % m;
+-    const int64_t bi = t / (m * c);
+-    const int64_t ci = (t / m) % c;
+-    out[t]           = features[(bi * c + ci) * n + idx[bi * m + mi]];
+-}
+-
+-template<typename scalar_t>
+-__global__ void gather_points_grad_kernel(int64_t b, int64_t c, int64_t n, int64_t m, const scalar_t *__restrict__ grad_out,
+-                                          const int32_t *__restrict__ idx, scalar_t *__restrict__ grad_features)
+-{
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * m)
+-    {
+-        return;
+-    }
+-    const int64_t mi = t % m;
+-    const int64_t bi = t / (m * c);
+-    const int64_t ci = (t / m) % c;
+-    gpuAtomicAdd(grad_features + (bi * c + ci) * n + idx[bi * m + mi], grad_out[t]);
+-}
+-
+-// One thread per unknown point. Strict comparisons keep the earliest index on
+-// ties. With fewer than three known points the unused slots keep index 0 and
+-// distance 1e40 (+inf once stored in a float tensor).
+-template<typename scalar_t>
+-__global__ void three_nn_kernel(int64_t b, int64_t n, int64_t m,
+-                                const scalar_t *__restrict__ unknown, // [B, n, 3]
+-                                const scalar_t *__restrict__ known,   // [B, m, 3]
+-                                scalar_t *__restrict__ dist2,         // [B, n, 3]
+-                                int32_t *__restrict__ idx)            // [B, n, 3]
+-{
+-    using acc_t     = at::opmath_type<scalar_t>;
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * n)
+-    {
+-        return;
+-    }
+-    const int64_t bi  = t / n;
+-    const scalar_t *u = unknown + t * 3;
+-    const scalar_t *k = known + bi * m * 3;
+-    const acc_t ux = u[0], uy = u[1], uz = u[2];
+-    double best1 = 1e40, best2 = 1e40, best3 = 1e40;
+-    int32_t besti1 = 0, besti2 = 0, besti3 = 0;
+-    for(int64_t j = 0; j < m; ++j)
+-    {
+-        const acc_t dx = static_cast<acc_t>(k[j * 3 + 0]) - ux;
+-        const acc_t dy = static_cast<acc_t>(k[j * 3 + 1]) - uy;
+-        const acc_t dz = static_cast<acc_t>(k[j * 3 + 2]) - uz;
+-        const acc_t d  = dx * dx + dy * dy + dz * dz;
+-        if(d < best1)
+-        {
+-            best3  = best2;
+-            besti3 = besti2;
+-            best2  = best1;
+-            besti2 = besti1;
+-            best1  = d;
+-            besti1 = static_cast<int32_t>(j);
+-        }
+-        else if(d < best2)
+-        {
+-            best3  = best2;
+-            besti3 = besti2;
+-            best2  = d;
+-            besti2 = static_cast<int32_t>(j);
+-        }
+-        else if(d < best3)
+-        {
+-            best3  = d;
+-            besti3 = static_cast<int32_t>(j);
+-        }
+-    }
+-    dist2[t * 3 + 0] = static_cast<scalar_t>(best1);
+-    dist2[t * 3 + 1] = static_cast<scalar_t>(best2);
+-    dist2[t * 3 + 2] = static_cast<scalar_t>(best3);
+-    idx[t * 3 + 0]   = besti1;
+-    idx[t * 3 + 1]   = besti2;
+-    idx[t * 3 + 2]   = besti3;
+-}
+-
+-template<typename scalar_t>
+-__global__ void three_interpolate_kernel(int64_t b, int64_t c, int64_t m, int64_t n,
+-                                         const scalar_t *__restrict__ features, // [B, C, m]
+-                                         const int32_t *__restrict__ idx,       // [B, n, 3]
+-                                         const scalar_t *__restrict__ weight,   // [B, n, 3]
+-                                         scalar_t *__restrict__ out)            // [B, C, n]
+-{
+-    using acc_t     = at::opmath_type<scalar_t>;
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * n)
+-    {
+-        return;
+-    }
+-    const int64_t ni  = t % n;
+-    const int64_t ci  = (t / n) % c;
+-    const int64_t bi  = t / (n * c);
+-    const int64_t w   = (bi * n + ni) * 3;
+-    const scalar_t *f = features + (bi * c + ci) * m;
+-    const acc_t v     = static_cast<acc_t>(weight[w + 0]) * static_cast<acc_t>(f[idx[w + 0]])
+-                  + static_cast<acc_t>(weight[w + 1]) * static_cast<acc_t>(f[idx[w + 1]])
+-                  + static_cast<acc_t>(weight[w + 2]) * static_cast<acc_t>(f[idx[w + 2]]);
+-    out[t] = static_cast<scalar_t>(v);
+-}
+-
+-template<typename scalar_t>
+-__global__ void three_interpolate_grad_kernel(int64_t b, int64_t c, int64_t n, int64_t m,
+-                                              const scalar_t *__restrict__ grad_out, // [B, C, n]
+-                                              const int32_t *__restrict__ idx,       // [B, n, 3]
+-                                              const scalar_t *__restrict__ weight,   // [B, n, 3]
+-                                              scalar_t *__restrict__ grad_features)  // [B, C, m]
+-{
+-    using acc_t     = at::opmath_type<scalar_t>;
+-    const int64_t t = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+-    if(t >= b * c * n)
+-    {
+-        return;
+-    }
+-    const int64_t ni = t % n;
+-    const int64_t ci = (t / n) % c;
+-    const int64_t bi = t / (n * c);
+-    const int64_t w  = (bi * n + ni) * 3;
+-    const acc_t g    = grad_out[t];
+-    scalar_t *gf     = grad_features + (bi * c + ci) * m;
+-    for(int j = 0; j < 3; ++j)
+-    {
+-        gpuAtomicAdd(gf + idx[w + j], static_cast<scalar_t>(g * static_cast<acc_t>(weight[w + j])));
+-    }
+-}
+-
+-void check_xyz(const torch::Tensor &t, const char *name)
+-{
+-    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
+-    TORCH_CHECK(t.dim() == 3 && t.size(2) == 3, name, " must have shape [B, N, 3], got ", t.sizes());
+-}
+-
+-void check_idx(const torch::Tensor &t, const char *name)
+-{
+-    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
+-    TORCH_CHECK(t.scalar_type() == torch::kInt, name, " must be int32");
+-}
+-} // namespace
+-
+-#define PCOPS_DISPATCH(TYPE, NAME, ...) \
+-    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, TYPE, NAME, __VA_ARGS__)
+-
+-torch::Tensor ball_query_cuda(torch::Tensor new_xyz, torch::Tensor xyz, double radius, int64_t nsample)
+-{
+-    check_xyz(new_xyz, "new_xyz");
+-    check_xyz(xyz, "xyz");
+-    TORCH_CHECK(new_xyz.size(0) == xyz.size(0), "batch sizes differ");
+-    TORCH_CHECK(new_xyz.scalar_type() == xyz.scalar_type(), "new_xyz and xyz must have the same dtype");
+-    TORCH_CHECK(nsample > 0, "nsample must be positive");
+-    c10::cuda::CUDAGuard guard(xyz.device());
+-    new_xyz       = new_xyz.contiguous();
+-    xyz           = xyz.contiguous();
+-    const auto b  = xyz.size(0), n = xyz.size(1), m = new_xyz.size(1);
+-    auto idx      = torch::zeros({b, m, nsample}, xyz.options().dtype(torch::kInt));
+-    if(b * m == 0)
+-    {
+-        return idx;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(xyz.scalar_type(), "ball_query", [&] {
+-        ball_query_kernel<scalar_t><<<pn_blocks(b * m), PN_THREADS, 0, stream>>>(
+-            b, n, m, static_cast<float>(radius * radius), nsample, new_xyz.data_ptr<scalar_t>(), xyz.data_ptr<scalar_t>(),
+-            idx.data_ptr<int32_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return idx;
+-}
+-
+-torch::Tensor group_points_cuda(torch::Tensor features, torch::Tensor idx)
+-{
+-    TORCH_CHECK(features.is_cuda() && features.dim() == 3, "features must be a [B, C, N] CUDA tensor");
+-    check_idx(idx, "idx");
+-    TORCH_CHECK(idx.dim() == 3 && idx.size(0) == features.size(0), "idx must be [B, M, S]");
+-    c10::cuda::CUDAGuard guard(features.device());
+-    features     = features.contiguous();
+-    idx          = idx.contiguous();
+-    const auto b = features.size(0), c = features.size(1), n = features.size(2), m = idx.size(1), s = idx.size(2);
+-    auto out     = torch::empty({b, c, m, s}, features.options());
+-    if(out.numel() == 0)
+-    {
+-        return out;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(features.scalar_type(), "group_points", [&] {
+-        group_points_kernel<scalar_t><<<pn_blocks(out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, n, m, s, features.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), out.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return out;
+-}
+-
+-torch::Tensor group_points_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, int64_t n)
+-{
+-    check_idx(idx, "idx");
+-    c10::cuda::CUDAGuard guard(grad_out.device());
+-    grad_out     = grad_out.contiguous();
+-    idx          = idx.contiguous();
+-    const auto b = grad_out.size(0), c = grad_out.size(1), m = grad_out.size(2), s = grad_out.size(3);
+-    auto grad    = torch::zeros({b, c, n}, grad_out.options());
+-    if(grad_out.numel() == 0)
+-    {
+-        return grad;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(grad_out.scalar_type(), "group_points_backward", [&] {
+-        group_points_grad_kernel<scalar_t><<<pn_blocks(grad_out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, n, m, s, grad_out.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), grad.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return grad;
+-}
+-
+-torch::Tensor gather_points_cuda(torch::Tensor features, torch::Tensor idx)
+-{
+-    TORCH_CHECK(features.is_cuda() && features.dim() == 3, "features must be a [B, C, N] CUDA tensor");
+-    check_idx(idx, "idx");
+-    TORCH_CHECK(idx.dim() == 2 && idx.size(0) == features.size(0), "idx must be [B, M]");
+-    c10::cuda::CUDAGuard guard(features.device());
+-    features     = features.contiguous();
+-    idx          = idx.contiguous();
+-    const auto b = features.size(0), c = features.size(1), n = features.size(2), m = idx.size(1);
+-    auto out     = torch::empty({b, c, m}, features.options());
+-    if(out.numel() == 0)
+-    {
+-        return out;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(features.scalar_type(), "gather_points", [&] {
+-        gather_points_kernel<scalar_t><<<pn_blocks(out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, n, m, features.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), out.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return out;
+-}
+-
+-torch::Tensor gather_points_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, int64_t n)
+-{
+-    check_idx(idx, "idx");
+-    c10::cuda::CUDAGuard guard(grad_out.device());
+-    grad_out     = grad_out.contiguous();
+-    idx          = idx.contiguous();
+-    const auto b = grad_out.size(0), c = grad_out.size(1), m = grad_out.size(2);
+-    auto grad    = torch::zeros({b, c, n}, grad_out.options());
+-    if(grad_out.numel() == 0)
+-    {
+-        return grad;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(grad_out.scalar_type(), "gather_points_backward", [&] {
+-        gather_points_grad_kernel<scalar_t><<<pn_blocks(grad_out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, n, m, grad_out.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), grad.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return grad;
+-}
+-
+-std::tuple<torch::Tensor, torch::Tensor> three_nn_cuda(torch::Tensor unknown, torch::Tensor known)
+-{
+-    check_xyz(unknown, "unknown");
+-    check_xyz(known, "known");
+-    TORCH_CHECK(unknown.size(0) == known.size(0), "batch sizes differ");
+-    TORCH_CHECK(unknown.scalar_type() == known.scalar_type(), "unknown and known must have the same dtype");
+-    c10::cuda::CUDAGuard guard(unknown.device());
+-    unknown      = unknown.contiguous();
+-    known        = known.contiguous();
+-    const auto b = unknown.size(0), n = unknown.size(1), m = known.size(1);
+-    auto dist2   = torch::empty({b, n, 3}, unknown.options());
+-    auto idx     = torch::empty({b, n, 3}, unknown.options().dtype(torch::kInt));
+-    if(b * n == 0)
+-    {
+-        return {dist2, idx};
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(unknown.scalar_type(), "three_nn", [&] {
+-        three_nn_kernel<scalar_t><<<pn_blocks(b * n), PN_THREADS, 0, stream>>>(
+-            b, n, m, unknown.data_ptr<scalar_t>(), known.data_ptr<scalar_t>(), dist2.data_ptr<scalar_t>(), idx.data_ptr<int32_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return {dist2, idx};
+-}
+-
+-torch::Tensor three_interpolate_cuda(torch::Tensor features, torch::Tensor idx, torch::Tensor weight)
+-{
+-    TORCH_CHECK(features.is_cuda() && features.dim() == 3, "features must be a [B, C, m] CUDA tensor");
+-    check_idx(idx, "idx");
+-    TORCH_CHECK(idx.dim() == 3 && idx.size(2) == 3 && weight.sizes() == idx.sizes(), "idx and weight must be [B, n, 3]");
+-    TORCH_CHECK(weight.scalar_type() == features.scalar_type(), "weight must have the dtype of features");
+-    c10::cuda::CUDAGuard guard(features.device());
+-    features     = features.contiguous();
+-    idx          = idx.contiguous();
+-    weight       = weight.contiguous();
+-    const auto b = features.size(0), c = features.size(1), m = features.size(2), n = idx.size(1);
+-    auto out     = torch::empty({b, c, n}, features.options());
+-    if(out.numel() == 0)
+-    {
+-        return out;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(features.scalar_type(), "three_interpolate", [&] {
+-        three_interpolate_kernel<scalar_t><<<pn_blocks(out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, m, n, features.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), weight.data_ptr<scalar_t>(), out.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return out;
+-}
+-
+-torch::Tensor three_interpolate_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, torch::Tensor weight, int64_t m)
+-{
+-    check_idx(idx, "idx");
+-    c10::cuda::CUDAGuard guard(grad_out.device());
+-    grad_out     = grad_out.contiguous();
+-    idx          = idx.contiguous();
+-    weight       = weight.contiguous();
+-    const auto b = grad_out.size(0), c = grad_out.size(1), n = grad_out.size(2);
+-    auto grad    = torch::zeros({b, c, m}, grad_out.options());
+-    if(grad_out.numel() == 0)
+-    {
+-        return grad;
+-    }
+-    auto stream = at::cuda::getCurrentCUDAStream();
+-    PCOPS_DISPATCH(grad_out.scalar_type(), "three_interpolate_backward", [&] {
+-        three_interpolate_grad_kernel<scalar_t><<<pn_blocks(grad_out.numel()), PN_THREADS, 0, stream>>>(
+-            b, c, n, m, grad_out.data_ptr<scalar_t>(), idx.data_ptr<int32_t>(), weight.data_ptr<scalar_t>(), grad.data_ptr<scalar_t>());
+-    });
+-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+-    return grad;
+-}
+-} // namespace pcops
+diff --git a/csrc/pointnet/pointnet_cuda.h b/csrc/pointnet/pointnet_cuda.h
+deleted file mode 100644
+index 419af47..0000000
+--- a/csrc/pointnet/pointnet_cuda.h
++++ /dev/null
+@@ -1,17 +0,0 @@
+-#pragma once
+-
+-#include <torch/torch.h>
+-
+-#include <tuple>
+-
+-namespace pcops
+-{
+-torch::Tensor ball_query_cuda(torch::Tensor new_xyz, torch::Tensor xyz, double radius, int64_t nsample);
+-torch::Tensor group_points_cuda(torch::Tensor features, torch::Tensor idx);
+-torch::Tensor group_points_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, int64_t n);
+-torch::Tensor gather_points_cuda(torch::Tensor features, torch::Tensor idx);
+-torch::Tensor gather_points_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, int64_t n);
+-std::tuple<torch::Tensor, torch::Tensor> three_nn_cuda(torch::Tensor unknown, torch::Tensor known);
+-torch::Tensor three_interpolate_cuda(torch::Tensor features, torch::Tensor idx, torch::Tensor weight);
+-torch::Tensor three_interpolate_backward_cuda(torch::Tensor grad_out, torch::Tensor idx, torch::Tensor weight, int64_t m);
+-} // namespace pcops
+diff --git a/csrc/scatter/cuda/atomics.cuh b/csrc/scatter/cuda/atomics.cuh
+deleted file mode 100644
+index 16b24fc..0000000
+--- a/csrc/scatter/cuda/atomics.cuh
++++ /dev/null
+@@ -1,304 +0,0 @@
+-#pragma once
+-
+-#define ATOMIC(NAME)                                                           \
+-  template <typename scalar, size_t size> struct Atomic##NAME##IntegerImpl;    \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##IntegerImpl<scalar, 1> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      uint32_t *address_as_ui = (uint32_t *)(address - ((size_t)address & 3)); \
+-      uint32_t old = *address_as_ui;                                           \
+-      uint32_t shift = ((size_t)address & 3) * 8;                              \
+-      uint32_t sum;                                                            \
+-      uint32_t assumed;                                                        \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        sum = OP(val, scalar((old >> shift) & 0xff));                          \
+-        old = (old & ~(0x000000ff << shift)) | (sum << shift);                 \
+-        old = atomicCAS(address_as_ui, assumed, old);                          \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##IntegerImpl<scalar, 2> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      uint32_t *address_as_ui =                                                \
+-          (uint32_t *)((char *)address - ((size_t)address & 2));               \
+-      uint32_t old = *address_as_ui;                                           \
+-      uint32_t sum;                                                            \
+-      uint32_t newval;                                                         \
+-      uint32_t assumed;                                                        \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        sum = OP(val, (size_t)address & 2 ? scalar(old >> 16)                  \
+-                                          : scalar(old & 0xffff));             \
+-        newval = (size_t)address & 2 ? (old & 0xffff) | (sum << 16)            \
+-                                     : (old & 0xffff0000) | sum;               \
+-        old = atomicCAS(address_as_ui, assumed, newval);                       \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##IntegerImpl<scalar, 4> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      uint32_t *address_as_ui = (uint32_t *)address;                           \
+-      uint32_t old = *address_as_ui;                                           \
+-      uint32_t assumed;                                                        \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        old = atomicCAS(address_as_ui, assumed, OP(val, (scalar)old));         \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##IntegerImpl<scalar, 8> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      unsigned long long *address_as_ull = (unsigned long long *)address;      \
+-      unsigned long long old = *address_as_ull;                                \
+-      unsigned long long assumed;                                              \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        old = atomicCAS(address_as_ull, assumed, OP(val, (scalar)old));        \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar, size_t size> struct Atomic##NAME##DecimalImpl;    \
+-                                                                               \
+-  template <> struct Atomic##NAME##DecimalImpl<at::Half, 2> {                  \
+-    inline __device__ void operator()(at::Half *address, at::Half val) {       \
+-      unsigned int *address_as_ui =                                            \
+-          (unsigned int *)((char *)address - ((size_t)address & 2));           \
+-      unsigned int old = *address_as_ui;                                       \
+-      unsigned int assumed;                                                    \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        at::Half hsum;                                                         \
+-        hsum.x = (size_t)address & 2 ? (old >> 16) : (old & 0xffff);           \
+-        hsum = OP(hsum, val);                                                  \
+-        old = (size_t)address & 2 ? (old & 0xffff) | (hsum.x << 16)            \
+-                                  : (old & 0xffff0000) | hsum.x;               \
+-        old = atomicCAS(address_as_ui, assumed, old);                          \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <> struct Atomic##NAME##DecimalImpl<at::BFloat16, 2> {              \
+-    inline __device__ void operator()(at::BFloat16 *address, at::BFloat16 val){\
+-      unsigned int *address_as_ui =                                            \
+-          (unsigned int *)((char *)address - ((size_t)address & 2));           \
+-      unsigned int old = *address_as_ui;                                       \
+-      unsigned int assumed;                                                    \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        at::BFloat16 hsum;                                                     \
+-        hsum.x = (size_t)address & 2 ? (old >> 16) : (old & 0xffff);           \
+-        hsum = OP(hsum, val);                                                  \
+-        old = (size_t)address & 2 ? (old & 0xffff) | (hsum.x << 16)            \
+-                                  : (old & 0xffff0000) | hsum.x;               \
+-        old = atomicCAS(address_as_ui, assumed, old);                          \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##DecimalImpl<scalar, 4> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      int *address_as_i = (int *)address;                                      \
+-      int old = *address_as_i;                                                 \
+-      int assumed;                                                             \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        old = atomicCAS(address_as_i, assumed,                                 \
+-                        __float_as_int(OP(val, __int_as_float(assumed))));     \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };                                                                           \
+-                                                                               \
+-  template <typename scalar> struct Atomic##NAME##DecimalImpl<scalar, 8> {     \
+-    inline __device__ void operator()(scalar *address, scalar val) {           \
+-      unsigned long long int *address_as_ull =                                 \
+-          (unsigned long long int *)address;                                   \
+-      unsigned long long int old = *address_as_ull;                            \
+-      unsigned long long int assumed;                                          \
+-                                                                               \
+-      do {                                                                     \
+-        assumed = old;                                                         \
+-        old = atomicCAS(                                                       \
+-            address_as_ull, assumed,                                           \
+-            __double_as_longlong(OP(val, __longlong_as_double(assumed))));     \
+-      } while (assumed != old);                                                \
+-    }                                                                          \
+-  };
+-
+-#define OP(X, Y) Y + X
+-ATOMIC(Add)
+-#undef OP
+-static inline __device__ void atomAdd(uint8_t *address, uint8_t val) {
+-  AtomicAddIntegerImpl<uint8_t, sizeof(uint8_t)>()(address, val);
+-}
+-static inline __device__ void atomAdd(int8_t *address, int8_t val) {
+-  AtomicAddIntegerImpl<int8_t, sizeof(int8_t)>()(address, val);
+-}
+-static inline __device__ void atomAdd(int16_t *address, int16_t val) {
+-  AtomicAddIntegerImpl<int16_t, sizeof(int16_t)>()(address, val);
+-}
+-static inline __device__ void atomAdd(int32_t *address, int32_t val) {
+-  atomicAdd(address, val);
+-}
+-static inline __device__ void atomAdd(int64_t *address, int64_t val) {
+-  AtomicAddIntegerImpl<int64_t, sizeof(int64_t)>()(address, val);
+-}
+-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700 || CUDA_VERSION < 10000))
+-static inline __device__ void atomAdd(at::Half *address, at::Half val) {
+-  AtomicAddDecimalImpl<at::Half, sizeof(at::Half)>()(address, val);
+-}
+-#else
+-static inline __device__ void atomAdd(at::Half *address, at::Half val) {
+-  atomicAdd(reinterpret_cast<__half *>(address), val);
+-}
+-#endif
+-static inline __device__ void atomAdd(float *address, float val) {
+-  atomicAdd(address, val);
+-}
+-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 600 || CUDA_VERSION < 8000)
+-static inline __device__ void atomAdd(double *address, double val) {
+-  AtomicAddDecimalImpl<double, sizeof(double)>()(address, val);
+-}
+-#else
+-static inline __device__ void atomAdd(double *address, double val) {
+-  atomicAdd(address, val);
+-}
+-#endif
+-static inline __device__ void atomAdd(at::BFloat16 *address, at::BFloat16 val) {
+-  AtomicAddDecimalImpl<at::BFloat16, sizeof(at::BFloat16)>()(address, val);
+-}
+-
+-#define OP(X, Y) Y *X
+-ATOMIC(Mul)
+-#undef OP
+-static inline __device__ void atomMul(uint8_t *address, uint8_t val) {
+-  AtomicMulIntegerImpl<uint8_t, sizeof(uint8_t)>()(address, val);
+-}
+-static inline __device__ void atomMul(int8_t *address, int8_t val) {
+-  AtomicMulIntegerImpl<int8_t, sizeof(int8_t)>()(address, val);
+-}
+-static inline __device__ void atomMul(int16_t *address, int16_t val) {
+-  AtomicMulIntegerImpl<int16_t, sizeof(int16_t)>()(address, val);
+-}
+-static inline __device__ void atomMul(int32_t *address, int32_t val) {
+-  AtomicMulIntegerImpl<int32_t, sizeof(int32_t)>()(address, val);
+-}
+-static inline __device__ void atomMul(int64_t *address, int64_t val) {
+-  AtomicMulIntegerImpl<int64_t, sizeof(int64_t)>()(address, val);
+-}
+-static inline __device__ void atomMul(float *address, float val) {
+-  AtomicMulDecimalImpl<float, sizeof(float)>()(address, val);
+-}
+-static inline __device__ void atomMul(at::Half *address, at::Half val) {
+-  AtomicMulDecimalImpl<at::Half, sizeof(at::Half)>()(address, val);
+-}
+-static inline __device__ void atomMul(double *address, double val) {
+-  AtomicMulDecimalImpl<double, sizeof(double)>()(address, val);
+-}
+-static inline __device__ void atomMul(at::BFloat16 *address, at::BFloat16 val) {
+-  AtomicMulDecimalImpl<at::BFloat16, sizeof(at::BFloat16)>()(address, val);
+-}
+-
+-#define OP(X, Y) Y / X
+-ATOMIC(Div)
+-#undef OP
+-static inline __device__ void atomDiv(uint8_t *address, uint8_t val) {
+-  AtomicDivIntegerImpl<uint8_t, sizeof(uint8_t)>()(address, val);
+-}
+-static inline __device__ void atomDiv(int8_t *address, int8_t val) {
+-  AtomicDivIntegerImpl<int8_t, sizeof(int8_t)>()(address, val);
+-}
+-static inline __device__ void atomDiv(int16_t *address, int16_t val) {
+-  AtomicDivIntegerImpl<int16_t, sizeof(int16_t)>()(address, val);
+-}
+-static inline __device__ void atomDiv(int32_t *address, int32_t val) {
+-  AtomicDivIntegerImpl<int32_t, sizeof(int32_t)>()(address, val);
+-}
+-static inline __device__ void atomDiv(int64_t *address, int64_t val) {
+-  AtomicDivIntegerImpl<int64_t, sizeof(int64_t)>()(address, val);
+-}
+-static inline __device__ void atomDiv(at::Half *address, at::Half val) {
+-  AtomicDivDecimalImpl<at::Half, sizeof(at::Half)>()(address, val);
+-}
+-static inline __device__ void atomDiv(float *address, float val) {
+-  AtomicDivDecimalImpl<float, sizeof(float)>()(address, val);
+-}
+-static inline __device__ void atomDiv(double *address, double val) {
+-  AtomicDivDecimalImpl<double, sizeof(double)>()(address, val);
+-}
+-static inline __device__ void atomDiv(at::BFloat16 *address, at::BFloat16 val) {
+-  AtomicDivDecimalImpl<at::BFloat16, sizeof(at::BFloat16)>()(address, val);
+-}
+-
+-#define OP(X, Y) max(Y, X)
+-ATOMIC(Max)
+-#undef OP
+-static inline __device__ void atomMax(uint8_t *address, uint8_t val) {
+-  AtomicMaxIntegerImpl<uint8_t, sizeof(uint8_t)>()(address, val);
+-}
+-static inline __device__ void atomMax(int8_t *address, int8_t val) {
+-  AtomicMaxIntegerImpl<int8_t, sizeof(int8_t)>()(address, val);
+-}
+-static inline __device__ void atomMax(int16_t *address, int16_t val) {
+-  AtomicMaxIntegerImpl<int16_t, sizeof(int16_t)>()(address, val);
+-}
+-static inline __device__ void atomMax(int32_t *address, int32_t val) {
+-  atomicMax(address, val);
+-}
+-static inline __device__ void atomMax(int64_t *address, int64_t val) {
+-  AtomicMaxIntegerImpl<int64_t, sizeof(int64_t)>()(address, val);
+-}
+-static inline __device__ void atomMax(at::Half *address, at::Half val) {
+-  AtomicMaxDecimalImpl<at::Half, sizeof(at::Half)>()(address, val);
+-}
+-static inline __device__ void atomMax(float *address, float val) {
+-  AtomicMaxDecimalImpl<float, sizeof(float)>()(address, val);
+-}
+-static inline __device__ void atomMax(double *address, double val) {
+-  AtomicMaxDecimalImpl<double, sizeof(double)>()(address, val);
+-}
+-static inline __device__ void atomMax(at::BFloat16 *address, at::BFloat16 val) {
+-  AtomicMaxDecimalImpl<at::BFloat16, sizeof(at::BFloat16)>()(address, val);
+-}
+-
+-#define OP(X, Y) min(Y, X)
+-ATOMIC(Min)
+-#undef OP
+-static inline __device__ void atomMin(uint8_t *address, uint8_t val) {
+-  AtomicMinIntegerImpl<uint8_t, sizeof(uint8_t)>()(address, val);
+-}
+-static inline __device__ void atomMin(int8_t *address, int8_t val) {
+-  AtomicMinIntegerImpl<int8_t, sizeof(int8_t)>()(address, val);
+-}
+-static inline __device__ void atomMin(int16_t *address, int16_t val) {
+-  AtomicMinIntegerImpl<int16_t, sizeof(int16_t)>()(address, val);
+-}
+-static inline __device__ void atomMin(int32_t *address, int32_t val) {
+-  atomicMin(address, val);
+-}
+-static inline __device__ void atomMin(int64_t *address, int64_t val) {
+-  AtomicMinIntegerImpl<int64_t, sizeof(int64_t)>()(address, val);
+-}
+-static inline __device__ void atomMin(at::Half *address, at::Half val) {
+-  AtomicMinDecimalImpl<at::Half, sizeof(at::Half)>()(address, val);
+-}
+-static inline __device__ void atomMin(float *address, float val) {
+-  AtomicMinDecimalImpl<float, sizeof(float)>()(address, val);
+-}
+-static inline __device__ void atomMin(double *address, double val) {
+-  AtomicMinDecimalImpl<double, sizeof(double)>()(address, val);
+-}
+-static inline __device__ void atomMin(at::BFloat16 *address, at::BFloat16 val) {
+-  AtomicMinDecimalImpl<at::BFloat16, sizeof(at::BFloat16)>()(address, val);
+-}
+diff --git a/csrc/scatter/cuda/index_info.cuh b/csrc/scatter/cuda/index_info.cuh
+deleted file mode 100644
+index a5af0f7..0000000
+--- a/csrc/scatter/cuda/index_info.cuh
++++ /dev/null
+@@ -1,19 +0,0 @@
+-#pragma once
+-
+-#include <ATen/cuda/detail/TensorInfo.cuh>
+-
+-// We need our own `IndexToOffset` implementation since we do not want to
+-// access the last element of the `indexptr`.
+-template <typename scalar_t> struct IndexPtrToOffset {
+-  static inline __host__ __device__ int
+-  get(int idx, const at::cuda::detail::TensorInfo<scalar_t, int> &info) {
+-    int offset = idx % (info.sizes[info.dims - 1] - 1);
+-    offset *= info.strides[info.dims - 1];
+-    idx /= info.sizes[info.dims - 1] - 1;
+-    for (int i = info.dims - 2; i >= 0; --i) {
+-      offset += (idx % info.sizes[i]) * info.strides[i];
+-      idx /= info.sizes[i];
+-    }
+-    return offset;
+-  }
+-};
+diff --git a/csrc/scatter/cuda/reducer.cuh b/csrc/scatter/cuda/reducer.cuh
+deleted file mode 100644
+index 577f428..0000000
+--- a/csrc/scatter/cuda/reducer.cuh
++++ /dev/null
+@@ -1,114 +0,0 @@
+-#pragma once
+-
+-#include <limits>
+-#include <map>
+-
+-#include "atomics.cuh"
+-
+-enum ReductionType { SUM, MEAN, MUL, DIV, MIN, MAX };
+-
+-const std::map<std::string, ReductionType> reduce2REDUCE = {
+-    {"sum", SUM}, {"mean", MEAN}, {"mul", MUL},
+-    {"div", DIV}, {"min", MIN},   {"max", MAX},
+-};
+-
+-#define AT_DISPATCH_REDUCTION_TYPES(reduce, ...)                               \
+-  [&] {                                                                        \
+-    switch (reduce2REDUCE.at(reduce)) {                                        \
+-    case SUM: {                                                                \
+-      static constexpr ReductionType REDUCE = SUM;                                        \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    case MEAN: {                                                               \
+-      static constexpr ReductionType REDUCE = MEAN;                                       \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    case MUL: {                                                                \
+-      static constexpr ReductionType REDUCE = MUL;                                        \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    case DIV: {                                                                \
+-      static constexpr ReductionType REDUCE = DIV;                                        \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    case MIN: {                                                                \
+-      static constexpr ReductionType REDUCE = MIN;                                        \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    case MAX: {                                                                \
+-      static constexpr ReductionType REDUCE = MAX;                                        \
+-      return __VA_ARGS__();                                                    \
+-    }                                                                          \
+-    }                                                                          \
+-  }()
+-
+-template <typename scalar_t, ReductionType REDUCE> struct Reducer {
+-  static inline __host__ __device__ scalar_t init() {
+-    if (REDUCE == MUL || REDUCE == DIV)
+-      return (scalar_t)1;
+-    else if (REDUCE == MIN)
+-      return std::numeric_limits<scalar_t>::max();
+-    else if (REDUCE == MAX)
+-      return std::numeric_limits<scalar_t>::lowest();
+-    else
+-      return (scalar_t)0;
+-  }
+-
+-  static inline __host__ __device__ void update(scalar_t *val,
+-                                                scalar_t new_val) {
+-    if (REDUCE == SUM || REDUCE == MEAN)
+-      *val = *val + new_val;
+-    else if (REDUCE == MUL)
+-      *val = *val * new_val;
+-    else if (REDUCE == DIV)
+-      *val = *val / new_val;
+-    else if ((REDUCE == MIN && new_val < *val) ||
+-             (REDUCE == MAX && new_val > *val)) {
+-      *val = new_val;
+-    }
+-  }
+-
+-  static inline __host__ __device__ void update(scalar_t *val, scalar_t new_val,
+-                                                int64_t *arg, int64_t new_arg) {
+-    if (REDUCE == SUM || REDUCE == MEAN)
+-      *val = *val + new_val;
+-    else if (REDUCE == MUL)
+-      *val = *val * new_val;
+-    else if (REDUCE == DIV)
+-      *val = *val / new_val;
+-    else if ((REDUCE == MIN && new_val < *val) ||
+-             (REDUCE == MAX && new_val > *val)) {
+-      *val = new_val;
+-      *arg = new_arg;
+-    }
+-  }
+-
+-  static inline __host__ __device__ void write(scalar_t *address, scalar_t val,
+-                                               int64_t *arg_address,
+-                                               int64_t arg, int count) {
+-    if (REDUCE == SUM || REDUCE == MUL || REDUCE == DIV)
+-      *address = val;
+-    else if (REDUCE == MEAN)
+-      *address = val / (scalar_t)(count > 0 ? count : 1);
+-    else if (REDUCE == MIN || REDUCE == MAX) {
+-      if (count > 0) {
+-        *address = val;
+-        *arg_address = arg;
+-      } else
+-        *address = (scalar_t)0;
+-    }
+-  }
+-
+-  static inline __device__ void atomic_write(scalar_t *address, scalar_t val) {
+-    if (REDUCE == SUM || REDUCE == MEAN)
+-      atomAdd(address, val);
+-    else if (REDUCE == MUL)
+-      atomMul(address, val);
+-    else if (REDUCE == DIV)
+-      atomDiv(address, val);
+-    else if (REDUCE == MIN)
+-      atomMin(address, val);
+-    else if (REDUCE == MAX)
+-      atomMax(address, val);
+-  }
+-};
+diff --git a/csrc/scatter/cuda/scatter_cuda.cu b/csrc/scatter/cuda/scatter_cuda.cu
+deleted file mode 100644
+index 83db7cc..0000000
+--- a/csrc/scatter/cuda/scatter_cuda.cu
++++ /dev/null
+@@ -1,138 +0,0 @@
+-#include "scatter_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-#include <ATen/cuda/detail/IndexUtils.cuh>
+-#include <ATen/cuda/detail/TensorInfo.cuh>
+-
+-#include "reducer.cuh"
+-#include "utils.cuh"
+-
+-#define THREADS 256
+-#define BLOCKS(N) (N + THREADS - 1) / THREADS
+-
+-template <typename scalar_t, ReductionType REDUCE>
+-__global__ void
+-scatter_kernel(const scalar_t *src_data,
+-               const at::cuda::detail::TensorInfo<int64_t, int> index_info,
+-               scalar_t *out_data, int E, int K, int N, int numel) {
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-
+-  int b = thread_idx / (E * K);
+-  int k = thread_idx % K;
+-
+-  if (thread_idx < numel) {
+-    int offset = at::cuda::detail::IndexToOffset<int64_t, int, -1>::get(
+-        thread_idx, index_info);
+-    int64_t idx = index_info.data[offset];
+-
+-    Reducer<scalar_t, REDUCE>::atomic_write(out_data + b * N * K + idx * K + k,
+-                                            src_data[thread_idx]);
+-  }
+-}
+-
+-template <typename scalar_t>
+-__global__ void
+-scatter_arg_kernel(const scalar_t *src_data,
+-                   const at::cuda::detail::TensorInfo<int64_t, int> index_info,
+-                   const scalar_t *out_data, int64_t *arg_out_data, int E,
+-                   int K, int N, int numel) {
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-
+-  int b = thread_idx / (E * K);
+-  int e = (thread_idx / K) % E;
+-  int k = thread_idx % K;
+-
+-  if (thread_idx < numel) {
+-    int offset = at::cuda::detail::IndexToOffset<int64_t, int, -1>::get(
+-        thread_idx, index_info);
+-    int64_t idx = index_info.data[offset];
+-
+-    if (src_data[thread_idx] == out_data[b * N * K + idx * K + k]) {
+-      arg_out_data[b * N * K + idx * K + k] = e;
+-    }
+-  }
+-}
+-
+-std::tuple<torch::Tensor, std::optional<torch::Tensor>>
+-scatter_cuda(torch::Tensor src, torch::Tensor index, int64_t dim,
+-             std::optional<torch::Tensor> optional_out,
+-             std::optional<int64_t> dim_size, std::string reduce) {
+-  CHECK_CUDA(src);
+-  CHECK_CUDA(index);
+-  if (optional_out.has_value())
+-    CHECK_CUDA(optional_out.value());
+-  c10::cuda::MaybeSetDevice(src.get_device());
+-
+-  CHECK_INPUT(src.dim() == index.dim());
+-  for (auto i = 0; i < index.dim() - 1; i++)
+-    CHECK_INPUT(src.size(i) >= index.size(i));
+-
+-  src = src.contiguous();
+-
+-  torch::Tensor out;
+-  if (optional_out.has_value()) {
+-    out = optional_out.value().contiguous();
+-    for (auto i = 0; i < out.dim(); i++)
+-      if (i != dim)
+-        CHECK_INPUT(src.size(i) == out.size(i));
+-  } else {
+-    auto sizes = src.sizes().vec();
+-    if (dim_size.has_value())
+-      sizes[dim] = dim_size.value();
+-    else if (index.numel() == 0)
+-      sizes[dim] = 0;
+-    else {
+-      sizes[dim] = 1 + index.max().cpu().data_ptr<int64_t>()[0];
+-    }
+-    out = torch::empty(sizes, src.options());
+-  }
+-
+-  std::optional<torch::Tensor> arg_out = std::nullopt;
+-  int64_t *arg_out_data = nullptr;
+-  if (reduce2REDUCE.at(reduce) == MIN || reduce2REDUCE.at(reduce) == MAX) {
+-    arg_out = torch::full_like(out, src.size(dim), index.options());
+-    arg_out_data = arg_out.value().data_ptr<int64_t>();
+-  }
+-
+-  if (src.numel() == 0) {
+-    if (!optional_out.has_value())
+-      out.fill_(0);
+-    return std::make_tuple(out, arg_out);
+-  }
+-
+-  auto B = 1;
+-  for (auto i = 0; i < dim; i++)
+-    B *= src.size(i);
+-  auto E = src.size(dim);
+-  auto K = src.numel() / (B * E);
+-  auto N = out.size(dim);
+-
+-  auto index_info = at::cuda::detail::getTensorInfo<int64_t, int>(index);
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, src.scalar_type(), "_", [&] {
+-    auto src_data = src.data_ptr<scalar_t>();
+-    auto out_data = out.data_ptr<scalar_t>();
+-
+-    AT_DISPATCH_REDUCTION_TYPES(reduce, [&] {
+-      if (!optional_out.has_value())
+-        out.fill_(Reducer<scalar_t, REDUCE>::init());
+-
+-      scatter_kernel<scalar_t, REDUCE>
+-          <<<BLOCKS(src.numel()), THREADS, 0, stream>>>(
+-              src_data, index_info, out_data, E, K, N, src.numel());
+-
+-      if (!optional_out.has_value() && (REDUCE == MIN || REDUCE == MAX))
+-        out.masked_fill_(out == Reducer<scalar_t, REDUCE>::init(), (scalar_t)0);
+-
+-      if (REDUCE == MIN || REDUCE == MAX)
+-        scatter_arg_kernel<scalar_t>
+-            <<<BLOCKS(src.numel()), THREADS, 0, stream>>>(
+-                src_data, index_info, out_data, arg_out_data, E, K, N,
+-                src.numel());
+-    });
+-  });
+-
+-  return std::make_tuple(out, arg_out);
+-}
+diff --git a/csrc/scatter/cuda/scatter_cuda.h b/csrc/scatter/cuda/scatter_cuda.h
+deleted file mode 100644
+index a049679..0000000
+--- a/csrc/scatter/cuda/scatter_cuda.h
++++ /dev/null
+@@ -1,8 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-std::tuple<torch::Tensor, std::optional<torch::Tensor>>
+-scatter_cuda(torch::Tensor src, torch::Tensor index, int64_t dim,
+-             std::optional<torch::Tensor> optional_out,
+-             std::optional<int64_t> dim_size, std::string reduce);
+diff --git a/csrc/scatter/cuda/segment_csr_cuda.cu b/csrc/scatter/cuda/segment_csr_cuda.cu
+deleted file mode 100644
+index 7061ba6..0000000
+--- a/csrc/scatter/cuda/segment_csr_cuda.cu
++++ /dev/null
+@@ -1,281 +0,0 @@
+-#include "segment_csr_cuda.h"
+-
+-#include <ATen/cuda/CUDAContext.h>
+-#include <ATen/cuda/detail/IndexUtils.cuh>
+-#include <ATen/cuda/detail/TensorInfo.cuh>
+-
+-#include "index_info.cuh"
+-#include "reducer.cuh"
+-#include "utils.cuh"
+-
+-#define THREADS 256
+-#define BLOCKS(TB, N) (TB * N + THREADS - 1) / THREADS
+-#define FULL_MASK 0xffffffff
+-
+-template <typename scalar_t, ReductionType REDUCE, int TB>
+-__global__ void
+-segment_csr_kernel(const scalar_t *src_data,
+-                   const at::cuda::detail::TensorInfo<int64_t, int> indptr_info,
+-                   scalar_t *out_data, int64_t *arg_out_data, size_t N,
+-                   size_t E) {
+-
+-  // Each warp processes exactly `32/TB` rows and aggregates all row values
+-  // via a parallel reduction.
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-  int row_idx = thread_idx / TB;
+-  int lane_idx = thread_idx & (TB - 1);
+-
+-  if (row_idx < N) {
+-    int offset = IndexPtrToOffset<int64_t>::get(row_idx, indptr_info);
+-    int64_t row_start = __ldg(indptr_info.data + offset);
+-    int64_t row_end = __ldg(indptr_info.data + offset +
+-                            indptr_info.strides[indptr_info.dims - 1]);
+-
+-    scalar_t val = Reducer<scalar_t, REDUCE>::init();
+-    int64_t arg, arg_tmp;
+-
+-    offset = (row_idx / (indptr_info.sizes[indptr_info.dims - 1] - 1)) * E;
+-    for (int64_t src_idx = row_start + lane_idx; src_idx < row_end;
+-         src_idx += TB) {
+-      Reducer<scalar_t, REDUCE>::update(&val, src_data[offset + src_idx], &arg,
+-                                        src_idx);
+-    }
+-
+-#pragma unroll
+-    for (int i = TB / 2; i > 0; i /= 2) {
+-      // Parallel reduction inside a single warp.
+-      if (REDUCE == MIN || REDUCE == MAX)
+-        arg_tmp = SHFL_DOWN_SYNC(FULL_MASK, arg, i);
+-      Reducer<scalar_t, REDUCE>::update(
+-          &val, SHFL_DOWN_SYNC(FULL_MASK, val, i), &arg, arg_tmp);
+-    }
+-
+-    if (lane_idx == 0) {
+-      Reducer<scalar_t, REDUCE>::write(out_data + row_idx, val,
+-                                       arg_out_data + row_idx, arg,
+-                                       row_end - row_start);
+-    }
+-  }
+-}
+-
+-template <typename scalar_t, ReductionType REDUCE>
+-__global__ void segment_csr_broadcast_kernel(
+-    const scalar_t *src_data,
+-    const at::cuda::detail::TensorInfo<int64_t, int> indptr_info,
+-    scalar_t *out_data, int64_t *arg_out_data, size_t N, size_t K, size_t E) {
+-
+-  // Each thread processes exactly one row. It turned out that is more
+-  // efficient than using shared memory due to avoiding synchronization
+-  // barriers.
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-  int row_idx = thread_idx / K;
+-  int lane_idx = thread_idx % K;
+-
+-  if (thread_idx < N * K) {
+-    int offset = IndexPtrToOffset<int64_t>::get(row_idx, indptr_info);
+-    int64_t row_start = __ldg(indptr_info.data + offset);
+-    int64_t row_end = __ldg(indptr_info.data + offset +
+-                            indptr_info.strides[indptr_info.dims - 1]);
+-
+-    scalar_t val = Reducer<scalar_t, REDUCE>::init();
+-    int64_t arg;
+-
+-    offset = (row_idx / (indptr_info.sizes[indptr_info.dims - 1] - 1)) * E * K;
+-    for (int64_t src_idx = row_start; src_idx < row_end; src_idx++) {
+-      Reducer<scalar_t, REDUCE>::update(
+-          &val, src_data[offset + K * src_idx + lane_idx], &arg, src_idx);
+-    }
+-
+-    Reducer<scalar_t, REDUCE>::write(out_data + thread_idx, val,
+-                                     arg_out_data + thread_idx, arg,
+-                                     row_end - row_start);
+-  }
+-}
+-
+-std::tuple<torch::Tensor, std::optional<torch::Tensor>>
+-segment_csr_cuda(torch::Tensor src, torch::Tensor indptr,
+-                 std::optional<torch::Tensor> optional_out,
+-                 std::string reduce) {
+-  CHECK_CUDA(src);
+-  CHECK_CUDA(indptr);
+-  if (optional_out.has_value())
+-    CHECK_CUDA(optional_out.value());
+-  c10::cuda::MaybeSetDevice(src.get_device());
+-
+-  CHECK_INPUT(src.dim() >= indptr.dim());
+-
+-  auto sizes = indptr.sizes().vec();
+-  for (auto i = 0; i < indptr.dim() - 1; i++)
+-    sizes[i] = src.size(i);
+-  indptr = indptr.expand(sizes);
+-
+-  auto dim = indptr.dim() - 1;
+-
+-  src = src.contiguous();
+-
+-  torch::Tensor out;
+-  if (optional_out.has_value()) {
+-    out = optional_out.value().contiguous();
+-    for (int i = 0; i < out.dim(); i++)
+-      if (i != dim)
+-        CHECK_INPUT(src.size(i) == out.size(i));
+-    CHECK_INPUT(src.numel() == 0 || out.size(dim) == indptr.size(dim) - 1);
+-  } else {
+-    sizes = src.sizes().vec();
+-    sizes[dim] = std::max<int64_t>(indptr.size(dim) - 1, 0);
+-    out = torch::empty(sizes, src.options());
+-  }
+-
+-  std::optional<torch::Tensor> arg_out = std::nullopt;
+-  int64_t *arg_out_data = nullptr;
+-  if (reduce2REDUCE.at(reduce) == MIN || reduce2REDUCE.at(reduce) == MAX) {
+-    arg_out = torch::full(out.sizes(), src.size(dim), indptr.options());
+-    arg_out_data = arg_out.value().data_ptr<int64_t>();
+-  }
+-
+-  if (src.numel() == 0) {
+-    if (!optional_out.has_value())
+-      out.fill_(0);
+-    return std::make_tuple(out, arg_out);
+-  }
+-
+-  auto N = out.size(dim) * (indptr.numel() / indptr.size(-1));
+-  auto K = out.numel() / N;
+-  auto E = src.size(dim);
+-
+-  auto indptr_info = at::cuda::detail::getTensorInfo<int64_t, int>(indptr);
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, src.scalar_type(), "_", [&] {
+-    auto src_data = src.data_ptr<scalar_t>();
+-    auto out_data = out.data_ptr<scalar_t>();
+-
+-    AT_DISPATCH_REDUCTION_TYPES(reduce, [&] {
+-      if (K == 1) {
+-        segment_csr_kernel<scalar_t, REDUCE, 1>
+-            <<<BLOCKS(32, N), THREADS, 0, stream>>>(
+-                src_data, indptr_info, out_data, arg_out_data, N, E);
+-      } else {
+-        segment_csr_broadcast_kernel<scalar_t, REDUCE>
+-            <<<BLOCKS(1, N * K), THREADS, 0, stream>>>(
+-                src_data, indptr_info, out_data, arg_out_data, N, K, E);
+-      }
+-    });
+-  });
+-
+-  return std::make_tuple(out, arg_out);
+-}
+-
+-template <typename scalar_t, int TB>
+-__global__ void
+-gather_csr_kernel(const scalar_t *src_data,
+-                  const at::cuda::detail::TensorInfo<int64_t, int> indptr_info,
+-                  scalar_t *out_data, size_t N, size_t E) {
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-  int row_idx = thread_idx / TB;
+-  int lane_idx = thread_idx % TB;
+-
+-  if (row_idx < N) {
+-    int offset = IndexPtrToOffset<int64_t>::get(row_idx, indptr_info);
+-    int row_start = __ldg(indptr_info.data + offset);
+-    int row_end = __ldg(indptr_info.data + offset +
+-                        indptr_info.strides[indptr_info.dims - 1]);
+-    scalar_t val = __ldg(src_data + row_idx);
+-
+-    offset = (row_idx / (indptr_info.sizes[indptr_info.dims - 1] - 1)) * E;
+-    for (int out_idx = row_start + lane_idx; out_idx < row_end; out_idx += TB) {
+-      out_data[offset + out_idx] = val; // "Mostly" coalesced.
+-    }
+-  }
+-}
+-
+-template <typename scalar_t>
+-__global__ void gather_csr_broadcast_kernel(
+-    const scalar_t *src_data,
+-    const at::cuda::detail::TensorInfo<int64_t, int> indptr_info,
+-    scalar_t *out_data, size_t N, size_t K, size_t E) {
+-
+-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+-  int row_idx = thread_idx / K;
+-  int lane_idx = thread_idx % K;
+-
+-  if (thread_idx < N * K) {
+-    int offset = IndexPtrToOffset<int64_t>::get(row_idx, indptr_info);
+-    int row_start = __ldg(indptr_info.data + offset);
+-    int row_end = __ldg(indptr_info.data + offset +
+-                        indptr_info.strides[indptr_info.dims - 1]);
+-
+-    scalar_t val = src_data[thread_idx]; // Coalesced.
+-
+-    offset = (row_idx / (indptr_info.sizes[indptr_info.dims - 1] - 1)) * E * K;
+-    for (int out_idx = row_start; out_idx < row_end; out_idx++) {
+-      out_data[offset + K * out_idx + lane_idx] = val; // "Mostly" coalesced.
+-    }
+-  }
+-}
+-
+-torch::Tensor gather_csr_cuda(torch::Tensor src, torch::Tensor indptr,
+-                              std::optional<torch::Tensor> optional_out) {
+-  CHECK_CUDA(src);
+-  CHECK_CUDA(indptr);
+-  if (optional_out.has_value())
+-    CHECK_CUDA(optional_out.value());
+-  c10::cuda::MaybeSetDevice(src.get_device());
+-
+-  CHECK_INPUT(src.dim() >= indptr.dim());
+-
+-  auto sizes = indptr.sizes().vec();
+-  for (auto i = 0; i < indptr.dim() - 1; i++)
+-    sizes[i] = src.size(i);
+-  indptr = indptr.expand(sizes);
+-
+-  auto dim = indptr.dim() - 1;
+-  CHECK_INPUT(src.size(dim) == 0 || src.size(dim) == indptr.size(dim) - 1);
+-
+-  src = src.contiguous();
+-
+-  torch::Tensor out;
+-  if (optional_out.has_value()) {
+-    out = optional_out.value().contiguous();
+-    for (auto i = 0; i < out.dim(); i++)
+-      if (i != dim)
+-        CHECK_INPUT(src.size(i) == out.size(i));
+-  } else {
+-    auto sizes = src.sizes().vec();
+-    if (src.numel() > 0) {
+-      sizes[dim] = indptr.flatten()[-1].cpu().data_ptr<int64_t>()[0];
+-    } else {
+-      sizes[dim] = 0;
+-    }
+-    out = torch::empty(sizes, src.options());
+-  }
+-
+-  if (src.numel() == 0) {
+-    if (!optional_out.has_value())
+-      out.fill_(0);
+-    return out;
+-  }
+-
+-  auto N = src.size(dim) * (indptr.numel() / indptr.size(-1));
+-  auto K = src.numel() / N;
+-  auto E = out.size(dim);
+-
+-  auto indptr_info = at::cuda::detail::getTensorInfo<int64_t, int>(indptr);
+-  auto stream = at::cuda::getCurrentCUDAStream();
+-  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, src.scalar_type(), "_", [&] {
+-    auto src_data = src.data_ptr<scalar_t>();
+-    auto out_data = out.data_ptr<scalar_t>();
+-
+-    if (K == 1)
+-      gather_csr_kernel<scalar_t, 4><<<BLOCKS(1, 4 * N), THREADS, 0, stream>>>(
+-          src_data, indptr_info, out_data, N, E);
+-    else
+-      gather_csr_broadcast_kernel<scalar_t>
+-          <<<BLOCKS(1, N * K), THREADS, 0, stream>>>(src_data, indptr_info,
+-                                                     out_data, N, K, E);
+-  });
+-
+-  return out;
+-}
+diff --git a/csrc/scatter/cuda/segment_csr_cuda.h b/csrc/scatter/cuda/segment_csr_cuda.h
+deleted file mode 100644
+index 8014e76..0000000
+--- a/csrc/scatter/cuda/segment_csr_cuda.h
++++ /dev/null
+@@ -1,11 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-std::tuple<torch::Tensor, std::optional<torch::Tensor>>
+-segment_csr_cuda(torch::Tensor src, torch::Tensor indptr,
+-                 std::optional<torch::Tensor> optional_out,
+-                 std::string reduce);
+-
+-torch::Tensor gather_csr_cuda(torch::Tensor src, torch::Tensor indptr,
+-                              std::optional<torch::Tensor> optional_out);
+diff --git a/csrc/scatter/cuda/utils.cuh b/csrc/scatter/cuda/utils.cuh
+deleted file mode 100644
+index 886e47d..0000000
+--- a/csrc/scatter/cuda/utils.cuh
++++ /dev/null
+@@ -1,47 +0,0 @@
+-#pragma once
+-
+-#include "../extensions.h"
+-
+-#define CHECK_CUDA(x)                                                          \
+-  AT_ASSERTM(x.device().is_cuda(), #x " must be CUDA tensor")
+-#define CHECK_INPUT(x) AT_ASSERTM(x, "Input mismatch")
+-
+-// On ROCm, __shfl_*_sync requires a 64-bit mask; on CUDA it's 32-bit.
+-#ifdef USE_ROCM
+-  using warp_mask_t = unsigned long long;
+-#else
+-  using warp_mask_t = unsigned int;
+-#endif
+-
+-__device__ __inline__ at::Half __shfl_up_sync(const warp_mask_t mask,
+-                                              const at::Half var,
+-                                              const unsigned int delta) {
+-  return __shfl_up_sync(mask, var.operator __half(), delta);
+-}
+-
+-__device__ __inline__ at::Half __shfl_down_sync(const warp_mask_t mask,
+-                                                const at::Half var,
+-                                                const unsigned int delta) {
+-  return __shfl_down_sync(mask, var.operator __half(), delta);
+-}
+-
+-__device__ __inline__ at::Half __shfl_up(const at::Half var,
+-                                         const unsigned int delta) {
+-  return __shfl_up(var.operator __half(), delta);
+-}
+-
+-__device__ __inline__ at::Half __shfl_down(const at::Half var,
+-                                           const unsigned int delta) {
+-  return __shfl_down(var.operator __half(), delta);
+-}
+-
+-#ifdef USE_ROCM
+-__device__ __inline__ at::Half __ldg(const at::Half* ptr) {
+-  return __ldg(reinterpret_cast<const __half*>(ptr));
+-}
+-#define SHFL_UP_SYNC(mask, var, delta) __shfl_up(var, delta)
+-#define SHFL_DOWN_SYNC(mask, var, delta) __shfl_down(var, delta)
+-#else
+-#define SHFL_UP_SYNC __shfl_up_sync
+-#define SHFL_DOWN_SYNC __shfl_down_sync
+-#endif
+diff --git a/csrc/scatter/extensions.h b/csrc/scatter/extensions.h
+deleted file mode 100644
+index 91c4df1..0000000
+--- a/csrc/scatter/extensions.h
++++ /dev/null
+@@ -1,2 +0,0 @@
+-#include "macros.h"
+-#include <torch/torch.h>
+diff --git a/csrc/scatter/macros.h b/csrc/scatter/macros.h
+deleted file mode 100644
+index d55e623..0000000
+--- a/csrc/scatter/macros.h
++++ /dev/null
+@@ -1,21 +0,0 @@
+-#pragma once
+-
+-#ifdef _WIN32
+-#if defined(torchscatter_EXPORTS)
+-#define SCATTER_API __declspec(dllexport)
+-#else
+-#define SCATTER_API __declspec(dllimport)
+-#endif
+-#else
+-#define SCATTER_API
+-#endif
+-
+-#if (defined __cpp_inline_variables) || __cplusplus >= 201703L
+-#define SCATTER_INLINE_VARIABLE inline
+-#else
+-#ifdef _MSC_VER
+-#define SCATTER_INLINE_VARIABLE __declspec(selectany)
+-#else
+-#define SCATTER_INLINE_VARIABLE __attribute__((weak))
+-#endif
+-#endif
+diff --git a/pcops/__init__.py b/pcops/__init__.py
+index 28e750a..bb71904 100644
+--- a/pcops/__init__.py
++++ b/pcops/__init__.py
+@@ -4,11 +4,11 @@ Sampling / neighbourhoods: fps, knn, radius, ball_query, three_nn, grid_cluster
+ Feature movement:          group_points, gather_points, three_interpolate
+ Sparse reductions:         segment_csr, gather_csr, scatter
+ 
+-All operators run on CUDA tensors and are registered with the PyTorch
+-dispatcher as torch.ops.pcops.*, so they work under autograd and
++All operators are Triton kernels registered with the PyTorch dispatcher as
++torch.ops.pcops.* (pcops/_ops.py), so they work under autograd and
+ torch.compile (see pcops/_registration.py).
+ """
+-from . import _C  # noqa: F401  (registers torch.ops.pcops.* kernels)
++from . import _ops  # noqa: F401  (registers torch.ops.pcops.* kernels)
+ from . import _registration  # noqa: F401  (fake impls + autograd)
+ from .ops import (
+     ball_query,
+diff --git a/pcops/_kernels.py b/pcops/_kernels.py
+new file mode 100644
+index 0000000..6dfce98
+--- /dev/null
++++ b/pcops/_kernels.py
+@@ -0,0 +1,466 @@
++"""Triton kernels of pcops.
++
++Conventions: float inputs are converted to float32 for arithmetic (op-math)
++and results are stored in the input dtype. Index outputs are int64 for the
++pytorch_cluster / pytorch_scatter style operators and int32 for the
++PointNet++ style ones.
++"""
++import triton
++import triton.language as tl
++
++
++# ---------------------------------------------------------------- helpers
++
++@triton.jit
++def _ordered(bits):
++    """float32 bits -> int32 with the same order as the floats (negative
++    values flip their magnitude bits); an involution."""
++    return bits ^ ((bits >> 31) & 0x7FFFFFFF)
++
++
++@triton.jit
++def _pack(dist, idx):
++    """Order-preserving (distance, index) key: compares like (dist, idx)."""
++    o = _ordered(dist.to(tl.float32).to(tl.int32, bitcast=True))
++    return (o.to(tl.int64) << 32) | idx.to(tl.int64)
++
++
++@triton.jit
++def _unpack_dist(key):
++    return _ordered((key >> 32).to(tl.int32)).to(tl.float32, bitcast=True)
++
++
++@triton.jit
++def _unpack_idx(key):
++    return (key & 0xFFFFFFFF).to(tl.int32)
++
++
++# ---------------------------------------------------------------- fps
++
++@triton.jit
++def fps_small_kernel(src, ptr, out_ptr, start, out, D: tl.constexpr, BLOCK: tl.constexpr, ACC: tl.constexpr):
++    """One program per example whose points fit in one block: coordinates and
++    running distances stay in registers for every iteration."""
++    b = tl.program_id(0)
++    s = tl.load(ptr + b)
++    e = tl.load(ptr + b + 1)
++    o0 = tl.load(out_ptr + b)
++    o1 = tl.load(out_ptr + b + 1)
++    n = e - s
++    if o1 > o0:
++        offs = tl.arange(0, BLOCK)
++        valid = offs < n
++        x = tl.load(src + (s + offs) * D + 0, mask=valid, other=0.0).to(ACC)
++        y = tl.load(src + (s + offs) * D + 1, mask=valid & (D > 1), other=0.0).to(ACC)
++        z = tl.load(src + (s + offs) * D + 2, mask=valid & (D > 2), other=0.0).to(ACC)
++        dist = tl.where(valid, 5e4, -1.0)
++        old = tl.load(start + b)
++        tl.store(out + o0, s + old)
++        for m in range(o0 + 1, o1):
++            px = tl.load(src + (s + old) * D + 0).to(ACC)
++            dd = (x - px) * (x - px)
++            if D > 1:
++                py = tl.load(src + (s + old) * D + 1).to(ACC)
++                dd += (y - py) * (y - py)
++            if D > 2:
++                pz = tl.load(src + (s + old) * D + 2).to(ACC)
++                dd += (z - pz) * (z - pz)
++            dist = tl.where(valid, tl.minimum(dist, dd), -1.0)
++            old = tl.argmax(dist, axis=0, tie_break_left=True).to(tl.int64)
++            tl.store(out + m, s + old)
++
++
++@triton.jit
++def fps_large_kernel(src, ptr, out_ptr, start, out, dist_buf, D: tl.constexpr, BLOCK: tl.constexpr, ACC: tl.constexpr):
++    """Examples larger than one block: running distances in global memory,
++    one pass over the example per sample."""
++    b = tl.program_id(0)
++    s = tl.load(ptr + b)
++    e = tl.load(ptr + b + 1)
++    o0 = tl.load(out_ptr + b)
++    o1 = tl.load(out_ptr + b + 1)
++    n = e - s
++    if o1 > o0:
++        old = tl.load(start + b)
++        tl.store(out + o0, s + old)
++        for m in range(o0 + 1, o1):
++            best = tl.full([], -1.0, ACC)
++            best_i = tl.full([], 0, tl.int64)
++            for c in range(0, n, BLOCK):
++                offs = c + tl.arange(0, BLOCK)
++                valid = offs < n
++                dd = tl.zeros([BLOCK], ACC)
++                for d in tl.static_range(D):
++                    p = tl.load(src + (s + old) * D + d).to(ACC)
++                    q = tl.load(src + (s + offs) * D + d, mask=valid, other=0.0).to(ACC)
++                    dd += (q - p) * (q - p)
++                prev = tl.load(dist_buf + s + offs, mask=valid, other=5e4)
++                if m == o0 + 1:
++                    prev = tl.where(valid, 5e4, prev)
++                cur = tl.minimum(prev, dd)
++                tl.store(dist_buf + s + offs, cur, mask=valid)
++                cur = tl.where(valid, cur, -1.0)
++                cmax = tl.max(cur, axis=0)
++                carg = tl.argmax(cur, axis=0, tie_break_left=True).to(tl.int64)
++                take = cmax > best
++                best_i = tl.where(take, c + carg, best_i)
++                best = tl.where(take, cmax, best)
++            old = best_i
++            tl.store(out + m, s + old)
++
++
++# ---------------------------------------------------------------- knn / three_nn
++
++INF_KEY = tl.constexpr(0x7F8000007FFFFFFF)  # (+inf, max index)
++
++
++@triton.jit
++def _first_cols(keys, BQ: tl.constexpr, KP: tl.constexpr, BX: tl.constexpr):
++    """keys[:, :KP] of a [BQ, BX] tensor (BX a multiple of KP)."""
++    r = tl.arange(0, BX // KP)
++    head = tl.reshape(keys, [BQ, BX // KP, KP])
++    return tl.min(tl.where((r == 0)[None, :, None], head, INF_KEY), axis=1)
++
++
++@triton.jit
++def _merge_topk(best, key, BQ: tl.constexpr, KP: tl.constexpr, BX: tl.constexpr):
++    """KP smallest keys of best [BQ, KP] (ascending) and key [BQ, BX].
++    For ascending runs A and B, the KP smallest of A u B are
++    min(A[i], B[KP - 1 - i]) (a bitonic sequence), re-sorted."""
++    ks = tl.sort(key, dim=1)
++    low = tl.minimum(best, tl.flip(_first_cols(ks, BQ, KP, BX), 1))
++    return tl.sort(low, dim=1)
++
++
++@triton.jit
++def knn_kernel(x, y, ptr_x, ex_y, col, m, k, D: tl.constexpr, BQ: tl.constexpr, BX: tl.constexpr, KP: tl.constexpr,
++               COSINE: tl.constexpr):
++    """BQ queries per program. The candidates of every query are packed
++    (distance, index) keys, merged with each tile of BX points of its example,
++    so the result is nearest first with ties on the smaller index."""
++    qo = tl.program_id(0) * BQ + tl.arange(0, BQ)
++    qv = qo < m
++    ex = tl.load(ex_y + qo, mask=qv, other=0)
++    xs = tl.load(ptr_x + ex, mask=qv, other=0)
++    xe = tl.load(ptr_x + ex + 1, mask=qv, other=0)
++    lo = tl.min(tl.where(qv, xs, 9223372036854775807), axis=0)
++    hi = tl.max(tl.where(qv, xe, 0), axis=0)
++    best = tl.full([BQ, KP], INF_KEY, tl.int64)
++    for c in range(lo, hi, BX):
++        xo = c + tl.arange(0, BX)
++        ok = qv[:, None] & (xo[None, :] >= xs[:, None]) & (xo[None, :] < xe[:, None])
++        dd = tl.zeros([BQ, BX], tl.float32)
++        na = tl.zeros([BX], tl.float32)
++        nq = tl.zeros([BQ], tl.float32)
++        for d in tl.static_range(D):
++            a = tl.load(x + xo * D + d, mask=xo < hi, other=0.0).to(tl.float32)
++            q = tl.load(y + qo * D + d, mask=qv, other=0.0).to(tl.float32)
++            if COSINE:
++                dd += a[None, :] * q[:, None]
++                na += a * a
++                nq += q * q
++            else:
++                diff = a[None, :] - q[:, None]
++                dd += diff * diff
++        if COSINE:
++            dd = 1.0 - dd / (tl.sqrt(na)[None, :] * tl.sqrt(nq)[:, None])
++        key = tl.where(ok, _pack(dd, xo[None, :]), INF_KEY)
++        best = _merge_topk(best, key, BQ, KP, BX)
++    kk = tl.arange(0, KP)
++    good = (best != INF_KEY) & (kk[None, :] < k) & qv[:, None]
++    tl.store(col + qo[:, None] * k + kk[None, :], _unpack_idx(best).to(tl.int64), mask=good)
++
++
++@triton.jit
++def _insert3(b0, b1, b2, c):
++    """Insert key c into the ascending triple (b0, b1, b2), keeping the 3 smallest."""
++    n0 = tl.minimum(b0, c)
++    t = tl.maximum(b0, c)
++    n1 = tl.minimum(b1, t)
++    t2 = tl.maximum(b1, t)
++    n2 = tl.minimum(b2, t2)
++    return n0, n1, n2
++
++
++@triton.jit
++def three_nn_kernel(unknown, known, dist2, idx, n, m, BQ: tl.constexpr, BX: tl.constexpr):
++    """Batched [B, n, 3] queries against [B, m, 3]; grid (cdiv(n, BQ), B).
++    Every tile contributes its three smallest packed (distance, index) keys,
++    extracted by three min-reductions and merged with an insertion network.
++    Missing neighbours (m < 3) keep index 0 and distance +inf."""
++    b = tl.program_id(1)
++    qo = tl.program_id(0) * BQ + tl.arange(0, BQ)
++    qv = qo < n
++    ux = tl.load(unknown + (b * n + qo) * 3 + 0, mask=qv, other=0.0).to(tl.float32)
++    uy = tl.load(unknown + (b * n + qo) * 3 + 1, mask=qv, other=0.0).to(tl.float32)
++    uz = tl.load(unknown + (b * n + qo) * 3 + 2, mask=qv, other=0.0).to(tl.float32)
++    b0 = tl.full([BQ], INF_KEY, tl.int64)
++    b1 = tl.full([BQ], INF_KEY, tl.int64)
++    b2 = tl.full([BQ], INF_KEY, tl.int64)
++    for c in range(0, m, BX):
++        xo = c + tl.arange(0, BX)
++        xv = xo < m
++        kx = tl.load(known + (b * m + xo) * 3 + 0, mask=xv, other=0.0).to(tl.float32)
++        ky = tl.load(known + (b * m + xo) * 3 + 1, mask=xv, other=0.0).to(tl.float32)
++        kz = tl.load(known + (b * m + xo) * 3 + 2, mask=xv, other=0.0).to(tl.float32)
++        dx = kx[None, :] - ux[:, None]
++        dy = ky[None, :] - uy[:, None]
++        dz = kz[None, :] - uz[:, None]
++        key = tl.where(xv[None, :], _pack(dx * dx + dy * dy + dz * dz, xo[None, :]), INF_KEY)
++        for _ in tl.static_range(3):
++            k = tl.min(key, axis=1)
++            b0, b1, b2 = _insert3(b0, b1, b2, k)
++            key = tl.where(key == k[:, None], INF_KEY, key)
++    base = (b * n + qo) * 3
++    for t in tl.static_range(3):
++        kk = b0 if t == 0 else (b1 if t == 1 else b2)
++        found = kk != INF_KEY
++        tl.store(dist2 + base + t, tl.where(found, _unpack_dist(kk), float("inf")).to(dist2.dtype.element_ty), mask=qv)
++        tl.store(idx + base + t, tl.where(found, _unpack_idx(kk), 0), mask=qv)
++
++
++# ---------------------------------------------------------------- radius / ball query
++
++@triton.jit
++def radius_kernel(x, y, ptr_x, ex_y, col, m, r2, max_nb, ignore_same, D: tl.constexpr, BQ: tl.constexpr, BX: tl.constexpr, ACC: tl.constexpr):
++    """For every query, the first max_nb points (index order) of its example
++    with squared distance < r2. Tiles are compacted with a prefix sum, so the
++    order is exact without atomics."""
++    qo = tl.program_id(0) * BQ + tl.arange(0, BQ)
++    qv = qo < m
++    ex = tl.load(ex_y + qo, mask=qv, other=0)
++    xs = tl.load(ptr_x + ex, mask=qv, other=0)
++    xe = tl.load(ptr_x + ex + 1, mask=qv, other=0)
++    lo = tl.min(tl.where(qv, xs, 9223372036854775807), axis=0)
++    hi = tl.max(tl.where(qv, xe, 0), axis=0)
++    count = tl.zeros([BQ], tl.int64)
++    for c in range(lo, hi, BX):
++        if tl.min(tl.where(qv, count, max_nb), axis=0) < max_nb:
++            xo = c + tl.arange(0, BX)
++            ok = qv[:, None] & (xo[None, :] >= xs[:, None]) & (xo[None, :] < xe[:, None])
++            dd = tl.zeros([BQ, BX], ACC)
++            for d in tl.static_range(D):
++                a = tl.load(x + xo * D + d, mask=xo < hi, other=0.0).to(ACC)
++                q = tl.load(y + qo * D + d, mask=qv, other=0.0).to(ACC)
++                diff = a[None, :] - q[:, None]
++                dd += diff * diff
++            hit = ok & (dd < r2)
++            if ignore_same:
++                hit = hit & (xo[None, :] != qo[:, None])
++            pos = count[:, None] + tl.cumsum(hit.to(tl.int64), axis=1) - 1
++            keep = hit & (pos < max_nb)
++            tl.store(col + qo[:, None] * max_nb + pos, xo[None, :].to(tl.int64), mask=keep)
++            count += tl.sum(hit.to(tl.int64), axis=1)
++
++
++@triton.jit
++def ball_query_kernel(new_xyz, xyz, idx, n, m, r2, nsample, BQ: tl.constexpr, BX: tl.constexpr, ACC: tl.constexpr):
++    """Batched; grid (cdiv(m, BQ), B). First nsample points with d2 < r2,
++    padded with the first hit; 0 when there is none."""
++    b = tl.program_id(1)
++    qo = tl.program_id(0) * BQ + tl.arange(0, BQ)
++    qv = qo < m
++    cx = tl.load(new_xyz + (b * m + qo) * 3 + 0, mask=qv, other=0.0).to(ACC)
++    cy = tl.load(new_xyz + (b * m + qo) * 3 + 1, mask=qv, other=0.0).to(ACC)
++    cz = tl.load(new_xyz + (b * m + qo) * 3 + 2, mask=qv, other=0.0).to(ACC)
++    count = tl.zeros([BQ], tl.int32)
++    first = tl.zeros([BQ], tl.int32)
++    out = idx + (b * m + qo) * nsample
++    for c in range(0, n, BX):
++        if tl.min(tl.where(qv, count, nsample), axis=0) < nsample:
++            xo = c + tl.arange(0, BX)
++            xv = xo < n
++            px = tl.load(xyz + (b * n + xo) * 3 + 0, mask=xv, other=0.0).to(ACC)
++            py = tl.load(xyz + (b * n + xo) * 3 + 1, mask=xv, other=0.0).to(ACC)
++            pz = tl.load(xyz + (b * n + xo) * 3 + 2, mask=xv, other=0.0).to(ACC)
++            dx = px[None, :] - cx[:, None]
++            dy = py[None, :] - cy[:, None]
++            dz = pz[None, :] - cz[:, None]
++            hit = qv[:, None] & xv[None, :] & (dx * dx + dy * dy + dz * dz < r2)
++            # first hit of this tile, for queries that had none yet
++            tile_first = tl.min(tl.where(hit, xo[None, :], 2147483647), axis=1)
++            first = tl.where((count == 0) & (tile_first < 2147483647), tile_first, first)
++            pos = count[:, None] + tl.cumsum(hit.to(tl.int32), axis=1) - 1
++            keep = hit & (pos < nsample)
++            tl.store(out[:, None] + pos, xo[None, :].to(tl.int32), mask=keep)
++            count += tl.sum(hit.to(tl.int32), axis=1)
++    # pad the remaining slots with the first hit (0 when there was none)
++    for s0 in range(0, nsample, BX):
++        so = s0 + tl.arange(0, BX)
++        pad = qv[:, None] & (so[None, :] >= count[:, None]) & (so[None, :] < nsample)
++        tl.store(out[:, None] + so[None, :], tl.broadcast_to(first[:, None], [BQ, BX]), mask=pad)
++
++
++@triton.jit
++def grid_kernel(pos, size, start, end, out, N, D: tl.constexpr, BLOCK: tl.constexpr, ACC: tl.constexpr):
++    o = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = o < N
++    c = tl.zeros([BLOCK], tl.int64)
++    k = 1
++    for d in tl.static_range(D):
++        sz = tl.load(size + d).to(ACC)
++        st = tl.load(start + d).to(ACC)
++        en = tl.load(end + d).to(ACC)
++        p = tl.load(pos + o * D + d, mask=v, other=0.0).to(ACC) - st
++        c += (p / sz).to(tl.int64) * k
++        k = k * (((en - st) / sz).to(tl.int64) + 1)
++    tl.store(out + o, c, mask=v)
++
++
++# ---------------------------------------------------------------- feature gathers
++
++@triton.jit
++def gather_rows_kernel(features, idx, out, C, N, M, BLOCK: tl.constexpr):
++    """out[b, c, j] = features[b, c, idx[b, j]] for idx flattened over M
++    (group_points: M = m * s; gather_points: M = m)."""
++    bc = tl.program_id(1)
++    b = bc // C
++    j = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = j < M
++    i = tl.load(idx + b * M + j, mask=v, other=0)
++    val = tl.load(features + bc * N + i, mask=v, other=0.0)
++    tl.store(out + bc * M + j, val, mask=v)
++
++
++@triton.jit
++def scatter_rows_kernel(grad_out, idx, grad, C, N, M, BLOCK: tl.constexpr):
++    """grad[b, c, idx[b, j]] += grad_out[b, c, j]; grad is float32 (float64 for double)."""
++    bc = tl.program_id(1)
++    b = bc // C
++    j = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = j < M
++    i = tl.load(idx + b * M + j, mask=v, other=0)
++    g = tl.load(grad_out + bc * M + j, mask=v, other=0.0).to(grad.dtype.element_ty)
++    tl.atomic_add(grad + bc * N + i, g, mask=v, sem="relaxed")
++
++
++@triton.jit
++def three_interpolate_kernel(features, idx, weight, out, C, m, n, BLOCK: tl.constexpr, ACC: tl.constexpr):
++    bc = tl.program_id(1)
++    b = bc // C
++    j = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = j < n
++    acc = tl.zeros([BLOCK], ACC)
++    for t in tl.static_range(3):
++        i = tl.load(idx + (b * n + j) * 3 + t, mask=v, other=0)
++        w = tl.load(weight + (b * n + j) * 3 + t, mask=v, other=0.0).to(ACC)
++        f = tl.load(features + bc * m + i, mask=v, other=0.0).to(ACC)
++        acc += w * f
++    tl.store(out + bc * n + j, acc.to(out.dtype.element_ty), mask=v)
++
++
++@triton.jit
++def three_interpolate_grad_kernel(grad_out, idx, weight, grad, C, m, n, BLOCK: tl.constexpr):
++    bc = tl.program_id(1)
++    b = bc // C
++    j = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = j < n
++    g = tl.load(grad_out + bc * n + j, mask=v, other=0.0).to(grad.dtype.element_ty)
++    for t in tl.static_range(3):
++        i = tl.load(idx + (b * n + j) * 3 + t, mask=v, other=0)
++        w = tl.load(weight + (b * n + j) * 3 + t, mask=v, other=0.0).to(grad.dtype.element_ty)
++        tl.atomic_add(grad + bc * m + i, g * w, mask=v, sem="relaxed")
++
++
++# ---------------------------------------------------------------- segment / scatter
++
++@triton.jit
++def segment_csr_kernel(src, indptr, out, arg, S, E, K, src_dim, REDUCE: tl.constexpr, IS_FLOAT: tl.constexpr, BK: tl.constexpr, ACC: tl.constexpr):
++    """src viewed as [L, E, K], indptr as [L, S + 1], out as [L, S, K].
++    One program per (l, s, k-tile). REDUCE: 0 sum, 1 mean, 2 min, 3 max.
++    min/max keep the first extremum; empty segments give 0 (arg = src_dim)."""
++    ls = tl.program_id(0)
++    l = ls // S
++    s = ls % S
++    ko = tl.program_id(1) * BK + tl.arange(0, BK)
++    kv = ko < K
++    a = tl.load(indptr + l * (S + 1) + s)
++    e = tl.load(indptr + l * (S + 1) + s + 1)
++    if REDUCE == 2:
++        acc = tl.full([BK], float("inf"), ACC) if IS_FLOAT else tl.full([BK], 9223372036854775807, tl.int64)
++    elif REDUCE == 3:
++        acc = tl.full([BK], float("-inf"), ACC) if IS_FLOAT else tl.full([BK], -9223372036854775807 - 1, tl.int64)
++    else:
++        acc = tl.zeros([BK], ACC) if IS_FLOAT else tl.zeros([BK], tl.int64)
++    best = tl.full([BK], src_dim, tl.int64)
++    for p in range(a, e):
++        x = tl.load(src + (l * E + p) * K + ko, mask=kv, other=0)
++        x = x.to(ACC) if IS_FLOAT else x.to(tl.int64)
++        if REDUCE == 2:
++            take = x < acc
++            best = tl.where(take, p, best)
++            acc = tl.where(take, x, acc)
++        elif REDUCE == 3:
++            take = x > acc
++            best = tl.where(take, p, best)
++            acc = tl.where(take, x, acc)
++        else:
++            acc += x
++    cnt = e - a
++    if REDUCE == 1:
++        if IS_FLOAT:
++            acc = acc / tl.maximum(cnt, 1).to(ACC)
++        else:
++            acc = acc // tl.maximum(cnt, 1)
++    if REDUCE >= 2:
++        acc = tl.where(cnt > 0, acc, 0)
++        tl.store(arg + (l * S + s) * K + ko, best, mask=kv)
++    tl.store(out + (l * S + s) * K + ko, acc.to(out.dtype.element_ty), mask=kv)
++
++
++@triton.jit
++def gather_csr_kernel(src, indptr, out, S, E_out, K, LOG_S: tl.constexpr, BR: tl.constexpr, BK: tl.constexpr):
++    """out[l, p, k] = src[l, s, k] with indptr[l, s] <= p < indptr[l, s + 1].
++    BR output rows per program; each row finds its segment by binary search."""
++    l = tl.program_id(2)
++    po = tl.program_id(0) * BR + tl.arange(0, BR)
++    pv = po < E_out
++    ko = tl.program_id(1) * BK + tl.arange(0, BK)
++    kv = ko < K
++    base = indptr + l * (S + 1)
++    # largest s with indptr[s] <= p (segments may be empty)
++    lo = tl.zeros([BR], tl.int64)
++    hi = tl.full([BR], S, tl.int64)
++    for _ in tl.static_range(LOG_S + 1):
++        mid = (lo + hi + 1) // 2
++        go = tl.load(base + mid, mask=pv & (lo < hi), other=0) <= po
++        lo = tl.where((lo < hi) & go, mid, lo)
++        hi = tl.where((lo < hi) & (~go), mid - 1, hi)
++    s = tl.minimum(lo, S - 1)
++    inside = pv & (po < tl.load(base + S))  # rows past this l's last segment are zero
++    v = tl.load(src + (l * S + s)[:, None] * K + ko[None, :], mask=inside[:, None] & kv[None, :], other=0)
++    tl.store(out + (l * E_out + po)[:, None] * K + ko[None, :], v, mask=pv[:, None] & kv[None, :])
++
++
++@triton.jit
++def scatter_kernel(src, index, out, B, E, K, N, REDUCE: tl.constexpr, BLOCK: tl.constexpr):
++    """src/index viewed as [B, E, K], out (accumulator dtype) as [B, N, K].
++    REDUCE: 0 sum, 2 min, 3 max (atomics)."""
++    o = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = o < B * E * K
++    k = o % K
++    b = o // (E * K)
++    i = tl.load(index + o, mask=v, other=0)
++    x = tl.load(src + o, mask=v, other=0).to(out.dtype.element_ty)
++    dst = out + (b * N + i) * K + k
++    if REDUCE == 0:
++        tl.atomic_add(dst, x, mask=v, sem="relaxed")
++    elif REDUCE == 2:
++        tl.atomic_min(dst, x, mask=v, sem="relaxed")
++    else:
++        tl.atomic_max(dst, x, mask=v, sem="relaxed")
++
++
++@triton.jit
++def scatter_arg_kernel(src, index, out, arg, B, E, K, N, BLOCK: tl.constexpr):
++    """arg[b, i, k] = smallest e with src[b, e, k] == out[b, i, k]."""
++    o = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    v = o < B * E * K
++    k = o % K
++    e = (o // K) % E
++    b = o // (E * K)
++    i = tl.load(index + o, mask=v, other=0)
++    x = tl.load(src + o, mask=v, other=0).to(out.dtype.element_ty)
++    dst = (b * N + i) * K + k
++    hit = v & (x == tl.load(out + dst, mask=v, other=0))
++    tl.atomic_min(arg + dst, e.to(tl.int64), mask=hit, sem="relaxed")
+diff --git a/pcops/_ops.py b/pcops/_ops.py
+new file mode 100644
+index 0000000..51fb4bd
+--- /dev/null
++++ b/pcops/_ops.py
+@@ -0,0 +1,298 @@
++"""Registration of the Triton implementations as torch.ops.pcops.*.
++
++Each operator is a torch.library.custom_op with the schema of the former
++CUDA extension, so the fake implementations and autograd formulas in
++_registration.py (and torch.compile) work unchanged.
++"""
++import math
++from typing import List, Optional, Tuple
++
++import torch
++import triton
++
++from . import _kernels as K
++
++_REDUCE = {"sum": 0, "mean": 1, "min": 2, "max": 3}
++
++
++def _acc(t: torch.Tensor):
++    import triton.language as tl
++
++    return tl.float64 if t.dtype == torch.float64 else tl.float32
++
++
++def _default_ptr(ptr: Optional[torch.Tensor], n: int, device) -> torch.Tensor:
++    if ptr is None:
++        return torch.tensor([0, n], dtype=torch.long, device=device)
++    return ptr.contiguous()
++
++
++def _example_of_rows(ptr: torch.Tensor, n: int) -> torch.Tensor:
++    deg = ptr[1:] - ptr[:-1]
++    return torch.repeat_interleave(torch.arange(deg.numel(), device=ptr.device), deg, output_size=n)
++
++
++# ---------------------------------------------------------------- sampling / neighbourhoods
++
++@torch.library.custom_op("pcops::fps", mutates_args=())
++def fps(src: torch.Tensor, ptr: torch.Tensor, ratio: float, random_start: bool) -> torch.Tensor:
++    torch._check(0.0 < ratio <= 1.0, lambda: f"fps: ratio must be in (0, 1], got {ratio}")
++    src = src.reshape(src.size(0), -1).contiguous()
++    ptr = ptr.contiguous()
++    B = ptr.numel() - 1
++    deg = ptr[1:] - ptr[:-1]
++    out_ptr = torch.zeros_like(ptr)
++    out_ptr[1:] = torch.ceil(deg.to(torch.float64) * ratio).long().cumsum(0)
++    total = int(out_ptr[-1])
++    out = torch.empty(total, dtype=torch.long, device=src.device)
++    if total == 0:
++        return out
++    if random_start:
++        start = (torch.rand(B, device=src.device, dtype=src.dtype) * deg.to(src.dtype)).long()
++    else:
++        start = torch.zeros(B, dtype=torch.long, device=src.device)
++    D = src.size(1)
++    max_deg = int(deg.max())
++    if max_deg <= 8192 and D <= 3:  # the register-resident kernel holds x, y, z
++        block = max(triton.next_power_of_2(max_deg), 16)
++        warps = 4 if block <= 1024 else (8 if block <= 4096 else 16)
++        K.fps_small_kernel[(B,)](src, ptr, out_ptr, start, out, D=D, BLOCK=block, ACC=_acc(src), num_warps=warps)
++    else:
++        buf = torch.empty(src.size(0), dtype=torch.float64 if src.dtype == torch.float64 else torch.float32, device=src.device)
++        K.fps_large_kernel[(B,)](src, ptr, out_ptr, start, out, buf, D=D, BLOCK=4096, ACC=_acc(src), num_warps=16)
++    return out
++
++
++@torch.library.custom_op("pcops::knn", mutates_args=())
++def knn(x: torch.Tensor, y: torch.Tensor, ptr_x: Optional[torch.Tensor], ptr_y: Optional[torch.Tensor], k: int, cosine: bool) -> torch.Tensor:
++    torch._check(1 <= k <= 100, lambda: "`k` needs to smaller than or equal to 100")
++    x, y = x.contiguous(), y.contiguous()
++    m = y.size(0)
++    ptr_x = _default_ptr(ptr_x, x.size(0), x.device)
++    ptr_y = _default_ptr(ptr_y, m, x.device)
++    col = torch.full((m * k,), -1, dtype=torch.long, device=x.device)
++    if m > 0 and x.size(0) > 0:
++        ex = _example_of_rows(ptr_y, m)
++        KP = max(triton.next_power_of_2(k), 4)
++        BX = max(64, KP)
++        BQ = 32 if KP <= 16 else 8
++        K.knn_kernel[(triton.cdiv(m, BQ),)](x, y, ptr_x, ex, col, m, k, D=x.size(1), BQ=BQ, BX=BX, KP=KP, COSINE=cosine, num_warps=4)
++    row = torch.arange(m, device=x.device).repeat_interleave(k)
++    mask = col != -1
++    return torch.stack([row.masked_select(mask), col.masked_select(mask)], 0)
++
++
++@torch.library.custom_op("pcops::radius", mutates_args=())
++def radius(x: torch.Tensor, y: torch.Tensor, ptr_x: Optional[torch.Tensor], ptr_y: Optional[torch.Tensor], r: float,
++           max_num_neighbors: int, ignore_same_index: bool) -> torch.Tensor:
++    x, y = x.contiguous(), y.contiguous()
++    m = y.size(0)
++    ptr_x = _default_ptr(ptr_x, x.size(0), x.device)
++    ptr_y = _default_ptr(ptr_y, m, x.device)
++    col = torch.full((m * max_num_neighbors,), -1, dtype=torch.long, device=x.device)
++    if m > 0 and x.size(0) > 0 and max_num_neighbors > 0:
++        ex = _example_of_rows(ptr_y, m)
++        r2 = float(torch.tensor(r * r, dtype=x.dtype))  # as in CUDA: r*r rounded to the input dtype
++        K.radius_kernel[(triton.cdiv(m, 8),)](x, y, ptr_x, ex, col, m, r2, max_num_neighbors, ignore_same_index, D=x.size(1),
++                                             BQ=8, BX=256, ACC=_acc(x), num_warps=2)
++    row = torch.arange(m, device=x.device).repeat_interleave(max_num_neighbors)
++    mask = col != -1
++    return torch.stack([row.masked_select(mask), col.masked_select(mask)], 0)
++
++
++@torch.library.custom_op("pcops::grid", mutates_args=())
++def grid(pos: torch.Tensor, size: torch.Tensor, start: Optional[torch.Tensor], end: Optional[torch.Tensor]) -> torch.Tensor:
++    pos = pos.reshape(pos.size(0), -1).contiguous()
++    torch._check(size.numel() == pos.size(1), lambda: "Input mismatch")
++    start = pos.min(0).values if start is None else start.contiguous()
++    end = pos.max(0).values if end is None else end.contiguous()
++    out = torch.empty(pos.size(0), dtype=torch.long, device=pos.device)
++    if pos.size(0) > 0:
++        K.grid_kernel[(triton.cdiv(pos.size(0), 256),)](pos, size.contiguous(), start, end, out, pos.size(0), D=pos.size(1), BLOCK=256,
++                                                        ACC=_acc(pos))
++    return out
++
++
++@torch.library.custom_op("pcops::ball_query", mutates_args=())
++def ball_query(new_xyz: torch.Tensor, xyz: torch.Tensor, radius: float, nsample: int) -> torch.Tensor:
++    torch._check(new_xyz.dim() == 3 and new_xyz.size(2) == 3 and xyz.dim() == 3 and xyz.size(2) == 3, lambda: "xyz must be [B, N, 3]")
++    torch._check(new_xyz.size(0) == xyz.size(0), lambda: "batch sizes differ")
++    torch._check(new_xyz.dtype == xyz.dtype, lambda: "new_xyz and xyz must have the same dtype")
++    torch._check(nsample > 0, lambda: "nsample must be positive")
++    new_xyz, xyz = new_xyz.contiguous(), xyz.contiguous()
++    B, M, N = xyz.size(0), new_xyz.size(1), xyz.size(1)
++    idx = torch.zeros(B, M, nsample, dtype=torch.int32, device=xyz.device)
++    if B * M > 0 and N > 0:
++        r2 = float(torch.tensor(radius * radius, dtype=torch.float32))  # as in CUDA: radius^2 as float
++        K.ball_query_kernel[(triton.cdiv(M, 64), B)](new_xyz, xyz, idx, N, M, r2, nsample, BQ=64, BX=128, ACC=_acc(xyz), num_warps=2)
++    return idx
++
++
++@torch.library.custom_op("pcops::three_nn", mutates_args=())
++def three_nn(unknown: torch.Tensor, known: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
++    torch._check(unknown.dim() == 3 and unknown.size(2) == 3 and known.dim() == 3 and known.size(2) == 3, lambda: "inputs must be [B, N, 3]")
++    torch._check(unknown.size(0) == known.size(0), lambda: "batch sizes differ")
++    unknown, known = unknown.contiguous(), known.contiguous()
++    B, n, m = unknown.size(0), unknown.size(1), known.size(1)
++    dist2 = torch.empty(B, n, 3, dtype=unknown.dtype, device=unknown.device)
++    idx = torch.empty(B, n, 3, dtype=torch.int32, device=unknown.device)
++    if B * n > 0:
++        K.three_nn_kernel[(triton.cdiv(n, 16), B)](unknown, known, dist2, idx, n, m, BQ=16, BX=128, num_warps=2)
++    return dist2, idx
++
++
++# ---------------------------------------------------------------- feature movement
++
++def _gather(features: torch.Tensor, idx: torch.Tensor, out_shape: List[int]) -> torch.Tensor:
++    features, idx = features.contiguous(), idx.contiguous()
++    B, C, N = features.shape
++    M = idx[0].numel() if idx.size(0) > 0 else 0
++    out = torch.empty(out_shape, dtype=features.dtype, device=features.device)
++    if out.numel() > 0:
++        K.gather_rows_kernel[(triton.cdiv(M, 256), B * C)](features, idx, out, C, N, M, BLOCK=256)
++    return out
++
++
++def _scatter_rows(grad_out: torch.Tensor, idx: torch.Tensor, n: int) -> torch.Tensor:
++    grad_out, idx = grad_out.contiguous(), idx.contiguous()
++    B, C = grad_out.size(0), grad_out.size(1)
++    M = idx[0].numel() if idx.size(0) > 0 else 0
++    acc_dtype = torch.float64 if grad_out.dtype == torch.float64 else torch.float32
++    grad = torch.zeros(B, C, n, dtype=acc_dtype, device=grad_out.device)
++    if grad_out.numel() > 0:
++        K.scatter_rows_kernel[(triton.cdiv(M, 256), B * C)](grad_out, idx, grad, C, n, M, BLOCK=256)
++    return grad.to(grad_out.dtype)
++
++
++@torch.library.custom_op("pcops::group_points", mutates_args=())
++def group_points(features: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
++    torch._check(features.dim() == 3, lambda: "features must be a [B, C, N] tensor")
++    torch._check(idx.dtype == torch.int32 and idx.dim() == 3, lambda: "idx must be an int32 [B, M, S] tensor")
++    return _gather(features, idx, [features.size(0), features.size(1), idx.size(1), idx.size(2)])
++
++
++@torch.library.custom_op("pcops::group_points_backward", mutates_args=())
++def group_points_backward(grad_out: torch.Tensor, idx: torch.Tensor, n: int) -> torch.Tensor:
++    return _scatter_rows(grad_out, idx, n)
++
++
++@torch.library.custom_op("pcops::gather_points", mutates_args=())
++def gather_points(features: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
++    torch._check(features.dim() == 3, lambda: "features must be a [B, C, N] tensor")
++    torch._check(idx.dtype == torch.int32 and idx.dim() == 2, lambda: "idx must be an int32 [B, M] tensor")
++    return _gather(features, idx, [features.size(0), features.size(1), idx.size(1)])
++
++
++@torch.library.custom_op("pcops::gather_points_backward", mutates_args=())
++def gather_points_backward(grad_out: torch.Tensor, idx: torch.Tensor, n: int) -> torch.Tensor:
++    return _scatter_rows(grad_out, idx, n)
++
++
++@torch.library.custom_op("pcops::three_interpolate", mutates_args=())
++def three_interpolate(features: torch.Tensor, idx: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
++    torch._check(idx.dtype == torch.int32 and idx.dim() == 3 and idx.size(2) == 3, lambda: "idx must be an int32 [B, n, 3] tensor")
++    torch._check(weight.shape == idx.shape and weight.dtype == features.dtype, lambda: "weight must be [B, n, 3] with the dtype of features")
++    features, idx, weight = features.contiguous(), idx.contiguous(), weight.contiguous()
++    B, C, m = features.shape
++    n = idx.size(1)
++    out = torch.empty(B, C, n, dtype=features.dtype, device=features.device)
++    if out.numel() > 0:
++        K.three_interpolate_kernel[(triton.cdiv(n, 256), B * C)](features, idx, weight, out, C, m, n, BLOCK=256, ACC=_acc(features))
++    return out
++
++
++@torch.library.custom_op("pcops::three_interpolate_backward", mutates_args=())
++def three_interpolate_backward(grad_out: torch.Tensor, idx: torch.Tensor, weight: torch.Tensor, m: int) -> torch.Tensor:
++    grad_out, idx, weight = grad_out.contiguous(), idx.contiguous(), weight.contiguous()
++    B, C, n = grad_out.shape
++    acc_dtype = torch.float64 if grad_out.dtype == torch.float64 else torch.float32
++    grad = torch.zeros(B, C, m, dtype=acc_dtype, device=grad_out.device)
++    if grad_out.numel() > 0:
++        K.three_interpolate_grad_kernel[(triton.cdiv(n, 256), B * C)](grad_out, idx, weight, grad, C, m, n, BLOCK=256)
++    return grad.to(grad_out.dtype)
++
++
++# ---------------------------------------------------------------- reductions
++
++def _lek(src: torch.Tensor, dim: int):
++    L = math.prod(src.shape[:dim])
++    E = src.size(dim)
++    Kd = math.prod(src.shape[dim + 1:])
++    return L, E, Kd
++
++
++@torch.library.custom_op("pcops::segment_csr", mutates_args=())
++def segment_csr(src: torch.Tensor, indptr: torch.Tensor, reduce: str) -> Tuple[torch.Tensor, torch.Tensor]:
++    torch._check(reduce in _REDUCE, lambda: f"segment_csr: unsupported reduce '{reduce}'")
++    dim = indptr.dim() - 1
++    src, indptr = src.contiguous(), indptr.contiguous()
++    L, E, Kd = _lek(src, dim)
++    S = max(indptr.size(-1) - 1, 0)
++    shape = list(src.shape)
++    shape[dim] = S
++    out = torch.empty(shape, dtype=src.dtype, device=src.device)
++    minmax = reduce in ("min", "max")
++    arg = torch.empty(shape if minmax else [0], dtype=torch.long, device=src.device)
++    if out.numel() > 0:
++        ind = indptr.expand(*src.shape[:dim], indptr.size(-1)).contiguous() if dim > 0 else indptr
++        K.segment_csr_kernel[(L * S, triton.cdiv(Kd, 64))](src, ind, out, arg if minmax else out, S, E, Kd, E, REDUCE=_REDUCE[reduce],
++                                                         IS_FLOAT=src.is_floating_point(), BK=64, ACC=_acc(src))
++    return out, arg
++
++
++@torch.library.custom_op("pcops::gather_csr", mutates_args=())
++def gather_csr(src: torch.Tensor, indptr: torch.Tensor) -> torch.Tensor:
++    dim = indptr.dim() - 1
++    src, indptr = src.contiguous(), indptr.contiguous()
++    L, S, Kd = _lek(src, dim)
++    E_out = int(indptr.reshape(-1, indptr.size(-1))[:, -1].max()) if indptr.numel() > 0 else 0
++    shape = list(src.shape)
++    shape[dim] = E_out
++    out = torch.empty(shape, dtype=src.dtype, device=src.device)  # the kernel writes every row
++    if src.numel() == 0 or S == 0:
++        return out.zero_()
++    if E_out > 0:
++        ind = indptr.expand(*src.shape[:dim], indptr.size(-1)).contiguous() if dim > 0 else indptr
++        BK = min(triton.next_power_of_2(max(Kd, 1)), 32)
++        BR = min(512, max(64, 8192 // BK))
++        K.gather_csr_kernel[(triton.cdiv(E_out, BR), triton.cdiv(Kd, BK), L)](src, ind, out, S, E_out, Kd, LOG_S=max(S, 1).bit_length(), BR=BR, BK=BK)
++    return out
++
++
++@torch.library.custom_op("pcops::scatter", mutates_args=())
++def scatter(src: torch.Tensor, index: torch.Tensor, dim: int, dim_size: int, reduce: str) -> Tuple[torch.Tensor, torch.Tensor]:
++    torch._check(reduce in _REDUCE, lambda: f"scatter: unsupported reduce '{reduce}'")
++    dim = dim % src.dim()
++    src, index = src.contiguous(), index.contiguous()
++    B, E, Kd = _lek(src, dim)
++    shape = list(src.shape)
++    shape[dim] = dim_size
++    minmax = reduce in ("min", "max")
++    floating = src.is_floating_point()
++    # half / bfloat16 accumulate in float32 (fp16/bf16 atomics are not portable)
++    acc_dtype = torch.float32 if src.dtype in (torch.float16, torch.bfloat16) else src.dtype
++    if minmax:
++        init = torch.finfo(acc_dtype).max if floating else torch.iinfo(acc_dtype).max
++        acc = torch.full(shape, init if reduce == "min" else -init - (0 if floating else 1), dtype=acc_dtype, device=src.device)
++    else:
++        acc = torch.zeros(shape, dtype=acc_dtype, device=src.device)
++    n = src.numel()
++    arg = torch.empty(0, dtype=torch.long, device=src.device)
++    if n > 0 and dim_size > 0:
++        code = 0 if reduce in ("sum", "mean") else _REDUCE[reduce]
++        K.scatter_kernel[(triton.cdiv(n, 512),)](src, index, acc, B, E, Kd, dim_size, REDUCE=code, BLOCK=512)
++    if reduce == "mean":
++        cnt = torch.zeros(shape, dtype=acc_dtype, device=src.device)
++        if n > 0 and dim_size > 0:
++            K.scatter_kernel[(triton.cdiv(n, 512),)](torch.ones_like(src, dtype=acc_dtype), index, cnt, B, E, Kd, dim_size, REDUCE=0,
++                                                     BLOCK=512)
++        cnt.masked_fill_(cnt < 1, 1)
++        acc = acc / cnt if floating else torch.div(acc, cnt, rounding_mode="floor")
++    if minmax:
++        empty = acc == (torch.finfo(acc_dtype).max if floating else torch.iinfo(acc_dtype).max) if reduce == "min" else \
++            acc == (-torch.finfo(acc_dtype).max if floating else torch.iinfo(acc_dtype).min)
++        arg = torch.full(shape, E, dtype=torch.long, device=src.device)
++        if n > 0 and dim_size > 0:
++            K.scatter_arg_kernel[(triton.cdiv(n, 512),)](src, index, acc, arg, B, E, Kd, dim_size, BLOCK=512)
++        acc = acc.masked_fill(empty, 0)
++    return acc.to(src.dtype), arg
+diff --git a/pyproject.toml b/pyproject.toml
+index 201d0c8..4b01797 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,15 @@
+ [build-system]
+-requires = ["setuptools>=64", "wheel", "torch"]
++requires = ["setuptools>=64", "wheel"]
+ build-backend = "setuptools.build_meta"
+ 
++[project]
++name = "pcops"
++version = "0.5.0"
++description = "Point-cloud and sparse-reduction operators for PyTorch, implemented in Triton"
++dependencies = ["torch", "triton"]
++
++[tool.setuptools]
++packages = ["pcops"]
++
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+diff --git a/setup.py b/setup.py
+deleted file mode 100644
+index c4a49e7..0000000
+--- a/setup.py
++++ /dev/null
+@@ -1,25 +0,0 @@
+-import glob
+-import os
+-
+-from setuptools import setup
+-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+-
+-here = os.path.dirname(os.path.abspath(__file__))
+-sources = ["csrc/pcops.cpp"] + sorted(
+-    os.path.relpath(p, here) for p in glob.glob(os.path.join(here, "csrc", "**", "*.cu"), recursive=True)
+-)
+-
+-setup(
+-    name="pcops",
+-    version="0.4.0",
+-    packages=["pcops"],
+-    ext_modules=[
+-        CUDAExtension(
+-            "pcops._C",
+-            sources,
+-            include_dirs=[os.path.join(here, "csrc")],
+-            extra_compile_args={"cxx": ["-O3"], "nvcc": ["-O3", "--expt-relaxed-constexpr"]},
+-        )
+-    ],
+-    cmdclass={"build_ext": BuildExtension},
+-)

@@ -1,0 +1,18 @@
+# Toolchain layer for task02 (CUDA 12.8 devel + Python 3.12 + PyTorch cu128,
+# which bundles Triton). Built once; the task image adds the repositories.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-dev build-essential ninja-build git ca-certificates \
+      gdb ripgrep less vim-tiny nano file patch diffutils procps time jq tree openssh-server \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -sf /usr/bin/vim.tiny /usr/local/bin/vim
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128 \
+ && /opt/venv/bin/pip install --no-cache-dir numpy pytest setuptools wheel
+ENV PATH=/opt/venv/bin:/usr/local/cuda/bin:${PATH} \
+    CUDA_HOME=/usr/local/cuda \
+    TORCH_CUDA_ARCH_LIST="8.9;12.0" \
+    PAGER=cat GIT_PAGER=cat
