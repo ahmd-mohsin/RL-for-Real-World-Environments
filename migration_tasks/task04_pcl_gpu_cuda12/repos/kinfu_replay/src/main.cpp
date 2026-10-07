@@ -1,6 +1,8 @@
 // kinfu_replay: headless KinectFusion runs on synthetic depth sequences.
 //
 //   kinfu_replay --mode kinfu|kinfuls --frames N --out DIR [--noise SEED] [--icp-trunc M] [--skip-mesh]
+//                [--traj orbit|walk|static] [--scene room|corridor] [--stop K] [--shift M]
+//                [--concurrent "mode:traj:noise,..."]
 //
 // Writes DIR/result.json (poses, ground truth, errors, TSDF statistics, mesh
 // quality, timing) and DIR/tsdf_slices.bin (three axis-aligned TSDF slices).
@@ -36,8 +38,8 @@ namespace {
 
 struct Args {
   std::string mode = "kinfu", out = ".";
-  int frames = 120, noise = -1;
-  float icp_trunc = 0.f;
+  int frames = 120, noise = -1, stop = 0;  // stop > 0: run only the first `stop` frames of the trajectory
+  float icp_trunc = 0.f, shift = 0.8f;  // shift: kinfuLS volume shifting distance (m)
   bool skip_mesh = false;
   std::string traj, scene;
 };
@@ -52,6 +54,8 @@ Args parse(int argc, char** argv) {
     };
     if (k == "--mode") a.mode = val();
     else if (k == "--frames") a.frames = std::stoi(val());
+    else if (k == "--stop") a.stop = std::stoi(val());
+    else if (k == "--shift") a.shift = std::stof(val());
     else if (k == "--out") a.out = val();
     else if (k == "--noise") a.noise = std::stoi(val());
     else if (k == "--icp-trunc") a.icp_trunc = std::stof(val());
@@ -157,7 +161,8 @@ int run_case(const Args& a) {
   Eigen::Affine3f world_from_volume = Eigen::Affine3f::Identity();
 
   auto run_frames = [&](auto&& kf, auto&& pose_of) {
-    for (int k = 0; k < a.frames; ++k) {
+    const int n = a.stop > 0 ? std::min(a.stop, a.frames) : a.frames;
+    for (int k = 0; k < n; ++k) {
       Eigen::Affine3f p = trajectoryPose(traj, k, a.frames);
       gt.push_back(p);
       renderDepth(scene, in, p, a.noise < 0 ? -1 : a.noise * 100003 + k, depth);
@@ -195,6 +200,18 @@ int run_case(const Args& a) {
       pcl::gpu::MarchingCubes mc;
       pcl::gpu::DeviceArray<pcl::PointXYZ> buf;
       pcl::gpu::DeviceArray<pcl::PointXYZ> tris = mc.run(kf.volume(), buf);
+      {
+        std::vector<double> t;
+        for (int r = 0; r < 5; ++r) {
+          cudaDeviceSynchronize();
+          auto t0 = std::chrono::steady_clock::now();
+          tris = mc.run(kf.volume(), buf);
+          cudaDeviceSynchronize();
+          t.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+        }
+        std::sort(t.begin(), t.end());
+        extra << "\"mc_ms\": " << t[2] << ", ";
+      }
       std::vector<pcl::PointXYZ> h;
       tris.download(h);
       meshQuality(h, scene, world_from_volume, extra);
@@ -204,6 +221,18 @@ int run_case(const Args& a) {
       // zero-crossing cloud extraction
       pcl::gpu::DeviceArray<pcl::PointXYZ> cbuf;
       pcl::gpu::DeviceArray<pcl::PointXYZ> cloud = kf.volume().fetchCloud(cbuf);
+      {
+        std::vector<double> t;
+        for (int r = 0; r < 5; ++r) {
+          cudaDeviceSynchronize();
+          auto t0 = std::chrono::steady_clock::now();
+          cloud = kf.volume().fetchCloud(cbuf);
+          cudaDeviceSynchronize();
+          t.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+        }
+        std::sort(t.begin(), t.end());
+        extra << "\"cloud_ms\": " << t[2] << ", ";
+      }
       std::vector<pcl::PointXYZ> hc;
       cloud.download(hc);
       double cx = 0, cy = 0, cz = 0, err = 0;
@@ -230,7 +259,7 @@ int run_case(const Args& a) {
     raycast_err = n ? s / n : -1;
     raycast_valid = (double)n / depth.size();
   } else {
-    pcl::gpu::kinfuLS::KinfuTracker kf(vsize, 0.8f, in.rows, in.cols);
+    pcl::gpu::kinfuLS::KinfuTracker kf(vsize, a.shift, in.rows, in.cols);
     kf.setDepthIntrinsics(in.fx, in.fy, in.cx, in.cy);
     kf.setInitialCameraPose(trajectoryPose(traj, 0, a.frames));
     kf.setDepthTruncationForICP(a.icp_trunc);

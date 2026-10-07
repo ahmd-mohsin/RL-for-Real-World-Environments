@@ -60,18 +60,25 @@ float Scene::sdf(const Eigen::Vector3f& p) const {
     d = std::min(d, sdCylinderY(p, {0.65f, 1.9f, 1.5f}, 0.12f, 0.45f));
     return d;
   }
-  // corridor along +x: floor, ceiling and walls with relief (so that ICP is constrained along the
-  // corridor axis), pillars, shelves and boxes
-  float relief_floor = 0.045f * std::sin(4.1f * p.x()) * std::cos(3.3f * p.z());
-  float relief_wall = 0.06f * std::sin(5.3f * p.x() + 1.1f) + 0.03f * std::sin(11.7f * p.x() + 0.3f * p.y());
+  // gallery along +x (9 m): floor and ceiling, a back wall with relief and, in front of it and on the
+  // floor, irregularly placed objects, so that ICP is constrained along the walking direction
+  auto u = [](std::uint32_t k, std::uint32_t salt) { return (hash32(k * 2654435761U ^ salt) & 0xffffU) / 65535.f; };
+  float relief_floor = 0.03f * std::sin(4.1f * p.x()) * std::cos(3.3f * p.z());
+  float relief_wall = 0.04f * std::sin(5.3f * p.x() + 1.1f) * std::cos(4.7f * p.y() + 0.4f);
   float d = std::min(2.25f + relief_floor - p.y(), p.y() - 0.35f);
-  d = std::min(d, std::min(p.z() - 0.2f - relief_wall, 3.0f - relief_wall - p.z()));
-  for (int k = 0; k < 10; ++k) {
-    float x = 0.6f + 0.95f * k;
-    d = std::min(d, sdCylinderY(p, {x, 1.3f, k % 2 ? 2.55f : 0.65f}, 0.12f, 1.0f));
-    d = std::min(d, sdBox(rotY(p - Eigen::Vector3f(x + 0.4f, 2.05f, k % 2 ? 0.7f : 2.4f), 0.3f * k), {0.18f, 0.2f, 0.15f}));
-    d = std::min(d, sdBox(p - Eigen::Vector3f(x + 0.25f, 0.9f + 0.15f * (k % 3), k % 2 ? 0.32f : 2.88f), {0.22f, 0.02f, 0.14f}));
-    if (k % 3 == 0) d = std::min(d, sdSphere(p, {x + 0.2f, 1.6f, 2.75f}, 0.18f));
+  d = std::min(d, 3.0f - relief_wall - p.z());
+  d = std::min(d, p.z() + 0.6f);
+  for (std::uint32_t k = 0; k < 30; ++k) {
+    Eigen::Vector3f c(0.15f + 0.3f * k + 0.12f * u(k, 1), 0.6f + 1.35f * u(k, 2), 2.55f + 0.3f * u(k, 3));
+    float a = 0.08f + 0.12f * u(k, 4);
+    if (k % 3 == 0) d = std::min(d, sdSphere(p, c, a));
+    else if (k % 3 == 1) d = std::min(d, sdBox(rotY(p - c, 3.f * u(k, 5)), {a, 0.6f * a + 0.05f, 0.7f * a}));
+    else d = std::min(d, sdCylinderY(p, c, 0.5f * a + 0.03f, a + 0.1f));
+  }
+  for (std::uint32_t k = 0; k < 11; ++k) {
+    float h = 0.15f + 0.25f * u(k, 6);
+    Eigen::Vector3f c(0.4f + 0.85f * k + 0.2f * u(k, 7), 2.25f - h, 1.7f + 0.8f * u(k, 8));
+    d = std::min(d, sdBox(rotY(p - c, 2.f * u(k, 9)), {0.12f + 0.1f * u(k, 10), h, 0.1f + 0.08f * u(k, 11)}) - 0.01f);
   }
   return d;
 }
@@ -89,11 +96,11 @@ Eigen::Affine3f trajectoryPose(const std::string& traj, int k, int n) {
   } else if (traj == "static") {
     pose.translation() = Eigen::Vector3f(1.5f, 1.35f, 0.35f);
   } else if (traj == "walk") {
-    // walk down the corridor (x from 0.9 to 6.9 m), looking along x with a slight wobble
-    float yaw = 1.5707963f + 0.12f * std::sin(25.132741f * t);
-    pose.linear() = Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitY()).toRotationMatrix() *
-                    Eigen::AngleAxisf(0.05f * std::sin(12.566371f * t), Eigen::Vector3f::UnitX()).toRotationMatrix();
-    pose.translation() = Eigen::Vector3f(0.9f + 6.0f * t, 1.3f + 0.03f * std::sin(31.4159f * t), 1.6f + 0.25f * std::sin(6.2831853f * t));
+    // walk along the gallery (x from 0.9 to 6.9 m), facing the back wall, with a slight wobble
+    float yaw = 0.15f * std::sin(12.566371f * t);
+    pose.linear() = (Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitY()) *
+                     Eigen::AngleAxisf(0.06f * std::sin(18.849556f * t), Eigen::Vector3f::UnitX())).toRotationMatrix();
+    pose.translation() = Eigen::Vector3f(0.9f + 6.0f * t, 1.3f + 0.04f * std::sin(31.4159f * t), 0.55f + 0.15f * std::sin(6.2831853f * t));
   } else {
     throw std::runtime_error("unknown trajectory " + traj);
   }

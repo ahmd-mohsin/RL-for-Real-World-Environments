@@ -1,0 +1,9 @@
+{
+  "max_ratio": {
+    "kinfu_frame_ms": 1.10,
+    "marching_cubes_ms": 1.10,
+    "cloud_ms": 1.10,
+    "kinfuls_frame_ms": 1.10,
+    "people_ms": 1.10
+  }
+}

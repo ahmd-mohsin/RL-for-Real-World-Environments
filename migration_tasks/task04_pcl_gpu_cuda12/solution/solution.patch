@@ -1852,11 +1852,104 @@ index df25626..83a4996 100644
  
        cudaSafeCall( cudaGetLastError() );
        cudaSafeCall( cudaDeviceSynchronize() );            
+diff --git a/gpu/people/src/cuda/nvidia/NCVAlg.hpp b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+index 5eede7d..a115edf 100644
+--- a/gpu/people/src/cuda/nvidia/NCVAlg.hpp
++++ b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+@@ -129,17 +129,27 @@ static __device__ Tdata subReduce(Tdata threadElem)
+ 
+     if (threadIdx.x < 32)
+     {
++        // read and write phases separated by __syncwarp: the former warp-synchronous tail on
++        // volatile shared memory is unsafe under independent thread scheduling
+         if (nThreads >= 64)
+         {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 32]);
++            Tdata other;
++            functor.assign(&other, reduceArr + threadIdx.x + 32);
++            __syncwarp();
++            functor.reduce(reduceArr[threadIdx.x], other);
+         }
++        __syncwarp();
+         if (nThreads >= 32 && threadIdx.x < 16)
+         {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 16]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 8]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 4]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 2]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 1]);
++            #pragma unroll
++            for (int offset = 16; offset >= 1; offset >>= 1)
++            {
++                Tdata other;
++                functor.assign(&other, reduceArr + threadIdx.x + offset);
++                __syncwarp(0xffffu);
++                functor.reduce(reduceArr[threadIdx.x], other);
++                __syncwarp(0xffffu);
++            }
+         }
+     }
+ 
 diff --git a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
-index 60c1f82..2173bf0 100644
+index 60c1f82..b20856c 100644
 --- a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
 +++ b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
-@@ -152,22 +152,10 @@ const Ncv32u NUM_THREADS_ANCHORSPARALLEL = 64;
+@@ -74,27 +74,28 @@
+ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of the loop in warpScanInclusive
+ 
+ 
+-//Almost the same as naive scan1Inclusive, but doesn't need __syncthreads()
+-//assuming size <= WARP_SIZE and size is power of 2
+-__device__ Ncv32u warpScanInclusive(Ncv32u idata, volatile Ncv32u *s_Data)
++// Inclusive scan within a warp through shuffles: the former volatile shared-memory
++// version relied on implicit warp-synchronous execution, which does not hold under
++// independent thread scheduling (Volta and later). `mask` names the participating lanes,
++// which must be lanes 0..n-1 of the warp.
++__device__ Ncv32u warpScanInclusive(Ncv32u idata, volatile Ncv32u *s_Data, unsigned mask = 0xffffffffu)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    (void)s_Data;
++    const Ncv32u lane = threadIdx.x & (K_WARP_SIZE - 1);
++    Ncv32u v = idata;
++    #pragma unroll
++    for (int offset = 1; offset < (int)K_WARP_SIZE; offset <<= 1)
++    {
++        Ncv32u n = __shfl_up_sync(mask, v, offset);
++        if (lane >= (Ncv32u)offset) v += n;
++    }
++    return v;
+ }
+ 
+-__device__ __forceinline__ Ncv32u warpScanExclusive(Ncv32u idata, volatile Ncv32u *s_Data)
++
++__device__ __forceinline__ Ncv32u warpScanExclusive(Ncv32u idata, volatile Ncv32u *s_Data, unsigned mask = 0xffffffffu)
+ {
+-    return warpScanInclusive(idata, s_Data) - idata;
++    return warpScanInclusive(idata, s_Data, mask) - idata;
+ }
+ 
+ template <Ncv32u tiNumScanThreads>
+@@ -121,7 +122,7 @@ __device__ Ncv32u scan1Inclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+             //grab top warp elements
+             Ncv32u val = s_Data[threadIdx.x];
+             //calculate exclusive scan and write back to shared memory
+-            s_Data[threadIdx.x] = warpScanExclusive(val, s_Data);
++            s_Data[threadIdx.x] = warpScanExclusive(val, s_Data, (tiNumScanThreads / K_WARP_SIZE) >= 32 ? 0xffffffffu : (1u << (tiNumScanThreads / K_WARP_SIZE)) - 1u);
+         }
+ 
+         //return updated warp scans with exclusive scan results
+@@ -152,22 +153,10 @@ const Ncv32u NUM_THREADS_ANCHORSPARALLEL = 64;
  #define NUM_THREADS_CLASSIFIERPARALLEL          (1 << NUM_THREADS_CLASSIFIERPARALLEL_LOG2)
  
  
@@ -1879,7 +1972,7 @@ index 60c1f82..2173bf0 100644
  
  
  __device__ HaarStage64 getStage(Ncv32u iStage, HaarStage64 *d_Stages)
-@@ -182,7 +170,8 @@ __device__ HaarClassifierNode128 getClassifierNode(Ncv32u iNode, HaarClassifierN
+@@ -182,7 +171,8 @@ __device__ HaarClassifierNode128 getClassifierNode(Ncv32u iNode, HaarClassifierN
      HaarClassifierNode128 tmpNode;
      if (tbCacheTextureCascade)
      {
@@ -1889,7 +1982,7 @@ index 60c1f82..2173bf0 100644
      }
      else
      {
-@@ -200,7 +189,7 @@ __device__ void getFeature(Ncv32u iFeature, HaarFeature64 *d_Features,
+@@ -200,7 +190,7 @@ __device__ void getFeature(Ncv32u iFeature, HaarFeature64 *d_Features,
      HaarFeature64 feature;
      if (tbCacheTextureCascade)
      {
@@ -1898,7 +1991,7 @@ index 60c1f82..2173bf0 100644
      }
      else
      {
-@@ -216,7 +205,7 @@ __device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
+@@ -216,7 +206,7 @@ __device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
  {
      if (tbCacheTextureIImg)
      {
@@ -1907,7 +2000,7 @@ index 60c1f82..2173bf0 100644
      }
      else
      {
-@@ -1055,32 +1044,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+@@ -1055,32 +1045,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
  
      NCV_SKIP_COND_BEGIN
  
@@ -1942,7 +2035,7 @@ index 60c1f82..2173bf0 100644
      Ncv32u stageStartAnchorParallel = 0;
      Ncv32u stageMiddleSwitch = getStageNumWithNotLessThanNclassifiers(NUM_THREADS_CLASSIFIERPARALLEL,
 diff --git a/gpu/people/src/cuda/nvidia/NPP_staging.cu b/gpu/people/src/cuda/nvidia/NPP_staging.cu
-index 5efefc9..07c7321 100644
+index 5efefc9..d376fbd 100644
 --- a/gpu/people/src/cuda/nvidia/NPP_staging.cu
 +++ b/gpu/people/src/cuda/nvidia/NPP_staging.cu
 @@ -44,9 +44,6 @@
@@ -1955,7 +2048,69 @@ index 5efefc9..07c7321 100644
  
  
  //==============================================================================
-@@ -197,7 +194,8 @@ inline __device__ T readElem(T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u
+@@ -84,35 +81,30 @@ cudaStream_t nppStSetActiveCUDAstream(cudaStream_t cudaStream)
+ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of the loop in warpScanInclusive
+ 
+ 
+-//Almost the same as naive scan1Inclusive, but doesn't need __syncthreads()
+-//assuming size <= WARP_SIZE and size is power of 2
++// Inclusive scan within a warp through shuffles: the former volatile shared-memory
++// version relied on implicit warp-synchronous execution, which does not hold under
++// independent thread scheduling (Volta and later). `mask` names the participating lanes,
++// which must be lanes 0..n-1 of the warp.
+ template <class T>
+-inline __device__ T warpScanInclusive(T idata, volatile T *s_Data)
++inline __device__ T warpScanInclusive(T idata, volatile T *s_Data, unsigned mask = 0xffffffffu)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    //for(Ncv32u offset = 1; offset < K_WARP_SIZE; offset <<= 1)
+-    //{
+-    //    s_Data[pos] += s_Data[pos - offset];
+-    //}
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    (void)s_Data;
++    const Ncv32u lane = threadIdx.x & (K_WARP_SIZE - 1);
++    T v = idata;
++    #pragma unroll
++    for (int offset = 1; offset < (int)K_WARP_SIZE; offset <<= 1)
++    {
++        T n = __shfl_up_sync(mask, v, offset);
++        if (lane >= (Ncv32u)offset) v += n;
++    }
++    return v;
+ }
+ 
+ 
+ template <class T>
+-inline __device__ T warpScanExclusive(T idata, volatile T *s_Data)
++inline __device__ T warpScanExclusive(T idata, volatile T *s_Data, unsigned mask = 0xffffffffu)
+ {
+-    return warpScanInclusive(idata, s_Data) - idata;
++    return warpScanInclusive(idata, s_Data, mask) - idata;
+ }
+ 
+ 
+@@ -140,7 +132,7 @@ inline __device__ T blockScanInclusive(T idata, volatile T *s_Data)
+             //grab top warp elements
+             T val = s_Data[threadIdx.x];
+             //calculate exclusive scan and write back to shared memory
+-            s_Data[threadIdx.x] = warpScanExclusive(val, s_Data);
++            s_Data[threadIdx.x] = warpScanExclusive(val, s_Data, (tiNumScanThreads / K_WARP_SIZE) >= 32 ? 0xffffffffu : (1u << (tiNumScanThreads / K_WARP_SIZE)) - 1u);
+         }
+ 
+         //return updated warp scans with exclusive scan results
+@@ -197,7 +189,8 @@ inline __device__ T readElem(T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u
  template<>
  inline __device__ Ncv8u readElem<Ncv8u>(Ncv8u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
  {
@@ -1965,7 +2120,7 @@ index 5efefc9..07c7321 100644
  }
  
  
-@@ -242,7 +240,7 @@ __global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u sr
+@@ -242,7 +235,7 @@ __global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u sr
      {
          d_src += srcStride * blockIdx.x;
      }
@@ -1974,7 +2129,7 @@ index 5efefc9..07c7321 100644
      d_II += IIstride * blockIdx.x;
  
      Ncv32u numBuckets = (srcWidth + NUM_SCAN_THREADS - 1) >> LOG2_NUM_SCAN_THREADS;
-@@ -298,18 +296,8 @@ template <bool tbDoSqr, class T_in, class T_out>
+@@ -298,18 +291,8 @@ template <bool tbDoSqr, class T_in, class T_out>
  NCVStatus scanRowsWrapperDevice(T_in *d_src, Ncv32u srcStride,
                                  T_out *d_dst, Ncv32u dstStride, NcvSize32u roi)
  {
@@ -1995,7 +2150,7 @@ index 5efefc9..07c7321 100644
      scanRows
          <T_in, T_out, tbDoSqr>
          <<<roi.height, NUM_SCAN_THREADS, 0, nppStGetActiveCUDAstream()>>>
-@@ -667,7 +655,7 @@ __device__ T getElem_Decimate(Ncv32u x, T *d_src);
+@@ -667,7 +650,7 @@ __device__ T getElem_Decimate(Ncv32u x, T *d_src);
  template<>
  __device__ Ncv32u getElem_Decimate<Ncv32u, true>(Ncv32u x, Ncv32u *d_src)
  {
@@ -2004,7 +2159,7 @@ index 5efefc9..07c7321 100644
  }
  
  
-@@ -681,7 +669,7 @@ __device__ Ncv32u getElem_Decimate<Ncv32u, false>(Ncv32u x, Ncv32u *d_src)
+@@ -681,7 +664,7 @@ __device__ Ncv32u getElem_Decimate<Ncv32u, false>(Ncv32u x, Ncv32u *d_src)
  template<>
  __device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
  {
@@ -2013,7 +2168,7 @@ index 5efefc9..07c7321 100644
      Ncv64u res = (Ncv64u)tmp.y;
      res <<= 32;
      res |= tmp.x;
-@@ -743,25 +731,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+@@ -743,25 +726,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
      }
      else
      {
@@ -2040,7 +2195,7 @@ index 5efefc9..07c7321 100644
          decimate_C1R
              <T, true>
              <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
-@@ -855,7 +825,7 @@ __device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
+@@ -855,7 +820,7 @@ __device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
  {
      if (tbCacheTexture)
      {
@@ -2049,7 +2204,7 @@ index 5efefc9..07c7321 100644
      }
      else
      {
-@@ -869,7 +839,7 @@ __device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
+@@ -869,7 +834,7 @@ __device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
  {
      if (tbCacheTexture)
      {
@@ -2058,7 +2213,7 @@ index 5efefc9..07c7321 100644
          Ncv64u res = (Ncv64u)tmp.y;
          res <<= 32;
          res |= tmp.x;
-@@ -980,21 +950,11 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+@@ -980,21 +945,11 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
      }
      else
      {
@@ -2082,7 +2237,7 @@ index 5efefc9..07c7321 100644
      }
  
      ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
-@@ -1624,32 +1584,39 @@ NCVStatus nppsStCompact_32f_host(Ncv32f *h_src, Ncv32u srcLen,
+@@ -1624,32 +1579,39 @@ NCVStatus nppsStCompact_32f_host(Ncv32f *h_src, Ncv32u srcLen,
  //==============================================================================
  
  
@@ -2129,7 +2284,7 @@ index 5efefc9..07c7321 100644
                                                Ncv32f *pDst, 
                                                NcvSize32u dstSize,
                                                Ncv32u dstStep,
-@@ -1676,15 +1643,16 @@ __global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
+@@ -1676,15 +1638,16 @@ __global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
      float sum = 0.0f;
      for (int m = 0; m < nKernelSize; ++m)
      {
@@ -2149,7 +2304,7 @@ index 5efefc9..07c7321 100644
                                                   Ncv32f *pDst,
                                                   NcvSize32u dstSize,
                                                   Ncv32u dstStep,
-@@ -1708,8 +1676,8 @@ __global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
+@@ -1708,8 +1671,8 @@ __global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
      float sum = 0.0f;
      for (int m = 0; m < nKernelSize; ++m)
      {
@@ -2160,7 +2315,7 @@ index 5efefc9..07c7321 100644
      }
  
      pDst[ix + iy * dstStep] = sum * multiplier;
-@@ -1756,12 +1724,6 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+@@ -1756,12 +1719,6 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
          oROI.height = srcSize.height - oROI.y;
      }
  
@@ -2173,7 +2328,7 @@ index 5efefc9..07c7321 100644
  
      dim3 ctaSize (32, 6);
      dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
-@@ -1777,7 +1739,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+@@ -1777,7 +1734,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
          return NPPST_ERROR;
      case nppStBorderMirror:
          FilterRowBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
@@ -2182,7 +2337,7 @@ index 5efefc9..07c7321 100644
          ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
          break;
      default:
-@@ -1828,12 +1790,6 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+@@ -1828,12 +1785,6 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
          oROI.height = srcSize.height - oROI.y;
      }
  
@@ -2195,7 +2350,7 @@ index 5efefc9..07c7321 100644
  
      dim3 ctaSize (32, 6);
      dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
-@@ -1847,7 +1803,7 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+@@ -1847,7 +1798,7 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
          return NPPST_ERROR;
      case nppStBorderMirror:
          FilterColumnBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
@@ -2204,7 +2359,7 @@ index 5efefc9..07c7321 100644
          ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
          break;
      default:
-@@ -1871,11 +1827,30 @@ inline Ncv32u iDivUp(Ncv32u num, Ncv32u denom)
+@@ -1871,11 +1822,30 @@ inline Ncv32u iDivUp(Ncv32u num, Ncv32u denom)
  }
  
  
@@ -2229,16 +2384,16 @@ index 5efefc9..07c7321 100644
 +    td.normalizedCoords = normalized;
 +    return cudaCreateTextureObject (obj, &rd, &td, nullptr);
 +}
-+
  
  
 -__global__ void BlendFramesKernel(const float *u, const float *v,   // forward flow
++
 +__global__ void BlendFramesKernel(cudaTextureObject_t tex_src0, cudaTextureObject_t tex_src1,
 +                                  const float *u, const float *v,   // forward flow
                                    const float *ur, const float *vr, // backward flow
                                    const float *o0, const float *o1, // coverage masks
                                    int w, int h, int s, 
-@@ -1902,18 +1877,18 @@ __global__ void BlendFramesKernel(const float *u, const float *v,   // forward f
+@@ -1902,18 +1872,18 @@ __global__ void BlendFramesKernel(const float *u, const float *v,   // forward f
      if (b0 && b1)
      {
          // pixel is visible on both frames
@@ -2261,7 +2416,7 @@ index 5efefc9..07c7321 100644
      }
  }
  
-@@ -1932,28 +1907,23 @@ NCVStatus BlendFrames(const Ncv32f *src0,
+@@ -1932,28 +1902,23 @@ NCVStatus BlendFrames(const Ncv32f *src0,
                        Ncv32f theta,
                        Ncv32f *out)
  {
@@ -2300,7 +2455,7 @@ index 5efefc9..07c7321 100644
  
      return NPPST_SUCCESS;
  }
-@@ -2304,11 +2274,11 @@ NCVStatus nppiStVectorWarp_PSF2x2_32f_C1(const Ncv32f *pSrc,
+@@ -2304,11 +2269,11 @@ NCVStatus nppiStVectorWarp_PSF2x2_32f_C1(const Ncv32f *pSrc,
  //==============================================================================
  
  
@@ -2314,7 +2469,7 @@ index 5efefc9..07c7321 100644
                               float xmin,
                               float xmax,
                               int ixmin,
-@@ -2318,21 +2288,22 @@ __device__ float processLine(int spos,
+@@ -2318,21 +2283,22 @@ __device__ float processLine(int spos,
  {
      // first element
      float wsum = 1.0f - xmin + fxmin;
@@ -2341,7 +2496,7 @@ index 5efefc9..07c7321 100644
                                        Ncv32u srcStep,
                                        NcvRect32u srcROI,
                                        Ncv32f *dst,
-@@ -2380,18 +2351,18 @@ __global__ void resizeSuperSample_32f(NcvSize32u srcSize,
+@@ -2380,18 +2346,18 @@ __global__ void resizeSuperSample_32f(NcvSize32u srcSize,
  
      float wsum = 1.0f - yBegin + floorYBegin;
  
@@ -2363,7 +2518,7 @@ index 5efefc9..07c7321 100644
          ceilXEnd) * (ceilYEnd - yEnd);
      wsum += ceilYEnd - yEnd;
      sum /= wsum;
-@@ -2420,7 +2391,8 @@ __device__ float bicubicCoeff(float x_)
+@@ -2420,7 +2386,8 @@ __device__ float bicubicCoeff(float x_)
  }
  
  
@@ -2373,7 +2528,7 @@ index 5efefc9..07c7321 100644
                                NcvRect32u srcROI,
                                NcvSize32u dstSize,
                                Ncv32u dstStep,
-@@ -2481,7 +2453,7 @@ __global__ void resizeBicubic(NcvSize32u srcSize,
+@@ -2481,7 +2448,7 @@ __global__ void resizeBicubic(NcvSize32u srcSize,
              float wx = bicubicCoeff (xDist);
              float wy = bicubicCoeff (yDist);
              wx *= wy;
@@ -2382,7 +2537,7 @@ index 5efefc9..07c7321 100644
              wsum += wx;
          }
      }
-@@ -2517,33 +2489,30 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+@@ -2517,33 +2484,30 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
  
      if (interpolation == nppStSupersample)
      {

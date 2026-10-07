@@ -2,8 +2,9 @@
 // pcl::gpu::people (integral images, decimation, rect std-dev, separable filters,
 // resize, frame interpolation, stream compaction, transpose).
 //
-//   ncv_check --out DIR
+//   ncv_check --out DIR [--seed S]
 //
+// --seed S (S != 0) draws different input data and image sizes; S = 0 is the default set.
 // Writes DIR/<case>.bin with each output buffer and DIR/result.json with the
 // status code of every call and, where the library provides a host reference
 // implementation, the maximum difference against it.
@@ -26,6 +27,7 @@
 namespace {
 
 std::string g_out;
+std::uint32_t g_seed = 0;
 std::ostringstream g_json;
 bool g_first = true;
 
@@ -34,6 +36,7 @@ void check(cudaError_t e, const char* what) {
 }
 
 std::uint32_t hash32(std::uint32_t x) {
+  x ^= g_seed * 0x9e3779b1U;
   x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
   return x;
 }
@@ -298,13 +301,15 @@ void testFloat(cudaDeviceProp&) {
 int main(int argc, char** argv) try {
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--out" && i + 1 < argc) g_out = argv[++i];
+    else if (std::string(argv[i]) == "--seed" && i + 1 < argc) g_seed = (std::uint32_t)std::stoul(argv[++i]);
   if (g_out.empty()) throw std::runtime_error("usage: ncv_check --out DIR");
   int dev = 0;
   check(cudaGetDevice(&dev), "device");
   cudaDeviceProp prop;
   check(cudaGetDeviceProperties(&prop, dev), "props");
   testIntegral(prop, 640, 480, 0, "aligned");
-  testIntegral(prop, 637, 471, 1, "unaligned");
+  if (g_seed == 0) testIntegral(prop, 637, 471, 1, "unaligned");
+  else testIntegral(prop, 600 + (int)(g_seed % 41), 440 + (int)(g_seed / 41 % 37), 1 + (int)(g_seed / 1517 % 7), "unaligned");
   testDecimateTransposeCompact(prop);
   testFloat(prop);
   std::ofstream(g_out + "/result.json") << "{" << g_json.str() << "}\n";

@@ -1,0 +1,8 @@
+tests/
+solution/
+runs/
+DESIGN_NOTES.md
+MIGRATION_LOG.md
+*.patch
+repos/*/build*
+**/__pycache__

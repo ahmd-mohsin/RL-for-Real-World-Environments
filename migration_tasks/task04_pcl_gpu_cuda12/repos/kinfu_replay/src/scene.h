@@ -19,7 +19,7 @@ struct Intrinsics {
 
 class Scene {
  public:
-  // "room": a 3 m cube with objects (KinFu); "corridor": a 9 m long corridor (KinFu large scale)
+  // "room": a 3 m cube with objects (KinFu); "corridor": a 9 m long gallery with objects (KinFu large scale)
   explicit Scene(const std::string& name);
   float sdf(const Eigen::Vector3f& p) const;
   const std::string& name() const { return name_; }

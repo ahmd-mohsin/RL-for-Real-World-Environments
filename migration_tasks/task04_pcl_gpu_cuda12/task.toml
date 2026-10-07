@@ -1,0 +1,49 @@
+schema_version = "1.3"
+artifacts = ["/logs/artifacts/model.patch"]
+
+[task]
+name = "rlsandbox/task04-pcl-gpu-cuda12"
+description = "Bring PCL's legacy GPU KinectFusion, KinectFusion large-scale and people-detection modules (texture references, implicit warp-synchronous code, process-global device state, vendored NVIDIA NCV/NPP-staging) to CUDA 12.8 on an RTX 5090: same results as the pre-CUDA-12 original (exact labels, bit-identical NCV primitives, equal tracking and reconstruction), clean racecheck/synccheck/memcheck, thread-safe instances, and no slower than the original."
+authors = ["ahmd-mohsin"]
+keywords = ["cuda", "cuda-12", "legacy-migration", "texture-objects", "independent-thread-scheduling", "pcl", "kinectfusion", "gpu"]
+
+[metadata]
+task_id = "task04_pcl_gpu_cuda12"
+display_title = "Modernize PCL's GPU KinFu and people modules for CUDA 12.8 / sm_120"
+category = "kernel-migration"
+language = "cuda"
+source = "PointCloudLibrary/pcl @ c47198828 (BSD-3); kinfu_replay, people_eval: original (written for this task)"
+difficulty = "hard"
+gpu = "NVIDIA RTX 5090 (sm_120)"
+
+[verifier]
+network_mode = "no-network"
+environment_mode = "separate"
+timeout_sec = 14400.0
+command = "bash /tests/test.sh"
+
+[verifier.environment]
+# the task image plus the original CUDA 11.8 build (root-only, never in the agent's image)
+dockerfile = "environment/Dockerfile.verifier"
+build_timeout_sec = 7200.0
+cpus = 16
+memory_mb = 65536
+storage_mb = 40960
+gpus = 1
+
+[[verifier.collect]]
+command = "cd /workspace/pcl && mkdir -p /logs/artifacts && git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude)build*' ':(exclude)install*' && git diff --binary --cached base > /logs/artifacts/model.patch"
+timeout_sec = 300.0
+
+[agent]
+network_mode = "no-network"
+timeout_sec = 43200.0
+
+[environment]
+build_timeout_sec = 3600.0
+dockerfile = "environment/Dockerfile"
+os = "linux"
+cpus = 16
+memory_mb = 65536
+storage_mb = 40960
+gpus = 1

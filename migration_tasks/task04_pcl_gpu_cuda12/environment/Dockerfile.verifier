@@ -1,0 +1,17 @@
+# Verifier image for task04_pcl_gpu_cuda12: the task image plus the original (pre-CUDA-12) build of the
+# GPU stack and the consumers, which the grader runs for reference results and reference timings.
+# It is root-only and never part of the agent's image. Build from the task directory:
+#   docker build -f environment/Dockerfile.legacy -t task04-legacy:v1 environment
+#   docker build -f environment/Dockerfile.verifier -t <registry>/task04-pcl-gpu-cuda12-verifier:v1 .
+ARG LEGACY=task04-legacy:v1
+ARG TASK_IMAGE=task04-pcl-gpu-cuda12:v1
+FROM ${LEGACY} AS legacy
+ARG PCL_COMMIT=c47198828379841dbbeae6991e0757011a552cec
+RUN git clone -q https://github.com/PointCloudLibrary/pcl.git /src/pcl && cd /src/pcl && git checkout -q ${PCL_COMMIT}
+COPY repos/ /src/consumers/
+COPY environment/build_legacy_runtime.sh /src/
+RUN bash /src/build_legacy_runtime.sh /src/pcl /src/consumers /legacy_rt
+
+FROM ${TASK_IMAGE}
+COPY --from=legacy /legacy_rt /opt/legacy_rt
+RUN chown -R root:root /opt/legacy_rt && chmod -R go-rwx /opt/legacy_rt && rm -rf /workspace
