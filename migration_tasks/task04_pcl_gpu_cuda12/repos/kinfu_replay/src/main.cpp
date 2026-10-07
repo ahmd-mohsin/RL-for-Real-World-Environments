@@ -25,6 +25,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <thread>
 
 #include "scene.h"
 
@@ -135,8 +137,7 @@ void meshQuality(const std::vector<Point>& tri, const Scene& scene, const Eigen:
 
 }  // namespace
 
-int main(int argc, char** argv) try {
-  Args a = parse(argc, argv);
+int run_case(const Args& a) {
   Intrinsics in;
   const bool ls = a.mode == "kinfuls";
   if (!ls && a.mode != "kinfu") throw std::runtime_error("unknown mode " + a.mode);
@@ -198,6 +199,21 @@ int main(int argc, char** argv) try {
       tris.download(h);
       meshQuality(h, scene, world_from_volume, extra);
       extra << ", ";
+    }
+    {
+      // zero-crossing cloud extraction
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cbuf;
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cloud = kf.volume().fetchCloud(cbuf);
+      std::vector<pcl::PointXYZ> hc;
+      cloud.download(hc);
+      double cx = 0, cy = 0, cz = 0, err = 0;
+      for (const auto& p : hc) {
+        cx += p.x; cy += p.y; cz += p.z;
+        err += std::abs(scene.sdf(Eigen::Vector3f(p.x, p.y, p.z)));
+      }
+      size_t n = hc.size();
+      extra << "\"cloud\": {\"points\": " << n << ", \"centroid\": [" << (n ? cx / n : 0) << "," << (n ? cy / n : 0) << ","
+            << (n ? cz / n : 0) << "], \"surface_err_mean\": " << (n ? err / n : 0) << "}, ";
     }
     // ray-cast the model at the last pose and compare with the rendered ground truth
     pcl::gpu::RayCaster rc(in.rows, in.cols, in.fx, in.fy, in.cx, in.cy);
@@ -277,6 +293,50 @@ int main(int argc, char** argv) try {
   std::cout << "ok " << a.mode << " frames " << a.frames << " trans_err_mean " << te_sum / gt.size() << " median_ms "
             << sorted[sorted.size() / 2] << std::endl;
   return 0;
+}
+
+// --concurrent "mode:traj:noise,mode:traj:noise,...": run independent trackers, one per host
+// thread, at the same time; case k writes to OUT/case<k>/.
+int run_concurrent(const Args& base, const std::string& spec) {
+  std::vector<Args> cases;
+  std::stringstream ss(spec);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    Args c = base;
+    std::stringstream is(item);
+    std::string mode, traj, noise;
+    std::getline(is, mode, ':');
+    std::getline(is, traj, ':');
+    std::getline(is, noise, ':');
+    c.mode = mode;
+    c.traj = traj;
+    c.noise = noise.empty() ? -1 : std::stoi(noise);
+    c.out = base.out + "/case" + std::to_string(cases.size());
+    std::filesystem::create_directories(c.out);
+    cases.push_back(c);
+  }
+  std::vector<int> rc(cases.size(), 1);
+  std::vector<std::thread> th;
+  for (size_t k = 0; k < cases.size(); ++k)
+    th.emplace_back([&, k] {
+      try { rc[k] = run_case(cases[k]); }
+      catch (const std::exception& e) { std::cerr << "case " << k << ": " << e.what() << std::endl; rc[k] = 1; }
+    });
+  for (auto& t : th) t.join();
+  for (int r : rc)
+    if (r) return 1;
+  return 0;
+}
+
+int main(int argc, char** argv) try {
+  std::string concurrent;
+  std::vector<char*> rest = {argv[0]};
+  for (int i = 1; i < argc; ++i) {
+    if (std::string(argv[i]) == "--concurrent" && i + 1 < argc) concurrent = argv[++i];
+    else rest.push_back(argv[i]);
+  }
+  Args a = parse((int)rest.size(), rest.data());
+  return concurrent.empty() ? run_case(a) : run_concurrent(a, concurrent);
 } catch (const std::exception& e) {
   std::cerr << "kinfu_replay: " << e.what() << std::endl;
   return 1;

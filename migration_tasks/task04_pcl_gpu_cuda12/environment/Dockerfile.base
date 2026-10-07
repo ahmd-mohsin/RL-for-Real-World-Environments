@@ -1,0 +1,9 @@
+# Toolchain for task04_pcl_gpu_cuda12: CUDA 12.8 (sm_120) and PCL's dependencies.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates \
+      libeigen3-dev libboost-filesystem-dev libboost-iostreams-dev libboost-system-dev libboost-date-time-dev \
+      libboost-thread-dev libboost-program-options-dev libflann-dev libvtk9-dev libqhull-dev libpng-dev zlib1g-dev \
+      liblz4-dev qtbase5-dev libqt5opengl5-dev bzip2 python3 python3-numpy python3-pytest less vim-tiny procps \
+ && rm -rf /var/lib/apt/lists/*
+ENV PATH=/usr/local/cuda/bin:$PATH
