@@ -1,0 +1,4327 @@
+diff --git a/cmake/pcl_find_cuda.cmake b/cmake/pcl_find_cuda.cmake
+index 03d0a40..fc813b5 100644
+--- a/cmake/pcl_find_cuda.cmake
++++ b/cmake/pcl_find_cuda.cmake
+@@ -54,6 +54,9 @@ if(CUDA_FOUND)
+     message(FATAL_ERROR "Unsupported CUDA compiler ${CMAKE_CUDA_COMPILER_ID}.")
+   endif()
+ 
++  if(CMAKE_CUDA_ARCHITECTURES)
++    set(__CUDA_ARCH_BIN ${CMAKE_CUDA_ARCHITECTURES})
++  endif()
+   set(CUDA_ARCH_BIN ${__CUDA_ARCH_BIN} CACHE STRING "Specify 'real' GPU architectures to build binaries for")
+   
+   if(POLICY CMP0104)
+diff --git a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp b/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
+index 16dede9..cbac69e 100644
+--- a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
++++ b/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
+@@ -34,60 +34,75 @@
+  *  Author: Anatoly Baskeheev, Itseez Ltd, (myname.mysurname@mycompany.com)
+  */
+ 
+-#ifndef PCL_GPU_UTILS_TEXTURE_BINDER_HPP_
+-#define PCL_GPU_UTILS_TEXTURE_BINDER_HPP_
++#pragma once
+ 
+ #include <pcl/gpu/containers/device_array.h>
+ #include <pcl/gpu/utils/safe_call.hpp>
++#include <cuda_runtime.h>
+ 
+-namespace pcl {
+-namespace gpu {
++namespace pcl { namespace gpu {
++// A trivially copyable, per-launch sampling view. Linear resources use read-only
++// global loads, including when the caller supplies an unaligned sub-image.
++template<class T, int Dim> struct TextureView {
++  const T* data = nullptr;
++  std::size_t count = 0;
++  cudaTextureObject_t object = 0;
++  cudaTextureAddressMode addressMode[2] = {cudaAddressModeClamp, cudaAddressModeClamp};
++  cudaTextureFilterMode filterMode = cudaFilterModePoint;
++  bool normalized = false;
++};
++template<class T, int D, class P>
++cudaError_t bindLinear(std::size_t* offset, TextureView<T,D>& v, const P* p,
++                       cudaChannelFormatDesc, std::size_t bytes) {
++  v.data = reinterpret_cast<const T*>(p); v.count = bytes / sizeof(T);
++  if (offset) *offset = 0;
++  return cudaSuccess;
++}
++template<class T, int D, class P>
++cudaError_t bindLinear(std::size_t* offset, TextureView<T,D>& v, const P* p, std::size_t bytes) {
++  return bindLinear(offset, v, p, cudaCreateChannelDesc<T>(), bytes);
++}
++template<class T, class P>
++cudaError_t bindPitch(std::size_t* offset, TextureView<T,2>& v, const P* p,
++                      cudaChannelFormatDesc desc, std::size_t w, std::size_t h, std::size_t pitch) {
++  cudaResourceDesc r{}; r.resType = cudaResourceTypePitch2D;
++  r.res.pitch2D.devPtr = const_cast<P*>(p); r.res.pitch2D.desc = desc;
++  r.res.pitch2D.width = w; r.res.pitch2D.height = h; r.res.pitch2D.pitchInBytes = pitch;
++  cudaTextureDesc t{}; t.addressMode[0] = v.addressMode[0]; t.addressMode[1] = v.addressMode[1];
++  t.filterMode = v.filterMode; t.normalizedCoords = v.normalized;
++  t.readMode = cudaReadModeElementType;
++  if (offset) *offset = 0;
++  return cudaCreateTextureObject(&v.object, &r, &t, nullptr);
++}
++template<class T, int D> cudaError_t releaseTexture(TextureView<T,D>& v) {
++  if (!v.object) return cudaSuccess;
++  auto result = cudaDestroyTextureObject(v.object); v.object = 0; return result;
++}
++#ifdef __CUDACC__
++template<class T> __device__ __forceinline__ T tex1Dfetch(TextureView<T,1> v, int i) {
++  return i >= 0 && static_cast<std::size_t>(i) < v.count ? v.data[i] : T{};
++}
++template<class T> __device__ __forceinline__ T tex2D(TextureView<T,2> v, float x, float y) {
++  return ::tex2D<T>(v.object, x, y);
++}
++#endif
+ class TextureBinder {
++  cudaTextureObject_t object_ = 0;
+ public:
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const DeviceArray2D<T>& arr, const struct texture<T, 2, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(
+-        cudaBindTexture2D(0, tex, arr.ptr(), desc, arr.cols(), arr.rows(), arr.step()));
++  template<class T> TextureBinder(const DeviceArray2D<T>& a, TextureView<T,2>& v) {
++    cudaSafeCall(bindPitch(nullptr,v,a.ptr(),cudaCreateChannelDesc<T>(),a.cols(),a.rows(),a.step())); object_=v.object;
+   }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
++  template<class T> TextureBinder(const PtrStepSz<T>& a, TextureView<T,2>& v) {
++    cudaSafeCall(bindPitch(nullptr,v,a.data,cudaCreateChannelDesc<T>(),a.cols,a.rows,a.step)); object_=v.object;
+   }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(
+-        cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, arr.step));
++  template<class T> TextureBinder(const DeviceArray<T>& a, TextureView<T,1>& v) {
++    cudaSafeCall(bindLinear(nullptr,v,a.ptr(),a.sizeBytes()));
+   }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * arr.elemSize()));
++  template<class T> TextureBinder(const PtrSz<T>& a, TextureView<T,1>& v) {
++    cudaSafeCall(bindLinear(nullptr,v,a.data,a.size*sizeof(T)));
+   }
+-
+-  ~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+-
+-private:
+-  const struct textureReference* texref;
++  TextureBinder(const TextureBinder&) = delete;
++  TextureBinder& operator=(const TextureBinder&) = delete;
++  ~TextureBinder() { if(object_) cudaSafeCall(cudaDestroyTextureObject(object_)); }
+ };
+-} // namespace gpu
+-
+-namespace device {
+-using pcl::gpu::TextureBinder;
+-}
+-} // namespace pcl
+-
+-#endif /* PCL_GPU_UTILS_TEXTURE_BINDER_HPP_*/
+\ No newline at end of file
++} namespace device { using gpu::TextureBinder; } }
+diff --git a/gpu/kinfu/CMakeLists.txt b/gpu/kinfu/CMakeLists.txt
+index 2ba88e0..95b61c4 100644
+--- a/gpu/kinfu/CMakeLists.txt
++++ b/gpu/kinfu/CMakeLists.txt
+@@ -2,12 +2,7 @@ set(SUBSYS_NAME gpu_kinfu)
+ set(SUBSYS_PATH gpu/kinfu)
+ set(SUBSYS_DESC "Kinect Fusion implementation")
+ set(SUBSYS_DEPS common io gpu_utils gpu_containers geometry search)
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "Kinfu uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+diff --git a/gpu/kinfu/src/cuda/device.hpp b/gpu/kinfu/src/cuda/device.hpp
+index 9e0acaa..1896fed 100644
+--- a/gpu/kinfu/src/cuda/device.hpp
++++ b/gpu/kinfu/src/cuda/device.hpp
+@@ -86,18 +86,19 @@ namespace pcl
+     __device__ __forceinline__ T
+     scan_warp ( volatile T *ptr, const unsigned int idx = threadIdx.x )
+     {
+-      const unsigned int lane = idx & 31;       // index of thread in warp (0..31) 
+-
+-      if (lane >=  1) ptr[idx] = ptr[idx -  1] + ptr[idx];
+-      if (lane >=  2) ptr[idx] = ptr[idx -  2] + ptr[idx];
+-      if (lane >=  4) ptr[idx] = ptr[idx -  4] + ptr[idx];
+-      if (lane >=  8) ptr[idx] = ptr[idx -  8] + ptr[idx];
+-      if (lane >= 16) ptr[idx] = ptr[idx - 16] + ptr[idx];
+-
+-      if (Kind == inclusive)
+-        return ptr[idx];
+-      else
+-        return (lane > 0) ? ptr[idx - 1] : 0;
++      const unsigned mask = __activemask();
++      const unsigned lane = idx & 31;
++      __syncwarp(mask);
++      T value = ptr[idx];
++      const T initial = value;
++      for (int d = 1; d < 32; d <<= 1) {
++        T other = __shfl_up_sync(mask, value, d);
++        if (lane >= d) value = other + value;
++      }
++      __syncwarp(mask);
++      ptr[idx] = value;
++      __syncwarp(mask);
++      return Kind == inclusive ? value : value - initial;
+     }
+   }
+ }
+diff --git a/gpu/kinfu/src/cuda/estimate_combined.cu b/gpu/kinfu/src/cuda/estimate_combined.cu
+index dc768f5..34313d5 100644
+--- a/gpu/kinfu/src/cuda/estimate_combined.cu
++++ b/gpu/kinfu/src/cuda/estimate_combined.cu
+@@ -58,12 +58,14 @@ namespace pcl
+ 
+       if (tid < 32)
+       {
+-        if (CTA_SIZE_ >=   64) { buffer[tid] = val = val + buffer[tid +  32]; }
+-        if (CTA_SIZE_ >=   32) { buffer[tid] = val = val + buffer[tid +  16]; }
+-        if (CTA_SIZE_ >=   16) { buffer[tid] = val = val + buffer[tid +   8]; }
+-        if (CTA_SIZE_ >=    8) { buffer[tid] = val = val + buffer[tid +   4]; }
+-        if (CTA_SIZE_ >=    4) { buffer[tid] = val = val + buffer[tid +   2]; }
+-        if (CTA_SIZE_ >=    2) { buffer[tid] = val = val + buffer[tid +   1]; }
++        if (CTA_SIZE_ >= 64) val = val + buffer[tid + 32];
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = val + other;
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
+       }
+     }
+ 
+@@ -180,25 +182,31 @@ namespace pcl
+         else
+           row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
+ 
+-        __shared__ float_type smem[CTA_SIZE];
+-        int tid = Block::flattenedThreadId ();
+-
++        // Reduce all 27 normal-equation entries in registers. Only warp
++        // totals cross shared memory, with a single block rendezvous.
++        __shared__ float_type sums[27][CTA_SIZE_Y];
++        const int lane = threadIdx.x;
++        const int warp = threadIdx.y;
+         int shift = 0;
+-        for (int i = 0; i < 6; ++i)        //rows
+-        {
++        #pragma unroll
++        for (int i = 0; i < 6; ++i) {
+           #pragma unroll
+-          for (int j = i; j < 7; ++j)          // cols + b
+-          {
+-            __syncthreads ();
+-            smem[tid] = row[i] * row[j];
+-            __syncthreads ();
+-
+-            reduce<CTA_SIZE>(smem);
+-
+-            if (tid == 0)
+-              gbuf.ptr (shift++)[blockIdx.x + gridDim.x * blockIdx.y] = smem[0];
++          for (int j = i; j < 7; ++j) {
++            float_type v = row[i] * row[j];
++            #pragma unroll
++            for (int d = 16; d; d >>= 1)
++              v += __shfl_down_sync(0xffffffffu, v, d);
++            if (lane == 0) sums[shift][warp] = v;
++            ++shift;
+           }
+         }
++        __syncthreads();
++        int tid = Block::flattenedThreadId();
++        if (tid < 27) {
++          float_type v = ((sums[tid][0] + sums[tid][4]) + (sums[tid][2] + sums[tid][6]))
++                      + ((sums[tid][1] + sums[tid][5]) + (sums[tid][3] + sums[tid][7]));
++          gbuf.ptr(tid)[blockIdx.x + gridDim.x * blockIdx.y] = v;
++        }
+       }
+     };
+ 
+diff --git a/gpu/kinfu/src/cuda/extract.cu b/gpu/kinfu/src/cuda/extract.cu
+index 9f4e319..dc1196d 100644
+--- a/gpu/kinfu/src/cuda/extract.cu
++++ b/gpu/kinfu/src/cuda/extract.cu
+@@ -1,3 +1,5 @@
++#include <thrust/device_ptr.h>
++#include <thrust/scan.h>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -57,16 +59,14 @@ namespace pcl
+       MAX_LOCAL_POINTS = 3
+     };
+ 
+-    __device__ int global_count = 0;
+-    __device__ int output_count;
+-    __device__ unsigned int blocks_done = 0;
+-
+-    __shared__ float storage_X[CTA_SIZE * MAX_LOCAL_POINTS];
+-    __shared__ float storage_Y[CTA_SIZE * MAX_LOCAL_POINTS];
+-    __shared__ float storage_Z[CTA_SIZE * MAX_LOCAL_POINTS];
+-
+     struct FullScan6
+     {
++      // Each warp owns a fixed eight-plane tile. A count/scan/emit pipeline
++      // provides stable ordering without device-global counters or atomics.
++      int* tile_counts;
++      const int* tile_offsets;
++      bool count_only;
++
+       PtrStep<short2> volume;
+       float3 cell_size;
+ 
+@@ -86,17 +86,17 @@ namespace pcl
+         int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+         int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+        
+-        if (__all_sync (__activemask (), x >= VOLUME_X)
+-            || __all_sync (__activemask (), y >= VOLUME_Y))
+-          return;
++        
+ 
+         float3 V;
+         V.x = (x + 0.5f) * cell_size.x;
+         V.y = (y + 0.5f) * cell_size.y;
+ 
+         int ftid = Block::flattenedThreadId ();
++          int tile = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * CTA_SIZE_Y + threadIdx.y;
++          int emitted = 0;
+ 
+-        for (int z = 0; z < VOLUME_Z - 1; ++z)
++        for (int z = blockIdx.z * 8; z < min(int(blockIdx.z * 8 + 8), VOLUME_Z - 1); ++z)
+         {
+           float3 points[MAX_LOCAL_POINTS];
+           int local_count = 0;
+@@ -182,63 +182,32 @@ namespace pcl
+                          + __popc (__ballot_sync (__activemask (), local_count > 1))
+                          + __popc (__ballot_sync (__activemask (), local_count > 2));
+ 
+-          if (total_warp > 0)
+-          {
+-            int lane = Warp::laneId ();
+-            int storage_index = (ftid >> Warp::LOG_WARP_SIZE) * Warp::WARP_SIZE * MAX_LOCAL_POINTS;
+-
+-            volatile int* cta_buffer = (int*)(storage_X + storage_index);
+-
+-            cta_buffer[lane] = local_count;
+-            int offset = scan_warp<exclusive>(cta_buffer, lane);
+-
+-            if (lane == 0)
+-            {
+-              int old_global_count = atomicAdd (&global_count, total_warp);
+-              cta_buffer[0] = old_global_count;
+-            }
+-            int old_global_count = cta_buffer[0];
+-
+-            for (int l = 0; l < local_count; ++l)
+-            {
+-              storage_X[storage_index + offset + l] = points[l].x;
+-              storage_Y[storage_index + offset + l] = points[l].y;
+-              storage_Z[storage_index + offset + l] = points[l].z;
+-            }
+-
+-            PointType *pos = output.data + old_global_count + lane;
+-            for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, pos += Warp::STRIDE)
+-            {
+-              float x = storage_X[storage_index + idx];
+-              float y = storage_Y[storage_index + idx];
+-              float z = storage_Z[storage_index + idx];
+-              store_point_type (x, y, z, pos);
++          if (total_warp > 0) {
++              if (!count_only) {
++                int lane = threadIdx.x;
++                int prefix = local_count;
++                for (int d = 1; d < 32; d <<= 1) {
++                  int v = __shfl_up_sync(0xffffffffu, prefix, d);
++                  if (lane >= d) prefix += v;
++                }
++                int base = tile_offsets[tile] + emitted + prefix - local_count;
++                for (int l = 0; l < local_count; ++l) {
++                  int dst = base + l;
++                  if (dst < output.size) {
++                    auto p = points[l];
++                    store_point_type(p.x, p.y, p.z, output.data + dst);
++                  }
++                }
++              }
++              emitted += total_warp;
+             }
+ 
+-            bool full = (old_global_count + total_warp) >= output.size;
+-
+-            if (full)
+-              break;
+-          }
+-
+         }         /* for(int z = 0; z < VOLUME_Z - 1; ++z) */
+ 
+ 
+         ///////////////////////////
+         // prepare for future scans
+-        if (ftid == 0)
+-        {
+-          unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-          unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-          //last block
+-          if (value == total_blocks - 1)
+-          {
+-            output_count = min ((int)output.size, global_count);
+-            blocks_done = 0;
+-            global_count = 0;
+-          }
+-        }
++        if (count_only && threadIdx.x == 0) tile_counts[tile] = emitted;
+       }       /* operator() */
+ 
+       __device__ __forceinline__ void
+@@ -276,12 +245,27 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
+   //cudaFuncSetCacheConfig(extractKernel, cudaFuncCachePreferL1);
+   //printFuncAttrib(extractKernel);
+ 
++  grid.z = divUp(VOLUME_Z - 1, 8);
++  const int tiles = grid.x * grid.y * grid.z * block.y;
++  DeviceArray<int> counts(tiles + 1), offsets(tiles + 1);
++  cudaSafeCall(cudaMemset(counts.ptr(), 0, (tiles + 1) * sizeof(int)));
++  fs.tile_counts = counts.ptr();
++  fs.tile_offsets = offsets.ptr();
++  fs.count_only = true;
++  extractKernel<<<grid, block>>>(fs);
++  cudaSafeCall(cudaGetLastError());
++  thrust::exclusive_scan(thrust::device_pointer_cast(counts.ptr()),
++                         thrust::device_pointer_cast(counts.ptr() + tiles + 1),
++                         thrust::device_pointer_cast(offsets.ptr()));
++  int size;
++  cudaSafeCall(cudaMemcpy(&size, offsets.ptr() + tiles, sizeof(int), cudaMemcpyDeviceToHost));
++  size = std::min(size, int(output.size));
++  fs.count_only = false;
+   extractKernel<<<grid, block>>>(fs);
+   cudaSafeCall ( cudaGetLastError () );
+   cudaSafeCall (cudaDeviceSynchronize ());
+ 
+-  int size;
+-  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
++  
+   return (std::size_t)size;
+ }
+ 
+diff --git a/gpu/kinfu/src/cuda/marching_cubes.cu b/gpu/kinfu/src/cuda/marching_cubes.cu
+index 127f050..c35ffc0 100644
+--- a/gpu/kinfu/src/cuda/marching_cubes.cu
++++ b/gpu/kinfu/src/cuda/marching_cubes.cu
+@@ -47,37 +47,527 @@ namespace pcl
+ {
+   namespace device
+   {
+-    //texture<int, 1, cudaReadModeElementType> edgeTex;
+-    texture<int, 1, cudaReadModeElementType> triTex;
+-    texture<int, 1, cudaReadModeElementType> numVertsTex;
+-  }
+-}
+-
+-void
+-pcl::device::bindTextures (const int */*edgeBuf*/, const int *triBuf, const int *numVertsBuf)
+-{
+-  cudaChannelFormatDesc desc = cudaCreateChannelDesc<int>();
+-  //cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+-  cudaSafeCall (cudaBindTexture (0, triTex, triBuf, desc) );
+-  cudaSafeCall (cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
+-}
+-void
+-pcl::device::unbindTextures ()
++    
++__device__ __constant__ int triTable[256][16] = 
+ {
+-  //cudaSafeCall( cudaUnbindTexture(edgeTex) );
+-  cudaSafeCall ( cudaUnbindTexture (numVertsTex) );
+-  cudaSafeCall ( cudaUnbindTexture (triTex) );
+-}
+-
+-namespace pcl
++    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 8, 3, 9, 8, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 2, 10, 0, 2, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 8, 3, 2, 10, 8, 10, 9, 8, -1, -1, -1, -1, -1, -1, -1},
++	{3, 11, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 11, 2, 8, 11, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 11, 2, 1, 9, 11, 9, 8, 11, -1, -1, -1, -1, -1, -1, -1},
++	{3, 10, 1, 11, 10, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 10, 1, 0, 8, 10, 8, 11, 10, -1, -1, -1, -1, -1, -1, -1},
++	{3, 9, 0, 3, 11, 9, 11, 10, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 8, 10, 10, 8, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 7, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 3, 0, 7, 3, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 1, 9, 4, 7, 1, 7, 3, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 4, 7, 3, 0, 4, 1, 2, 10, -1, -1, -1, -1, -1, -1, -1},
++	{9, 2, 10, 9, 0, 2, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1},
++	{2, 10, 9, 2, 9, 7, 2, 7, 3, 7, 9, 4, -1, -1, -1, -1},
++	{8, 4, 7, 3, 11, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 4, 7, 11, 2, 4, 2, 0, 4, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 1, 8, 4, 7, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1},
++	{4, 7, 11, 9, 4, 11, 9, 11, 2, 9, 2, 1, -1, -1, -1, -1},
++	{3, 10, 1, 3, 11, 10, 7, 8, 4, -1, -1, -1, -1, -1, -1, -1},
++	{1, 11, 10, 1, 4, 11, 1, 0, 4, 7, 11, 4, -1, -1, -1, -1},
++	{4, 7, 8, 9, 0, 11, 9, 11, 10, 11, 0, 3, -1, -1, -1, -1},
++	{4, 7, 11, 4, 11, 9, 9, 11, 10, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, 0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 5, 4, 1, 5, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 5, 4, 8, 3, 5, 3, 1, 5, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 9, 5, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 1, 2, 10, 4, 9, 5, -1, -1, -1, -1, -1, -1, -1},
++	{5, 2, 10, 5, 4, 2, 4, 0, 2, -1, -1, -1, -1, -1, -1, -1},
++	{2, 10, 5, 3, 2, 5, 3, 5, 4, 3, 4, 8, -1, -1, -1, -1},
++	{9, 5, 4, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 11, 2, 0, 8, 11, 4, 9, 5, -1, -1, -1, -1, -1, -1, -1},
++	{0, 5, 4, 0, 1, 5, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1},
++	{2, 1, 5, 2, 5, 8, 2, 8, 11, 4, 8, 5, -1, -1, -1, -1},
++	{10, 3, 11, 10, 1, 3, 9, 5, 4, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 5, 0, 8, 1, 8, 10, 1, 8, 11, 10, -1, -1, -1, -1},
++	{5, 4, 0, 5, 0, 11, 5, 11, 10, 11, 0, 3, -1, -1, -1, -1},
++	{5, 4, 8, 5, 8, 10, 10, 8, 11, -1, -1, -1, -1, -1, -1, -1},
++	{9, 7, 8, 5, 7, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 3, 0, 9, 5, 3, 5, 7, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 7, 8, 0, 1, 7, 1, 5, 7, -1, -1, -1, -1, -1, -1, -1},
++	{1, 5, 3, 3, 5, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 7, 8, 9, 5, 7, 10, 1, 2, -1, -1, -1, -1, -1, -1, -1},
++	{10, 1, 2, 9, 5, 0, 5, 3, 0, 5, 7, 3, -1, -1, -1, -1},
++	{8, 0, 2, 8, 2, 5, 8, 5, 7, 10, 5, 2, -1, -1, -1, -1},
++	{2, 10, 5, 2, 5, 3, 3, 5, 7, -1, -1, -1, -1, -1, -1, -1},
++	{7, 9, 5, 7, 8, 9, 3, 11, 2, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 7, 9, 7, 2, 9, 2, 0, 2, 7, 11, -1, -1, -1, -1},
++	{2, 3, 11, 0, 1, 8, 1, 7, 8, 1, 5, 7, -1, -1, -1, -1},
++	{11, 2, 1, 11, 1, 7, 7, 1, 5, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 8, 8, 5, 7, 10, 1, 3, 10, 3, 11, -1, -1, -1, -1},
++	{5, 7, 0, 5, 0, 9, 7, 11, 0, 1, 0, 10, 11, 10, 0, -1},
++	{11, 10, 0, 11, 0, 3, 10, 5, 0, 8, 0, 7, 5, 7, 0, -1},
++	{11, 10, 5, 7, 11, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{10, 6, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 1, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 8, 3, 1, 9, 8, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 5, 2, 6, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 5, 1, 2, 6, 3, 0, 8, -1, -1, -1, -1, -1, -1, -1},
++	{9, 6, 5, 9, 0, 6, 0, 2, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 9, 8, 5, 8, 2, 5, 2, 6, 3, 2, 8, -1, -1, -1, -1},
++	{2, 3, 11, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 0, 8, 11, 2, 0, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 2, 3, 11, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 1, 9, 2, 9, 11, 2, 9, 8, 11, -1, -1, -1, -1},
++	{6, 3, 11, 6, 5, 3, 5, 1, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 11, 0, 11, 5, 0, 5, 1, 5, 11, 6, -1, -1, -1, -1},
++	{3, 11, 6, 0, 3, 6, 0, 6, 5, 0, 5, 9, -1, -1, -1, -1},
++	{6, 5, 9, 6, 9, 11, 11, 9, 8, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 4, 7, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 3, 0, 4, 7, 3, 6, 5, 10, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 5, 10, 6, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1},
++	{10, 6, 5, 1, 9, 7, 1, 7, 3, 7, 9, 4, -1, -1, -1, -1},
++	{6, 1, 2, 6, 5, 1, 4, 7, 8, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 5, 5, 2, 6, 3, 0, 4, 3, 4, 7, -1, -1, -1, -1},
++	{8, 4, 7, 9, 0, 5, 0, 6, 5, 0, 2, 6, -1, -1, -1, -1},
++	{7, 3, 9, 7, 9, 4, 3, 2, 9, 5, 9, 6, 2, 6, 9, -1},
++	{3, 11, 2, 7, 8, 4, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 4, 7, 2, 4, 2, 0, 2, 7, 11, -1, -1, -1, -1},
++	{0, 1, 9, 4, 7, 8, 2, 3, 11, 5, 10, 6, -1, -1, -1, -1},
++	{9, 2, 1, 9, 11, 2, 9, 4, 11, 7, 11, 4, 5, 10, 6, -1},
++	{8, 4, 7, 3, 11, 5, 3, 5, 1, 5, 11, 6, -1, -1, -1, -1},
++	{5, 1, 11, 5, 11, 6, 1, 0, 11, 7, 11, 4, 0, 4, 11, -1},
++	{0, 5, 9, 0, 6, 5, 0, 3, 6, 11, 6, 3, 8, 4, 7, -1},
++	{6, 5, 9, 6, 9, 11, 4, 7, 9, 7, 11, 9, -1, -1, -1, -1},
++	{10, 4, 9, 6, 4, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 10, 6, 4, 9, 10, 0, 8, 3, -1, -1, -1, -1, -1, -1, -1},
++	{10, 0, 1, 10, 6, 0, 6, 4, 0, -1, -1, -1, -1, -1, -1, -1},
++	{8, 3, 1, 8, 1, 6, 8, 6, 4, 6, 1, 10, -1, -1, -1, -1},
++	{1, 4, 9, 1, 2, 4, 2, 6, 4, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 1, 2, 9, 2, 4, 9, 2, 6, 4, -1, -1, -1, -1},
++	{0, 2, 4, 4, 2, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 3, 2, 8, 2, 4, 4, 2, 6, -1, -1, -1, -1, -1, -1, -1},
++	{10, 4, 9, 10, 6, 4, 11, 2, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 2, 2, 8, 11, 4, 9, 10, 4, 10, 6, -1, -1, -1, -1},
++	{3, 11, 2, 0, 1, 6, 0, 6, 4, 6, 1, 10, -1, -1, -1, -1},
++	{6, 4, 1, 6, 1, 10, 4, 8, 1, 2, 1, 11, 8, 11, 1, -1},
++	{9, 6, 4, 9, 3, 6, 9, 1, 3, 11, 6, 3, -1, -1, -1, -1},
++	{8, 11, 1, 8, 1, 0, 11, 6, 1, 9, 1, 4, 6, 4, 1, -1},
++	{3, 11, 6, 3, 6, 0, 0, 6, 4, -1, -1, -1, -1, -1, -1, -1},
++	{6, 4, 8, 11, 6, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 10, 6, 7, 8, 10, 8, 9, 10, -1, -1, -1, -1, -1, -1, -1},
++	{0, 7, 3, 0, 10, 7, 0, 9, 10, 6, 7, 10, -1, -1, -1, -1},
++	{10, 6, 7, 1, 10, 7, 1, 7, 8, 1, 8, 0, -1, -1, -1, -1},
++	{10, 6, 7, 10, 7, 1, 1, 7, 3, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 6, 1, 6, 8, 1, 8, 9, 8, 6, 7, -1, -1, -1, -1},
++	{2, 6, 9, 2, 9, 1, 6, 7, 9, 0, 9, 3, 7, 3, 9, -1},
++	{7, 8, 0, 7, 0, 6, 6, 0, 2, -1, -1, -1, -1, -1, -1, -1},
++	{7, 3, 2, 6, 7, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 11, 10, 6, 8, 10, 8, 9, 8, 6, 7, -1, -1, -1, -1},
++	{2, 0, 7, 2, 7, 11, 0, 9, 7, 6, 7, 10, 9, 10, 7, -1},
++	{1, 8, 0, 1, 7, 8, 1, 10, 7, 6, 7, 10, 2, 3, 11, -1},
++	{11, 2, 1, 11, 1, 7, 10, 6, 1, 6, 7, 1, -1, -1, -1, -1},
++	{8, 9, 6, 8, 6, 7, 9, 1, 6, 11, 6, 3, 1, 3, 6, -1},
++	{0, 9, 1, 11, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 8, 0, 7, 0, 6, 3, 11, 0, 11, 6, 0, -1, -1, -1, -1},
++	{7, 11, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 6, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 1, 9, 8, 3, 1, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1},
++	{10, 1, 2, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 3, 0, 8, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1},
++	{2, 9, 0, 2, 10, 9, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1},
++	{6, 11, 7, 2, 10, 3, 10, 8, 3, 10, 9, 8, -1, -1, -1, -1},
++	{7, 2, 3, 6, 2, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 0, 8, 7, 6, 0, 6, 2, 0, -1, -1, -1, -1, -1, -1, -1},
++	{2, 7, 6, 2, 3, 7, 0, 1, 9, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 2, 1, 8, 6, 1, 9, 8, 8, 7, 6, -1, -1, -1, -1},
++	{10, 7, 6, 10, 1, 7, 1, 3, 7, -1, -1, -1, -1, -1, -1, -1},
++	{10, 7, 6, 1, 7, 10, 1, 8, 7, 1, 0, 8, -1, -1, -1, -1},
++	{0, 3, 7, 0, 7, 10, 0, 10, 9, 6, 10, 7, -1, -1, -1, -1},
++	{7, 6, 10, 7, 10, 8, 8, 10, 9, -1, -1, -1, -1, -1, -1, -1},
++	{6, 8, 4, 11, 8, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 6, 11, 3, 0, 6, 0, 4, 6, -1, -1, -1, -1, -1, -1, -1},
++	{8, 6, 11, 8, 4, 6, 9, 0, 1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 4, 6, 9, 6, 3, 9, 3, 1, 11, 3, 6, -1, -1, -1, -1},
++	{6, 8, 4, 6, 11, 8, 2, 10, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 3, 0, 11, 0, 6, 11, 0, 4, 6, -1, -1, -1, -1},
++	{4, 11, 8, 4, 6, 11, 0, 2, 9, 2, 10, 9, -1, -1, -1, -1},
++	{10, 9, 3, 10, 3, 2, 9, 4, 3, 11, 3, 6, 4, 6, 3, -1},
++	{8, 2, 3, 8, 4, 2, 4, 6, 2, -1, -1, -1, -1, -1, -1, -1},
++	{0, 4, 2, 4, 6, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 2, 3, 4, 2, 4, 6, 4, 3, 8, -1, -1, -1, -1},
++	{1, 9, 4, 1, 4, 2, 2, 4, 6, -1, -1, -1, -1, -1, -1, -1},
++	{8, 1, 3, 8, 6, 1, 8, 4, 6, 6, 10, 1, -1, -1, -1, -1},
++	{10, 1, 0, 10, 0, 6, 6, 0, 4, -1, -1, -1, -1, -1, -1, -1},
++	{4, 6, 3, 4, 3, 8, 6, 10, 3, 0, 3, 9, 10, 9, 3, -1},
++	{10, 9, 4, 6, 10, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 5, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 4, 9, 5, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 0, 1, 5, 4, 0, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1},
++	{11, 7, 6, 8, 3, 4, 3, 5, 4, 3, 1, 5, -1, -1, -1, -1},
++	{9, 5, 4, 10, 1, 2, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1},
++	{6, 11, 7, 1, 2, 10, 0, 8, 3, 4, 9, 5, -1, -1, -1, -1},
++	{7, 6, 11, 5, 4, 10, 4, 2, 10, 4, 0, 2, -1, -1, -1, -1},
++	{3, 4, 8, 3, 5, 4, 3, 2, 5, 10, 5, 2, 11, 7, 6, -1},
++	{7, 2, 3, 7, 6, 2, 5, 4, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, 0, 8, 6, 0, 6, 2, 6, 8, 7, -1, -1, -1, -1},
++	{3, 6, 2, 3, 7, 6, 1, 5, 0, 5, 4, 0, -1, -1, -1, -1},
++	{6, 2, 8, 6, 8, 7, 2, 1, 8, 4, 8, 5, 1, 5, 8, -1},
++	{9, 5, 4, 10, 1, 6, 1, 7, 6, 1, 3, 7, -1, -1, -1, -1},
++	{1, 6, 10, 1, 7, 6, 1, 0, 7, 8, 7, 0, 9, 5, 4, -1},
++	{4, 0, 10, 4, 10, 5, 0, 3, 10, 6, 10, 7, 3, 7, 10, -1},
++	{7, 6, 10, 7, 10, 8, 5, 4, 10, 4, 8, 10, -1, -1, -1, -1},
++	{6, 9, 5, 6, 11, 9, 11, 8, 9, -1, -1, -1, -1, -1, -1, -1},
++	{3, 6, 11, 0, 6, 3, 0, 5, 6, 0, 9, 5, -1, -1, -1, -1},
++	{0, 11, 8, 0, 5, 11, 0, 1, 5, 5, 6, 11, -1, -1, -1, -1},
++	{6, 11, 3, 6, 3, 5, 5, 3, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 9, 5, 11, 9, 11, 8, 11, 5, 6, -1, -1, -1, -1},
++	{0, 11, 3, 0, 6, 11, 0, 9, 6, 5, 6, 9, 1, 2, 10, -1},
++	{11, 8, 5, 11, 5, 6, 8, 0, 5, 10, 5, 2, 0, 2, 5, -1},
++	{6, 11, 3, 6, 3, 5, 2, 10, 3, 10, 5, 3, -1, -1, -1, -1},
++	{5, 8, 9, 5, 2, 8, 5, 6, 2, 3, 8, 2, -1, -1, -1, -1},
++	{9, 5, 6, 9, 6, 0, 0, 6, 2, -1, -1, -1, -1, -1, -1, -1},
++	{1, 5, 8, 1, 8, 0, 5, 6, 8, 3, 8, 2, 6, 2, 8, -1},
++	{1, 5, 6, 2, 1, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 3, 6, 1, 6, 10, 3, 8, 6, 5, 6, 9, 8, 9, 6, -1},
++	{10, 1, 0, 10, 0, 6, 9, 5, 0, 5, 6, 0, -1, -1, -1, -1},
++	{0, 3, 8, 5, 6, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{10, 5, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 5, 10, 7, 5, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 5, 10, 11, 7, 5, 8, 3, 0, -1, -1, -1, -1, -1, -1, -1},
++	{5, 11, 7, 5, 10, 11, 1, 9, 0, -1, -1, -1, -1, -1, -1, -1},
++	{10, 7, 5, 10, 11, 7, 9, 8, 1, 8, 3, 1, -1, -1, -1, -1},
++	{11, 1, 2, 11, 7, 1, 7, 5, 1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 1, 2, 7, 1, 7, 5, 7, 2, 11, -1, -1, -1, -1},
++	{9, 7, 5, 9, 2, 7, 9, 0, 2, 2, 11, 7, -1, -1, -1, -1},
++	{7, 5, 2, 7, 2, 11, 5, 9, 2, 3, 2, 8, 9, 8, 2, -1},
++	{2, 5, 10, 2, 3, 5, 3, 7, 5, -1, -1, -1, -1, -1, -1, -1},
++	{8, 2, 0, 8, 5, 2, 8, 7, 5, 10, 2, 5, -1, -1, -1, -1},
++	{9, 0, 1, 5, 10, 3, 5, 3, 7, 3, 10, 2, -1, -1, -1, -1},
++	{9, 8, 2, 9, 2, 1, 8, 7, 2, 10, 2, 5, 7, 5, 2, -1},
++	{1, 3, 5, 3, 7, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 7, 0, 7, 1, 1, 7, 5, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 3, 9, 3, 5, 5, 3, 7, -1, -1, -1, -1, -1, -1, -1},
++	{9, 8, 7, 5, 9, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{5, 8, 4, 5, 10, 8, 10, 11, 8, -1, -1, -1, -1, -1, -1, -1},
++	{5, 0, 4, 5, 11, 0, 5, 10, 11, 11, 3, 0, -1, -1, -1, -1},
++	{0, 1, 9, 8, 4, 10, 8, 10, 11, 10, 4, 5, -1, -1, -1, -1},
++	{10, 11, 4, 10, 4, 5, 11, 3, 4, 9, 4, 1, 3, 1, 4, -1},
++	{2, 5, 1, 2, 8, 5, 2, 11, 8, 4, 5, 8, -1, -1, -1, -1},
++	{0, 4, 11, 0, 11, 3, 4, 5, 11, 2, 11, 1, 5, 1, 11, -1},
++	{0, 2, 5, 0, 5, 9, 2, 11, 5, 4, 5, 8, 11, 8, 5, -1},
++	{9, 4, 5, 2, 11, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 5, 10, 3, 5, 2, 3, 4, 5, 3, 8, 4, -1, -1, -1, -1},
++	{5, 10, 2, 5, 2, 4, 4, 2, 0, -1, -1, -1, -1, -1, -1, -1},
++	{3, 10, 2, 3, 5, 10, 3, 8, 5, 4, 5, 8, 0, 1, 9, -1},
++	{5, 10, 2, 5, 2, 4, 1, 9, 2, 9, 4, 2, -1, -1, -1, -1},
++	{8, 4, 5, 8, 5, 3, 3, 5, 1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 4, 5, 1, 0, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 4, 5, 8, 5, 3, 9, 0, 5, 0, 3, 5, -1, -1, -1, -1},
++	{9, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 11, 7, 4, 9, 11, 9, 10, 11, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 4, 9, 7, 9, 11, 7, 9, 10, 11, -1, -1, -1, -1},
++	{1, 10, 11, 1, 11, 4, 1, 4, 0, 7, 4, 11, -1, -1, -1, -1},
++	{3, 1, 4, 3, 4, 8, 1, 10, 4, 7, 4, 11, 10, 11, 4, -1},
++	{4, 11, 7, 9, 11, 4, 9, 2, 11, 9, 1, 2, -1, -1, -1, -1},
++	{9, 7, 4, 9, 11, 7, 9, 1, 11, 2, 11, 1, 0, 8, 3, -1},
++	{11, 7, 4, 11, 4, 2, 2, 4, 0, -1, -1, -1, -1, -1, -1, -1},
++	{11, 7, 4, 11, 4, 2, 8, 3, 4, 3, 2, 4, -1, -1, -1, -1},
++	{2, 9, 10, 2, 7, 9, 2, 3, 7, 7, 4, 9, -1, -1, -1, -1},
++	{9, 10, 7, 9, 7, 4, 10, 2, 7, 8, 7, 0, 2, 0, 7, -1},
++	{3, 7, 10, 3, 10, 2, 7, 4, 10, 1, 10, 0, 4, 0, 10, -1},
++	{1, 10, 2, 8, 7, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 1, 4, 1, 7, 7, 1, 3, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 1, 4, 1, 7, 0, 8, 1, 8, 7, 1, -1, -1, -1, -1},
++	{4, 0, 3, 7, 4, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 8, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 10, 8, 10, 11, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 9, 3, 9, 11, 11, 9, 10, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 10, 0, 10, 8, 8, 10, 11, -1, -1, -1, -1, -1, -1, -1},
++	{3, 1, 10, 11, 3, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 11, 1, 11, 9, 9, 11, 8, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 9, 3, 9, 11, 1, 2, 9, 2, 11, 9, -1, -1, -1, -1},
++	{0, 2, 11, 8, 0, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 2, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 8, 2, 8, 10, 10, 8, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 10, 2, 0, 9, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 8, 2, 8, 10, 0, 1, 8, 1, 10, 8, -1, -1, -1, -1},
++	{1, 10, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 3, 8, 9, 1, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 9, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
++};
++__device__ __constant__ int numVertsTable[256] = 
+ {
+-  namespace device
+-  {
+-    __device__ int global_count = 0;
+-    __device__ int output_count;
+-    __device__ unsigned int blocks_done = 0;
+-
+-    struct CubeIndexEstimator
++    0,
++    3,
++    3,
++    6,
++    3,
++    6,
++    6,
++    9,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    6,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    12,
++    9,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    15,
++    6,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    9,
++    6,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    9,
++    6,
++    12,
++    15,
++    15,
++    12,
++    15,
++    6,
++    12,
++    3,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    6,
++    12,
++    9,
++    12,
++    9,
++    15,
++    6,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    12,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    15,
++    12,
++    12,
++    9,
++    15,
++    6,
++    15,
++    12,
++    6,
++    3,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    6,
++    12,
++    9,
++    15,
++    12,
++    9,
++    6,
++    12,
++    3,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    15,
++    6,
++    9,
++    12,
++    6,
++    3,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    6,
++    3,
++    9,
++    6,
++    12,
++    3,
++    6,
++    3,
++    3,
++    0,
++};
++
++struct CubeIndexEstimator
+     {
+       PtrStep<short2> volume;
+ 
+@@ -119,6 +609,12 @@ namespace pcl
+ 
+     struct OccupiedVoxels : public CubeIndexEstimator
+     {
++      // Each warp owns a fixed eight-plane tile. A count/scan/emit pipeline
++      // provides stable ordering without device-global counters or atomics.
++      int* tile_counts;
++      const int* tile_offsets;
++      bool count_only;
++
+       enum
+       {        
+         CTA_SIZE_X = 32,
+@@ -138,17 +634,17 @@ namespace pcl
+         int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+         int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+ 
+-        if (__all_sync (__activemask (), x >= VOLUME_X)
+-            || __all_sync (__activemask (), y >= VOLUME_Y))
+-          return;
++        
+ 
+         int ftid = Block::flattenedThreadId ();
++          int tile = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * CTA_SIZE_Y + threadIdx.y;
++          int emitted = 0;
+ 		int warp_id = Warp::id();
+ 		int lane_id = Warp::laneId();
+ 
+-        volatile __shared__ int warps_buffer[WARPS_COUNT];
+ 
+-        for (int z = 0; z < VOLUME_Z - 1; z++)
++
++        for (int z = blockIdx.z * 8; z < min(int(blockIdx.z * 8 + 8), VOLUME_Z - 1); ++z)
+         {
+           int numVerts = 0;
+           if (x + 1 < VOLUME_X && y + 1 < VOLUME_Y)
+@@ -157,20 +653,16 @@ namespace pcl
+             int cubeindex = computeCubeIndex (x, y, z, field);
+ 
+             // read number of vertices from texture
+-            numVerts = (cubeindex == 0 || cubeindex == 255) ? 0 : tex1Dfetch (numVertsTex, cubeindex);
++            numVerts = (cubeindex == 0 || cubeindex == 255) ? 0 : numVertsTable[cubeindex];
+           }
+ 
+           int total = __popc (__ballot_sync (__activemask (), numVerts > 0));
+ 		  if (total == 0)
+ 			continue;
+ 
+-          if (lane_id == 0)
+-          {
+-            int old = atomicAdd (&global_count, total);
+-            warps_buffer[warp_id] = old;
+-          }
+-          int old_global_voxels_count = warps_buffer[warp_id];
+-
++          if (count_only) { emitted += total; continue; }
++          int old_global_voxels_count = tile_offsets[tile] + emitted;
++          emitted += total;
+           int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), numVerts > 0));
+ 
+           if (old_global_voxels_count + offs < max_size && numVerts > 0)
+@@ -189,19 +681,7 @@ namespace pcl
+ 
+         /////////////////////////
+         // prepare for future scans
+-        if (ftid == 0)
+-        {
+-          unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-          unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-          //last block
+-          if (value == total_blocks - 1)
+-          {
+-            output_count = min (max_size, global_count);
+-            blocks_done = 0;
+-            global_count = 0;
+-          }
+-        } 
++        if (count_only && threadIdx.x == 0) tile_counts[tile] = emitted; 
+       } /* operator () */
+     };
+     __global__ void getOccupiedVoxelsKernel (const OccupiedVoxels ov) { ov (); }
+@@ -224,12 +704,27 @@ pcl::device::getOccupiedVoxels (const PtrStep<short2>& volume, DeviceArray2D<int
+   //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+   //printFuncAttrib(getOccupiedVoxelsKernel);
+ 
++  grid.z = divUp(VOLUME_Z - 1, 8);
++  const int tiles = grid.x * grid.y * grid.z * block.y;
++  DeviceArray<int> counts(tiles + 1), offsets(tiles + 1);
++  cudaSafeCall(cudaMemset(counts.ptr(), 0, (tiles + 1) * sizeof(int)));
++  ov.tile_counts = counts.ptr();
++  ov.tile_offsets = offsets.ptr();
++  ov.count_only = true;
++  getOccupiedVoxelsKernel<<<grid, block>>>(ov);
++  cudaSafeCall(cudaGetLastError());
++  thrust::exclusive_scan(thrust::device_pointer_cast(counts.ptr()),
++                         thrust::device_pointer_cast(counts.ptr() + tiles + 1),
++                         thrust::device_pointer_cast(offsets.ptr()));
++  int size;
++  cudaSafeCall(cudaMemcpy(&size, offsets.ptr() + tiles, sizeof(int), cudaMemcpyDeviceToHost));
++  size = std::min(size, int(ov.max_size));
++  ov.count_only = false;
+   getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+   cudaSafeCall ( cudaGetLastError () );
+   cudaSafeCall (cudaDeviceSynchronize ());
+ 
+-  int size;
+-  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
++  
+   return size;
+ }
+ 
+@@ -324,36 +819,35 @@ namespace pcl
+ 
+         // find the vertices where the surface intersects the cube
+         // use shared memory to avoid using local
+-        __shared__ float3 vertlist[12][CTA_SIZE];
+-
+-        vertlist[0][tid] = vertex_interp (v[0], v[1], f[0], f[1]);
+-        vertlist[1][tid] = vertex_interp (v[1], v[2], f[1], f[2]);
+-        vertlist[2][tid] = vertex_interp (v[2], v[3], f[2], f[3]);
+-        vertlist[3][tid] = vertex_interp (v[3], v[0], f[3], f[0]);
+-        vertlist[4][tid] = vertex_interp (v[4], v[5], f[4], f[5]);
+-        vertlist[5][tid] = vertex_interp (v[5], v[6], f[5], f[6]);
+-        vertlist[6][tid] = vertex_interp (v[6], v[7], f[6], f[7]);
+-        vertlist[7][tid] = vertex_interp (v[7], v[4], f[7], f[4]);
+-        vertlist[8][tid] = vertex_interp (v[0], v[4], f[0], f[4]);
+-        vertlist[9][tid] = vertex_interp (v[1], v[5], f[1], f[5]);
+-        vertlist[10][tid] = vertex_interp (v[2], v[6], f[2], f[6]);
+-        vertlist[11][tid] = vertex_interp (v[3], v[7], f[3], f[7]);
+-        __syncthreads ();
++        float3 vertlist[12];
++
++        vertlist[0] = vertex_interp (v[0], v[1], f[0], f[1]);
++        vertlist[1] = vertex_interp (v[1], v[2], f[1], f[2]);
++        vertlist[2] = vertex_interp (v[2], v[3], f[2], f[3]);
++        vertlist[3] = vertex_interp (v[3], v[0], f[3], f[0]);
++        vertlist[4] = vertex_interp (v[4], v[5], f[4], f[5]);
++        vertlist[5] = vertex_interp (v[5], v[6], f[5], f[6]);
++        vertlist[6] = vertex_interp (v[6], v[7], f[6], f[7]);
++        vertlist[7] = vertex_interp (v[7], v[4], f[7], f[4]);
++        vertlist[8] = vertex_interp (v[0], v[4], f[0], f[4]);
++        vertlist[9] = vertex_interp (v[1], v[5], f[1], f[5]);
++        vertlist[10] = vertex_interp (v[2], v[6], f[2], f[6]);
++        vertlist[11] = vertex_interp (v[3], v[7], f[3], f[7]);
+ 
+         // output triangle vertices
+-        int numVerts = tex1Dfetch (numVertsTex, cubeindex);
++        int numVerts = numVertsTable[cubeindex];
+ 
+         for (int i = 0; i < numVerts; i += 3)
+         {
+           int index = vertex_ofssets[idx] + i;
+ 
+-          int v1 = tex1Dfetch (triTex, (cubeindex * 16) + i + 0);
+-          int v2 = tex1Dfetch (triTex, (cubeindex * 16) + i + 1);
+-          int v3 = tex1Dfetch (triTex, (cubeindex * 16) + i + 2);
++          int v1 = triTable[cubeindex][i + 0];
++          int v2 = triTable[cubeindex][i + 1];
++          int v3 = triTable[cubeindex][i + 2];
+ 
+-          store_point (output, index + 0, vertlist[v1][tid]);
+-          store_point (output, index + 1, vertlist[v2][tid]);
+-          store_point (output, index + 2, vertlist[v3][tid]);
++          store_point (output, index + 0, vertlist[v1]);
++          store_point (output, index + 1, vertlist[v2]);
++          store_point (output, index + 2, vertlist[v3]);
+         }
+       }
+ 
+diff --git a/gpu/kinfu/src/cuda/utils.hpp b/gpu/kinfu/src/cuda/utils.hpp
+index 7fedbb6..0a03ce3 100644
+--- a/gpu/kinfu/src/cuda/utils.hpp
++++ b/gpu/kinfu/src/cuda/utils.hpp
+@@ -484,14 +484,16 @@ namespace pcl
+ 		if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+ 		if (tid < 32)
+-		{
+-		  if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-		  if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-		  if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-		  if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-		  if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-		  if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-		}
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+       }
+ 
+       template<int CTA_SIZE, typename T, class BinOp>
+@@ -507,14 +509,16 @@ namespace pcl
+ 		if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+ 		if (tid < 32)
+-		{
+-		  if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-		  if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-		  if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-		  if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-		  if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-		  if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-		}
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+ 		__syncthreads();				
+ 		return buffer[0];
+       }
+diff --git a/gpu/kinfu/src/marching_cubes.cpp b/gpu/kinfu/src/marching_cubes.cpp
+index 4f1715d..8807383 100644
+--- a/gpu/kinfu/src/marching_cubes.cpp
++++ b/gpu/kinfu/src/marching_cubes.cpp
+@@ -59,14 +59,11 @@ pcl::gpu::MarchingCubes::run(const TsdfVolume& tsdf, DeviceArray<PointType>& tri
+ {  
+   if (triangles_buffer.empty())
+     triangles_buffer.create(DEFAULT_TRIANGLES_BUFFER_SIZE);
+-  occupied_voxels_buffer_.create(3, static_cast<int> (triangles_buffer.size () / 3));    
+-
+-  device::bindTextures(edgeTable_, triTable_, numVertsTable_);
++  occupied_voxels_buffer_.create(3, static_cast<int> (triangles_buffer.size () / 3));
+   
+   int active_voxels = device::getOccupiedVoxels(tsdf.data(), occupied_voxels_buffer_);  
+   if(!active_voxels)
+   {
+-    device::unbindTextures();
+     return DeviceArray<PointType>();
+   }
+ 
+@@ -76,8 +73,6 @@ pcl::gpu::MarchingCubes::run(const TsdfVolume& tsdf, DeviceArray<PointType>& tri
+   
+   float3 volume_size = device_cast<const float3>(tsdf.getSize());
+   device::generateTriangles(tsdf.data(), occupied_voxels, volume_size, (DeviceArray<device::PointType>&)triangles_buffer);
+-    
+-  device::unbindTextures();
+   return DeviceArray<PointType>(triangles_buffer.ptr(), total_vertexes);
+ }
+ 
+diff --git a/gpu/kinfu_large_scale/CMakeLists.txt b/gpu/kinfu_large_scale/CMakeLists.txt
+index da956a2..c026a99 100644
+--- a/gpu/kinfu_large_scale/CMakeLists.txt
++++ b/gpu/kinfu_large_scale/CMakeLists.txt
+@@ -4,12 +4,7 @@ set(SUBSYS_DESC "Kinect Fusion implementation, with volume shifting")
+ set(SUBSYS_DEPS common io gpu_containers gpu_utils geometry search octree filters kdtree features surface)
+ set(EXT_DEPS vtk) # Uses saveRgbPNGFile from png_io, which requires VTK to be present
+ 
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "Kinfu_large_scale uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS ${EXT_DEPS})
+diff --git a/gpu/kinfu_large_scale/src/cuda/device.hpp b/gpu/kinfu_large_scale/src/cuda/device.hpp
+index e39a6e2..e130abe 100644
+--- a/gpu/kinfu_large_scale/src/cuda/device.hpp
++++ b/gpu/kinfu_large_scale/src/cuda/device.hpp
+@@ -90,18 +90,19 @@ namespace pcl
+       __device__ __forceinline__ T
+       scan_warp ( volatile T *ptr, const unsigned int idx = threadIdx.x )
+       {
+-        const unsigned int lane = idx & 31;       // index of thread in warp (0..31) 
+-
+-        if (lane >=  1) ptr[idx] = ptr[idx -  1] + ptr[idx];
+-        if (lane >=  2) ptr[idx] = ptr[idx -  2] + ptr[idx];
+-        if (lane >=  4) ptr[idx] = ptr[idx -  4] + ptr[idx];
+-        if (lane >=  8) ptr[idx] = ptr[idx -  8] + ptr[idx];
+-        if (lane >= 16) ptr[idx] = ptr[idx - 16] + ptr[idx];
+-
+-        if (Kind == inclusive)
+-          return ptr[idx];
+-        else
+-          return (lane > 0) ? ptr[idx - 1] : 0;
++        const unsigned mask = __activemask();
++      const unsigned lane = idx & 31;
++      __syncwarp(mask);
++      T value = ptr[idx];
++      const T initial = value;
++      for (int d = 1; d < 32; d <<= 1) {
++        T other = __shfl_up_sync(mask, value, d);
++        if (lane >= d) value = other + value;
++      }
++      __syncwarp(mask);
++      ptr[idx] = value;
++      __syncwarp(mask);
++      return Kind == inclusive ? value : value - initial;
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
+index 952f024..9cad6f5 100644
+--- a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
++++ b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
+@@ -63,14 +63,16 @@ namespace pcl
+         if (CTA_SIZE_ >=  128) { if (tid <  64) buffer[tid] = val = val + buffer[tid +  64]; __syncthreads(); }
+ 
+         if (tid < 32)
+-        {
+-          if (CTA_SIZE_ >=   64) { buffer[tid] = val = val + buffer[tid +  32]; }
+-          if (CTA_SIZE_ >=   32) { buffer[tid] = val = val + buffer[tid +  16]; }
+-          if (CTA_SIZE_ >=   16) { buffer[tid] = val = val + buffer[tid +   8]; }
+-          if (CTA_SIZE_ >=    8) { buffer[tid] = val = val + buffer[tid +   4]; }
+-          if (CTA_SIZE_ >=    4) { buffer[tid] = val = val + buffer[tid +   2]; }
+-          if (CTA_SIZE_ >=    2) { buffer[tid] = val = val + buffer[tid +   1]; }
++      {
++        if (CTA_SIZE_ >= 64) val = val + buffer[tid + 32];
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = val + other;
+         }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+       }
+ 
+       struct Combined
+@@ -185,26 +187,32 @@ namespace pcl
+           else
+             row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
+ 
+-          __shared__ float_type smem[CTA_SIZE];
+-          int tid = Block::flattenedThreadId ();
+-
+-          int shift = 0;
+-          for (int i = 0; i < 6; ++i)        //rows
+-          {
++          // Reduce all 27 normal-equation entries in registers. Only warp
++        // totals cross shared memory, with a single block rendezvous.
++        __shared__ float_type sums[27][CTA_SIZE_Y];
++        const int lane = threadIdx.x;
++        const int warp = threadIdx.y;
++        int shift = 0;
++        #pragma unroll
++        for (int i = 0; i < 6; ++i) {
++          #pragma unroll
++          for (int j = i; j < 7; ++j) {
++            float_type v = row[i] * row[j];
+             #pragma unroll
+-            for (int j = i; j < 7; ++j)          // cols + b
+-            {
+-              __syncthreads ();
+-              smem[tid] = row[i] * row[j];
+-              __syncthreads ();
+-
+-              reduce<CTA_SIZE>(smem);
+-
+-              if (tid == 0)
+-                gbuf.ptr (shift++)[blockIdx.x + gridDim.x * blockIdx.y] = smem[0];
+-            }
++            for (int d = 16; d; d >>= 1)
++              v += __shfl_down_sync(0xffffffffu, v, d);
++            if (lane == 0) sums[shift][warp] = v;
++            ++shift;
+           }
+         }
++        __syncthreads();
++        int tid = Block::flattenedThreadId();
++        if (tid < 27) {
++          float_type v = ((sums[tid][0] + sums[tid][4]) + (sums[tid][2] + sums[tid][6]))
++                      + ((sums[tid][1] + sums[tid][5]) + (sums[tid][3] + sums[tid][7]));
++          gbuf.ptr(tid)[blockIdx.x + gridDim.x * blockIdx.y] = v;
++        }
++        }
+       };
+ 
+       __global__ void
+diff --git a/gpu/kinfu_large_scale/src/cuda/extract.cu b/gpu/kinfu_large_scale/src/cuda/extract.cu
+index d7db4be..571ca6f 100644
+--- a/gpu/kinfu_large_scale/src/cuda/extract.cu
++++ b/gpu/kinfu_large_scale/src/cuda/extract.cu
+@@ -1,3 +1,5 @@
++#include <thrust/device_ptr.h>
++#include <thrust/scan.h>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -56,19 +58,16 @@ namespace pcl
+         CTA_SIZE = CTA_SIZE_X * CTA_SIZE_Y,
+ 
+         MAX_LOCAL_POINTS = 3
+-      };
+-
+-      __device__ int global_count = 0;
+-      __device__ int output_xyz_count = 0;                                       // *************************************************
+-      __device__ unsigned int blocks_done = 0;
+-
+-      __shared__ float storage_X[CTA_SIZE * MAX_LOCAL_POINTS];
+-      __shared__ float storage_Y[CTA_SIZE * MAX_LOCAL_POINTS];
+-      __shared__ float storage_Z[CTA_SIZE * MAX_LOCAL_POINTS];
+-      __shared__ float storage_I[CTA_SIZE * MAX_LOCAL_POINTS];
++      };                                       // *************************************************
+ 
+       struct FullScan6
+       {
++      // Each warp owns a fixed eight-plane tile. A count/scan/emit pipeline
++      // provides stable ordering without device-global counters or atomics.
++      int* tile_counts;
++      const int* tile_offsets;
++      bool count_only;
++
+         PtrStep<short2> volume;
+         float3 cell_size;
+ 
+@@ -104,17 +103,17 @@ namespace pcl
+           int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+           int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+ 
+-          if (__all_sync (__activemask (), x >= VOLUME_X)
+-              || __all_sync (__activemask (), y >= VOLUME_Y))
+-            return;
++          
+ 
+           float3 V;
+           V.x = (x + 0.5f) * cell_size.x;
+           V.y = (y + 0.5f) * cell_size.y;
+ 
+           int ftid = Block::flattenedThreadId ();
++          int tile = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * CTA_SIZE_Y + threadIdx.y;
++          int emitted = 0;
+ 
+-          for (int z = 0; z < VOLUME_Z - 1; ++z)
++          for (int z = blockIdx.z * 8; z < min(int(blockIdx.z * 8 + 8), VOLUME_Z - 1); ++z)
+           {
+             float3 points[MAX_LOCAL_POINTS];
+             int local_count = 0;
+@@ -200,63 +199,31 @@ namespace pcl
+                            + __popc (__ballot_sync (__activemask (), local_count > 1))
+                            + __popc (__ballot_sync (__activemask (), local_count > 2));
+ 
+-            if (total_warp > 0)
+-            {
+-              int lane = Warp::laneId ();
+-              int storage_index = (ftid >> Warp::LOG_WARP_SIZE) * Warp::WARP_SIZE * MAX_LOCAL_POINTS;
+-
+-              volatile int* cta_buffer = (int*)(storage_X + storage_index);
+-
+-              cta_buffer[lane] = local_count;
+-              int offset = scan_warp<exclusive>(cta_buffer, lane);
+-
+-              if (lane == 0)
+-              {
+-                int old_global_count = atomicAdd (&global_count, total_warp);
+-                cta_buffer[0] = old_global_count;
++            if (total_warp > 0) {
++              if (!count_only) {
++                int lane = threadIdx.x;
++                int prefix = local_count;
++                for (int d = 1; d < 32; d <<= 1) {
++                  int v = __shfl_up_sync(0xffffffffu, prefix, d);
++                  if (lane >= d) prefix += v;
++                }
++                int base = tile_offsets[tile] + emitted + prefix - local_count;
++                for (int l = 0; l < local_count; ++l) {
++                  int dst = base + l;
++                  if (dst < output_xyz.size) {
++                    auto p = points[l];
++                    store_point_type(p.x, p.y, p.z, output_xyz.data, dst);
++                  }
++                }
+               }
+-              int old_global_count = cta_buffer[0];
+-
+-              for (int l = 0; l < local_count; ++l)
+-              {
+-                storage_X[storage_index + offset + l] = points[l].x;
+-                storage_Y[storage_index + offset + l] = points[l].y;
+-                storage_Z[storage_index + offset + l] = points[l].z;
+-              }
+-
+-              int offset_storage = old_global_count + lane;
+-              for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, offset_storage += Warp::STRIDE)
+-              {
+-                if (offset_storage >= output_xyz.size) break;
+-                float x = storage_X[storage_index + idx];
+-                float y = storage_Y[storage_index + idx];
+-                float z = storage_Z[storage_index + idx];
+-                store_point_type (x, y, z, output_xyz.data, offset_storage);
+-              }
+-
+-              bool full = (old_global_count + total_warp) >= output_xyz.size;
+-
+-              if (full)
+-                break;
++              emitted += total_warp;
+             }
+ 
+           }/* for(int z = 0; z < VOLUME_Z - 1; ++z) */
+ 
+           ///////////////////////////
+           // Prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            // Last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_xyz_count = min ((int)output_xyz.size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          }
++          if (count_only && threadIdx.x == 0) tile_counts[tile] = emitted;
+         } /* operator() */
+ 
+         // OPERATOR USED BY EXTRACT_SLICE_AS_CLOUD. 
+@@ -270,11 +237,13 @@ namespace pcl
+           int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+ 
+           int ftid = Block::flattenedThreadId ();
++          int tile = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * CTA_SIZE_Y + threadIdx.y;
++          int emitted = 0;
+ 
+           int minimum_Z = 0;
+           int maximum_Z = VOLUME_Z - 1;
+ 
+-          for (int z = minimum_Z; z < maximum_Z; ++z)
++          for (int z = blockIdx.z * 8; z < min(int(blockIdx.z * 8 + 8), maximum_Z); ++z)
+           {
+             // The black zone is the name given to the subvolume within the TSDF Volume grid that is shifted out.
+             // In other words, the set of points in the TSDF grid that we want to extract in order to add it to the world model being built in CPU. 
+@@ -305,72 +274,31 @@ namespace pcl
+                            + __popc (__ballot_sync (__activemask (), local_count > 1))
+                            + __popc (__ballot_sync (__activemask (), local_count > 2));
+ 
+-            if (total_warp > 0)  ///more than 0 zero-crossings
+-            {
+-              int lane = Warp::laneId ();  ///index of thread within warp [0-31]
+-              int storage_index = (ftid >> Warp::LOG_WARP_SIZE) * Warp::WARP_SIZE * MAX_LOCAL_POINTS;
+-
+-              // Pointer to the beginning of the current warp buffer
+-              volatile int* cta_buffer = (int*)(storage_X + storage_index);
+-
+-              // Compute offset of current warp
+-              // Call in place scanning (see http://http.developer.nvidia.com/GPUGems3/gpugems3_ch39.html)
+-              cta_buffer[lane] = local_count;
+-              int offset = scan_warp<exclusive>(cta_buffer, lane);   //How many crossings did we have before index "lane" ?
+-
+-              // We want to do only 1 operation per warp (not thread) -> because it is faster
+-              if (lane == 0) 
+-              {
+-                int old_global_count = atomicAdd (&global_count, total_warp); ///We use atomicAdd, so that threads do not collide
+-                cta_buffer[0] = old_global_count;
++            if (total_warp > 0) {
++              if (!count_only) {
++                int lane = threadIdx.x;
++                int prefix = local_count;
++                for (int d = 1; d < 32; d <<= 1) {
++                  int v = __shfl_up_sync(0xffffffffu, prefix, d);
++                  if (lane >= d) prefix += v;
++                }
++                int base = tile_offsets[tile] + emitted + prefix - local_count;
++                for (int l = 0; l < local_count; ++l) {
++                  int dst = base + l;
++                  if (dst < output_xyz.size) {
++                    auto p = points[l];
++                    store_point_intensity(p.x, p.y, p.z, p.w, output_xyz.data, output_intensity.data, dst);
++                  }
++                }
+               }
+-              int old_global_count = cta_buffer[0];
+-
+-              // Perform compaction (dump all current crossings)
+-              for (int l = 0; l < local_count; ++l)
+-              {
+-                storage_X[storage_index + offset + l] = points[l].x;// x coordinates of the points we found in STORAGE_X
+-                storage_Y[storage_index + offset + l] = points[l].y;// y coordinates of the points we found in STORAGE_Y
+-                storage_Z[storage_index + offset + l] = points[l].z;// z coordinates of the points we found in STORAGE_Z
+-                storage_I[storage_index + offset + l] = points[l].w;// Intensity values of the points we found in STORAGE_I
+-              }
+-
+-              // Retrieve Zero-crossings as 3D points
+-              int offset_storage = old_global_count + lane;
+-              for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, offset_storage += Warp::STRIDE)
+-              {
+-                if (offset_storage >= output_xyz.size) break;
+-                float x = storage_X[storage_index + idx];
+-                float y = storage_Y[storage_index + idx];
+-                float z = storage_Z[storage_index + idx];
+-                float i = storage_I[storage_index + idx];
+-                store_point_intensity (x, y, z, i, output_xyz.data, output_intensity.data, offset_storage);
+-              }
+-
+-              // Sanity check to make sure our output_xyz buffer is not full already
+-              bool full = (old_global_count + total_warp) >= output_xyz.size;
+-
+-              if (full)
+-                break;
++              emitted += total_warp;
+             }
+ 
+             } /* for(int z = 0; z < VOLUME_Z - 1; ++z) */
+ 
+           ///////////////////////////
+           // Prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            // Last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_xyz_count = min ((int)output_xyz.size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          }
++          if (count_only && threadIdx.x == 0) tile_counts[tile] = emitted;
+         } /* operator() */
+ 
+         __device__ __forceinline__ void
+@@ -424,12 +352,27 @@ namespace pcl
+         dim3 block (CTA_SIZE_X, CTA_SIZE_Y);
+         dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
+ 
+-        extractKernel<<<grid, block>>>(fs);
++        grid.z = divUp(VOLUME_Z - 1, 8);
++  const int tiles = grid.x * grid.y * grid.z * block.y;
++  DeviceArray<int> counts(tiles + 1), offsets(tiles + 1);
++  cudaSafeCall(cudaMemset(counts.ptr(), 0, (tiles + 1) * sizeof(int)));
++  fs.tile_counts = counts.ptr();
++  fs.tile_offsets = offsets.ptr();
++  fs.count_only = true;
++  extractKernel<<<grid, block>>>(fs);
++  cudaSafeCall(cudaGetLastError());
++  thrust::exclusive_scan(thrust::device_pointer_cast(counts.ptr()),
++                         thrust::device_pointer_cast(counts.ptr() + tiles + 1),
++                         thrust::device_pointer_cast(offsets.ptr()));
++  int size;
++  cudaSafeCall(cudaMemcpy(&size, offsets.ptr() + tiles, sizeof(int), cudaMemcpyDeviceToHost));
++  size = std::min(size, int(output_xyz.size));
++  fs.count_only = false;
++  extractKernel<<<grid, block>>>(fs);
+         cudaSafeCall ( cudaGetLastError () );
+         cudaSafeCall ( cudaDeviceSynchronize () );
+ 
+-        int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof (size)) );
++        
+       //  cudaSafeCall ( cudaMemcpyFromSymbol (&size, "output_xyz_count", sizeof (size)) );
+         return ((std::size_t)size);
+       }
+@@ -532,13 +475,28 @@ namespace pcl
+         }
+ 
+         // Extraction call
+-        extractSliceKernel<<<grid, block>>>(fs, *buffer, minBounds, maxBounds);
++        grid.z = divUp(VOLUME_Z - 1, 8);
++  const int tiles = grid.x * grid.y * grid.z * block.y;
++  DeviceArray<int> counts(tiles + 1), offsets(tiles + 1);
++  cudaSafeCall(cudaMemset(counts.ptr(), 0, (tiles + 1) * sizeof(int)));
++  fs.tile_counts = counts.ptr();
++  fs.tile_offsets = offsets.ptr();
++  fs.count_only = true;
++  extractSliceKernel<<<grid, block>>>(fs, *buffer, minBounds, maxBounds);
++  cudaSafeCall(cudaGetLastError());
++  thrust::exclusive_scan(thrust::device_pointer_cast(counts.ptr()),
++                         thrust::device_pointer_cast(counts.ptr() + tiles + 1),
++                         thrust::device_pointer_cast(offsets.ptr()));
++  int size;
++  cudaSafeCall(cudaMemcpy(&size, offsets.ptr() + tiles, sizeof(int), cudaMemcpyDeviceToHost));
++  size = std::min(size, int(output_xyz.size));
++  fs.count_only = false;
++  extractSliceKernel<<<grid, block>>>(fs, *buffer, minBounds, maxBounds);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+         cudaSafeCall ( cudaDeviceSynchronize () );
+ 
+-        int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof(size)) );  
++          
+         return (std::size_t)size;
+       }
+     }
+diff --git a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
+index b1c12de..af64874 100644
+--- a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
++++ b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
+@@ -50,41 +50,527 @@ namespace pcl
+   {
+     namespace kinfuLS
+     {
+-      //texture<int, 1, cudaReadModeElementType> edgeTex;
+-      texture<int, 1, cudaReadModeElementType> triTex;
+-      texture<int, 1, cudaReadModeElementType> numVertsTex;
+-
+-      void
+-      bindTextures (const int */*edgeBuf*/, const int *triBuf, const int *numVertsBuf)
+-      {
+-        cudaChannelFormatDesc desc = cudaCreateChannelDesc<int>();
+-        //cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+-        cudaSafeCall (cudaBindTexture (0, triTex, triBuf, desc) );
+-        cudaSafeCall (cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
+-      }
+-      void
+-      unbindTextures ()
+-      {
+-        //cudaSafeCall( cudaUnbindTexture(edgeTex) );
+-        cudaSafeCall ( cudaUnbindTexture (numVertsTex) );
+-        cudaSafeCall ( cudaUnbindTexture (triTex) );
+-      }
+-    }
+-  }
+-}
+-
+-
+-namespace pcl
++      
++__device__ __constant__ int triTable[256][16] = 
+ {
+-  namespace device
+-  {
+-    namespace kinfuLS
+-    {
+-      __device__ int global_count = 0;
+-      __device__ int output_count;
+-      __device__ unsigned int blocks_done = 0;
+-
+-      struct CubeIndexEstimator
++    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 8, 3, 9, 8, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 2, 10, 0, 2, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 8, 3, 2, 10, 8, 10, 9, 8, -1, -1, -1, -1, -1, -1, -1},
++	{3, 11, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 11, 2, 8, 11, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 11, 2, 1, 9, 11, 9, 8, 11, -1, -1, -1, -1, -1, -1, -1},
++	{3, 10, 1, 11, 10, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 10, 1, 0, 8, 10, 8, 11, 10, -1, -1, -1, -1, -1, -1, -1},
++	{3, 9, 0, 3, 11, 9, 11, 10, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 8, 10, 10, 8, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 7, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 3, 0, 7, 3, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 1, 9, 4, 7, 1, 7, 3, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 4, 7, 3, 0, 4, 1, 2, 10, -1, -1, -1, -1, -1, -1, -1},
++	{9, 2, 10, 9, 0, 2, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1},
++	{2, 10, 9, 2, 9, 7, 2, 7, 3, 7, 9, 4, -1, -1, -1, -1},
++	{8, 4, 7, 3, 11, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 4, 7, 11, 2, 4, 2, 0, 4, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 1, 8, 4, 7, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1},
++	{4, 7, 11, 9, 4, 11, 9, 11, 2, 9, 2, 1, -1, -1, -1, -1},
++	{3, 10, 1, 3, 11, 10, 7, 8, 4, -1, -1, -1, -1, -1, -1, -1},
++	{1, 11, 10, 1, 4, 11, 1, 0, 4, 7, 11, 4, -1, -1, -1, -1},
++	{4, 7, 8, 9, 0, 11, 9, 11, 10, 11, 0, 3, -1, -1, -1, -1},
++	{4, 7, 11, 4, 11, 9, 9, 11, 10, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, 0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 5, 4, 1, 5, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 5, 4, 8, 3, 5, 3, 1, 5, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 9, 5, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 1, 2, 10, 4, 9, 5, -1, -1, -1, -1, -1, -1, -1},
++	{5, 2, 10, 5, 4, 2, 4, 0, 2, -1, -1, -1, -1, -1, -1, -1},
++	{2, 10, 5, 3, 2, 5, 3, 5, 4, 3, 4, 8, -1, -1, -1, -1},
++	{9, 5, 4, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 11, 2, 0, 8, 11, 4, 9, 5, -1, -1, -1, -1, -1, -1, -1},
++	{0, 5, 4, 0, 1, 5, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1},
++	{2, 1, 5, 2, 5, 8, 2, 8, 11, 4, 8, 5, -1, -1, -1, -1},
++	{10, 3, 11, 10, 1, 3, 9, 5, 4, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 5, 0, 8, 1, 8, 10, 1, 8, 11, 10, -1, -1, -1, -1},
++	{5, 4, 0, 5, 0, 11, 5, 11, 10, 11, 0, 3, -1, -1, -1, -1},
++	{5, 4, 8, 5, 8, 10, 10, 8, 11, -1, -1, -1, -1, -1, -1, -1},
++	{9, 7, 8, 5, 7, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 3, 0, 9, 5, 3, 5, 7, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 7, 8, 0, 1, 7, 1, 5, 7, -1, -1, -1, -1, -1, -1, -1},
++	{1, 5, 3, 3, 5, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 7, 8, 9, 5, 7, 10, 1, 2, -1, -1, -1, -1, -1, -1, -1},
++	{10, 1, 2, 9, 5, 0, 5, 3, 0, 5, 7, 3, -1, -1, -1, -1},
++	{8, 0, 2, 8, 2, 5, 8, 5, 7, 10, 5, 2, -1, -1, -1, -1},
++	{2, 10, 5, 2, 5, 3, 3, 5, 7, -1, -1, -1, -1, -1, -1, -1},
++	{7, 9, 5, 7, 8, 9, 3, 11, 2, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 7, 9, 7, 2, 9, 2, 0, 2, 7, 11, -1, -1, -1, -1},
++	{2, 3, 11, 0, 1, 8, 1, 7, 8, 1, 5, 7, -1, -1, -1, -1},
++	{11, 2, 1, 11, 1, 7, 7, 1, 5, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 8, 8, 5, 7, 10, 1, 3, 10, 3, 11, -1, -1, -1, -1},
++	{5, 7, 0, 5, 0, 9, 7, 11, 0, 1, 0, 10, 11, 10, 0, -1},
++	{11, 10, 0, 11, 0, 3, 10, 5, 0, 8, 0, 7, 5, 7, 0, -1},
++	{11, 10, 5, 7, 11, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{10, 6, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 1, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 8, 3, 1, 9, 8, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 5, 2, 6, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 5, 1, 2, 6, 3, 0, 8, -1, -1, -1, -1, -1, -1, -1},
++	{9, 6, 5, 9, 0, 6, 0, 2, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 9, 8, 5, 8, 2, 5, 2, 6, 3, 2, 8, -1, -1, -1, -1},
++	{2, 3, 11, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 0, 8, 11, 2, 0, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 2, 3, 11, 5, 10, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 1, 9, 2, 9, 11, 2, 9, 8, 11, -1, -1, -1, -1},
++	{6, 3, 11, 6, 5, 3, 5, 1, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 11, 0, 11, 5, 0, 5, 1, 5, 11, 6, -1, -1, -1, -1},
++	{3, 11, 6, 0, 3, 6, 0, 6, 5, 0, 5, 9, -1, -1, -1, -1},
++	{6, 5, 9, 6, 9, 11, 11, 9, 8, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 4, 7, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 3, 0, 4, 7, 3, 6, 5, 10, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 5, 10, 6, 8, 4, 7, -1, -1, -1, -1, -1, -1, -1},
++	{10, 6, 5, 1, 9, 7, 1, 7, 3, 7, 9, 4, -1, -1, -1, -1},
++	{6, 1, 2, 6, 5, 1, 4, 7, 8, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 5, 5, 2, 6, 3, 0, 4, 3, 4, 7, -1, -1, -1, -1},
++	{8, 4, 7, 9, 0, 5, 0, 6, 5, 0, 2, 6, -1, -1, -1, -1},
++	{7, 3, 9, 7, 9, 4, 3, 2, 9, 5, 9, 6, 2, 6, 9, -1},
++	{3, 11, 2, 7, 8, 4, 10, 6, 5, -1, -1, -1, -1, -1, -1, -1},
++	{5, 10, 6, 4, 7, 2, 4, 2, 0, 2, 7, 11, -1, -1, -1, -1},
++	{0, 1, 9, 4, 7, 8, 2, 3, 11, 5, 10, 6, -1, -1, -1, -1},
++	{9, 2, 1, 9, 11, 2, 9, 4, 11, 7, 11, 4, 5, 10, 6, -1},
++	{8, 4, 7, 3, 11, 5, 3, 5, 1, 5, 11, 6, -1, -1, -1, -1},
++	{5, 1, 11, 5, 11, 6, 1, 0, 11, 7, 11, 4, 0, 4, 11, -1},
++	{0, 5, 9, 0, 6, 5, 0, 3, 6, 11, 6, 3, 8, 4, 7, -1},
++	{6, 5, 9, 6, 9, 11, 4, 7, 9, 7, 11, 9, -1, -1, -1, -1},
++	{10, 4, 9, 6, 4, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 10, 6, 4, 9, 10, 0, 8, 3, -1, -1, -1, -1, -1, -1, -1},
++	{10, 0, 1, 10, 6, 0, 6, 4, 0, -1, -1, -1, -1, -1, -1, -1},
++	{8, 3, 1, 8, 1, 6, 8, 6, 4, 6, 1, 10, -1, -1, -1, -1},
++	{1, 4, 9, 1, 2, 4, 2, 6, 4, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 1, 2, 9, 2, 4, 9, 2, 6, 4, -1, -1, -1, -1},
++	{0, 2, 4, 4, 2, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 3, 2, 8, 2, 4, 4, 2, 6, -1, -1, -1, -1, -1, -1, -1},
++	{10, 4, 9, 10, 6, 4, 11, 2, 3, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 2, 2, 8, 11, 4, 9, 10, 4, 10, 6, -1, -1, -1, -1},
++	{3, 11, 2, 0, 1, 6, 0, 6, 4, 6, 1, 10, -1, -1, -1, -1},
++	{6, 4, 1, 6, 1, 10, 4, 8, 1, 2, 1, 11, 8, 11, 1, -1},
++	{9, 6, 4, 9, 3, 6, 9, 1, 3, 11, 6, 3, -1, -1, -1, -1},
++	{8, 11, 1, 8, 1, 0, 11, 6, 1, 9, 1, 4, 6, 4, 1, -1},
++	{3, 11, 6, 3, 6, 0, 0, 6, 4, -1, -1, -1, -1, -1, -1, -1},
++	{6, 4, 8, 11, 6, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 10, 6, 7, 8, 10, 8, 9, 10, -1, -1, -1, -1, -1, -1, -1},
++	{0, 7, 3, 0, 10, 7, 0, 9, 10, 6, 7, 10, -1, -1, -1, -1},
++	{10, 6, 7, 1, 10, 7, 1, 7, 8, 1, 8, 0, -1, -1, -1, -1},
++	{10, 6, 7, 10, 7, 1, 1, 7, 3, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 6, 1, 6, 8, 1, 8, 9, 8, 6, 7, -1, -1, -1, -1},
++	{2, 6, 9, 2, 9, 1, 6, 7, 9, 0, 9, 3, 7, 3, 9, -1},
++	{7, 8, 0, 7, 0, 6, 6, 0, 2, -1, -1, -1, -1, -1, -1, -1},
++	{7, 3, 2, 6, 7, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 11, 10, 6, 8, 10, 8, 9, 8, 6, 7, -1, -1, -1, -1},
++	{2, 0, 7, 2, 7, 11, 0, 9, 7, 6, 7, 10, 9, 10, 7, -1},
++	{1, 8, 0, 1, 7, 8, 1, 10, 7, 6, 7, 10, 2, 3, 11, -1},
++	{11, 2, 1, 11, 1, 7, 10, 6, 1, 6, 7, 1, -1, -1, -1, -1},
++	{8, 9, 6, 8, 6, 7, 9, 1, 6, 11, 6, 3, 1, 3, 6, -1},
++	{0, 9, 1, 11, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 8, 0, 7, 0, 6, 3, 11, 0, 11, 6, 0, -1, -1, -1, -1},
++	{7, 11, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 6, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 8, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 9, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 1, 9, 8, 3, 1, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1},
++	{10, 1, 2, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 3, 0, 8, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1},
++	{2, 9, 0, 2, 10, 9, 6, 11, 7, -1, -1, -1, -1, -1, -1, -1},
++	{6, 11, 7, 2, 10, 3, 10, 8, 3, 10, 9, 8, -1, -1, -1, -1},
++	{7, 2, 3, 6, 2, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{7, 0, 8, 7, 6, 0, 6, 2, 0, -1, -1, -1, -1, -1, -1, -1},
++	{2, 7, 6, 2, 3, 7, 0, 1, 9, -1, -1, -1, -1, -1, -1, -1},
++	{1, 6, 2, 1, 8, 6, 1, 9, 8, 8, 7, 6, -1, -1, -1, -1},
++	{10, 7, 6, 10, 1, 7, 1, 3, 7, -1, -1, -1, -1, -1, -1, -1},
++	{10, 7, 6, 1, 7, 10, 1, 8, 7, 1, 0, 8, -1, -1, -1, -1},
++	{0, 3, 7, 0, 7, 10, 0, 10, 9, 6, 10, 7, -1, -1, -1, -1},
++	{7, 6, 10, 7, 10, 8, 8, 10, 9, -1, -1, -1, -1, -1, -1, -1},
++	{6, 8, 4, 11, 8, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 6, 11, 3, 0, 6, 0, 4, 6, -1, -1, -1, -1, -1, -1, -1},
++	{8, 6, 11, 8, 4, 6, 9, 0, 1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 4, 6, 9, 6, 3, 9, 3, 1, 11, 3, 6, -1, -1, -1, -1},
++	{6, 8, 4, 6, 11, 8, 2, 10, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 3, 0, 11, 0, 6, 11, 0, 4, 6, -1, -1, -1, -1},
++	{4, 11, 8, 4, 6, 11, 0, 2, 9, 2, 10, 9, -1, -1, -1, -1},
++	{10, 9, 3, 10, 3, 2, 9, 4, 3, 11, 3, 6, 4, 6, 3, -1},
++	{8, 2, 3, 8, 4, 2, 4, 6, 2, -1, -1, -1, -1, -1, -1, -1},
++	{0, 4, 2, 4, 6, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 9, 0, 2, 3, 4, 2, 4, 6, 4, 3, 8, -1, -1, -1, -1},
++	{1, 9, 4, 1, 4, 2, 2, 4, 6, -1, -1, -1, -1, -1, -1, -1},
++	{8, 1, 3, 8, 6, 1, 8, 4, 6, 6, 10, 1, -1, -1, -1, -1},
++	{10, 1, 0, 10, 0, 6, 6, 0, 4, -1, -1, -1, -1, -1, -1, -1},
++	{4, 6, 3, 4, 3, 8, 6, 10, 3, 0, 3, 9, 10, 9, 3, -1},
++	{10, 9, 4, 6, 10, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 5, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 4, 9, 5, 11, 7, 6, -1, -1, -1, -1, -1, -1, -1},
++	{5, 0, 1, 5, 4, 0, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1},
++	{11, 7, 6, 8, 3, 4, 3, 5, 4, 3, 1, 5, -1, -1, -1, -1},
++	{9, 5, 4, 10, 1, 2, 7, 6, 11, -1, -1, -1, -1, -1, -1, -1},
++	{6, 11, 7, 1, 2, 10, 0, 8, 3, 4, 9, 5, -1, -1, -1, -1},
++	{7, 6, 11, 5, 4, 10, 4, 2, 10, 4, 0, 2, -1, -1, -1, -1},
++	{3, 4, 8, 3, 5, 4, 3, 2, 5, 10, 5, 2, 11, 7, 6, -1},
++	{7, 2, 3, 7, 6, 2, 5, 4, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 5, 4, 0, 8, 6, 0, 6, 2, 6, 8, 7, -1, -1, -1, -1},
++	{3, 6, 2, 3, 7, 6, 1, 5, 0, 5, 4, 0, -1, -1, -1, -1},
++	{6, 2, 8, 6, 8, 7, 2, 1, 8, 4, 8, 5, 1, 5, 8, -1},
++	{9, 5, 4, 10, 1, 6, 1, 7, 6, 1, 3, 7, -1, -1, -1, -1},
++	{1, 6, 10, 1, 7, 6, 1, 0, 7, 8, 7, 0, 9, 5, 4, -1},
++	{4, 0, 10, 4, 10, 5, 0, 3, 10, 6, 10, 7, 3, 7, 10, -1},
++	{7, 6, 10, 7, 10, 8, 5, 4, 10, 4, 8, 10, -1, -1, -1, -1},
++	{6, 9, 5, 6, 11, 9, 11, 8, 9, -1, -1, -1, -1, -1, -1, -1},
++	{3, 6, 11, 0, 6, 3, 0, 5, 6, 0, 9, 5, -1, -1, -1, -1},
++	{0, 11, 8, 0, 5, 11, 0, 1, 5, 5, 6, 11, -1, -1, -1, -1},
++	{6, 11, 3, 6, 3, 5, 5, 3, 1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 10, 9, 5, 11, 9, 11, 8, 11, 5, 6, -1, -1, -1, -1},
++	{0, 11, 3, 0, 6, 11, 0, 9, 6, 5, 6, 9, 1, 2, 10, -1},
++	{11, 8, 5, 11, 5, 6, 8, 0, 5, 10, 5, 2, 0, 2, 5, -1},
++	{6, 11, 3, 6, 3, 5, 2, 10, 3, 10, 5, 3, -1, -1, -1, -1},
++	{5, 8, 9, 5, 2, 8, 5, 6, 2, 3, 8, 2, -1, -1, -1, -1},
++	{9, 5, 6, 9, 6, 0, 0, 6, 2, -1, -1, -1, -1, -1, -1, -1},
++	{1, 5, 8, 1, 8, 0, 5, 6, 8, 3, 8, 2, 6, 2, 8, -1},
++	{1, 5, 6, 2, 1, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 3, 6, 1, 6, 10, 3, 8, 6, 5, 6, 9, 8, 9, 6, -1},
++	{10, 1, 0, 10, 0, 6, 9, 5, 0, 5, 6, 0, -1, -1, -1, -1},
++	{0, 3, 8, 5, 6, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{10, 5, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 5, 10, 7, 5, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{11, 5, 10, 11, 7, 5, 8, 3, 0, -1, -1, -1, -1, -1, -1, -1},
++	{5, 11, 7, 5, 10, 11, 1, 9, 0, -1, -1, -1, -1, -1, -1, -1},
++	{10, 7, 5, 10, 11, 7, 9, 8, 1, 8, 3, 1, -1, -1, -1, -1},
++	{11, 1, 2, 11, 7, 1, 7, 5, 1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 1, 2, 7, 1, 7, 5, 7, 2, 11, -1, -1, -1, -1},
++	{9, 7, 5, 9, 2, 7, 9, 0, 2, 2, 11, 7, -1, -1, -1, -1},
++	{7, 5, 2, 7, 2, 11, 5, 9, 2, 3, 2, 8, 9, 8, 2, -1},
++	{2, 5, 10, 2, 3, 5, 3, 7, 5, -1, -1, -1, -1, -1, -1, -1},
++	{8, 2, 0, 8, 5, 2, 8, 7, 5, 10, 2, 5, -1, -1, -1, -1},
++	{9, 0, 1, 5, 10, 3, 5, 3, 7, 3, 10, 2, -1, -1, -1, -1},
++	{9, 8, 2, 9, 2, 1, 8, 7, 2, 10, 2, 5, 7, 5, 2, -1},
++	{1, 3, 5, 3, 7, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 7, 0, 7, 1, 1, 7, 5, -1, -1, -1, -1, -1, -1, -1},
++	{9, 0, 3, 9, 3, 5, 5, 3, 7, -1, -1, -1, -1, -1, -1, -1},
++	{9, 8, 7, 5, 9, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{5, 8, 4, 5, 10, 8, 10, 11, 8, -1, -1, -1, -1, -1, -1, -1},
++	{5, 0, 4, 5, 11, 0, 5, 10, 11, 11, 3, 0, -1, -1, -1, -1},
++	{0, 1, 9, 8, 4, 10, 8, 10, 11, 10, 4, 5, -1, -1, -1, -1},
++	{10, 11, 4, 10, 4, 5, 11, 3, 4, 9, 4, 1, 3, 1, 4, -1},
++	{2, 5, 1, 2, 8, 5, 2, 11, 8, 4, 5, 8, -1, -1, -1, -1},
++	{0, 4, 11, 0, 11, 3, 4, 5, 11, 2, 11, 1, 5, 1, 11, -1},
++	{0, 2, 5, 0, 5, 9, 2, 11, 5, 4, 5, 8, 11, 8, 5, -1},
++	{9, 4, 5, 2, 11, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 5, 10, 3, 5, 2, 3, 4, 5, 3, 8, 4, -1, -1, -1, -1},
++	{5, 10, 2, 5, 2, 4, 4, 2, 0, -1, -1, -1, -1, -1, -1, -1},
++	{3, 10, 2, 3, 5, 10, 3, 8, 5, 4, 5, 8, 0, 1, 9, -1},
++	{5, 10, 2, 5, 2, 4, 1, 9, 2, 9, 4, 2, -1, -1, -1, -1},
++	{8, 4, 5, 8, 5, 3, 3, 5, 1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 4, 5, 1, 0, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{8, 4, 5, 8, 5, 3, 9, 0, 5, 0, 3, 5, -1, -1, -1, -1},
++	{9, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 11, 7, 4, 9, 11, 9, 10, 11, -1, -1, -1, -1, -1, -1, -1},
++	{0, 8, 3, 4, 9, 7, 9, 11, 7, 9, 10, 11, -1, -1, -1, -1},
++	{1, 10, 11, 1, 11, 4, 1, 4, 0, 7, 4, 11, -1, -1, -1, -1},
++	{3, 1, 4, 3, 4, 8, 1, 10, 4, 7, 4, 11, 10, 11, 4, -1},
++	{4, 11, 7, 9, 11, 4, 9, 2, 11, 9, 1, 2, -1, -1, -1, -1},
++	{9, 7, 4, 9, 11, 7, 9, 1, 11, 2, 11, 1, 0, 8, 3, -1},
++	{11, 7, 4, 11, 4, 2, 2, 4, 0, -1, -1, -1, -1, -1, -1, -1},
++	{11, 7, 4, 11, 4, 2, 8, 3, 4, 3, 2, 4, -1, -1, -1, -1},
++	{2, 9, 10, 2, 7, 9, 2, 3, 7, 7, 4, 9, -1, -1, -1, -1},
++	{9, 10, 7, 9, 7, 4, 10, 2, 7, 8, 7, 0, 2, 0, 7, -1},
++	{3, 7, 10, 3, 10, 2, 7, 4, 10, 1, 10, 0, 4, 0, 10, -1},
++	{1, 10, 2, 8, 7, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 1, 4, 1, 7, 7, 1, 3, -1, -1, -1, -1, -1, -1, -1},
++	{4, 9, 1, 4, 1, 7, 0, 8, 1, 8, 7, 1, -1, -1, -1, -1},
++	{4, 0, 3, 7, 4, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{4, 8, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{9, 10, 8, 10, 11, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 9, 3, 9, 11, 11, 9, 10, -1, -1, -1, -1, -1, -1, -1},
++	{0, 1, 10, 0, 10, 8, 8, 10, 11, -1, -1, -1, -1, -1, -1, -1},
++	{3, 1, 10, 11, 3, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 2, 11, 1, 11, 9, 9, 11, 8, -1, -1, -1, -1, -1, -1, -1},
++	{3, 0, 9, 3, 9, 11, 1, 2, 9, 2, 11, 9, -1, -1, -1, -1},
++	{0, 2, 11, 8, 0, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{3, 2, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 8, 2, 8, 10, 10, 8, 9, -1, -1, -1, -1, -1, -1, -1},
++	{9, 10, 2, 0, 9, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{2, 3, 8, 2, 8, 10, 0, 1, 8, 1, 10, 8, -1, -1, -1, -1},
++	{1, 10, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{1, 3, 8, 9, 1, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 9, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
++	{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
++};
++__device__ __constant__ int numVertsTable[256] = 
++{
++    0,
++    3,
++    3,
++    6,
++    3,
++    6,
++    6,
++    9,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    6,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    12,
++    9,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    15,
++    6,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    9,
++    6,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    9,
++    6,
++    12,
++    15,
++    15,
++    12,
++    15,
++    6,
++    12,
++    3,
++    3,
++    6,
++    6,
++    9,
++    6,
++    9,
++    9,
++    12,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    9,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    6,
++    12,
++    9,
++    12,
++    9,
++    15,
++    6,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    12,
++    9,
++    12,
++    12,
++    9,
++    12,
++    15,
++    15,
++    12,
++    12,
++    9,
++    15,
++    6,
++    15,
++    12,
++    6,
++    3,
++    6,
++    9,
++    9,
++    12,
++    9,
++    12,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    15,
++    6,
++    12,
++    9,
++    15,
++    12,
++    9,
++    6,
++    12,
++    3,
++    9,
++    12,
++    12,
++    15,
++    12,
++    15,
++    9,
++    12,
++    12,
++    15,
++    15,
++    6,
++    9,
++    12,
++    6,
++    3,
++    6,
++    9,
++    9,
++    6,
++    9,
++    12,
++    6,
++    3,
++    9,
++    6,
++    12,
++    3,
++    6,
++    3,
++    3,
++    0,
++};
++
++struct CubeIndexEstimator
+       {
+         PtrStep<short2> volume;
+ 
+@@ -127,6 +613,12 @@ namespace pcl
+ 
+       struct OccupiedVoxels : public CubeIndexEstimator
+       {
++      // Each warp owns a fixed eight-plane tile. A count/scan/emit pipeline
++      // provides stable ordering without device-global counters or atomics.
++      int* tile_counts;
++      const int* tile_offsets;
++      bool count_only;
++
+         enum
+         {
+           CTA_SIZE_X = 32,
+@@ -146,17 +638,17 @@ namespace pcl
+           int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+           int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+ 
+-          if (__all_sync (__activemask (), x >= VOLUME_X)
+-              || __all_sync (__activemask (), y >= VOLUME_Y))
+-            return;
++          
+ 
+           int ftid = Block::flattenedThreadId ();
++          int tile = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * CTA_SIZE_Y + threadIdx.y;
++          int emitted = 0;
+                   int warp_id = Warp::id();
+                   int lane_id = Warp::laneId();
+ 
+-          volatile __shared__ int warps_buffer[WARPS_COUNT];
+ 
+-          for (int z = 0; z < VOLUME_Z - 1; z++)
++
++          for (int z = blockIdx.z * 8; z < min(int(blockIdx.z * 8 + 8), VOLUME_Z - 1); ++z)
+           {
+             int numVerts = 0;;
+             if (x + 1 < VOLUME_X && y + 1 < VOLUME_Y)
+@@ -165,20 +657,17 @@ namespace pcl
+               int cubeindex = computeCubeIndex (x, y, z, field);
+ 
+               // read number of vertices from texture
+-              numVerts = (cubeindex == 0 || cubeindex == 255) ? 0 : tex1Dfetch (numVertsTex, cubeindex);
++              numVerts = (cubeindex == 0 || cubeindex == 255) ? 0 : numVertsTable[cubeindex];
+             }
+ 
+             int total = __popc (__ballot_sync (__activemask (), numVerts > 0));
+                     if (total == 0)
+                           continue;
+ 
+-            if (lane_id == 0)
+-            {
+-              int old = atomicAdd (&global_count, total);
+-              warps_buffer[warp_id] = old;
+-            }
+-            int old_global_voxels_count = warps_buffer[warp_id];
+-            int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), numVerts > 0));
++            if (count_only) { emitted += total; continue; }
++          int old_global_voxels_count = tile_offsets[tile] + emitted;
++          emitted += total;
++          int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), numVerts > 0));
+ 
+             if (old_global_voxels_count + offs < max_size && numVerts > 0)
+             {
+@@ -196,19 +685,7 @@ namespace pcl
+ 
+           /////////////////////////
+           // prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            //last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_count = min (max_size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          } 
++          if (count_only && threadIdx.x == 0) tile_counts[tile] = emitted; 
+         } /* operator () */
+       };
+       __global__ void getOccupiedVoxelsKernel (const OccupiedVoxels ov) { ov (); }
+@@ -229,12 +706,27 @@ namespace pcl
+         //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+         //printFuncAttrib(getOccupiedVoxelsKernel);
+ 
+-        getOccupiedVoxelsKernel<<<grid, block>>>(ov);
++        grid.z = divUp(VOLUME_Z - 1, 8);
++  const int tiles = grid.x * grid.y * grid.z * block.y;
++  DeviceArray<int> counts(tiles + 1), offsets(tiles + 1);
++  cudaSafeCall(cudaMemset(counts.ptr(), 0, (tiles + 1) * sizeof(int)));
++  ov.tile_counts = counts.ptr();
++  ov.tile_offsets = offsets.ptr();
++  ov.count_only = true;
++  getOccupiedVoxelsKernel<<<grid, block>>>(ov);
++  cudaSafeCall(cudaGetLastError());
++  thrust::exclusive_scan(thrust::device_pointer_cast(counts.ptr()),
++                         thrust::device_pointer_cast(counts.ptr() + tiles + 1),
++                         thrust::device_pointer_cast(offsets.ptr()));
++  int size;
++  cudaSafeCall(cudaMemcpy(&size, offsets.ptr() + tiles, sizeof(int), cudaMemcpyDeviceToHost));
++  size = std::min(size, int(ov.max_size));
++  ov.count_only = false;
++  getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+         cudaSafeCall ( cudaGetLastError () );
+         cudaSafeCall (cudaDeviceSynchronize ());
+ 
+-        int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
++        
+         return size;
+       }
+ 
+@@ -332,36 +824,36 @@ namespace pcl
+ 
+           // find the vertices where the surface intersects the cube
+           // use shared memory to avoid using local
+-          __shared__ float3 vertlist[12][CTA_SIZE];
+-
+-          vertlist[0][tid] = vertex_interp (v[0], v[1], f[0], f[1]);
+-          vertlist[1][tid] = vertex_interp (v[1], v[2], f[1], f[2]);
+-          vertlist[2][tid] = vertex_interp (v[2], v[3], f[2], f[3]);
+-          vertlist[3][tid] = vertex_interp (v[3], v[0], f[3], f[0]);
+-          vertlist[4][tid] = vertex_interp (v[4], v[5], f[4], f[5]);
+-          vertlist[5][tid] = vertex_interp (v[5], v[6], f[5], f[6]);
+-          vertlist[6][tid] = vertex_interp (v[6], v[7], f[6], f[7]);
+-          vertlist[7][tid] = vertex_interp (v[7], v[4], f[7], f[4]);
+-          vertlist[8][tid] = vertex_interp (v[0], v[4], f[0], f[4]);
+-          vertlist[9][tid] = vertex_interp (v[1], v[5], f[1], f[5]);
+-          vertlist[10][tid] = vertex_interp (v[2], v[6], f[2], f[6]);
+-          vertlist[11][tid] = vertex_interp (v[3], v[7], f[3], f[7]);
++          float3 vertlist[12];
++
++          vertlist[0] = vertex_interp (v[0], v[1], f[0], f[1]);
++          vertlist[1] = vertex_interp (v[1], v[2], f[1], f[2]);
++          vertlist[2] = vertex_interp (v[2], v[3], f[2], f[3]);
++          vertlist[3] = vertex_interp (v[3], v[0], f[3], f[0]);
++          vertlist[4] = vertex_interp (v[4], v[5], f[4], f[5]);
++          vertlist[5] = vertex_interp (v[5], v[6], f[5], f[6]);
++          vertlist[6] = vertex_interp (v[6], v[7], f[6], f[7]);
++          vertlist[7] = vertex_interp (v[7], v[4], f[7], f[4]);
++          vertlist[8] = vertex_interp (v[0], v[4], f[0], f[4]);
++          vertlist[9] = vertex_interp (v[1], v[5], f[1], f[5]);
++          vertlist[10] = vertex_interp (v[2], v[6], f[2], f[6]);
++          vertlist[11] = vertex_interp (v[3], v[7], f[3], f[7]);
+           __syncthreads ();
+ 
+           // output triangle vertices
+-          int numVerts = tex1Dfetch (numVertsTex, cubeindex);
++          int numVerts = numVertsTable[cubeindex];
+ 
+           for (int i = 0; i < numVerts; i += 3)
+           {
+             int index = vertex_ofssets[idx] + i;
+ 
+-            int v1 = tex1Dfetch (triTex, (cubeindex * 16) + i + 0);
+-            int v2 = tex1Dfetch (triTex, (cubeindex * 16) + i + 1);
+-            int v3 = tex1Dfetch (triTex, (cubeindex * 16) + i + 2);
++            int v1 = triTable[cubeindex][i + 0];
++            int v2 = triTable[cubeindex][i + 1];
++            int v3 = triTable[cubeindex][i + 2];
+ 
+-            store_point (output, index + 0, vertlist[v1][tid]);
+-            store_point (output, index + 1, vertlist[v2][tid]);
+-            store_point (output, index + 2, vertlist[v3][tid]);
++            store_point (output, index + 0, vertlist[v1]);
++            store_point (output, index + 1, vertlist[v2]);
++            store_point (output, index + 2, vertlist[v3]);
+           }
+         }
+ 
+diff --git a/gpu/kinfu_large_scale/src/cuda/utils.hpp b/gpu/kinfu_large_scale/src/cuda/utils.hpp
+index cf733f4..db82260 100644
+--- a/gpu/kinfu_large_scale/src/cuda/utils.hpp
++++ b/gpu/kinfu_large_scale/src/cuda/utils.hpp
+@@ -486,14 +486,16 @@ namespace pcl
+                   if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+                   if (tid < 32)
+-                  {
+-                    if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-                    if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-                    if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-                    if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-                    if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-                    if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-                  }
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+         }
+ 
+         template<int CTA_SIZE, typename T, class BinOp>
+@@ -509,14 +511,16 @@ namespace pcl
+                   if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+                   if (tid < 32)
+-                  {
+-                    if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-                    if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-                    if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-                    if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-                    if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-                    if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-                  }
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+                   __syncthreads();				
+                   return buffer[0];
+         }
+diff --git a/gpu/kinfu_large_scale/src/marching_cubes.cpp b/gpu/kinfu_large_scale/src/marching_cubes.cpp
+index d35d19e..57c97f3 100644
+--- a/gpu/kinfu_large_scale/src/marching_cubes.cpp
++++ b/gpu/kinfu_large_scale/src/marching_cubes.cpp
+@@ -59,14 +59,11 @@ pcl::gpu::kinfuLS::MarchingCubes::run(const TsdfVolume& tsdf, DeviceArray<PointT
+ {  
+   if (triangles_buffer.empty())
+     triangles_buffer.create(DEFAULT_TRIANGLES_BUFFER_SIZE);
+-  occupied_voxels_buffer_.create(3, triangles_buffer.size() / 3);    
+-
+-  pcl::device::kinfuLS::bindTextures(edgeTable_, triTable_, numVertsTable_);
++  occupied_voxels_buffer_.create(3, triangles_buffer.size() / 3);
+   
+   int active_voxels = pcl::device::kinfuLS::getOccupiedVoxels(tsdf.data(), occupied_voxels_buffer_);  
+   if(!active_voxels)
+   {
+-    pcl::device::kinfuLS::unbindTextures();
+     return DeviceArray<PointType>();
+   }
+ 
+@@ -76,8 +73,6 @@ pcl::gpu::kinfuLS::MarchingCubes::run(const TsdfVolume& tsdf, DeviceArray<PointT
+   
+   float3 volume_size = device_cast<const float3>(tsdf.getSize());
+   pcl::device::kinfuLS::generateTriangles(tsdf.data(), occupied_voxels, volume_size, (DeviceArray<pcl::device::kinfuLS::PointType>&)triangles_buffer);
+-    
+-  pcl::device::kinfuLS::unbindTextures();
+   return DeviceArray<PointType>(triangles_buffer.ptr(), total_vertexes);
+ }
+ 
+diff --git a/gpu/people/CMakeLists.txt b/gpu/people/CMakeLists.txt
+index 6c9c3ab..0502921 100644
+--- a/gpu/people/CMakeLists.txt
++++ b/gpu/people/CMakeLists.txt
+@@ -3,12 +3,7 @@ set(SUBSYS_PATH gpu/people)
+ set(SUBSYS_DESC "Point cloud people library")
+ set(SUBSYS_DEPS common features filters geometry gpu_containers gpu_utils io kdtree octree search segmentation surface visualization)
+ 
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "gpu_people uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build ${SUBSYS_NAME} ${SUBSYS_DESC} ${DEFAULT} ${REASON})
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+diff --git a/gpu/people/src/cuda/elec.cu b/gpu/people/src/cuda/elec.cu
+index 2b3cd85..00f8631 100644
+--- a/gpu/people/src/cuda/elec.cu
++++ b/gpu/people/src/cuda/elec.cu
+@@ -377,10 +377,11 @@ namespace pcl
+         return label;
+     }
+ 
+-    texture<unsigned char, 2, cudaReadModeElementType> edgesTex;
++
+     
+     struct TilesMerge
+-    {           
++    {
++      pcl::gpu::TextureView<unsigned char,2> edgesTex;           
+       int tileSizeX;
+       int tileSizeY;
+       int tilesNumX;
+@@ -508,12 +509,14 @@ void pcl::device::ConnectedComponents::labelComponents(const DeviceArray2D<unsig
+   cudaSafeCall( cudaGetLastError() );
+   cudaSafeCall( cudaDeviceSynchronize() );
+ 
++  pcl::gpu::TextureView<unsigned char,2> edgesTex;
+   TextureBinder binder(edges, edgesTex);
+ 
+   // the code below assumes such resolution
+   assert(edges.cols() == 640 && edges.rows() == 480);
+ 
+   TilesMerge tm;
++  tm.edgesTex = edgesTex;
+   tm.comps = comps;
+ 
+   //merge 4x3 -> 5x5 grid
+diff --git a/gpu/people/src/cuda/multi_tree.cu b/gpu/people/src/cuda/multi_tree.cu
+index df25626..84f68ec 100644
+--- a/gpu/people/src/cuda/multi_tree.cu
++++ b/gpu/people/src/cuda/multi_tree.cu
+@@ -46,6 +46,17 @@
+ #include <limits>
+ #include <assert.h>
+ #include "internal.h"
++#include <pcl/gpu/containers/impl/texture_binder.hpp>
++
++namespace {
++struct TextureContext {
++  pcl::gpu::TextureView<unsigned short, 2> depthTex;
++  pcl::gpu::TextureView<char4, 2> multilabelTex;
++  int constFGThresh = 0;
++};
++using TextureContextOwner = TextureContext;
++} // anonymous namespace
++
+ 
+ using pcl::gpu::people::trees::Node;
+ using pcl::gpu::people::trees::Label;
+@@ -68,15 +79,15 @@ namespace pcl
+ {
+   namespace device
+   {
+-    texture<unsigned short, 2, cudaReadModeElementType> depthTex;
+-    texture<char4, 2, cudaReadModeElementType> multilabelTex;
++    
++    
+ 
+-    __constant__ int constFGThresh;
++    
+ 
+     template<bool testFG> __device__ __forceinline__ Label 
+-    evaluateTree(int u, int v, float f, int treeHeight, int numNodes, const Node* nodes, const Label* leaves)
++    evaluateTree(TextureContext textures, int u, int v, float f, int treeHeight, int numNodes, const Node* nodes, const Label* leaves)
+     {
+-      int    depth = tex2D(depthTex, u, v);
++      int    depth = tex2D(textures.depthTex, u, v);
+ 
+       float  scale = f / depth;
+ 
+@@ -87,15 +98,15 @@ namespace pcl
+         const Node node = nodes[nid];
+ 
+         const AttribLocation& loc = node.loc;
+-        int d1 = tex2D (depthTex, u + loc.du1 * scale, v + loc.dv1 * scale);
+-        int d2 = tex2D (depthTex, u + loc.du2 * scale, v + loc.dv2 * scale);
++        int d1 = tex2D (textures.depthTex, u + loc.du1 * scale, v + loc.dv1 * scale);
++        int d2 = tex2D (textures.depthTex, u + loc.du2 * scale, v + loc.dv2 * scale);
+ 
+         if (testFG)
+         {
+-          if( d1 - depth > constFGThresh ) 
++          if( d1 - depth > textures.constFGThresh ) 
+             d1 = std::numeric_limits<short>::max();
+ 
+-          if( d2 - depth > constFGThresh ) 
++          if( d2 - depth > textures.constFGThresh ) 
+             d2 = std::numeric_limits<short>::max();
+         }
+ 
+@@ -109,7 +120,7 @@ namespace pcl
+ 
+     /** \brief This is the CUDA kernel doing the actual RDF evaluation */    
+     __global__ void
+-    KernelCUDA_runTree( const float     f,
++    KernelCUDA_runTree(TextureContext textures,  const float     f,
+                         const int       treeHeight,
+                         const int       numNodes,
+                         const Node*     nodes,
+@@ -120,11 +131,11 @@ namespace pcl
+       int v = blockIdx.y * blockDim.y + threadIdx.y;
+ 
+       if( u < labels.cols && v < labels.rows)
+-        labels.ptr(v)[u] = evaluateTree<false>(u, v, f, treeHeight, numNodes, nodes, leaves);
++        labels.ptr(v)[u] = evaluateTree<false>(textures, u, v, f, treeHeight, numNodes, nodes, leaves);
+     }
+ 
+     template<bool testFG> __global__ void
+-    KernelCUDA_MultiTreePass( const int    treeId,
++    KernelCUDA_MultiTreePass(TextureContext textures,  const int    treeId,
+                               const float  f,
+                               const int    treeHeight,
+                               const int    numNodes,
+@@ -145,22 +156,24 @@ namespace pcl
+           pixel[treeId] = 29;         // see label_common.h for Background label (=29)
+                                       // TODO remove this hardcoded label with enum part_t label
+         else
+-          pixel[treeId] = evaluateTree<testFG>(u, v, f, treeHeight, numNodes, nodes, leaves);
++          pixel[treeId] = evaluateTree<testFG>(textures, u, v, f, treeHeight, numNodes, nodes, leaves);
+       }
+     }
+ 
+     /** \brief This function wraps the actual CUDA kernel doing the RDF evaluation */    
+     void CUDA_runTree ( float focal, int treeHeight, int numNodes, const Node* nodes, const Label* leaves, const Depth& depth, Labels& labels )
+     {
++    TextureContextOwner textures;
++
+       labels.create( depth.rows(), depth.cols() );
+ 
+-      depthTex.addressMode[0] = cudaAddressModeClamp;
+-      TextureBinder binder(depth, depthTex);      
++      textures.depthTex.addressMode[0] = cudaAddressModeClamp;
++      TextureBinder binder(depth, textures.depthTex);      
+ 
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_runTree<<< grid, block >>>( focal, treeHeight, numNodes, nodes, leaves, labels);
++      KernelCUDA_runTree<<< grid, block >>>(textures,  focal, treeHeight, numNodes, nodes, leaves, labels);
+       cudaSafeCall( cudaGetLastError() );
+       cudaSafeCall( cudaDeviceSynchronize() );      
+     }
+@@ -175,23 +188,25 @@ namespace pcl
+                                  const Depth& depth,
+                                  MultiLabels& multilabel )
+     {
++    TextureContextOwner textures;
++
+       //std::cout << "(I) : CUDA_runMultiTreePass() called" << std::endl;
+-      depthTex.addressMode[0] = cudaAddressModeClamp;
+-      TextureBinder binder(depth, depthTex);                  
++      textures.depthTex.addressMode[0] = cudaAddressModeClamp;
++      TextureBinder binder(depth, textures.depthTex);                  
+ 
+       dim3 block(32, 8);
+       dim3 grid( divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );
+ 
+       if(FGThresh == std::numeric_limits<int>::max())
+       {
+-        KernelCUDA_MultiTreePass<false><<< grid, block >>>( treeId, focal, treeHeight, 
++        KernelCUDA_MultiTreePass<false><<< grid, block >>>(textures,  treeId, focal, treeHeight, 
+             numNodes, nodes_device, leaves_device, depth, multilabel);
+       }
+       else
+       {
+-        cudaSafeCall( cudaMemcpyToSymbol(constFGThresh, &FGThresh,  sizeof(FGThresh)) );
++        textures.constFGThresh = FGThresh;
+ 
+-        KernelCUDA_MultiTreePass<true><<< grid, block >>>( treeId, focal, treeHeight, 
++        KernelCUDA_MultiTreePass<true><<< grid, block >>>(textures,  treeId, focal, treeHeight, 
+             numNodes, nodes_device, leaves_device, depth, multilabel);
+       }
+ 
+@@ -231,7 +246,7 @@ namespace pcl
+       else                   return maxId;
+     }
+ 
+-    __global__ void KernelCUDA_MultiTreeMerge( const int numTrees, PtrStepSz<Label> labels )
++    __global__ void KernelCUDA_MultiTreeMerge(TextureContext textures,  const int numTrees, PtrStepSz<Label> labels )
+     {
+       int u = blockIdx.x * blockDim.x + threadIdx.x;
+       int v = blockIdx.y * blockDim.y + threadIdx.y;
+@@ -246,7 +261,7 @@ namespace pcl
+ 
+       // find a consensus with the current trees
+       {
+-        char4 pixlabels = tex2D(multilabelTex, u ,v);
++        char4 pixlabels = tex2D(textures.multilabelTex, u ,v);
+         char* bob = (char*)&pixlabels; //horrible but char4's have xyzw members
+         for(int ti = 0; ti < numTrees; ++ti)
+           bins[ bob[ti] ]++;        
+@@ -257,13 +272,13 @@ namespace pcl
+       // if this fails... find a consensus in a 1 neighbourhood
+       if( res < 0 ) 
+       {
+-        int depth = tex2D(depthTex, u,v);
++        int depth = tex2D(textures.depthTex, u,v);
+         for(int i = -1 ; i <= 1; ++i) 
+         {
+           for(int j = -1; j <= 1; ++j) 
+           {
+-            int   depth_neighbor  = tex2D(depthTex,u+i,v+j);
+-            char4 labels_neighbor = tex2D(multilabelTex, u+i,v+j); 
++            int   depth_neighbor  = tex2D(textures.depthTex,u+i,v+j);
++            char4 labels_neighbor = tex2D(textures.multilabelTex, u+i,v+j); 
+             char* bob = (char*)&labels_neighbor; //horrible but char4's have xyzw members
+             //TODO: redo this part
+             int weight = std::abs(depth-depth_neighbor) < 50 ? 1:0; // 5cms
+@@ -277,7 +292,7 @@ namespace pcl
+     }
+ 
+     /** \brief This merges the labels from all trees into a histogram of probabilities **/
+-    __global__ void KernelCUDA_MultiTreeCreateProb (const int numTrees, PtrStepSz<prob_histogram> prob)
++    __global__ void KernelCUDA_MultiTreeCreateProb (TextureContext textures, const int numTrees, PtrStepSz<prob_histogram> prob)
+     {
+       // map block and thread onto image coordinates
+       int u = blockIdx.x * blockDim.x + threadIdx.x;
+@@ -286,7 +301,7 @@ namespace pcl
+       if( u >= prob.cols || v >= prob.rows )
+         return;
+ 
+-      char4 pixlabels = tex2D (multilabelTex, u ,v);
++      char4 pixlabels = tex2D (textures.multilabelTex, u ,v);
+       char* bob = (char*)&pixlabels; //horrible but char4's have xyzw members
+ 
+       // Reset prob first, this should become NUM_LABELS
+@@ -305,20 +320,22 @@ namespace pcl
+ 
+     /** \brief This will merge the votes from the different trees into one final vote */    
+     void CUDA_runMultiTreeMerge( int numTrees, const Depth& depth, const MultiLabels& multilabel, Labels& labels)
+-    {     
++    {
++    TextureContextOwner textures;
++     
+       //std::cout << "(I) : CUDA_runMultiTreeMerge() called" << std::endl;
+       labels.create(depth.rows(), depth.cols());
+ 
+-      depthTex.addressMode[0] = cudaAddressModeClamp;
+-      TextureBinder binder(depth, depthTex);                  
++      textures.depthTex.addressMode[0] = cudaAddressModeClamp;
++      TextureBinder binder(depth, textures.depthTex);                  
+ 
+-      multilabelTex.addressMode[0] = cudaAddressModeClamp;
+-      TextureBinder mlabels_binder(multilabel, multilabelTex);      
++      textures.multilabelTex.addressMode[0] = cudaAddressModeClamp;
++      TextureBinder mlabels_binder(multilabel, textures.multilabelTex);      
+ 
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_MultiTreeMerge<<< grid, block >>>( numTrees, labels );
++      KernelCUDA_MultiTreeMerge<<< grid, block >>>(textures,  numTrees, labels );
+ 
+       cudaSafeCall( cudaGetLastError() );
+       cudaSafeCall( cudaDeviceSynchronize() );            
+@@ -331,19 +348,21 @@ namespace pcl
+                                  Labels& labels,
+                                  LabelProbability& probabilities)
+     {
++    TextureContextOwner textures;
++
+       std::cout << "(I) : CUDA_runMultiTreeProb() called" << std::endl;
+ 
+       //labels.create(depth.rows(), depth.cols());
+       //depthTex.addressMode[0] = cudaAddressModeClamp;
+       //TextureBinder binder(depth, depthTex);
+ 
+-      multilabelTex.addressMode[0] = cudaAddressModeClamp;
+-      TextureBinder mlabels_binder(multilabel, multilabelTex);
++      textures.multilabelTex.addressMode[0] = cudaAddressModeClamp;
++      TextureBinder mlabels_binder(multilabel, textures.multilabelTex);
+ 
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_MultiTreeCreateProb<<< grid, block >>>( numTrees, probabilities);
++      KernelCUDA_MultiTreeCreateProb<<< grid, block >>>(textures,  numTrees, probabilities);
+ 
+       cudaSafeCall( cudaGetLastError() );
+       cudaSafeCall( cudaDeviceSynchronize() );            
+diff --git a/gpu/people/src/cuda/nvidia/NCVAlg.hpp b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+index 5eede7d..28cf7b3 100644
+--- a/gpu/people/src/cuda/nvidia/NCVAlg.hpp
++++ b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+@@ -127,19 +127,12 @@ static __device__ Tdata subReduce(Tdata threadElem)
+     }
+     __syncthreads();
+ 
+-    if (threadIdx.x < 32)
+-    {
+-        if (nThreads >= 64)
+-        {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 32]);
+-        }
+-        if (nThreads >= 32 && threadIdx.x < 16)
+-        {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 16]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 8]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 4]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 2]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 1]);
++    if (threadIdx.x < 32) {
++        const unsigned mask = __activemask();
++        for (unsigned offset = 32; offset; offset >>= 1) {
++            if (nThreads >= 2 * offset && threadIdx.x < offset)
++                functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + offset]);
++            __syncwarp(mask);
+         }
+     }
+ 
+diff --git a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
+index 60c1f82..bf63ca7 100644
+--- a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
++++ b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
+@@ -78,18 +78,13 @@ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of th
+ //assuming size <= WARP_SIZE and size is power of 2
+ __device__ Ncv32u warpScanInclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    const unsigned mask = __activemask();
++    const unsigned lane = threadIdx.x & 31;
++    for (int offset = 1; offset < 32; offset <<= 1) {
++        auto other = __shfl_up_sync(mask, idata, offset);
++        if (lane >= offset) idata += other;
++    }
++    return idata;
+ }
+ 
+ __device__ __forceinline__ Ncv32u warpScanExclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+@@ -155,7 +150,7 @@ const Ncv32u NUM_THREADS_ANCHORSPARALLEL = 64;
+ /** \internal
+ * Haar features solid array.
+ */
+-texture<uint2, 1, cudaReadModeElementType> texHaarFeatures;
++
+ 
+ 
+ /** \internal
+@@ -164,10 +159,10 @@ texture<uint2, 1, cudaReadModeElementType> texHaarFeatures;
+ * Drawback: breaks tree locality (might cause more cache misses
+ * Advantage: No need to introduce additional 32-bit field to index root nodes offsets
+ */
+-texture<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes;
+ 
+ 
+-texture<Ncv32u, 1, cudaReadModeElementType> texIImage;
++
++
+ 
+ 
+ __device__ HaarStage64 getStage(Ncv32u iStage, HaarStage64 *d_Stages)
+@@ -182,7 +177,7 @@ __device__ HaarClassifierNode128 getClassifierNode(Ncv32u iNode, HaarClassifierN
+     HaarClassifierNode128 tmpNode;
+     if (tbCacheTextureCascade)
+     {
+-        tmpNode._ui4 = tex1Dfetch(texHaarClassifierNodes, iNode);
++        tmpNode = d_ClassifierNodes[iNode];
+     }
+     else
+     {
+@@ -200,7 +195,7 @@ __device__ void getFeature(Ncv32u iFeature, HaarFeature64 *d_Features,
+     HaarFeature64 feature;
+     if (tbCacheTextureCascade)
+     {
+-        feature._ui2 = tex1Dfetch(texHaarFeatures, iFeature);
++        feature = d_Features[iFeature];
+     }
+     else
+     {
+@@ -216,7 +211,7 @@ __device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
+ {
+     if (tbCacheTextureIImg)
+     {
+-        return tex1Dfetch(texIImage, x);
++        return d_IImg[x];
+     }
+     else
+     {
+@@ -225,10 +220,10 @@ __device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
+ }
+ 
+ 
+-__device__ Ncv32u d_outMaskPosition;
+ 
+ 
+-__device__ void compactBlockWriteOutAnchorParallel(Ncv32u threadPassFlag, Ncv32u threadElem, Ncv32u *vectorOut)
++
++__device__ void compactBlockWriteOutAnchorParallel(Ncv32u* d_outMaskPosition, Ncv32u threadPassFlag, Ncv32u threadElem, Ncv32u *vectorOut)
+ {
+     __shared__ Ncv32u shmem[NUM_THREADS_ANCHORSPARALLEL * 2];
+     __shared__ Ncv32u numPassed;
+@@ -240,7 +235,7 @@ __device__ void compactBlockWriteOutAnchorParallel(Ncv32u threadPassFlag, Ncv32u
+     if (threadIdx.x == NUM_THREADS_ANCHORSPARALLEL-1)
+     {
+         numPassed = incScan;
+-        outMaskOffset = atomicAdd(&d_outMaskPosition, incScan);
++        outMaskOffset = atomicAdd(d_outMaskPosition, incScan);
+     }
+ 
+     if (threadPassFlag)
+@@ -263,7 +258,7 @@ template <NcvBool tbInitMaskPositively,
+           NcvBool tbCacheTextureCascade,
+           NcvBool tbReadPixelIndexFromVector,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStride,
++__global__ void applyHaarClassifierAnchorParallel(Ncv32u* d_outMaskPosition, Ncv32u *d_IImg, Ncv32u IImgStride,
+                                                   Ncv32f *d_weights, Ncv32u weightsStride,
+                                                   HaarFeature64 *d_Features, HaarClassifierNode128 *d_ClassifierNodes, HaarStage64 *d_Stages,
+                                                   Ncv32u *d_inMask, Ncv32u *d_outMask,
+@@ -441,7 +436,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+     }
+     else
+     {
+-        compactBlockWriteOutAnchorParallel(bPass && !bInactiveThread,
++        compactBlockWriteOutAnchorParallel(d_outMaskPosition, bPass && !bInactiveThread,
+                                            outMaskVal,
+                                            d_outMask);
+     }
+@@ -451,7 +446,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+ template <NcvBool tbCacheTextureIImg,
+           NcvBool tbCacheTextureCascade,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IImgStride,
++__global__ void applyHaarClassifierClassifierParallel(Ncv32u* d_outMaskPosition, Ncv32u *d_IImg, Ncv32u IImgStride,
+                                                       Ncv32f *d_weights, Ncv32u weightsStride,
+                                                       HaarFeature64 *d_Features, HaarClassifierNode128 *d_ClassifierNodes, HaarStage64 *d_Stages,
+                                                       Ncv32u *d_inMask, Ncv32u *d_outMask,
+@@ -585,7 +580,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+     {
+         if (bPass && !threadIdx.x)
+         {
+-            Ncv32u outMaskOffset = atomicAdd(&d_outMaskPosition, 1);
++            Ncv32u outMaskOffset = atomicAdd(d_outMaskPosition, 1);
+             d_outMask[outMaskOffset] = outMaskVal;
+         }
+     }
+@@ -594,7 +589,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+ 
+ template <NcvBool tbMaskByInmask,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void initializeMaskVector(Ncv32u *d_inMask, Ncv32u *d_outMask,
++__global__ void initializeMaskVector(Ncv32u* d_outMaskPosition, Ncv32u *d_inMask, Ncv32u *d_outMask,
+                                      Ncv32u mask1Dlen, Ncv32u mask2Dstride,
+                                      NcvSize32u anchorsRoi, Ncv32u step)
+ {
+@@ -620,7 +615,7 @@ __global__ void initializeMaskVector(Ncv32u *d_inMask, Ncv32u *d_outMask,
+     }
+     else
+     {
+-        compactBlockWriteOutAnchorParallel(outElem != OBJDET_MASK_ELEMENT_INVALID_32U,
++        compactBlockWriteOutAnchorParallel(d_outMaskPosition, outElem != OBJDET_MASK_ELEMENT_INVALID_32U,
+                                            outElem,
+                                            d_outMask);
+     }
+@@ -629,6 +624,7 @@ __global__ void initializeMaskVector(Ncv32u *d_inMask, Ncv32u *d_outMask,
+ 
+ struct applyHaarClassifierAnchorParallelFunctor
+ {
++    Ncv32u* d_outMaskPosition;
+     dim3 gridConf, blockConf;
+     cudaStream_t cuStream;
+ 
+@@ -650,7 +646,7 @@ struct applyHaarClassifierAnchorParallelFunctor
+     Ncv32f scaleArea;
+ 
+     //Arguments are passed through the constructor
+-    applyHaarClassifierAnchorParallelFunctor(dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
++    applyHaarClassifierAnchorParallelFunctor(Ncv32u* counter, dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
+                                              Ncv32u *_d_IImg, Ncv32u _IImgStride,
+                                              Ncv32f *_d_weights, Ncv32u _weightsStride,
+                                              HaarFeature64 *_d_Features, HaarClassifierNode128 *_d_ClassifierNodes, HaarStage64 *_d_Stages,
+@@ -658,6 +654,7 @@ struct applyHaarClassifierAnchorParallelFunctor
+                                              Ncv32u _mask1Dlen, Ncv32u _mask2Dstride,
+                                              NcvSize32u _anchorsRoi, Ncv32u _startStageInc,
+                                              Ncv32u _endStageExc, Ncv32f _scaleArea) :
++    d_outMaskPosition(counter),
+     gridConf(_gridConf),
+     blockConf(_blockConf),
+     cuStream(_cuStream),
+@@ -688,7 +685,7 @@ struct applyHaarClassifierAnchorParallelFunctor
+             Loki::TL::TypeAt<TList, 3>::Result::value,
+             Loki::TL::TypeAt<TList, 4>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_IImg, IImgStride,
++            (d_outMaskPosition, d_IImg, IImgStride,
+             d_weights, weightsStride,
+             d_Features, d_ClassifierNodes, d_Stages,
+             d_inMask, d_outMask,
+@@ -699,7 +696,7 @@ struct applyHaarClassifierAnchorParallelFunctor
+ };
+ 
+ 
+-void applyHaarClassifierAnchorParallelDynTemplate(NcvBool tbInitMaskPositively,
++void applyHaarClassifierAnchorParallelDynTemplate(Ncv32u* d_outMaskPosition, NcvBool tbInitMaskPositively,
+                                                   NcvBool tbCacheTextureIImg,
+                                                   NcvBool tbCacheTextureCascade,
+                                                   NcvBool tbReadPixelIndexFromVector,
+@@ -716,7 +713,7 @@ void applyHaarClassifierAnchorParallelDynTemplate(NcvBool tbInitMaskPositively,
+                                                   Ncv32u endStageExc, Ncv32f scaleArea)
+ {
+ 
+-    applyHaarClassifierAnchorParallelFunctor functor(gridConf, blockConf, cuStream,
++    applyHaarClassifierAnchorParallelFunctor functor(d_outMaskPosition, gridConf, blockConf, cuStream,
+                                                      d_IImg, IImgStride,
+                                                      d_weights, weightsStride,
+                                                      d_Features, d_ClassifierNodes, d_Stages,
+@@ -738,6 +735,7 @@ void applyHaarClassifierAnchorParallelDynTemplate(NcvBool tbInitMaskPositively,
+ 
+ struct applyHaarClassifierClassifierParallelFunctor
+ {
++    Ncv32u* d_outMaskPosition;
+     dim3 gridConf, blockConf;
+     cudaStream_t cuStream;
+ 
+@@ -759,7 +757,7 @@ struct applyHaarClassifierClassifierParallelFunctor
+     Ncv32f scaleArea;
+ 
+     //Arguments are passed through the constructor
+-    applyHaarClassifierClassifierParallelFunctor(dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
++    applyHaarClassifierClassifierParallelFunctor(Ncv32u* counter, dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
+                                                  Ncv32u *_d_IImg, Ncv32u _IImgStride,
+                                                  Ncv32f *_d_weights, Ncv32u _weightsStride,
+                                                  HaarFeature64 *_d_Features, HaarClassifierNode128 *_d_ClassifierNodes, HaarStage64 *_d_Stages,
+@@ -767,6 +765,7 @@ struct applyHaarClassifierClassifierParallelFunctor
+                                                  Ncv32u _mask1Dlen, Ncv32u _mask2Dstride,
+                                                  NcvSize32u _anchorsRoi, Ncv32u _startStageInc,
+                                                  Ncv32u _endStageExc, Ncv32f _scaleArea) :
++    d_outMaskPosition(counter),
+     gridConf(_gridConf),
+     blockConf(_blockConf),
+     cuStream(_cuStream),
+@@ -795,7 +794,7 @@ struct applyHaarClassifierClassifierParallelFunctor
+             Loki::TL::TypeAt<TList, 1>::Result::value,
+             Loki::TL::TypeAt<TList, 2>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_IImg, IImgStride,
++            (d_outMaskPosition, d_IImg, IImgStride,
+             d_weights, weightsStride,
+             d_Features, d_ClassifierNodes, d_Stages,
+             d_inMask, d_outMask,
+@@ -806,7 +805,7 @@ struct applyHaarClassifierClassifierParallelFunctor
+ };
+ 
+ 
+-void applyHaarClassifierClassifierParallelDynTemplate(NcvBool tbCacheTextureIImg,
++void applyHaarClassifierClassifierParallelDynTemplate(Ncv32u* d_outMaskPosition, NcvBool tbCacheTextureIImg,
+                                                       NcvBool tbCacheTextureCascade,
+                                                       NcvBool tbDoAtomicCompaction,
+ 
+@@ -820,7 +819,7 @@ void applyHaarClassifierClassifierParallelDynTemplate(NcvBool tbCacheTextureIImg
+                                                       NcvSize32u anchorsRoi, Ncv32u startStageInc,
+                                                       Ncv32u endStageExc, Ncv32f scaleArea)
+ {
+-    applyHaarClassifierClassifierParallelFunctor functor(gridConf, blockConf, cuStream,
++    applyHaarClassifierClassifierParallelFunctor functor(d_outMaskPosition, gridConf, blockConf, cuStream,
+                                                          d_IImg, IImgStride,
+                                                          d_weights, weightsStride,
+                                                          d_Features, d_ClassifierNodes, d_Stages,
+@@ -840,6 +839,7 @@ void applyHaarClassifierClassifierParallelDynTemplate(NcvBool tbCacheTextureIImg
+ 
+ struct initializeMaskVectorFunctor
+ {
++    Ncv32u* d_outMaskPosition;
+     dim3 gridConf, blockConf;
+     cudaStream_t cuStream;
+ 
+@@ -852,10 +852,11 @@ struct initializeMaskVectorFunctor
+     Ncv32u step;
+ 
+     //Arguments are passed through the constructor
+-    initializeMaskVectorFunctor(dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
++    initializeMaskVectorFunctor(Ncv32u* counter, dim3 _gridConf, dim3 _blockConf, cudaStream_t _cuStream,
+                                 Ncv32u *_d_inMask, Ncv32u *_d_outMask,
+                                 Ncv32u _mask1Dlen, Ncv32u _mask2Dstride,
+                                 NcvSize32u _anchorsRoi, Ncv32u _step) :
++    d_outMaskPosition(counter),
+     gridConf(_gridConf),
+     blockConf(_blockConf),
+     cuStream(_cuStream),
+@@ -874,14 +875,14 @@ struct initializeMaskVectorFunctor
+             Loki::TL::TypeAt<TList, 0>::Result::value,
+             Loki::TL::TypeAt<TList, 1>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_inMask, d_outMask,
++            (d_outMaskPosition, d_inMask, d_outMask,
+              mask1Dlen, mask2Dstride,
+              anchorsRoi, step);
+     }
+ };
+ 
+ 
+-void initializeMaskVectorDynTemplate(NcvBool tbMaskByInmask,
++void initializeMaskVectorDynTemplate(Ncv32u* d_outMaskPosition, NcvBool tbMaskByInmask,
+                                      NcvBool tbDoAtomicCompaction,
+ 
+                                      dim3 gridConf, dim3 blockConf, cudaStream_t cuStream,
+@@ -890,7 +891,7 @@ void initializeMaskVectorDynTemplate(NcvBool tbMaskByInmask,
+                                      Ncv32u mask1Dlen, Ncv32u mask2Dstride,
+                                      NcvSize32u anchorsRoi, Ncv32u step)
+ {
+-    initializeMaskVectorFunctor functor(gridConf, blockConf, cuStream,
++    initializeMaskVectorFunctor functor(d_outMaskPosition, gridConf, blockConf, cuStream,
+                                         d_inMask, d_outMask,
+                                         mask1Dlen, mask2Dstride,
+                                         anchorsRoi, step);
+@@ -1052,36 +1053,11 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         szNppCompactTmpBuf = 0;
+     }
+     NCVVectorAlloc<Ncv8u> d_tmpBufCompact(gpuAllocator, szNppCompactTmpBuf);
++    NCVVectorAlloc<Ncv32u> outputPosition(gpuAllocator, 1);
++    Ncv32u* d_outMaskPosition = outputPosition.ptr();
+ 
+     NCV_SKIP_COND_BEGIN
+ 
+-    if (bTexCacheIImg)
+-    {
+-        cudaChannelFormatDesc cfdTexIImage;
+-        cfdTexIImage = cudaCreateChannelDesc<Ncv32u>();
+-
+-        std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texIImage, d_integralImage.ptr(), cfdTexIImage,
+-            (anchorsRoi.height + haar.ClassifierSize.height) * d_integralImage.pitch()), NCV_CUDA_ERROR);
+-        ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+-    }
+-
+-    if (bTexCacheCascade)
+-    {
+-        cudaChannelFormatDesc cfdTexHaarFeatures;
+-        cudaChannelFormatDesc cfdTexHaarClassifierNodes;
+-        cfdTexHaarFeatures = cudaCreateChannelDesc<uint2>();
+-        cfdTexHaarClassifierNodes = cudaCreateChannelDesc<uint4>();
+-
+-        std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarFeatures,
+-            d_HaarFeatures.ptr(), cfdTexHaarFeatures,sizeof(HaarFeature64) * haar.NumFeatures), NCV_CUDA_ERROR);
+-        ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarClassifierNodes,
+-            d_HaarNodes.ptr(), cfdTexHaarClassifierNodes, sizeof(HaarClassifierNode128) * haar.NumClassifierTotalNodes), NCV_CUDA_ERROR);
+-        ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+-    }
+-
+     Ncv32u stageStartAnchorParallel = 0;
+     Ncv32u stageMiddleSwitch = getStageNumWithNotLessThanNclassifiers(NUM_THREADS_CLASSIFIERPARALLEL,
+         haar, h_HaarStages);
+@@ -1112,8 +1088,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+     {
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1127,7 +1102,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+             return NCV_SUCCESS;
+         }
+ 
+-        initializeMaskVectorDynTemplate(bMaskElements,
++        initializeMaskVectorDynTemplate(d_outMaskPosition, bMaskElements,
+                                         bDoAtomicCompaction,
+                                         gridInit, blockInit, cuStream,
+                                         d_ptrNowData->ptr(),
+@@ -1139,8 +1114,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+             swap(d_ptrNowData, d_ptrNowTmp);
+         }
+@@ -1162,15 +1136,14 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+ 
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+         dim3 grid1(((d_pixelMask.stride() + NUM_THREADS_ANCHORSPARALLEL - 1) / NUM_THREADS_ANCHORSPARALLEL),
+                    anchorsRoi.height);
+         dim3 block1(NUM_THREADS_ANCHORSPARALLEL);
+-        applyHaarClassifierAnchorParallelDynTemplate(
++        applyHaarClassifierAnchorParallelDynTemplate(d_outMaskPosition, 
+             true,                         //tbInitMaskPositively
+             bTexCacheIImg,                //tbCacheTextureIImg
+             bTexCacheCascade,             //tbCacheTextureCascade
+@@ -1195,8 +1168,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+@@ -1227,8 +1199,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+ 
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1240,7 +1211,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         }
+         dim3 block2(NUM_THREADS_ANCHORSPARALLEL);
+ 
+-        applyHaarClassifierAnchorParallelDynTemplate(
++        applyHaarClassifierAnchorParallelDynTemplate(d_outMaskPosition, 
+             false,                        //tbInitMaskPositively
+             bTexCacheIImg,                //tbCacheTextureIImg
+             bTexCacheCascade,             //tbCacheTextureCascade
+@@ -1265,8 +1236,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+@@ -1290,8 +1260,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+     {
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1303,7 +1272,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         }
+         dim3 block3(NUM_THREADS_CLASSIFIERPARALLEL);
+ 
+-        applyHaarClassifierClassifierParallelDynTemplate(
++        applyHaarClassifierClassifierParallelDynTemplate(d_outMaskPosition, 
+             bTexCacheIImg,                //tbCacheTextureIImg
+             bTexCacheCascade,             //tbCacheTextureCascade
+             bDoAtomicCompaction,          //tbDoAtomicCompaction
+@@ -1326,8 +1295,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+diff --git a/gpu/people/src/cuda/nvidia/NPP_staging.cu b/gpu/people/src/cuda/nvidia/NPP_staging.cu
+index 5efefc9..879560c 100644
+--- a/gpu/people/src/cuda/nvidia/NPP_staging.cu
++++ b/gpu/people/src/cuda/nvidia/NPP_staging.cu
+@@ -43,10 +43,39 @@
+ #include <vector>
+ #include <cuda_runtime.h>
+ #include "NPP_staging.hpp"
++#include <pcl/gpu/containers/impl/texture_binder.hpp>
++
++namespace {
++struct TextureContext {
++  pcl::gpu::TextureView<Ncv8u, 1> tex8u;
++  pcl::gpu::TextureView<Ncv32u, 1> tex32u;
++  pcl::gpu::TextureView<uint2, 1> tex64u;
++  pcl::gpu::TextureView<float, 1> texSrc;
++  pcl::gpu::TextureView<float, 1> texKernel;
++  pcl::gpu::TextureView<float, 2> tex_src1;
++  pcl::gpu::TextureView<float, 2> tex_src0;
++  pcl::gpu::TextureView<float, 2> texSrc2D;
++};
++struct TextureContextOwner : TextureContext {
++  ~TextureContextOwner() {
++    if (tex_src1.object || tex_src0.object || texSrc2D.object) cudaDeviceSynchronize();
++    pcl::gpu::releaseTexture(tex8u);
++    pcl::gpu::releaseTexture(tex32u);
++    pcl::gpu::releaseTexture(tex64u);
++    pcl::gpu::releaseTexture(texSrc);
++    pcl::gpu::releaseTexture(texKernel);
++    pcl::gpu::releaseTexture(tex_src1);
++    pcl::gpu::releaseTexture(tex_src0);
++    pcl::gpu::releaseTexture(texSrc2D);
++  }
++};
++} // anonymous namespace
++
++
++
++
++
+ 
+-texture<Ncv8u,  1, cudaReadModeElementType> tex8u;
+-texture<Ncv32u, 1, cudaReadModeElementType> tex32u;
+-texture<uint2,  1, cudaReadModeElementType> tex64u;
+ 
+ 
+ //==============================================================================
+@@ -56,7 +85,7 @@ texture<uint2,  1, cudaReadModeElementType> tex64u;
+ //==============================================================================
+ 
+ 
+-static cudaStream_t nppStream = 0;
++static thread_local cudaStream_t nppStream = 0;
+ 
+ 
+ cudaStream_t nppStGetActiveCUDAstream(void)
+@@ -89,23 +118,13 @@ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of th
+ template <class T>
+ inline __device__ T warpScanInclusive(T idata, volatile T *s_Data)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    //for(Ncv32u offset = 1; offset < K_WARP_SIZE; offset <<= 1)
+-    //{
+-    //    s_Data[pos] += s_Data[pos - offset];
+-    //}
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    const unsigned mask = __activemask();
++    const unsigned lane = threadIdx.x & 31;
++    for (int offset = 1; offset < 32; offset <<= 1) {
++        auto other = __shfl_up_sync(mask, idata, offset);
++        if (lane >= offset) idata += other;
++    }
++    return idata;
+ }
+ 
+ 
+@@ -191,25 +210,25 @@ private:
+ 
+ 
+ template<class T>
+-inline __device__ T readElem(T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs);
++inline __device__ T readElem(TextureContext textures, T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs);
+ 
+ 
+ template<>
+-inline __device__ Ncv8u readElem<Ncv8u>(Ncv8u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv8u readElem<Ncv8u>(TextureContext textures, Ncv8u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+-    return tex1Dfetch(tex8u, texOffs + srcStride * blockIdx.x + curElemOffs);
++    return tex1Dfetch(textures.tex8u, texOffs + srcStride * blockIdx.x + curElemOffs);
+ }
+ 
+ 
+ template<>
+-inline __device__ Ncv32u readElem<Ncv32u>(Ncv32u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv32u readElem<Ncv32u>(TextureContext textures, Ncv32u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+     return d_src[curElemOffs];
+ }
+ 
+ 
+ template<>
+-inline __device__ Ncv32f readElem<Ncv32f>(Ncv32f *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv32f readElem<Ncv32f>(TextureContext textures, Ncv32f *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+     return d_src[curElemOffs];
+ }
+@@ -234,7 +253,7 @@ inline __device__ Ncv32f readElem<Ncv32f>(Ncv32f *d_src, Ncv32u texOffs, Ncv32u
+ * \return None
+ */
+ template <class T_in, class T_out, bool tbDoSqr>
+-__global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u srcStride,
++__global__ void scanRows(TextureContext textures, T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u srcStride,
+                          T_out *d_II, Ncv32u IIstride)
+ {
+     //advance pointers to the current line
+@@ -264,7 +283,7 @@ __global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u sr
+         if (curElemOffs < srcWidth)
+         {
+             //load elements
+-            curElem = readElem<T_in>(d_src, texOffs, srcStride, curElemOffs);
++            curElem = readElem<T_in>(textures, d_src, texOffs, srcStride, curElemOffs);
+         }
+         curElemMod = _scanElemOp<T_in, T_out>::scanElemOp<tbDoSqr>(curElem);
+ 
+@@ -298,22 +317,24 @@ template <bool tbDoSqr, class T_in, class T_out>
+ NCVStatus scanRowsWrapperDevice(T_in *d_src, Ncv32u srcStride,
+                                 T_out *d_dst, Ncv32u dstStride, NcvSize32u roi)
+ {
++    TextureContextOwner textures;
++
+     cudaChannelFormatDesc cfdTex;
+     std::size_t alignmentOffset = 0;
+     if (sizeof(T_in) == 1)
+     {
+         cfdTex = cudaCreateChannelDesc<Ncv8u>();
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex8u, d_src, cfdTex, roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+         if (alignmentOffset > 0)
+         {
+-            ncvAssertCUDAReturn(cudaUnbindTexture(tex8u), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::releaseTexture(textures.tex8u), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex8u, d_src, cfdTex, alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+         }
+     }
+     scanRows
+         <T_in, T_out, tbDoSqr>
+         <<<roi.height, NUM_SCAN_THREADS, 0, nppStGetActiveCUDAstream()>>>
+-        (d_src, (Ncv32u)alignmentOffset, roi.width, srcStride, d_dst, dstStride);
++        (textures, d_src, (Ncv32u)alignmentOffset, roi.width, srcStride, d_dst, dstStride);
+     
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+ 
+@@ -661,27 +682,27 @@ const Ncv32u NUM_DOWNSAMPLE_NEAREST_THREADS_Y = 8;
+ 
+ 
+ template<class T, NcvBool tbCacheTexture>
+-__device__ T getElem_Decimate(Ncv32u x, T *d_src);
++__device__ T getElem_Decimate(TextureContext textures, Ncv32u x, T *d_src);
+ 
+ 
+ template<>
+-__device__ Ncv32u getElem_Decimate<Ncv32u, true>(Ncv32u x, Ncv32u *d_src)
++__device__ Ncv32u getElem_Decimate<Ncv32u, true>(TextureContext textures, Ncv32u x, Ncv32u *d_src)
+ {
+-    return tex1Dfetch(tex32u, x);
++    return tex1Dfetch(textures.tex32u, x);
+ }
+ 
+ 
+ template<>
+-__device__ Ncv32u getElem_Decimate<Ncv32u, false>(Ncv32u x, Ncv32u *d_src)
++__device__ Ncv32u getElem_Decimate<Ncv32u, false>(TextureContext textures, Ncv32u x, Ncv32u *d_src)
+ {
+     return d_src[x];
+ }
+ 
+ 
+ template<>
+-__device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
++__device__ Ncv64u getElem_Decimate<Ncv64u, true>(TextureContext textures, Ncv32u x, Ncv64u *d_src)
+ {
+-    uint2 tmp = tex1Dfetch(tex64u, x);
++    uint2 tmp = tex1Dfetch(textures.tex64u, x);
+     Ncv64u res = (Ncv64u)tmp.y;
+     res <<= 32;
+     res |= tmp.x;
+@@ -690,14 +711,14 @@ __device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
+ 
+ 
+ template<>
+-__device__ Ncv64u getElem_Decimate<Ncv64u, false>(Ncv32u x, Ncv64u *d_src)
++__device__ Ncv64u getElem_Decimate<Ncv64u, false>(TextureContext textures, Ncv32u x, Ncv64u *d_src)
+ {
+     return d_src[x];
+ }
+ 
+ 
+ template <class T, NcvBool tbCacheTexture>
+-__global__ void decimate_C1R(T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
++__global__ void decimate_C1R(TextureContext textures, T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
+                                       NcvSize32u dstRoi, Ncv32u scale)
+ {
+     int curX = blockIdx.x * blockDim.x + threadIdx.x;
+@@ -708,7 +729,7 @@ __global__ void decimate_C1R(T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
+         return;
+     }
+ 
+-    d_dst[curY * dstStep + curX] = getElem_Decimate<T, tbCacheTexture>((curY * srcStep + curX) * scale, d_src);
++    d_dst[curY * dstStep + curX] = getElem_Decimate<T, tbCacheTexture>(textures, (curY * srcStep + curX) * scale, d_src);
+ }
+ 
+ 
+@@ -718,6 +739,8 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+                                                 NcvSize32u srcRoi, Ncv32u scale,
+                                                 NcvBool readThruTexture)
+ {
++    TextureContextOwner textures;
++
+     ncvAssertReturn(d_src != NULL && d_dst != NULL, NPPST_NULL_POINTER_ERROR);
+     ncvAssertReturn(srcRoi.width > 0 && srcRoi.height > 0, NPPST_INVALID_ROI);
+     ncvAssertReturn(scale != 0, NPPST_INVALID_SCALE);
+@@ -739,7 +762,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+         decimate_C1R
+             <T, false>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_src, srcStep, d_dst, dstStep, dstRoi, scale);
++            (textures, d_src, srcStep, d_dst, dstStep, dstRoi, scale);
+     }
+     else
+     {
+@@ -750,7 +773,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+             cfdTexSrc = cudaCreateChannelDesc<Ncv32u>();
+ 
+             std::size_t alignmentOffset;
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex32u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+             ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+         }
+         else
+@@ -758,14 +781,14 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+             cfdTexSrc = cudaCreateChannelDesc<uint2>();
+ 
+             std::size_t alignmentOffset;
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex64u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+             ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+         }
+ 
+         decimate_C1R
+             <T, true>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_src, srcStep, d_dst, dstStep, dstRoi, scale);
++            (textures, d_src, srcStep, d_dst, dstStep, dstRoi, scale);
+     }
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+@@ -851,11 +874,11 @@ const Ncv32u NUM_RECTSTDDEV_THREADS = 128;
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
++__device__ Ncv32u getElemSum(TextureContext textures, Ncv32u x, Ncv32u *d_sum)
+ {
+     if (tbCacheTexture)
+     {
+-        return tex1Dfetch(tex32u, x);
++        return tex1Dfetch(textures.tex32u, x);
+     }
+     else
+     {
+@@ -865,11 +888,11 @@ __device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
++__device__ Ncv64u getElemSqSum(TextureContext textures, Ncv32u x, Ncv64u *d_sqsum)
+ {
+     if (tbCacheTexture)
+     {
+-        uint2 tmp = tex1Dfetch(tex64u, x);
++        uint2 tmp = tex1Dfetch(textures.tex64u, x);
+         Ncv64u res = (Ncv64u)tmp.y;
+         res <<= 32;
+         res |= tmp.x;
+@@ -883,7 +906,7 @@ __device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__global__ void rectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
++__global__ void rectStdDev_32f_C1R(TextureContext textures, Ncv32u *d_sum, Ncv32u sumStep,
+                                    Ncv64u *d_sqsum, Ncv32u sqsumStep,
+                                    Ncv32f *d_norm, Ncv32u normStep,
+                                    NcvSize32u roi, NcvRect32u rect, Ncv32f invRectArea)
+@@ -898,17 +921,17 @@ __global__ void rectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+     Ncv32u sqsum_offset = blockIdx.y * sqsumStep + x_offs;
+ 
+     //OPT: try swapping order (could change cache hit/miss ratio)
+-    Ncv32u sum_tl = getElemSum<tbCacheTexture>(sum_offset + rect.y * sumStep + rect.x, d_sum);
+-    Ncv32u sum_bl = getElemSum<tbCacheTexture>(sum_offset + (rect.y + rect.height) * sumStep + rect.x, d_sum);
+-    Ncv32u sum_tr = getElemSum<tbCacheTexture>(sum_offset + rect.y * sumStep + rect.x + rect.width, d_sum);
+-    Ncv32u sum_br = getElemSum<tbCacheTexture>(sum_offset + (rect.y + rect.height) * sumStep + rect.x + rect.width, d_sum);
++    Ncv32u sum_tl = getElemSum<tbCacheTexture>(textures, sum_offset + rect.y * sumStep + rect.x, d_sum);
++    Ncv32u sum_bl = getElemSum<tbCacheTexture>(textures, sum_offset + (rect.y + rect.height) * sumStep + rect.x, d_sum);
++    Ncv32u sum_tr = getElemSum<tbCacheTexture>(textures, sum_offset + rect.y * sumStep + rect.x + rect.width, d_sum);
++    Ncv32u sum_br = getElemSum<tbCacheTexture>(textures, sum_offset + (rect.y + rect.height) * sumStep + rect.x + rect.width, d_sum);
+     Ncv32u sum_val = sum_br + sum_tl - sum_tr - sum_bl;
+ 
+     Ncv64u sqsum_tl, sqsum_bl, sqsum_tr, sqsum_br;
+-    sqsum_tl = getElemSqSum<tbCacheTexture>(sqsum_offset + rect.y * sqsumStep + rect.x, d_sqsum);
+-    sqsum_bl = getElemSqSum<tbCacheTexture>(sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x, d_sqsum);
+-    sqsum_tr = getElemSqSum<tbCacheTexture>(sqsum_offset + rect.y * sqsumStep + rect.x + rect.width, d_sqsum);
+-    sqsum_br = getElemSqSum<tbCacheTexture>(sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x + rect.width, d_sqsum);
++    sqsum_tl = getElemSqSum<tbCacheTexture>(textures, sqsum_offset + rect.y * sqsumStep + rect.x, d_sqsum);
++    sqsum_bl = getElemSqSum<tbCacheTexture>(textures, sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x, d_sqsum);
++    sqsum_tr = getElemSqSum<tbCacheTexture>(textures, sqsum_offset + rect.y * sqsumStep + rect.x + rect.width, d_sqsum);
++    sqsum_br = getElemSqSum<tbCacheTexture>(textures, sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x + rect.width, d_sqsum);
+     Ncv64u sqsum_val = sqsum_br + sqsum_tl - sqsum_tr - sqsum_bl;
+ 
+     Ncv32f mean = sum_val * invRectArea;
+@@ -952,6 +975,8 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+                                    NcvSize32u roi, NcvRect32u rect,
+                                    Ncv32f scaleArea, NcvBool readThruTexture)
+ {
++    TextureContextOwner textures;
++
+     ncvAssertReturn(d_sum != NULL && d_sqsum != NULL && d_norm != NULL, NPPST_NULL_POINTER_ERROR);
+     ncvAssertReturn(roi.width > 0 && roi.height > 0, NPPST_INVALID_ROI);
+     ncvAssertReturn(sumStep >= (Ncv32u)(roi.width + rect.x + rect.width - 1) * sizeof(Ncv32u) &&
+@@ -976,7 +1001,7 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+         rectStdDev_32f_C1R
+             <false>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_sum, sumStep, d_sqsum, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
++            (textures, d_sum, sumStep, d_sqsum, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
+     }
+     else
+     {
+@@ -986,15 +1011,15 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+         cfdTexSqr = cudaCreateChannelDesc<uint2>();
+ 
+         std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_sum, cfdTexSrc, (roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex32u, d_sum, cfdTexSrc, (roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), NPPST_TEXTURE_BIND_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_sqsum, cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindLinear(&alignmentOffset, textures.tex64u, d_sqsum, cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), NPPST_TEXTURE_BIND_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+ 
+         rectStdDev_32f_C1R
+             <true>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (NULL, sumStep, NULL, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
++            (textures, NULL, sumStep, NULL, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
+     }
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+@@ -1624,32 +1649,32 @@ NCVStatus nppsStCompact_32f_host(Ncv32f *h_src, Ncv32u srcLen,
+ //==============================================================================
+ 
+ 
+-texture <float, 1, cudaReadModeElementType> texSrc;
+-texture <float, 1, cudaReadModeElementType> texKernel;
+ 
+ 
+-__forceinline__ __device__ float getValueMirrorRow(const int rowOffset,
++
++
++__forceinline__ __device__ float getValueMirrorRow(TextureContext textures, const int rowOffset,
+                                                    int i,
+                                                    int w)
+ {
+     if (i < 0) i = 1 - i;
+     if (i >= w) i = w + w - i - 1;
+-    return tex1Dfetch (texSrc, rowOffset + i);
++    return tex1Dfetch (textures.texSrc, rowOffset + i);
+ }
+ 
+ 
+-__forceinline__ __device__ float getValueMirrorColumn(const int offset,
++__forceinline__ __device__ float getValueMirrorColumn(TextureContext textures, const int offset,
+                                                       const int rowStep,
+                                                       int j,
+                                                       int h)
+ {
+     if (j < 0) j = 1 - j;
+     if (j >= h) j = h + h - j - 1;
+-    return tex1Dfetch (texSrc, offset + j * rowStep);
++    return tex1Dfetch (textures.texSrc, offset + j * rowStep);
+ }
+ 
+ 
+-__global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
++__global__ void FilterRowBorderMirror_32f_C1R(TextureContext textures, Ncv32u srcStep,
+                                               Ncv32f *pDst, 
+                                               NcvSize32u dstSize,
+                                               Ncv32u dstStep,
+@@ -1676,15 +1701,15 @@ __global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
+     float sum = 0.0f;
+     for (int m = 0; m < nKernelSize; ++m)
+     {
+-        sum += getValueMirrorRow (rowOffset, ix + m - p, roi.width) 
+-            * tex1Dfetch (texKernel, m);
++        sum += getValueMirrorRow (textures, rowOffset, ix + m - p, roi.width) 
++            * tex1Dfetch (textures.texKernel, m);
+     }
+ 
+     pDst[iy * dstStep + ix] = sum * multiplier;
+ }
+ 
+ 
+-__global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
++__global__ void FilterColumnBorderMirror_32f_C1R(TextureContext textures, Ncv32u srcStep,
+                                                  Ncv32f *pDst,
+                                                  NcvSize32u dstSize,
+                                                  Ncv32u dstStep,
+@@ -1708,8 +1733,8 @@ __global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
+     float sum = 0.0f;
+     for (int m = 0; m < nKernelSize; ++m)
+     {
+-        sum += getValueMirrorColumn (offset, srcStep, iy + m - p, roi.height) 
+-            * tex1Dfetch (texKernel, m);
++        sum += getValueMirrorColumn (textures, offset, srcStep, iy + m - p, roi.height) 
++            * tex1Dfetch (textures.texKernel, m);
+     }
+ 
+     pDst[ix + iy * dstStep] = sum * multiplier;
+@@ -1729,6 +1754,8 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+                                         Ncv32s nAnchor,
+                                         Ncv32f multiplier)
+ {
++    TextureContextOwner textures;
++
+     ncvAssertReturn (pSrc != NULL &&
+         pDst != NULL &&
+         pKernel != NULL, NCV_NULL_PTR);
+@@ -1757,11 +1784,11 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+     }
+ 
+     cudaChannelFormatDesc floatChannel = cudaCreateChannelDesc <float> ();
+-    texSrc.normalized    = false;
+-    texKernel.normalized = false;
++    textures.texSrc.normalized    = false;
++    textures.texKernel.normalized = false;
+ 
+-    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+-    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
++    pcl::gpu::bindLinear (0, textures.texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
++    pcl::gpu::bindLinear (0, textures.texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+ 
+     dim3 ctaSize (32, 6);
+     dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
+@@ -1777,7 +1804,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+         return NPPST_ERROR;
+     case nppStBorderMirror:
+         FilterRowBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
++            (textures, srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
+         ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+         break;
+     default:
+@@ -1801,6 +1828,8 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+                                            Ncv32s nAnchor,
+                                            Ncv32f multiplier)
+ {
++    TextureContextOwner textures;
++
+     ncvAssertReturn (pSrc != NULL &&
+         pDst != NULL &&
+         pKernel != NULL, NCV_NULL_PTR);
+@@ -1829,11 +1858,11 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+     }
+ 
+     cudaChannelFormatDesc floatChannel = cudaCreateChannelDesc <float> ();
+-    texSrc.normalized    = false;
+-    texKernel.normalized = false;
++    textures.texSrc.normalized    = false;
++    textures.texKernel.normalized = false;
+ 
+-    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+-    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
++    pcl::gpu::bindLinear (0, textures.texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
++    pcl::gpu::bindLinear (0, textures.texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+ 
+     dim3 ctaSize (32, 6);
+     dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
+@@ -1847,7 +1876,7 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+         return NPPST_ERROR;
+     case nppStBorderMirror:
+         FilterColumnBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
++            (textures, srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
+         ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+         break;
+     default:
+@@ -1871,11 +1900,11 @@ inline Ncv32u iDivUp(Ncv32u num, Ncv32u denom)
+ }
+ 
+ 
+-texture<float, 2, cudaReadModeElementType> tex_src1;
+-texture<float, 2, cudaReadModeElementType> tex_src0;
+ 
+ 
+-__global__ void BlendFramesKernel(const float *u, const float *v,   // forward flow
++
++
++__global__ void BlendFramesKernel(TextureContext textures, const float *u, const float *v,   // forward flow
+                                   const float *ur, const float *vr, // backward flow
+                                   const float *o0, const float *o1, // coverage masks
+                                   int w, int h, int s, 
+@@ -1902,18 +1931,18 @@ __global__ void BlendFramesKernel(const float *u, const float *v,   // forward f
+     if (b0 && b1)
+     {
+         // pixel is visible on both frames
+-        out[pos] = tex2D(tex_src0, x - _u * theta, y - _v * theta) * (1.0f - theta) + 
+-            tex2D(tex_src1, x + _u * (1.0f - theta), y + _v * (1.0f - theta)) * theta;
++        out[pos] = tex2D(textures.tex_src0, x - _u * theta, y - _v * theta) * (1.0f - theta) + 
++            tex2D(textures.tex_src1, x + _u * (1.0f - theta), y + _v * (1.0f - theta)) * theta;
+     }
+     else if (b0)
+     {
+         // visible on the first frame only
+-        out[pos] = tex2D(tex_src0, x - _u * theta, y - _v * theta);
++        out[pos] = tex2D(textures.tex_src0, x - _u * theta, y - _v * theta);
+     }
+     else
+     {
+         // visible on the second frame only
+-        out[pos] = tex2D(tex_src1, x - _ur * (1.0f - theta), y - _vr * (1.0f - theta));
++        out[pos] = tex2D(textures.tex_src1, x - _ur * (1.0f - theta), y - _vr * (1.0f - theta));
+     }
+ }
+ 
+@@ -1932,26 +1961,28 @@ NCVStatus BlendFrames(const Ncv32f *src0,
+                       Ncv32f theta,
+                       Ncv32f *out)
+ {
+-    tex_src1.addressMode[0] = cudaAddressModeClamp;
+-    tex_src1.addressMode[1] = cudaAddressModeClamp;
+-    tex_src1.filterMode = cudaFilterModeLinear;
+-    tex_src1.normalized = false;
++    TextureContextOwner textures;
++
++    textures.tex_src1.addressMode[0] = cudaAddressModeClamp;
++    textures.tex_src1.addressMode[1] = cudaAddressModeClamp;
++    textures.tex_src1.filterMode = cudaFilterModeLinear;
++    textures.tex_src1.normalized = false;
+ 
+-    tex_src0.addressMode[0] = cudaAddressModeClamp;
+-    tex_src0.addressMode[1] = cudaAddressModeClamp;
+-    tex_src0.filterMode = cudaFilterModeLinear;
+-    tex_src0.normalized = false;
++    textures.tex_src0.addressMode[0] = cudaAddressModeClamp;
++    textures.tex_src0.addressMode[1] = cudaAddressModeClamp;
++    textures.tex_src0.filterMode = cudaFilterModeLinear;
++    textures.tex_src0.normalized = false;
+ 
+     cudaChannelFormatDesc desc = cudaCreateChannelDesc <float> ();
+     const Ncv32u pitch = stride * sizeof (float);
+-    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src1, src1, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
+-    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src0, src0, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
++    ncvAssertCUDAReturn (pcl::gpu::bindPitch (0, textures.tex_src1, src1, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
++    ncvAssertCUDAReturn (pcl::gpu::bindPitch (0, textures.tex_src0, src0, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
+ 
+     dim3 threads (32, 4);
+     dim3 blocks (iDivUp (width, threads.x), iDivUp (height, threads.y));
+ 
+     BlendFramesKernel<<<blocks, threads, 0, nppStGetActiveCUDAstream ()>>>
+-        (ufi, vfi, ubi, vbi, o1, o2, width, height, stride, theta, out);
++        (textures, ufi, vfi, ubi, vbi, o1, o2, width, height, stride, theta, out);
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+ 
+@@ -2304,11 +2335,11 @@ NCVStatus nppiStVectorWarp_PSF2x2_32f_C1(const Ncv32f *pSrc,
+ //==============================================================================
+ 
+ 
+-texture <float, 2, cudaReadModeElementType> texSrc2D;
++
+ 
+ 
+ __forceinline__
+-__device__ float processLine(int spos,
++__device__ float processLine(TextureContext textures, int spos,
+                              float xmin,
+                              float xmax,
+                              int ixmin,
+@@ -2318,21 +2349,21 @@ __device__ float processLine(int spos,
+ {
+     // first element
+     float wsum = 1.0f - xmin + fxmin;
+-    float sum = tex1Dfetch(texSrc, spos) * (1.0f - xmin + fxmin);
++    float sum = tex1Dfetch(textures.texSrc, spos) * (1.0f - xmin + fxmin);
+     spos++;
+     for (int ix = ixmin + 1; ix < ixmax; ++ix)
+     {
+-        sum += tex1Dfetch(texSrc, spos);
++        sum += tex1Dfetch(textures.texSrc, spos);
+         spos++;
+         wsum += 1.0f;
+     }
+-    sum += tex1Dfetch(texSrc, spos) * (cxmax - xmax);
++    sum += tex1Dfetch(textures.texSrc, spos) * (cxmax - xmax);
+     wsum += cxmax - xmax;
+     return sum / wsum;
+ }
+ 
+ 
+-__global__ void resizeSuperSample_32f(NcvSize32u srcSize,
++__global__ void resizeSuperSample_32f(TextureContext textures, NcvSize32u srcSize,
+                                       Ncv32u srcStep,
+                                       NcvRect32u srcROI,
+                                       Ncv32f *dst,
+@@ -2380,18 +2411,18 @@ __global__ void resizeSuperSample_32f(NcvSize32u srcSize,
+ 
+     float wsum = 1.0f - yBegin + floorYBegin;
+ 
+-    float sum = processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++    float sum = processLine (textures, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+         ceilXEnd) * (1.0f - yBegin + floorYBegin);
+     pos += srcStep;
+     for (int iy = iYBegin + 1; iy < iYEnd; ++iy)
+     {
+-        sum += processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++        sum += processLine (textures, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+             ceilXEnd);
+         pos += srcStep;
+         wsum += 1.0f;
+     }
+ 
+-    sum += processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++    sum += processLine (textures, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+         ceilXEnd) * (ceilYEnd - yEnd);
+     wsum += ceilYEnd - yEnd;
+     sum /= wsum;
+@@ -2420,7 +2451,7 @@ __device__ float bicubicCoeff(float x_)
+ }
+ 
+ 
+-__global__ void resizeBicubic(NcvSize32u srcSize,
++__global__ void resizeBicubic(TextureContext textures, NcvSize32u srcSize,
+                               NcvRect32u srcROI,
+                               NcvSize32u dstSize,
+                               Ncv32u dstStep,
+@@ -2481,7 +2512,7 @@ __global__ void resizeBicubic(NcvSize32u srcSize,
+             float wx = bicubicCoeff (xDist);
+             float wy = bicubicCoeff (yDist);
+             wx *= wy;
+-            sum += wx * tex2D (texSrc2D, cx * dx, cy * dy);
++            sum += wx * tex2D (textures.texSrc2D, cx * dx, cy * dy);
+             wsum += wx;
+         }
+     }
+@@ -2501,6 +2532,8 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+                                Ncv32f yFactor,
+                                NppStInterpMode interpolation)
+ {
++    TextureContextOwner textures;
++
+     NCVStatus status = NPPST_SUCCESS;
+ 
+     ncvAssertReturn (pSrc != NULL && pDst != NULL, NPPST_NULL_POINTER_ERROR);
+@@ -2518,24 +2551,24 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+     if (interpolation == nppStSupersample)
+     {
+         // bind texture
+-        cudaBindTexture (0, texSrc, pSrc, srcSize.height * nSrcStep);
++        pcl::gpu::bindLinear (0, textures.texSrc, pSrc, srcSize.height * nSrcStep);
+         // invoke kernel
+         dim3 ctaSize (32, 6);
+         dim3 gridSize ((dstROI.width  + ctaSize.x - 1) / ctaSize.x,
+             (dstROI.height + ctaSize.y - 1) / ctaSize.y);
+ 
+         resizeSuperSample_32f <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>> 
+-            (srcSize, srcStep, srcROI, pDst, dstSize, dstStep, dstROI, 1.0f / xFactor, 1.0f / yFactor);
++            (textures, srcSize, srcStep, srcROI, pDst, dstSize, dstStep, dstROI, 1.0f / xFactor, 1.0f / yFactor);
+     }
+     else if (interpolation == nppStBicubic)
+     {
+-        texSrc2D.addressMode[0] = cudaAddressModeMirror;
+-        texSrc2D.addressMode[1] = cudaAddressModeMirror;
+-        texSrc2D.normalized = true;
++        textures.texSrc2D.addressMode[0] = cudaAddressModeMirror;
++        textures.texSrc2D.addressMode[1] = cudaAddressModeMirror;
++        textures.texSrc2D.normalized = true;
+ 
+         cudaChannelFormatDesc desc = cudaCreateChannelDesc <float> ();
+ 
+-        cudaBindTexture2D (0, texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
++        pcl::gpu::bindPitch (0, textures.texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
+             nSrcStep);
+ 
+         dim3 ctaSize (32, 6);
+@@ -2543,7 +2576,7 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+             (dstSize.height + ctaSize.y - 1) / ctaSize.y);
+ 
+         resizeBicubic <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcSize, srcROI, dstSize, dstStep, pDst, dstROI, 1.0f / xFactor, 1.0f / yFactor);
++            (textures, srcSize, srcROI, dstSize, dstStep, pDst, dstROI, 1.0f / xFactor, 1.0f / yFactor);
+     }
+     else
+     {
+diff --git a/gpu/people/src/cuda/utils.cu b/gpu/people/src/cuda/utils.cu
+index 5f29d5c..ab51212 100644
+--- a/gpu/people/src/cuda/utils.cu
++++ b/gpu/people/src/cuda/utils.cu
+@@ -7,14 +7,23 @@
+ #include "npp.h"
+ 
+ #include <stdio.h>
++#include <pcl/gpu/containers/impl/texture_binder.hpp>
++
++namespace {
++struct TextureContext {
++  pcl::gpu::TextureView<uchar4, 1> cmapTex;
++};
++using TextureContextOwner = TextureContext;
++} // anonymous namespace
++
+ 
+ namespace pcl
+ {
+   namespace device
+   {
+-    texture<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex;
++    
+ 
+-    __global__ void colorKernel(const PtrStepSz<unsigned char> labels, PtrStep<uchar4> output)
++    __global__ void colorKernel(TextureContext textures, const PtrStepSz<unsigned char> labels, PtrStep<uchar4> output)
+     {
+       int x = threadIdx.x + blockIdx.x * blockDim.x;
+       int y = threadIdx.y + blockIdx.y * blockDim.y;
+@@ -22,11 +31,11 @@ namespace pcl
+       if (x < labels.cols && y < labels.rows)
+       {
+         int l = labels.ptr(y)[x];
+-        output.ptr(y)[x] = tex1Dfetch(cmapTex, l);
++        output.ptr(y)[x] = tex1Dfetch(textures.cmapTex, l);
+       }
+     }
+ 
+-    __global__ void mixedColorKernel(const PtrStepSz<unsigned char> labels, PtrStepSz<uchar4> rgba, PtrStep<uchar4> output)
++    __global__ void mixedColorKernel(TextureContext textures, const PtrStepSz<unsigned char> labels, PtrStepSz<uchar4> rgba, PtrStep<uchar4> output)
+     {
+       int x = threadIdx.x + blockIdx.x * blockDim.x;
+       int y = threadIdx.y + blockIdx.y * blockDim.y;
+@@ -37,7 +46,7 @@ namespace pcl
+ 
+         int l = labels.ptr(y)[x];
+         if (l != 8) // RHip but should be background
+-          c = tex1Dfetch(cmapTex, l);
++          c = tex1Dfetch(textures.cmapTex, l);
+ 
+         output.ptr(y)[x] = c;
+       }
+@@ -47,13 +56,15 @@ namespace pcl
+ 
+ void pcl::device::colorLMap(const Labels& labels, const DeviceArray<uchar4>& map, Image& rgba)
+ {
+-  cmapTex.addressMode[0] = cudaAddressModeClamp;
+-  TextureBinder binder(map, cmapTex);
++    TextureContextOwner textures;
++
++  textures.cmapTex.addressMode[0] = cudaAddressModeClamp;
++  TextureBinder binder(map, textures.cmapTex);
+   
+   dim3 block(32, 8);
+   dim3 grid( divUp(labels.cols(), block.x), divUp(labels.rows(), block.y) );
+ 
+-  colorKernel<<< grid, block >>>( labels, rgba );
++  colorKernel<<< grid, block >>>(textures,  labels, rgba );
+ 
+   cudaSafeCall( cudaGetLastError() );
+   cudaSafeCall( cudaDeviceSynchronize() );  
+@@ -61,13 +72,15 @@ void pcl::device::colorLMap(const Labels& labels, const DeviceArray<uchar4>& map
+ 
+ void pcl::device::mixedColorMap(const Labels& labels, const DeviceArray<uchar4>& map, const Image& rgba, Image& output)
+ {
+-  cmapTex.addressMode[0] = cudaAddressModeClamp;
+-  TextureBinder binder(map, cmapTex);
++    TextureContextOwner textures;
++
++  textures.cmapTex.addressMode[0] = cudaAddressModeClamp;
++  TextureBinder binder(map, textures.cmapTex);
+ 
+   dim3 block(32, 8);
+   dim3 grid(divUp(labels.cols(), block.x), divUp(labels.rows(), block.y));
+ 
+-  mixedColorKernel<<<grid, block>>>(labels, rgba, output);
++  mixedColorKernel<<<grid, block>>>(textures, labels, rgba, output);
+   cudaSafeCall( cudaGetLastError() );
+   cudaSafeCall( cudaDeviceSynchronize() );
+ }
+diff --git a/gpu/people/src/people_detector.cpp b/gpu/people/src/people_detector.cpp
+index 430a59a..3a9b5c8 100644
+--- a/gpu/people/src/people_detector.cpp
++++ b/gpu/people/src/people_detector.cpp
+@@ -197,7 +197,7 @@ pcl::gpu::people::PeopleDetector::process ()
+         
+     std::fill(flowermat_host_.begin(), flowermat_host_.end(), 0);
+     {
+-      //ScopeTime time("shs");    
++      ////ScopeTime time("shs");    
+       shs5(cloud_host_, seed, &flowermat_host_[0]);
+     }
+     
+@@ -485,9 +485,22 @@ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, con
+ 
+   // Process all points in the indices vector
+   int total = static_cast<int> (indices.size ());
+-#pragma omp parallel for \
+-  default(none) \
+-  shared(cloud, intr, hue, indices, mask, squared_radius, storage, total)
++  // Flood fills share a visited set, and seed order affects hue membership.
++  // Keep their ordering deterministic, even when called from an OpenMP region.
++  std::vector<std::uint64_t> candidates((cloud.size() + 63) / 64, 0);
++  for (std::size_t j = 0; j < cloud.size(); ++j)
++    if (!mask[j]) candidates[j >> 6] |= std::uint64_t(1) << (j & 63);
++  // Coarse hue masks cheaply reject whole words. The exact floating-point
++  // test below is retained at the bin boundaries.
++  const std::size_t words = candidates.size();
++  constexpr int hue_bins = 74; // [-5, 365), also covers the achromatic hue
++  std::vector<std::uint64_t> hue_bits(hue_bins * words, 0);
++  for (std::size_t j = 0; j < cloud.size(); ++j) {
++    if (!std::isfinite(hue[j])) continue;
++    int bin = std::max(0, std::min(hue_bins - 1, int(std::floor(hue[j] / 5)) + 1));
++    for (int b = std::max(0, bin - 1); b <= std::min(hue_bins - 1, bin + 1); ++b)
++      hue_bits[b * words + (j >> 6)] |= std::uint64_t(1) << (j & 63);
++  }
+   for (int k = 0; k < total; ++k)
+   {
+     int i = indices[k];
+@@ -495,6 +508,7 @@ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, con
+       continue;
+ 
+     mask[i] = 255;
++    candidates[i >> 6] &= ~(std::uint64_t(1) << (i & 63));
+ 
+     int id = 0;
+ #ifdef _OPENMP
+@@ -506,15 +520,16 @@ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, con
+     int sq_idx = 0;
+     seed_queue.push_back (i);
+ 
+-    float h = hue[i];    
+-
++    float h = hue[i];
++    if (!std::isfinite(h)) continue;
++    int hue_bin = std::max(0, std::min(hue_bins - 1, int(std::floor(h / 5)) + 1));
++    const std::uint64_t* eligible = hue_bits.data() + hue_bin * words;
+     while (sq_idx < (int)seed_queue.size ())
+     {
+       int index = seed_queue[sq_idx];
+       const PointT& q = cloud[index];
+ 
+-      if(!pcl::isFinite (q))
+-        continue;
++      if(!pcl::isFinite (q)) { ++sq_idx; continue; }
+ 
+       // search window                  
+       int left, right, top, bottom;
+@@ -525,24 +540,30 @@ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, con
+       int skip = cloud.width - right + left - 1;
+       int xEnd = idx - left + right + 1;
+ 
+-      for (; xEnd < yEnd; idx += 2*skip, xEnd += 2*cloud.width)
+-        for (; idx < xEnd; idx += 2)
+-        {
+-          if (mask[idx])
+-            continue;
+-
+-          if (sqnorm(cloud[idx], q) <= squared_radius)
+-          {
+-            float h_l = hue[idx];
+-
+-            if (std::abs(h_l - h) < DELTA_HUE_SHS)
+-            {                   
+-              seed_queue.push_back (idx);
+-              mask[idx] = 255;
++      for (; xEnd < yEnd; idx += 2*skip, xEnd += 2*cloud.width) {
++        // Round the cursor as the original stride-two loop did (including
++        // odd-width windows); changing that rounding changes the segmentation.
++        int next = idx < xEnd ? idx + 2 * ((xEnd - idx + 1) / 2) : idx;
++        const std::uint64_t parity = (idx & 1) ? 0xaaaaaaaaaaaaaaaaULL : 0x5555555555555555ULL;
++        for (int word = idx >> 6; word <= (xEnd - 1) >> 6 && idx < xEnd; ++word) {
++          std::uint64_t bits = candidates[word] & eligible[word] & parity;
++          if (word == (idx >> 6)) bits &= ~std::uint64_t(0) << (idx & 63);
++          if (word == ((xEnd - 1) >> 6)) bits &= ~std::uint64_t(0) >> (63 - ((xEnd - 1) & 63));
++          while (bits) {
++            int bit = __builtin_ctzll(bits);
++            bits &= bits - 1;
++            int candidate = word * 64 + bit;
++            if (sqnorm(cloud[candidate], q) <= squared_radius &&
++                std::abs(hue[candidate] - h) < DELTA_HUE_SHS) {
++              seed_queue.push_back(candidate);
++              mask[candidate] = 255;
++              candidates[word] &= ~(std::uint64_t(1) << bit);
+             }
+           }
+         }
+-      
++        idx = next;
++      }
++
+       sq_idx++;
+     }        
+   }
+diff --git a/gpu/utils/include/pcl/gpu/utils/device/block.hpp b/gpu/utils/include/pcl/gpu/utils/device/block.hpp
+index 4740bb2..f552533 100644
+--- a/gpu/utils/include/pcl/gpu/utils/device/block.hpp
++++ b/gpu/utils/include/pcl/gpu/utils/device/block.hpp
+@@ -130,14 +130,16 @@ namespace pcl
+ 				if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+ 				if (tid < 32)
+-				{
+-					if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-					if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-					if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-					if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-					if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-					if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-				}
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+ 			}
+ 
+ 			template<int CTA_SIZE, typename T, class BinOp>
+@@ -153,14 +155,16 @@ namespace pcl
+ 				if (CTA_SIZE >=  128) { if (tid <  64) buffer[tid] = val = op(val, buffer[tid +  64]); __syncthreads(); }
+ 
+ 				if (tid < 32)
+-				{
+-					if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-					if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-					if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-					if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-					if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-					if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
+-				}
++      {
++        if (CTA_SIZE >= 64) val = op(val, buffer[tid + 32]);
++        const unsigned mask = __activemask();
++        for (int offset = 16; offset > 0; offset >>= 1) {
++          T other = __shfl_down_sync(mask, val, offset);
++          val = op(val, other);
++        }
++        buffer[tid] = val;
++        __syncwarp(mask);
++      }
+ 				__syncthreads();				
+ 				return buffer[0];
+ 			}
+diff --git a/gpu/utils/include/pcl/gpu/utils/device/warp.hpp b/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
+index 0de4230..5a94b93 100644
+--- a/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
++++ b/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
+@@ -147,13 +147,14 @@ namespace pcl
+                 unsigned int lane = laneId();
+                 T val =  buffer[lane];                
+ 
+-                if (lane < 16) 
+-                {
+-                    buffer[lane] = val = op(val, buffer[lane + 16]);
+-                    buffer[lane] = val = op(val, buffer[lane +  8]);
+-                    buffer[lane] = val = op(val, buffer[lane +  4]);
+-                    buffer[lane] = val = op(val, buffer[lane +  2]);
+-                    buffer[lane] = val = op(val, buffer[lane +  1]);
++                const unsigned mask = __activemask();
++                __syncwarp(mask);
++                for (unsigned offset = 16; offset; offset >>= 1) {
++                    if (lane < offset) {
++                        T left = buffer[lane];
++                        buffer[lane] = op(left, buffer[lane + offset]);
++                    }
++                    __syncwarp(mask);
+                 }
+             }
+ 
+@@ -163,13 +164,14 @@ namespace pcl
+                 unsigned int lane = laneId();                
+                 T val = buffer[lane] = init;
+                 
+-                if (lane < 16) 
+-                {
+-                    buffer[lane] = val = op(val, buffer[lane + 16]);
+-                    buffer[lane] = val = op(val, buffer[lane +  8]);
+-                    buffer[lane] = val = op(val, buffer[lane +  4]);
+-                    buffer[lane] = val = op(val, buffer[lane +  2]);
+-                    buffer[lane] = val = op(val, buffer[lane +  1]);
++                const unsigned mask = __activemask();
++                __syncwarp(mask);
++                for (unsigned offset = 16; offset; offset >>= 1) {
++                    if (lane < offset) {
++                        T left = buffer[lane];
++                        buffer[lane] = op(left, buffer[lane + offset]);
++                    }
++                    __syncwarp(mask);
+                 }
+                 return buffer[0];
+             }       
