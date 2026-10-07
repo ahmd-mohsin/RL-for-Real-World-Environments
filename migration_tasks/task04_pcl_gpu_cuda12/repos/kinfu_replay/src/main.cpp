@@ -2,6 +2,7 @@
 //
 //   kinfu_replay --mode kinfu|kinfuls --frames N --out DIR [--noise SEED] [--icp-trunc M] [--skip-mesh]
 //                [--traj orbit|walk|static] [--scene room|corridor] [--stop K] [--shift M]
+//                [--extract-every K]
 //                [--concurrent "mode:traj:noise,..."]
 //
 // Writes DIR/result.json (poses, ground truth, errors, TSDF statistics, mesh
@@ -38,7 +39,9 @@ namespace {
 
 struct Args {
   std::string mode = "kinfu", out = ".";
-  int frames = 120, noise = -1, stop = 0;  // stop > 0: run only the first `stop` frames of the trajectory
+  int frames = 120, noise = -1;
+  int stop = 0;           // > 0: run only the first `stop` frames of the trajectory
+  int extract_every = 0;  // > 0: extract a mesh (and a cloud) every K frames and record checksums
   float icp_trunc = 0.f, shift = 0.8f;  // shift: kinfuLS volume shifting distance (m)
   bool skip_mesh = false;
   std::string traj, scene;
@@ -56,6 +59,7 @@ Args parse(int argc, char** argv) {
     else if (k == "--frames") a.frames = std::stoi(val());
     else if (k == "--stop") a.stop = std::stoi(val());
     else if (k == "--shift") a.shift = std::stof(val());
+    else if (k == "--extract-every") a.extract_every = std::stoi(val());
     else if (k == "--out") a.out = val();
     else if (k == "--noise") a.noise = std::stoi(val());
     else if (k == "--icp-trunc") a.icp_trunc = std::stof(val());
@@ -80,6 +84,20 @@ std::string mat(const Eigen::Affine3f& p) {
 float rotErrDeg(const Eigen::Matrix3f& a, const Eigen::Matrix3f& b) {
   Eigen::AngleAxisf aa(a.transpose() * b);
   return std::abs(aa.angle()) * 57.29578f;
+}
+
+// exact, order-independent checksum of a point set (sum of the coordinates' bit patterns)
+template <class Point>
+std::uint64_t pointChecksum(const std::vector<Point>& pts) {
+  std::uint64_t s = 0;
+  for (const auto& p : pts) {
+    std::uint32_t b[3];
+    std::memcpy(&b[0], &p.x, 4);
+    std::memcpy(&b[1], &p.y, 4);
+    std::memcpy(&b[2], &p.z, 4);
+    s += b[0] + 3ull * b[1] + 7ull * b[2];
+  }
+  return s;
 }
 
 // TSDF voxels are packed short2 (tsdf * 32767, weight) in an int
@@ -160,7 +178,8 @@ int run_case(const Args& a) {
   double raycast_err = -1, raycast_valid = 0;
   Eigen::Affine3f world_from_volume = Eigen::Affine3f::Identity();
 
-  auto run_frames = [&](auto&& kf, auto&& pose_of) {
+  std::ostringstream series;  // --extract-every: [frame, triangles, checksum, cloud points, checksum]
+  auto run_frames = [&](auto&& kf, auto&& pose_of, auto&& extract) {
     const int n = a.stop > 0 ? std::min(a.stop, a.frames) : a.frames;
     for (int k = 0; k < n; ++k) {
       Eigen::Affine3f p = trajectoryPose(traj, k, a.frames);
@@ -179,6 +198,7 @@ int run_case(const Args& a) {
       }
       frame_ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
       est.push_back(pose_of(k));
+      if (a.extract_every > 0 && (k + 1) % a.extract_every == 0) extract(k);
     }
   };
 
@@ -189,7 +209,15 @@ int run_case(const Args& a) {
     kf.setInitalCameraPose(trajectoryPose(traj, 0, a.frames));
     kf.setDepthTruncationForICP(a.icp_trunc);
     kf.setCameraMovementThreshold(0.f);
-    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); });
+    pcl::gpu::MarchingCubes smc;
+    pcl::gpu::DeviceArray<pcl::PointXYZ> sbuf, scbuf;
+    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
+      std::vector<pcl::PointXYZ> h, hc;
+      smc.run(kf.volume(), sbuf).download(h);
+      kf.volume().fetchCloud(scbuf).download(hc);
+      series << (series.tellp() > 0 ? "," : "") << "[" << k << "," << h.size() / 3 << "," << pointChecksum(h) << "," << hc.size()
+             << "," << pointChecksum(hc) << "]";
+    });
     pcl::gpu::DeviceArray2D<int> vol = kf.volume().data();
     std::vector<int> host;
     int cols;
@@ -264,7 +292,13 @@ int run_case(const Args& a) {
     kf.setInitialCameraPose(trajectoryPose(traj, 0, a.frames));
     kf.setDepthTruncationForICP(a.icp_trunc);
     kf.setCameraMovementThreshold(0.f);
-    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); });
+    pcl::gpu::kinfuLS::MarchingCubes smc;
+    pcl::gpu::DeviceArray<pcl::PointXYZ> sbuf;
+    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
+      std::vector<pcl::PointXYZ> h;
+      smc.run(kf.volume(), sbuf).download(h);
+      series << (series.tellp() > 0 ? "," : "") << "[" << k << "," << h.size() / 3 << "," << pointChecksum(h) << "]";
+    });
     // the cyclical buffer's origin gives the volume's current world placement
     pcl::gpu::kinfuLS::tsdf_buffer* buf = kf.getCyclicalBufferStructure();
     world_from_volume.translation() = Eigen::Vector3f(buf->origin_metric.x, buf->origin_metric.y, buf->origin_metric.z);
@@ -309,6 +343,7 @@ int run_case(const Args& a) {
   f << "\"tsdf\": {\"resolution\": " << res << ", \"observed\": " << ts.observed << ", \"near_surface\": " << ts.near_surface
     << ", \"weight_sum\": " << ts.weight_sum << ", \"tsdf_abs_mean\": " << (ts.observed ? ts.tsdf_abs_sum / ts.observed : 0) << "}, ";
   f << extra.str();
+  if (a.extract_every > 0) f << "\"extract_series\": [" << series.str() << "], ";
   f << "\"raycast_depth_err_mm\": " << raycast_err << ", \"raycast_valid_frac\": " << raycast_valid << ", ";
   f << "\"frame_ms_median\": " << sorted[sorted.size() / 2] << ", \"frame_ms_total\": " << std::accumulate(frame_ms.begin(), frame_ms.end(), 0.0) << ", ";
   f << "\"poses\": [";

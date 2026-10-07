@@ -19,16 +19,36 @@ KINFU = {
     "kinfuls_walk_clean": ["--mode", "kinfuls", "--frames", "240", "--noise", "-1"],
     "kinfuls_walk_n4": ["--mode", "kinfuls", "--frames", "240", "--noise", "4"],
     "kinfuls_room_orbit": ["--mode", "kinfuls", "--scene", "room", "--traj", "orbit", "--frames", "120", "--noise", "1"],
+    "kinfu_orbit_n5_slow": ["--mode", "kinfu", "--traj", "orbit", "--frames", "150", "--noise", "5"],
+    "kinfu_orbit_n8": ["--mode", "kinfu", "--traj", "orbit", "--frames", "110", "--noise", "8"],
+    "kinfu_orbit_n34_fast": ["--mode", "kinfu", "--traj", "orbit", "--frames", "105", "--noise", "34"],
+    "kinfu_orbit_n13_icp18": ["--mode", "kinfu", "--traj", "orbit", "--frames", "120", "--noise", "13", "--icp-trunc", "1.8"],
+    "kinfu_static_clean": ["--mode", "kinfu", "--traj", "static", "--frames", "30", "--noise", "-1"],
+    "kinfu_static_n21": ["--mode", "kinfu", "--traj", "static", "--frames", "60", "--noise", "21"],
+    "kinfuls_walk_n2_slow": ["--mode", "kinfuls", "--frames", "300", "--noise", "2"],
+    "kinfuls_walk_n6_fast": ["--mode", "kinfuls", "--frames", "220", "--noise", "6"],
+    "kinfuls_walk_n11_shift05": ["--mode", "kinfuls", "--frames", "240", "--noise", "11", "--shift", "0.5"],
+    "kinfuls_walk_n3_shift12": ["--mode", "kinfuls", "--frames", "240", "--noise", "3", "--shift", "1.2"],
+    "kinfuls_room_orbit_clean": ["--mode", "kinfuls", "--scene", "room", "--traj", "orbit", "--frames", "120", "--noise", "-1"],
+    "kinfuls_room_static_n5": ["--mode", "kinfuls", "--scene", "room", "--traj", "static", "--frames", "40", "--noise", "5"],
 }
 
-PEOPLE_VARIANTS = ["base", "mirror", "farther", "noise", "holes", "jitter-11", "jitter-2024", "jitter-90001"]
-NCV_SEEDS = [0, 5, 31337]
+PEOPLE_VARIANTS = ["base", "mirror", "farther", "noise", "holes", "jitter-11", "jitter-2024", "jitter-90001", "jitter-7",
+                   "jitter-13", "jitter-101", "jitter-4242", "jitter-65537", "jitter-777777", "jitter-999983", "jitter-31415"]
+NCV_SEEDS = [0, 5, 31337, 2, 3, 17, 255, 1024, 65521, 99991, 1000003, 2147483629]
 
 # concurrent runs: (name, global args, spec); every case must equal the candidate's own solo run bitwise
 CONCURRENT = [
-    ("conc_kinfu", ["--frames", "120"], "kinfu:orbit:1,kinfu:orbit:-1,kinfu:static:3,kinfu:orbit:6"),
-    ("conc_kinfuls", ["--frames", "240"], "kinfuls:walk:-1,kinfuls:walk:4,kinfuls:walk:9"),
-    ("conc_mixed", ["--frames", "120", "--scene", "room"], "kinfu:orbit:1,kinfuls:orbit:1,kinfu:orbit:7,kinfuls:orbit:-1,kinfu:static:2"),
+# (--extract-every: every tracker also extracts meshes and clouds while the others run; the stress cases
+# run several trackers in lockstep over a short prefix and extract on every frame)
+    ("conc_kinfu", ["--frames", "120", "--extract-every", "10"], "kinfu:orbit:1,kinfu:orbit:-1,kinfu:orbit:3,kinfu:orbit:6"),
+    ("conc_kinfuls", ["--frames", "240", "--extract-every", "20"], "kinfuls:walk:-1,kinfuls:walk:4,kinfuls:walk:9"),
+    ("conc_mixed", ["--frames", "120", "--scene", "room", "--extract-every", "10"],
+     "kinfu:orbit:1,kinfuls:orbit:1,kinfu:orbit:7,kinfuls:orbit:-1,kinfu:static:2"),
+    ("stress_kinfu", ["--frames", "120", "--stop", "24", "--extract-every", "1"],
+     "kinfu:orbit:1,kinfu:orbit:2,kinfu:orbit:3,kinfu:orbit:4,kinfu:orbit:5,kinfu:orbit:6"),
+    ("stress_kinfuls", ["--frames", "240", "--stop", "24", "--extract-every", "1"],
+     "kinfuls:walk:1,kinfuls:walk:2,kinfuls:walk:3,kinfuls:walk:4,kinfuls:walk:5"),
 ]
 PEOPLE_THREADS = 6
 
@@ -44,13 +64,20 @@ TIMING_KEYS = {"mc_ms", "cloud_ms", "frame_ms_median", "frame_ms_total", "ms_med
 
 
 def fresh_workloads(seed):
-    """Workloads drawn from the secret grading seed."""
-    return {
-        "kinfu": ["--mode", "kinfu", "--traj", "orbit", "--frames", str(112 + seed % 17), "--noise", str(10 + seed % 99991)],
-        "kinfuls": ["--mode", "kinfuls", "--frames", str(228 + seed % 23), "--noise", str(10 + (seed >> 7) % 99991)],
-        "people": [f"jitter-{seed % 1000003}", f"jitter-{(seed >> 20) % 1000003 + 1}"],
-        "ncv": 1 + seed % 2147483646,
-    }
+    """Workloads drawn from the secret grading seed: name -> (tool, args)."""
+    import random
+    rng = random.Random(seed)
+    w = {}
+    for i in range(3):
+        w[f"kinfu{i}"] = ("kinfu_replay", ["--mode", "kinfu", "--traj", "orbit", "--frames", str(rng.randint(108, 140)),
+                                            "--noise", str(rng.randint(100, 10**6))])
+    for i in range(2):
+        w[f"kinfuls{i}"] = ("kinfu_replay", ["--mode", "kinfuls", "--frames", str(rng.randint(225, 290)),
+                                              "--noise", str(rng.randint(100, 10**6))])
+    w["people"] = ("people_eval", [f"jitter-{rng.randint(1, 10**9)}" for _ in range(6)])
+    for i in range(4):
+        w[f"ncv{i}"] = ("ncv_check", ["--seed", str(rng.randint(1, 2**31 - 2))])
+    return w
 
 
 def load(d):
@@ -130,8 +157,9 @@ def compare_kinfu(cand, ref):
             need(rel(mc["area"], mr["area"]) <= 0.004, "mesh area", mc["area"], mr["area"])
             need(mc["surface_err_mean"] <= mr["surface_err_mean"] * 1.10 + 5e-5, "mesh surface_err_mean", mc["surface_err_mean"],
                  mr["surface_err_mean"])
+            # extremal: a single stray triangle moves it by about a centimetre
             bb = max(abs(a - b) for a, b in zip(mc["bbox"], mr["bbox"]))
-            need(bb <= 0.01, "mesh bbox", mc["bbox"], mr["bbox"])
+            need(bb <= 0.05, "mesh bbox", mc["bbox"], mr["bbox"])
     if ls:
         need(c.get("shifts_origin") == r["shifts_origin"], "volume shifts", c.get("shifts_origin"), r["shifts_origin"])
     else:

@@ -1,6 +1,9 @@
 # mini-swe-agent overrides for task04 in a no-network Docker sandbox on the lab GPU host
 # (used on top of common/mswea/migration.yaml; see runs/*/RESULT.md for the exact command).
 agent:
+  system_template: |
+    You are an expert GPU and HPC software engineer working autonomously on a Linux machine with an NVIDIA RTX 5090.
+    You can execute bash commands through the bash tool.
   instance_template: |
     {{task}}
 

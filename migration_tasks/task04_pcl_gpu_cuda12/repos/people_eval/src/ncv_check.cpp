@@ -240,13 +240,48 @@ void testFloat(cudaDeviceProp&) {
     }
   }
 
-  // resize: supersampling (shrink) and bicubic (enlarge, mirror addressing on normalized coordinates)
-  struct R { const char* name; float f; NppStInterpMode mode; };
-  for (R r : {R{"resize_super", 0.43f, nppStSupersample}, R{"resize_bicubic", 1.37f, nppStBicubic}}) {
-    NcvSize32u dsize = {(Ncv32u)std::floor(W * r.f), (Ncv32u)std::floor(H * r.f)};
+  // separable filters on tiny ROIs at the start of the source buffer, where mirrored indices leave the
+  // image: once inside guard bands (garbage around the image) and once in an allocation of exactly the image
+  for (int guarded = 1; guarded >= 0; --guarded) {
+    const size_t n = img.size(), G = guarded ? 64 : 0;
+    std::vector<Ncv32f> host(n + 2 * G, 1.0e6f);
+    std::copy(img.begin(), img.end(), host.begin() + G);
+    Ncv32f* base = nullptr;
+    check(cudaMalloc(&base, host.size() * 4), "cudaMalloc");
+    check(cudaMemcpy(base, host.data(), host.size() * 4, cudaMemcpyHostToDevice), "upload");
+    for (int anchor : {0, 4, 8})
+      for (int col = 0; col < 2; ++col)
+        for (NcvRect32u roi : {NcvRect32u{0, 0, 4, 3}, NcvRect32u{0, 0, 2, 5}}) {
+          Ncv32f* d_out = devAlloc<Ncv32f>(n * 4);
+          int st = col ? nppiStFilterColumnBorder_32f_C1R(base + G, size, step, d_out, size, step, roi, nppStBorderMirror, d_k, (Ncv32s)k.size(), anchor, 1.0f)
+                       : nppiStFilterRowBorder_32f_C1R(base + G, size, step, d_out, size, step, roi, nppStBorderMirror, d_k, (Ncv32s)k.size(), anchor, 1.0f);
+          check(cudaDeviceSynchronize(), "filter");
+          std::vector<Ncv32f> got(n);
+          check(cudaMemcpy(got.data(), d_out, n * 4, cudaMemcpyDeviceToHost), "download");
+          std::string name = std::string(col ? "filter_col" : "filter_row") + (guarded ? "_guard" : "_exact") + "_w" +
+                             std::to_string(roi.width) + "_a" + std::to_string(anchor);
+          save(name, got);
+          record(name, st);
+          cudaFree(d_out);
+        }
+    cudaFree(base);
+  }
+
+  // resize: supersampling (shrink) and bicubic (enlarge, mirror addressing on normalized coordinates), on the
+  // whole image and on ROIs (offset ROIs sample outside [0, 1] in normalized coordinates; the last one ends at
+  // the image's last row and column)
+  struct R { const char* name; float f; NppStInterpMode mode; NcvRect32u sroi; };
+  for (R r : {R{"resize_super", 0.43f, nppStSupersample, {0, 0, (Ncv32u)W, (Ncv32u)H}},
+              R{"resize_bicubic", 1.37f, nppStBicubic, {0, 0, (Ncv32u)W, (Ncv32u)H}},
+              R{"resize_bicubic_roi", 1.37f, nppStBicubic, {37, 21, 150, 90}},
+              R{"resize_bicubic_roi_shrink", 0.71f, nppStBicubic, {113, 64, 160, 101}},
+              R{"resize_bicubic_roi_end", 1.9f, nppStBicubic, {(Ncv32u)W - 61, (Ncv32u)H - 43, 61, 43}},
+              R{"resize_super_roi_end", 0.43f, nppStSupersample, {(Ncv32u)W - 128, (Ncv32u)H - 76, 128, 76}},
+              R{"resize_super_roi", 0.29f, nppStSupersample, {19, 7, 200, 150}}}) {
+    NcvRect32u sroi = r.sroi;
+    NcvSize32u dsize = {(Ncv32u)std::floor(sroi.width * r.f), (Ncv32u)std::floor(sroi.height * r.f)};
     const Ncv32u dstep = ((dsize.width * 4 + 255) / 256) * 256;
     Ncv32f* d_out = devAlloc<Ncv32f>(dstep * dsize.height);
-    NcvRect32u sroi = {0, 0, (Ncv32u)W, (Ncv32u)H};
     NcvRect32u droi = {0, 0, dsize.width, dsize.height};
     int st = nppiStResize_32f_C1R(d_img, size, step, sroi, d_out, dsize, dstep, droi, r.f, r.f, r.mode);
     check(cudaDeviceSynchronize(), "resize");

@@ -387,27 +387,25 @@ class Grader:
         return self.record("concurrency", ok, detail)
 
     def gate_fresh(self):
-        seed = secrets.randbits(40)
-        w = cases.fresh_workloads(seed)
+        seed = secrets.randbits(48)
         R = self.work / "ref" / "fresh"
         C = self.udir(self.work / "cand_fresh")
         fails = {}
-        for k in ("kinfu", "kinfuls"):
-            self.ref("kinfu_replay", w[k], R / k)
-            rc, log = self.cand("kinfu_replay", w[k], C / k)
-            f = [{"error": "run failed", "log": tail(log, 15)}] if rc != 0 else cases.compare_kinfu(C / k, R / k)
+        for name, (tool, args) in cases.fresh_workloads(seed).items():
+            omp = 16 if tool == "kinfu_replay" else 1
+            run_args = self.people_args(args) if tool == "people_eval" else args
+            self.ref(tool, run_args, R / name, omp=omp)
+            rc, log = self.cand(tool, run_args, C / name, omp=omp)
+            if rc != 0:
+                f = [{"error": "run failed", "log": tail(log, 15)}]
+            elif tool == "kinfu_replay":
+                f = cases.compare_kinfu(C / name, R / name)
+            elif tool == "people_eval":
+                f = cases.compare_people(C / name, R / name, args)
+            else:
+                f = cases.compare_ncv(C / name, R / name)
             if f:
-                fails[k] = f[:12]
-        self.ref("people_eval", self.people_args(w["people"]), R / "people", omp=1)
-        rc, log = self.cand("people_eval", self.people_args(w["people"]), C / "people", omp=1)
-        f = [{"error": "run failed", "log": tail(log, 15)}] if rc != 0 else cases.compare_people(C / "people", R / "people", w["people"])
-        if f:
-            fails["people"] = f
-        self.ref("ncv_check", ["--seed", str(w["ncv"])], R / "ncv", omp=1)
-        rc, log = self.cand("ncv_check", ["--seed", str(w["ncv"])], C / "ncv", omp=1)
-        f = [{"error": "run failed", "log": tail(log, 15)}] if rc != 0 else cases.compare_ncv(C / "ncv", R / "ncv")
-        if f:
-            fails["ncv"] = f[:20]
+                fails[name] = f[:12]
         # the seed is only revealed after the candidate has run
         return self.record("fresh", not fails, {"seed": seed, "failures": fails})
 
