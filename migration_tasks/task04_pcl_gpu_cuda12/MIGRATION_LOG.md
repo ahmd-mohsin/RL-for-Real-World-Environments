@@ -105,3 +105,20 @@ Where the time went (oracle v1 profile on the 5090) and what v2 does:
 809 reference fingerprints are pinned.
 
 A Haar pitfall found during v2 validation: on some seeds the synthetic cascade exceeded the 16384-rect output capacity, and with atomic compaction the truncated set differs from run to run *in the original too*. The capacity is now 2^19, above the number of candidate windows over all scales.
+
+### v2 model runs (2026-10-07)
+
+- **GPT 6 Astra (v2).** The run was interrupted at step 48 ($5.38) when OpenRouter credits ran out (`weight_exceeds_budget`), so it is **not a valid attempt**.
+  - The partial patch (4327 lines) was graded for information and scores 0. It passes every correctness gate (kinfu, people, ncv, concurrency, fresh, sanitizer) but fails perf:
+
+    | measure | ratio | bar |
+    |---|---|---|
+    | KinFu frame | 1.115 | 0.70 |
+    | marching cubes | 1.27 | 0.55 |
+    | cloud extraction | 1.26 | 0.75 |
+    | KinFuLS frame | 1.094 | 0.70 |
+    | people | 0.335 | 0.50 (pass) |
+
+  - It had already sped up `shs5`, but the GPU paths were *slower* than the original.
+  - A complete Astra v2 attempt is pending OpenRouter credits.
+- **GPT 5.6 sol (v2).** Stopped at step 125 ($3.91) on request.
