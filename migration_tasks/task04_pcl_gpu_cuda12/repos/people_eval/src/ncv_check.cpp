@@ -392,7 +392,7 @@ Cascade makeCascade(std::uint32_t salt) {
     HaarStage64 st;
     st.setStartClassifierRootNodeOffset((Ncv32u)roots.size());
     st.setNumClassifierRootNodes(stageTrees[s]);
-    st.setStageThreshold(-0.12f * std::sqrt((float)stageTrees[s]));
+    st.setStageThreshold(-0.05f * std::sqrt((float)stageTrees[s]));
     c.stages.push_back(st);
     for (Ncv32u t = 0; t < stageTrees[s]; ++t) {
       const float a = 0.6f + 0.8f * u01(k, 7), b = -(0.6f + 0.8f * u01(k, 8));
@@ -459,7 +459,7 @@ void testHaar(cudaDeviceProp& prop) {
       if (cfg.major) { p.major = cfg.major; p.minor = cfg.minor; }
       NCVMatrixAlloc<Ncv8u> d_img(gpuAlloc, (Ncv32u)W, (Ncv32u)H);
       check(cudaMemcpy2D(d_img.ptr(), d_img.pitch(), img.data(), W, W, H, cudaMemcpyHostToDevice), "upload");
-      const Ncv32u maxRects = 16384;
+      const Ncv32u maxRects = 1u << 19;  // above the number of candidate windows over all scales: no truncation
       NCVVectorAlloc<NcvRect32u> d_rects(gpuAlloc, maxRects);
       Ncv32u num = 0;
       int st = ncvDetectObjectsMultiScale_device(d_img, NcvSize32u{(Ncv32u)W, (Ncv32u)H}, d_rects, num, c.desc, h_stages, d_stages,
