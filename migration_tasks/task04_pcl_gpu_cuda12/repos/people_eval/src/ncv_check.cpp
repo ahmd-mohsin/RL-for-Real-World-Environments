@@ -243,7 +243,7 @@ void testFloat(cudaDeviceProp&) {
   // separable filters on tiny ROIs at the start of the source buffer, where mirrored indices leave the
   // image: once inside guard bands (garbage around the image) and once in an allocation of exactly the image
   for (int guarded = 1; guarded >= 0; --guarded) {
-    const size_t n = img.size(), G = guarded ? 64 : 0;
+    const size_t n = img.size(), G = guarded ? 256 : 0;  // 1 KiB: keeps the texture alignment
     std::vector<Ncv32f> host(n + 2 * G, 1.0e6f);
     std::copy(img.begin(), img.end(), host.begin() + G);
     Ncv32f* base = nullptr;
