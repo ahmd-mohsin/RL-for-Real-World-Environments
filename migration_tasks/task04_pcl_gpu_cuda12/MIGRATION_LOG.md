@@ -27,3 +27,25 @@
 - **The first KinFu LS scene was a corridor seen along its axis.** It was ICP-degenerate, and float-level differences between the two builds grew into 6–150 cm divergence. The original itself lost tracking at 480 frames. It was replaced by a gallery with hash-placed objects, walked sideways.
 
 ### Grading runs
+
+The dense suite has these parts:
+- 20 KinFu / KinFuLS workloads;
+- 16 people variants;
+- NCV with 12 seeds × 50 buffers;
+- concurrency in 5 groups, including 2 lockstep stress groups that extract every frame, plus 6 people threads over 3 rounds;
+- a fresh gate of 3 KinFu, 2 KinFuLS, 6 people and 4 NCV draws from a secret seed;
+- sanitizer runs of racecheck, synccheck and memcheck on 4 workloads;
+- perf over 3 rounds with one retry.
+
+636 reference fingerprints are pinned.
+
+| patch | reward | gates failed (why) |
+|---|---|---|
+| `solution.patch` (oracle) | **1.0** (37 min) | none. Perf ratios: KinFu frame 1.005, MC 0.43, cloud 0.81, KinFuLS frame 1.002, people 0.997 (two agents shared the GPU during this run) |
+| empty patch | 0 | static (texture references); binary / consumers (modules not built) |
+| warp fixes reverted (volatile warp-synchronous reductions / scans) | 0 | sanitizer only: racecheck finds 30 hazards in `TransformEstimatorKernel2` / `combinedKernel`. Every result is still bitwise right, so only racecheck catches it |
+| process-global MC counter (`static int*` shared by instances) | 0 | concurrency only: the lockstep stress case crashes with an illegal address. The first suite, which extracted once per run, did not catch it |
+| bicubic resize with clamp instead of mirror addressing | 0 | NCV + fresh (offset-ROI bicubic cases). The first suite, whole-image ROI only, did not catch it |
+| `fetchLinear` without bounds (`__ldg` past the bound range) | 0 | NCV + fresh (guarded tiny-ROI filters) + memcheck (exact allocation). The first suite (zero padding inside the allocation) scored this **1.0** |
+
+**Notes on the guard bands.** The guarded NCV source must start at a texture-aligned offset (1 KiB). With a 256 B offset, the original's `cudaBindTexture` rejects the pointer (`NCV_CUDA_ERROR`), and the statuses no longer match.

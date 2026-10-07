@@ -31,6 +31,15 @@ class Scene {
 // camera-to-world pose of frame k for a named trajectory
 Eigen::Affine3f trajectoryPose(const std::string& traj, int k, int nframes);
 
+// procedural surface color (RGB) of the scenes at a world point
+void sceneColor(const Eigen::Vector3f& p, std::uint8_t rgb[3]);
+
+// outward unit normal of the scene at p (normalized SDF gradient)
+Eigen::Vector3f sceneNormal(const Scene& scene, const Eigen::Vector3f& p);
+
+// render one RGB frame (3 bytes per pixel, black where the ray hits nothing within range)
+void renderColor(const Scene& scene, const Intrinsics& in, const Eigen::Affine3f& cam_to_world, std::vector<std::uint8_t>& rgb);
+
 // render one depth frame (mm); noise_seed < 0 means noise free
 void renderDepth(const Scene& scene, const Intrinsics& in, const Eigen::Affine3f& cam_to_world, int noise_seed,
                  std::vector<std::uint16_t>& depth);

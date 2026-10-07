@@ -2,15 +2,20 @@
 //
 //   kinfu_replay --mode kinfu|kinfuls --frames N --out DIR [--noise SEED] [--icp-trunc M] [--skip-mesh]
 //                [--traj orbit|walk|static] [--scene room|corridor] [--stop K] [--shift M]
-//                [--extract-every K]
+//                [--extract-every K] [--color] [--api]
 //                [--concurrent "mode:traj:noise,..."]
 //
 // Writes DIR/result.json (poses, ground truth, errors, TSDF statistics, mesh
 // quality, timing) and DIR/tsdf_slices.bin (three axis-aligned TSDF slices).
+// --color feeds RGB frames (procedural scene colours) to the trackers' colour volumes;
+// --api also exercises normals, colours, rendered views, ray-cast maps, the last-frame
+// buffers and the host-side extraction, writing DIR/view.bin and DIR/scene_view.bin.
 #include <pcl/gpu/containers/device_array.h>
+#include <pcl/gpu/kinfu/color_volume.h>
 #include <pcl/gpu/kinfu/kinfu.h>
 #include <pcl/gpu/kinfu/marching_cubes.h>
 #include <pcl/gpu/kinfu/raycaster.h>
+#include <pcl/gpu/kinfu_large_scale/color_volume.h>
 #include <pcl/gpu/kinfu_large_scale/kinfu.h>
 #include <pcl/gpu/kinfu_large_scale/marching_cubes.h>
 #include <pcl/gpu/kinfu_large_scale/raycaster.h>
@@ -43,7 +48,7 @@ struct Args {
   int stop = 0;           // > 0: run only the first `stop` frames of the trajectory
   int extract_every = 0;  // > 0: extract a mesh (and a cloud) every K frames and record checksums
   float icp_trunc = 0.f, shift = 0.8f;  // shift: kinfuLS volume shifting distance (m)
-  bool skip_mesh = false;
+  bool skip_mesh = false, color = false, api = false;
   std::string traj, scene;
 };
 
@@ -64,6 +69,8 @@ Args parse(int argc, char** argv) {
     else if (k == "--noise") a.noise = std::stoi(val());
     else if (k == "--icp-trunc") a.icp_trunc = std::stof(val());
     else if (k == "--skip-mesh") a.skip_mesh = true;
+    else if (k == "--color") a.color = true;
+    else if (k == "--api") a.api = true;
     else if (k == "--traj") a.traj = val();
     else if (k == "--scene") a.scene = val();
     else throw std::runtime_error("unknown argument " + k);
@@ -157,6 +164,113 @@ void meshQuality(const std::vector<Point>& tri, const Scene& scene, const Eigen:
     << hi.y() << "," << hi.z() << "]}";
 }
 
+
+// --api statistics -----------------------------------------------------------------------------
+
+std::string num(double v) {
+  std::ostringstream o;
+  o.precision(9);
+  o << (std::isfinite(v) ? v : -1.0);
+  return o.str();
+}
+
+bool finite3(float x, float y, float z) { return std::isfinite(x) && std::isfinite(y) && std::isfinite(z); }
+
+// oriented points against the scene: count, mean |sdf| and mean normal angle (degrees, sign-free)
+struct Oriented {
+  long long valid = 0;
+  double sdf = 0, angle = 0, absn[3] = {0, 0, 0};
+  void add(const Scene& scene, const Eigen::Affine3f& T, float px, float py, float pz, float nx, float ny, float nz, bool gt) {
+    if (!finite3(px, py, pz) || !finite3(nx, ny, nz)) return;
+    Eigen::Vector3f n(nx, ny, nz);
+    if (n.norm() < 0.5f) return;
+    ++valid;
+    absn[0] += std::abs(nx); absn[1] += std::abs(ny); absn[2] += std::abs(nz);
+    if (!gt) return;
+    Eigen::Vector3f p = T * Eigen::Vector3f(px, py, pz);
+    sdf += std::abs(scene.sdf(p));
+    float c = std::abs((T.linear() * n.normalized()).dot(sceneNormal(scene, p)));
+    angle += std::acos(std::min(1.f, c)) * 57.29578;
+  }
+  std::string json(bool gt) const {
+    double k = valid ? 1.0 / valid : 0;
+    std::ostringstream o;
+    o << "{\"valid\": " << valid << ", \"abs_normal_mean\": [" << num(absn[0] * k) << "," << num(absn[1] * k) << "," << num(absn[2] * k) << "]";
+    if (gt) o << ", \"sdf_mean\": " << num(sdf * k) << ", \"angle_deg_mean\": " << num(angle * k);
+    o << "}";
+    return o.str();
+  }
+};
+
+template <class Map>
+std::string mapStats(const Scene& scene, const Eigen::Affine3f& T, const Map& vmap, const Map& nmap, bool gt) {
+  std::vector<float> v, n;
+  int cv, cn;
+  vmap.download(v, cv);
+  nmap.download(n, cn);
+  const size_t H = v.size() / cv / 3;
+  Oriented s;
+  for (size_t y = 0; y < H; ++y)
+    for (int x = 0; x < cv; ++x)
+      s.add(scene, T, v[y * cv + x], v[(y + H) * cv + x], v[(y + 2 * H) * cv + x], n[y * cn + x], n[(y + H) * cn + x],
+            n[(y + 2 * H) * cn + x], gt);
+  return s.json(gt);
+}
+
+template <class Pixel>
+std::string saveView(const std::string& path, const pcl::gpu::DeviceArray2D<Pixel>& view) {
+  std::vector<Pixel> h;
+  int cols;
+  view.download(h, cols);
+  const int rows = cols ? (int)(h.size() / cols) : 0;
+  std::ofstream f(path, std::ios::binary);
+  f.write(reinterpret_cast<const char*>(&rows), 4);
+  f.write(reinterpret_cast<const char*>(&cols), 4);
+  double sum[3] = {0, 0, 0};
+  for (const auto& p : h) {
+    const unsigned char c[3] = {p.r, p.g, p.b};
+    f.write(reinterpret_cast<const char*>(c), 3);
+    sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2];
+  }
+  const double k = h.empty() ? 0 : 1.0 / h.size();
+  return "{\"rows\": " + std::to_string(rows) + ", \"cols\": " + std::to_string(cols) + ", \"mean\": [" + num(sum[0] * k) + "," +
+         num(sum[1] * k) + "," + num(sum[2] * k) + "]}";
+}
+
+std::string colorStats(const Eigen::Affine3f& T, const std::vector<pcl::PointXYZ>& pts, const std::vector<pcl::RGB>& cols, bool gt) {
+  double err = 0, mean[3] = {0, 0, 0};
+  const size_t n = std::min(pts.size(), cols.size());
+  for (size_t i = 0; i < n; ++i) {
+    mean[0] += cols[i].r; mean[1] += cols[i].g; mean[2] += cols[i].b;
+    if (gt) {
+      std::uint8_t ref[3];
+      sceneColor(T * Eigen::Vector3f(pts[i].x, pts[i].y, pts[i].z), ref);
+      err += (std::abs((int)cols[i].r - ref[0]) + std::abs((int)cols[i].g - ref[1]) + std::abs((int)cols[i].b - ref[2])) / 3.0;
+    }
+  }
+  const double k = n ? 1.0 / n : 0;
+  std::string s = "{\"points\": " + std::to_string(n) + ", \"mean\": [" + num(mean[0] * k) + "," + num(mean[1] * k) + "," + num(mean[2] * k) + "]";
+  if (gt) s += ", \"abs_err_mean\": " + num(err * k);
+  return s + "}";
+}
+
+template <class Tracker>
+std::string lastFrameStats(const Scene& scene, const Eigen::Affine3f& T, const Tracker& kf) {
+  pcl::gpu::DeviceArray2D<pcl::PointXYZ> lc;
+  pcl::gpu::DeviceArray2D<pcl::Normal> ln;
+  kf.getLastFrameCloud(lc);
+  kf.getLastFrameNormals(ln);
+  std::vector<pcl::PointXYZ> hc;
+  std::vector<pcl::Normal> hn;
+  int c1, c2;
+  lc.download(hc, c1);
+  ln.download(hn, c2);
+  Oriented s;
+  for (size_t i = 0; i < std::min(hc.size(), hn.size()); ++i)
+    s.add(scene, T, hc[i].x, hc[i].y, hc[i].z, hn[i].normal_x, hn[i].normal_y, hn[i].normal_z, true);
+  return s.json(true);
+}
+
 }  // namespace
 
 int run_case(const Args& a) {
@@ -178,6 +292,7 @@ int run_case(const Args& a) {
   double raycast_err = -1, raycast_valid = 0;
   Eigen::Affine3f world_from_volume = Eigen::Affine3f::Identity();
 
+  std::vector<std::uint8_t> rgb;  // --color: the current RGB frame
   std::ostringstream series;  // --extract-every: [frame, triangles, checksum, cloud points, checksum]
   auto run_frames = [&](auto&& kf, auto&& pose_of, auto&& extract) {
     const int n = a.stop > 0 ? std::min(a.stop, a.frames) : a.frames;
@@ -186,6 +301,7 @@ int run_case(const Args& a) {
       gt.push_back(p);
       renderDepth(scene, in, p, a.noise < 0 ? -1 : a.noise * 100003 + k, depth);
       d_depth.upload(depth.data(), in.cols * sizeof(std::uint16_t), in.rows, in.cols);
+      if (a.color) renderColor(scene, in, p, rgb);
       cudaDeviceSynchronize();
       auto t0 = std::chrono::steady_clock::now();
       kf(d_depth);
@@ -209,9 +325,15 @@ int run_case(const Args& a) {
     kf.setInitalCameraPose(trajectoryPose(traj, 0, a.frames));
     kf.setDepthTruncationForICP(a.icp_trunc);
     kf.setCameraMovementThreshold(0.f);
+    if (a.color) kf.initColorIntegration();
+    pcl::gpu::KinfuTracker::View d_color;
     pcl::gpu::MarchingCubes smc;
     pcl::gpu::DeviceArray<pcl::PointXYZ> sbuf, scbuf;
-    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
+    run_frames([&](auto& d) {
+      if (!a.color) return kf(d);
+      d_color.upload(rgb.data(), in.cols * 3, in.rows, in.cols);
+      return kf(d, d_color);
+    }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
       std::vector<pcl::PointXYZ> h, hc;
       smc.run(kf.volume(), sbuf).download(h);
       kf.volume().fetchCloud(scbuf).download(hc);
@@ -286,15 +408,62 @@ int run_case(const Args& a) {
       if (depth[i] && h_rc[i]) { s += std::abs((double)depth[i] - h_rc[i]); ++n; }
     raycast_err = n ? s / n : -1;
     raycast_valid = (double)n / depth.size();
+    if (a.api) {
+      const Eigen::Affine3f I = Eigen::Affine3f::Identity();
+      std::ostringstream o;
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cb;
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cloud = kf.volume().fetchCloud(cb);
+      pcl::gpu::DeviceArray<pcl::Normal> nb;
+      kf.volume().fetchNormals(cloud, nb);
+      std::vector<pcl::PointXYZ> hc;
+      std::vector<pcl::Normal> hn;
+      cloud.download(hc);
+      nb.download(hn);
+      Oriented cn;
+      for (size_t i = 0; i < std::min(hc.size(), hn.size()); ++i)
+        cn.add(scene, I, hc[i].x, hc[i].y, hc[i].z, hn[i].normal_x, hn[i].normal_y, hn[i].normal_z, true);
+      o << "\"api\": {\"cloud_normals\": " << cn.json(true) << ", ";
+      if (a.color) {
+        pcl::gpu::DeviceArray<pcl::RGB> colb;
+        kf.colorVolume().fetchColors(cloud, colb);
+        std::vector<pcl::RGB> hcol;
+        colb.download(hcol);
+        o << "\"cloud_colors\": " << colorStats(I, hc, hcol, true) << ", ";
+      }
+      pcl::gpu::KinfuTracker::View view, sview;
+      kf.getImage(view);
+      rc.generateSceneView(sview, Eigen::Vector3f(1.0f, 0.6f, 0.4f));
+      o << "\"view\": " << saveView(a.out + "/view.bin", view) << ", \"scene_view\": " << saveView(a.out + "/scene_view.bin", sview)
+        << ", \"raycast_maps\": " << mapStats(scene, I, rc.getVertexMap(), rc.getNormalMap(), true)
+        << ", \"last_frame\": " << lastFrameStats(scene, I, kf) << ", ";
+      pcl::PointCloud<pcl::PointXYZ> hostc;
+      kf.volume().fetchCloudHost(hostc, true);
+      std::vector<float> tsdf;
+      std::vector<short> w;
+      kf.volume().downloadTsdfAndWeighs(tsdf, w);
+      long long nw = 0;
+      double sabs = 0;
+      for (size_t i = 0; i < std::min(tsdf.size(), w.size()); ++i)
+        if (w[i] > 0) { ++nw; sabs += std::abs(tsdf[i]); }
+      o << "\"host_cloud_points\": " << hostc.size() << ", \"tsdf_download\": {\"weighted\": " << nw << ", \"abs_sum\": " << num(sabs)
+        << "}}, ";
+      extra << o.str();
+    }
   } else {
     pcl::gpu::kinfuLS::KinfuTracker kf(vsize, a.shift, in.rows, in.cols);
     kf.setDepthIntrinsics(in.fx, in.fy, in.cx, in.cy);
     kf.setInitialCameraPose(trajectoryPose(traj, 0, a.frames));
     kf.setDepthTruncationForICP(a.icp_trunc);
     kf.setCameraMovementThreshold(0.f);
+    if (a.color) kf.initColorIntegration();
+    pcl::gpu::kinfuLS::KinfuTracker::View d_color;
     pcl::gpu::kinfuLS::MarchingCubes smc;
     pcl::gpu::DeviceArray<pcl::PointXYZ> sbuf;
-    run_frames([&](auto& d) { return kf(d); }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
+    run_frames([&](auto& d) {
+      if (!a.color) return kf(d);
+      d_color.upload(rgb.data(), in.cols * 3, in.rows, in.cols);
+      return kf(d, d_color);
+    }, [&](int) { return kf.getCameraPose(); }, [&](int k) {
       std::vector<pcl::PointXYZ> h;
       smc.run(kf.volume(), sbuf).download(h);
       series << (series.tellp() > 0 ? "," : "") << "[" << k << "," << h.size() / 3 << "," << pointChecksum(h) << "]";
@@ -320,6 +489,40 @@ int run_case(const Args& a) {
       Eigen::Affine3f scene_from_tracker = gt[0] * est[0].inverse();
       meshQuality(h, scene, scene_from_tracker * world_from_volume, extra);
       extra << ", ";
+    }
+    if (a.api) {
+      // the cyclical volume's cloud and ray-cast maps are volume-local: their statistics are compared with the
+      // original's; the last frame is in the tracker's world frame and is checked against the scene
+      const Eigen::Affine3f scene_from_tracker = gt[0] * est[0].inverse();
+      std::ostringstream o;
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cb;
+      pcl::gpu::DeviceArray<pcl::PointXYZ> cloud = kf.volume().fetchCloud(cb);
+      pcl::gpu::DeviceArray<pcl::Normal> nb;
+      kf.volume().fetchNormals(cloud, nb);
+      std::vector<pcl::PointXYZ> hc;
+      std::vector<pcl::Normal> hn;
+      cloud.download(hc);
+      nb.download(hn);
+      Oriented cn;
+      for (size_t i = 0; i < std::min(hc.size(), hn.size()); ++i)
+        cn.add(scene, scene_from_tracker, hc[i].x, hc[i].y, hc[i].z, hn[i].normal_x, hn[i].normal_y, hn[i].normal_z, false);
+      o << "\"api\": {\"cloud_normals\": " << cn.json(false) << ", ";
+      if (a.color) {
+        pcl::gpu::DeviceArray<pcl::RGB> colb;
+        kf.colorVolume().fetchColors(cloud, colb);
+        std::vector<pcl::RGB> hcol;
+        colb.download(hcol);
+        o << "\"cloud_colors\": " << colorStats(scene_from_tracker, hc, hcol, false) << ", ";
+      }
+      pcl::gpu::kinfuLS::RayCaster rc(in.rows, in.cols, in.fx, in.fy, in.cx, in.cy);
+      rc.run(kf.volume(), kf.getCameraPose(), kf.getCyclicalBufferStructure());
+      pcl::gpu::kinfuLS::KinfuTracker::View view, sview;
+      kf.getImage(view);
+      rc.generateSceneView(sview, Eigen::Vector3f(1.0f, 0.6f, 0.4f));
+      o << "\"view\": " << saveView(a.out + "/view.bin", view) << ", \"scene_view\": " << saveView(a.out + "/scene_view.bin", sview)
+        << ", \"raycast_maps\": " << mapStats(scene, scene_from_tracker, rc.getVertexMap(), rc.getNormalMap(), false)
+        << ", \"last_frame\": " << lastFrameStats(scene, scene_from_tracker, kf) << "}, ";
+      extra << o.str();
     }
   }
 

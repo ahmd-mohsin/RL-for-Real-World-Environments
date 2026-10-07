@@ -11,7 +11,7 @@ ROOT=$(cd "$HERE/../.." && pwd)
 HOST=${LAB_HOST:-ahmed@100.100.101.36}
 CTR=t4agent_$(date +%s)
 SSH="ssh -o BatchMode=yes $HOST"
-$SSH "docker run -d --name $CTR --network none --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --shm-size=8g --cpus=${CPUS:-16} --memory=64g task04-pcl-gpu-cuda12:v1 sleep infinity" >/dev/null
+$SSH "docker run -d --init --name $CTR --network none --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --shm-size=8g --cpus=${CPUS:-16} --memory=64g task04-pcl-gpu-cuda12:v1 sleep infinity" >/dev/null
 echo "sandbox container: $CTR"
 export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' "$ROOT/.env" | cut -d= -f2-)
 export MSWEA_CONFIGURED=true

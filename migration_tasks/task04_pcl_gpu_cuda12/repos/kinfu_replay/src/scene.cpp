@@ -135,4 +135,44 @@ void renderDepth(const Scene& scene, const Intrinsics& in, const Eigen::Affine3f
   }
 }
 
+void sceneColor(const Eigen::Vector3f& p, std::uint8_t rgb[3]) {
+  // smooth bands plus a coarse checker, so that colours vary over a few centimetres
+  float r = 128.f + 90.f * std::sin(3.1f * p.x() + 0.4f) + 25.f * std::sin(17.f * p.y());
+  float g = 128.f + 90.f * std::sin(2.7f * p.y() + 1.3f) + 25.f * std::sin(15.f * p.z());
+  float b = 128.f + 90.f * std::sin(2.3f * p.z() + 2.2f) + 25.f * std::sin(13.f * p.x());
+  if ((int(std::floor(p.x() * 4.f)) + int(std::floor(p.y() * 4.f)) + int(std::floor(p.z() * 4.f))) & 1) { r *= 0.8f; g *= 0.8f; b *= 0.8f; }
+  rgb[0] = (std::uint8_t)std::lround(std::min(255.f, std::max(0.f, r)));
+  rgb[1] = (std::uint8_t)std::lround(std::min(255.f, std::max(0.f, g)));
+  rgb[2] = (std::uint8_t)std::lround(std::min(255.f, std::max(0.f, b)));
+}
+
+Eigen::Vector3f sceneNormal(const Scene& scene, const Eigen::Vector3f& p) {
+  const float e = 1e-3f;
+  Eigen::Vector3f g(scene.sdf(p + Eigen::Vector3f(e, 0, 0)) - scene.sdf(p - Eigen::Vector3f(e, 0, 0)),
+                    scene.sdf(p + Eigen::Vector3f(0, e, 0)) - scene.sdf(p - Eigen::Vector3f(0, e, 0)),
+                    scene.sdf(p + Eigen::Vector3f(0, 0, e)) - scene.sdf(p - Eigen::Vector3f(0, 0, e)));
+  float n = g.norm();
+  return n > 0 ? Eigen::Vector3f(g / n) : Eigen::Vector3f::Zero();
+}
+
+void renderColor(const Scene& scene, const Intrinsics& in, const Eigen::Affine3f& cam_to_world, std::vector<std::uint8_t>& rgb) {
+  rgb.assign((size_t)in.rows * in.cols * 3, 0);
+  const Eigen::Matrix3f R = cam_to_world.linear();
+  const Eigen::Vector3f o = cam_to_world.translation();
+#pragma omp parallel for schedule(dynamic, 4)
+  for (int v = 0; v < in.rows; ++v) {
+    for (int u = 0; u < in.cols; ++u) {
+      Eigen::Vector3f dir = R * Eigen::Vector3f((u - in.cx) / in.fx, (v - in.cy) / in.fy, 1.f).normalized();
+      float t = 0.f;
+      bool hit = false;
+      for (int it = 0; it < 256 && t < 6.f; ++it) {
+        float d = scene.sdf(o + t * dir);
+        if (d < 1e-4f) { hit = true; break; }
+        t += 0.8f * d;
+      }
+      if (hit) sceneColor(o + t * dir, &rgb[((size_t)v * in.cols + u) * 3]);
+    }
+  }
+}
+
 }  // namespace replay

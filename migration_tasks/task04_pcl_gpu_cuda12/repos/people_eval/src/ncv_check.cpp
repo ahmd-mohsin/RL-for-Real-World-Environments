@@ -1,6 +1,7 @@
 // ncv_check: exercises the NVIDIA NCV / NPP-staging image primitives shipped inside
 // pcl::gpu::people (integral images, decimation, rect std-dev, separable filters,
-// resize, frame interpolation, stream compaction, transpose).
+// resize, frame interpolation, stream compaction, transpose) and the Haar cascade
+// object detector (multi-scale pipeline on synthetic cascades and images).
 //
 //   ncv_check --out DIR [--seed S]
 //
@@ -10,10 +11,12 @@
 // implementation, the maximum difference against it.
 #include <pcl/gpu/people/NCV.hpp>
 #include <pcl/gpu/people/NPP_staging.hpp>
+#include <pcl/gpu/people/NCVHaarObjectDetection.hpp>
 
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -331,6 +334,157 @@ void testFloat(cudaDeviceProp&) {
   cudaFree(d_img); cudaFree(d_k);
 }
 
+
+// ---------------------------------------------------------------- Haar cascade detection
+// A synthetic cascade (stumps and two-level trees, two- and three-rectangle features; the late stages are
+// large enough for the classifier-parallel kernels) run through the multi-scale detection pipeline under
+// several configurations, including the code paths that the library selects for older devices.
+struct Cascade {
+  HaarClassifierCascadeDescriptor desc;
+  std::vector<HaarStage64> stages;
+  std::vector<HaarClassifierNode128> nodes;
+  std::vector<HaarFeature64> features;
+};
+
+float u01(std::uint32_t k, std::uint32_t salt) { return (hash32(k * 2654435761U ^ salt) & 0xffffffU) / 16777215.f; }
+
+Cascade makeCascade(std::uint32_t salt) {
+  const Ncv32u CW = 24, CH = 24;
+  const float areaNorm = (CW - 2 * HAAR_STDDEV_BORDER) * (CH - 2 * HAAR_STDDEV_BORDER);
+  const std::vector<Ncv32u> stageTrees = {3, 4, 5, 6, 8, 10, 12, 16, 24, 40, 70, 96};
+  Cascade c;
+  std::vector<HaarClassifierNode128> roots, children;
+  std::uint32_t k = salt * 7919u + 1;
+  // one node with a 2- or 3-rectangle feature; leaves (when leaf) +/- values
+  auto makeNode = [&](bool leftLeaf, bool rightLeaf, float leftVal, Ncv32u rightOffsetOrNone, float rightVal) {
+    ++k;
+    Ncv32u fx = (Ncv32u)(u01(k, 1) * 14), fy = (Ncv32u)(u01(k, 2) * 14);
+    Ncv32u fw = 4 + 2 * (Ncv32u)(u01(k, 3) * 4), fh = 4 + (Ncv32u)(u01(k, 4) * 6);
+    fw = std::min(fw, CW - fx); fh = std::min(fh, CH - fy);
+    const bool three = u01(k, 5) < 0.35f;
+    const Ncv32u off = (Ncv32u)c.features.size();
+    HaarFeature64 r;
+    if (!three) {  // left half minus right half
+      Ncv32u hw = std::max<Ncv32u>(fw / 2, 1);
+      r.setRect(fx, fy, hw, fh, CW, CH); r.setWeight(1.0f); c.features.push_back(r);
+      r.setRect(fx + hw, fy, hw, fh, CW, CH); r.setWeight(-1.0f); c.features.push_back(r);
+    } else {  // whole minus 3x middle third (vertical)
+      Ncv32u th = std::max<Ncv32u>(fh / 3, 1);
+      r.setRect(fx, fy, fw, 3 * th, CW, CH); r.setWeight(-1.0f); c.features.push_back(r);
+      r.setRect(fx, fy + th, fw, th, CW, CH); r.setWeight(3.0f); c.features.push_back(r);
+    }
+    const float rectArea = (float)fw * fh;
+    HaarFeatureDescriptor32 fd;
+    fd.create(false, leftLeaf, rightLeaf, (Ncv32u)c.features.size() - off, off);
+    HaarClassifierNode128 n;
+    n.setFeatureDesc(fd);
+    n.setThreshold((u01(k, 6) - 0.5f) * 0.6f * rectArea / areaNorm);
+    HaarClassifierNodeDescriptor32 l, rr;
+    l.create(leftVal);
+    if (rightLeaf) rr.create(rightVal); else rr.create(rightOffsetOrNone);
+    n.setLeftNodeDesc(l);
+    n.setRightNodeDesc(rr);
+    return n;
+  };
+  Ncv32u numStages = (Ncv32u)stageTrees.size(), totalRoots = 0;
+  for (Ncv32u t : stageTrees) totalRoots += t;
+  for (Ncv32u s = 0; s < numStages; ++s) {
+    HaarStage64 st;
+    st.setStartClassifierRootNodeOffset((Ncv32u)roots.size());
+    st.setNumClassifierRootNodes(stageTrees[s]);
+    st.setStageThreshold(-0.12f * std::sqrt((float)stageTrees[s]));
+    c.stages.push_back(st);
+    for (Ncv32u t = 0; t < stageTrees[s]; ++t) {
+      const float a = 0.6f + 0.8f * u01(k, 7), b = -(0.6f + 0.8f * u01(k, 8));
+      if ((t + s) % 5 == 3) {  // a two-level tree: the right branch is another node
+        Ncv32u childIndex = totalRoots + (Ncv32u)children.size();
+        roots.push_back(makeNode(true, false, a, childIndex, 0.f));
+        children.push_back(makeNode(true, true, 0.5f * a, 0, b));
+      } else {
+        roots.push_back(makeNode(true, true, a, 0, b));
+      }
+    }
+  }
+  c.nodes = roots;
+  c.nodes.insert(c.nodes.end(), children.begin(), children.end());
+  c.desc.NumStages = numStages;
+  c.desc.NumClassifierRootNodes = totalRoots;
+  c.desc.NumClassifierTotalNodes = (Ncv32u)c.nodes.size();
+  c.desc.NumFeatures = (Ncv32u)c.features.size();
+  c.desc.ClassifierSize = {CW, CH};
+  c.desc.bNeedsTiltedII = false;
+  c.desc.bHasStumpsOnly = children.empty();
+  return c;
+}
+
+std::vector<Ncv8u> haarImage(int W, int H, std::uint32_t salt) {
+  std::vector<Ncv8u> img((size_t)W * H);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      float v = 120.f + 55.f * std::sin(0.13f * x + 0.7f * salt) * std::cos(0.09f * y - 0.3f * salt) +
+                45.f * ((hash32(y * 7919 + x + salt * 104729u) & 255) / 255.f - 0.5f);
+      // a few bright and dark blocks of different sizes
+      for (int b = 0; b < 6; ++b) {
+        int bx = (int)(hash32(salt * 31 + b) % (W - 40)), by = (int)(hash32(salt * 37 + b) % (H - 40));
+        int bs = 12 + (int)(hash32(salt * 41 + b) % 28);
+        if (x >= bx && x < bx + bs && y >= by && y < by + bs) v += (b & 1) ? 60.f : -60.f;
+      }
+      img[(size_t)y * W + x] = (Ncv8u)std::min(255.f, std::max(0.f, v));
+    }
+  return img;
+}
+
+void testHaar(cudaDeviceProp& prop) {
+  NCVMemNativeAllocator gpuAlloc(NCVMemoryTypeDevice, static_cast<Ncv32u>(prop.textureAlignment));
+  NCVMemNativeAllocator cpuAlloc(NCVMemoryTypeHostPinned, static_cast<Ncv32u>(prop.textureAlignment));
+  for (int ci = 0; ci < 2; ++ci) {
+    Cascade c = makeCascade(11 + ci);
+    NCVVectorAlloc<HaarStage64> h_stages(cpuAlloc, (Ncv32u)c.stages.size());
+    NCVVectorAlloc<HaarStage64> d_stages(gpuAlloc, (Ncv32u)c.stages.size());
+    NCVVectorAlloc<HaarClassifierNode128> d_nodes(gpuAlloc, (Ncv32u)c.nodes.size());
+    NCVVectorAlloc<HaarFeature64> d_features(gpuAlloc, (Ncv32u)c.features.size());
+    std::copy(c.stages.begin(), c.stages.end(), h_stages.ptr());
+    check(cudaMemcpy(d_stages.ptr(), c.stages.data(), c.stages.size() * sizeof(HaarStage64), cudaMemcpyHostToDevice), "upload");
+    check(cudaMemcpy(d_nodes.ptr(), c.nodes.data(), c.nodes.size() * sizeof(HaarClassifierNode128), cudaMemcpyHostToDevice), "upload");
+    check(cudaMemcpy(d_features.ptr(), c.features.data(), c.features.size() * sizeof(HaarFeature64), cudaMemcpyHostToDevice), "upload");
+    const int W = ci ? 352 : 320, H = ci ? 288 : 240;
+    std::vector<Ncv8u> img = haarImage(W, H, 3 + ci);
+    struct Cfg { const char* name; int major, minor; Ncv32u pixelStep, flags, minNeighbors; float scaleStep; };
+    for (Cfg cfg : {Cfg{"real", 0, 0, 1, NCVPipeObjDet_Default, 0, 1.2f}, Cfg{"step2", 0, 0, 2, NCVPipeObjDet_Default, 0, 1.2f},
+                    Cfg{"fair", 0, 0, 1, NCVPipeObjDet_UseFairImageScaling, 0, 1.25f},
+                    Cfg{"sm13", 1, 3, 1, NCVPipeObjDet_Default, 0, 1.2f}, Cfg{"sm10", 1, 0, 1, NCVPipeObjDet_Default, 0, 1.2f},
+                    Cfg{"sm10_group", 1, 0, 1, NCVPipeObjDet_Default, 2, 1.15f},
+                    Cfg{"sm10_largest", 1, 0, 1, NCVPipeObjDet_FindLargestObject, 1, 1.2f}}) {
+      cudaDeviceProp p = prop;
+      if (cfg.major) { p.major = cfg.major; p.minor = cfg.minor; }
+      NCVMatrixAlloc<Ncv8u> d_img(gpuAlloc, (Ncv32u)W, (Ncv32u)H);
+      check(cudaMemcpy2D(d_img.ptr(), d_img.pitch(), img.data(), W, W, H, cudaMemcpyHostToDevice), "upload");
+      const Ncv32u maxRects = 16384;
+      NCVVectorAlloc<NcvRect32u> d_rects(gpuAlloc, maxRects);
+      Ncv32u num = 0;
+      int st = ncvDetectObjectsMultiScale_device(d_img, NcvSize32u{(Ncv32u)W, (Ncv32u)H}, d_rects, num, c.desc, h_stages, d_stages,
+                                                 d_nodes, d_features, NcvSize32u{24, 24}, cfg.minNeighbors, cfg.scaleStep,
+                                                 cfg.pixelStep, cfg.flags, gpuAlloc, cpuAlloc, p, 0);
+      check(cudaDeviceSynchronize(), "haar");
+      std::vector<NcvRect32u> rects(std::min(num, maxRects));
+      if (!rects.empty())
+        check(cudaMemcpy(rects.data(), d_rects.ptr(), rects.size() * sizeof(NcvRect32u), cudaMemcpyDeviceToHost), "download");
+      // detections are compacted with atomics on newer devices: compare them as a set
+      std::vector<std::uint32_t> out;
+      for (auto& r : rects) out.insert(out.end(), {r.x, r.y, r.width, r.height});
+      std::vector<std::array<std::uint32_t, 4>> q;
+      for (size_t i = 0; i + 3 < out.size(); i += 4) q.push_back({out[i], out[i + 1], out[i + 2], out[i + 3]});
+      std::sort(q.begin(), q.end());
+      out.clear();
+      out.push_back(num);
+      for (auto& a : q) out.insert(out.end(), a.begin(), a.end());
+      std::string name = std::string("haar") + std::to_string(ci) + "_" + cfg.name;
+      save(name, out);
+      record(name, st, num);
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) try {
@@ -347,6 +501,7 @@ int main(int argc, char** argv) try {
   else testIntegral(prop, 600 + (int)(g_seed % 41), 440 + (int)(g_seed / 41 % 37), 1 + (int)(g_seed / 1517 % 7), "unaligned");
   testDecimateTransposeCompact(prop);
   testFloat(prop);
+  testHaar(prop);
   std::ofstream(g_out + "/result.json") << "{" << g_json.str() << "}\n";
   return 0;
 } catch (const std::exception& e) {
