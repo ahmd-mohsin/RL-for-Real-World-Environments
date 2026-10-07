@@ -1,0 +1,2663 @@
+sandbox container: t4agent_1791403165
+This is mini-swe-agent version 2.4.6.
+Check the v2 migration guide at https://klieret.short.gy/mini-v2-migration
+Loading global config from '/Users/muahmed/Library/Application 
+Support/mini-swe-agent/.env'
+Warning: Input is not a terminal (fd=0).
+Building agent config from specs: 
+['/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/migration_tasks
+/common/mswea/migration.yaml', 
+'/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/migration_tasks/
+task04_pcl_gpu_cuda12/mswea_sandbox.yaml', 
+'model.model_name=openai/gpt-6-astra', 'environment.ssh=ssh -o BatchMode=yes 
+ahmed@100.100.101.36', 'environment.docker_container=t4agent_1791403165', 
+'agent.step_limit=350', 'agent.cost_limit=250']
+
+System:
+You are an expert GPU and HPC software engineer working autonomously on a Linux 
+machine with an NVIDIA RTX 5090.
+You can execute bash commands through the bash tool.
+
+User:
+# Bring PCL's GPU KinectFusion and people-detection modules to CUDA 12.8 (RTX 
+5090)
+
+`/workspace` contains three repositories (each its own git repo):
+
+| repo | what it is |
+|---|---|
+| `pcl` | The Point Cloud Library at upstream commit `c47198828`. Its GPU 
+stack:<br>• `gpu/containers` and `gpu/utils`: device arrays, texture helpers, 
+warp and block primitives<br>• `gpu/octree`, `gpu/features`, `gpu/surface`<br>• 
+the applications `gpu/kinfu` (KinectFusion), `gpu/kinfu_large_scale` 
+(KinectFusion with a moving cyclical volume) and `gpu/people` (random-forest 
+body-part detection, including vendored NVIDIA NCV / NPP-staging primitives) |
+| `kinfu_replay` | A downstream tool that runs KinFu and KinFu large-scale on 
+synthetic depth sequences with known ground truth. It reports poses, TSDF 
+statistics, meshes, extracted clouds and timing, and can run several trackers 
+concurrently (`--concurrent`). |
+| `people_eval` | A downstream tool that runs the people detector on an RGB-D 
+frame and its variants (`people_eval`, with `--threads` for concurrent 
+detectors), and exercises the NCV / NPP-staging primitives (`ncv_check`). |
+
+The lab's new machine has an **RTX 5090 (Blackwell, sm_120)**, which needs 
+**CUDA 12.8** or later, and that is the only toolkit installed 
+(`/usr/local/cuda`).
+
+On CUDA 12, PCL's CMake disables `gpu_kinfu`, `gpu_kinfu_large_scale` and 
+`gpu_people` ("uses textures which was removed in CUDA 12"); see upstream issues
+#5571 and #5995. The code was written for pre-Volta GPUs.
+
+**Make these three modules, and everything they depend on, build and run 
+correctly on CUDA 12.8 / sm_120.** The two tools must keep working unchanged.
+
+## Requirements
+
+1. **Builds on CUDA 12.8.**
+   - `pcl` configures and builds with CUDA 12.8 for sm_120, with `gpu_kinfu`, 
+`gpu_kinfu_large_scale` and `gpu_people` enabled by default.
+   - No texture or surface *references* remain anywhere in the GPU modules. You 
+may use texture objects or other memory paths.
+   - All device code (SASS and PTX) must target sm_120: do not lower the 
+architecture, rely on JIT of an older target, or vendor another CUDA toolkit.
+2. **Same results as the original pre-CUDA-12 code.** The original was built 
+with CUDA 11.8, run on this GPU through PTX JIT, and recorded:
+   - People detector body-part labels must match **exactly**, run with 
+`OMP_NUM_THREADS=1`.
+   - The NCV / NPP-staging primitives exercised by `ncv_check` must produce 
+**bit-identical** buffers. That covers integral images (also from unaligned 
+sources), decimation, rectangle std-dev, separable filters, resize and frame 
+interpolation, plus compaction and transpose.
+   - KinFu and KinFu large-scale must track and reconstruct as well as the 
+original, measured against ground truth. Their TSDF volumes, meshes and 
+extracted clouds must agree with the original's to within floating-point noise.
+3. **Correct on independent thread scheduling.**
+   - The modernized kernels must not depend on implicit warp-synchronous 
+execution.
+   - `compute-sanitizer` must report nothing on the KinFu, KinFu large-scale, 
+people and NCV workloads with `--tool racecheck`, `--tool synccheck` and `--tool
+memcheck`.
+4. **Safe for concurrent use.**
+   - Several `KinfuTracker`, `kinfuLS::KinfuTracker`, `MarchingCubes` and 
+`PeopleDetector` instances may run at the same time from different host threads.
+   - Every result must then be bitwise identical to running each alone.
+5. **Much faster than the original.** The lab moved to this GPU to run these 
+pipelines faster. Measured on the same GPU against the original running through 
+PTX JIT, each may take at most this fraction of the original's time:
+   - per-frame KinFu and KinFu large-scale processing 
+(`KinfuTracker::operator()`): 0.70×;
+   - marching cubes (`MarchingCubes::run`): 0.55×;
+   - zero-crossing cloud extraction (`TsdfVolume::fetchCloud`): 0.75×;
+   - the people detector (`PeopleDetector::process`, with `OMP_NUM_THREADS=1`): 
+0.50×.
+
+   The result requirements above still hold for the faster code.
+6. **The tools are graded from their original sources.** Your changes to 
+`kinfu_replay` and `people_eval` are discarded.
+
+## Grading
+
+The grader takes your diff of `/workspace/pcl` against its `base` tag and builds
+it from scratch with CUDA 12.8 (sm_120). It then builds the pristine 
+`kinfu_replay` and `people_eval` against it and runs hidden tests that compare 
+against results recorded with the original code. The tests cover:
+
+- KinFu and KinFu large-scale on several trajectories and noise levels;
+- the people detector on frame variants;
+- the NCV primitives;
+- concurrency;
+- workloads drawn at grading time;
+- compute-sanitizer race, sync and memory checks;
+- the timing above (as measured by the tools).
+
+All of it must pass.
+
+## Working rules
+
+- Every command runs in a fresh shell inside the task sandbox, starting in 
+/workspace: `cd` and exported
+  variables do not persist (prefix commands, or write them to a file and 
+`source` it).
+- A command times out after 1800 s. Keep builds and benchmark runs bounded 
+(build in the background and
+  poll a log file if needed; PCL's GPU modules take several minutes to build 
+with `-j 16`).
+- The sandbox has no network access and nobody will answer questions. Work until
+the task is completely
+  done, verifying your work yourself on the GPU.
+- Edit files with heredocs (`cat <<'EOF' > file`), `sed -i`, or small python 
+scripts.
+- When you are completely finished, submit by running exactly `echo 
+COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+  on its own. After that you cannot continue. The state of /workspace at that 
+point is graded as-is.
+
+<system_information>
+Linux x86_64, Ubuntu 24.04, 16 CPU cores, NVIDIA RTX 5090 (Blackwell, sm_120, 32
+GB), CUDA 12.8 at /usr/local/cuda
+(nvcc, compute-sanitizer, cuobjdump), CMake, Ninja, GCC 13, PCL's dependencies 
+(Eigen, Boost, FLANN, VTK 9.1, Qt5),
+Python 3.12 with NumPy.
+</system_information>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 1, $0.02):
+```
+ls -la; ls pcl; ls kinfu_replay people_eval; nvidia-smi; find /workspace 
+-maxdepth 2 -type d -name '*build*'
+```
+
+Tool:
+<returncode>0</returncode>
+<output>
+total 36
+drwxrwxrwx 1 root root 4096 Oct  7 19:22 .
+drwxr-xr-x 1 root root 4096 Oct  7 19:59 ..
+drwxrwxrwx 1 root root 4096 Oct  7 19:22 kinfu_replay
+drwxrwxrwx 1 root root 4096 Oct  7 19:22 pcl
+drwxrwxrwx 1 root root 4096 Oct  7 19:22 people_eval
+2d
+AUTHORS.txt
+CHANGES.md
+CMakeLists.txt
+CNAME
+CONTRIBUTING.md
+LICENSE.txt
+PCLConfig.cmake.in
+PCLConfigVersion.cmake.in
+README.md
+apps
+benchmarks
+cmake
+common
+cuda
+doc
+examples
+features
+filters
+geometry
+gpu
+io
+kdtree
+keypoints
+ml
+octree
+outofcore
+pcl.png
+pcl_config.h.in
+people
+recognition
+registration
+sample_consensus
+search
+segmentation
+simulation
+stereo
+surface
+test
+tools
+tracking
+visualization
+kinfu_replay:
+CMakeLists.txt
+src
+
+people_eval:
+CMakeLists.txt
+data
+src
+Wed Oct  7 19:59:32 2026       
++-------------------------------------------------------------------------------
+----------+
+| NVIDIA-SMI 590.48.01              Driver Version: 590.48.01      CUDA Version:
+13.1     |
++-----------------------------------------+------------------------+------------
+----------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile 
+Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  
+Compute M. |
+|                                         |                        |            
+MIG M. |
+|=========================================+========================+============
+==========|
+|   0  NVIDIA GeForce RTX 5090        On  |   00000000:02:00.0 Off |            
+N/A |
+|  0%   31C    P8             16W /  575W |     261MiB /  32607MiB |      0%    
+Default |
+|                                         |                        |            
+N/A |
++-----------------------------------------+------------------------+------------
+----------+
+
++-------------------------------------------------------------------------------
+----------+
+| Processes:                                                                    
+|
+|  GPU   GI   CI              PID   Type   Process name                        
+GPU Memory |
+|        ID   ID                                                               
+Usage      |
+|===============================================================================
+==========|
+|  No running processes found                                                   
+|
++-------------------------------------------------------------------------------
+----------+
+
+</output>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 2, $0.04):
+```
+cat 
+pcl/gpu/{CMakeLists.txt,kinfu/CMakeLists.txt,kinfu_large_scale/CMakeLists.txt,pe
+ople/CMakeLists.txt}; cat pcl/cmake/pcl_find_cuda.cmake; rg 
+'texture<|texture\s*<|surface<|cudaBindTexture|cudaUnbindTexture|__shfl|__ballot
+|__any\(|__all\(' pcl/gpu -l; cat kinfu_replay/CMakeLists.txt 
+people_eval/CMakeLists.txt; ls people_eval/src; ls kinfu_replay/src
+```
+
+Tool:
+<returncode>0</returncode>
+<output>
+set(SUBSYS_NAME gpu)
+set(SUBSYS_DESC "Point cloud GPU libraries")
+set(SUBSYS_DEPS)
+
+option(BUILD_GPU "Build the GPU-related subsystems" OFF)
+
+if(NOT (BUILD_GPU AND CUDA_FOUND))
+  return()
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+  string(REPLACE "-Wold-style-cast" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  string(REPLACE "-Wno-invalid-offsetof" "" CMAKE_CXX_FLAGS 
+"${CMAKE_CXX_FLAGS}")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-conversion -Wno-unused-parameter 
+-Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable")
+  # allow deprecation warnings in Eigen(3.3.7)/Core, see here: 
+https://gitlab.kitware.com/vtk/vtk/-/issues/17661
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-error=cpp")
+  # allow maybe-uninitialized warnings from thrust library.
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-error=maybe-uninitialized")
+endif()
+
+collect_subproject_directory_names("${CMAKE_CURRENT_SOURCE_DIR}" 
+"CMakeLists.txt" PCL_GPU_MODULES_NAMES PCL_GPU_MODULES_DIRS)
+set(PCL_GPU_MODULES_NAMES_UNSORTED ${PCL_GPU_MODULES_NAMES})
+topological_sort(PCL_GPU_MODULES_NAMES PCL_ _DEPENDS)
+sort_relative(PCL_GPU_MODULES_NAMES_UNSORTED PCL_GPU_MODULES_NAMES 
+PCL_GPU_MODULES_DIRS)
+foreach(subdir ${PCL_GPU_MODULES_DIRS})
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/${subdir}")
+endforeach()
+set(SUBSYS_NAME gpu_kinfu)
+set(SUBSYS_PATH gpu/kinfu)
+set(SUBSYS_DESC "Kinect Fusion implementation")
+set(SUBSYS_DEPS common io gpu_utils gpu_containers geometry search)
+if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+  set(DEFAULT FALSE)
+  set(REASON "Kinfu uses textures which was removed in CUDA 12")
+else()
+  set(DEFAULT TRUE)
+endif()
+
+PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} 
+"${REASON}")
+PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+PCL_SET_SUBSYS_INCLUDE_DIR("${SUBSYS_NAME}" "${SUBSYS_PATH}")
+mark_as_advanced("BUILD_${SUBSYS_NAME}")
+
+if(NOT build)
+  return()
+endif()
+
+file(GLOB incs include/pcl/gpu/kinfu/*.h*)
+file(GLOB srcs src/*.cpp src/*.h*)
+file(GLOB cuda src/cuda/*.cu src/cuda/*.h*)
+
+source_group("Source Files\\cuda" FILES ${cuda})
+source_group("Source Files" FILES ${srcs})
+
+set(LIB_NAME "pcl_${SUBSYS_NAME}")
+
+PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} 
+${incs} ${cuda})
+target_link_libraries(${LIB_NAME} pcl_gpu_utils pcl_gpu_containers)
+target_include_directories(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+target_compile_options(${LIB_NAME} PRIVATE 
+$<$<COMPILE_LANGUAGE:CUDA>:--ftz=true;--prec-div=false;--prec-sqrt=false>)
+
+PCL_MAKE_PKGCONFIG(${LIB_NAME} COMPONENT ${SUBSYS_NAME} DESC ${SUBSYS_DESC} 
+PCL_DEPS ${SUBSYS_DEPS} EXT_DEPS ${EXT_DEPS})
+
+# Install include files
+PCL_ADD_INCLUDES("${SUBSYS_NAME}" "${SUBSYS_PATH}" ${incs})
+
+if(BUILD_tools)
+  add_subdirectory(tools)
+endif()
+set(SUBSYS_NAME gpu_kinfu_large_scale)
+set(SUBSYS_PATH gpu/kinfu_large_scale)
+set(SUBSYS_DESC "Kinect Fusion implementation, with volume shifting")
+set(SUBSYS_DEPS common io gpu_containers gpu_utils geometry search octree 
+filters kdtree features surface)
+set(EXT_DEPS vtk) # Uses saveRgbPNGFile from png_io, which requires VTK to be 
+present
+
+if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+  set(DEFAULT FALSE)
+  set(REASON "Kinfu_large_scale uses textures which was removed in CUDA 12")
+else()
+  set(DEFAULT TRUE)
+endif()
+
+PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} 
+"${REASON}")
+PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS 
+${EXT_DEPS})
+PCL_SET_SUBSYS_INCLUDE_DIR("${SUBSYS_NAME}" "${SUBSYS_PATH}")
+mark_as_advanced("BUILD_${SUBSYS_NAME}")
+
+if(NOT build)
+  return()
+endif()
+
+file(GLOB incs include/pcl/gpu/kinfu_large_scale/*.h*)
+file(GLOB impl_incs include/pcl/gpu/kinfu_large_scale/impl/*.h*)
+file(GLOB srcs src/*.cpp src/*.h*)
+file(GLOB cuda src/cuda/*.cu src/cuda/*.h*)
+
+source_group("Source Files\\cuda" FILES ${cuda})
+source_group("Source Files" FILES ${srcs})
+
+set(LIB_NAME "pcl_${SUBSYS_NAME}")
+PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} 
+${incs} ${impl_incs} ${cuda})
+target_link_libraries(${LIB_NAME} pcl_common pcl_io pcl_gpu_utils 
+pcl_gpu_containers pcl_gpu_octree pcl_octree pcl_filters)
+target_include_directories(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+target_compile_options(${LIB_NAME} PRIVATE 
+$<$<COMPILE_LANGUAGE:CUDA>:--ftz=true;--prec-div=false;--prec-sqrt=false>)
+
+PCL_MAKE_PKGCONFIG(${LIB_NAME} COMPONENT ${SUBSYS_NAME} DESC ${SUBSYS_DESC} 
+PCL_DEPS ${SUBSYS_DEPS} EXT_DEPS "")
+
+# Install include files
+PCL_ADD_INCLUDES("${SUBSYS_NAME}" "${SUBSYS_PATH}" ${incs})
+
+if(BUILD_tools)
+  add_subdirectory(tools)
+endif()
+set(SUBSYS_NAME gpu_people)
+set(SUBSYS_PATH gpu/people)
+set(SUBSYS_DESC "Point cloud people library")
+set(SUBSYS_DEPS common features filters geometry gpu_containers gpu_utils io 
+kdtree octree search segmentation surface visualization)
+
+if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+  set(DEFAULT FALSE)
+  set(REASON "gpu_people uses textures which was removed in CUDA 12")
+else()
+  set(DEFAULT TRUE)
+endif()
+
+PCL_SUBSYS_OPTION(build ${SUBSYS_NAME} ${SUBSYS_DESC} ${DEFAULT} ${REASON})
+PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+mark_as_advanced("BUILD_${SUBSYS_NAME}")
+
+PCL_ADD_DOC("${SUBSYS_NAME}")
+
+if(NOT build)
+  return()
+endif()
+
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
+  set(CUDA_npp_LIBRARY CUDA::nppc CUDA::nppim CUDA::nppidei CUDA::npps CACHE 
+STRING "npp library")
+else()
+  #find NPP
+  unset(CUDA_npp_LIBRARY CACHE)
+  find_cuda_helper_libs(nppc)
+  find_cuda_helper_libs(npps)
+  if(CUDA_VERSION VERSION_GREATER_EQUAL "9.0")
+    find_cuda_helper_libs(nppim)
+    find_cuda_helper_libs(nppidei)
+    set(CUDA_npp_LIBRARY ${CUDA_nppc_LIBRARY} ${CUDA_nppim_LIBRARY} 
+${CUDA_nppidei_LIBRARY} ${CUDA_npps_LIBRARY} CACHE STRING "npp library")
+  else()
+    find_cuda_helper_libs(nppi)
+    set(CUDA_npp_LIBRARY ${CUDA_nppc_LIBRARY} ${CUDA_nppi_LIBRARY} 
+${CUDA_npps_LIBRARY} CACHE STRING "npp library")
+  endif()
+endif()
+#Label_skeleton
+
+file(GLOB srcs src/*.cpp src/*.h*)
+file(GLOB srcs_cuda src/cuda/*.cu src/cuda/*.h src/cuda/nvidia/*.cu 
+src/cuda/nvidia/*.hpp)
+file(GLOB hdrs include/pcl/gpu/people/*.h*)
+file(GLOB hdrs_cuda src/cuda/nvidia/*.h*)
+
+source_group("Source files\\cuda" FILES ${srcs_cuda})
+source_group("Source files" FILES ${srcs})
+
+set(LIB_NAME "pcl_${SUBSYS_NAME}")
+
+PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} 
+${hdrs} ${srcs_cuda})
+target_link_libraries(${LIB_NAME} pcl_common pcl_search pcl_surface 
+pcl_segmentation pcl_features pcl_sample_consensus pcl_gpu_utils 
+pcl_gpu_containers ${CUDA_CUDART_LIBRARY} ${CUDA_npp_LIBRARY})
+target_include_directories(
+    ${LIB_NAME} 
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src 
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda
+    PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/nvidia
+)
+
+if(UNIX OR APPLE)
+  target_compile_options(${LIB_NAME} INTERFACE 
+$<$<COMPILE_LANGUAGE:CUDA>:"-Xcompiler=-fPIC">)
+endif()
+
+PCL_MAKE_PKGCONFIG(${LIB_NAME} COMPONENT ${SUBSYS_NAME} DESC ${SUBSYS_DESC} 
+PCL_DEPS ${SUBSYS_DEPS})
+
+# install include files
+PCL_ADD_INCLUDES("${SUBSYS_NAME}" "${SUBSYS_PATH}" ${hdrs} ${hdrs_cuda})
+
+if(BUILD_tools)
+  add_subdirectory(tools)
+endif()
+# Find CUDA
+if(MSVC)
+  # Setting this to true brakes Visual Studio builds.
+  set(CUDA_ATTACH_VS_BUILD_RULE_TO_CUDA_FILE OFF CACHE BOOL 
+"CUDA_ATTACH_VS_BUILD_RULE_TO_CUDA_FILE")
+endif()
+
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+  enable_language(CUDA)
+
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
+    find_package(CUDAToolkit QUIET)
+    set(CUDA_TOOLKIT_INCLUDE ${CUDAToolkit_INCLUDE_DIRS})
+  else()
+    set(CUDA_FIND_QUIETLY TRUE)
+    find_package(CUDA 9.0)
+  endif()
+
+  set(CUDA_FOUND TRUE)
+  set(CUDA_VERSION_STRING ${CMAKE_CUDA_COMPILER_VERSION})
+else()
+  message(STATUS "No CUDA compiler found")
+endif()
+
+if(CUDA_FOUND)
+  message(STATUS "Found CUDA Toolkit v${CUDA_VERSION_STRING}")
+  
+  set(HAVE_CUDA TRUE)
+
+  if (CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
+    if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "11.1")
+      execute_process(COMMAND ${CMAKE_CUDA_COMPILER} --list-gpu-code 
+RESULT_VARIABLE EXIT_CODE OUTPUT_VARIABLE OUTPUT_VAL)
+      if(EXIT_CODE EQUAL 0)
+        #Remove sm_
+        string(REPLACE "sm_" "" OUTPUT_VAL ${OUTPUT_VAL})
+        #Convert to list
+        string(REPLACE "\n" ";" __CUDA_ARCH_BIN ${OUTPUT_VAL})
+        #Remove last empty entry
+        list(REMOVE_AT __CUDA_ARCH_BIN -1)
+      else()
+        message(FATAL_ERROR "Failed to run NVCC to get list of GPU codes: 
+${EXIT_CODE}")
+      endif()
+    elseif(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "11.0")
+      set(__CUDA_ARCH_BIN "35;37;50;52;53;60;61;62;70;72;75;80")
+    elseif(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "10.0")
+      set(__CUDA_ARCH_BIN "30;32;35;37;50;52;53;60;61;62;70;72;75")
+    elseif(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "9.1")
+      set(__CUDA_ARCH_BIN "30;32;35;37;50;52;53;60;61;62;70;72")
+    else()
+      set(__CUDA_ARCH_BIN "30;32;35;37;50;52;53;60;61;62;70")
+    endif()
+  else()
+    message(FATAL_ERROR "Unsupported CUDA compiler ${CMAKE_CUDA_COMPILER_ID}.")
+  endif()
+
+  set(CUDA_ARCH_BIN ${__CUDA_ARCH_BIN} CACHE STRING "Specify 'real' GPU 
+architectures to build binaries for")
+  
+  if(POLICY CMP0104)
+    cmake_policy(SET CMP0104 NEW)
+    set(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_BIN})
+    message(STATUS "CMAKE_CUDA_ARCHITECTURES: ${CMAKE_CUDA_ARCHITECTURES}")
+  else()
+    # Generate SASS
+    set(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_BIN})
+    # Generate PTX for last architecture
+    list(GET CUDA_ARCH_BIN -1 ver)
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode 
+arch=compute_${ver},code=compute_${ver}")
+    message(STATUS "CMAKE_CUDA_FLAGS: ${CMAKE_CUDA_FLAGS}")   
+  endif ()
+else()
+  message(STATUS "CUDA was not found.")
+endif()
+bash: line 1: rg: command not found
+cmake_minimum_required(VERSION 3.16)
+project(kinfu_replay LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+# VTK 9.1 (pulled in by PCL's config) expects the MPI targets to exist on some 
+distributions
+find_package(MPI QUIET COMPONENTS C)
+find_package(PCL 1.15 REQUIRED COMPONENTS common gpu_containers gpu_kinfu 
+gpu_kinfu_large_scale)
+find_package(CUDAToolkit REQUIRED)
+find_package(OpenMP REQUIRED)
+find_package(Threads REQUIRED)
+add_executable(kinfu_replay src/main.cpp src/scene.cpp)
+target_include_directories(kinfu_replay PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(kinfu_replay PRIVATE ${PCL_LIBRARIES} CUDA::cudart 
+OpenMP::OpenMP_CXX Threads::Threads)
+install(TARGETS kinfu_replay RUNTIME DESTINATION bin)
+cmake_minimum_required(VERSION 3.16)
+project(people_eval LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+# VTK 9.1 (pulled in by PCL's config) expects the MPI targets to exist on some 
+distributions
+find_package(MPI QUIET COMPONENTS C)
+find_package(PCL 1.15 REQUIRED COMPONENTS common io gpu_containers gpu_people)
+find_package(CUDAToolkit REQUIRED)
+find_package(Threads REQUIRED)
+add_executable(people_eval src/main.cpp)
+target_include_directories(people_eval PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(people_eval PRIVATE ${PCL_LIBRARIES} CUDA::cudart 
+Threads::Threads)
+install(TARGETS people_eval RUNTIME DESTINATION bin)
+add_executable(ncv_check src/ncv_check.cpp)
+target_include_directories(ncv_check PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(ncv_check PRIVATE ${PCL_LIBRARIES} CUDA::cudart)
+install(TARGETS ncv_check RUNTIME DESTINATION bin)
+main.cpp
+ncv_check.cpp
+main.cpp
+scene.cpp
+scene.h
+
+</output>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 3, $0.09):
+```
+grep -RnE 'texture\s*<|surface\s*<|cudaBindTexture|cudaUnbindTexture' pcl/gpu > 
+/tmp/tex; cat /tmp/tex; grep -RnE '__shfl\(|__ballot\(|__any\(|__all\(|volatile 
+.*\*|__device__ .*=' pcl/gpu/{kinfu,kinfu_large_scale,people,utils}/src | head 
+-100
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 2618 characters elided from the middle.</warning>
+<output_head>
+pcl/gpu/people/src/cuda/elec.cu:380:    texture<unsigned char, 2, 
+cudaReadModeElementType> edgesTex;
+pcl/gpu/people/src/cuda/multi_tree.cu:71:    texture<unsigned short, 2, 
+cudaReadModeElementType> depthTex;
+pcl/gpu/people/src/cuda/multi_tree.cu:72:    texture<char4, 2, 
+cudaReadModeElementType> multilabelTex;
+pcl/gpu/people/src/cuda/utils.cu:15:    texture<uchar4, cudaTextureType1D, 
+cudaReadModeElementType> cmapTex;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:47:texture<Ncv8u,  1, 
+cudaReadModeElementType> tex8u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:48:texture<Ncv32u, 1, 
+cudaReadModeElementType> tex32u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:49:texture<uint2,  1, 
+cudaReadModeElementType> tex64u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:306:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, 
+roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:309:            
+ncvAssertCUDAReturn(cudaUnbindTexture(tex8u), NCV_CUDA_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:310:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, 
+alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:753:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_src, cfdTexSrc, 
+srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:761:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_src, cfdTexSrc, 
+srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:989:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_sum, cfdTexSrc, 
+(roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:991:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_sqsum, 
+cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1627:texture <float, 1, 
+cudaReadModeElementType> texSrc;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1628:texture <float, 1, 
+cudaReadModeElementType> texKernel;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1763:    cudaBindTexture (0, 
+texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1764:    cudaBindTexture (0, 
+texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1835:    cudaBindTexture (0, 
+texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1836:    cudaBindTexture (0, 
+texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1874:texture<float, 2, 
+cudaReadModeElementType> tex_src1;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1875:texture<float, 2, 
+cudaReadModeElementType> tex_src0;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1947:    ncvAssertCUDAReturn 
+(cudaBindTexture2D (0, tex_src1, src1, desc, width, height, pitch), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1948:    ncvAssertCUDAReturn 
+(cudaBindTexture2D (0, tex_src0, src0, desc, width, height, pitch), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2307:texture <float, 2, 
+cudaReadModeElementType> texSrc2D;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2521:        cudaBindTexture (0, 
+texSrc, pSrc, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2538:        cudaBindTexture2D (0,
+texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:158:texture<uint2, 1, 
+cudaReadModeElementType> texHaarFeatures;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:167:texture<uint4, 1, 
+cudaReadModeElementType> texHaarClassifierNodes;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:170:texture<Ncv32u, 1, 
+cudaReadModeElementType> texIImage;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1064:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texIImage, 
+d_integralImage.ptr(), cfdTexIImage,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1077:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarFeatures,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1080:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarClassifierNodes,
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:48:  
+TextureBinder(const DeviceArray2D<T>& arr, const struct texture<T, 2, readMode>&
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:53:       
+cudaBindTexture2D(0, tex, arr.ptr(), desc, arr.cols(), arr.rows(), arr.step()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:57:  
+TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:61:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:65:  
+TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:70:       
+cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, arr.step));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:74:  
+TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:78:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * 
+arr.elemSize()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:81:  
+~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+p
+</output_head>
+<output_tail>
+       Eigen33(volatile float* mat_pkg_arg) : mat_pkg(mat_pkg_arg) {}           
+pcl/gpu/kinfu/src/cuda/utils.hpp:438:       volatile float* mat_pkg;
+pcl/gpu/kinfu/src/cuda/utils.hpp:476:     static __device__ __forceinline__ void
+reduce(volatile T* buffer, BinOp op)
+pcl/gpu/kinfu/src/cuda/utils.hpp:498:     static __device__ __forceinline__ T 
+reduce(volatile T* buffer, T init, BinOp op)
+pcl/gpu/kinfu/src/cuda/utils.hpp:565:      warp_reduce ( volatile int *ptr , 
+const unsigned int tid)
+pcl/gpu/kinfu/src/cuda/utils.hpp:583:      Ballot(int predicate, volatile int* 
+cta_buffer)
+pcl/gpu/kinfu/src/cuda/utils.hpp:589:        return __ballot(predicate);
+pcl/gpu/kinfu/src/cuda/utils.hpp:594:      All(int predicate, volatile int* 
+cta_buffer)
+pcl/gpu/kinfu/src/cuda/utils.hpp:600:        return __all(predicate);
+pcl/gpu/kinfu/src/cuda/estimate_combined.cu:49:    static __device__ 
+__forceinline__ void reduce(volatile T* buffer)
+pcl/gpu/kinfu_large_scale/src/cuda/coresp.cu:48:      __device__ unsigned int 
+count = 0;
+pcl/gpu/kinfu_large_scale/src/cuda/extract.cu:61:      __device__ int 
+global_count = 0;
+pcl/gpu/kinfu_large_scale/src/cuda/extract.cu:62:      __device__ int 
+output_xyz_count = 0;                                       // 
+*************************************************
+pcl/gpu/kinfu_large_scale/src/cuda/extract.cu:63:      __device__ unsigned int 
+blocks_done = 0;
+pcl/gpu/kinfu_large_scale/src/cuda/extract.cu:208:              volatile int* 
+cta_buffer = (int*)(storage_X + storage_index);
+pcl/gpu/kinfu_large_scale/src/cuda/extract.cu:314:              volatile int* 
+cta_buffer = (int*)(storage_X + storage_index);
+pcl/gpu/kinfu_large_scale/src/cuda/device.hpp:91:      scan_warp ( volatile T 
+*ptr, const unsigned int idx = threadIdx.x )
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:83:      __device__ int 
+global_count = 0;
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:85:      __device__ 
+unsigned int blocks_done = 0;
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:224:        Eigen33(volatile float*
+mat_pkg_arg) : mat_pkg(mat_pkg_arg) {}                      
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:440:        volatile float* 
+mat_pkg;
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:478:            static __device__ 
+__forceinline__ void reduce(volatile T* buffer, BinOp op)
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:500:            static __device__ 
+__forceinline__ T reduce(volatile T* buffer, T init, BinOp op)
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:567:        warp_reduce ( volatile 
+int *ptr , const unsigned int tid)
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:585:        Ballot(int predicate, 
+volatile int* cta_buffer)
+pcl/gpu/kinfu_large_scale/src/cuda/utils.hpp:596:        All(int predicate, 
+volatile int* cta_buffer)
+pcl/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu:55:      static 
+__device__ __forceinline__ void reduce(volatile T* buffer)
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:104:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampZ(Tin &a, Ncv8u &out) {out =
+(Ncv8u)CLAMP_0_255(a);};
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:105:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampZ(Tin &a, Ncv16u &out) {out 
+= (Ncv16u)CLAMP(a, 0, std::numeric_limits<unsigned short>::max());}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:106:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampZ(Tin &a, Ncv32u &out) {out 
+= (Ncv32u)CLAMP(a, 0, std::numeric_limits<unsigned int>::max());}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:107:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampZ(Tin &a, Ncv32f &out) {out 
+= (Ncv32f)a;}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:110:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampNN(Tin &a, Ncv8u &out) {out 
+= (Ncv8u)CLAMP_0_255(a+0.5f);}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:111:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampNN(Tin &a, Ncv16u &out) {out
+= (Ncv16u)CLAMP(a+0.5f, 0, std::numeric_limits<unsigned short>::max());}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:112:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampNN(Tin &a, Ncv32u &out) {out
+= (Ncv32u)CLAMP(a+0.5f, 0, std::numeric_limits<unsigned int>::max());}
+pcl/gpu/people/src/cuda/nvidia/NCVPixelOperations.hpp:113:template<typename Tin>
+static inline __host__ __device__ void _TDemoteClampNN(Tin &a, Ncv32f &out) {out
+= (Ncv32f)a;}
+pcl/gpu/people/src/cuda/nvidia/NCV.hpp:172:    __host__ __device__ bool operator
+== (const NcvSize32u &another) const {return this->width == another.width && 
+this->height == another.height;}
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:90:inline __device__ T 
+warpScanInclusive(T idata, volatile T *s_Data)
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:113:inline __device__ T 
+warpScanExclusive(T idata, volatile T *s_Data)
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:120:inline __device__ T 
+blockScanInclusive(T idata, volatile T *s_Data)
+pcl/gpu/people/src/cuda/nvidia/NCVAlg.hpp:66:    static __device__ __inline__ 
+void assign(volatile T *dst, volatile T *src)
+pcl/gpu/people/src/cuda/nvidia/NCVAlg.hpp:81:    static __device__ __inline__ 
+void assign(volatile T *dst, volatile T *src)
+pcl/gpu/people/src/cuda/nvidia/NCVAlg.hpp:96:    static __device__ __inline__ 
+void assign(volatile T *dst, volatile T *src)
+pcl/gpu/people/src/cuda/nvidia/NCVAlg.hpp:114:    volatile Tdata *reduceArr = 
+_reduceArr;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:79:__device__ Ncv32u 
+warpScanInclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:95:__device__ 
+__forceinline__ Ncv32u warpScanExclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:101:__device__ Ncv32u 
+scan1Inclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 4, $0.15):
+```
+cat /tmp/tex; cat pcl/gpu/people/src/cuda/multi_tree.cu; cat 
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 24827 characters elided from the middle.</warning>
+<output_head>
+pcl/gpu/people/src/cuda/elec.cu:380:    texture<unsigned char, 2, 
+cudaReadModeElementType> edgesTex;
+pcl/gpu/people/src/cuda/multi_tree.cu:71:    texture<unsigned short, 2, 
+cudaReadModeElementType> depthTex;
+pcl/gpu/people/src/cuda/multi_tree.cu:72:    texture<char4, 2, 
+cudaReadModeElementType> multilabelTex;
+pcl/gpu/people/src/cuda/utils.cu:15:    texture<uchar4, cudaTextureType1D, 
+cudaReadModeElementType> cmapTex;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:47:texture<Ncv8u,  1, 
+cudaReadModeElementType> tex8u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:48:texture<Ncv32u, 1, 
+cudaReadModeElementType> tex32u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:49:texture<uint2,  1, 
+cudaReadModeElementType> tex64u;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:306:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, 
+roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:309:            
+ncvAssertCUDAReturn(cudaUnbindTexture(tex8u), NCV_CUDA_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:310:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, 
+alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:753:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_src, cfdTexSrc, 
+srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:761:            
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_src, cfdTexSrc, 
+srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:989:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_sum, cfdTexSrc, 
+(roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:991:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_sqsum, 
+cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1627:texture <float, 1, 
+cudaReadModeElementType> texSrc;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1628:texture <float, 1, 
+cudaReadModeElementType> texKernel;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1763:    cudaBindTexture (0, 
+texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1764:    cudaBindTexture (0, 
+texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1835:    cudaBindTexture (0, 
+texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1836:    cudaBindTexture (0, 
+texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1874:texture<float, 2, 
+cudaReadModeElementType> tex_src1;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1875:texture<float, 2, 
+cudaReadModeElementType> tex_src0;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1947:    ncvAssertCUDAReturn 
+(cudaBindTexture2D (0, tex_src1, src1, desc, width, height, pitch), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:1948:    ncvAssertCUDAReturn 
+(cudaBindTexture2D (0, tex_src0, src0, desc, width, height, pitch), 
+NPPST_TEXTURE_BIND_ERROR);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2307:texture <float, 2, 
+cudaReadModeElementType> texSrc2D;
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2521:        cudaBindTexture (0, 
+texSrc, pSrc, srcSize.height * nSrcStep);
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu:2538:        cudaBindTexture2D (0,
+texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:158:texture<uint2, 1, 
+cudaReadModeElementType> texHaarFeatures;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:167:texture<uint4, 1, 
+cudaReadModeElementType> texHaarClassifierNodes;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:170:texture<Ncv32u, 1, 
+cudaReadModeElementType> texIImage;
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1064:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texIImage, 
+d_integralImage.ptr(), cfdTexIImage,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1077:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarFeatures,
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu:1080:        
+ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarClassifierNodes,
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:48:  
+TextureBinder(const DeviceArray2D<T>& arr, const struct texture<T, 2, readMode>&
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:53:       
+cudaBindTexture2D(0, tex, arr.ptr(), desc, arr.cols(), arr.rows(), arr.step()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:57:  
+TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:61:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:65:  
+TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:70:       
+cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, arr.step));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:74:  
+TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:78:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * 
+arr.elemSize()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:81:  
+~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+p
+</output_head>
+<output_tail>
+);
+  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
+
+  //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+  //printFuncAttrib(getOccupiedVoxelsKernel);
+
+  getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+  cudaSafeCall ( cudaGetLastError () );
+  cudaSafeCall (cudaDeviceSynchronize ());
+
+  int size;
+  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
+  return size;
+}
+
+int
+pcl::device::computeOffsetsAndTotalVertexes (DeviceArray2D<int>& 
+occupied_voxels)
+{
+  thrust::device_ptr<int> beg (occupied_voxels.ptr (1));
+  thrust::device_ptr<int> end = beg + occupied_voxels.cols ();
+
+  thrust::device_ptr<int> out (occupied_voxels.ptr (2));
+  thrust::exclusive_scan (beg, end, out);
+
+  int lastElement, lastScanElement;
+
+  DeviceArray<int> last_elem (occupied_voxels.ptr(1) + occupied_voxels.cols () -
+1, 1);
+  DeviceArray<int> last_scan (occupied_voxels.ptr(2) + occupied_voxels.cols () -
+1, 1);
+
+  last_elem.download (&lastElement);
+  last_scan.download (&lastScanElement);
+
+  return lastElement + lastScanElement;
+}
+
+
+namespace pcl
+{
+  namespace device
+  {
+    struct TrianglesGenerator : public CubeIndexEstimator
+    {
+      enum { CTA_SIZE = 256, MAX_GRID_SIZE_X = 65536 };
+
+      const int* occupied_voxels;
+      const int* vertex_ofssets;
+      int voxels_count;
+      float3 cell_size;
+
+      mutable PointType *output;
+
+      __device__ __forceinline__ float3
+      getNodeCoo (int x, int y, int z) const
+      {
+        float3 coo = make_float3 (x, y, z);
+        coo += 0.5f;                 //shift to volume cell center;
+
+        coo.x *= cell_size.x;
+        coo.y *= cell_size.y;
+        coo.z *= cell_size.z;
+
+        return coo;
+      }
+
+      __device__ __forceinline__ float3
+      vertex_interp (float3 p0, float3 p1, float f0, float f1) const
+      {        
+        float t = (isoValue() - f0) / (f1 - f0 + 1e-15f);
+        float x = p0.x + t * (p1.x - p0.x);
+        float y = p0.y + t * (p1.y - p0.y);
+        float z = p0.z + t * (p1.z - p0.z);
+        return make_float3 (x, y, z);
+      }
+
+      __device__ __forceinline__ void
+      operator () () const
+      {
+        int tid = threadIdx.x;
+        int idx = (blockIdx.y * MAX_GRID_SIZE_X + blockIdx.x) * CTA_SIZE + tid;
+      
+
+        if (idx >= voxels_count)
+          return;
+
+        int voxel = occupied_voxels[idx];
+
+        int z = voxel / (VOLUME_X * VOLUME_Y);
+        int y = (voxel - z * VOLUME_X * VOLUME_Y) / VOLUME_X;
+        int x = (voxel - z * VOLUME_X * VOLUME_Y) - y * VOLUME_X;
+
+        float f[8];
+        int cubeindex = computeCubeIndex (x, y, z, f);
+
+        // calculate cell vertex positions
+        float3 v[8];
+        v[0] = getNodeCoo (x, y, z);
+        v[1] = getNodeCoo (x + 1, y, z);
+        v[2] = getNodeCoo (x + 1, y + 1, z);
+        v[3] = getNodeCoo (x, y + 1, z);
+        v[4] = getNodeCoo (x, y, z + 1);
+        v[5] = getNodeCoo (x + 1, y, z + 1);
+        v[6] = getNodeCoo (x + 1, y + 1, z + 1);
+        v[7] = getNodeCoo (x, y + 1, z + 1);
+
+        // find the vertices where the surface intersects the cube
+        // use shared memory to avoid using local
+        __shared__ float3 vertlist[12][CTA_SIZE];
+
+        vertlist[0][tid] = vertex_interp (v[0], v[1], f[0], f[1]);
+        vertlist[1][tid] = vertex_interp (v[1], v[2], f[1], f[2]);
+        vertlist[2][tid] = vertex_interp (v[2], v[3], f[2], f[3]);
+        vertlist[3][tid] = vertex_interp (v[3], v[0], f[3], f[0]);
+        vertlist[4][tid] = vertex_interp (v[4], v[5], f[4], f[5]);
+        vertlist[5][tid] = vertex_interp (v[5], v[6], f[5], f[6]);
+        vertlist[6][tid] = vertex_interp (v[6], v[7], f[6], f[7]);
+        vertlist[7][tid] = vertex_interp (v[7], v[4], f[7], f[4]);
+        vertlist[8][tid] = vertex_interp (v[0], v[4], f[0], f[4]);
+        vertlist[9][tid] = vertex_interp (v[1], v[5], f[1], f[5]);
+        vertlist[10][tid] = vertex_interp (v[2], v[6], f[2], f[6]);
+        vertlist[11][tid] = vertex_interp (v[3], v[7], f[3], f[7]);
+        __syncthreads ();
+
+        // output triangle vertices
+        int numVerts = tex1Dfetch (numVertsTex, cubeindex);
+
+        for (int i = 0; i < numVerts; i += 3)
+        {
+          int index = vertex_ofssets[idx] + i;
+
+          int v1 = tex1Dfetch (triTex, (cubeindex * 16) + i + 0);
+          int v2 = tex1Dfetch (triTex, (cubeindex * 16) + i + 1);
+          int v3 = tex1Dfetch (triTex, (cubeindex * 16) + i + 2);
+
+          store_point (output, index + 0, vertlist[v1][tid]);
+          store_point (output, index + 1, vertlist[v2][tid]);
+          store_point (output, index + 2, vertlist[v3][tid]);
+        }
+      }
+
+      __device__ __forceinline__ void
+      store_point (float4 *ptr, int index, const float3& point) const {
+        ptr[index] = make_float4 (point.x, point.y, point.z, 1.0f);
+      }
+    };
+    __global__ void
+    trianglesGeneratorKernel (const TrianglesGenerator tg) {tg (); }
+  }
+}
+
+
+void
+pcl::device::generateTriangles (const PtrStep<short2>& volume, const 
+DeviceArray2D<int>& occupied_voxels, const float3& volume_size, 
+DeviceArray<PointType>& output)
+{   
+  int device;
+  cudaSafeCall( cudaGetDevice(&device) );
+
+  cudaDeviceProp prop;
+  cudaSafeCall( cudaGetDeviceProperties(&prop, device) );
+  
+  int block_size = prop.major < 2 ? 96 : 256; // please see 
+TrianglesGenerator::CTA_SIZE
+
+  using Tg = TrianglesGenerator;
+  Tg tg;
+
+  tg.volume = volume;
+  tg.occupied_voxels = occupied_voxels.ptr (0);
+  tg.vertex_ofssets = occupied_voxels.ptr (2);
+  tg.voxels_count = occupied_voxels.cols ();
+  tg.cell_size.x = volume_size.x / VOLUME_X;
+  tg.cell_size.y = volume_size.y / VOLUME_Y;
+  tg.cell_size.z = volume_size.z / VOLUME_Z;
+  tg.output = output;
+
+  int blocks_num = divUp (tg.voxels_count, block_size);
+
+  dim3 block (block_size);
+  dim3 grid(min(blocks_num, Tg::MAX_GRID_SIZE_X), divUp(blocks_num, 
+Tg::MAX_GRID_SIZE_X));
+
+  trianglesGeneratorKernel<<<grid, block>>>(tg);
+  cudaSafeCall ( cudaGetLastError () );
+  cudaSafeCall (cudaDeviceSynchronize ());
+}
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 5, $0.22):
+```
+cat pcl/gpu/people/src/cuda/multi_tree.cu | sed -n '40,380p'; cat 
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu | sed -n '40,320p'
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 8820 characters elided from the middle.</warning>
+<output_head>
+
+#include <pcl/gpu/people/tree.h>
+#include <pcl/gpu/people/label_common.h>
+#include <pcl/gpu/utils/safe_call.hpp>
+#include <pcl/gpu/containers/impl/texture_binder.hpp>
+#include <stdio.h>
+#include <limits>
+#include <assert.h>
+#include "internal.h"
+
+using pcl::gpu::people::trees::Node;
+using pcl::gpu::people::trees::Label;
+using pcl::gpu::people::trees::AttribLocation;
+using pcl::gpu::people::trees::Attrib;
+using pcl::gpu::people::trees::focal;
+using pcl::gpu::people::trees::NUM_LABELS;
+
+using uint = unsigned int;
+
+#ifdef __CDT_PARSER__ // This is an eclipse specific hack, does nothing to the 
+code
+#define __global__
+#define __device__
+#define __shared__
+#define __forceinline__
+#define __constant__
+#endif
+
+namespace pcl
+{
+  namespace device
+  {
+    texture<unsigned short, 2, cudaReadModeElementType> depthTex;
+    texture<char4, 2, cudaReadModeElementType> multilabelTex;
+
+    __constant__ int constFGThresh;
+
+    template<bool testFG> __device__ __forceinline__ Label 
+    evaluateTree(int u, int v, float f, int treeHeight, int numNodes, const 
+Node* nodes, const Label* leaves)
+    {
+      int    depth = tex2D(depthTex, u, v);
+
+      float  scale = f / depth;
+
+      // go down the tree
+      int nid = 0;
+      for(int nodeDepth = 0; nodeDepth < treeHeight; ++nodeDepth)
+      {
+        const Node node = nodes[nid];
+
+        const AttribLocation& loc = node.loc;
+        int d1 = tex2D (depthTex, u + loc.du1 * scale, v + loc.dv1 * scale);
+        int d2 = tex2D (depthTex, u + loc.du2 * scale, v + loc.dv2 * scale);
+
+        if (testFG)
+        {
+          if( d1 - depth > constFGThresh ) 
+            d1 = std::numeric_limits<short>::max();
+
+          if( d2 - depth > constFGThresh ) 
+            d2 = std::numeric_limits<short>::max();
+        }
+
+        int delta = d1-d2;
+        bool test = delta > (int)node.thresh;
+        if( test ) nid = nid*2+2;
+        else       nid = nid*2+1;
+      }
+      return leaves[nid-numNodes];
+    }
+
+    /** \brief This is the CUDA kernel doing the actual RDF evaluation */    
+    __global__ void
+    KernelCUDA_runTree( const float     f,
+                        const int       treeHeight,
+                        const int       numNodes,
+                        const Node*     nodes,
+                        const Label*    leaves,
+                        PtrStepSz<Label>  labels)
+    {
+      int u = blockIdx.x * blockDim.x + threadIdx.x;
+      int v = blockIdx.y * blockDim.y + threadIdx.y;
+
+      if( u < labels.cols && v < labels.rows)
+        labels.ptr(v)[u] = evaluateTree<false>(u, v, f, treeHeight, numNodes, 
+nodes, leaves);
+    }
+
+    template<bool testFG> __global__ void
+    KernelCUDA_MultiTreePass( const int    treeId,
+                              const float  f,
+                              const int    treeHeight,
+                              const int    numNodes,
+                              const Node*  nodes,
+                              const Label* leaves,
+                              PtrStepSz<unsigned short> depth,
+                              PtrStepSz<char4> multiLabels)
+    {
+      int u = blockIdx.x * blockDim.x + threadIdx.x;
+      int v = blockIdx.y * blockDim.y + threadIdx.y;
+
+      if(u < multiLabels.cols && v < multiLabels.rows)
+      {
+        // This maps a char4 pointer on a char pointer
+        char* pixel = (char*)&multiLabels.ptr(v)[u];
+        // This test assures that in next iterations the FGPreperation is taking
+into account see utils.cu
+        if(depth.ptr(v)[u] == std::numeric_limits<unsigned short>::max())
+          pixel[treeId] = 29;         // see label_common.h for Background label
+(=29)
+                                      // TODO remove this hardcoded label with 
+enum part_t label
+        else
+          pixel[treeId] = evaluateTree<testFG>(u, v, f, treeHeight, numNodes, 
+nodes, leaves);
+      }
+    }
+
+    /** \brief This function wraps the actual CUDA kernel doing the RDF 
+evaluation */    
+    void CUDA_runTree ( float focal, int treeHeight, int numNodes, const Node* 
+nodes, const Label* leaves, const Depth& depth, Labels& labels )
+    {
+      labels.create( depth.rows(), depth.cols() );
+
+      depthTex.addressMode[0] = cudaAddressModeClamp;
+      TextureBinder binder(depth, depthTex);      
+
+      dim3 block(32, 8);      
+      dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );   
+
+      KernelCUDA_runTree<<< grid, block >>>( focal, treeHeight, numNodes, nodes,
+leaves, labels);
+      cudaSafeCall( cudaGetLastError() );
+      cudaSafeCall( cudaDeviceSynchronize() );      
+    }
+
+    void CUDA_runMultiTreePass ( int   FGThresh,
+                                 int   treeId,
+                                 float focal,
+                                 int   treeHeight,
+                                 int   numNodes,
+                                 const Node*  nodes_device,
+                                 const Label* leaves_device,
+                                 const Depth& depth,
+                                 MultiLabels& multilabel )
+    {
+      //std::cout << "(I) : CUDA_runMultiTreePass() called" << std::endl;
+      depthTex.addressMode[0] = cudaAddressModeClamp;
+      TextureBinder binder(depth, depthTex);                  
+
+      dim3 block(32, 8);
+      dim3 grid( divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );
+
+      if(FGThresh == std::numeric_limits<int>::max())
+      {
+        KernelCUDA_MultiTreePass<false><<< grid, block >>>( treeId, focal, 
+treeHeight, 
+            numNodes, nodes_device, leaves_device, depth, multilabel);
+      }
+      else
+      {
+        cudaSafeCall( cudaMemcpyToSymbol(constFGThresh, &FGThresh,  
+sizeof(FGThresh)) );
+
+        KernelCUDA_MultiTreePass<true><<< grid, block >>>( treeId, focal, 
+treeHeight, 
+            numNodes, nodes_device, leaves_device, depth, multilabel);
+      }
+
+      cudaSafeCall( cudaGetLastError() );
+      cudaSafeCall( cudaDeviceSynchronize() );      
+    }
+
+    ///////////////////////////////////////////////////
+</output_head>
+<output_tail>
+       cubeindex += int(f[7] < isoValue()) * 128;
+
+        return cubeindex;
+      }
+    };
+
+    struct OccupiedVoxels : public CubeIndexEstimator
+    {
+      enum
+      {        
+        CTA_SIZE_X = 32,
+        CTA_SIZE_Y = 8,
+        CTA_SIZE = CTA_SIZE_X * CTA_SIZE_Y,
+
+        WARPS_COUNT = CTA_SIZE / Warp::WARP_SIZE
+      };
+
+      mutable int* voxels_indeces;
+      mutable int* vetexes_number;
+      int max_size;
+
+      __device__ __forceinline__ void
+      operator () () const
+      {
+        int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+        int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+
+        if (__all_sync (__activemask (), x >= VOLUME_X)
+            || __all_sync (__activemask (), y >= VOLUME_Y))
+          return;
+
+        int ftid = Block::flattenedThreadId ();
+                int warp_id = Warp::id();
+                int lane_id = Warp::laneId();
+
+        volatile __shared__ int warps_buffer[WARPS_COUNT];
+
+        for (int z = 0; z < VOLUME_Z - 1; z++)
+        {
+          int numVerts = 0;
+          if (x + 1 < VOLUME_X && y + 1 < VOLUME_Y)
+          {
+            float field[8];
+            int cubeindex = computeCubeIndex (x, y, z, field);
+
+            // read number of vertices from texture
+            numVerts = (cubeindex == 0 || cubeindex == 255) ? 0 : tex1Dfetch 
+(numVertsTex, cubeindex);
+          }
+
+          int total = __popc (__ballot_sync (__activemask (), numVerts > 0));
+                  if (total == 0)
+                        continue;
+
+          if (lane_id == 0)
+          {
+            int old = atomicAdd (&global_count, total);
+            warps_buffer[warp_id] = old;
+          }
+          int old_global_voxels_count = warps_buffer[warp_id];
+
+          int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), 
+numVerts > 0));
+
+          if (old_global_voxels_count + offs < max_size && numVerts > 0)
+          {
+            voxels_indeces[old_global_voxels_count + offs] = VOLUME_Y * VOLUME_X
+* z + VOLUME_X * y + x;
+            vetexes_number[old_global_voxels_count + offs] = numVerts;
+          }
+
+          bool full = old_global_voxels_count + total >= max_size;
+
+          if (full)
+            break;
+
+        } /* for(int z = 0; z < VOLUME_Z - 1; z++) */
+
+
+        /////////////////////////
+        // prepare for future scans
+        if (ftid == 0)
+        {
+          unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+          unsigned int value = atomicInc (&blocks_done, total_blocks);
+
+          //last block
+          if (value == total_blocks - 1)
+          {
+            output_count = min (max_size, global_count);
+            blocks_done = 0;
+            global_count = 0;
+          }
+        } 
+      } /* operator () */
+    };
+    __global__ void getOccupiedVoxelsKernel (const OccupiedVoxels ov) { ov (); }
+  }
+}
+
+int
+pcl::device::getOccupiedVoxels (const PtrStep<short2>& volume, 
+DeviceArray2D<int>& occupied_voxels)
+{
+  OccupiedVoxels ov;
+  ov.volume = volume;
+
+  ov.voxels_indeces = occupied_voxels.ptr (0);
+  ov.vetexes_number = occupied_voxels.ptr (1);
+  ov.max_size = occupied_voxels.cols ();
+
+  dim3 block (OccupiedVoxels::CTA_SIZE_X, OccupiedVoxels::CTA_SIZE_Y);
+  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
+
+  //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+  //printFuncAttrib(getOccupiedVoxelsKernel);
+
+  getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+  cudaSafeCall ( cudaGetLastError () );
+  cudaSafeCall (cudaDeviceSynchronize ());
+
+  int size;
+  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
+  return size;
+}
+
+int
+pcl::device::computeOffsetsAndTotalVertexes (DeviceArray2D<int>& 
+occupied_voxels)
+{
+  thrust::device_ptr<int> beg (occupied_voxels.ptr (1));
+  thrust::device_ptr<int> end = beg + occupied_voxels.cols ();
+
+  thrust::device_ptr<int> out (occupied_voxels.ptr (2));
+  thrust::exclusive_scan (beg, end, out);
+
+  int lastElement, lastScanElement;
+
+  DeviceArray<int> last_elem (occupied_voxels.ptr(1) + occupied_voxels.cols () -
+1, 1);
+  DeviceArray<int> last_scan (occupied_voxels.ptr(2) + occupied_voxels.cols () -
+1, 1);
+
+  last_elem.download (&lastElement);
+  last_scan.download (&lastScanElement);
+
+  return lastElement + lastScanElement;
+}
+
+
+namespace pcl
+{
+  namespace device
+  {
+    struct TrianglesGenerator : public CubeIndexEstimator
+    {
+      enum { CTA_SIZE = 256, MAX_GRID_SIZE_X = 65536 };
+
+      const int* occupied_voxels;
+      const int* vertex_ofssets;
+      int voxels_count;
+      float3 cell_size;
+
+      mutable PointType *output;
+
+      __device__ __forceinline__ float3
+      getNodeCoo (int x, int y, int z) const
+      {
+        float3 coo = make_float3 (x, y, z);
+        coo += 0.5f;                 //shift to volume cell center;
+
+        coo.x *= cell_size.x;
+        coo.y *= cell_size.y;
+        coo.z *= cell_size.z;
+
+        return coo;
+      }
+
+      __device__ __forceinline__ float3
+      vertex_interp (float3 p0, float3 p1, float f0, float f1) const
+      {        
+        float t = (isoValue() - f0) / (f1 - f0 + 1e-15f);
+        float x = p0.x + t * (p1.x - p0.x);
+        float y = p0.y + t * (p1.y - p0.y);
+        float z = p0.z + t * (p1.z - p0.z);
+        return make_float3 (x, y, z);
+      }
+
+      __device__ __forceinline__ void
+      operator () () const
+      {
+        int tid = threadIdx.x;
+        int idx = (blockIdx.y * MAX_GRID_SIZE_X + blockIdx.x) * CTA_SIZE + tid;
+      
+
+        if (idx >= voxels_count)
+          return;
+
+        int voxel = occupied_voxels[idx];
+
+        int z = voxel / (VOLUME_X * VOLUME_Y);
+        int y = (voxel - z * VOLUME_X * VOLUME_Y) / VOLUME_X;
+        int x = (voxel - z * VOLUME_X * VOLUME_Y) - y * VOLUME_X;
+
+        float f[8];
+        int cubeindex = computeCubeIndex (x, y, z, f);
+
+        // calculate cell vertex positions
+        float3 v[8];
+        v[0] = getNodeCoo (x, y, z);
+        v[1] = getNodeCoo (x + 1, y, z);
+        v[2] = getNodeCoo (x + 1, y + 1, z);
+        v[3] = getNodeCoo (x, y + 1, z);
+        v[4] = getNodeCoo (x, y, z + 1);
+
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 6, $0.28):
+```
+sed -n '220,430p' pcl/gpu/people/src/cuda/multi_tree.cu; sed -n '40,150p' 
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu; cat 
+pcl/gpu/kinfu/src/marching_cubes.cpp | tail -90; cat 
+pcl/gpu/kinfu/src/cuda/estimate_combined.cu
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 9197 characters elided from the middle.</warning>
+<output_head>
+      int maxId = 0;
+      int maxId_other = -1;
+      char maxVal = bins[0];
+
+      for(int i=1;i<numBins;++i) {
+        char val = bins[i];
+        if( val == maxVal ) { maxId_other = i; }
+        if( val > maxVal ) { maxId = i; maxId_other = -1; maxVal = val; }
+      }
+
+      if( maxId_other != -1) return -1;
+      else                   return maxId;
+    }
+
+    __global__ void KernelCUDA_MultiTreeMerge( const int numTrees, 
+PtrStepSz<Label> labels )
+    {
+      int u = blockIdx.x * blockDim.x + threadIdx.x;
+      int v = blockIdx.y * blockDim.y + threadIdx.y;
+
+      if( u >= labels.cols || v >= labels.rows) 
+        return;
+
+      // reset the bins
+      char bins[NUM_LABELS];
+      for(int li = 0; li < NUM_LABELS; ++li) 
+        bins[li] = 0;
+
+      // find a consensus with the current trees
+      {
+        char4 pixlabels = tex2D(multilabelTex, u ,v);
+        char* bob = (char*)&pixlabels; //horrible but char4's have xyzw members
+        for(int ti = 0; ti < numTrees; ++ti)
+          bins[ bob[ti] ]++;        
+      }
+
+      int res = findMaxId_testTie(NUM_LABELS, bins);
+
+      // if this fails... find a consensus in a 1 neighbourhood
+      if( res < 0 ) 
+      {
+        int depth = tex2D(depthTex, u,v);
+        for(int i = -1 ; i <= 1; ++i) 
+        {
+          for(int j = -1; j <= 1; ++j) 
+          {
+            int   depth_neighbor  = tex2D(depthTex,u+i,v+j);
+            char4 labels_neighbor = tex2D(multilabelTex, u+i,v+j); 
+            char* bob = (char*)&labels_neighbor; //horrible but char4's have 
+xyzw members
+            //TODO: redo this part
+            int weight = std::abs(depth-depth_neighbor) < 50 ? 1:0; // 5cms
+            for(int ti = 0; ti < numTrees; ++ti)
+              bins[ bob[ti] ] += weight;
+          }
+        }
+        res = findMaxId( NUM_LABELS, bins );
+      }      
+      labels.ptr(v)[u] = res;
+    }
+
+    /** \brief This merges the labels from all trees into a histogram of 
+probabilities **/
+    __global__ void KernelCUDA_MultiTreeCreateProb (const int numTrees, 
+PtrStepSz<prob_histogram> prob)
+    {
+      // map block and thread onto image coordinates
+      int u = blockIdx.x * blockDim.x + threadIdx.x;
+      int v = blockIdx.y * blockDim.y + threadIdx.y;
+
+      if( u >= prob.cols || v >= prob.rows )
+        return;
+
+      char4 pixlabels = tex2D (multilabelTex, u ,v);
+      char* bob = (char*)&pixlabels; //horrible but char4's have xyzw members
+
+      // Reset prob first, this should become NUM_LABELS
+      for(int in = 0; in < NUM_LABELS; in++)
+      {
+        prob.ptr(v)[u].probs[in] = 0;
+      }
+
+      for(int ti = 0; ti < numTrees; ++ti)
+      {
+        // Each tree casts a vote to the probability
+        // TODO: replace this with a histogram copy
+        prob.ptr(v)[u].probs[bob[ti]] += 0.25;
+      }
+    }
+
+    /** \brief This will merge the votes from the different trees into one final
+vote */    
+    void CUDA_runMultiTreeMerge( int numTrees, const Depth& depth, const 
+MultiLabels& multilabel, Labels& labels)
+    {     
+      //std::cout << "(I) : CUDA_runMultiTreeMerge() called" << std::endl;
+      labels.create(depth.rows(), depth.cols());
+
+      depthTex.addressMode[0] = cudaAddressModeClamp;
+      TextureBinder binder(depth, depthTex);                  
+
+      multilabelTex.addressMode[0] = cudaAddressModeClamp;
+      TextureBinder mlabels_binder(multilabel, multilabelTex);      
+
+      dim3 block(32, 8);      
+      dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );   
+
+      KernelCUDA_MultiTreeMerge<<< grid, block >>>( numTrees, labels );
+
+      cudaSafeCall( cudaGetLastError() );
+      cudaSafeCall( cudaDeviceSynchronize() );            
+    }
+
+    /** \brief This will merge the votes from the different trees into one final
+vote, including probabilistic's */
+    void CUDA_runMultiTreeProb ( int numTrees,
+                                 const Depth& depth,
+                                 const MultiLabels& multilabel,
+                                 Labels& labels,
+                                 LabelProbability& probabilities)
+    {
+      std::cout << "(I) : CUDA_runMultiTreeProb() called" << std::endl;
+
+      //labels.create(depth.rows(), depth.cols());
+      //depthTex.addressMode[0] = cudaAddressModeClamp;
+      //TextureBinder binder(depth, depthTex);
+
+      multilabelTex.addressMode[0] = cudaAddressModeClamp;
+      TextureBinder mlabels_binder(multilabel, multilabelTex);
+
+      dim3 block(32, 8);      
+      dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );   
+
+      KernelCUDA_MultiTreeCreateProb<<< grid, block >>>( numTrees, 
+probabilities);
+
+      cudaSafeCall( cudaGetLastError() );
+      cudaSafeCall( cudaDeviceSynchronize() );            
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+
+pcl::device::CUDATree::CUDATree (int treeHeight_arg, const std::vector<Node>& 
+nodes, const std::vector<Label>& leaves)
+{
+  treeHeight = treeHeight_arg;
+  numNodes = (1 << treeHeight) - 1;
+  assert (static_cast<int> (nodes.size ())  == numNodes );
+  assert (static_cast<int> (leaves.size ()) == (1 << treeHeight) );
+
+  nodes_device.upload(nodes);
+  leaves_device.upload(leaves);
+}
+
+void
+pcl::device::MultiTreeLiveProc::process (const Depth& dmap, Labels& lmap)
+{
+  // TODO: is this assert needed if we only call process?
+  //assert(!trees.empty());
+
+  // TODO is this iteration needed when we call multitreepass in the process 
+step?
+  /*  if (trees.size() == 1)
+  {
+    const CUDATree& t = trees[0];
+    CUDA_runTree( focal, t.treeHeight, t.numNodes, t.nodes_device, 
+t.leaves_device, dmap,  lmap );
+    return;
+  }
+   */
+  process(dmap, lmap, std::numeric_limits<int>::max());
+}
+
+void
+pcl::device::MultiTreeLiveProc::process (const Depth& dmap, Labels& lmap, int 
+FGThresh)
+{
+  assert(!trees.empty());
+
+  unsigned int numTrees = static_cast<unsigned int> (trees.size ());
+
+  multilmap.create(dmap.rows(), dmap.cols());
+
+  // 
+</output_head>
+<output_tail>
+ (y + 2 * rows)[x];
+
+        float3 vcurr_g = Rcurr * vcurr + tcurr;
+
+        float3 vcurr_cp = Rprev_inv * (vcurr_g - tprev);         // prev camera 
+coo space
+
+        int2 ukr;         //projection
+        ukr.x = __float2int_rn (vcurr_cp.x * intr.fx / vcurr_cp.z + intr.cx);   
+//4
+        ukr.y = __float2int_rn (vcurr_cp.y * intr.fy / vcurr_cp.z + intr.cy);   
+//4
+
+        if (ukr.x < 0 || ukr.y < 0 || ukr.x >= cols || ukr.y >= rows || 
+vcurr_cp.z < 0)
+          return (false);
+
+        float3 nprev_g;
+        nprev_g.x = nmap_g_prev.ptr (ukr.y)[ukr.x];
+
+        if (isnan (nprev_g.x))
+          return (false);
+
+        float3 vprev_g;
+        vprev_g.x = vmap_g_prev.ptr (ukr.y       )[ukr.x];
+        vprev_g.y = vmap_g_prev.ptr (ukr.y + rows)[ukr.x];
+        vprev_g.z = vmap_g_prev.ptr (ukr.y + 2 * rows)[ukr.x];
+
+        float dist = norm (vprev_g - vcurr_g);
+        if (dist > distThres)
+          return (false);
+
+        ncurr.y = nmap_curr.ptr (y + rows)[x];
+        ncurr.z = nmap_curr.ptr (y + 2 * rows)[x];
+
+        float3 ncurr_g = Rcurr * ncurr;
+
+        nprev_g.y = nmap_g_prev.ptr (ukr.y + rows)[ukr.x];
+        nprev_g.z = nmap_g_prev.ptr (ukr.y + 2 * rows)[ukr.x];
+
+        float sine = norm (cross (ncurr_g, nprev_g));
+
+        if (sine >= angleThres)
+          return (false);
+        n = nprev_g;
+        d = vprev_g;
+        s = vcurr_g;
+        return (true);
+      }
+
+      __device__ __forceinline__ void
+      operator () () const
+      {
+        int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
+        int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
+
+        float3 n, d, s;
+        bool found_coresp = false;
+
+        if (x < cols && y < rows)
+          found_coresp = search (x, y, n, d, s);
+
+        float row[7];
+
+        if (found_coresp)
+        {
+          *(float3*)&row[0] = cross (s, n);
+          *(float3*)&row[3] = n;
+          row[6] = dot (n, d - s);
+        }
+        else
+          row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
+
+        __shared__ float_type smem[CTA_SIZE];
+        int tid = Block::flattenedThreadId ();
+
+        int shift = 0;
+        for (int i = 0; i < 6; ++i)        //rows
+        {
+          #pragma unroll
+          for (int j = i; j < 7; ++j)          // cols + b
+          {
+            __syncthreads ();
+            smem[tid] = row[i] * row[j];
+            __syncthreads ();
+
+            reduce<CTA_SIZE>(smem);
+
+            if (tid == 0)
+              gbuf.ptr (shift++)[blockIdx.x + gridDim.x * blockIdx.y] = smem[0];
+          }
+        }
+      }
+    };
+
+    __global__ void
+    combinedKernel (const Combined cs) 
+    {
+      cs ();
+    }
+
+    struct TranformReduction
+    {
+      enum
+      {
+        CTA_SIZE = 512,
+        STRIDE = CTA_SIZE,
+
+        B = 6, COLS = 6, ROWS = 6, DIAG = 6,
+        UPPER_DIAG_MAT = (COLS * ROWS - DIAG) / 2 + DIAG,
+        TOTAL = UPPER_DIAG_MAT + B,
+
+        GRID_X = TOTAL
+      };
+
+      PtrStep<float_type> gbuf;
+      int length;
+      mutable float_type* output;
+
+      __device__ __forceinline__ void
+      operator () () const
+      {
+        const float_type *beg = gbuf.ptr (blockIdx.x);
+        const float_type *end = beg + length;
+
+        int tid = threadIdx.x;
+
+        float_type sum = 0.f;
+        for (const float_type *t = beg + tid; t < end; t += STRIDE)
+          sum += *t;
+
+        __shared__ float_type smem[CTA_SIZE];
+
+        smem[tid] = sum;
+        __syncthreads ();
+
+                reduce<CTA_SIZE>(smem);
+
+        if (tid == 0)
+          output[blockIdx.x] = smem[0];
+      }
+    };
+
+    __global__ void
+    TransformEstimatorKernel2 (const TranformReduction tr) 
+    {
+      tr ();
+    }
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////
+void
+pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr, 
+                               const MapArr& vmap_curr, const MapArr& nmap_curr,
+                               const Mat33& Rprev_inv, const float3& tprev, 
+const Intr& intr,
+                               const MapArr& vmap_g_prev, const MapArr& 
+nmap_g_prev, 
+                               float distThres, float angleThres,
+                               DeviceArray2D<float_type>& gbuf, 
+DeviceArray<float_type>& mbuf, 
+                               float_type* matrixA_host, float_type* 
+vectorB_host)
+{
+  int cols = vmap_curr.cols ();
+  int rows = vmap_curr.rows () / 3;
+
+  Combined cs;
+
+  cs.Rcurr = Rcurr;
+  cs.tcurr = tcurr;
+
+  cs.vmap_curr = vmap_curr;
+  cs.nmap_curr = nmap_curr;
+
+  cs.Rprev_inv = Rprev_inv;
+  cs.tprev = tprev;
+
+  cs.intr = intr;
+
+  cs.vmap_g_prev = vmap_g_prev;
+  cs.nmap_g_prev = nmap_g_prev;
+
+  cs.distThres = distThres;
+  cs.angleThres = angleThres;
+
+  cs.cols = cols;
+  cs.rows = rows;
+
+//////////////////////////////
+
+  dim3 block (Combined::CTA_SIZE_X, Combined::CTA_SIZE_Y);
+  dim3 grid (1, 1, 1);
+  grid.x = divUp (cols, block.x);
+  grid.y = divUp (rows, block.y);
+
+  mbuf.create (TranformReduction::TOTAL);
+  if (gbuf.rows () != TranformReduction::TOTAL || gbuf.cols () < (int)(grid.x * 
+grid.y))
+    gbuf.create (TranformReduction::TOTAL, grid.x * grid.y);
+
+  cs.gbuf = gbuf;
+
+  combinedKernel<<<grid, block>>>(cs);
+  cudaSafeCall ( cudaGetLastError () );
+  //cudaSafeCall(cudaDeviceSynchronize());
+
+  //printFuncAttrib(combinedKernel);
+
+  TranformReduction tr;
+  tr.gbuf = gbuf;
+  tr.length = grid.x * grid.y;
+  tr.output = mbuf;
+
+  TransformEstimatorKernel2<<<TranformReduction::TOTAL, 
+TranformReduction::CTA_SIZE>>>(tr);
+  cudaSafeCall (cudaGetLastError ());
+  cudaSafeCall (cudaDeviceSynchronize ());
+
+  float_type host_data[TranformReduction::TOTAL];
+  mbuf.download (host_data);
+
+  int shift = 0;
+  for (int i = 0; i < 6; ++i)  //rows
+    for (int j = i; j < 7; ++j)    // cols + b
+    {
+      float_type value = host_data[shift++];
+      if (j == 6)       // vector b
+        vectorB_host[i] = value;
+      else
+        matrixA_host[j * 6 + i] = matrixA_host[i * 6 + j] = value;
+    }
+}
+
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 7, $0.36):
+```
+tail -25 /tmp/tex; sed -n '40,110p' pcl/gpu/kinfu/src/cuda/marching_cubes.cu; 
+head -90 pcl/gpu/kinfu/src/marching_cubes.cpp; sed -n '40,100p' 
+pcl/gpu/kinfu/src/cuda/estimate_combined.cu; cat 
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp; grep -RnE
+'TextureBinder|tex[12]D(fetch)?\s*\(' pcl/gpu --include='*.cu' | cut -d: -f1 | 
+sort -u
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 2604 characters elided from the middle.</warning>
+<output_head>
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:57:  
+TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:61:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:65:  
+TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& 
+tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:70:       
+cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, arr.step));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:74:  
+TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:78:    
+cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * 
+arr.elemSize()));
+pcl/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp:81:  
+~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:53:      //texture<int, 1, 
+cudaReadModeElementType> edgeTex;
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:54:      texture<int, 1, 
+cudaReadModeElementType> triTex;
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:55:      texture<int, 1, 
+cudaReadModeElementType> numVertsTex;
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:61:        
+//cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:62:        cudaSafeCall 
+(cudaBindTexture (0, triTex, triBuf, desc) );
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:63:        cudaSafeCall 
+(cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:68:        //cudaSafeCall( 
+cudaUnbindTexture(edgeTex) );
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:69:        cudaSafeCall ( 
+cudaUnbindTexture (numVertsTex) );
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu:70:        cudaSafeCall ( 
+cudaUnbindTexture (triTex) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:50:    //texture<int, 1, 
+cudaReadModeElementType> edgeTex;
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:51:    texture<int, 1, 
+cudaReadModeElementType> triTex;
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:52:    texture<int, 1, 
+cudaReadModeElementType> numVertsTex;
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:60:  //cudaSafeCall(cudaBindTexture(0, 
+edgeTex, edgeBuf, desc) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:61:  cudaSafeCall (cudaBindTexture (0, 
+triTex, triBuf, desc) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:62:  cudaSafeCall (cudaBindTexture (0, 
+numVertsTex, numVertsBuf, desc) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:67:  //cudaSafeCall( 
+cudaUnbindTexture(edgeTex) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:68:  cudaSafeCall ( cudaUnbindTexture 
+(numVertsTex) );
+pcl/gpu/kinfu/src/cuda/marching_cubes.cu:69:  cudaSafeCall ( cudaUnbindTexture 
+(triTex) );
+//#include "pcl/gpu/utils/device/warp.hpp"
+//#include "pcl/gpu/utils/device/vector_math.hpp"
+
+#include "thrust/device_ptr.h"
+#include "thrust/scan.h"
+
+namespace pcl
+{
+  namespace device
+  {
+    //texture<int, 1, cudaReadModeElementType> edgeTex;
+    texture<int, 1, cudaReadModeElementType> triTex;
+    texture<int, 1, cudaReadModeElementType> numVertsTex;
+  }
+}
+
+void
+pcl::device::bindTextures (const int */*edgeBuf*/, const int *triBuf, const int 
+*numVertsBuf)
+{
+  cudaChannelFormatDesc desc = cudaCreateChannelDesc<int>();
+  //cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+  cudaSafeCall (cudaBindTexture (0, triTex, triBuf, desc) );
+  cudaSafeCall (cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
+}
+void
+pcl::device::unbindTextures ()
+{
+  //cudaSafeCall( cudaUnbindTexture(edgeTex) );
+  cudaSafeCall ( cudaUnbindTexture (numVertsTex) );
+  cudaSafeCall ( cudaUnbindTexture (triTex) );
+}
+
+namespace pcl
+{
+  namespace device
+  {
+    __device__ int global_count = 0;
+    __device__ int output_count;
+    __device__ unsigned int blocks_done = 0;
+
+    struct CubeIndexEstimator
+    {
+      PtrStep<short2> volume;
+
+          static __device__ __forceinline__ float isoValue() { return 0.f; }
+
+      __device__ __forceinline__ void
+      readTsdf (int x, int y, int z, float& tsdf, int& weight) const
+      {
+        unpack_tsdf (volume.ptr (VOLUME_Y * z + y)[x], tsdf, weight);
+      }
+
+      __device__ __forceinline__ int
+      computeCubeIndex (int x, int y, int z, float f[8]) const
+      {
+        int weight;
+        readTsdf (x,     y,     z,     f[0], weight); if (weight == 0) return 0;
+        readTsdf (x + 1, y,     z,     f[1], weight); if (weight == 0) return 0;
+        readTsdf (x + 1, y + 1, z,     f[2], weight); if (weight == 0) return 0;
+        readTsdf (x,     y + 1, z,     f[3], weight); if (weight == 0) return 0;
+        readTsdf (x,     y,     z + 1, f[4], weight); if (weight == 0) return 0;
+        readTsdf (x + 1, y,     z + 1, f[5], weight); if (weight == 0) return 0;
+        readTsdf (x + 1, y + 1, z + 1, f[6], weight); if (weight == 0) return 0;
+        readTsdf (x,     y + 1, z + 1, f[7], weight); if (weight == 0) return 0;
+
+        // calculate flag indicating if each vertex is inside or outside 
+isosurface
+        int cubeindex;
+        cubeindex = int(f[0] < isoValue());
+        cubeindex += int(f[1] < isoValue()) * 2;
+        cubeindex += int(f[2] < isoValue()) * 4;
+        cubeindex += int(f[3] < isoValue()) * 8;
+/*
+* Software License Agreement (BSD License)
+*
+*  Point Cloud Library (PCL) - www.pointclouds.org
+*  Copyright (c) 2011, Willow Garage, Inc.
+*
+*  All rights reserved.
+*
+*  Redistribution and use in source and binary forms, with or without
+*  modification, are permitted provided that the following conditions
+*  are met:
+*
+*   * Redistributions of source code must retain the above copyright
+*     notice, this list of conditions and the following disclaimer.
+*   * Redistributions in binary form
+</output_head>
+<output_tail>
+PointType>&)triangles_buffer);
+    
+  device::unbindTextures();
+  return DeviceArray<PointType>(triangles_buffer.ptr(), total_vertexes);
+}
+
+
+// edge table maps 8-bit flag representing which cube vertices are inside
+// the isosurface to 12-bit number indicating which edges are intersected
+const int edgeTable[256] = 
+{
+        0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
+        0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
+#include "device.hpp"
+
+namespace pcl
+{
+  namespace device
+  {
+    using float_type = double;
+
+    template<int CTA_SIZE_, typename T>
+    static __device__ __forceinline__ void reduce(volatile T* buffer)
+    {
+      int tid = Block::flattenedThreadId();
+      T val =  buffer[tid];
+
+      if (CTA_SIZE_ >= 1024) { if (tid < 512) buffer[tid] = val = val + 
+buffer[tid + 512]; __syncthreads(); }
+      if (CTA_SIZE_ >=  512) { if (tid < 256) buffer[tid] = val = val + 
+buffer[tid + 256]; __syncthreads(); }
+      if (CTA_SIZE_ >=  256) { if (tid < 128) buffer[tid] = val = val + 
+buffer[tid + 128]; __syncthreads(); }
+      if (CTA_SIZE_ >=  128) { if (tid <  64) buffer[tid] = val = val + 
+buffer[tid +  64]; __syncthreads(); }
+
+      if (tid < 32)
+      {
+        if (CTA_SIZE_ >=   64) { buffer[tid] = val = val + buffer[tid +  32]; }
+        if (CTA_SIZE_ >=   32) { buffer[tid] = val = val + buffer[tid +  16]; }
+        if (CTA_SIZE_ >=   16) { buffer[tid] = val = val + buffer[tid +   8]; }
+        if (CTA_SIZE_ >=    8) { buffer[tid] = val = val + buffer[tid +   4]; }
+        if (CTA_SIZE_ >=    4) { buffer[tid] = val = val + buffer[tid +   2]; }
+        if (CTA_SIZE_ >=    2) { buffer[tid] = val = val + buffer[tid +   1]; }
+      }
+    }
+
+    struct Combined
+    {
+      enum
+      {
+        CTA_SIZE_X = 32,
+        CTA_SIZE_Y = 8,
+        CTA_SIZE = CTA_SIZE_X * CTA_SIZE_Y
+      };
+
+
+      Mat33 Rcurr;
+      float3 tcurr;
+
+      PtrStep<float> vmap_curr;
+      PtrStep<float> nmap_curr;
+
+      Mat33 Rprev_inv;
+      float3 tprev;
+
+      Intr intr;
+
+      PtrStep<float> vmap_g_prev;
+      PtrStep<float> nmap_g_prev;
+
+      float distThres;
+      float angleThres;
+
+      int cols;
+      int rows;
+
+      mutable PtrStep<float_type> gbuf;
+/*
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2011, Willow Garage, Inc.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of Willow Garage, Inc. nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *
+ *  Author: Anatoly Baskeheev, Itseez Ltd, (myname.mysurname@mycompany.com)
+ */
+
+#ifndef PCL_GPU_UTILS_TEXTURE_BINDER_HPP_
+#define PCL_GPU_UTILS_TEXTURE_BINDER_HPP_
+
+#include <pcl/gpu/containers/device_array.h>
+#include <pcl/gpu/utils/safe_call.hpp>
+
+namespace pcl {
+namespace gpu {
+class TextureBinder {
+public:
+  template <class T, enum cudaTextureReadMode readMode>
+  TextureBinder(const DeviceArray2D<T>& arr, const struct texture<T, 2, 
+readMode>& tex)
+  : texref(&tex)
+  {
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+    cudaSafeCall(
+        cudaBindTexture2D(0, tex, arr.ptr(), desc, arr.cols(), arr.rows(), 
+arr.step()));
+  }
+
+  template <class T, enum cudaTextureReadMode readMode>
+  TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>&
+tex)
+  : texref(&tex)
+  {
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+    cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
+  }
+
+  template <class T, enum cudaTextureReadMode readMode>
+  TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& 
+tex)
+  : texref(&tex)
+  {
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+    cudaSafeCall(
+        cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, 
+arr.step));
+  }
+
+  template <class T, enum cudaTextureReadMode readMode>
+  TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+  : texref(&tex)
+  {
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+    cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * 
+arr.elemSize()));
+  }
+
+  ~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+
+private:
+  const struct textureReference* texref;
+};
+} // namespace gpu
+
+namespace device {
+using pcl::gpu::TextureBinder;
+}
+} // namespace pcl
+
+#endif /* 
+PCL_GPU_UTILS_TEXTURE_BINDER_HPP_*/pcl/gpu/kinfu/src/cuda/marching_cubes.cu
+pcl/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
+pcl/gpu/people/src/cuda/elec.cu
+pcl/gpu/people/src/cuda/multi_tree.cu
+pcl/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu
+pcl/gpu/people/src/cuda/utils.cu
+
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 8, $0.45):
+```
+sed -n '370,560p' pcl/gpu/people/src/cuda/elec.cu; cat 
+pcl/gpu/people/src/cuda/utils.cu | head -100; grep -nE 
+'(__global__|__device__|tex[A-Z_]|cuda.*Texture)' 
+pcl/gpu/people/src/cuda/nvidia/NPP_staging.cu > /tmp/npp_funcs; cat 
+/tmp/npp_funcs
+```
+
+Tool:
+<returncode>0</returncode>
+<warning>Output too long: 2645 characters elided from the middle.</warning>
+<output_head>
+          int parent = comps.ptr(y)[x];
+
+          if (label == parent)
+              break;
+
+          label = parent;          
+        }
+        return label;
+    }
+
+    texture<unsigned char, 2, cudaReadModeElementType> edgesTex;
+    
+    struct TilesMerge
+    {           
+      int tileSizeX;
+      int tileSizeY;
+      int tilesNumX;
+      int tilesNumY;
+
+      mutable PtrStepSz<int> comps;
+
+      __device__ __forceinline__ void 
+      unionF(int l1, int l2, bool& changed) const
+      {
+        int r1 = findRoot(comps, l1);
+        int r2 = findRoot(comps, l2);
+        
+        if (r1 != r2)
+        {          
+          int mi = min(r1, r2);
+          int ma = max(r1, r2);
+
+          int y = ma / comps.cols;
+          int x = ma - y * comps.cols;
+          atomicMin(&comps.ptr(y)[x], mi);
+          changed = true;
+        }        
+      } 
+      
+      __device__ __forceinline__ void
+      operator()() const
+      {
+        int tid = Block::flattenedThreadId();
+        int stride = Block::stride();
+                
+        int xbeg = blockIdx.x * tilesNumX * tileSizeX;
+        int xend = xbeg + tilesNumX * tileSizeX;
+
+        int ybeg = blockIdx.y * tilesNumY * tileSizeY;
+        int yend = ybeg + tilesNumY * tileSizeY;
+
+        int tasksH = (tilesNumY - 1) * (xend - xbeg);
+        int tasksV = (tilesNumX - 1) * (yend - ybeg);
+
+        int total = tasksH + tasksV;
+        
+        bool changed;
+        do
+        {           
+          changed = false;
+
+          for( int task_index = tid; task_index < total; task_index += stride)
+            if (task_index < tasksH)
+            {
+              int indexH = task_index;
+
+              int row = indexH / (xend - xbeg);
+              int col = indexH - row * (xend - xbeg);
+
+              int y = ybeg + (row + 1) * tileSizeY;
+              int x = xbeg + col;
+
+              int e = tex2D(edgesTex, x, y);
+              if (e & Edges::UP)
+              {
+                int lc = comps.ptr(y  )[x];
+                int lu = comps.ptr(y-1)[x];
+                unionF(lc, lu, changed);
+              }
+            }
+            else
+            {
+              int indexV = task_index - tasksH;
+
+              int col = indexV / (yend - ybeg);
+              int row = indexV - col * (yend - ybeg);
+
+              int x = xbeg + (col + 1) * tileSizeX;
+              int y = ybeg + row;
+              
+              int e = tex2D(edgesTex, x, y);
+              if (e & Edges::LEFT)
+              {
+                int lc = comps.ptr(y)[x  ];
+                int ll = comps.ptr(y)[x-1];
+                unionF(lc, ll, changed);
+              }                                                                 
+            }                   
+        }
+        while(__syncthreads_or(changed));
+      }
+
+    };
+
+    __global__ void mergeKernel(const TilesMerge tm) { tm(); }        
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+///////
+//////////////// Connected components - flatten trees 
+/////////////////////////////////
+
+namespace pcl
+{
+  namespace device
+  {
+    __global__ void flattenTreesKernel(PtrStepSz<int> comps, const 
+PtrStep<Edges> edges)
+    {
+      int x = threadIdx.x + blockIdx.x * blockDim.x;
+      int y = threadIdx.y + blockIdx.y * blockDim.y;       
+
+      if( x < comps.cols && y < comps.rows)
+      {  
+        int invalid = edges.ptr(y)[x].data & Edges::INVALID;                    
+        comps.ptr(y)[x] = invalid ? -1 : findRoot(comps, comps.ptr(y)[x]);
+      }             
+    }
+  }
+}
+
+    
+void pcl::device::ConnectedComponents::labelComponents(const 
+DeviceArray2D<unsigned char>& edges, DeviceArray2D<int>& comps)
+{             
+  comps.create(edges.rows(), edges.cols());
+
+  dim3 block(CTA_SIZE_X, CTA_SIZE_Y);
+  dim3 grid(divUp(edges.cols(), TILE_COLS), divUp(edges.rows(), TILE_ROWS));
+  
+  smemTilesKernel<<<grid, block>>>(edges, comps);
+  cudaSafeCall( cudaGetLastError() );
+  cudaSafeCall( cudaDeviceSynchronize() );
+
+  TextureBinder binder(edges, edgesTex);
+
+  // the code below assumes such resolution
+  assert(edges.cols() == 640 && edges.rows() == 480);
+
+  TilesMerge tm;
+  tm.comps = comps;
+
+  //merge 4x3 -> 5x5 grid
+  tm.tileSizeX = TILE_COLS;
+  tm.tileSizeY = TILE_ROWS;
+  tm.tilesNumX = 4;
+  tm.tilesNumY = 3;
+
+  grid.x = edges.cols()/(tm.tileSizeX * tm.tilesNumX);
+  grid.y = edges.rows()/(tm.tileSizeY * tm.tilesNumY);
+  
+  mergeKernel<<<grid, 768>>>(tm);
+  cudaSafeCall( cudaGetLastError() );
+  cudaSafeCall( cudaDeviceSynchronize() );
+
+  //merge 5x5 -> 1x1 grid
+  tm.tileSizeX = TILE_COLS * tm.tilesNumX;
+  tm.tileSizeY = TILE_ROWS * tm.tilesNumY;
+  tm.tilesNumX = 5;
+  tm.tilesNumY = 5;
+
+  grid.x = edges.cols()/(tm.tileSizeX * tm.tilesNumX); 
+  grid.y = edges.rows()/(tm.tileSizeY * tm.tilesNumY); 
+
+  mergeKernel<<<grid, 1024>>>(tm);
+  cudaSafeCall( cudaGetLastError() );
+  cudaSafeCall( cudaDeviceSynchronize() );
+
+  grid.x = divUp(edges.cols(), block.x);
+  grid.y = divUp(edges.rows(), block.y);
+  flattenTreesKernel<<<grid, block>>>(comps, edges);
+  cudaSafeCall( cudaGetLastError() );
+  cudaSafeCall( cudaDeviceSynchronize() );
+}
+#include <limits>
+
+#include "internal.h"
+#include <pcl/gpu/utils/safe_call.hpp>
+#include <pcl/gpu/containers/initialization.h>
+#include <pcl/gpu/containers/impl/texture_binder.hpp>
+#include "npp.h"
+
+#include <stdio.h>
+
+namespace pcl
+{
+  namespace device
+  {
+    texture<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex;
+
+    __global__ void colorKernel(const PtrStepSz<unsigned char> labels, 
+PtrStep<uchar4> output)
+    {
+      int x = threadIdx.x + blockIdx.x * blockDim.x;
+      int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+      if (x < labels.cols && y < labels.rows)
+      {
+        int l = labels.ptr(y)[x];
+        output.ptr(y)[x] = tex1Dfetch(cmapTex, l);
+      }
+    }
+
+    __global__ void mixedColorKernel(const PtrStepSz<unsigned char> labels, 
+PtrStepSz<uchar4> rgba, PtrStep<uchar4> output)
+    {
+      int x = threadIdx
+</output_head>
+<output_tail>
+32u curElemOffs)
+200:    return tex1Dfetch(tex8u, texOffs + srcStride * blockIdx.x + 
+curElemOffs);
+205:inline __device__ Ncv32u readElem<Ncv32u>(Ncv32u *d_src, Ncv32u texOffs, 
+Ncv32u srcStride, Ncv32u curElemOffs)
+212:inline __device__ Ncv32f readElem<Ncv32f>(Ncv32f *d_src, Ncv32u texOffs, 
+Ncv32u srcStride, Ncv32u curElemOffs)
+237:__global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, 
+Ncv32u srcStride,
+267:            curElem = readElem<T_in>(d_src, texOffs, srcStride, 
+curElemOffs);
+306:        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, 
+cfdTex, roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+309:            ncvAssertCUDAReturn(cudaUnbindTexture(tex8u), NCV_CUDA_ERROR);
+310:            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, 
+d_src, cfdTex, alignmentOffset + roi.height * srcStride), 
+NPPST_TEXTURE_BIND_ERROR);
+664:__device__ T getElem_Decimate(Ncv32u x, T *d_src);
+668:__device__ Ncv32u getElem_Decimate<Ncv32u, true>(Ncv32u x, Ncv32u *d_src)
+675:__device__ Ncv32u getElem_Decimate<Ncv32u, false>(Ncv32u x, Ncv32u *d_src)
+682:__device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
+693:__device__ Ncv64u getElem_Decimate<Ncv64u, false>(Ncv32u x, Ncv64u *d_src)
+700:__global__ void decimate_C1R(T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u 
+dstStep,
+753:            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, 
+d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), 
+NPPST_TEXTURE_BIND_ERROR);
+761:            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, 
+d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), 
+NPPST_TEXTURE_BIND_ERROR);
+854:__device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
+868:__device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
+886:__global__ void rectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+989:        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_sum,
+cfdTexSrc, (roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), 
+NPPST_TEXTURE_BIND_ERROR);
+991:        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, 
+d_sqsum, cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * 
+sizeof(Ncv64u)), NPPST_TEXTURE_BIND_ERROR);
+1087:__global__ void transpose(T *d_src, Ncv32u srcStride,
+1249:__global__ void removePass1Scan(Ncv32u *d_src, Ncv32u srcLen,
+1298:__global__ void removePass2Adjust(Ncv32u *d_offsets, Ncv32u srcLen, Ncv32u 
+*d_blockSums)
+1315:__global__ void removePass3Compact(Ncv32u *d_src, Ncv32u srcLen,
+1627:texture <float, 1, cudaReadModeElementType> texSrc;
+1628:texture <float, 1, cudaReadModeElementType> texKernel;
+1631:__forceinline__ __device__ float getValueMirrorRow(const int rowOffset,
+1637:    return tex1Dfetch (texSrc, rowOffset + i);
+1641:__forceinline__ __device__ float getValueMirrorColumn(const int offset,
+1648:    return tex1Dfetch (texSrc, offset + j * rowStep);
+1652:__global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
+1680:            * tex1Dfetch (texKernel, m);
+1687:__global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
+1712:            * tex1Dfetch (texKernel, m);
+1760:    texSrc.normalized    = false;
+1761:    texKernel.normalized = false;
+1763:    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * 
+nSrcStep);
+1764:    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * 
+sizeof (Ncv32f));
+1832:    texSrc.normalized    = false;
+1833:    texKernel.normalized = false;
+1835:    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * 
+nSrcStep);
+1836:    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * 
+sizeof (Ncv32f));
+1874:texture<float, 2, cudaReadModeElementType> tex_src1;
+1875:texture<float, 2, cudaReadModeElementType> tex_src0;
+1878:__global__ void BlendFramesKernel(const float *u, const float *v,   // 
+forward flow
+1905:        out[pos] = tex2D(tex_src0, x - _u * theta, y - _v * theta) * (1.0f 
+- theta) + 
+1906:            tex2D(tex_src1, x + _u * (1.0f - theta), y + _v * (1.0f - 
+theta)) * theta;
+1911:        out[pos] = tex2D(tex_src0, x - _u * theta, y - _v * theta);
+1916:        out[pos] = tex2D(tex_src1, x - _ur * (1.0f - theta), y - _vr * 
+(1.0f - theta));
+1935:    tex_src1.addressMode[0] = cudaAddressModeClamp;
+1936:    tex_src1.addressMode[1] = cudaAddressModeClamp;
+1937:    tex_src1.filterMode = cudaFilterModeLinear;
+1938:    tex_src1.normalized = false;
+1940:    tex_src0.addressMode[0] = cudaAddressModeClamp;
+1941:    tex_src0.addressMode[1] = cudaAddressModeClamp;
+1942:    tex_src0.filterMode = cudaFilterModeLinear;
+1943:    tex_src0.normalized = false;
+1947:    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src1, src1, desc, width,
+height, pitch), NPPST_TEXTURE_BIND_ERROR);
+1948:    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src0, src0, desc, width,
+height, pitch), NPPST_TEXTURE_BIND_ERROR);
+2072:__global__ void ForwardWarpKernel_PSF2x2(const float *u,
+2143:__global__ void ForwardWarpKernel_PSF1x1(const float *u,
+2180:__global__ void NormalizeKernel(const float *normalization_factor, int w, 
+int h, int s, float *image)
+2197:__global__ void MemsetKernel(const float value, int w, int h, float *image)
+2307:texture <float, 2, cudaReadModeElementType> texSrc2D;
+2311:__device__ float processLine(int spos,
+2321:    float sum = tex1Dfetch(texSrc, spos) * (1.0f - xmin + fxmin);
+2325:        sum += tex1Dfetch(texSrc, spos);
+2329:    sum += tex1Dfetch(texSrc, spos) * (cxmax - xmax);
+2335:__global__ void resizeSuperSample_32f(NcvSize32u srcSize,
+2405:__device__ float bicubicCoeff(float x_)
+2423:__global__ void resizeBicubic(NcvSize32u srcSize,
+2484:            sum += wx * tex2D (texSrc2D, cx * dx, cy * dy);
+2521:        cudaBindTexture (0, texSrc, pSrc, srcSize.height * nSrcStep);
+2532:        texSrc2D.addressMode[0] = cudaAddressModeMirror;
+2533:        texSrc2D.addressMode[1] = cudaAddressModeMirror;
+2534:        texSrc2D.normalized = true;
+2538:        cudaBindTexture2D (0, texSrc2D, pSrc, desc, srcSize.width, 
+srcSize.height,
+
+</output_tail>
+────────────────────────────────────────────────────────────────────────────────

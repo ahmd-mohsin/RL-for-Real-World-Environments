@@ -94,3 +94,14 @@ Where the time went (oracle v1 profile on the 5090) and what v2 does:
   - v2 keeps the exact index sequence and order, with structure-of-arrays split by index parity (so stride-2 runs are contiguous) and AVX2 tests of 8 candidates at a time.
   - It mirrors GCC's contracted arithmetic, `fma(dz, dz, fma(dx, dx, dy*dy))`, and turns the double compare into an equivalent float threshold.
   - Labels are bit-identical on 20 variants. Result: 40.6 → 13.3 ms.
+
+### v2 validation (final suite)
+
+| patch | reward | notes |
+|---|---|---|
+| `solution.patch` (oracle v2) | **1.0** (33 min) | Perf ratios: KinFu 0.569, MC 0.431, cloud 0.612, KinFuLS 0.584, people 0.34 |
+| GPT 5.6 sol v1 patch, on the v1 suite | 1.0 | Like Astra, solved the correctness-only version |
+
+809 reference fingerprints are pinned.
+
+A Haar pitfall found during v2 validation: on some seeds the synthetic cascade exceeded the 16384-rect output capacity, and with atomic compaction the truncated set differs from run to run *in the original too*. The capacity is now 2^19, above the number of candidate windows over all scales.
