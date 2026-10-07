@@ -157,6 +157,21 @@ index 2ba88e0..95b61c4 100644
  
  PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
  PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+diff --git a/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h b/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h
+index 8723245..edd0a5b 100644
+--- a/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h
++++ b/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h
+@@ -272,6 +272,10 @@ namespace pcl
+         /** \brief Buffer to store MLS matrix. */
+         DeviceArray<double> sumbuf_;
+ 
++        /** \brief Device-resident ICP state: pose (row-major R, t) and degenerate-system flag. */
++        DeviceArray<float> icp_pose_;
++        DeviceArray<int> icp_status_;
++
+         /** \brief Array of camera rotation matrices for each moment of time. */
+         std::vector<Matrix3frm> rmats_;
+         
 diff --git a/gpu/kinfu/include/pcl/gpu/kinfu/marching_cubes.h b/gpu/kinfu/include/pcl/gpu/kinfu/marching_cubes.h
 index ea290c2..dc2d90a 100644
 --- a/gpu/kinfu/include/pcl/gpu/kinfu/marching_cubes.h
@@ -210,7 +225,7 @@ index 9e0acaa..519e2fb 100644
    }
  }
 diff --git a/gpu/kinfu/src/cuda/estimate_combined.cu b/gpu/kinfu/src/cuda/estimate_combined.cu
-index dc768f5..b667200 100644
+index dc768f5..ba60a3b 100644
 --- a/gpu/kinfu/src/cuda/estimate_combined.cu
 +++ b/gpu/kinfu/src/cuda/estimate_combined.cu
 @@ -58,12 +58,15 @@ namespace pcl
@@ -235,8 +250,268 @@ index dc768f5..b667200 100644
        }
      }
  
+@@ -336,3 +339,259 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
+         matrixA_host[j * 6 + i] = matrixA_host[i * 6 + j] = value;
+     }
+ }
++
++//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++// Device-resident ICP: the pose lives in device memory and every iteration is three kernels (correspondences +
++// per-block partial sums, the final reduction, and the 6x6 solve with the pose update), so that a frame's
++// iterations run without host round trips. FP64 is slow on GeForce parts: partial sums are formed in FP32
++// within a warp and accumulated in FP64 across warps, blocks and the final reduction.
++
++namespace pcl
++{
++  namespace device
++  {
++    __device__ __forceinline__ float
++    warpSumFloat (float v)
++    {
++      #pragma unroll
++      for (int o = 16; o > 0; o >>= 1)
++        v += __shfl_down_sync (0xffffffffu, v, o);
++      return v;
++    }
++
++    __device__ __forceinline__ double
++    warpSumDouble (double v)
++    {
++      #pragma unroll
++      for (int o = 16; o > 0; o >>= 1)
++        v += __shfl_down_sync (0xffffffffu, v, o);
++      return v;
++    }
++
++    __global__ void
++    combinedPoseKernel (Combined cs, const float* __restrict__ pose)
++    {
++      #pragma unroll
++      for (int r = 0; r < 3; ++r)
++      {
++        cs.Rcurr.data[r].x = __ldg (pose + 3 * r + 0);
++        cs.Rcurr.data[r].y = __ldg (pose + 3 * r + 1);
++        cs.Rcurr.data[r].z = __ldg (pose + 3 * r + 2);
++      }
++      cs.tcurr = make_float3 (__ldg (pose + 9), __ldg (pose + 10), __ldg (pose + 11));
++
++      int x = threadIdx.x + blockIdx.x * Combined::CTA_SIZE_X;
++      int y = threadIdx.y + blockIdx.y * Combined::CTA_SIZE_Y;
++
++      float3 n, d, s;
++      bool found_coresp = false;
++      if (x < cs.cols && y < cs.rows)
++        found_coresp = cs.search (x, y, n, d, s);
++
++      float row[7];
++      if (found_coresp)
++      {
++        *(float3*)&row[0] = cross (s, n);
++        *(float3*)&row[3] = n;
++        row[6] = dot (n, d - s);
++      }
++      else
++        row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
++
++      constexpr int WARPS = Combined::CTA_SIZE / 32;
++      __shared__ float wsum[27][WARPS];
++      const int tid = Block::flattenedThreadId ();
++      const int lane = tid & 31, warp = tid >> 5;
++      int k = 0;
++      #pragma unroll
++      for (int i = 0; i < 6; ++i)
++      {
++        #pragma unroll
++        for (int j = i; j < 7; ++j)
++        {
++          float v = warpSumFloat (row[i] * row[j]);
++          if (lane == 0)
++            wsum[k][warp] = v;
++          ++k;
++        }
++      }
++      __syncthreads ();
++      if (tid < 27)
++      {
++        double sum = 0;
++        #pragma unroll
++        for (int w = 0; w < WARPS; ++w)
++          sum += (double)wsum[tid][w];
++        cs.gbuf.ptr (tid)[blockIdx.x + gridDim.x * blockIdx.y] = sum;
++      }
++    }
++
++    // 27 blocks: block k sums row k of the per-block partials in a fixed order (deterministic); the last block to
++    // finish solves A x = b by Cholesky (A = J^T J is symmetric positive semi-definite; det(A) = prod(L_ii)^2 is the
++    // original's nullspace check) and applies the pose update of the host code:
++    // Rinc = Rz(gamma) Ry(beta) Rx(alpha); t = Rinc t + tinc; R = Rinc R
++    __global__ void
++    reduceSolveKernel (PtrStep<double> gbuf, int length, double* sums, unsigned int* done, float* pose, int* status)
++    {
++      constexpr int THREADS = 256;
++      __shared__ double part[THREADS / 32];
++      __shared__ bool last;
++      const double* row = gbuf.ptr (blockIdx.x);
++      double v = 0;
++      for (int i = threadIdx.x; i < length; i += THREADS)
++        v += row[i];
++      v = warpSumDouble (v);
++      if ((threadIdx.x & 31) == 0)
++        part[threadIdx.x >> 5] = v;
++      __syncthreads ();
++      if (threadIdx.x == 0)
++      {
++        double s = 0;
++        #pragma unroll
++        for (int w = 0; w < THREADS / 32; ++w)
++          s += part[w];
++        sums[blockIdx.x] = s;
++        __threadfence ();
++        last = atomicAdd (done, 1u) == gridDim.x - 1;
++      }
++      __syncthreads ();
++      if (!last || threadIdx.x != 0)
++        return;
++      *done = 0;  // ready for the next iteration (kernels on the stream are ordered)
++      __threadfence ();
++      if (*status != 0)
++        return;
++
++      double A[6][6], b[6];
++      {
++        int shift = 0;
++        #pragma unroll
++        for (int i = 0; i < 6; ++i)
++        {
++          #pragma unroll
++          for (int j = i; j < 7; ++j)
++          {
++            const double val = __ldcg (sums + shift++);
++            if (j == 6) b[i] = val;
++            else A[i][j] = A[j][i] = val;
++          }
++        }
++      }
++      double L[6][6], inv[6];
++      double det = 1;
++      bool ok = true;
++      #pragma unroll
++      for (int j = 0; j < 6; ++j)
++      {
++        double dd = A[j][j];
++        #pragma unroll
++        for (int k = 0; k < j; ++k) dd -= L[j][k] * L[j][k];
++        ok = ok && dd > 0;
++        det *= dd;
++        inv[j] = rsqrt (dd);
++        L[j][j] = dd * inv[j];
++        #pragma unroll
++        for (int i = j + 1; i < 6; ++i)
++        {
++          double val = A[i][j];
++          #pragma unroll
++          for (int k = 0; k < j; ++k) val -= L[i][k] * L[j][k];
++          L[i][j] = val * inv[j];
++        }
++      }
++      if (!ok || fabs (det) < 1e-15 || isnan (det))
++      {
++        *status = 1;
++        return;
++      }
++      double y[6], x[6];
++      #pragma unroll
++      for (int i = 0; i < 6; ++i)
++      {
++        double val = b[i];
++        #pragma unroll
++        for (int k = 0; k < i; ++k) val -= L[i][k] * y[k];
++        y[i] = val * inv[i];
++      }
++      #pragma unroll
++      for (int i = 5; i >= 0; --i)
++      {
++        double val = y[i];
++        #pragma unroll
++        for (int k = i + 1; k < 6; ++k) val -= L[k][i] * x[k];
++        x[i] = val * inv[i];
++      }
++
++      float ca, sa, cb, sb, cg, sg;
++      sincosf ((float)x[0], &sa, &ca);
++      sincosf ((float)x[1], &sb, &cb);
++      sincosf ((float)x[2], &sg, &cg);
++      const float Rz[3][3] = {{cg, -sg, 0}, {sg, cg, 0}, {0, 0, 1}};
++      const float Ry[3][3] = {{cb, 0, sb}, {0, 1, 0}, {-sb, 0, cb}};
++      const float Rx[3][3] = {{1, 0, 0}, {0, ca, -sa}, {0, sa, ca}};
++      float Rzy[3][3], Rinc[3][3];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          Rzy[i][j] = Rz[i][0] * Ry[0][j] + Rz[i][1] * Ry[1][j] + Rz[i][2] * Ry[2][j];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          Rinc[i][j] = Rzy[i][0] * Rx[0][j] + Rzy[i][1] * Rx[1][j] + Rzy[i][2] * Rx[2][j];
++
++      float R[3][3], t[3];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++      {
++        t[i] = pose[9 + i];
++        #pragma unroll
++        for (int j = 0; j < 3; ++j) R[i][j] = pose[i * 3 + j];
++      }
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++      {
++        pose[9 + i] = Rinc[i][0] * t[0] + Rinc[i][1] * t[1] + Rinc[i][2] * t[2] + (float)x[3 + i];
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          pose[i * 3 + j] = Rinc[i][0] * R[0][j] + Rinc[i][1] * R[1][j] + Rinc[i][2] * R[2][j];
++      }
++    }
++  }
++}
++
++void
++pcl::device::estimateCombinedStep (float* pose, int* status, const MapArr& vmap_curr, const MapArr& nmap_curr,
++                                   const Mat33& Rprev_inv, const float3& tprev, const Intr& intr,
++                                   const MapArr& vmap_g_prev, const MapArr& nmap_g_prev, float distThres, float angleThres,
++                                   DeviceArray2D<double>& gbuf, DeviceArray<double>& sums, unsigned int* done)
++{
++  int cols = vmap_curr.cols ();
++  int rows = vmap_curr.rows () / 3;
++
++  Combined cs;
++  cs.vmap_curr = vmap_curr;
++  cs.nmap_curr = nmap_curr;
++  cs.Rprev_inv = Rprev_inv;
++  cs.tprev = tprev;
++  cs.intr = intr;
++  cs.vmap_g_prev = vmap_g_prev;
++  cs.nmap_g_prev = nmap_g_prev;
++  cs.distThres = distThres;
++  cs.angleThres = angleThres;
++  cs.cols = cols;
++  cs.rows = rows;
++
++  dim3 block (Combined::CTA_SIZE_X, Combined::CTA_SIZE_Y);
++  dim3 grid (divUp (cols, block.x), divUp (rows, block.y));
++  if (gbuf.rows () != TranformReduction::TOTAL || gbuf.cols () < (int)(grid.x * grid.y))
++    gbuf.create (TranformReduction::TOTAL, grid.x * grid.y);
++  sums.create (TranformReduction::TOTAL);
++  cs.gbuf = gbuf;
++
++  combinedPoseKernel<<<grid, block>>>(cs, pose);
++  cudaSafeCall (cudaGetLastError ());
++  reduceSolveKernel<<<TranformReduction::TOTAL, 256>>>(gbuf, grid.x * grid.y, sums.ptr (), done, pose, status);
++  cudaSafeCall (cudaGetLastError ());
++}
 diff --git a/gpu/kinfu/src/cuda/extract.cu b/gpu/kinfu/src/cuda/extract.cu
-index 9f4e319..793a9bf 100644
+index 9f4e319..2ad0561 100644
 --- a/gpu/kinfu/src/cuda/extract.cu
 +++ b/gpu/kinfu/src/cuda/extract.cu
 @@ -57,10 +57,6 @@ namespace pcl
@@ -258,7 +533,7 @@ index 9f4e319..793a9bf 100644
  
        __device__ __forceinline__ float
        fetch (int x, int y, int z, int& weight) const
-@@ -86,9 +83,7 @@ namespace pcl
+@@ -86,25 +83,44 @@ namespace pcl
          int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
          int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
         
@@ -269,7 +544,73 @@ index 9f4e319..793a9bf 100644
  
          float3 V;
          V.x = (x + 0.5f) * cell_size.x;
-@@ -178,26 +173,30 @@ namespace pcl
+         V.y = (y + 0.5f) * cell_size.y;
+ 
+         int ftid = Block::flattenedThreadId ();
+-
+-        for (int z = 0; z < VOLUME_Z - 1; ++z)
++        const bool inside = x < VOLUME_X && y < VOLUME_Y;
++        const int lane_x = threadIdx.x;  // CTA_SIZE_X == warp size: lane + 1 holds voxel x + 1
++
++        // the voxel's own value is carried along z (it was the previous step's z + 1 neighbour)
++        // the column's z range is split over gridDim.z chunks; the voxel's own value is carried along z (it was the
++        // previous step's z + 1 neighbour)
++        const int zchunk = (VOLUME_Z - 1 + gridDim.z - 1) / gridDim.z;
++        const int z0 = blockIdx.z * zchunk;
++        const int z1 = min (z0 + zchunk, VOLUME_Z - 1);
++        int W = 0;
++        float F = 0.f;
++        if (inside)
++          F = fetch (x, y, z0, W);
++
++        for (int z = z0; z < z1; ++z)
+         {
+           float3 points[MAX_LOCAL_POINTS];
+           int local_count = 0;
+ 
+-          if (x < VOLUME_X && y < VOLUME_Y)
++          // x + 1 neighbour from the next lane (all lanes take part)
++          float Fx_sh = __shfl_down_sync (0xffffffffu, F, 1);
++          int Wx_sh = __shfl_down_sync (0xffffffffu, W, 1);
++
++          int Wz = 0;
++          float Fz = 0.f;
++          if (inside)
++            Fz = fetch (x, y, z + 1, Wz);
++
++
++          if (inside)
+           {
+-            int W;
+-            float F = fetch (x, y, z, W);
+ 
+             if (W != 0 && F != 1.f)
+             {
+@@ -113,8 +129,10 @@ namespace pcl
+               //process dx
+               if (x + 1 < VOLUME_X)
+               {
+-                int Wn;
+-                float Fn = fetch (x + 1, y, z, Wn);
++                int Wn = Wx_sh;
++                float Fn = Fx_sh;
++                if (lane_x == CTA_SIZE_X - 1)
++                  Fn = fetch (x + 1, y, z, Wn);
+ 
+                 if (Wn != 0 && Fn != 1.f)
+                   if ((F > 0 && Fn < 0) || (F < 0 && Fn > 0))
+@@ -157,8 +175,8 @@ namespace pcl
+               //process dz
+               //if (z + 1 < VOLUME_Z) // guaranteed by loop
+               {
+-                int Wn;
+-                float Fn = fetch (x, y, z + 1, Wn);
++                int Wn = Wz;
++                float Fn = Fz;
+ 
+                 if (Wn != 0 && Fn != 1.f)
+                   if ((F > 0 && Fn < 0) || (F < 0 && Fn > 0))
+@@ -178,26 +196,30 @@ namespace pcl
              }              /* if (W != 0 && F != 1.f) */
            }            /* if (x < VOLUME_X && y < VOLUME_Y) */
  
@@ -312,7 +653,7 @@ index 9f4e319..793a9bf 100644
  
              for (int l = 0; l < local_count; ++l)
              {
-@@ -205,15 +204,17 @@ namespace pcl
+@@ -205,15 +227,17 @@ namespace pcl
                storage_Y[storage_index + offset + l] = points[l].y;
                storage_Z[storage_index + offset + l] = points[l].z;
              }
@@ -331,8 +672,14 @@ index 9f4e319..793a9bf 100644
  
              bool full = (old_global_count + total_warp) >= output.size;
  
-@@ -224,21 +225,6 @@ namespace pcl
-         }         /* for(int z = 0; z < VOLUME_Z - 1; ++z) */
+@@ -221,24 +245,11 @@ namespace pcl
+               break;
+           }
+ 
+-        }         /* for(int z = 0; z < VOLUME_Z - 1; ++z) */
++          F = Fz;
++          W = Wz;
++        }         /* for z in the chunk */
  
  
 -        ///////////////////////////
@@ -353,7 +700,7 @@ index 9f4e319..793a9bf 100644
        }       /* operator() */
  
        __device__ __forceinline__ void
-@@ -261,7 +247,7 @@ namespace pcl
+@@ -261,7 +272,7 @@ namespace pcl
  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  size_t
  pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_size, 
@@ -362,15 +709,16 @@ index 9f4e319..793a9bf 100644
  {
    FullScan6 fs;
    fs.volume = volume;
-@@ -269,6 +255,7 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
+@@ -269,20 +280,21 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
    fs.cell_size.y = volume_size.y / VOLUME_Y;
    fs.cell_size.z = volume_size.z / VOLUME_Z;
    fs.output = output;
 +  fs.counter = counter;
  
    dim3 block (CTA_SIZE_X, CTA_SIZE_Y);
-   dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
-@@ -276,13 +263,13 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
+-  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), 8);
+ 
    //cudaFuncSetCacheConfig(extractKernel, cudaFuncCachePreferL1);
    //printFuncAttrib(extractKernel);
  
@@ -387,6 +735,44 @@ index 9f4e319..793a9bf 100644
  }
  
  
+diff --git a/gpu/kinfu/src/cuda/maps.cu b/gpu/kinfu/src/cuda/maps.cu
+index 1b37936..ccfc3af 100644
+--- a/gpu/kinfu/src/cuda/maps.cu
++++ b/gpu/kinfu/src/cuda/maps.cu
+@@ -221,7 +221,7 @@ pcl::device::tranformMaps (const MapArr& vmap_src, const MapArr& nmap_src,
+   tranformMapsKernel<<<grid, block>>>(rows, cols, vmap_src, nmap_src, Rmat, tvec, vmap_dst, nmap_dst);
+   cudaSafeCall (cudaGetLastError ());
+ 
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  // (no device-wide sync: the frame pipeline is stream-ordered)
+ }
+ 
+ namespace pcl
+@@ -298,7 +298,7 @@ namespace pcl
+       dim3 grid (divUp (out_cols, block.x), divUp (out_rows, block.y));
+       resizeMapKernel<normalize><< < grid, block>>>(out_rows, out_cols, in_rows, input, output);
+       cudaSafeCall ( cudaGetLastError () );
+-      cudaSafeCall (cudaDeviceSynchronize ());
++      // (no device-wide sync: the frame pipeline is stream-ordered)
+     }
+   }
+ }
+@@ -363,7 +363,7 @@ pcl::device::convert (const MapArr& vmap, DeviceArray2D<T>& output)
+ 
+   convertMapKernel<T><< < grid, block>>>(rows, cols, vmap, output);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  // (no device-wide sync: the frame pipeline is stream-ordered)
+ }
+ 
+ template void pcl::device::convert (const MapArr& vmap, DeviceArray2D<float4>& output);
+@@ -406,5 +406,5 @@ pcl::device::mergePointNormal (const DeviceArray<float4>& cloud, const DeviceArr
+ 
+   mergePointNormalKernel<<<divUp (total, block), block>>>(cloud, normals, output);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  // (no device-wide sync: the frame pipeline is stream-ordered)
+ }
 diff --git a/gpu/kinfu/src/cuda/marching_cubes.cu b/gpu/kinfu/src/cuda/marching_cubes.cu
 index 127f050..3919328 100644
 --- a/gpu/kinfu/src/cuda/marching_cubes.cu
@@ -613,6 +999,18 @@ index 127f050..3919328 100644
    tg.occupied_voxels = occupied_voxels.ptr (0);
    tg.vertex_ofssets = occupied_voxels.ptr (2);
    tg.voxels_count = occupied_voxels.cols ();
+diff --git a/gpu/kinfu/src/cuda/normals_eigen.cu b/gpu/kinfu/src/cuda/normals_eigen.cu
+index a028f6a..c19eab8 100644
+--- a/gpu/kinfu/src/cuda/normals_eigen.cu
++++ b/gpu/kinfu/src/cuda/normals_eigen.cu
+@@ -146,6 +146,6 @@ pcl::device::computeNormalsEigen (const MapArr& vmap, MapArr& nmap)
+ 
+   computeNmapKernelEigen<<<grid, block>>>(rows, cols, vmap, nmap);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  // (no device-wide sync: the frame pipeline is stream-ordered)
+ }
+ 
 diff --git a/gpu/kinfu/src/cuda/utils.hpp b/gpu/kinfu/src/cuda/utils.hpp
 index 7fedbb6..4ffd1c7 100644
 --- a/gpu/kinfu/src/cuda/utils.hpp
@@ -691,10 +1089,27 @@ index 7fedbb6..4ffd1c7 100644
  
        static __forceinline__ __device__ int 
 diff --git a/gpu/kinfu/src/internal.h b/gpu/kinfu/src/internal.h
-index 535689f..02d44fc 100644
+index 535689f..5f2f9b6 100644
 --- a/gpu/kinfu/src/internal.h
 +++ b/gpu/kinfu/src/internal.h
-@@ -340,7 +340,7 @@ namespace pcl
+@@ -212,6 +212,16 @@ namespace pcl
+                       const MapArr& vmap_g_prev, const MapArr& nmap_g_prev, float distThres, float angleThres,
+                       DeviceArray2D<double>& gbuf, DeviceArray<double>& mbuf, double* matrixA_host, double* vectorB_host);
+ 
++    /** \brief One ICP iteration on the device: correspondences and partial sums for the pose in pose[0..11]
++      * (row-major R, then t), then the reduction, the 6x6 solve and the pose update, all without host round trips.
++      * status is set to 1 (and later iterations do nothing) when the system is degenerate, like the host check.
++      */
++    void
++    estimateCombinedStep (float* pose, int* status, const MapArr& vmap_curr, const MapArr& nmap_curr, const Mat33& Rprev_inv,
++                          const float3& tprev, const Intr& intr, const MapArr& vmap_g_prev, const MapArr& nmap_g_prev,
++                          float distThres, float angleThres, DeviceArray2D<double>& gbuf, DeviceArray<double>& sums,
++                          unsigned int* done);
++
+ 
+     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+     // TSDF volume functions            
+@@ -340,7 +350,7 @@ namespace pcl
        * \return number of point stored to passed buffer
        */ 
      PCL_EXPORTS std::size_t 
@@ -703,7 +1118,7 @@ index 535689f..02d44fc 100644
  
      /** \brief Performs normals computation for given points using tsdf volume
        * \param[in] volume tsdf volume
-@@ -405,22 +405,13 @@ namespace pcl
+@@ -405,22 +415,13 @@ namespace pcl
  
      ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
      // Marching cubes implementation
@@ -727,7 +1142,7 @@ index 535689f..02d44fc 100644
  
      /** \brief Computes total number of vertexes for all voxels and offsets of vertexes in final triangle array
        * \param[out] occupied_voxels buffer with occupied voxels. The function fulfills 3nd only with offsets      
-@@ -436,6 +427,6 @@ namespace pcl
+@@ -436,6 +437,6 @@ namespace pcl
        * \param[out] output triangle array            
        */
      void
@@ -735,6 +1150,123 @@ index 535689f..02d44fc 100644
 +    generateTriangles(const PtrStep<short2>& volume, const int* num_verts_table, const int* tri_table, const DeviceArray2D<int>& occupied_voxels, const float3& volume_size, DeviceArray<PointType>& output);
    }
  }
+diff --git a/gpu/kinfu/src/kinfu.cpp b/gpu/kinfu/src/kinfu.cpp
+index d328330..14918e6 100644
+--- a/gpu/kinfu/src/kinfu.cpp
++++ b/gpu/kinfu/src/kinfu.cpp
+@@ -224,6 +224,8 @@ pcl::gpu::KinfuTracker::allocateBufffers (int rows, int cols)
+   // see estimate transform for the magic numbers
+   gbuf_.create (27, 20*60);
+   sumbuf_.create (27);
++  icp_pose_.create (12);
++  icp_status_.create (2);  // [0] degenerate-system flag, [1] block counter of the fused reduction
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -252,7 +254,6 @@ pcl::gpu::KinfuTracker::operator() (const DepthMap& depth_raw,
+           //device::createNMap(vmaps_curr_[i], nmaps_curr_[i]);
+           computeNormalsEigen (vmaps_curr_[i], nmaps_curr_[i]);
+         }
+-        pcl::device::sync ();
+       }
+ 
+       //can't perform more on first frame
+@@ -300,69 +301,37 @@ pcl::gpu::KinfuTracker::operator() (const DepthMap& depth_raw,
+         tcurr = tprev;
+       }
+       {
+-        //ScopeTime time("icp-all");
++        // all iterations of all levels run on the device; the pose comes back once
++        float pose_host[12];
++        for (int r = 0; r < 3; ++r)
++          for (int c = 0; c < 3; ++c)
++            pose_host[r * 3 + c] = Rcurr (r, c);
++        for (int i = 0; i < 3; ++i)
++          pose_host[9 + i] = tcurr (i);
++        int status_host[2] = {0, 0};
++        cudaSafeCall (cudaMemcpyAsync (icp_pose_.ptr (), pose_host, sizeof (pose_host), cudaMemcpyHostToDevice));
++        cudaSafeCall (cudaMemcpyAsync (icp_status_.ptr (), status_host, sizeof (status_host), cudaMemcpyHostToDevice));
+         for (int level_index = LEVELS-1; level_index>=0; --level_index)
+         {
+           int iter_num = icp_iterations_[level_index];
+-
+-          MapArr& vmap_curr = vmaps_curr_[level_index];
+-          MapArr& nmap_curr = nmaps_curr_[level_index];
+-
+-          //MapArr& vmap_g_curr = vmaps_g_curr_[level_index];
+-          //MapArr& nmap_g_curr = nmaps_g_curr_[level_index];
+-
+-          MapArr& vmap_g_prev = vmaps_g_prev_[level_index];
+-          MapArr& nmap_g_prev = nmaps_g_prev_[level_index];
+-
+-          //CorespMap& coresp = coresps_[level_index];
+-
+           for (int iter = 0; iter < iter_num; ++iter)
+-          {
+-            Mat33&  device_Rcurr = device_cast<Mat33> (Rcurr);
+-            float3& device_tcurr = device_cast<float3>(tcurr);
+-
+-            Eigen::Matrix<double, 6, 6, Eigen::RowMajor> A;
+-            Eigen::Matrix<double, 6, 1> b;
+-    #if 0
+-            device::tranformMaps(vmap_curr, nmap_curr, device_Rcurr, device_tcurr, vmap_g_curr, nmap_g_curr);
+-            findCoresp(vmap_g_curr, nmap_g_curr, device_Rprev_inv, device_tprev, intr(level_index), vmap_g_prev, nmap_g_prev, distThres_, angleThres_, coresp);
+-            device::estimateTransform(vmap_g_prev, nmap_g_prev, vmap_g_curr, coresp, gbuf_, sumbuf_, A.data(), b.data());
+-
+-            //cv::gpu::GpuMat ma(coresp.rows(), coresp.cols(), CV_32S, coresp.ptr(), coresp.step());
+-            //cv::Mat cpu;
+-            //ma.download(cpu);
+-            //cv::imshow(names[level_index] + string(" --- coresp white == -1"), cpu == -1);
+-    #else
+-            estimateCombined (device_Rcurr, device_tcurr, vmap_curr, nmap_curr, device_Rprev_inv, device_tprev, intr (level_index),
+-                              vmap_g_prev, nmap_g_prev, distThres_, angleThres_, gbuf_, sumbuf_, A.data (), b.data ());
+-    #endif
+-            //checking nullspace
+-            double det = A.determinant ();
+-
+-            if (std::abs (det) < 1e-15 || std::isnan (det))
+-            {
+-              if (std::isnan (det)) std::cout << "qnan" << std::endl;
+-
+-              reset ();
+-              return (false);
+-            }
+-            //float maxc = A.maxCoeff();
+-
+-            Eigen::Matrix<float, 6, 1> result = A.llt ().solve (b).cast<float>();
+-            //Eigen::Matrix<float, 6, 1> result = A.jacobiSvd(ComputeThinU | ComputeThinV).solve(b);
+-
+-            float alpha = result (0);
+-            float beta  = result (1);
+-            float gamma = result (2);
+-
+-            Eigen::Matrix3f Rinc = (Eigen::Matrix3f)AngleAxisf (gamma, Vector3f::UnitZ ()) * AngleAxisf (beta, Vector3f::UnitY ()) * AngleAxisf (alpha, Vector3f::UnitX ());
+-            Vector3f tinc = result.tail<3> ();
+-
+-            //compose
+-            tcurr = Rinc * tcurr + tinc;
+-            Rcurr = Rinc * Rcurr;
+-          }
++            estimateCombinedStep (icp_pose_.ptr (), icp_status_.ptr (), vmaps_curr_[level_index], nmaps_curr_[level_index],
++                                  device_Rprev_inv, device_tprev, intr (level_index), vmaps_g_prev_[level_index],
++                                  nmaps_g_prev_[level_index], distThres_, angleThres_, gbuf_, sumbuf_,
++                                  reinterpret_cast<unsigned int*> (icp_status_.ptr () + 1));
++        }
++        cudaSafeCall (cudaMemcpy (pose_host, icp_pose_.ptr (), sizeof (pose_host), cudaMemcpyDeviceToHost));
++        cudaSafeCall (cudaMemcpy (status_host, icp_status_.ptr (), sizeof (int), cudaMemcpyDeviceToHost));
++        if (status_host[0] != 0)
++        {
++          reset ();
++          return (false);
+         }
++        for (int r = 0; r < 3; ++r)
++          for (int c = 0; c < 3; ++c)
++            Rcurr (r, c) = pose_host[r * 3 + c];
++        for (int i = 0; i < 3; ++i)
++          tcurr (i) = pose_host[9 + i];
+       }
+       //save transform
+       rmats_.push_back (Rcurr);
 diff --git a/gpu/kinfu/src/marching_cubes.cpp b/gpu/kinfu/src/marching_cubes.cpp
 index 4f1715d..8520e89 100644
 --- a/gpu/kinfu/src/marching_cubes.cpp
@@ -801,6 +1333,21 @@ index da956a2..c026a99 100644
  
  PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
  PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS ${EXT_DEPS})
+diff --git a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h b/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h
+index dd114fd..9a49006 100644
+--- a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h
++++ b/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h
+@@ -415,6 +415,10 @@ namespace pcl
+           /** \brief Buffer to store MLS matrix. */
+           DeviceArray<double> sumbuf_;
+ 
++          /** \brief Device-resident ICP state: pose (row-major R, global t), [degenerate flag, block counter]. */
++          DeviceArray<float> icp_pose_;
++          DeviceArray<int> icp_status_;
++
+           /** \brief Array of camera rotation matrices for each moment of time. */
+           std::vector<Matrix3frm> rmats_;
+           
 diff --git a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/marching_cubes.h b/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/marching_cubes.h
 index ce59343..1b36021 100644
 --- a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/marching_cubes.h
@@ -856,7 +1403,7 @@ index e39a6e2..9069fc0 100644
      }
    }
 diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
-index 952f024..33a3cd7 100644
+index 952f024..694870a 100644
 --- a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
 +++ b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
 @@ -64,12 +64,15 @@ namespace pcl
@@ -881,6 +1428,271 @@ index 952f024..33a3cd7 100644
          }
        }
  
+@@ -341,3 +344,264 @@ namespace pcl
+     }
+   }
+ }
++
++//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++// Device-resident ICP (see gpu/kinfu): FP32 warp sums, FP64 accumulation, fused deterministic reduction and solve.
++
++namespace pcl
++{
++  namespace device
++  {
++  namespace kinfuLS
++  {
++    __device__ __forceinline__ float
++    warpSumFloat (float v)
++    {
++      #pragma unroll
++      for (int o = 16; o > 0; o >>= 1)
++        v += __shfl_down_sync (0xffffffffu, v, o);
++      return v;
++    }
++
++    __device__ __forceinline__ double
++    warpSumDouble (double v)
++    {
++      #pragma unroll
++      for (int o = 16; o > 0; o >>= 1)
++        v += __shfl_down_sync (0xffffffffu, v, o);
++      return v;
++    }
++
++    __global__ void
++    combinedPoseKernel (Combined cs, const float* __restrict__ pose, float3 origin)
++    {
++      #pragma unroll
++      for (int r = 0; r < 3; ++r)
++      {
++        cs.Rcurr.data[r].x = __ldg (pose + 3 * r + 0);
++        cs.Rcurr.data[r].y = __ldg (pose + 3 * r + 1);
++        cs.Rcurr.data[r].z = __ldg (pose + 3 * r + 2);
++      }
++      // global translation shifted into the cyclical volume's local frame, like the host code did
++      cs.tcurr = make_float3 (__ldg (pose + 9), __ldg (pose + 10), __ldg (pose + 11));
++      cs.tcurr.x -= origin.x;
++      cs.tcurr.y -= origin.y;
++      cs.tcurr.z -= origin.z;
++
++      int x = threadIdx.x + blockIdx.x * Combined::CTA_SIZE_X;
++      int y = threadIdx.y + blockIdx.y * Combined::CTA_SIZE_Y;
++
++      float3 n, d, s;
++      bool found_coresp = false;
++      if (x < cs.cols && y < cs.rows)
++        found_coresp = cs.search (x, y, n, d, s);
++
++      float row[7];
++      if (found_coresp)
++      {
++        *(float3*)&row[0] = cross (s, n);
++        *(float3*)&row[3] = n;
++        row[6] = dot (n, d - s);
++      }
++      else
++        row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
++
++      constexpr int WARPS = Combined::CTA_SIZE / 32;
++      __shared__ float wsum[27][WARPS];
++      const int tid = Block::flattenedThreadId ();
++      const int lane = tid & 31, warp = tid >> 5;
++      int k = 0;
++      #pragma unroll
++      for (int i = 0; i < 6; ++i)
++      {
++        #pragma unroll
++        for (int j = i; j < 7; ++j)
++        {
++          float v = warpSumFloat (row[i] * row[j]);
++          if (lane == 0)
++            wsum[k][warp] = v;
++          ++k;
++        }
++      }
++      __syncthreads ();
++      if (tid < 27)
++      {
++        double sum = 0;
++        #pragma unroll
++        for (int w = 0; w < WARPS; ++w)
++          sum += (double)wsum[tid][w];
++        cs.gbuf.ptr (tid)[blockIdx.x + gridDim.x * blockIdx.y] = sum;
++      }
++    }
++
++    // 27 blocks: block k sums row k of the per-block partials in a fixed order (deterministic); the last block to
++    // finish solves A x = b by Cholesky (A = J^T J is symmetric positive semi-definite; det(A) = prod(L_ii)^2 is the
++    // original's nullspace check) and applies the pose update of the host code:
++    // Rinc = Rz(gamma) Ry(beta) Rx(alpha); t = Rinc t + tinc; R = Rinc R
++    __global__ void
++    reduceSolveKernel (PtrStep<double> gbuf, int length, double* sums, unsigned int* done, float* pose, int* status, double det_min)
++    {
++      constexpr int THREADS = 256;
++      __shared__ double part[THREADS / 32];
++      __shared__ bool last;
++      const double* row = gbuf.ptr (blockIdx.x);
++      double v = 0;
++      for (int i = threadIdx.x; i < length; i += THREADS)
++        v += row[i];
++      v = warpSumDouble (v);
++      if ((threadIdx.x & 31) == 0)
++        part[threadIdx.x >> 5] = v;
++      __syncthreads ();
++      if (threadIdx.x == 0)
++      {
++        double s = 0;
++        #pragma unroll
++        for (int w = 0; w < THREADS / 32; ++w)
++          s += part[w];
++        sums[blockIdx.x] = s;
++        __threadfence ();
++        last = atomicAdd (done, 1u) == gridDim.x - 1;
++      }
++      __syncthreads ();
++      if (!last || threadIdx.x != 0)
++        return;
++      *done = 0;  // ready for the next iteration (kernels on the stream are ordered)
++      __threadfence ();
++      if (*status != 0)
++        return;
++
++      double A[6][6], b[6];
++      {
++        int shift = 0;
++        #pragma unroll
++        for (int i = 0; i < 6; ++i)
++        {
++          #pragma unroll
++          for (int j = i; j < 7; ++j)
++          {
++            const double val = __ldcg (sums + shift++);
++            if (j == 6) b[i] = val;
++            else A[i][j] = A[j][i] = val;
++          }
++        }
++      }
++      double L[6][6], inv[6];
++      double det = 1;
++      bool ok = true;
++      #pragma unroll
++      for (int j = 0; j < 6; ++j)
++      {
++        double dd = A[j][j];
++        #pragma unroll
++        for (int k = 0; k < j; ++k) dd -= L[j][k] * L[j][k];
++        ok = ok && dd > 0;
++        det *= dd;
++        inv[j] = rsqrt (dd);
++        L[j][j] = dd * inv[j];
++        #pragma unroll
++        for (int i = j + 1; i < 6; ++i)
++        {
++          double val = A[i][j];
++          #pragma unroll
++          for (int k = 0; k < j; ++k) val -= L[i][k] * L[j][k];
++          L[i][j] = val * inv[j];
++        }
++      }
++      if (!ok || fabs (det) < det_min || isnan (det))
++      {
++        *status = 1;
++        return;
++      }
++      double y[6], x[6];
++      #pragma unroll
++      for (int i = 0; i < 6; ++i)
++      {
++        double val = b[i];
++        #pragma unroll
++        for (int k = 0; k < i; ++k) val -= L[i][k] * y[k];
++        y[i] = val * inv[i];
++      }
++      #pragma unroll
++      for (int i = 5; i >= 0; --i)
++      {
++        double val = y[i];
++        #pragma unroll
++        for (int k = i + 1; k < 6; ++k) val -= L[k][i] * x[k];
++        x[i] = val * inv[i];
++      }
++
++      float ca, sa, cb, sb, cg, sg;
++      sincosf ((float)x[0], &sa, &ca);
++      sincosf ((float)x[1], &sb, &cb);
++      sincosf ((float)x[2], &sg, &cg);
++      const float Rz[3][3] = {{cg, -sg, 0}, {sg, cg, 0}, {0, 0, 1}};
++      const float Ry[3][3] = {{cb, 0, sb}, {0, 1, 0}, {-sb, 0, cb}};
++      const float Rx[3][3] = {{1, 0, 0}, {0, ca, -sa}, {0, sa, ca}};
++      float Rzy[3][3], Rinc[3][3];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          Rzy[i][j] = Rz[i][0] * Ry[0][j] + Rz[i][1] * Ry[1][j] + Rz[i][2] * Ry[2][j];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          Rinc[i][j] = Rzy[i][0] * Rx[0][j] + Rzy[i][1] * Rx[1][j] + Rzy[i][2] * Rx[2][j];
++
++      float R[3][3], t[3];
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++      {
++        t[i] = pose[9 + i];
++        #pragma unroll
++        for (int j = 0; j < 3; ++j) R[i][j] = pose[i * 3 + j];
++      }
++      #pragma unroll
++      for (int i = 0; i < 3; ++i)
++      {
++        pose[9 + i] = Rinc[i][0] * t[0] + Rinc[i][1] * t[1] + Rinc[i][2] * t[2] + (float)x[3 + i];
++        #pragma unroll
++        for (int j = 0; j < 3; ++j)
++          pose[i * 3 + j] = Rinc[i][0] * R[0][j] + Rinc[i][1] * R[1][j] + Rinc[i][2] * R[2][j];
++      }
++    }
++  }
++  }
++}
++
++void
++pcl::device::kinfuLS::estimateCombinedStep (float* pose, int* status, unsigned int* done, const float3& origin,
++                                            const MapArr& vmap_curr, const MapArr& nmap_curr, const Mat33& Rprev_inv,
++                                            const float3& tprev, const Intr& intr, const MapArr& vmap_g_prev,
++                                            const MapArr& nmap_g_prev, float distThres, float angleThres,
++                                            DeviceArray2D<double>& gbuf, DeviceArray<double>& sums, double det_min)
++{
++  int cols = vmap_curr.cols ();
++  int rows = vmap_curr.rows () / 3;
++
++  Combined cs;
++  cs.vmap_curr = vmap_curr;
++  cs.nmap_curr = nmap_curr;
++  cs.Rprev_inv = Rprev_inv;
++  cs.tprev = tprev;
++  cs.intr = intr;
++  cs.vmap_g_prev = vmap_g_prev;
++  cs.nmap_g_prev = nmap_g_prev;
++  cs.distThres = distThres;
++  cs.angleThres = angleThres;
++  cs.cols = cols;
++  cs.rows = rows;
++
++  dim3 block (Combined::CTA_SIZE_X, Combined::CTA_SIZE_Y);
++  dim3 grid (divUp (cols, block.x), divUp (rows, block.y));
++  if (gbuf.rows () != TranformReduction::TOTAL || gbuf.cols () < (int)(grid.x * grid.y))
++    gbuf.create (TranformReduction::TOTAL, grid.x * grid.y);
++  sums.create (TranformReduction::TOTAL);
++  cs.gbuf = gbuf;
++
++  combinedPoseKernel<<<grid, block>>>(cs, pose, origin);
++  cudaSafeCall (cudaGetLastError ());
++  reduceSolveKernel<<<TranformReduction::TOTAL, 256>>>(gbuf, grid.x * grid.y, sums.ptr (), done, pose, status, det_min);
++  cudaSafeCall (cudaGetLastError ());
++}
 diff --git a/gpu/kinfu_large_scale/src/cuda/extract.cu b/gpu/kinfu_large_scale/src/cuda/extract.cu
 index d7db4be..f8e982f 100644
 --- a/gpu/kinfu_large_scale/src/cuda/extract.cu
@@ -1138,6 +1950,46 @@ index d7db4be..f8e982f 100644
        }
      }
    }
+diff --git a/gpu/kinfu_large_scale/src/cuda/maps.cu b/gpu/kinfu_large_scale/src/cuda/maps.cu
+index 0aa86d3..129387b 100644
+--- a/gpu/kinfu_large_scale/src/cuda/maps.cu
++++ b/gpu/kinfu_large_scale/src/cuda/maps.cu
+@@ -233,7 +233,7 @@ namespace pcl
+         transformMapsKernel<<<grid, block>>>(rows, cols, vmap_src, nmap_src, Rmat, tvec, vmap_dst, nmap_dst);
+         cudaSafeCall (cudaGetLastError ());
+ 
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+     }
+   }
+@@ -317,7 +317,7 @@ namespace pcl
+         dim3 grid (divUp (out_cols, block.x), divUp (out_rows, block.y));
+         resizeMapKernel<normalize><< < grid, block>>>(out_rows, out_cols, in_rows, input, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+ 
+ 
+@@ -385,7 +385,7 @@ namespace pcl
+ 
+         convertMapKernel<T><< < grid, block>>>(rows, cols, vmap, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+       
+       template void convert (const MapArr& vmap, DeviceArray2D<float4>& output);
+@@ -431,7 +431,7 @@ namespace pcl
+ 
+         mergePointNormalKernel<<<divUp (total, block), block>>>(cloud, normals, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+     }
+   }
 diff --git a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
 index b1c12de..785c5f9 100644
 --- a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
@@ -1384,6 +2236,19 @@ index b1c12de..785c5f9 100644
          tg.occupied_voxels = occupied_voxels.ptr (0);
          tg.vertex_ofssets = occupied_voxels.ptr (2);
          tg.voxels_count = occupied_voxels.cols ();
+diff --git a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu b/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
+index 42e5db8..c5efb6f 100644
+--- a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
++++ b/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
+@@ -147,7 +147,7 @@ namespace pcl
+ 
+         computeNmapKernelEigen<<<grid, block>>>(rows, cols, vmap, nmap);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+     }
+   }
 diff --git a/gpu/kinfu_large_scale/src/cuda/utils.hpp b/gpu/kinfu_large_scale/src/cuda/utils.hpp
 index cf733f4..2dabbb1 100644
 --- a/gpu/kinfu_large_scale/src/cuda/utils.hpp
@@ -1462,10 +2327,26 @@ index cf733f4..2dabbb1 100644
  
          static __forceinline__ __device__ int 
 diff --git a/gpu/kinfu_large_scale/src/internal.h b/gpu/kinfu_large_scale/src/internal.h
-index c46ffa1..2428fb0 100644
+index c46ffa1..f5057ea 100644
 --- a/gpu/kinfu_large_scale/src/internal.h
 +++ b/gpu/kinfu_large_scale/src/internal.h
-@@ -340,7 +340,7 @@ namespace pcl
+@@ -191,6 +191,15 @@ namespace pcl
+                         const MapArr& vmap_g_prev, const MapArr& nmap_g_prev, float distThres, float angleThres,
+                         DeviceArray2D<double>& gbuf, DeviceArray<double>& mbuf, double* matrixA_host, double* vectorB_host);
+ 
++      /** \brief One ICP iteration on the device for the pose in pose[0..11] (row-major R, then the global t; the
++        * kernel uses t - origin, the volume-local translation). status[0] becomes 1 when |det(A)| < det_min.
++        */
++      void
++      estimateCombinedStep (float* pose, int* status, unsigned int* done, const float3& origin, const MapArr& vmap_curr,
++                            const MapArr& nmap_curr, const Mat33& Rprev_inv, const float3& tprev, const Intr& intr,
++                            const MapArr& vmap_g_prev, const MapArr& nmap_g_prev, float distThres, float angleThres,
++                            DeviceArray2D<double>& gbuf, DeviceArray<double>& sums, double det_min);
++
+       ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+       // TSDF volume functions            
+ 
+@@ -340,7 +349,7 @@ namespace pcl
          * \return number of point stored to passed buffer
          */ 
        PCL_EXPORTS std::size_t 
@@ -1474,7 +2355,7 @@ index c46ffa1..2428fb0 100644
  
        /** \brief Perform point cloud extraction of a slice from tsdf volume
          * \param[in] volume tsdf volume on GPU
-@@ -354,7 +354,7 @@ namespace pcl
+@@ -354,7 +363,7 @@ namespace pcl
          * \return number of point stored to passed buffer
          */ 
        PCL_EXPORTS std::size_t
@@ -1483,7 +2364,7 @@ index c46ffa1..2428fb0 100644
  
        /** \brief Performs normals computation for given points using tsdf volume
          * \param[in] volume tsdf volume
-@@ -419,22 +419,13 @@ namespace pcl
+@@ -419,22 +428,13 @@ namespace pcl
     
        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
        // Marching cubes implementation
@@ -1507,7 +2388,7 @@ index c46ffa1..2428fb0 100644
  
        /** \brief Computes total number of vertices for all voxels and offsets of vertices in final triangle array
          * \param[out] occupied_voxels buffer with occupied voxels. The function fulfills 3nd only with offsets      
-@@ -450,7 +441,7 @@ namespace pcl
+@@ -450,7 +450,7 @@ namespace pcl
          * \param[out] output triangle array            
          */
        void
@@ -1516,6 +2397,104 @@ index c46ffa1..2428fb0 100644
      }
    }
  }
+diff --git a/gpu/kinfu_large_scale/src/kinfu.cpp b/gpu/kinfu_large_scale/src/kinfu.cpp
+index 16072b7..3d42c9a 100644
+--- a/gpu/kinfu_large_scale/src/kinfu.cpp
++++ b/gpu/kinfu_large_scale/src/kinfu.cpp
+@@ -294,6 +294,8 @@ pcl::gpu::kinfuLS::KinfuTracker::allocateBufffers (int rows, int cols)
+   int c = (int)std::ceil ( ((float)cols) / ESTIMATE_COMBINED_CUDA_GRID_X );
+   gbuf_.create (27, r * c);
+   sumbuf_.create (27);
++  icp_pose_.create (12);
++  icp_status_.create (2);
+ }
+ 
+ inline void 
+@@ -388,6 +390,15 @@ pcl::gpu::kinfuLS::KinfuTracker::performICP(const Intr& cam_intrinsics, Matrix3f
+   // Run ICP
+   {
+     //ScopeTime time("icp-all");
++    float pose_host[12];
++    for (int r = 0; r < 3; ++r)
++      for (int c = 0; c < 3; ++c)
++        pose_host[r * 3 + c] = current_global_rotation (r, c);
++    for (int i = 0; i < 3; ++i)
++      pose_host[9 + i] = current_global_translation (i);
++    int status_host[2] = {0, 0};
++    cudaSafeCall (cudaMemcpyAsync (icp_pose_.ptr (), pose_host, sizeof (pose_host), cudaMemcpyHostToDevice));
++    cudaSafeCall (cudaMemcpyAsync (icp_status_.ptr (), status_host, sizeof (status_host), cudaMemcpyHostToDevice));
+     for (int level_index = LEVELS-1; level_index>=0; --level_index)
+     {
+       int iter_num = icp_iterations_[level_index];
+@@ -409,49 +420,27 @@ pcl::gpu::kinfuLS::KinfuTracker::performICP(const Intr& cam_intrinsics, Matrix3f
+       MapArr& nmap_temp = nmap_g_prev;
+       transformMaps (vmap_temp, nmap_temp, rotation_id, cube_origin, vmap_g_prev, nmap_g_prev); 
+       
+-      // run ICP for iter_num iterations (return false when lost)
++      // all iterations run on the device (pose and loss flag in device memory); see below for the readback
+       for (int iter = 0; iter < iter_num; ++iter)
+-      {
+-        //CONVERT POSES TO DEVICE TYPES
+-        // CURRENT LOCAL POSE
+-        Mat33    device_current_rotation = device_cast<Mat33> (current_global_rotation); // We do not deal with changes in rotations        
+-        float3 device_current_translation_local = device_cast<float3> (current_global_translation);
+-        device_current_translation_local -= getCyclicalBufferStructure ()->origin_metric; 
+-                
+-        Eigen::Matrix<double, 6, 6, Eigen::RowMajor> A;
+-        Eigen::Matrix<double, 6, 1> b;
+-
+-        // call the ICP function (see paper by Kok-Lim Low "Linear Least-squares Optimization for Point-to-Plane ICP Surface Registration")
+-        estimateCombined (device_current_rotation, device_current_translation_local, vmap_curr, nmap_curr, device_cam_rot_local_prev_inv, device_cam_trans_local_prev, cam_intrinsics (level_index), 
+-                          vmap_g_prev, nmap_g_prev, distThres_, angleThres_, gbuf_, sumbuf_, A.data (), b.data ());
+-
+-        // checking nullspace 
+-        double det = A.determinant ();
+-    
+-        if ( std::abs (det) < 100000 /*1e-15*/ || std::isnan (det) ) //TODO find a threshold that makes ICP track well, but prevents it from generating wrong transforms
+-        {
+-          if (std::isnan (det)) std::cout << "qnan" << std::endl;
+-          if(!lost_)
+-            PCL_ERROR ("ICP LOST... PLEASE COME BACK TO THE LAST VALID POSE (green)\n");
+-          //reset (); //GUI will now show the user that ICP is lost. User needs to press "R" to reset the volume
+-          lost_ = true;
+-          return (false);
+-        }
+-
+-        Eigen::Matrix<float, 6, 1> result = A.llt ().solve (b).cast<float>();
+-        float alpha = result (0);
+-        float beta  = result (1);
+-        float gamma = result (2);
+-
+-        // deduce incremental rotation and translation from ICP's results
+-        Eigen::Matrix3f cam_rot_incremental = (Eigen::Matrix3f)AngleAxisf (gamma, Vector3f::UnitZ ()) * AngleAxisf (beta, Vector3f::UnitY ()) * AngleAxisf (alpha, Vector3f::UnitX ());
+-        Vector3f cam_trans_incremental = result.tail<3> ();
+-
+-        //compose global pose
+-        current_global_translation = cam_rot_incremental * current_global_translation + cam_trans_incremental;
+-        current_global_rotation = cam_rot_incremental * current_global_rotation;
+-      }
++        estimateCombinedStep (icp_pose_.ptr (), icp_status_.ptr (), reinterpret_cast<unsigned int*> (icp_status_.ptr () + 1),
++                              getCyclicalBufferStructure ()->origin_metric, vmap_curr, nmap_curr, device_cam_rot_local_prev_inv,
++                              device_cam_trans_local_prev, cam_intrinsics (level_index), vmap_g_prev, nmap_g_prev, distThres_,
++                              angleThres_, gbuf_, sumbuf_, 100000.0 /* the original's loss threshold */);
++    }
++    cudaSafeCall (cudaMemcpy (pose_host, icp_pose_.ptr (), sizeof (pose_host), cudaMemcpyDeviceToHost));
++    cudaSafeCall (cudaMemcpy (status_host, icp_status_.ptr (), sizeof (int), cudaMemcpyDeviceToHost));
++    if (status_host[0] != 0)
++    {
++      if(!lost_)
++        PCL_ERROR ("ICP LOST... PLEASE COME BACK TO THE LAST VALID POSE (green)\n");
++      lost_ = true;
++      return (false);
+     }
++    for (int r = 0; r < 3; ++r)
++      for (int c = 0; c < 3; ++c)
++        current_global_rotation (r, c) = pose_host[r * 3 + c];
++    for (int i = 0; i < 3; ++i)
++      current_global_translation (i) = pose_host[9 + i];
+   }
+   // ICP has converged
+   lost_ = false;
 diff --git a/gpu/kinfu_large_scale/src/marching_cubes.cpp b/gpu/kinfu_large_scale/src/marching_cubes.cpp
 index d35d19e..a75334a 100644
 --- a/gpu/kinfu_large_scale/src/marching_cubes.cpp
@@ -2650,6 +3629,222 @@ index 5f29d5c..b5a7df5 100644
    cudaSafeCall( cudaGetLastError() );
    cudaSafeCall( cudaDeviceSynchronize() );
  }
+diff --git a/gpu/people/src/people_detector.cpp b/gpu/people/src/people_detector.cpp
+index 430a59a..a344520 100644
+--- a/gpu/people/src/people_detector.cpp
++++ b/gpu/people/src/people_detector.cpp
+@@ -35,6 +35,14 @@
+ */
+ 
+ #include <pcl/gpu/people/people_detector.h>
++
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <limits>
++#ifdef __AVX2__
++#include <immintrin.h>
++#endif
+ #include <pcl/gpu/people/label_common.h>
+ 
+ //#include <pcl/gpu/people/conversions.h>
+@@ -472,79 +480,147 @@ namespace
+   }
+ }
+ 
+-void 
++void
+ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, const pcl::Indices& indices, unsigned char *mask)
+ {
++  // Seeded hue segmentation: for every seed in order, a breadth-first grow over the not yet masked points of the
++  // projected search window whose distance to the expanded point is within the radius and whose hue is close to
++  // the seed's. The window walk below visits exactly the indices of the original scalar loop (stride-2 runs; from
++  // the second run on they start one window width left of the box, as in the original), and accepted points are
++  // queued in the same order, so the mask is bitwise the one of the sequential original. Points are kept in
++  // structure-of-arrays form split by index parity, which makes every stride-2 run contiguous; candidates are
++  // tested 8 at a time with the original's arithmetic: fma(dz, dz, fma(dx, dx, dy * dy)) compared (in double) with
++  // the squared radius, |hue - seed hue| < DELTA_HUE_SHS.
+   pcl::device::Intr intr(fx_, fy_, cx_, cy_);
+   intr.setDefaultPPIfIncorrect(cloud.width, cloud.height);
+-  
+-  const float *hue = &hue_host_[0];
+-  double squared_radius = CLUST_TOL_SHS * CLUST_TOL_SHS;
+ 
+-  std::vector< std::vector<int> > storage(100);
++  const float *hue = &hue_host_[0];
++  const double squared_radius = CLUST_TOL_SHS * CLUST_TOL_SHS;
++  float thr = static_cast<float> (squared_radius);  // largest float f with (double)f <= squared_radius
++  if (static_cast<double> (thr) > squared_radius)
++    thr = std::nextafter (thr, -std::numeric_limits<float>::infinity ());
++
++  const int width = static_cast<int> (cloud.width);
++  const std::size_t n = cloud.size ();
++  const std::size_t half = (n + 1) / 2 + 8;  // +8: full-vector loads at the end of a run stay in bounds
++
++  thread_local std::vector<float> soa;
++  thread_local std::vector<unsigned char> msk;
++  thread_local std::vector<int> seed_queue;
++  soa.assign (8 * half, std::numeric_limits<float>::quiet_NaN ());
++  msk.assign (2 * half, 255);
++  float* X[2] = {&soa[0 * half], &soa[1 * half]};
++  float* Y[2] = {&soa[2 * half], &soa[3 * half]};
++  float* Z[2] = {&soa[4 * half], &soa[5 * half]};
++  float* H[2] = {&soa[6 * half], &soa[7 * half]};
++  unsigned char* M[2] = {&msk[0], &msk[half]};
++  for (std::size_t i = 0; i < n; ++i)
++  {
++    const int p = static_cast<int> (i & 1);
++    const std::size_t j = i >> 1;
++    X[p][j] = cloud[i].x;
++    Y[p][j] = cloud[i].y;
++    Z[p][j] = cloud[i].z;
++    H[p][j] = hue[i];
++    M[p][j] = mask[i];
++  }
++  seed_queue.reserve (n);
+ 
+-  // Process all points in the indices vector
+-  int total = static_cast<int> (indices.size ());
+-#pragma omp parallel for \
+-  default(none) \
+-  shared(cloud, intr, hue, indices, mask, squared_radius, storage, total)
++  const int total = static_cast<int> (indices.size ());
+   for (int k = 0; k < total; ++k)
+   {
+-    int i = indices[k];
+-    if (mask[i])
++    const int i = indices[k];
++    if (M[i & 1][i >> 1])
+       continue;
++    M[i & 1][i >> 1] = 255;
+ 
+-    mask[i] = 255;
+-
+-    int id = 0;
+-#ifdef _OPENMP
+-    id = omp_get_thread_num();
+-#endif
+-    std::vector<int>& seed_queue = storage[id];
+-    seed_queue.clear();
+-    seed_queue.reserve(cloud.size());
+-    int sq_idx = 0;
++    seed_queue.clear ();
+     seed_queue.push_back (i);
+-
+-    float h = hue[i];    
+-
+-    while (sq_idx < (int)seed_queue.size ())
++    std::size_t sq_idx = 0;
++    const float h = hue[i];
++
++#ifdef __AVX2__
++    const __m256 vh = _mm256_set1_ps (h);
++    const __m256 vthr = _mm256_set1_ps (thr);
++    const __m256 vdelta = _mm256_set1_ps (DELTA_HUE_SHS);
++    const __m256 vabs = _mm256_castsi256_ps (_mm256_set1_epi32 (0x7fffffff));
++#endif
++    while (sq_idx < seed_queue.size ())
+     {
+-      int index = seed_queue[sq_idx];
++      const int index = seed_queue[sq_idx++];
+       const PointT& q = cloud[index];
+-
+-      if(!pcl::isFinite (q))
++      if (!pcl::isFinite (q))
+         continue;
+ 
+-      // search window                  
+       int left, right, top, bottom;
+       getProjectedRadiusSearchBox(cloud.height, cloud.width, intr, q, squared_radius, left, right, top, bottom);
+-        
+-      int yEnd  = (bottom + 1) * cloud.width + right + 1;
+-      int idx  = top * cloud.width + left;
+-      int skip = cloud.width - right + left - 1;
++
++      const int yEnd = (bottom + 1) * width + right + 1;
++      int idx = top * width + left;
++      const int skip = width - right + left - 1;
+       int xEnd = idx - left + right + 1;
+ 
+-      for (; xEnd < yEnd; idx += 2*skip, xEnd += 2*cloud.width)
+-        for (; idx < xEnd; idx += 2)
++      for (; xEnd < yEnd; idx += 2 * skip, xEnd += 2 * width)
++      {
++        if (idx >= xEnd)
++          continue;
++        const int p = idx & 1;
++        const int j0 = idx >> 1;
++        const int cnt = (xEnd - idx + 1) >> 1;  // idx, idx + 2, ... < xEnd
++        const float* xs = X[p] + j0;
++        const float* ys = Y[p] + j0;
++        const float* zs = Z[p] + j0;
++        const float* hs = H[p] + j0;
++        unsigned char* ms = M[p] + j0;
++        int t = 0;
++#ifdef __AVX2__
++        const __m256 qx = _mm256_set1_ps (q.x), qy = _mm256_set1_ps (q.y), qz = _mm256_set1_ps (q.z);
++        for (; t < cnt; t += 8)
+         {
+-          if (mask[idx])
++          std::uint64_t m8;
++          std::memcpy (&m8, ms + t, 8);
++          unsigned free_bits = 0;
++          for (int b = 0; b < 8; ++b)
++            free_bits |= static_cast<unsigned> (((m8 >> (8 * b)) & 0xff) == 0) << b;
++          if (cnt - t < 8)
++            free_bits &= (1u << (cnt - t)) - 1u;
++          if (!free_bits)
+             continue;
+-
+-          if (sqnorm(cloud[idx], q) <= squared_radius)
++          const __m256 dx = _mm256_sub_ps (_mm256_loadu_ps (xs + t), qx);
++          const __m256 dy = _mm256_sub_ps (_mm256_loadu_ps (ys + t), qy);
++          const __m256 dz = _mm256_sub_ps (_mm256_loadu_ps (zs + t), qz);
++          const __m256 d2 = _mm256_fmadd_ps (dz, dz, _mm256_fmadd_ps (dx, dx, _mm256_mul_ps (dy, dy)));
++          const __m256 near = _mm256_cmp_ps (d2, vthr, _CMP_LE_OQ);
++          const __m256 dh = _mm256_and_ps (_mm256_sub_ps (_mm256_loadu_ps (hs + t), vh), vabs);
++          const __m256 close = _mm256_cmp_ps (dh, vdelta, _CMP_LT_OQ);
++          unsigned acc = static_cast<unsigned> (_mm256_movemask_ps (_mm256_and_ps (near, close))) & free_bits;
++          while (acc)
+           {
+-            float h_l = hue[idx];
+-
+-            if (std::abs(h_l - h) < DELTA_HUE_SHS)
+-            {                   
+-              seed_queue.push_back (idx);
+-              mask[idx] = 255;
+-            }
++            const int b = __builtin_ctz (acc);
++            acc &= acc - 1;
++            ms[t + b] = 255;
++            seed_queue.push_back (idx + 2 * (t + b));
+           }
+         }
+-      
+-      sq_idx++;
+-    }        
++#else
++        for (; t < cnt; ++t)
++        {
++          if (ms[t])
++            continue;
++          const float dx = xs[t] - q.x, dy = ys[t] - q.y, dz = zs[t] - q.z;
++          const float d2 = std::fma (dz, dz, std::fma (dx, dx, dy * dy));
++          if (d2 <= thr && std::abs (hs[t] - h) < DELTA_HUE_SHS)
++          {
++            ms[t] = 255;
++            seed_queue.push_back (idx + 2 * t);
++          }
++        }
++#endif
++        idx += 2 * cnt;
++      }
++    }
+   }
++  for (std::size_t i = 0; i < n; ++i)
++    mask[i] = M[i & 1][i >> 1];
+ }
+ 
 diff --git a/gpu/utils/include/pcl/gpu/utils/device/block.hpp b/gpu/utils/include/pcl/gpu/utils/device/block.hpp
 index 4740bb2..10a50ca 100644
 --- a/gpu/utils/include/pcl/gpu/utils/device/block.hpp

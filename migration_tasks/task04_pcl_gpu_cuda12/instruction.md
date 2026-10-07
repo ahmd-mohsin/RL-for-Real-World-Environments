@@ -30,9 +30,13 @@ On CUDA 12, PCL's CMake disables `gpu_kinfu`, `gpu_kinfu_large_scale` and `gpu_p
 4. **Safe for concurrent use.**
    - Several `KinfuTracker`, `kinfuLS::KinfuTracker`, `MarchingCubes` and `PeopleDetector` instances may run at the same time from different host threads.
    - Every result must then be bitwise identical to running each alone.
-5. **No slower than the original.**
-   - Measured on the same GPU against the original running through PTX JIT: per-frame KinFu and KinFu large-scale time, marching cubes, cloud extraction, and the people detector.
-   - Each may take at most 1.10× the original's time.
+5. **Much faster than the original.** The lab moved to this GPU to run these pipelines faster. Measured on the same GPU against the original running through PTX JIT, each may take at most this fraction of the original's time:
+   - per-frame KinFu and KinFu large-scale processing (`KinfuTracker::operator()`): 0.70×;
+   - marching cubes (`MarchingCubes::run`): 0.55×;
+   - zero-crossing cloud extraction (`TsdfVolume::fetchCloud`): 0.75×;
+   - the people detector (`PeopleDetector::process`, with `OMP_NUM_THREADS=1`): 0.50×.
+
+   The result requirements above still hold for the faster code.
 6. **The tools are graded from their original sources.** Your changes to `kinfu_replay` and `people_eval` are discarded.
 
 ## Grading
@@ -45,6 +49,6 @@ The grader takes your diff of `/workspace/pcl` against its `base` tag and builds
 - concurrency;
 - workloads drawn at grading time;
 - compute-sanitizer race, sync and memory checks;
-- the timing above.
+- the timing above (as measured by the tools).
 
 All of it must pass.
