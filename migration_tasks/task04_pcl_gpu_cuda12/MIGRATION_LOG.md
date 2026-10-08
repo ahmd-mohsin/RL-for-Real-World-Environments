@@ -195,3 +195,20 @@ A Haar pitfall found during v2 validation: on some seeds the synthetic cascade e
 - **Notes:**
   - Astra optimized for real: pinned-memory ICP, MC workspace reuse, tiled reductions and an exact fast `shs5`.
   - It missed the frame bars by about 8% and the concurrency bar by about 2%. It would also have failed v2's 0.70 frame bars, narrowly.
+
+### GPT 5.6 sol (`openai/gpt-5.6-sol`): reward 0
+
+- **The run:** 99 steps, $3.08, a 4822-line patch.
+- **Passes:** build / binary / consumers / kinfu / people / concurrency / sanitizer.
+- **Fails NCV and fresh:** every tiny-ROI mirror-border separable filter case is wrong, guarded and exact, on every seed (`filter_{row,col}_{guard,exact}_*`). Its v1 build was bit-exact on these.
+  - While optimizing, it broke the original's semantics for out-of-range texture fetches (they return 0) in the filter path.
+  - Only the edge-case NCV tests added for exactly this trap catch it.
+- **Perf:** not measured, because an earlier gate failed.
+
+### Summary (task04 v3)
+
+| model | v1 (correctness, ≤1.10×) | v3 (speedup + concurrency bars) |
+|---|---|---|
+| GPT 6 Astra | 1.0 | **0**: correct, but misses 3 perf bars |
+| GPT 5.6 sol | 1.0 | **0**: an NCV border regression introduced while optimizing |
+| oracle v3 | 1.0 | 1.0 |
