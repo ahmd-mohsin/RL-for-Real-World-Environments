@@ -172,3 +172,26 @@ A Haar pitfall found during v2 validation: on some seeds the synthetic cascade e
 - A serialized solution (v2-like) would score about 0.59 and fail.
 
 **Grader fix.** The concurrent end-state check compares against the original's *solo* runs, because the original corrupts its own results when trackers run concurrently.
+
+## v3 model runs (2026-10-08)
+
+### GPT 6 Astra (`openai/gpt-6-astra`): reward 0
+
+- **The run:** 134 steps, $39.75, an 82-file / 5829-line patch. It submitted normally.
+- **Patch recovery:** the harness's collect step returned an empty patch because `git add` failed on PCL's gitignored `build/` dir, and the command was chained with `&&`. The patch was recovered from the live container, and the collect command in `run_agent.sh` / `task.toml` was fixed.
+- **An earlier attempt** aborted at step 46 on an OpenRouter response with no usage block. `MSWEA_COST_TRACKING=ignore_errors` is now set.
+- **First grading:** contaminated by another user's load on the shared node (frame times of 60 ms). It was re-graded on a quiet node; every metric is stable within 0.5% across rounds.
+- **Result:** all correctness gates pass, including concurrency, fresh and sanitizer.
+
+| metric | ratio | bar | |
+|---|---|---|---|
+| KinFu frame | 0.710 | 0.65 | **fail** |
+| KinFuLS frame | 0.702 | 0.66 | **fail** |
+| 4 concurrent trackers | 0.428 | 0.42 | **fail** |
+| marching cubes | 0.369 | 0.55 | pass |
+| cloud | 0.711 | 0.75 | pass |
+| people | 0.338 | 0.42 | pass |
+
+- **Notes:**
+  - Astra optimized for real: pinned-memory ICP, MC workspace reuse, tiled reductions and an exact fast `shs5`.
+  - It missed the frame bars by about 8% and the concurrency bar by about 2%. It would also have failed v2's 0.70 frame bars, narrowly.
