@@ -432,6 +432,18 @@ class Grader:
                 ok &= clean and produced
         return self.record("sanitizer", ok, detail)
 
+    def throughput_solo_refs(self):
+        """The original's solo runs of the concurrent-throughput workloads (computed once)."""
+        if getattr(self, "_tp_refs", None) is None:
+            spec = cases.THROUGHPUT_KINFU[-3].split(",")
+            gargs = [a for a in cases.THROUGHPUT_KINFU if a not in ("--concurrent", cases.THROUGHPUT_KINFU[-3], "--mode", "kinfu")]
+            self._tp_refs = []
+            for k, item in enumerate(spec):
+                mode, traj, noise = item.split(":")
+                self._tp_refs.append(self.ref("kinfu_replay", [*gargs, "--mode", mode, "--traj", traj, "--noise", noise],
+                                              self.work / "ref" / "tp_solo" / f"case{k}"))
+        return self._tp_refs
+
     def perf_round(self, best, last, rnd):
         P = self.work / "ref" / "perf"
         C = self.udir(self.work / "cand_perf")
@@ -449,8 +461,9 @@ class Grader:
             if tag == "kinfu4":
                 # four trackers on four host threads, pre-uploaded frames back to back: the slowest one's wall time
                 n = len(cases.THROUGHPUT_KINFU[-3].split(","))
+                # results are checked against the original's solo runs: the original itself is not safe for concurrent use
                 for k in range(n):
-                    f = cases.compare_kinfu(c / f"case{k}", r / f"case{k}")
+                    f = cases.compare_kinfu(c / f"case{k}", self.throughput_solo_refs()[k])
                     if f:
                         raise RuntimeError(f"candidate concurrent benchmark case {k} computed different results: {f[:3]}")
                 for side, d in (("original", r), ("candidate", c)):

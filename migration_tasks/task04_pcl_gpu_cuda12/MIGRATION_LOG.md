@@ -154,3 +154,21 @@ A Haar pitfall found during v2 validation: on some seeds the synthetic cascade e
 | KinFu frame | 0.65 | 0.57 |
 | KinFuLS frame | 0.66 | 0.58 |
 | people | 0.42 | 0.34 |
+
+### v3 validation
+
+**Oracle v3: reward 1.0** (33 min).
+
+| measure | ratio | bar |
+|---|---|---|
+| KinFu frame | 0.571 | 0.65 |
+| marching cubes | 0.428 | 0.55 |
+| cloud | 0.614 | 0.75 |
+| KinFuLS frame | 0.582 | 0.66 |
+| people | 0.342 | 0.42 |
+| 4 concurrent trackers | 0.376 | 0.42 |
+
+- Concurrent wall times per round: original 819 / 819 / 819 ms (bundled original), v3 316 / 308 / 311 ms.
+- A serialized solution (v2-like) would score about 0.59 and fail.
+
+**Grader fix.** The concurrent end-state check compares against the original's *solo* runs, because the original corrupts its own results when trackers run concurrently.
