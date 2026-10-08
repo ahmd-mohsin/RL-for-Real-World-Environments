@@ -122,3 +122,35 @@ A Haar pitfall found during v2 validation: on some seeds the synthetic cascade e
   - It had already sped up `shs5`, but the GPU paths were *slower* than the original.
   - A complete Astra v2 attempt is pending OpenRouter credits.
 - **GPT 5.6 sol (v2).** Stopped at step 125 ($3.91) on request.
+
+## v3: concurrent throughput and tighter bars (2026-10-07)
+
+**The finding.** Oracle v2 was fast for one tracker (1060 fps) but **serialized** under 4 concurrent trackers: 996 fps aggregate, 0.94× scaling. Everything ran on the legacy default stream with device-wide syncs, and the tool also synced the whole device around every frame. The original scales 1.41×, only because its host overhead overlaps.
+
+**New `kinfu_replay --throughput` mode.**
+- All frames are pre-rendered and pre-uploaded.
+- With `--concurrent`, a barrier starts all trackers together.
+- The trackers run back to back with no device-wide sync in the loop.
+- The tool reports `track_wall_ms`.
+
+**Oracle v3.**
+- The containers, KinFu and KinFuLS libraries are built with `--default-stream=per-thread` and `CUDA_API_PER_THREAD_DEFAULT_STREAM`.
+- All 49 `cudaDeviceSynchronize` calls in those modules became `cudaStreamSynchronize(cudaStreamPerThread)`.
+
+4-way KinFu wall time (slowest tracker), 3 runs:
+
+| build | wall time | ratio to the original |
+|---|---|---|
+| original | 969–980 ms | — |
+| oracle v2 | 481–483 ms | 0.49–0.50 |
+| oracle v3 | 312–315 ms | 0.318–0.325 |
+
+**New bar:** `kinfu_concurrent_wall_ms` ≤ 0.42, with an end-state check of every tracker against the original.
+
+**Tightened bars** (run-to-run noise ≤ 2%):
+
+| measure | bar | oracle |
+|---|---|---|
+| KinFu frame | 0.65 | 0.57 |
+| KinFuLS frame | 0.66 | 0.58 |
+| people | 0.42 | 0.34 |

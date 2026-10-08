@@ -30,11 +30,12 @@ On CUDA 12, PCL's CMake disables `gpu_kinfu`, `gpu_kinfu_large_scale` and `gpu_p
 4. **Safe for concurrent use.**
    - Several `KinfuTracker`, `kinfuLS::KinfuTracker`, `MarchingCubes` and `PeopleDetector` instances may run at the same time from different host threads.
    - Every result must then be bitwise identical to running each alone.
-5. **Much faster than the original.** The lab moved to this GPU to run these pipelines faster. Measured on the same GPU against the original running through PTX JIT, each may take at most this fraction of the original's time:
-   - per-frame KinFu and KinFu large-scale processing (`KinfuTracker::operator()`): 0.70×;
+5. **Much faster than the original.** The lab moved to this GPU to run these pipelines faster, often several at once. Measured on the same GPU against the original running through PTX JIT, each may take at most this fraction of the original's time:
+   - per-frame KinFu processing (`KinfuTracker::operator()`): 0.65×; KinFu large scale: 0.66×;
    - marching cubes (`MarchingCubes::run`): 0.55×;
    - zero-crossing cloud extraction (`TsdfVolume::fetchCloud`): 0.75×;
-   - the people detector (`PeopleDetector::process`, with `OMP_NUM_THREADS=1`): 0.50×.
+   - the people detector (`PeopleDetector::process`, with `OMP_NUM_THREADS=1`): 0.42×;
+   - four KinFu trackers on four host threads, each tracking its own already uploaded frames back to back (`kinfu_replay --throughput --concurrent ...`): the slowest must finish within 0.42× of the original's time under the same load.
 
    The result requirements above still hold for the faster code.
 6. **The tools are graded from their original sources.** Your changes to `kinfu_replay` and `people_eval` are discarded.

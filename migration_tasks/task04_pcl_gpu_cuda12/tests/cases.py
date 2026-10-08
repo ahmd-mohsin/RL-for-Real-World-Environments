@@ -58,6 +58,10 @@ CONCURRENT = [
 ]
 PEOPLE_THREADS = 6
 
+# perf: four KinFu trackers on four host threads, every frame pre-uploaded, tracked back to back
+THROUGHPUT_KINFU = ["--frames", "120", "--skip-mesh", "--throughput", "--concurrent",
+                    "kinfu:orbit:1,kinfu:orbit:2,kinfu:orbit:3,kinfu:orbit:4", "--mode", "kinfu"]
+
 # compute-sanitizer workloads (candidate only)
 SANITIZE = [
     ("kinfu", "kinfu_replay", ["--mode", "kinfu", "--frames", "120", "--stop", "6", "--color", "--api"]),
@@ -66,7 +70,7 @@ SANITIZE = [
     ("ncv", "ncv_check", []),
 ]
 
-TIMING_KEYS = {"mc_ms", "cloud_ms", "frame_ms_median", "frame_ms_total", "ms_median"}
+TIMING_KEYS = {"mc_ms", "cloud_ms", "frame_ms_median", "frame_ms_total", "ms_median", "track_wall_ms"}
 
 
 def fresh_workloads(seed):

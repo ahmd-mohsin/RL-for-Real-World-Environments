@@ -2,7 +2,7 @@
 //
 //   kinfu_replay --mode kinfu|kinfuls --frames N --out DIR [--noise SEED] [--icp-trunc M] [--skip-mesh]
 //                [--traj orbit|walk|static] [--scene room|corridor] [--stop K] [--shift M]
-//                [--extract-every K] [--color] [--api]
+//                [--extract-every K] [--color] [--api] [--throughput]
 //                [--concurrent "mode:traj:noise,..."]
 //
 // Writes DIR/result.json (poses, ground truth, errors, TSDF statistics, mesh
@@ -10,6 +10,9 @@
 // --color feeds RGB frames (procedural scene colours) to the trackers' colour volumes;
 // --api also exercises normals, colours, rendered views, ray-cast maps, the last-frame
 // buffers and the host-side extraction, writing DIR/view.bin and DIR/scene_view.bin.
+// --throughput pre-renders and pre-uploads every frame, then tracks them back to back without
+// device-wide synchronization (with --concurrent, all trackers start together) and reports the
+// tracking loop's wall time.
 #include <pcl/gpu/containers/device_array.h>
 #include <pcl/gpu/kinfu/color_volume.h>
 #include <pcl/gpu/kinfu/kinfu.h>
@@ -35,12 +38,24 @@
 #include <vector>
 #include <filesystem>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include "scene.h"
 
 using namespace replay;
 
 namespace {
+
+// all trackers of a --concurrent --throughput run start their timed loops together
+std::mutex g_start_mutex;
+std::condition_variable g_start_cv;
+int g_start_waiting = 0, g_start_total = 1;
+void startBarrier() {
+  std::unique_lock<std::mutex> lk(g_start_mutex);
+  if (++g_start_waiting >= g_start_total) g_start_cv.notify_all();
+  else g_start_cv.wait(lk, [] { return g_start_waiting >= g_start_total; });
+}
 
 struct Args {
   std::string mode = "kinfu", out = ".";
@@ -49,6 +64,7 @@ struct Args {
   int extract_every = 0;  // > 0: extract a mesh (and a cloud) every K frames and record checksums
   float icp_trunc = 0.f, shift = 0.8f;  // shift: kinfuLS volume shifting distance (m)
   bool skip_mesh = false, color = false, api = false;
+  bool throughput = false;  // pre-rendered frames tracked back to back, no device-wide syncs (see run_frames)
   std::string traj, scene;
 };
 
@@ -71,6 +87,7 @@ Args parse(int argc, char** argv) {
     else if (k == "--skip-mesh") a.skip_mesh = true;
     else if (k == "--color") a.color = true;
     else if (k == "--api") a.api = true;
+    else if (k == "--throughput") a.throughput = true;
     else if (k == "--traj") a.traj = val();
     else if (k == "--scene") a.scene = val();
     else throw std::runtime_error("unknown argument " + k);
@@ -294,8 +311,34 @@ int run_case(const Args& a) {
 
   std::vector<std::uint8_t> rgb;  // --color: the current RGB frame
   std::ostringstream series;  // --extract-every: [frame, triangles, checksum, cloud points, checksum]
+  double track_wall_ms = -1;
   auto run_frames = [&](auto&& kf, auto&& pose_of, auto&& extract) {
     const int n = a.stop > 0 ? std::min(a.stop, a.frames) : a.frames;
+    if (a.throughput) {
+      // every frame rendered and uploaded first; then the tracker runs back to back
+      std::vector<pcl::gpu::DeviceArray2D<unsigned short>> frames(n);
+      std::vector<std::vector<std::uint8_t>> colors(a.color ? n : 0);
+      for (int k = 0; k < n; ++k) {
+        Eigen::Affine3f p = trajectoryPose(traj, k, a.frames);
+        gt.push_back(p);
+        renderDepth(scene, in, p, a.noise < 0 ? -1 : a.noise * 100003 + k, depth);
+        frames[k].upload(depth.data(), in.cols * sizeof(std::uint16_t), in.rows, in.cols);
+        if (a.color) renderColor(scene, in, p, colors[k]);
+      }
+      cudaDeviceSynchronize();
+      startBarrier();
+      auto t0 = std::chrono::steady_clock::now();
+      for (int k = 0; k < n; ++k) {
+        if (a.color) rgb.swap(colors[k]);
+        auto f0 = std::chrono::steady_clock::now();
+        kf(frames[k]);
+        frame_ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f0).count());
+        est.push_back(pose_of(k));
+      }
+      cudaDeviceSynchronize();
+      track_wall_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+      return;
+    }
     for (int k = 0; k < n; ++k) {
       Eigen::Affine3f p = trajectoryPose(traj, k, a.frames);
       gt.push_back(p);
@@ -548,6 +591,7 @@ int run_case(const Args& a) {
   f << extra.str();
   if (a.extract_every > 0) f << "\"extract_series\": [" << series.str() << "], ";
   f << "\"raycast_depth_err_mm\": " << raycast_err << ", \"raycast_valid_frac\": " << raycast_valid << ", ";
+  if (track_wall_ms >= 0) f << "\"track_wall_ms\": " << track_wall_ms << ", ";
   f << "\"frame_ms_median\": " << sorted[sorted.size() / 2] << ", \"frame_ms_total\": " << std::accumulate(frame_ms.begin(), frame_ms.end(), 0.0) << ", ";
   f << "\"poses\": [";
   for (size_t k = 0; k < est.size(); ++k) f << (k ? "," : "") << mat(est[k]);
@@ -584,6 +628,7 @@ int run_concurrent(const Args& base, const std::string& spec) {
   }
   std::vector<int> rc(cases.size(), 1);
   std::vector<std::thread> th;
+  g_start_total = base.throughput ? (int)cases.size() : 1;
   for (size_t k = 0; k < cases.size(); ++k)
     th.emplace_back([&, k] {
       try { rc[k] = run_case(cases[k]); }

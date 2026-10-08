@@ -1,3 +1,17 @@
+diff --git a/gpu/containers/CMakeLists.txt b/gpu/containers/CMakeLists.txt
+index a07418e..7d8d401 100644
+--- a/gpu/containers/CMakeLists.txt
++++ b/gpu/containers/CMakeLists.txt
+@@ -21,6 +21,9 @@ list(APPEND incs ${incs_impl})
+ 
+ set(LIB_NAME "pcl_${SUBSYS_NAME}")
+ PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} ${incs})
++# one default stream per host thread: independent trackers on different threads run concurrently on the GPU
++target_compile_options(${LIB_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
++target_compile_definitions(${LIB_NAME} PRIVATE CUDA_API_PER_THREAD_DEFAULT_STREAM=1)
+ target_link_libraries(${LIB_NAME} pcl_common pcl_gpu_utils)
+ 
+ #Ensures that CUDA is added and the project can compile as it uses cuda calls.
 diff --git a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp b/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
 index 16dede9..545865d 100644
 --- a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
@@ -139,8 +153,97 @@ index 16dede9..545865d 100644
 -#endif /* PCL_GPU_UTILS_TEXTURE_BINDER_HPP_*/
 \ No newline at end of file
 +#endif /* PCL_GPU_UTILS_TEXTURE_BINDER_HPP_*/
+diff --git a/gpu/containers/src/device_memory.cpp b/gpu/containers/src/device_memory.cpp
+index 96729ec..2279146 100644
+--- a/gpu/containers/src/device_memory.cpp
++++ b/gpu/containers/src/device_memory.cpp
+@@ -231,7 +231,7 @@ pcl::gpu::DeviceMemory::copyTo(DeviceMemory& other) const
+   else {
+     other.create(sizeBytes_);
+     cudaSafeCall(cudaMemcpy(other.data_, data_, sizeBytes_, cudaMemcpyDeviceToDevice));
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+   }
+ }
+ 
+@@ -252,7 +252,7 @@ pcl::gpu::DeviceMemory::upload(const void* host_ptr_arg, std::size_t sizeBytes_a
+ {
+   create(sizeBytes_arg);
+   cudaSafeCall(cudaMemcpy(data_, host_ptr_arg, sizeBytes_, cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ bool
+@@ -265,7 +265,7 @@ pcl::gpu::DeviceMemory::upload(const void* host_ptr_arg,
+   }
+   void* begin = static_cast<char*>(data_) + device_begin_byte_offset;
+   cudaSafeCall(cudaMemcpy(begin, host_ptr_arg, num_bytes, cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+   return true;
+ }
+ 
+@@ -273,7 +273,7 @@ void
+ pcl::gpu::DeviceMemory::download(void* host_ptr_arg) const
+ {
+   cudaSafeCall(cudaMemcpy(host_ptr_arg, data_, sizeBytes_, cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ bool
+@@ -286,7 +286,7 @@ pcl::gpu::DeviceMemory::download(void* host_ptr_arg,
+   }
+   const void* begin = static_cast<char*>(data_) + device_begin_byte_offset;
+   cudaSafeCall(cudaMemcpy(host_ptr_arg, begin, num_bytes, cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+   return true;
+ }
+ 
+@@ -411,7 +411,7 @@ pcl::gpu::DeviceMemory2D::copyTo(DeviceMemory2D& other) const
+                               colsBytes_,
+                               rows_,
+                               cudaMemcpyDeviceToDevice));
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+   }
+ }
+ 
+@@ -429,7 +429,7 @@ pcl::gpu::DeviceMemory2D::upload(const void* host_ptr_arg,
+                             colsBytes_,
+                             rows_,
+                             cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ void
+@@ -442,7 +442,7 @@ pcl::gpu::DeviceMemory2D::download(void* host_ptr_arg, std::size_t host_step_arg
+                             colsBytes_,
+                             rows_,
+                             cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ void
+diff --git a/gpu/containers/src/repacks.cu b/gpu/containers/src/repacks.cu
+index e36b69a..4465066 100644
+--- a/gpu/containers/src/repacks.cu
++++ b/gpu/containers/src/repacks.cu
+@@ -74,7 +74,7 @@ cf(int info[4], int size, const void* input, void* output)
+ 
+   deviceCopyFields4B<in_size, out_size><<<grid, block>>>(i, size, input, output);
+   cudaSafeCall(cudaGetLastError());
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ using copy_fields_t = void (*)(int info[4], int size, const void* input, void* output);
 diff --git a/gpu/kinfu/CMakeLists.txt b/gpu/kinfu/CMakeLists.txt
-index 2ba88e0..95b61c4 100644
+index 2ba88e0..bc4a5b3 100644
 --- a/gpu/kinfu/CMakeLists.txt
 +++ b/gpu/kinfu/CMakeLists.txt
 @@ -2,12 +2,7 @@ set(SUBSYS_NAME gpu_kinfu)
@@ -157,6 +260,16 @@ index 2ba88e0..95b61c4 100644
  
  PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
  PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+@@ -28,6 +23,9 @@ source_group("Source Files" FILES ${srcs})
+ set(LIB_NAME "pcl_${SUBSYS_NAME}")
+ 
+ PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} ${incs} ${cuda})
++# one default stream per host thread: independent trackers on different threads run concurrently on the GPU
++target_compile_options(${LIB_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
++target_compile_definitions(${LIB_NAME} PRIVATE CUDA_API_PER_THREAD_DEFAULT_STREAM=1)
+ target_link_libraries(${LIB_NAME} pcl_gpu_utils pcl_gpu_containers)
+ target_include_directories(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+ 
 diff --git a/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h b/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h
 index 8723245..edd0a5b 100644
 --- a/gpu/kinfu/include/pcl/gpu/kinfu/kinfu.h
@@ -185,6 +298,46 @@ index ea290c2..dc2d90a 100644
 +      DeviceArray<int> counter_;
      };
    }
+ }
+diff --git a/gpu/kinfu/src/cuda/colors.cu b/gpu/kinfu/src/cuda/colors.cu
+index 3229dfb..07f0870 100644
+--- a/gpu/kinfu/src/cuda/colors.cu
++++ b/gpu/kinfu/src/cuda/colors.cu
+@@ -72,7 +72,7 @@ pcl::device::initColorVolume (PtrStep<uchar4> color_volume)
+ 
+   initColorVolumeKernel<<<grid, block>>>(color_volume);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -231,7 +231,7 @@ pcl::device::updateColorVolume (const Intr& intr, float tranc_dist, const Mat33&
+ 
+   updateColorVolumeKernel<<<grid, block>>>(cvi);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -265,5 +265,5 @@ pcl::device::exctractColors (const PtrStep<uchar4>& color_volume, const float3&
+   float3 cell_size = make_float3 (volume_size.x / VOLUME_X, volume_size.y / VOLUME_Y, volume_size.z / VOLUME_Z);
+   extractColorsKernel<<<divUp (points.size, block), block>>>(cell_size, color_volume, points, colors);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ };
+diff --git a/gpu/kinfu/src/cuda/coresp.cu b/gpu/kinfu/src/cuda/coresp.cu
+index 4a75091..f427e38 100644
+--- a/gpu/kinfu/src/cuda/coresp.cu
++++ b/gpu/kinfu/src/cuda/coresp.cu
+@@ -228,5 +228,5 @@ pcl::device::findCoresp (const MapArr& vmap_g_curr, const MapArr& nmap_g_curr,
+   corespKernel<<<grid, block>>>(cs);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
  }
 diff --git a/gpu/kinfu/src/cuda/device.hpp b/gpu/kinfu/src/cuda/device.hpp
 index 9e0acaa..519e2fb 100644
@@ -225,7 +378,7 @@ index 9e0acaa..519e2fb 100644
    }
  }
 diff --git a/gpu/kinfu/src/cuda/estimate_combined.cu b/gpu/kinfu/src/cuda/estimate_combined.cu
-index dc768f5..ba60a3b 100644
+index dc768f5..228a23b 100644
 --- a/gpu/kinfu/src/cuda/estimate_combined.cu
 +++ b/gpu/kinfu/src/cuda/estimate_combined.cu
 @@ -58,12 +58,15 @@ namespace pcl
@@ -250,6 +403,24 @@ index dc768f5..ba60a3b 100644
        }
      }
  
+@@ -309,7 +312,7 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
+ 
+   combinedKernel<<<grid, block>>>(cs);
+   cudaSafeCall ( cudaGetLastError () );
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ 
+   //printFuncAttrib(combinedKernel);
+ 
+@@ -320,7 +323,7 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
+ 
+   TransformEstimatorKernel2<<<TranformReduction::TOTAL, TranformReduction::CTA_SIZE>>>(tr);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ 
+   float_type host_data[TranformReduction::TOTAL];
+   mbuf.download (host_data);
 @@ -336,3 +339,259 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
          matrixA_host[j * 6 + i] = matrixA_host[i * 6 + j] = value;
      }
@@ -510,8 +681,30 @@ index dc768f5..ba60a3b 100644
 +  reduceSolveKernel<<<TranformReduction::TOTAL, 256>>>(gbuf, grid.x * grid.y, sums.ptr (), done, pose, status);
 +  cudaSafeCall (cudaGetLastError ());
 +}
+diff --git a/gpu/kinfu/src/cuda/estimate_tranform.cu b/gpu/kinfu/src/cuda/estimate_tranform.cu
+index 94855dc..51b6876 100644
+--- a/gpu/kinfu/src/cuda/estimate_tranform.cu
++++ b/gpu/kinfu/src/cuda/estimate_tranform.cu
+@@ -211,7 +211,7 @@ pcl::device::estimateTransform (const MapArr& v_dst, const MapArr& n_dst,
+ 
+   TransformEstimatorKernel1<<<grid, block>>>(te);
+   cudaSafeCall ( cudaGetLastError () );
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ 
+   TRed tr;
+   tr.gbuf = gbuf;
+@@ -221,7 +221,7 @@ pcl::device::estimateTransform (const MapArr& v_dst, const MapArr& n_dst,
+   TransformEstimatorKernel2<<<TRed::TOTAL, TRed::CTA_SIZE>>>(tr);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ 
+   float host_data[TRed::TOTAL];
+   mbuf.download (host_data);
 diff --git a/gpu/kinfu/src/cuda/extract.cu b/gpu/kinfu/src/cuda/extract.cu
-index 9f4e319..2ad0561 100644
+index 9f4e319..5574676 100644
 --- a/gpu/kinfu/src/cuda/extract.cu
 +++ b/gpu/kinfu/src/cuda/extract.cu
 @@ -57,10 +57,6 @@ namespace pcl
@@ -735,6 +928,45 @@ index 9f4e319..2ad0561 100644
  }
  
  
+@@ -436,7 +448,7 @@ pcl::device::extractNormals (const PtrStep<short2>& volume, const float3& volume
+ 
+   extractNormalsKernel<<<grid, block>>>(en);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ using namespace pcl::device;
+diff --git a/gpu/kinfu/src/cuda/image_generator.cu b/gpu/kinfu/src/cuda/image_generator.cu
+index 41a385a..5a6929a 100644
+--- a/gpu/kinfu/src/cuda/image_generator.cu
++++ b/gpu/kinfu/src/cuda/image_generator.cu
+@@ -120,7 +120,7 @@ pcl::device::generateImage (const MapArr& vmap, const MapArr& nmap, const LightS
+ 
+   generateImageKernel<<<grid, block>>>(ig);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ } 
+ 
+ //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -163,7 +163,7 @@ pcl::device::generateDepth (const Mat33& R_inv, const float3& t, const MapArr& v
+   
+   generateDepthKernel<<<grid, block>>>(R_inv.data[2], t, vmap, dst);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());  
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));  
+ }
+ 
+ //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -210,5 +210,5 @@ pcl::device::paint3DView(const PtrStep<uchar3>& colors, PtrStepSz<uchar3> dst, f
+ 
+   paint3DViewKernel<<<grid, block>>>(colors, dst, colors_weight);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());  
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));  
+ }
+\ No newline at end of file
 diff --git a/gpu/kinfu/src/cuda/maps.cu b/gpu/kinfu/src/cuda/maps.cu
 index 1b37936..ccfc3af 100644
 --- a/gpu/kinfu/src/cuda/maps.cu
@@ -774,7 +1006,7 @@ index 1b37936..ccfc3af 100644
 +  // (no device-wide sync: the frame pipeline is stream-ordered)
  }
 diff --git a/gpu/kinfu/src/cuda/marching_cubes.cu b/gpu/kinfu/src/cuda/marching_cubes.cu
-index 127f050..3919328 100644
+index 127f050..6599788 100644
 --- a/gpu/kinfu/src/cuda/marching_cubes.cu
 +++ b/gpu/kinfu/src/cuda/marching_cubes.cu
 @@ -47,39 +47,20 @@ namespace pcl
@@ -999,6 +1231,14 @@ index 127f050..3919328 100644
    tg.occupied_voxels = occupied_voxels.ptr (0);
    tg.vertex_ofssets = occupied_voxels.ptr (2);
    tg.voxels_count = occupied_voxels.cols ();
+@@ -398,5 +347,5 @@ pcl::device::generateTriangles (const PtrStep<short2>& volume, const DeviceArray
+ 
+   trianglesGeneratorKernel<<<grid, block>>>(tg);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+\ No newline at end of file
 diff --git a/gpu/kinfu/src/cuda/normals_eigen.cu b/gpu/kinfu/src/cuda/normals_eigen.cu
 index a028f6a..c19eab8 100644
 --- a/gpu/kinfu/src/cuda/normals_eigen.cu
@@ -1011,6 +1251,47 @@ index a028f6a..c19eab8 100644
 +  // (no device-wide sync: the frame pipeline is stream-ordered)
  }
  
+diff --git a/gpu/kinfu/src/cuda/ray_caster.cu b/gpu/kinfu/src/cuda/ray_caster.cu
+index defa16f..7a87a06 100644
+--- a/gpu/kinfu/src/cuda/ray_caster.cu
++++ b/gpu/kinfu/src/cuda/ray_caster.cu
+@@ -318,6 +318,6 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
+ 
+   rayCastKernel<<<grid, block>>>(rc);
+   cudaSafeCall (cudaGetLastError ());
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+diff --git a/gpu/kinfu/src/cuda/tsdf_volume.cu b/gpu/kinfu/src/cuda/tsdf_volume.cu
+index 952f3af..17e153d 100644
+--- a/gpu/kinfu/src/cuda/tsdf_volume.cu
++++ b/gpu/kinfu/src/cuda/tsdf_volume.cu
+@@ -74,7 +74,7 @@ pcl::device::initVolume (PtrStep<short2> volume)
+ 
+   initializeVolume<<<grid, block>>>(volume);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -284,7 +284,7 @@ pcl::device::integrateTsdfVolume (const PtrStepSz<ushort>& depth_raw, const Intr
+    integrateTsdfKernel<<<grid, block>>>(tsdf);
+ #endif
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
+ 
+ 
+@@ -538,5 +538,5 @@ pcl::device::integrateTsdfVolume (const PtrStepSz<ushort>& depth, const Intr& in
+   //tsdf23normal_hack<<<grid, block>>>(depthScaled, volume, tranc_dist, Rcurr_inv, tcurr, intr, cell_size);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ }
 diff --git a/gpu/kinfu/src/cuda/utils.hpp b/gpu/kinfu/src/cuda/utils.hpp
 index 7fedbb6..4ffd1c7 100644
 --- a/gpu/kinfu/src/cuda/utils.hpp
@@ -1089,7 +1370,7 @@ index 7fedbb6..4ffd1c7 100644
  
        static __forceinline__ __device__ int 
 diff --git a/gpu/kinfu/src/internal.h b/gpu/kinfu/src/internal.h
-index 535689f..5f2f9b6 100644
+index 535689f..b93d737 100644
 --- a/gpu/kinfu/src/internal.h
 +++ b/gpu/kinfu/src/internal.h
 @@ -212,6 +212,16 @@ namespace pcl
@@ -1118,6 +1399,15 @@ index 535689f..5f2f9b6 100644
  
      /** \brief Performs normals computation for given points using tsdf volume
        * \param[in] volume tsdf volume
+@@ -394,7 +404,7 @@ namespace pcl
+     /** \brief synchronizes CUDA execution */
+     inline 
+     void 
+-    sync () { cudaSafeCall (cudaDeviceSynchronize ()); }
++    sync () { cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread)); }
+ 
+ 
+     template<class D, class Matx> D&
 @@ -405,22 +415,13 @@ namespace pcl
  
      ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1316,7 +1606,7 @@ index bb54c6e..d30f554 100644
  }
  
 diff --git a/gpu/kinfu_large_scale/CMakeLists.txt b/gpu/kinfu_large_scale/CMakeLists.txt
-index da956a2..c026a99 100644
+index da956a2..38e4681 100644
 --- a/gpu/kinfu_large_scale/CMakeLists.txt
 +++ b/gpu/kinfu_large_scale/CMakeLists.txt
 @@ -4,12 +4,7 @@ set(SUBSYS_DESC "Kinect Fusion implementation, with volume shifting")
@@ -1333,6 +1623,16 @@ index da956a2..c026a99 100644
  
  PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
  PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS ${EXT_DEPS})
+@@ -30,6 +25,9 @@ source_group("Source Files" FILES ${srcs})
+ 
+ set(LIB_NAME "pcl_${SUBSYS_NAME}")
+ PCL_CUDA_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} ${incs} ${impl_incs} ${cuda})
++# one default stream per host thread: independent trackers on different threads run concurrently on the GPU
++target_compile_options(${LIB_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
++target_compile_definitions(${LIB_NAME} PRIVATE CUDA_API_PER_THREAD_DEFAULT_STREAM=1)
+ target_link_libraries(${LIB_NAME} pcl_common pcl_io pcl_gpu_utils pcl_gpu_containers pcl_gpu_octree pcl_octree pcl_filters)
+ target_include_directories(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+ 
 diff --git a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h b/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h
 index dd114fd..9a49006 100644
 --- a/gpu/kinfu_large_scale/include/pcl/gpu/kinfu_large_scale/kinfu.h
@@ -1360,6 +1660,50 @@ index ce59343..1b36021 100644
 +      /** \brief Per-instance output counter (no process-global device state). */
 +      DeviceArray<int> counter_;
        };
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/colors.cu b/gpu/kinfu_large_scale/src/cuda/colors.cu
+index fd04381..1dc76f1 100644
+--- a/gpu/kinfu_large_scale/src/cuda/colors.cu
++++ b/gpu/kinfu_large_scale/src/cuda/colors.cu
+@@ -73,7 +73,7 @@ namespace pcl
+ 
+         initColorVolumeKernel<<<grid, block>>>(color_volume);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+@@ -237,7 +237,7 @@ namespace pcl
+ 
+         updateColorVolumeKernel<<<grid, block>>>(cvi);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+@@ -275,7 +275,7 @@ namespace pcl
+         float3 cell_size = make_float3 (volume_size.x / VOLUME_X, volume_size.y / VOLUME_Y, volume_size.z / VOLUME_Z);
+         extractColorsKernel<<<divUp (points.size, block), block>>>(cell_size, color_volume, points, colors);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/coresp.cu b/gpu/kinfu_large_scale/src/cuda/coresp.cu
+index 8290ef1..7f761ce 100644
+--- a/gpu/kinfu_large_scale/src/cuda/coresp.cu
++++ b/gpu/kinfu_large_scale/src/cuda/coresp.cu
+@@ -229,7 +229,7 @@ namespace pcl
+         corespKernel<<<grid, block>>>(cs);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
      }
    }
 diff --git a/gpu/kinfu_large_scale/src/cuda/device.hpp b/gpu/kinfu_large_scale/src/cuda/device.hpp
@@ -1403,7 +1747,7 @@ index e39a6e2..9069fc0 100644
      }
    }
 diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
-index 952f024..694870a 100644
+index 952f024..992fea7 100644
 --- a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
 +++ b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
 @@ -64,12 +64,15 @@ namespace pcl
@@ -1428,6 +1772,24 @@ index 952f024..694870a 100644
          }
        }
  
+@@ -311,7 +314,7 @@ namespace pcl
+ 
+         combinedKernel<<<grid, block>>>(cs);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall(cudaDeviceSynchronize());
++        cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ 
+         //printFuncAttrib(combinedKernel);
+ 
+@@ -322,7 +325,7 @@ namespace pcl
+ 
+         TransformEstimatorKernel2<<<TranformReduction::TOTAL, TranformReduction::CTA_SIZE>>>(tr);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ 
+         float_type host_data[TranformReduction::TOTAL];
+         mbuf.download (host_data);
 @@ -341,3 +344,264 @@ namespace pcl
      }
    }
@@ -1693,8 +2055,30 @@ index 952f024..694870a 100644
 +  reduceSolveKernel<<<TranformReduction::TOTAL, 256>>>(gbuf, grid.x * grid.y, sums.ptr (), done, pose, status, det_min);
 +  cudaSafeCall (cudaGetLastError ());
 +}
+diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu b/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
+index 18c6ac6..586089c 100644
+--- a/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
++++ b/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
+@@ -212,7 +212,7 @@ namespace pcl
+ 
+         TransformEstimatorKernel1<<<grid, block>>>(te);
+         cudaSafeCall ( cudaGetLastError () );
+-        //cudaSafeCall(cudaDeviceSynchronize());
++        //cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+ 
+         TRed tr;
+         tr.gbuf = gbuf;
+@@ -222,7 +222,7 @@ namespace pcl
+         TransformEstimatorKernel2<<<TRed::TOTAL, TRed::CTA_SIZE>>>(tr);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+ 
+         float host_data[TRed::TOTAL];
+         mbuf.download (host_data);
 diff --git a/gpu/kinfu_large_scale/src/cuda/extract.cu b/gpu/kinfu_large_scale/src/cuda/extract.cu
-index d7db4be..f8e982f 100644
+index d7db4be..912b379 100644
 --- a/gpu/kinfu_large_scale/src/cuda/extract.cu
 +++ b/gpu/kinfu_large_scale/src/cuda/extract.cu
 @@ -58,9 +58,6 @@ namespace pcl
@@ -1911,7 +2295,8 @@ index d7db4be..f8e982f 100644
 +        cudaSafeCall ( cudaMemsetAsync (counter, 0, sizeof (int)) );
          extractKernel<<<grid, block>>>(fs);
          cudaSafeCall ( cudaGetLastError () );
-         cudaSafeCall ( cudaDeviceSynchronize () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize (cudaStreamPerThread) );
  
          int size;
 -        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof (size)) );
@@ -1940,13 +2325,54 @@ index d7db4be..f8e982f 100644
          extractSliceKernel<<<grid, block>>>(fs, *buffer, minBounds, maxBounds);
  
          cudaSafeCall ( cudaGetLastError () );
-         cudaSafeCall ( cudaDeviceSynchronize () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize (cudaStreamPerThread) );
  
          int size;
 -        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof(size)) );  
 -        return (std::size_t)size;
 +        cudaSafeCall ( cudaMemcpy (&size, counter, sizeof (int), cudaMemcpyDeviceToHost) );
 +        return (std::size_t)min (size, (int)output_xyz.size);
+       }
+     }
+   }
+@@ -710,7 +685,7 @@ namespace pcl
+ 
+         extractNormalsKernel<<<grid, block>>>(en);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+ 
+       template void extractNormals<PointType>(const PtrStep<short2>&volume, const float3 &volume_size, const PtrSz<PointType>&input, PointType * output);
+diff --git a/gpu/kinfu_large_scale/src/cuda/image_generator.cu b/gpu/kinfu_large_scale/src/cuda/image_generator.cu
+index 1ebc3ec..4a527c3 100644
+--- a/gpu/kinfu_large_scale/src/cuda/image_generator.cu
++++ b/gpu/kinfu_large_scale/src/cuda/image_generator.cu
+@@ -118,7 +118,7 @@ namespace pcl
+ 
+         generateImageKernel<<<grid, block>>>(ig);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }      
+     }
+   }
+@@ -164,7 +164,7 @@ namespace pcl
+         
+         generateDepthKernel<<<grid, block>>>(R_inv.data[2], t, vmap, dst);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());  
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));  
+       }
+     }
+   }
+@@ -213,7 +213,7 @@ namespace pcl
+ 
+         paint3DViewKernel<<<grid, block>>>(colors, dst, colors_weight);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());  
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));  
        }
      }
    }
@@ -1991,7 +2417,7 @@ index 0aa86d3..129387b 100644
      }
    }
 diff --git a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
-index b1c12de..785c5f9 100644
+index b1c12de..1d6930f 100644
 --- a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
 +++ b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
 @@ -50,26 +50,8 @@ namespace pcl
@@ -2236,6 +2662,15 @@ index b1c12de..785c5f9 100644
          tg.occupied_voxels = occupied_voxels.ptr (0);
          tg.vertex_ofssets = occupied_voxels.ptr (2);
          tg.voxels_count = occupied_voxels.cols ();
+@@ -392,7 +348,7 @@ namespace pcl
+ 
+         trianglesGeneratorKernel<<<grid, block>>>(tg);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
 diff --git a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu b/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
 index 42e5db8..c5efb6f 100644
 --- a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
@@ -2246,6 +2681,72 @@ index 42e5db8..c5efb6f 100644
          cudaSafeCall (cudaGetLastError ());
 -        cudaSafeCall (cudaDeviceSynchronize ());
 +        // (no device-wide sync: the frame pipeline is stream-ordered)
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/push.cu b/gpu/kinfu_large_scale/src/cuda/push.cu
+index c2d2c38..4f02034 100644
+--- a/gpu/kinfu_large_scale/src/cuda/push.cu
++++ b/gpu/kinfu_large_scale/src/cuda/push.cu
+@@ -97,7 +97,7 @@ namespace pcl
+         
+         loadTsdfValueKernel <<< numBlocks, threadsPerBlock >>> (first_point_pointer, cloud_gpu.ptr(), number_of_points, DIVISOR, *buffer);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize (cudaStreamPerThread) );
+       }
+     } /*namespace kinfuLS*/ 
+   } /*namespace device*/
+diff --git a/gpu/kinfu_large_scale/src/cuda/ray_caster.cu b/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
+index 4181f6a..8d41db4 100644
+--- a/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
++++ b/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
+@@ -352,7 +352,7 @@ namespace pcl
+ 
+         rayCastKernel<<<grid, block>>>(rc, *buffer);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall(cudaDeviceSynchronize());
++        cudaSafeCall(cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu b/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
+index 33e1fe1..e1edd1f 100644
+--- a/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
++++ b/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
+@@ -162,7 +162,7 @@ namespace pcl
+ 
+         initializeVolume<<<grid, block>>>(volume);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+@@ -377,7 +377,7 @@ namespace pcl
+         integrateTsdfKernel<<<grid, block>>>(tsdf);
+       #endif
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+     }
+   }
+@@ -642,7 +642,7 @@ namespace pcl
+         //tsdf23normal_hack<<<grid, block>>>(depthScaled, volume, tranc_dist, Rcurr_inv, tcurr, intr, cell_size);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));
+       }
+ 
+       /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -697,7 +697,7 @@ namespace pcl
+         
+         clearSliceKernel<<<grid, block>>>(volume, *buffer, minBounds, maxBounds);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());        
++        cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread));        
        }
      }
    }
@@ -2327,7 +2828,7 @@ index cf733f4..2dabbb1 100644
  
          static __forceinline__ __device__ int 
 diff --git a/gpu/kinfu_large_scale/src/internal.h b/gpu/kinfu_large_scale/src/internal.h
-index c46ffa1..f5057ea 100644
+index c46ffa1..af1ebad 100644
 --- a/gpu/kinfu_large_scale/src/internal.h
 +++ b/gpu/kinfu_large_scale/src/internal.h
 @@ -191,6 +191,15 @@ namespace pcl
@@ -2364,6 +2865,15 @@ index c46ffa1..f5057ea 100644
  
        /** \brief Performs normals computation for given points using tsdf volume
          * \param[in] volume tsdf volume
+@@ -408,7 +417,7 @@ namespace pcl
+       /** \brief synchronizes CUDA execution */
+       inline 
+       void 
+-      sync () { cudaSafeCall (cudaDeviceSynchronize ()); }
++      sync () { cudaSafeCall (cudaStreamSynchronize (cudaStreamPerThread)); }
+ 
+ 
+       template<class D, class Matx> D&
 @@ -419,22 +428,13 @@ namespace pcl
     
        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////

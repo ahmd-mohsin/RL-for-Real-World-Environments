@@ -437,7 +437,8 @@ class Grader:
         C = self.udir(self.work / "cand_perf")
         work = [("kinfu", "kinfu_replay", cases.KINFU["kinfu_orbit_clean"], 16),
                 ("kinfuls", "kinfu_replay", cases.KINFU["kinfuls_walk_clean"] + ["--skip-mesh"], 16),
-                ("people", "people_eval", self.people_args(cases.PEOPLE_VARIANTS[:5], ["--repeat", "15"]), 1)]
+                ("people", "people_eval", self.people_args(cases.PEOPLE_VARIANTS[:5], ["--repeat", "15"]), 1),
+                ("kinfu4", "kinfu_replay", cases.THROUGHPUT_KINFU, 16)]
         for tag, tool, args, omp in work:
             kill_unpriv()
             r = self.ref(tool, args, P / f"{tag}{rnd}", omp=omp)
@@ -445,6 +446,18 @@ class Grader:
             if rc != 0:
                 raise RuntimeError(f"candidate benchmark {tag} failed: {tail(log, 10)}")
             c = C / f"{tag}{rnd}"
+            if tag == "kinfu4":
+                # four trackers on four host threads, pre-uploaded frames back to back: the slowest one's wall time
+                n = len(cases.THROUGHPUT_KINFU[-3].split(","))
+                for k in range(n):
+                    f = cases.compare_kinfu(c / f"case{k}", r / f"case{k}")
+                    if f:
+                        raise RuntimeError(f"candidate concurrent benchmark case {k} computed different results: {f[:3]}")
+                for side, d in (("original", r), ("candidate", c)):
+                    v = max(float(cases.load(d / f"case{k}")["track_wall_ms"]) for k in range(n))
+                    best[side]["kinfu_concurrent_wall_ms"] = min(v, best[side].get("kinfu_concurrent_wall_ms", v))
+                    last[side].setdefault("kinfu_concurrent_wall_ms", []).append(round(v, 2))
+                continue
             if tag == "people":
                 f = cases.compare_people(c, r, cases.PEOPLE_VARIANTS[:5])
                 if f:
