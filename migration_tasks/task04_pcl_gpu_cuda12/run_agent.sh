@@ -15,6 +15,7 @@ $SSH "docker run -d --init --name $CTR --network none --runtime=nvidia -e NVIDIA
 echo "sandbox container: $CTR"
 export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' "$ROOT/.env" | cut -d= -f2-)
 export MSWEA_CONFIGURED=true
+export MSWEA_COST_TRACKING=ignore_errors  # a transient OpenRouter response without usage must not abort a run
 export PYTHONPATH="$COMMON${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$OUT"
 MINI=${MINI:-mini}
@@ -23,5 +24,5 @@ MINI=${MINI:-mini}
   -c "agent.step_limit=$STEPS" -c "agent.cost_limit=$COST" \
   -t "$(cat "$HERE/instruction.md")" --yolo --exit-immediately \
   -o "$OUT/trajectory.json" 2>&1 | tee "$OUT/console.log" || true
-$SSH "docker exec -i $CTR bash -lc \"cd /workspace/pcl && git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude)build*' ':(exclude)install*' && git diff --binary --cached base\"" > "$OUT/model.patch"
+$SSH "docker exec -i $CTR bash -lc \"cd /workspace/pcl && { git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude,glob)build*/**' ':(exclude,glob)install*/**' 2>/dev/null || true; } && git diff --binary --cached base\"" > "$OUT/model.patch"
 echo "patch: $(wc -l < "$OUT/model.patch") lines -> $OUT/model.patch (container $CTR left running for inspection)"

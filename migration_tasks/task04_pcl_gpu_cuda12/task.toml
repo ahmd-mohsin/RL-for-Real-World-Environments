@@ -32,7 +32,7 @@ storage_mb = 40960
 gpus = 1
 
 [[verifier.collect]]
-command = "cd /workspace/pcl && mkdir -p /logs/artifacts && git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude)build*' ':(exclude)install*' && git diff --binary --cached base > /logs/artifacts/model.patch"
+command = "cd /workspace/pcl && mkdir -p /logs/artifacts && { git add -A -- . ':(exclude,glob)**/build*/**' ':(exclude,glob)build*/**' ':(exclude,glob)install*/**' 2>/dev/null || true; } && git diff --binary --cached base > /logs/artifacts/model.patch"
 timeout_sec = 300.0
 
 [agent]

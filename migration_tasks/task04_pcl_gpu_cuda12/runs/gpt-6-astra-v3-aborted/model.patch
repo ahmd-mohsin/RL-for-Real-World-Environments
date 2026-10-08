@@ -1,0 +1,4165 @@
+diff --git a/cmake/pcl_find_cuda.cmake b/cmake/pcl_find_cuda.cmake
+index 03d0a40..540b92e 100644
+--- a/cmake/pcl_find_cuda.cmake
++++ b/cmake/pcl_find_cuda.cmake
+@@ -71,3 +71,8 @@ if(CUDA_FOUND)
+ else()
+   message(STATUS "CUDA was not found.")
+ endif()
++
++if(CUDA_FOUND)
++  add_compile_definitions(CUDA_API_PER_THREAD_DEFAULT_STREAM=1)
++  string(APPEND CMAKE_CUDA_FLAGS " --default-stream=per-thread")
++endif()
+diff --git a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp b/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
+index 16dede9..9712e94 100644
+--- a/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
++++ b/gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp
+@@ -38,56 +38,33 @@
+ #define PCL_GPU_UTILS_TEXTURE_BINDER_HPP_
+ 
+ #include <pcl/gpu/containers/device_array.h>
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ #include <pcl/gpu/utils/safe_call.hpp>
+ 
+-namespace pcl {
+-namespace gpu {
++namespace pcl { namespace gpu {
+ class TextureBinder {
++  cudaTextureObject_t object_ = 0;
+ public:
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const DeviceArray2D<T>& arr, const struct texture<T, 2, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(
+-        cudaBindTexture2D(0, tex, arr.ptr(), desc, arr.cols(), arr.rows(), arr.step()));
++  template<class T, cudaTextureReadMode M>
++  TextureBinder(const DeviceArray2D<T>& arr, TextureView<T,2,M>& tex) {
++    cudaSafeCall(bindTexture2D(nullptr,tex,arr.ptr(),cudaCreateChannelDesc<T>(),arr.cols(),arr.rows(),arr.step()));
++    object_ = tex.object;
+   }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const DeviceArray<T>& arr, const struct texture<T, 1, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(cudaBindTexture(0, tex, arr.ptr(), desc, arr.sizeBytes()));
+-  }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const PtrStepSz<T>& arr, const struct texture<T, 2, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(
+-        cudaBindTexture2D(0, tex, arr.data, desc, arr.cols, arr.rows, arr.step));
+-  }
+-
+-  template <class T, enum cudaTextureReadMode readMode>
+-  TextureBinder(const PtrSz<T>& arr, const struct texture<T, 1, readMode>& tex)
+-  : texref(&tex)
+-  {
+-    cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
+-    cudaSafeCall(cudaBindTexture(0, tex, arr.data, desc, arr.size * arr.elemSize()));
++  template<class T, cudaTextureReadMode M>
++  TextureBinder(const DeviceArray<T>& arr, TextureView<T,1,M>& tex) { tex.data=arr.ptr(); }
++  template<class T, cudaTextureReadMode M>
++  TextureBinder(const PtrStepSz<T>& arr, TextureView<T,2,M>& tex) {
++    cudaSafeCall(bindTexture2D(nullptr,tex,arr.data,cudaCreateChannelDesc<T>(),arr.cols,arr.rows,arr.step));
++    object_ = tex.object;
+   }
+-
+-  ~TextureBinder() { cudaSafeCall(cudaUnbindTexture(texref)); }
+-
+-private:
+-  const struct textureReference* texref;
++  template<class T, cudaTextureReadMode M>
++  TextureBinder(const PtrSz<T>& arr, TextureView<T,1,M>& tex) { tex.data=arr.data; }
++  // Views can be copied into kernel arguments, owners cannot be copied.
++  TextureBinder(const TextureBinder&) = delete;
++  TextureBinder& operator=(const TextureBinder&) = delete;
++  ~TextureBinder() { /* retained until the next binding on this host thread */ }
+ };
+-} // namespace gpu
+-
+-namespace device {
+-using pcl::gpu::TextureBinder;
+ }
+-} // namespace pcl
+-
+-#endif /* PCL_GPU_UTILS_TEXTURE_BINDER_HPP_*/
+\ No newline at end of file
++namespace device { using pcl::gpu::TextureBinder; }
++}
++#endif
+diff --git a/gpu/containers/include/pcl/gpu/containers/impl/texture_object.hpp b/gpu/containers/include/pcl/gpu/containers/impl/texture_object.hpp
+new file mode 100644
+index 0000000..bba25b4
+--- /dev/null
++++ b/gpu/containers/include/pcl/gpu/containers/impl/texture_object.hpp
+@@ -0,0 +1,58 @@
++/* SPDX-License-Identifier: BSD-3-Clause
++ * Non-owning, kernel-argument texture views. No device-global binding state.
++ * Linear views deliberately use read-only global memory, including unaligned input.
++ */
++#pragma once
++#include <cuda_runtime.h>
++#include <cstddef>
++#include <limits>
++namespace pcl { namespace gpu {
++template<class T, int Dim, cudaTextureReadMode Mode = cudaReadModeElementType>
++struct TextureView {
++  const T* data = nullptr;
++  std::size_t count = std::numeric_limits<std::size_t>::max() / sizeof(T);
++  cudaTextureObject_t object = 0;
++  cudaTextureAddressMode addressMode[2] = {cudaAddressModeClamp, cudaAddressModeClamp};
++  cudaTextureFilterMode filterMode = cudaFilterModePoint;
++  bool normalized = false;
++};
++template<class T, int D, cudaTextureReadMode M>
++cudaError_t releaseTexture(TextureView<T,D,M>& t) {
++  if (t.object) {
++    auto e = cudaStreamSynchronize(cudaStreamPerThread);
++    if (e != cudaSuccess) return e;
++    e = cudaDestroyTextureObject(t.object); t.object = 0; return e;
++  }
++  return cudaSuccess;
++}
++template<class T, int D, cudaTextureReadMode M, class P>
++cudaError_t bindTexture(std::size_t* offset, TextureView<T,D,M>& t, P ptr,
++                        cudaChannelFormatDesc, std::size_t bytes = std::numeric_limits<std::size_t>::max()) {
++  if (offset) *offset = 0;
++  t.data = reinterpret_cast<const T*>(ptr);
++  t.count = bytes / sizeof(T);
++  return cudaSuccess;
++}
++template<class T, int D, cudaTextureReadMode M, class P>
++cudaError_t bindTexture(std::size_t* offset, TextureView<T,D,M>& t, P ptr, std::size_t bytes) {
++  return bindTexture(offset,t,ptr,cudaCreateChannelDesc<T>(),bytes);
++}
++template<class T, int D, cudaTextureReadMode M, class P>
++cudaError_t bindTexture2D(std::size_t* offset, TextureView<T,D,M>& t, P ptr,
++                          cudaChannelFormatDesc desc, std::size_t w, std::size_t h, std::size_t pitch) {
++  auto e = releaseTexture(t); if(e != cudaSuccess) return e;
++  if(offset) *offset = 0;
++  cudaResourceDesc r{};
++  r.resType = cudaResourceTypePitch2D;
++  r.res.pitch2D.devPtr = const_cast<void*>(reinterpret_cast<const void*>(ptr));
++  r.res.pitch2D.desc = desc; r.res.pitch2D.width = w; r.res.pitch2D.height = h; r.res.pitch2D.pitchInBytes = pitch;
++  cudaTextureDesc d{};
++  d.addressMode[0] = t.addressMode[0]; d.addressMode[1] = t.addressMode[1];
++  d.filterMode = t.filterMode; d.readMode = M; d.normalizedCoords = t.normalized;
++  return cudaCreateTextureObject(&t.object,&r,&d,nullptr);
++}
++}}
++template<class T, int D, cudaTextureReadMode M>
++__device__ __forceinline__ T tex1Dfetch(pcl::gpu::TextureView<T,D,M> t, int i) { return i >= 0 && static_cast<std::size_t>(i) < t.count ? t.data[i] : T{}; }
++template<class T, int D, cudaTextureReadMode M>
++__device__ __forceinline__ T tex2D(pcl::gpu::TextureView<T,D,M> t, float x, float y) { return tex2D<T>(t.object,x,y); }
+diff --git a/gpu/containers/src/device_memory.cpp b/gpu/containers/src/device_memory.cpp
+index 96729ec..2e9d14e 100644
+--- a/gpu/containers/src/device_memory.cpp
++++ b/gpu/containers/src/device_memory.cpp
+@@ -231,7 +231,7 @@ pcl::gpu::DeviceMemory::copyTo(DeviceMemory& other) const
+   else {
+     other.create(sizeBytes_);
+     cudaSafeCall(cudaMemcpy(other.data_, data_, sizeBytes_, cudaMemcpyDeviceToDevice));
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+   }
+ }
+ 
+@@ -252,7 +252,7 @@ pcl::gpu::DeviceMemory::upload(const void* host_ptr_arg, std::size_t sizeBytes_a
+ {
+   create(sizeBytes_arg);
+   cudaSafeCall(cudaMemcpy(data_, host_ptr_arg, sizeBytes_, cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ bool
+@@ -265,7 +265,7 @@ pcl::gpu::DeviceMemory::upload(const void* host_ptr_arg,
+   }
+   void* begin = static_cast<char*>(data_) + device_begin_byte_offset;
+   cudaSafeCall(cudaMemcpy(begin, host_ptr_arg, num_bytes, cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+   return true;
+ }
+ 
+@@ -273,7 +273,7 @@ void
+ pcl::gpu::DeviceMemory::download(void* host_ptr_arg) const
+ {
+   cudaSafeCall(cudaMemcpy(host_ptr_arg, data_, sizeBytes_, cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ bool
+@@ -286,7 +286,7 @@ pcl::gpu::DeviceMemory::download(void* host_ptr_arg,
+   }
+   const void* begin = static_cast<char*>(data_) + device_begin_byte_offset;
+   cudaSafeCall(cudaMemcpy(host_ptr_arg, begin, num_bytes, cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+   return true;
+ }
+ 
+@@ -411,7 +411,7 @@ pcl::gpu::DeviceMemory2D::copyTo(DeviceMemory2D& other) const
+                               colsBytes_,
+                               rows_,
+                               cudaMemcpyDeviceToDevice));
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+   }
+ }
+ 
+@@ -429,7 +429,7 @@ pcl::gpu::DeviceMemory2D::upload(const void* host_ptr_arg,
+                             colsBytes_,
+                             rows_,
+                             cudaMemcpyHostToDevice));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ void
+@@ -442,7 +442,7 @@ pcl::gpu::DeviceMemory2D::download(void* host_ptr_arg, std::size_t host_step_arg
+                             colsBytes_,
+                             rows_,
+                             cudaMemcpyDeviceToHost));
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ void
+diff --git a/gpu/containers/src/repacks.cu b/gpu/containers/src/repacks.cu
+index e36b69a..bdec150 100644
+--- a/gpu/containers/src/repacks.cu
++++ b/gpu/containers/src/repacks.cu
+@@ -74,7 +74,7 @@ cf(int info[4], int size, const void* input, void* output)
+ 
+   deviceCopyFields4B<in_size, out_size><<<grid, block>>>(i, size, input, output);
+   cudaSafeCall(cudaGetLastError());
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ using copy_fields_t = void (*)(int info[4], int size, const void* input, void* output);
+diff --git a/gpu/features/src/fpfh.cu b/gpu/features/src/fpfh.cu
+index 7fdb3c3..9b322bb 100644
+--- a/gpu/features/src/fpfh.cu
++++ b/gpu/features/src/fpfh.cu
+@@ -185,7 +185,7 @@ void pcl::device::computeSPFH(const PointCloud& surface, const Normals& normals,
+     SpfhKernel<<<grid, block>>>(spfh);
+ 
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -329,7 +329,7 @@ void pcl::device::computeFPFH(const PointCloud& cloud, const NeighborIndices& ne
+     FpfhKernel<<<grid, block>>>(fpfh);
+ 
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());    
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));    
+ }
+ 
+ void pcl::device::computeFPFH(const PointCloud& cloud, const Indices& indices, const PointCloud& surface, 
+@@ -352,7 +352,7 @@ void pcl::device::computeFPFH(const PointCloud& cloud, const Indices& indices, c
+     FpfhKernel<<<grid, block>>>(fpfh);
+ 
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());    
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));    
+ 
+ }
+ 
+diff --git a/gpu/features/src/normal_3d.cu b/gpu/features/src/normal_3d.cu
+index 75400ee..981bac7 100644
+--- a/gpu/features/src/normal_3d.cu
++++ b/gpu/features/src/normal_3d.cu
+@@ -249,7 +249,7 @@ void pcl::device::computeNormals(const PointCloud& cloud, const NeighborIndices&
+     EstimateNormalsKernel<<<grid, block>>>(est);
+ 
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ void pcl::device::flipNormalTowardsViewpoint(const PointCloud& cloud, const float3& vp, Normals& normals)
+@@ -264,7 +264,7 @@ void pcl::device::flipNormalTowardsViewpoint(const PointCloud& cloud, const floa
+ 
+     flipNormalTowardsViewpointKernel<<<grid, block>>>(flip);
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ void pcl::device::flipNormalTowardsViewpoint(const PointCloud& cloud, const Indices& indices, const float3& vp, Normals& normals)
+@@ -279,5 +279,5 @@ void pcl::device::flipNormalTowardsViewpoint(const PointCloud& cloud, const Indi
+ 
+     flipNormalTowardsViewpointKernel<<<grid, block>>>(flip, indices.ptr());
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+\ No newline at end of file
+diff --git a/gpu/features/src/pfh.cu b/gpu/features/src/pfh.cu
+index b5a508b..9863f41 100644
+--- a/gpu/features/src/pfh.cu
++++ b/gpu/features/src/pfh.cu
+@@ -274,7 +274,7 @@ void pcl::device::repackToAosForPfh(const PointCloud& cloud, const Normals& norm
+     
+     device::repackKernel<<<grid, block>>>(rpk);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(repackKernel);
+ }
+@@ -293,7 +293,7 @@ void pcl::device::computePfh125(const DeviceArray2D<float>& data_rpk, int max_el
+ 
+     device::pfhKernel<<<grid, block>>>(fph);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(pfhKernel);
+ }
+@@ -331,7 +331,7 @@ void pcl::device::repackToAosForPfhRgb(const PointCloud& cloud, const Normals& n
+     
+     device::repackRgbKernel<<<grid, block>>>(rpk);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(repackRgbKernel);
+ }
+@@ -351,7 +351,7 @@ void pcl::device::computePfhRgb250(const DeviceArray2D<float>& data_rpk, int max
+ 
+     device::pfhRgbKernel<<<grid, block>>>(pfhrgb);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(pfhRgbKernel);
+ 
+diff --git a/gpu/features/src/ppf.cu b/gpu/features/src/ppf.cu
+index c1b5fc9..ebd7ae1 100644
+--- a/gpu/features/src/ppf.cu
++++ b/gpu/features/src/ppf.cu
+@@ -197,7 +197,7 @@ void pcl::device::computePPF(const PointCloud& input, const Normals& normals, co
+     int grid = divUp(total, block);
+     estimatePpfKernel<<<grid, block>>>(ppf);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(estimatePpfKernel);
+ }
+@@ -218,7 +218,7 @@ void pcl::device::computePPFRGB(const PointXYZRGBCloud& input, const Normals& no
+     int grid = divUp(total, block);
+     estimatePpfRgbKernel<<<grid, block>>>(ppfrgb);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(estimatePpfRgbKernel);
+ }
+@@ -359,7 +359,7 @@ void pcl::device::computePPFRGBRegion(const PointXYZRGBCloud& cloud, const Norma
+     estiamtePpfRgbRegionKernel<<<grid, block>>>(impl);
+ 
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());    
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));    
+ 
+     //printFuncAttrib(estiamtePpfRgbRegionKernel);
+ }
+\ No newline at end of file
+diff --git a/gpu/features/src/principal_curvatures.cu b/gpu/features/src/principal_curvatures.cu
+index 49752dc..55a6179 100644
+--- a/gpu/features/src/principal_curvatures.cu
++++ b/gpu/features/src/principal_curvatures.cu
+@@ -248,7 +248,7 @@ void pcl::device::computePointPrincipalCurvatures(const Normals& normals, const
+     int grid = divUp(impl.work_size, PrincipalCurvaturesImpl::WARPS);
+     principalCurvaturesKernel<<<grid, block>>>(impl);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+     //printFuncAttrib(principalCurvaturesKernel);
+     //printFuncAttrib(principalCurvaturesStep2<256>);
+diff --git a/gpu/features/src/spinimages.cu b/gpu/features/src/spinimages.cu
+index c763ae3..9e928f8 100644
+--- a/gpu/features/src/spinimages.cu
++++ b/gpu/features/src/spinimages.cu
+@@ -303,7 +303,7 @@ namespace pcl
+ 
+ 			computeSpinKernel<Impl><<<grid, block, smem_size>>>(impl);
+ 			cudaSafeCall( cudaGetLastError() );
+-			cudaSafeCall( cudaDeviceSynchronize() );
++			cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 		}
+ 
+ 		template<bool radial, bool angular>
+@@ -402,5 +402,5 @@ void pcl::device::computeMask(const NeighborIndices& neighbours, int min_neighb,
+ 	
+ 	thrust::transform(beg, end, out, GtThan(min_neighb));
+ 	cudaSafeCall( cudaGetLastError() );
+-	cudaSafeCall( cudaDeviceSynchronize() );	
++	cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );	
+ }
+diff --git a/gpu/features/src/uniq_inds.cu b/gpu/features/src/uniq_inds.cu
+index 5af14d8..c9915df 100644
+--- a/gpu/features/src/uniq_inds.cu
++++ b/gpu/features/src/uniq_inds.cu
+@@ -120,11 +120,11 @@ int pcl::device::computeUniqueIndices(std::size_t surface_size, const NeighborIn
+ 
+     IndsRepackKernel<<<grid, block>>>(irpk);
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+     int total;
+     cudaSafeCall( cudaMemcpyFromSymbol(&total, total_after_repack, sizeof(total)) );
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+     thrust::device_ptr<int> begu(unique_indices.ptr());
+     thrust::device_ptr<int> endu = begu + total;    
+@@ -138,7 +138,7 @@ int pcl::device::computeUniqueIndices(std::size_t surface_size, const NeighborIn
+     
+     createLookupKernel<<<divUp((int)unique_indices.size(), 256), 256>>>(unique_indices, total, lookup);
+     cudaSafeCall( cudaGetLastError() );        
+-    cudaSafeCall(cudaDeviceSynchronize());
++    cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+     return total;
+ }
+\ No newline at end of file
+diff --git a/gpu/features/src/vfh.cu b/gpu/features/src/vfh.cu
+index 2a57715..f4c1dd5 100644
+--- a/gpu/features/src/vfh.cu
++++ b/gpu/features/src/vfh.cu
+@@ -252,6 +252,6 @@ void pcl::device::VFHEstimationImpl::compute(DeviceArray<VFHSignature308>& featu
+ 
+     estimateVfhKernel<<<grid, block>>>(vfh);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );    
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );    
+ }
+ 
+diff --git a/gpu/kinfu/CMakeLists.txt b/gpu/kinfu/CMakeLists.txt
+index 2ba88e0..95b61c4 100644
+--- a/gpu/kinfu/CMakeLists.txt
++++ b/gpu/kinfu/CMakeLists.txt
+@@ -2,12 +2,7 @@ set(SUBSYS_NAME gpu_kinfu)
+ set(SUBSYS_PATH gpu/kinfu)
+ set(SUBSYS_DESC "Kinect Fusion implementation")
+ set(SUBSYS_DEPS common io gpu_utils gpu_containers geometry search)
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "Kinfu uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+diff --git a/gpu/kinfu/src/cuda/colors.cu b/gpu/kinfu/src/cuda/colors.cu
+index 3229dfb..3e193e7 100644
+--- a/gpu/kinfu/src/cuda/colors.cu
++++ b/gpu/kinfu/src/cuda/colors.cu
+@@ -72,7 +72,7 @@ pcl::device::initColorVolume (PtrStep<uchar4> color_volume)
+ 
+   initColorVolumeKernel<<<grid, block>>>(color_volume);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -231,7 +231,7 @@ pcl::device::updateColorVolume (const Intr& intr, float tranc_dist, const Mat33&
+ 
+   updateColorVolumeKernel<<<grid, block>>>(cvi);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -265,5 +265,5 @@ pcl::device::exctractColors (const PtrStep<uchar4>& color_volume, const float3&
+   float3 cell_size = make_float3 (volume_size.x / VOLUME_X, volume_size.y / VOLUME_Y, volume_size.z / VOLUME_Z);
+   extractColorsKernel<<<divUp (points.size, block), block>>>(cell_size, color_volume, points, colors);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ };
+diff --git a/gpu/kinfu/src/cuda/coresp.cu b/gpu/kinfu/src/cuda/coresp.cu
+index 4a75091..25e6edf 100644
+--- a/gpu/kinfu/src/cuda/coresp.cu
++++ b/gpu/kinfu/src/cuda/coresp.cu
+@@ -228,5 +228,5 @@ pcl::device::findCoresp (const MapArr& vmap_g_curr, const MapArr& nmap_g_curr,
+   corespKernel<<<grid, block>>>(cs);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+diff --git a/gpu/kinfu/src/cuda/device.hpp b/gpu/kinfu/src/cuda/device.hpp
+index 9e0acaa..0a07506 100644
+--- a/gpu/kinfu/src/cuda/device.hpp
++++ b/gpu/kinfu/src/cuda/device.hpp
+@@ -86,18 +86,15 @@ namespace pcl
+     __device__ __forceinline__ T
+     scan_warp ( volatile T *ptr, const unsigned int idx = threadIdx.x )
+     {
+-      const unsigned int lane = idx & 31;       // index of thread in warp (0..31) 
+-
+-      if (lane >=  1) ptr[idx] = ptr[idx -  1] + ptr[idx];
+-      if (lane >=  2) ptr[idx] = ptr[idx -  2] + ptr[idx];
+-      if (lane >=  4) ptr[idx] = ptr[idx -  4] + ptr[idx];
+-      if (lane >=  8) ptr[idx] = ptr[idx -  8] + ptr[idx];
+-      if (lane >= 16) ptr[idx] = ptr[idx - 16] + ptr[idx];
+-
+-      if (Kind == inclusive)
+-        return ptr[idx];
+-      else
+-        return (lane > 0) ? ptr[idx - 1] : 0;
++      T value = ptr[idx];
++      const unsigned mask = __activemask();
++      const unsigned lane = idx & 31;
++      #pragma unroll
++      for (int delta = 1; delta < 32; delta *= 2) {
++        T other = __shfl_up_sync(mask, value, delta);
++        if (lane >= delta) value += other;
++      }
++      return (Kind == exclusive) ? value - ptr[idx] : value;
+     }
+   }
+ }
+diff --git a/gpu/kinfu/src/cuda/estimate_combined.cu b/gpu/kinfu/src/cuda/estimate_combined.cu
+index dc768f5..ed5ee08 100644
+--- a/gpu/kinfu/src/cuda/estimate_combined.cu
++++ b/gpu/kinfu/src/cuda/estimate_combined.cu
+@@ -58,12 +58,12 @@ namespace pcl
+ 
+       if (tid < 32)
+       {
+-        if (CTA_SIZE_ >=   64) { buffer[tid] = val = val + buffer[tid +  32]; }
+-        if (CTA_SIZE_ >=   32) { buffer[tid] = val = val + buffer[tid +  16]; }
+-        if (CTA_SIZE_ >=   16) { buffer[tid] = val = val + buffer[tid +   8]; }
+-        if (CTA_SIZE_ >=    8) { buffer[tid] = val = val + buffer[tid +   4]; }
+-        if (CTA_SIZE_ >=    4) { buffer[tid] = val = val + buffer[tid +   2]; }
+-        if (CTA_SIZE_ >=    2) { buffer[tid] = val = val + buffer[tid +   1]; }
++        if (CTA_SIZE_ >=   64) { val = val + buffer[tid +  32]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++        if (CTA_SIZE_ >=   32) { val = val + buffer[tid +  16]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++        if (CTA_SIZE_ >=   16) { val = val + buffer[tid +   8]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++        if (CTA_SIZE_ >=    8) { val = val + buffer[tid +   4]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++        if (CTA_SIZE_ >=    4) { val = val + buffer[tid +   2]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++        if (CTA_SIZE_ >=    2) { val = val + buffer[tid +   1]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
+       }
+     }
+ 
+@@ -180,24 +180,27 @@ namespace pcl
+         else
+           row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
+ 
+-        __shared__ float_type smem[CTA_SIZE];
+-        int tid = Block::flattenedThreadId ();
+-
+-        int shift = 0;
+-        for (int i = 0; i < 6; ++i)        //rows
+-        {
++        // Keep the legacy 256-element reduction tree (and float products),
++        // but exchange all normal-equation terms at once rather than 27 barriers.
++        __shared__ float products[27][CTA_SIZE];
++        const int tid = Block::flattenedThreadId();
++        int term = 0;
++        for (int i=0; i<6; ++i)
++          for (int j=i; j<7; ++j)
++            products[term++][tid] = row[i] * row[j];
++        __syncthreads();
++        const int lane = tid & 31;
++        for (int k=tid/32; k<27; k+=CTA_SIZE/32) {
++          const float* p = products[k] + lane;
++          float_type a = float_type(p[0]) + p[128];
++          float_type b = float_type(p[64]) + p[192];
++          float_type c = float_type(p[32]) + p[160];
++          float_type d = float_type(p[96]) + p[224];
++          float_type value = (a + b) + (c + d);
+           #pragma unroll
+-          for (int j = i; j < 7; ++j)          // cols + b
+-          {
+-            __syncthreads ();
+-            smem[tid] = row[i] * row[j];
+-            __syncthreads ();
+-
+-            reduce<CTA_SIZE>(smem);
+-
+-            if (tid == 0)
+-              gbuf.ptr (shift++)[blockIdx.x + gridDim.x * blockIdx.y] = smem[0];
+-          }
++          for (int delta=16; delta>0; delta/=2)
++            value += __shfl_down_sync(0xffffffff, value, delta);
++          if (lane==0) gbuf.ptr(k)[blockIdx.x + gridDim.x * blockIdx.y] = value;
+         }
+       }
+     };
+@@ -309,7 +312,7 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
+ 
+   combinedKernel<<<grid, block>>>(cs);
+   cudaSafeCall ( cudaGetLastError () );
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   //printFuncAttrib(combinedKernel);
+ 
+@@ -320,7 +323,7 @@ pcl::device::estimateCombined (const Mat33& Rcurr, const float3& tcurr,
+ 
+   TransformEstimatorKernel2<<<TranformReduction::TOTAL, TranformReduction::CTA_SIZE>>>(tr);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   float_type host_data[TranformReduction::TOTAL];
+   mbuf.download (host_data);
+diff --git a/gpu/kinfu/src/cuda/estimate_tranform.cu b/gpu/kinfu/src/cuda/estimate_tranform.cu
+index 94855dc..b43b75a 100644
+--- a/gpu/kinfu/src/cuda/estimate_tranform.cu
++++ b/gpu/kinfu/src/cuda/estimate_tranform.cu
+@@ -211,7 +211,7 @@ pcl::device::estimateTransform (const MapArr& v_dst, const MapArr& n_dst,
+ 
+   TransformEstimatorKernel1<<<grid, block>>>(te);
+   cudaSafeCall ( cudaGetLastError () );
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   TRed tr;
+   tr.gbuf = gbuf;
+@@ -221,7 +221,7 @@ pcl::device::estimateTransform (const MapArr& v_dst, const MapArr& n_dst,
+   TransformEstimatorKernel2<<<TRed::TOTAL, TRed::CTA_SIZE>>>(tr);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   float host_data[TRed::TOTAL];
+   mbuf.download (host_data);
+diff --git a/gpu/kinfu/src/cuda/extract.cu b/gpu/kinfu/src/cuda/extract.cu
+index 9f4e319..c406504 100644
+--- a/gpu/kinfu/src/cuda/extract.cu
++++ b/gpu/kinfu/src/cuda/extract.cu
+@@ -57,16 +57,13 @@ namespace pcl
+       MAX_LOCAL_POINTS = 3
+     };
+ 
+-    __device__ int global_count = 0;
+-    __device__ int output_count;
+-    __device__ unsigned int blocks_done = 0;
+-
+     __shared__ float storage_X[CTA_SIZE * MAX_LOCAL_POINTS];
+     __shared__ float storage_Y[CTA_SIZE * MAX_LOCAL_POINTS];
+     __shared__ float storage_Z[CTA_SIZE * MAX_LOCAL_POINTS];
+ 
+     struct FullScan6
+     {
++      int* global_count;
+       PtrStep<short2> volume;
+       float3 cell_size;
+ 
+@@ -96,7 +93,7 @@ namespace pcl
+ 
+         int ftid = Block::flattenedThreadId ();
+ 
+-        for (int z = 0; z < VOLUME_Z - 1; ++z)
++        for (int z = blockIdx.z * 16; z < min(int(blockIdx.z + 1) * 16, VOLUME_Z - 1); ++z)
+         {
+           float3 points[MAX_LOCAL_POINTS];
+           int local_count = 0;
+@@ -190,14 +187,18 @@ namespace pcl
+             volatile int* cta_buffer = (int*)(storage_X + storage_index);
+ 
+             cta_buffer[lane] = local_count;
++            __syncwarp();
+             int offset = scan_warp<exclusive>(cta_buffer, lane);
+ 
++            __syncwarp();
+             if (lane == 0)
+             {
+-              int old_global_count = atomicAdd (&global_count, total_warp);
++              int old_global_count = atomicAdd (global_count, total_warp);
+               cta_buffer[0] = old_global_count;
+             }
++            __syncwarp();
+             int old_global_count = cta_buffer[0];
++            __syncwarp();
+ 
+             for (int l = 0; l < local_count; ++l)
+             {
+@@ -206,15 +207,17 @@ namespace pcl
+               storage_Z[storage_index + offset + l] = points[l].z;
+             }
+ 
++            __syncwarp();
+             PointType *pos = output.data + old_global_count + lane;
+             for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, pos += Warp::STRIDE)
+             {
+               float x = storage_X[storage_index + idx];
+               float y = storage_Y[storage_index + idx];
+               float z = storage_Z[storage_index + idx];
+-              store_point_type (x, y, z, pos);
++              if (pos < output.data + output.size) store_point_type (x, y, z, pos);
+             }
+ 
++            __syncwarp();
+             bool full = (old_global_count + total_warp) >= output.size;
+ 
+             if (full)
+@@ -226,19 +229,7 @@ namespace pcl
+ 
+         ///////////////////////////
+         // prepare for future scans
+-        if (ftid == 0)
+-        {
+-          unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-          unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-          //last block
+-          if (value == total_blocks - 1)
+-          {
+-            output_count = min ((int)output.size, global_count);
+-            blocks_done = 0;
+-            global_count = 0;
+-          }
+-        }
++        
+       }       /* operator() */
+ 
+       __device__ __forceinline__ void
+@@ -264,6 +255,9 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
+                            PtrSz<PointType> output)
+ {
+   FullScan6 fs;
++  thread_local DeviceArray<int> counter(1);
++  cudaSafeCall(cudaMemsetAsync(counter.ptr(), 0, sizeof(int), cudaStreamPerThread));
++  fs.global_count = counter.ptr();
+   fs.volume = volume;
+   fs.cell_size.x = volume_size.x / VOLUME_X;
+   fs.cell_size.y = volume_size.y / VOLUME_Y;
+@@ -271,17 +265,17 @@ pcl::device::extractCloud (const PtrStep<short2>& volume, const float3& volume_s
+   fs.output = output;
+ 
+   dim3 block (CTA_SIZE_X, CTA_SIZE_Y);
+-  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), divUp(VOLUME_Z - 1, 16));
+ 
+   //cudaFuncSetCacheConfig(extractKernel, cudaFuncCachePreferL1);
+   //printFuncAttrib(extractKernel);
+ 
+   extractKernel<<<grid, block>>>(fs);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   int size;
+-  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
++  cudaSafeCall ( cudaMemcpy(&size, counter.ptr(), sizeof(size), cudaMemcpyDeviceToHost) );
+   return (std::size_t)size;
+ }
+ 
+@@ -423,7 +417,8 @@ template<typename NormalType> void
+ pcl::device::extractNormals (const PtrStep<short2>& volume, const float3& volume_size, 
+                              const PtrSz<PointType>& points, NormalType* output)
+ {
+-  ExtractNormals<NormalType> en;
++  if (points.size == 0) return;
++      ExtractNormals<NormalType> en;
+   en.volume = volume;
+   en.cell_size.x = volume_size.x / VOLUME_X;
+   en.cell_size.y = volume_size.y / VOLUME_Y;
+@@ -436,7 +431,7 @@ pcl::device::extractNormals (const PtrStep<short2>& volume, const float3& volume
+ 
+   extractNormalsKernel<<<grid, block>>>(en);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ using namespace pcl::device;
+diff --git a/gpu/kinfu/src/cuda/image_generator.cu b/gpu/kinfu/src/cuda/image_generator.cu
+index 41a385a..e514e67 100644
+--- a/gpu/kinfu/src/cuda/image_generator.cu
++++ b/gpu/kinfu/src/cuda/image_generator.cu
+@@ -120,7 +120,7 @@ pcl::device::generateImage (const MapArr& vmap, const MapArr& nmap, const LightS
+ 
+   generateImageKernel<<<grid, block>>>(ig);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ } 
+ 
+ //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -163,7 +163,7 @@ pcl::device::generateDepth (const Mat33& R_inv, const float3& t, const MapArr& v
+   
+   generateDepthKernel<<<grid, block>>>(R_inv.data[2], t, vmap, dst);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());  
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));  
+ }
+ 
+ //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -210,5 +210,5 @@ pcl::device::paint3DView(const PtrStep<uchar3>& colors, PtrStepSz<uchar3> dst, f
+ 
+   paint3DViewKernel<<<grid, block>>>(colors, dst, colors_weight);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());  
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));  
+ }
+\ No newline at end of file
+diff --git a/gpu/kinfu/src/cuda/maps.cu b/gpu/kinfu/src/cuda/maps.cu
+index 1b37936..c3af737 100644
+--- a/gpu/kinfu/src/cuda/maps.cu
++++ b/gpu/kinfu/src/cuda/maps.cu
+@@ -221,7 +221,7 @@ pcl::device::tranformMaps (const MapArr& vmap_src, const MapArr& nmap_src,
+   tranformMapsKernel<<<grid, block>>>(rows, cols, vmap_src, nmap_src, Rmat, tvec, vmap_dst, nmap_dst);
+   cudaSafeCall (cudaGetLastError ());
+ 
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -298,7 +298,7 @@ namespace pcl
+       dim3 grid (divUp (out_cols, block.x), divUp (out_rows, block.y));
+       resizeMapKernel<normalize><< < grid, block>>>(out_rows, out_cols, in_rows, input, output);
+       cudaSafeCall ( cudaGetLastError () );
+-      cudaSafeCall (cudaDeviceSynchronize ());
++      cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+     }
+   }
+ }
+@@ -363,7 +363,7 @@ pcl::device::convert (const MapArr& vmap, DeviceArray2D<T>& output)
+ 
+   convertMapKernel<T><< < grid, block>>>(rows, cols, vmap, output);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ template void pcl::device::convert (const MapArr& vmap, DeviceArray2D<float4>& output);
+@@ -406,5 +406,5 @@ pcl::device::mergePointNormal (const DeviceArray<float4>& cloud, const DeviceArr
+ 
+   mergePointNormalKernel<<<divUp (total, block), block>>>(cloud, normals, output);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+diff --git a/gpu/kinfu/src/cuda/marching_cubes.cu b/gpu/kinfu/src/cuda/marching_cubes.cu
+index 127f050..dd306df 100644
+--- a/gpu/kinfu/src/cuda/marching_cubes.cu
++++ b/gpu/kinfu/src/cuda/marching_cubes.cu
+@@ -1,3 +1,4 @@
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -47,9 +48,8 @@ namespace pcl
+ {
+   namespace device
+   {
+-    //texture<int, 1, cudaReadModeElementType> edgeTex;
+-    texture<int, 1, cudaReadModeElementType> triTex;
+-    texture<int, 1, cudaReadModeElementType> numVertsTex;
++    thread_local pcl::gpu::TextureView<int, 1, cudaReadModeElementType> triTex;
++    thread_local pcl::gpu::TextureView<int, 1, cudaReadModeElementType> numVertsTex;
+   }
+ }
+ 
+@@ -57,29 +57,27 @@ void
+ pcl::device::bindTextures (const int */*edgeBuf*/, const int *triBuf, const int *numVertsBuf)
+ {
+   cudaChannelFormatDesc desc = cudaCreateChannelDesc<int>();
+-  //cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+-  cudaSafeCall (cudaBindTexture (0, triTex, triBuf, desc) );
+-  cudaSafeCall (cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
++  //cudaSafeCall(pcl::gpu::bindTexture(0, edgeTex, edgeBuf, desc) );
++  cudaSafeCall (pcl::gpu::bindTexture (0, triTex, triBuf, desc) );
++  cudaSafeCall (pcl::gpu::bindTexture (0, numVertsTex, numVertsBuf, desc) );
+ }
+ void
+ pcl::device::unbindTextures ()
+ {
+-  //cudaSafeCall( cudaUnbindTexture(edgeTex) );
+-  cudaSafeCall ( cudaUnbindTexture (numVertsTex) );
+-  cudaSafeCall ( cudaUnbindTexture (triTex) );
++  //cudaSafeCall( pcl::gpu::releaseTexture(edgeTex) );
++  cudaSafeCall ( pcl::gpu::releaseTexture (numVertsTex) );
++  cudaSafeCall ( pcl::gpu::releaseTexture (triTex) );
+ }
+ 
+ namespace pcl
+ {
+   namespace device
+   {
+-    __device__ int global_count = 0;
+-    __device__ int output_count;
+-    __device__ unsigned int blocks_done = 0;
+ 
+     struct CubeIndexEstimator
+     {
+       PtrStep<short2> volume;
++      pcl::gpu::TextureView<int,1> triTex, numVertsTex;
+ 
+ 	  static __device__ __forceinline__ float isoValue() { return 0.f; }
+ 
+@@ -119,6 +117,7 @@ namespace pcl
+ 
+     struct OccupiedVoxels : public CubeIndexEstimator
+     {
++      int* global_count;
+       enum
+       {        
+         CTA_SIZE_X = 32,
+@@ -148,7 +147,7 @@ namespace pcl
+ 
+         volatile __shared__ int warps_buffer[WARPS_COUNT];
+ 
+-        for (int z = 0; z < VOLUME_Z - 1; z++)
++        for (int z = blockIdx.z * 16; z < min(int(blockIdx.z + 1) * 16, VOLUME_Z - 1); z++)
+         {
+           int numVerts = 0;
+           if (x + 1 < VOLUME_X && y + 1 < VOLUME_Y)
+@@ -166,10 +165,12 @@ namespace pcl
+ 
+           if (lane_id == 0)
+           {
+-            int old = atomicAdd (&global_count, total);
++            int old = atomicAdd (global_count, total);
+             warps_buffer[warp_id] = old;
+           }
++          __syncwarp();
+           int old_global_voxels_count = warps_buffer[warp_id];
++          __syncwarp();
+ 
+           int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), numVerts > 0));
+ 
+@@ -189,19 +190,7 @@ namespace pcl
+ 
+         /////////////////////////
+         // prepare for future scans
+-        if (ftid == 0)
+-        {
+-          unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-          unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-          //last block
+-          if (value == total_blocks - 1)
+-          {
+-            output_count = min (max_size, global_count);
+-            blocks_done = 0;
+-            global_count = 0;
+-          }
+-        } 
++         
+       } /* operator () */
+     };
+     __global__ void getOccupiedVoxelsKernel (const OccupiedVoxels ov) { ov (); }
+@@ -212,25 +201,29 @@ int
+ pcl::device::getOccupiedVoxels (const PtrStep<short2>& volume, DeviceArray2D<int>& occupied_voxels)
+ {
+   OccupiedVoxels ov;
++  thread_local DeviceArray<int> counter(1);
++  cudaSafeCall(cudaMemsetAsync(counter.ptr(), 0, sizeof(int), cudaStreamPerThread));
++  ov.global_count = counter.ptr();
+   ov.volume = volume;
++  ov.triTex = triTex; ov.numVertsTex = numVertsTex;
+ 
+   ov.voxels_indeces = occupied_voxels.ptr (0);
+   ov.vetexes_number = occupied_voxels.ptr (1);
+   ov.max_size = occupied_voxels.cols ();
+ 
+   dim3 block (OccupiedVoxels::CTA_SIZE_X, OccupiedVoxels::CTA_SIZE_Y);
+-  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++  dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), divUp(VOLUME_Z - 1, 16));
+ 
+   //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+   //printFuncAttrib(getOccupiedVoxelsKernel);
+ 
+   getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+   int size;
+-  cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
+-  return size;
++  cudaSafeCall ( cudaMemcpy(&size, counter.ptr(), sizeof(size), cudaMemcpyDeviceToHost) );
++  return min(size, ov.max_size);
+ }
+ 
+ int
+@@ -324,21 +317,21 @@ namespace pcl
+ 
+         // find the vertices where the surface intersects the cube
+         // use shared memory to avoid using local
+-        __shared__ float3 vertlist[12][CTA_SIZE];
+-
+-        vertlist[0][tid] = vertex_interp (v[0], v[1], f[0], f[1]);
+-        vertlist[1][tid] = vertex_interp (v[1], v[2], f[1], f[2]);
+-        vertlist[2][tid] = vertex_interp (v[2], v[3], f[2], f[3]);
+-        vertlist[3][tid] = vertex_interp (v[3], v[0], f[3], f[0]);
+-        vertlist[4][tid] = vertex_interp (v[4], v[5], f[4], f[5]);
+-        vertlist[5][tid] = vertex_interp (v[5], v[6], f[5], f[6]);
+-        vertlist[6][tid] = vertex_interp (v[6], v[7], f[6], f[7]);
+-        vertlist[7][tid] = vertex_interp (v[7], v[4], f[7], f[4]);
+-        vertlist[8][tid] = vertex_interp (v[0], v[4], f[0], f[4]);
+-        vertlist[9][tid] = vertex_interp (v[1], v[5], f[1], f[5]);
+-        vertlist[10][tid] = vertex_interp (v[2], v[6], f[2], f[6]);
+-        vertlist[11][tid] = vertex_interp (v[3], v[7], f[3], f[7]);
+-        __syncthreads ();
++        float3 vertlist[12];
++
++        vertlist[0] = vertex_interp (v[0], v[1], f[0], f[1]);
++        vertlist[1] = vertex_interp (v[1], v[2], f[1], f[2]);
++        vertlist[2] = vertex_interp (v[2], v[3], f[2], f[3]);
++        vertlist[3] = vertex_interp (v[3], v[0], f[3], f[0]);
++        vertlist[4] = vertex_interp (v[4], v[5], f[4], f[5]);
++        vertlist[5] = vertex_interp (v[5], v[6], f[5], f[6]);
++        vertlist[6] = vertex_interp (v[6], v[7], f[6], f[7]);
++        vertlist[7] = vertex_interp (v[7], v[4], f[7], f[4]);
++        vertlist[8] = vertex_interp (v[0], v[4], f[0], f[4]);
++        vertlist[9] = vertex_interp (v[1], v[5], f[1], f[5]);
++        vertlist[10] = vertex_interp (v[2], v[6], f[2], f[6]);
++        vertlist[11] = vertex_interp (v[3], v[7], f[3], f[7]);
++        
+ 
+         // output triangle vertices
+         int numVerts = tex1Dfetch (numVertsTex, cubeindex);
+@@ -351,9 +344,9 @@ namespace pcl
+           int v2 = tex1Dfetch (triTex, (cubeindex * 16) + i + 1);
+           int v3 = tex1Dfetch (triTex, (cubeindex * 16) + i + 2);
+ 
+-          store_point (output, index + 0, vertlist[v1][tid]);
+-          store_point (output, index + 1, vertlist[v2][tid]);
+-          store_point (output, index + 2, vertlist[v3][tid]);
++          store_point (output, index + 0, vertlist[v1]);
++          store_point (output, index + 1, vertlist[v2]);
++          store_point (output, index + 2, vertlist[v3]);
+         }
+       }
+ 
+@@ -383,6 +376,7 @@ pcl::device::generateTriangles (const PtrStep<short2>& volume, const DeviceArray
+   Tg tg;
+ 
+   tg.volume = volume;
++  tg.triTex = triTex; tg.numVertsTex = numVertsTex;
+   tg.occupied_voxels = occupied_voxels.ptr (0);
+   tg.vertex_ofssets = occupied_voxels.ptr (2);
+   tg.voxels_count = occupied_voxels.cols ();
+@@ -398,5 +392,5 @@ pcl::device::generateTriangles (const PtrStep<short2>& volume, const DeviceArray
+ 
+   trianglesGeneratorKernel<<<grid, block>>>(tg);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+\ No newline at end of file
+diff --git a/gpu/kinfu/src/cuda/normals_eigen.cu b/gpu/kinfu/src/cuda/normals_eigen.cu
+index a028f6a..b04edae 100644
+--- a/gpu/kinfu/src/cuda/normals_eigen.cu
++++ b/gpu/kinfu/src/cuda/normals_eigen.cu
+@@ -146,6 +146,6 @@ pcl::device::computeNormalsEigen (const MapArr& vmap, MapArr& nmap)
+ 
+   computeNmapKernelEigen<<<grid, block>>>(rows, cols, vmap, nmap);
+   cudaSafeCall (cudaGetLastError ());
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+diff --git a/gpu/kinfu/src/cuda/ray_caster.cu b/gpu/kinfu/src/cuda/ray_caster.cu
+index defa16f..1ef1528 100644
+--- a/gpu/kinfu/src/cuda/ray_caster.cu
++++ b/gpu/kinfu/src/cuda/ray_caster.cu
+@@ -318,6 +318,6 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
+ 
+   rayCastKernel<<<grid, block>>>(rc);
+   cudaSafeCall (cudaGetLastError ());
+-  //cudaSafeCall(cudaDeviceSynchronize());
++  //cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+diff --git a/gpu/kinfu/src/cuda/tsdf_volume.cu b/gpu/kinfu/src/cuda/tsdf_volume.cu
+index 952f3af..ff71db4 100644
+--- a/gpu/kinfu/src/cuda/tsdf_volume.cu
++++ b/gpu/kinfu/src/cuda/tsdf_volume.cu
+@@ -74,7 +74,7 @@ pcl::device::initVolume (PtrStep<short2> volume)
+ 
+   initializeVolume<<<grid, block>>>(volume);
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ namespace pcl
+@@ -284,7 +284,7 @@ pcl::device::integrateTsdfVolume (const PtrStepSz<ushort>& depth_raw, const Intr
+    integrateTsdfKernel<<<grid, block>>>(tsdf);
+ #endif
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+ 
+ 
+@@ -538,5 +538,5 @@ pcl::device::integrateTsdfVolume (const PtrStepSz<ushort>& depth, const Intr& in
+   //tsdf23normal_hack<<<grid, block>>>(depthScaled, volume, tranc_dist, Rcurr_inv, tcurr, intr, cell_size);
+ 
+   cudaSafeCall ( cudaGetLastError () );
+-  cudaSafeCall (cudaDeviceSynchronize ());
++  cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ }
+diff --git a/gpu/kinfu/src/cuda/utils.hpp b/gpu/kinfu/src/cuda/utils.hpp
+index 7fedbb6..9f7dbd2 100644
+--- a/gpu/kinfu/src/cuda/utils.hpp
++++ b/gpu/kinfu/src/cuda/utils.hpp
+@@ -485,12 +485,12 @@ namespace pcl
+ 
+ 		if (tid < 32)
+ 		{
+-		  if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-		  if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-		  if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-		  if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-		  if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-		  if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++		  if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+ 		}
+       }
+ 
+@@ -508,12 +508,12 @@ namespace pcl
+ 
+ 		if (tid < 32)
+ 		{
+-		  if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-		  if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-		  if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-		  if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-		  if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-		  if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++		  if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++		  if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+ 		}
+ 		__syncthreads();				
+ 		return buffer[0];
+diff --git a/gpu/kinfu/src/internal.h b/gpu/kinfu/src/internal.h
+index 535689f..787e254 100644
+--- a/gpu/kinfu/src/internal.h
++++ b/gpu/kinfu/src/internal.h
+@@ -394,7 +394,7 @@ namespace pcl
+     /** \brief synchronizes CUDA execution */
+     inline 
+     void 
+-    sync () { cudaSafeCall (cudaDeviceSynchronize ()); }
++    sync () { cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread)); }
+ 
+ 
+     template<class D, class Matx> D&
+diff --git a/gpu/kinfu_large_scale/CMakeLists.txt b/gpu/kinfu_large_scale/CMakeLists.txt
+index da956a2..c026a99 100644
+--- a/gpu/kinfu_large_scale/CMakeLists.txt
++++ b/gpu/kinfu_large_scale/CMakeLists.txt
+@@ -4,12 +4,7 @@ set(SUBSYS_DESC "Kinect Fusion implementation, with volume shifting")
+ set(SUBSYS_DEPS common io gpu_containers gpu_utils geometry search octree filters kdtree features surface)
+ set(EXT_DEPS vtk) # Uses saveRgbPNGFile from png_io, which requires VTK to be present
+ 
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "Kinfu_large_scale uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS ${EXT_DEPS})
+diff --git a/gpu/kinfu_large_scale/src/cuda/colors.cu b/gpu/kinfu_large_scale/src/cuda/colors.cu
+index fd04381..c1dc87c 100644
+--- a/gpu/kinfu_large_scale/src/cuda/colors.cu
++++ b/gpu/kinfu_large_scale/src/cuda/colors.cu
+@@ -73,7 +73,7 @@ namespace pcl
+ 
+         initColorVolumeKernel<<<grid, block>>>(color_volume);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+@@ -237,7 +237,7 @@ namespace pcl
+ 
+         updateColorVolumeKernel<<<grid, block>>>(cvi);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+@@ -275,7 +275,7 @@ namespace pcl
+         float3 cell_size = make_float3 (volume_size.x / VOLUME_X, volume_size.y / VOLUME_Y, volume_size.z / VOLUME_Z);
+         extractColorsKernel<<<divUp (points.size, block), block>>>(cell_size, color_volume, points, colors);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/coresp.cu b/gpu/kinfu_large_scale/src/cuda/coresp.cu
+index 8290ef1..fa6d384 100644
+--- a/gpu/kinfu_large_scale/src/cuda/coresp.cu
++++ b/gpu/kinfu_large_scale/src/cuda/coresp.cu
+@@ -229,7 +229,7 @@ namespace pcl
+         corespKernel<<<grid, block>>>(cs);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/device.hpp b/gpu/kinfu_large_scale/src/cuda/device.hpp
+index e39a6e2..9e1c87c 100644
+--- a/gpu/kinfu_large_scale/src/cuda/device.hpp
++++ b/gpu/kinfu_large_scale/src/cuda/device.hpp
+@@ -90,19 +90,16 @@ namespace pcl
+       __device__ __forceinline__ T
+       scan_warp ( volatile T *ptr, const unsigned int idx = threadIdx.x )
+       {
+-        const unsigned int lane = idx & 31;       // index of thread in warp (0..31) 
+-
+-        if (lane >=  1) ptr[idx] = ptr[idx -  1] + ptr[idx];
+-        if (lane >=  2) ptr[idx] = ptr[idx -  2] + ptr[idx];
+-        if (lane >=  4) ptr[idx] = ptr[idx -  4] + ptr[idx];
+-        if (lane >=  8) ptr[idx] = ptr[idx -  8] + ptr[idx];
+-        if (lane >= 16) ptr[idx] = ptr[idx - 16] + ptr[idx];
+-
+-        if (Kind == inclusive)
+-          return ptr[idx];
+-        else
+-          return (lane > 0) ? ptr[idx - 1] : 0;
++      T value = ptr[idx];
++      const unsigned mask = __activemask();
++      const unsigned lane = idx & 31;
++      #pragma unroll
++      for (int delta = 1; delta < 32; delta *= 2) {
++        T other = __shfl_up_sync(mask, value, delta);
++        if (lane >= delta) value += other;
+       }
++      return (Kind == exclusive) ? value - ptr[idx] : value;
++    }
+     }
+   }
+ }
+diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
+index 952f024..02679c6 100644
+--- a/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
++++ b/gpu/kinfu_large_scale/src/cuda/estimate_combined.cu
+@@ -64,12 +64,12 @@ namespace pcl
+ 
+         if (tid < 32)
+         {
+-          if (CTA_SIZE_ >=   64) { buffer[tid] = val = val + buffer[tid +  32]; }
+-          if (CTA_SIZE_ >=   32) { buffer[tid] = val = val + buffer[tid +  16]; }
+-          if (CTA_SIZE_ >=   16) { buffer[tid] = val = val + buffer[tid +   8]; }
+-          if (CTA_SIZE_ >=    8) { buffer[tid] = val = val + buffer[tid +   4]; }
+-          if (CTA_SIZE_ >=    4) { buffer[tid] = val = val + buffer[tid +   2]; }
+-          if (CTA_SIZE_ >=    2) { buffer[tid] = val = val + buffer[tid +   1]; }
++          if (CTA_SIZE_ >=   64) { val = val + buffer[tid +  32]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++          if (CTA_SIZE_ >=   32) { val = val + buffer[tid +  16]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++          if (CTA_SIZE_ >=   16) { val = val + buffer[tid +   8]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++          if (CTA_SIZE_ >=    8) { val = val + buffer[tid +   4]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++          if (CTA_SIZE_ >=    4) { val = val + buffer[tid +   2]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
++          if (CTA_SIZE_ >=    2) { val = val + buffer[tid +   1]; __syncwarp(); buffer[tid] = val; __syncwarp(); }
+         }
+       }
+ 
+@@ -185,25 +185,28 @@ namespace pcl
+           else
+             row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
+ 
+-          __shared__ float_type smem[CTA_SIZE];
+-          int tid = Block::flattenedThreadId ();
+-
+-          int shift = 0;
+-          for (int i = 0; i < 6; ++i)        //rows
+-          {
+-            #pragma unroll
+-            for (int j = i; j < 7; ++j)          // cols + b
+-            {
+-              __syncthreads ();
+-              smem[tid] = row[i] * row[j];
+-              __syncthreads ();
+-
+-              reduce<CTA_SIZE>(smem);
+-
+-              if (tid == 0)
+-                gbuf.ptr (shift++)[blockIdx.x + gridDim.x * blockIdx.y] = smem[0];
+-            }
+-          }
++          // Keep the legacy 256-element reduction tree (and float products),
++        // but exchange all normal-equation terms at once rather than 27 barriers.
++        __shared__ float products[27][CTA_SIZE];
++        const int tid = Block::flattenedThreadId();
++        int term = 0;
++        for (int i=0; i<6; ++i)
++          for (int j=i; j<7; ++j)
++            products[term++][tid] = row[i] * row[j];
++        __syncthreads();
++        const int lane = tid & 31;
++        for (int k=tid/32; k<27; k+=CTA_SIZE/32) {
++          const float* p = products[k] + lane;
++          float_type a = float_type(p[0]) + p[128];
++          float_type b = float_type(p[64]) + p[192];
++          float_type c = float_type(p[32]) + p[160];
++          float_type d = float_type(p[96]) + p[224];
++          float_type value = (a + b) + (c + d);
++          #pragma unroll
++          for (int delta=16; delta>0; delta/=2)
++            value += __shfl_down_sync(0xffffffff, value, delta);
++          if (lane==0) gbuf.ptr(k)[blockIdx.x + gridDim.x * blockIdx.y] = value;
++        }
+         }
+       };
+ 
+@@ -311,7 +314,7 @@ namespace pcl
+ 
+         combinedKernel<<<grid, block>>>(cs);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall(cudaDeviceSynchronize());
++        cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+         //printFuncAttrib(combinedKernel);
+ 
+@@ -322,7 +325,7 @@ namespace pcl
+ 
+         TransformEstimatorKernel2<<<TranformReduction::TOTAL, TranformReduction::CTA_SIZE>>>(tr);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+         float_type host_data[TranformReduction::TOTAL];
+         mbuf.download (host_data);
+diff --git a/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu b/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
+index 18c6ac6..4fb5e8b 100644
+--- a/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
++++ b/gpu/kinfu_large_scale/src/cuda/estimate_tranform.cu
+@@ -212,7 +212,7 @@ namespace pcl
+ 
+         TransformEstimatorKernel1<<<grid, block>>>(te);
+         cudaSafeCall ( cudaGetLastError () );
+-        //cudaSafeCall(cudaDeviceSynchronize());
++        //cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ 
+         TRed tr;
+         tr.gbuf = gbuf;
+@@ -222,7 +222,7 @@ namespace pcl
+         TransformEstimatorKernel2<<<TRed::TOTAL, TRed::CTA_SIZE>>>(tr);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+         float host_data[TRed::TOTAL];
+         mbuf.download (host_data);
+diff --git a/gpu/kinfu_large_scale/src/cuda/extract.cu b/gpu/kinfu_large_scale/src/cuda/extract.cu
+index d7db4be..4ea007e 100644
+--- a/gpu/kinfu_large_scale/src/cuda/extract.cu
++++ b/gpu/kinfu_large_scale/src/cuda/extract.cu
+@@ -56,11 +56,7 @@ namespace pcl
+         CTA_SIZE = CTA_SIZE_X * CTA_SIZE_Y,
+ 
+         MAX_LOCAL_POINTS = 3
+-      };
+-
+-      __device__ int global_count = 0;
+-      __device__ int output_xyz_count = 0;                                       // *************************************************
+-      __device__ unsigned int blocks_done = 0;
++      };                                       // *************************************************
+ 
+       __shared__ float storage_X[CTA_SIZE * MAX_LOCAL_POINTS];
+       __shared__ float storage_Y[CTA_SIZE * MAX_LOCAL_POINTS];
+@@ -69,6 +65,7 @@ namespace pcl
+ 
+       struct FullScan6
+       {
++      int* global_count;
+         PtrStep<short2> volume;
+         float3 cell_size;
+ 
+@@ -114,7 +111,7 @@ namespace pcl
+ 
+           int ftid = Block::flattenedThreadId ();
+ 
+-          for (int z = 0; z < VOLUME_Z - 1; ++z)
++          for (int z = blockIdx.z * 16; z < min(int(blockIdx.z + 1) * 16, VOLUME_Z - 1); ++z)
+           {
+             float3 points[MAX_LOCAL_POINTS];
+             int local_count = 0;
+@@ -208,14 +205,18 @@ namespace pcl
+               volatile int* cta_buffer = (int*)(storage_X + storage_index);
+ 
+               cta_buffer[lane] = local_count;
+-              int offset = scan_warp<exclusive>(cta_buffer, lane);
++              __syncwarp();
++            int offset = scan_warp<exclusive>(cta_buffer, lane);
+ 
+-              if (lane == 0)
++              __syncwarp();
++            if (lane == 0)
+               {
+-                int old_global_count = atomicAdd (&global_count, total_warp);
++                int old_global_count = atomicAdd (global_count, total_warp);
+                 cta_buffer[0] = old_global_count;
+               }
+-              int old_global_count = cta_buffer[0];
++              __syncwarp();
++            int old_global_count = cta_buffer[0];
++            __syncwarp();
+ 
+               for (int l = 0; l < local_count; ++l)
+               {
+@@ -224,6 +225,7 @@ namespace pcl
+                 storage_Z[storage_index + offset + l] = points[l].z;
+               }
+ 
++              __syncwarp();
+               int offset_storage = old_global_count + lane;
+               for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, offset_storage += Warp::STRIDE)
+               {
+@@ -234,7 +236,8 @@ namespace pcl
+                 store_point_type (x, y, z, output_xyz.data, offset_storage);
+               }
+ 
+-              bool full = (old_global_count + total_warp) >= output_xyz.size;
++              __syncwarp();
++            bool full = (old_global_count + total_warp) >= output_xyz.size;
+ 
+               if (full)
+                 break;
+@@ -244,19 +247,7 @@ namespace pcl
+ 
+           ///////////////////////////
+           // Prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            // Last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_xyz_count = min ((int)output_xyz.size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          }
++          
+         } /* operator() */
+ 
+         // OPERATOR USED BY EXTRACT_SLICE_AS_CLOUD. 
+@@ -271,8 +262,8 @@ namespace pcl
+ 
+           int ftid = Block::flattenedThreadId ();
+ 
+-          int minimum_Z = 0;
+-          int maximum_Z = VOLUME_Z - 1;
++          int minimum_Z = blockIdx.z * 16;
++          int maximum_Z = min(int(blockIdx.z + 1)*16, VOLUME_Z - 1);
+ 
+           for (int z = minimum_Z; z < maximum_Z; ++z)
+           {
+@@ -316,15 +307,19 @@ namespace pcl
+               // Compute offset of current warp
+               // Call in place scanning (see http://http.developer.nvidia.com/GPUGems3/gpugems3_ch39.html)
+               cta_buffer[lane] = local_count;
+-              int offset = scan_warp<exclusive>(cta_buffer, lane);   //How many crossings did we have before index "lane" ?
++              __syncwarp();
++            int offset = scan_warp<exclusive>(cta_buffer, lane);   //How many crossings did we have before index "lane" ?
+ 
+               // We want to do only 1 operation per warp (not thread) -> because it is faster
+-              if (lane == 0) 
++              __syncwarp();
++            if (lane == 0) 
+               {
+-                int old_global_count = atomicAdd (&global_count, total_warp); ///We use atomicAdd, so that threads do not collide
++                int old_global_count = atomicAdd (global_count, total_warp); ///We use atomicAdd, so that threads do not collide
+                 cta_buffer[0] = old_global_count;
+               }
+-              int old_global_count = cta_buffer[0];
++              __syncwarp();
++            int old_global_count = cta_buffer[0];
++            __syncwarp();
+ 
+               // Perform compaction (dump all current crossings)
+               for (int l = 0; l < local_count; ++l)
+@@ -336,6 +331,7 @@ namespace pcl
+               }
+ 
+               // Retrieve Zero-crossings as 3D points
++              __syncwarp();
+               int offset_storage = old_global_count + lane;
+               for (int idx = lane; idx < total_warp; idx += Warp::STRIDE, offset_storage += Warp::STRIDE)
+               {
+@@ -348,7 +344,8 @@ namespace pcl
+               }
+ 
+               // Sanity check to make sure our output_xyz buffer is not full already
+-              bool full = (old_global_count + total_warp) >= output_xyz.size;
++              __syncwarp();
++            bool full = (old_global_count + total_warp) >= output_xyz.size;
+ 
+               if (full)
+                 break;
+@@ -358,19 +355,7 @@ namespace pcl
+ 
+           ///////////////////////////
+           // Prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            // Last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_xyz_count = min ((int)output_xyz.size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          }
++          
+         } /* operator() */
+ 
+         __device__ __forceinline__ void
+@@ -415,6 +400,9 @@ namespace pcl
+       extractCloud (const PtrStep<short2>& volume, const float3& volume_size, PtrSz<PointType> output_xyz)
+       {
+         FullScan6 fs;
++  thread_local DeviceArray<int> counter(1);
++  cudaSafeCall(cudaMemsetAsync(counter.ptr(), 0, sizeof(int), cudaStreamPerThread));
++  fs.global_count = counter.ptr();
+         fs.volume = volume;
+         fs.cell_size.x = volume_size.x / VOLUME_X;
+         fs.cell_size.y = volume_size.y / VOLUME_Y;
+@@ -422,14 +410,14 @@ namespace pcl
+         fs.output_xyz = output_xyz;
+ 
+         dim3 block (CTA_SIZE_X, CTA_SIZE_Y);
+-        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), divUp(VOLUME_Z - 1, 16));
+ 
+         extractKernel<<<grid, block>>>(fs);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+         int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof (size)) );
++        cudaSafeCall ( cudaMemcpy(&size, counter.ptr(), sizeof(size), cudaMemcpyDeviceToHost) );
+       //  cudaSafeCall ( cudaMemcpyFromSymbol (&size, "output_xyz_count", sizeof (size)) );
+         return ((std::size_t)size);
+       }
+@@ -442,6 +430,9 @@ namespace pcl
+                                         PtrSz<PointType> output_xyz, PtrSz<float> output_intensities)
+       {
+         FullScan6 fs;
++  thread_local DeviceArray<int> counter(1);
++  cudaSafeCall(cudaMemsetAsync(counter.ptr(), 0, sizeof(int), cudaStreamPerThread));
++  fs.global_count = counter.ptr();
+         fs.volume = volume;
+         fs.cell_size.x = volume_size.x / buffer->voxels_size.x;
+         fs.cell_size.y = volume_size.y / buffer->voxels_size.y;
+@@ -450,7 +441,7 @@ namespace pcl
+         fs.output_intensity = output_intensities;
+ 
+         dim3 block (CTA_SIZE_X, CTA_SIZE_Y);
+-        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), divUp(VOLUME_Z - 1, 16));
+ 
+         //Compute slice bounds
+         int newX = buffer->origin_GRID.x + shiftX;
+@@ -535,10 +526,10 @@ namespace pcl
+         extractSliceKernel<<<grid, block>>>(fs, *buffer, minBounds, maxBounds);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+         int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_xyz_count, sizeof(size)) );  
++        cudaSafeCall ( cudaMemcpy(&size, counter.ptr(), sizeof(size), cudaMemcpyDeviceToHost) );  
+         return (std::size_t)size;
+       }
+     }
+@@ -697,7 +688,8 @@ namespace pcl
+       extractNormals (const PtrStep<short2>& volume, const float3& volume_size, 
+                                   const PtrSz<PointType>& points, NormalType* output)
+       {
+-        ExtractNormals<NormalType> en;
++        if (points.size == 0) return;
++      ExtractNormals<NormalType> en;
+         en.volume = volume;
+         en.cell_size.x = volume_size.x / VOLUME_X;
+         en.cell_size.y = volume_size.y / VOLUME_Y;
+@@ -710,7 +702,7 @@ namespace pcl
+ 
+         extractNormalsKernel<<<grid, block>>>(en);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+ 
+       template void extractNormals<PointType>(const PtrStep<short2>&volume, const float3 &volume_size, const PtrSz<PointType>&input, PointType * output);
+diff --git a/gpu/kinfu_large_scale/src/cuda/image_generator.cu b/gpu/kinfu_large_scale/src/cuda/image_generator.cu
+index 1ebc3ec..16bb2ab 100644
+--- a/gpu/kinfu_large_scale/src/cuda/image_generator.cu
++++ b/gpu/kinfu_large_scale/src/cuda/image_generator.cu
+@@ -118,7 +118,7 @@ namespace pcl
+ 
+         generateImageKernel<<<grid, block>>>(ig);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }      
+     }
+   }
+@@ -164,7 +164,7 @@ namespace pcl
+         
+         generateDepthKernel<<<grid, block>>>(R_inv.data[2], t, vmap, dst);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());  
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));  
+       }
+     }
+   }
+@@ -213,7 +213,7 @@ namespace pcl
+ 
+         paint3DViewKernel<<<grid, block>>>(colors, dst, colors_weight);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());  
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));  
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/maps.cu b/gpu/kinfu_large_scale/src/cuda/maps.cu
+index 0aa86d3..0df80ba 100644
+--- a/gpu/kinfu_large_scale/src/cuda/maps.cu
++++ b/gpu/kinfu_large_scale/src/cuda/maps.cu
+@@ -233,7 +233,7 @@ namespace pcl
+         transformMapsKernel<<<grid, block>>>(rows, cols, vmap_src, nmap_src, Rmat, tvec, vmap_dst, nmap_dst);
+         cudaSafeCall (cudaGetLastError ());
+ 
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+@@ -317,7 +317,7 @@ namespace pcl
+         dim3 grid (divUp (out_cols, block.x), divUp (out_rows, block.y));
+         resizeMapKernel<normalize><< < grid, block>>>(out_rows, out_cols, in_rows, input, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+ 
+ 
+@@ -385,7 +385,7 @@ namespace pcl
+ 
+         convertMapKernel<T><< < grid, block>>>(rows, cols, vmap, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+       
+       template void convert (const MapArr& vmap, DeviceArray2D<float4>& output);
+@@ -431,7 +431,7 @@ namespace pcl
+ 
+         mergePointNormalKernel<<<divUp (total, block), block>>>(cloud, normals, output);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
+index b1c12de..acbeaba 100644
+--- a/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
++++ b/gpu/kinfu_large_scale/src/cuda/marching_cubes.cu
+@@ -1,3 +1,4 @@
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -50,24 +51,23 @@ namespace pcl
+   {
+     namespace kinfuLS
+     {
+-      //texture<int, 1, cudaReadModeElementType> edgeTex;
+-      texture<int, 1, cudaReadModeElementType> triTex;
+-      texture<int, 1, cudaReadModeElementType> numVertsTex;
++      thread_local pcl::gpu::TextureView<int, 1, cudaReadModeElementType> triTex;
++      thread_local pcl::gpu::TextureView<int, 1, cudaReadModeElementType> numVertsTex;
+ 
+       void
+       bindTextures (const int */*edgeBuf*/, const int *triBuf, const int *numVertsBuf)
+       {
+         cudaChannelFormatDesc desc = cudaCreateChannelDesc<int>();
+-        //cudaSafeCall(cudaBindTexture(0, edgeTex, edgeBuf, desc) );
+-        cudaSafeCall (cudaBindTexture (0, triTex, triBuf, desc) );
+-        cudaSafeCall (cudaBindTexture (0, numVertsTex, numVertsBuf, desc) );
++        //cudaSafeCall(pcl::gpu::bindTexture(0, edgeTex, edgeBuf, desc) );
++        cudaSafeCall (pcl::gpu::bindTexture (0, triTex, triBuf, desc) );
++        cudaSafeCall (pcl::gpu::bindTexture (0, numVertsTex, numVertsBuf, desc) );
+       }
+       void
+       unbindTextures ()
+       {
+-        //cudaSafeCall( cudaUnbindTexture(edgeTex) );
+-        cudaSafeCall ( cudaUnbindTexture (numVertsTex) );
+-        cudaSafeCall ( cudaUnbindTexture (triTex) );
++        //cudaSafeCall( pcl::gpu::releaseTexture(edgeTex) );
++        cudaSafeCall ( pcl::gpu::releaseTexture (numVertsTex) );
++        cudaSafeCall ( pcl::gpu::releaseTexture (triTex) );
+       }
+     }
+   }
+@@ -80,13 +80,11 @@ namespace pcl
+   {
+     namespace kinfuLS
+     {
+-      __device__ int global_count = 0;
+-      __device__ int output_count;
+-      __device__ unsigned int blocks_done = 0;
+ 
+       struct CubeIndexEstimator
+       {
+         PtrStep<short2> volume;
++      pcl::gpu::TextureView<int,1> triTex, numVertsTex;
+ 
+             static __device__ __forceinline__ float isoValue() { return 0.f; }
+ 
+@@ -127,6 +125,7 @@ namespace pcl
+ 
+       struct OccupiedVoxels : public CubeIndexEstimator
+       {
++      int* global_count;
+         enum
+         {
+           CTA_SIZE_X = 32,
+@@ -156,7 +155,7 @@ namespace pcl
+ 
+           volatile __shared__ int warps_buffer[WARPS_COUNT];
+ 
+-          for (int z = 0; z < VOLUME_Z - 1; z++)
++          for (int z = blockIdx.z * 16; z < min(int(blockIdx.z + 1) * 16, VOLUME_Z - 1); z++)
+           {
+             int numVerts = 0;;
+             if (x + 1 < VOLUME_X && y + 1 < VOLUME_Y)
+@@ -174,10 +173,12 @@ namespace pcl
+ 
+             if (lane_id == 0)
+             {
+-              int old = atomicAdd (&global_count, total);
++              int old = atomicAdd (global_count, total);
+               warps_buffer[warp_id] = old;
+             }
+-            int old_global_voxels_count = warps_buffer[warp_id];
++            __syncwarp();
++          int old_global_voxels_count = warps_buffer[warp_id];
++          __syncwarp();
+             int offs = Warp::binaryExclScan (__ballot_sync (__activemask (), numVerts > 0));
+ 
+             if (old_global_voxels_count + offs < max_size && numVerts > 0)
+@@ -196,19 +197,7 @@ namespace pcl
+ 
+           /////////////////////////
+           // prepare for future scans
+-          if (ftid == 0)
+-          {
+-            unsigned int total_blocks = gridDim.x * gridDim.y * gridDim.z;
+-            unsigned int value = atomicInc (&blocks_done, total_blocks);
+-
+-            //last block
+-            if (value == total_blocks - 1)
+-            {
+-              output_count = min (max_size, global_count);
+-              blocks_done = 0;
+-              global_count = 0;
+-            }
+-          } 
++           
+         } /* operator () */
+       };
+       __global__ void getOccupiedVoxelsKernel (const OccupiedVoxels ov) { ov (); }
+@@ -217,25 +206,29 @@ namespace pcl
+       getOccupiedVoxels (const PtrStep<short2>& volume, DeviceArray2D<int>& occupied_voxels)
+       {
+         OccupiedVoxels ov;
++  thread_local DeviceArray<int> counter(1);
++  cudaSafeCall(cudaMemsetAsync(counter.ptr(), 0, sizeof(int), cudaStreamPerThread));
++  ov.global_count = counter.ptr();
+         ov.volume = volume;
++  ov.triTex = triTex; ov.numVertsTex = numVertsTex;
+ 
+         ov.voxels_indeces = occupied_voxels.ptr (0);
+         ov.vetexes_number = occupied_voxels.ptr (1);
+         ov.max_size = occupied_voxels.cols ();
+ 
+         dim3 block (OccupiedVoxels::CTA_SIZE_X, OccupiedVoxels::CTA_SIZE_Y);
+-        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y));
++        dim3 grid (divUp (VOLUME_X, block.x), divUp (VOLUME_Y, block.y), divUp(VOLUME_Z - 1, 16));
+ 
+         //cudaFuncSetCacheConfig(getOccupiedVoxelsKernel, cudaFuncCachePreferL1);
+         //printFuncAttrib(getOccupiedVoxelsKernel);
+ 
+         getOccupiedVoxelsKernel<<<grid, block>>>(ov);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+ 
+         int size;
+-        cudaSafeCall ( cudaMemcpyFromSymbol (&size, output_count, sizeof(size)) );
+-        return size;
++        cudaSafeCall ( cudaMemcpy(&size, counter.ptr(), sizeof(size), cudaMemcpyDeviceToHost) );
++        return min(size, ov.max_size);
+       }
+ 
+       int
+@@ -332,21 +325,21 @@ namespace pcl
+ 
+           // find the vertices where the surface intersects the cube
+           // use shared memory to avoid using local
+-          __shared__ float3 vertlist[12][CTA_SIZE];
+-
+-          vertlist[0][tid] = vertex_interp (v[0], v[1], f[0], f[1]);
+-          vertlist[1][tid] = vertex_interp (v[1], v[2], f[1], f[2]);
+-          vertlist[2][tid] = vertex_interp (v[2], v[3], f[2], f[3]);
+-          vertlist[3][tid] = vertex_interp (v[3], v[0], f[3], f[0]);
+-          vertlist[4][tid] = vertex_interp (v[4], v[5], f[4], f[5]);
+-          vertlist[5][tid] = vertex_interp (v[5], v[6], f[5], f[6]);
+-          vertlist[6][tid] = vertex_interp (v[6], v[7], f[6], f[7]);
+-          vertlist[7][tid] = vertex_interp (v[7], v[4], f[7], f[4]);
+-          vertlist[8][tid] = vertex_interp (v[0], v[4], f[0], f[4]);
+-          vertlist[9][tid] = vertex_interp (v[1], v[5], f[1], f[5]);
+-          vertlist[10][tid] = vertex_interp (v[2], v[6], f[2], f[6]);
+-          vertlist[11][tid] = vertex_interp (v[3], v[7], f[3], f[7]);
+-          __syncthreads ();
++          float3 vertlist[12];
++
++          vertlist[0] = vertex_interp (v[0], v[1], f[0], f[1]);
++          vertlist[1] = vertex_interp (v[1], v[2], f[1], f[2]);
++          vertlist[2] = vertex_interp (v[2], v[3], f[2], f[3]);
++          vertlist[3] = vertex_interp (v[3], v[0], f[3], f[0]);
++          vertlist[4] = vertex_interp (v[4], v[5], f[4], f[5]);
++          vertlist[5] = vertex_interp (v[5], v[6], f[5], f[6]);
++          vertlist[6] = vertex_interp (v[6], v[7], f[6], f[7]);
++          vertlist[7] = vertex_interp (v[7], v[4], f[7], f[4]);
++          vertlist[8] = vertex_interp (v[0], v[4], f[0], f[4]);
++          vertlist[9] = vertex_interp (v[1], v[5], f[1], f[5]);
++          vertlist[10] = vertex_interp (v[2], v[6], f[2], f[6]);
++          vertlist[11] = vertex_interp (v[3], v[7], f[3], f[7]);
++          
+ 
+           // output triangle vertices
+           int numVerts = tex1Dfetch (numVertsTex, cubeindex);
+@@ -359,9 +352,9 @@ namespace pcl
+             int v2 = tex1Dfetch (triTex, (cubeindex * 16) + i + 1);
+             int v3 = tex1Dfetch (triTex, (cubeindex * 16) + i + 2);
+ 
+-            store_point (output, index + 0, vertlist[v1][tid]);
+-            store_point (output, index + 1, vertlist[v2][tid]);
+-            store_point (output, index + 2, vertlist[v3][tid]);
++            store_point (output, index + 0, vertlist[v1]);
++            store_point (output, index + 1, vertlist[v2]);
++            store_point (output, index + 2, vertlist[v3]);
+           }
+         }
+ 
+@@ -379,6 +372,7 @@ namespace pcl
+         TrianglesGenerator tg;
+ 
+         tg.volume = volume;
++  tg.triTex = triTex; tg.numVertsTex = numVertsTex;
+         tg.occupied_voxels = occupied_voxels.ptr (0);
+         tg.vertex_ofssets = occupied_voxels.ptr (2);
+         tg.voxels_count = occupied_voxels.cols ();
+@@ -392,7 +386,7 @@ namespace pcl
+ 
+         trianglesGeneratorKernel<<<grid, block>>>(tg);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu b/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
+index 42e5db8..904aac6 100644
+--- a/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
++++ b/gpu/kinfu_large_scale/src/cuda/normals_eigen.cu
+@@ -147,7 +147,7 @@ namespace pcl
+ 
+         computeNmapKernelEigen<<<grid, block>>>(rows, cols, vmap, nmap);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/push.cu b/gpu/kinfu_large_scale/src/cuda/push.cu
+index c2d2c38..a55f6de 100644
+--- a/gpu/kinfu_large_scale/src/cuda/push.cu
++++ b/gpu/kinfu_large_scale/src/cuda/push.cu
+@@ -97,7 +97,7 @@ namespace pcl
+         
+         loadTsdfValueKernel <<< numBlocks, threadsPerBlock >>> (first_point_pointer, cloud_gpu.ptr(), number_of_points, DIVISOR, *buffer);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall ( cudaDeviceSynchronize () );
++        cudaSafeCall ( cudaStreamSynchronize(cudaStreamPerThread) );
+       }
+     } /*namespace kinfuLS*/ 
+   } /*namespace device*/
+diff --git a/gpu/kinfu_large_scale/src/cuda/ray_caster.cu b/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
+index 4181f6a..e6e2af8 100644
+--- a/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
++++ b/gpu/kinfu_large_scale/src/cuda/ray_caster.cu
+@@ -352,7 +352,7 @@ namespace pcl
+ 
+         rayCastKernel<<<grid, block>>>(rc, *buffer);
+         cudaSafeCall (cudaGetLastError ());
+-        cudaSafeCall(cudaDeviceSynchronize());
++        cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu b/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
+index 33e1fe1..c717d5d 100644
+--- a/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
++++ b/gpu/kinfu_large_scale/src/cuda/tsdf_volume.cu
+@@ -162,7 +162,7 @@ namespace pcl
+ 
+         initializeVolume<<<grid, block>>>(volume);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+@@ -377,7 +377,7 @@ namespace pcl
+         integrateTsdfKernel<<<grid, block>>>(tsdf);
+       #endif
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+     }
+   }
+@@ -642,7 +642,7 @@ namespace pcl
+         //tsdf23normal_hack<<<grid, block>>>(depthScaled, volume, tranc_dist, Rcurr_inv, tcurr, intr, cell_size);
+ 
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));
+       }
+ 
+       /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -697,7 +697,7 @@ namespace pcl
+         
+         clearSliceKernel<<<grid, block>>>(volume, *buffer, minBounds, maxBounds);
+         cudaSafeCall ( cudaGetLastError () );
+-        cudaSafeCall (cudaDeviceSynchronize ());        
++        cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread));        
+       }
+     }
+   }
+diff --git a/gpu/kinfu_large_scale/src/cuda/utils.hpp b/gpu/kinfu_large_scale/src/cuda/utils.hpp
+index cf733f4..3f76652 100644
+--- a/gpu/kinfu_large_scale/src/cuda/utils.hpp
++++ b/gpu/kinfu_large_scale/src/cuda/utils.hpp
+@@ -487,12 +487,12 @@ namespace pcl
+ 
+                   if (tid < 32)
+                   {
+-                    if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-                    if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-                    if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-                    if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-                    if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-                    if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++                    if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+                   }
+         }
+ 
+@@ -510,12 +510,12 @@ namespace pcl
+ 
+                   if (tid < 32)
+                   {
+-                    if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-                    if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-                    if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-                    if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-                    if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-                    if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++                    if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++                    if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+                   }
+                   __syncthreads();				
+                   return buffer[0];
+diff --git a/gpu/kinfu_large_scale/src/internal.h b/gpu/kinfu_large_scale/src/internal.h
+index c46ffa1..11af2ed 100644
+--- a/gpu/kinfu_large_scale/src/internal.h
++++ b/gpu/kinfu_large_scale/src/internal.h
+@@ -408,7 +408,7 @@ namespace pcl
+       /** \brief synchronizes CUDA execution */
+       inline 
+       void 
+-      sync () { cudaSafeCall (cudaDeviceSynchronize ()); }
++      sync () { cudaSafeCall (cudaStreamSynchronize(cudaStreamPerThread)); }
+ 
+ 
+       template<class D, class Matx> D&
+diff --git a/gpu/octree/src/cuda/approx_nsearch.cu b/gpu/octree/src/cuda/approx_nsearch.cu
+index 509fce7..7d20bdd 100644
+--- a/gpu/octree/src/cuda/approx_nsearch.cu
++++ b/gpu/octree/src/cuda/approx_nsearch.cu
+@@ -245,5 +245,5 @@ pcl::device::OctreeImpl::approxNearestSearch(const Queries& queries,
+ 
+   pcl::device::appnearest_search::KernelAN<<<grid, block>>>(batch);
+   cudaSafeCall(cudaGetLastError());
+-  cudaSafeCall(cudaDeviceSynchronize());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+\ No newline at end of file
+diff --git a/gpu/octree/src/cuda/knn_search.cu b/gpu/octree/src/cuda/knn_search.cu
+index 1f26ee5..1407bb0 100644
+--- a/gpu/octree/src/cuda/knn_search.cu
++++ b/gpu/octree/src/cuda/knn_search.cu
+@@ -298,6 +298,6 @@ void pcl::device::OctreeImpl::nearestKSearchBatch(const Queries& queries, int /*
+ 
+     pcl::device::knn_search::KernelKNN<<<grid, block>>>(batch);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+diff --git a/gpu/octree/src/cuda/octree_builder.cu b/gpu/octree/src/cuda/octree_builder.cu
+index 7ca1110..582dae1 100644
+--- a/gpu/octree/src/cuda/octree_builder.cu
++++ b/gpu/octree/src/cuda/octree_builder.cu
+@@ -399,5 +399,5 @@ void pcl::device::OctreeImpl::build()
+ 
+     singleStepKernel<<<GRID_SIZE, CTA_SIZE>>>(ssb);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+diff --git a/gpu/octree/src/cuda/radius_search.cu b/gpu/octree/src/cuda/radius_search.cu
+index eb8ee25..59e0186 100644
+--- a/gpu/octree/src/cuda/radius_search.cu
++++ b/gpu/octree/src/cuda/radius_search.cu
+@@ -350,7 +350,7 @@ void pcl::device::OctreeImpl::radiusSearchEx(BatchType& batch, const Queries& qu
+ 
+     KernelRS<<<grid, block>>>(batch);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ 
+diff --git a/gpu/people/CMakeLists.txt b/gpu/people/CMakeLists.txt
+index 6c9c3ab..0502921 100644
+--- a/gpu/people/CMakeLists.txt
++++ b/gpu/people/CMakeLists.txt
+@@ -3,12 +3,7 @@ set(SUBSYS_PATH gpu/people)
+ set(SUBSYS_DESC "Point cloud people library")
+ set(SUBSYS_DEPS common features filters geometry gpu_containers gpu_utils io kdtree octree search segmentation surface visualization)
+ 
+-if(${CUDA_VERSION_STRING} VERSION_GREATER_EQUAL "12.0")
+-  set(DEFAULT FALSE)
+-  set(REASON "gpu_people uses textures which was removed in CUDA 12")
+-else()
+-  set(DEFAULT TRUE)
+-endif()
++set(DEFAULT TRUE)
+ 
+ PCL_SUBSYS_OPTION(build ${SUBSYS_NAME} ${SUBSYS_DESC} ${DEFAULT} ${REASON})
+ PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS})
+diff --git a/gpu/people/src/bodyparts_detector.cpp b/gpu/people/src/bodyparts_detector.cpp
+index 3cf271b..a30151e 100644
+--- a/gpu/people/src/bodyparts_detector.cpp
++++ b/gpu/people/src/bodyparts_detector.cpp
+@@ -1,3 +1,4 @@
++#include <pcl/common/time.h> // TEMP_PROFILE
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -167,6 +168,7 @@ pcl::gpu::people::RDFBodyPartsDetector::allocate_buffers(int rows, int cols)
+ void 
+ pcl::gpu::people::RDFBodyPartsDetector::process (const pcl::device::Depth& depth, const PointCloud<PointXYZ>& cloud, int min_pts_per_cluster)
+ {
++  pcl::ScopeTime profile_timer("RDFBodyPartsDetector::process"); // TEMP_PROFILE
+   //ScopeTime time("ev");
+ 
+   int cols = depth.cols();
+diff --git a/gpu/people/src/cuda/elec.cu b/gpu/people/src/cuda/elec.cu
+index 2b3cd85..ea153a8 100644
+--- a/gpu/people/src/cuda/elec.cu
++++ b/gpu/people/src/cuda/elec.cu
+@@ -1,3 +1,5 @@
++#include <pcl/common/time.h> // TEMP_PROFILE
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ #include "internal.h"
+ 
+ #include <pcl/gpu/containers/impl/texture_binder.hpp>
+@@ -73,7 +75,7 @@ pcl::device::ConnectedComponents::initEdges(int rows, int cols, DeviceArray2D<un
+ 
+   fillInvalidEdges<<<grid, block>>>(edges);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////
+@@ -176,375 +178,66 @@ pcl::device::ConnectedComponents::computeEdges(const Labels& labels, const Depth
+  
+   computeEdgesKernel<<<grid, block>>>(labels, depth, intr, num_parts, sq_radius, edges);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+-///////////////////////////////////////////////////////////////////////////////////////
+-///////////// Connected components - shared memory tiles //////////////////////////////
+-
+-namespace pcl
+-{
+-  namespace device
+-  {
+-    __global__ void 
+-    smemTilesKernel(const PtrStepSz<unsigned char> edges, PtrStep<int> comps)
+-    {
+-      int x = threadIdx.x + blockIdx.x * TILE_COLS;
+-      int y = threadIdx.y + blockIdx.y * TILE_ROWS;
+-
+-      if (x >= edges.cols || y >= edges.rows)
+-        return;      
+-
+-      __shared__ int labels_arr[TILE_ROWS][TILE_COLS];
+-      __shared__ int  edges_arr[TILE_ROWS][TILE_COLS];
+-                                             
+-
+-      int new_labels[TPB_Y][TPB_X];
+-      int old_labels[TPB_Y][TPB_X];
+-
+-      // load data and compute indeces
+-      #pragma unroll
+-      for(int i = 0; i <  TPB_Y; ++i)                
+-      {
+-        #pragma unroll
+-        for(int j = 0; j < TPB_X; ++j)
+-        {
+-          int xloc = threadIdx.x+CTA_SIZE_X*j;
+-          int yloc = threadIdx.y+CTA_SIZE_Y*i;
+-                      
+-          int index = yloc * TILE_COLS + xloc;
+-          unsigned char e = edges.ptr(y + CTA_SIZE_Y*i)[x + CTA_SIZE_X*j];
+-
+-          //disable edges to prevent out of shared memory access for tile
+-          //will account such edges on global step
+-          if (xloc == 0)
+-              e &= ~Edges::LEFT;
+-
+-          if (yloc == 0)
+-              e &= ~Edges::UP;
+-
+-          if (xloc == CTA_SIZE_X * TPB_X - 1)
+-              e &= ~Edges::RIGHT;
+-
+-          if (yloc == CTA_SIZE_Y * TPB_Y - 1)
+-              e &= ~Edges::DOWN;            
+-
+-          new_labels[i][j] = index;
+-          edges_arr[yloc][xloc] = e;
+-        }
+-      }                   
+-              	
+-      // main loop until no changes in shared memory
+-	  for(int i = 0; ;++i)
+-	  {         
+-        //copy data to shared memory and to old array
+-        #pragma unroll
+-        for(int i = 0; i < TPB_Y; ++i)                
+-        {
+-          #pragma unroll
+-          for(int j = 0; j < TPB_X; ++j)
+-          {
+-            int xloc = threadIdx.x+CTA_SIZE_X*j;
+-            int yloc = threadIdx.y+CTA_SIZE_Y*i;
+-            old_labels[i][j] = new_labels[i][j];
+-            labels_arr[yloc][xloc] = new_labels[i][j];              
+-          }
+-        }
+- 
+-        __syncthreads(); 
+-
+-        // test for neighbours
+-        #pragma unroll
+-        for(int i = 0; i < TPB_Y; ++i)                
+-        {
+-          #pragma unroll
+-          for(int j = 0; j < TPB_X; ++j)
+-          {   
+-            int xloc = threadIdx.x+CTA_SIZE_X*j;
+-            int yloc = threadIdx.y+CTA_SIZE_Y*i;
+-            
+-            int edges = edges_arr[yloc][xloc];
+-            int label = new_labels[i][j];                        
+-
+-            if (edges & Edges::UP)
+-               label = min(label, labels_arr[yloc-1][xloc]);
+-
+-            if (edges & Edges::DOWN)
+-               label = min(label, labels_arr[yloc+1][xloc]);
+-
+-            if (edges & Edges::LEFT)
+-               label = min(label, labels_arr[yloc][xloc-1]);
+-
+-            if (edges & Edges::RIGHT)
+-               label = min(label, labels_arr[yloc][xloc+1]);
+ 
+-            new_labels[i][j] = label;
+-          }
+-        }
+-
+-        __syncthreads();
+-
+-        int changed = 0;
+-        #pragma unroll
+-        for(int i = 0; i < TPB_Y; ++i)                
+-        {
+-          #pragma unroll
+-          for(int j = 0; j < TPB_X; ++j)
+-          {
+-            int old_label = old_labels[i][j];
+-            int new_label = new_labels[i][j];
+-
+-            //if there is a neighboring element with a smaller label, update the equivalence tree of the processed element
+-		    //(the tree is always flattened in this stage so there is no need to use findRoot to find the root)
+-            if (new_label < old_label)
+-            {
+-              changed = 1;                
+-              atomicMin(&labels_arr[0][0] + old_label, new_label);
+-            }              
+-          }
+-        }
+-
+-        changed = __syncthreads_or(changed);
+-        if (!changed)
+-            break;
+-       
+-        //flatten the equivalence tree
+-        const int *cmem = &labels_arr[0][0];
+-        #pragma unroll
+-        for(int i = 0; i < TPB_Y; ++i)                
+-        {
+-          #pragma unroll
+-          for(int j = 0; j < TPB_X; ++j)
+-          {
+-            int label = new_labels[i][j];
+-            
+-            while( cmem[label] < label )
+-                label = cmem[label];
+-
+-            new_labels[i][j] = label;
+-          }
+-
+-        }              
+-	  __syncthreads();
+-                 				
+-      }
+-              
+-	  //transfer the label into global coordinates and store to global memory
+-      #pragma unroll
+-      for(int i = 0; i < TPB_Y; ++i)                
+-      {
+-        #pragma unroll
+-        for(int j = 0; j < TPB_X; ++j)
+-        {
+-          int label = new_labels[i][j];
+-          
+-          int yloc = label / TILE_COLS;
+-          int xloc = label - yloc * TILE_COLS;
+-          
+-          xloc += blockIdx.x * TILE_COLS;
+-          yloc += blockIdx.y * TILE_ROWS;
+-
+-          label = yloc * edges.cols + xloc;
+-          
+-          comps.ptr(y + CTA_SIZE_Y*i)[x + CTA_SIZE_X*j] = label;
+-        }
+-      }    
+-    }
+-  }
++// Monotone union-find. Atomic reads as well as atomic hooks make this valid on
++// independently scheduled warps. A kernel boundary separates hooking from
++// compression; the representative is always the smallest raster index.
++namespace pcl { namespace device {
++__device__ int* componentPtr(PtrStepSz<int> p, int i) {
++  return p.ptr(i / p.cols) + i % p.cols;
+ }
+-
+-///////////////////////////////////////////////////////////////////////////////////////
+-///////////////// Connected components - merge tiles //////////////////////////////////
+-
+-namespace pcl
+-{
+-  namespace device
+-  {   
+-    __device__ __forceinline__ int findRoot(const PtrStepSz<int>& comps, int label)
+-    {                       
+-        for(;;)
+-        {
+-          int y = label / comps.cols;
+-          int x = label - y * comps.cols;
+-
+-          int parent = comps.ptr(y)[x];
+-
+-          if (label == parent)
+-              break;
+-
+-          label = parent;          
+-        }
+-        return label;
+-    }
+-
+-    texture<unsigned char, 2, cudaReadModeElementType> edgesTex;
+-    
+-    struct TilesMerge
+-    {           
+-      int tileSizeX;
+-      int tileSizeY;
+-      int tilesNumX;
+-      int tilesNumY;
+-
+-      mutable PtrStepSz<int> comps;
+-
+-      __device__ __forceinline__ void 
+-      unionF(int l1, int l2, bool& changed) const
+-      {
+-        int r1 = findRoot(comps, l1);
+-        int r2 = findRoot(comps, l2);
+-        
+-        if (r1 != r2)
+-        {          
+-          int mi = min(r1, r2);
+-          int ma = max(r1, r2);
+-
+-          int y = ma / comps.cols;
+-          int x = ma - y * comps.cols;
+-          atomicMin(&comps.ptr(y)[x], mi);
+-          changed = true;
+-        }        
+-      } 
+-      
+-      __device__ __forceinline__ void
+-      operator()() const
+-      {
+-        int tid = Block::flattenedThreadId();
+-        int stride = Block::stride();
+-                
+-        int xbeg = blockIdx.x * tilesNumX * tileSizeX;
+-        int xend = xbeg + tilesNumX * tileSizeX;
+-
+-        int ybeg = blockIdx.y * tilesNumY * tileSizeY;
+-        int yend = ybeg + tilesNumY * tileSizeY;
+-
+-        int tasksH = (tilesNumY - 1) * (xend - xbeg);
+-        int tasksV = (tilesNumX - 1) * (yend - ybeg);
+-
+-        int total = tasksH + tasksV;
+-        
+-        bool changed;
+-        do
+-        {           
+-          changed = false;
+-
+-          for( int task_index = tid; task_index < total; task_index += stride)
+-            if (task_index < tasksH)
+-            {
+-              int indexH = task_index;
+-
+-              int row = indexH / (xend - xbeg);
+-              int col = indexH - row * (xend - xbeg);
+-
+-              int y = ybeg + (row + 1) * tileSizeY;
+-              int x = xbeg + col;
+-
+-              int e = tex2D(edgesTex, x, y);
+-              if (e & Edges::UP)
+-              {
+-                int lc = comps.ptr(y  )[x];
+-                int lu = comps.ptr(y-1)[x];
+-                unionF(lc, lu, changed);
+-              }
+-            }
+-            else
+-            {
+-              int indexV = task_index - tasksH;
+-
+-              int col = indexV / (yend - ybeg);
+-              int row = indexV - col * (yend - ybeg);
+-
+-              int x = xbeg + (col + 1) * tileSizeX;
+-              int y = ybeg + row;
+-              
+-              int e = tex2D(edgesTex, x, y);
+-              if (e & Edges::LEFT)
+-              {
+-                int lc = comps.ptr(y)[x  ];
+-                int ll = comps.ptr(y)[x-1];
+-                unionF(lc, ll, changed);
+-              }                                                                                 
+-            }                   
+-        }
+-        while(__syncthreads_or(changed));
+-      }
+-
+-    };
+-
+-    __global__ void mergeKernel(const TilesMerge tm) { tm(); }        
++__device__ int componentRoot(PtrStepSz<int> p, int i) {
++  for (;;) {
++    int next = atomicAdd(componentPtr(p,i), 0);
++    if (next == i) return i;
++    i = next;
+   }
+ }
+-
+-///////////////////////////////////////////////////////////////////////////////////////
+-//////////////// Connected components - flatten trees /////////////////////////////////
+-
+-namespace pcl
+-{
+-  namespace device
+-  {
+-    __global__ void flattenTreesKernel(PtrStepSz<int> comps, const PtrStep<Edges> edges)
+-    {
+-      int x = threadIdx.x + blockIdx.x * blockDim.x;
+-      int y = threadIdx.y + blockIdx.y * blockDim.y;       
+-
+-      if( x < comps.cols && y < comps.rows)
+-      {  
+-        int invalid = edges.ptr(y)[x].data & Edges::INVALID;                                                
+-        comps.ptr(y)[x] = invalid ? -1 : findRoot(comps, comps.ptr(y)[x]);
+-      }             
+-    }
++__device__ void componentUnion(PtrStepSz<int> p, int a, int b) {
++  for (;;) {
++    a = componentRoot(p,a); b = componentRoot(p,b);
++    if (a == b) return;
++    int hi = max(a,b), lo = min(a,b);
++    int old = atomicMin(componentPtr(p,hi),lo);
++    if (old == hi) return;
++    a = old; b = lo;
+   }
+ }
+-
+-    
++__global__ void componentInit(PtrStepSz<int> p) {
++  int x = blockIdx.x * blockDim.x + threadIdx.x;
++  int y = blockIdx.y * blockDim.y + threadIdx.y;
++  if(x < p.cols && y < p.rows) p.ptr(y)[x] = y*p.cols+x;
++}
++__global__ void componentHook(PtrStepSz<int> p, PtrStep<unsigned char> edges) {
++  int x = blockIdx.x * blockDim.x + threadIdx.x;
++  int y = blockIdx.y * blockDim.y + threadIdx.y;
++  if(x >= p.cols || y >= p.rows) return;
++  unsigned e = edges.ptr(y)[x];
++  int i = y*p.cols+x;
++  if(e & Edges::RIGHT) componentUnion(p,i,i+1);
++  if(e & Edges::DOWN) componentUnion(p,i,i+p.cols);
++}
++__global__ void componentFlatten(PtrStepSz<int> p, PtrStep<unsigned char> edges, PtrStep<int> out) {
++  int x = blockIdx.x * blockDim.x + threadIdx.x;
++  int y = blockIdx.y * blockDim.y + threadIdx.y;
++  if(x < p.cols && y < p.rows)
++    out.ptr(y)[x] = (edges.ptr(y)[x] & Edges::INVALID) ? -1 : componentRoot(p,y*p.cols+x);
++}
++}}
+ void pcl::device::ConnectedComponents::labelComponents(const DeviceArray2D<unsigned char>& edges, DeviceArray2D<int>& comps)
+-{             
++{
++  pcl::ScopeTime profile_timer("ConnectedComponents::labelComponents"); // TEMP_PROFILE
+   comps.create(edges.rows(), edges.cols());
+-
+-  dim3 block(CTA_SIZE_X, CTA_SIZE_Y);
+-  dim3 grid(divUp(edges.cols(), TILE_COLS), divUp(edges.rows(), TILE_ROWS));
+-  
+-  smemTilesKernel<<<grid, block>>>(edges, comps);
+-  cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
+-
+-  TextureBinder binder(edges, edgesTex);
+-
+-  // the code below assumes such resolution
+-  assert(edges.cols() == 640 && edges.rows() == 480);
+-
+-  TilesMerge tm;
+-  tm.comps = comps;
+-
+-  //merge 4x3 -> 5x5 grid
+-  tm.tileSizeX = TILE_COLS;
+-  tm.tileSizeY = TILE_ROWS;
+-  tm.tilesNumX = 4;
+-  tm.tilesNumY = 3;
+-
+-  grid.x = edges.cols()/(tm.tileSizeX * tm.tilesNumX);
+-  grid.y = edges.rows()/(tm.tileSizeY * tm.tilesNumY);
+-  
+-  mergeKernel<<<grid, 768>>>(tm);
+-  cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
+-
+-  //merge 5x5 -> 1x1 grid
+-  tm.tileSizeX = TILE_COLS * tm.tilesNumX;
+-  tm.tileSizeY = TILE_ROWS * tm.tilesNumY;
+-  tm.tilesNumX = 5;
+-  tm.tilesNumY = 5;
+-
+-  grid.x = edges.cols()/(tm.tileSizeX * tm.tilesNumX); 
+-  grid.y = edges.rows()/(tm.tileSizeY * tm.tilesNumY); 
+-
+-  mergeKernel<<<grid, 1024>>>(tm);
+-  cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
+-
+-  grid.x = divUp(edges.cols(), block.x);
+-  grid.y = divUp(edges.rows(), block.y);
+-  flattenTreesKernel<<<grid, block>>>(comps, edges);
+-  cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  // Separate final storage prevents invalid pixels (-1) entering the forest.
++  thread_local DeviceArray2D<int> parents;
++  parents.create(edges.rows(), edges.cols());
++  dim3 block(32,8), grid(divUp(edges.cols(),32), divUp(edges.rows(),8));
++  componentInit<<<grid,block>>>(parents);
++  componentHook<<<grid,block>>>(parents,edges);
++  componentFlatten<<<grid,block>>>(parents,edges,comps);
++  cudaSafeCall(cudaGetLastError());
++  cudaSafeCall(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+diff --git a/gpu/people/src/cuda/multi_tree.cu b/gpu/people/src/cuda/multi_tree.cu
+index df25626..a87a829 100644
+--- a/gpu/people/src/cuda/multi_tree.cu
++++ b/gpu/people/src/cuda/multi_tree.cu
+@@ -1,3 +1,5 @@
++#include <pcl/common/time.h> // TEMP_PROFILE
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -68,13 +70,13 @@ namespace pcl
+ {
+   namespace device
+   {
+-    texture<unsigned short, 2, cudaReadModeElementType> depthTex;
+-    texture<char4, 2, cudaReadModeElementType> multilabelTex;
++    thread_local pcl::gpu::TextureView<unsigned short, 2, cudaReadModeElementType> depthTex;
++    thread_local pcl::gpu::TextureView<char4, 2, cudaReadModeElementType> multilabelTex;
+ 
+-    __constant__ int constFGThresh;
++    thread_local int constFGThresh;
+ 
+     template<bool testFG> __device__ __forceinline__ Label 
+-    evaluateTree(int u, int v, float f, int treeHeight, int numNodes, const Node* nodes, const Label* leaves)
++    evaluateTree(int constFGThresh, pcl::gpu::TextureView<unsigned short, 2, cudaReadModeElementType> depthTex, int u, int v, float f, int treeHeight, int numNodes, const Node* nodes, const Label* leaves)
+     {
+       int    depth = tex2D(depthTex, u, v);
+ 
+@@ -109,7 +111,7 @@ namespace pcl
+ 
+     /** \brief This is the CUDA kernel doing the actual RDF evaluation */    
+     __global__ void
+-    KernelCUDA_runTree( const float     f,
++    KernelCUDA_runTree(int constFGThresh, pcl::gpu::TextureView<unsigned short, 2, cudaReadModeElementType> depthTex,  const float     f,
+                         const int       treeHeight,
+                         const int       numNodes,
+                         const Node*     nodes,
+@@ -120,11 +122,11 @@ namespace pcl
+       int v = blockIdx.y * blockDim.y + threadIdx.y;
+ 
+       if( u < labels.cols && v < labels.rows)
+-        labels.ptr(v)[u] = evaluateTree<false>(u, v, f, treeHeight, numNodes, nodes, leaves);
++        labels.ptr(v)[u] = evaluateTree<false>(constFGThresh, depthTex, u, v, f, treeHeight, numNodes, nodes, leaves);
+     }
+ 
+     template<bool testFG> __global__ void
+-    KernelCUDA_MultiTreePass( const int    treeId,
++    KernelCUDA_MultiTreePass(int constFGThresh, pcl::gpu::TextureView<unsigned short, 2, cudaReadModeElementType> depthTex,  const int    treeId,
+                               const float  f,
+                               const int    treeHeight,
+                               const int    numNodes,
+@@ -145,7 +147,7 @@ namespace pcl
+           pixel[treeId] = 29;         // see label_common.h for Background label (=29)
+                                       // TODO remove this hardcoded label with enum part_t label
+         else
+-          pixel[treeId] = evaluateTree<testFG>(u, v, f, treeHeight, numNodes, nodes, leaves);
++          pixel[treeId] = evaluateTree<testFG>(constFGThresh, depthTex, u, v, f, treeHeight, numNodes, nodes, leaves);
+       }
+     }
+ 
+@@ -160,9 +162,9 @@ namespace pcl
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_runTree<<< grid, block >>>( focal, treeHeight, numNodes, nodes, leaves, labels);
++      KernelCUDA_runTree<<< grid, block >>>(constFGThresh, depthTex,  focal, treeHeight, numNodes, nodes, leaves, labels);
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );      
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );      
+     }
+ 
+     void CUDA_runMultiTreePass ( int   FGThresh,
+@@ -175,6 +177,7 @@ namespace pcl
+                                  const Depth& depth,
+                                  MultiLabels& multilabel )
+     {
++  pcl::ScopeTime profile_timer("CUDA_runMultiTreePass"); // TEMP_PROFILE
+       //std::cout << "(I) : CUDA_runMultiTreePass() called" << std::endl;
+       depthTex.addressMode[0] = cudaAddressModeClamp;
+       TextureBinder binder(depth, depthTex);                  
+@@ -184,19 +187,20 @@ namespace pcl
+ 
+       if(FGThresh == std::numeric_limits<int>::max())
+       {
+-        KernelCUDA_MultiTreePass<false><<< grid, block >>>( treeId, focal, treeHeight, 
++  pcl::ScopeTime profile_timer("CUDA_runMultiTreePass"); // TEMP_PROFILE
++        KernelCUDA_MultiTreePass<false><<< grid, block >>>(constFGThresh, depthTex,  treeId, focal, treeHeight, 
+             numNodes, nodes_device, leaves_device, depth, multilabel);
+       }
+       else
+       {
+-        cudaSafeCall( cudaMemcpyToSymbol(constFGThresh, &FGThresh,  sizeof(FGThresh)) );
++        constFGThresh = FGThresh;
+ 
+-        KernelCUDA_MultiTreePass<true><<< grid, block >>>( treeId, focal, treeHeight, 
++        KernelCUDA_MultiTreePass<true><<< grid, block >>>(constFGThresh, depthTex,  treeId, focal, treeHeight, 
+             numNodes, nodes_device, leaves_device, depth, multilabel);
+       }
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );      
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );      
+     }
+ 
+     ///////////////////////////////////////////////////////////////////////////////////////
+@@ -231,7 +235,7 @@ namespace pcl
+       else                   return maxId;
+     }
+ 
+-    __global__ void KernelCUDA_MultiTreeMerge( const int numTrees, PtrStepSz<Label> labels )
++    __global__ void KernelCUDA_MultiTreeMerge(pcl::gpu::TextureView<unsigned short, 2, cudaReadModeElementType> depthTex, pcl::gpu::TextureView<char4, 2, cudaReadModeElementType> multilabelTex,  const int numTrees, PtrStepSz<Label> labels )
+     {
+       int u = blockIdx.x * blockDim.x + threadIdx.x;
+       int v = blockIdx.y * blockDim.y + threadIdx.y;
+@@ -277,7 +281,7 @@ namespace pcl
+     }
+ 
+     /** \brief This merges the labels from all trees into a histogram of probabilities **/
+-    __global__ void KernelCUDA_MultiTreeCreateProb (const int numTrees, PtrStepSz<prob_histogram> prob)
++    __global__ void KernelCUDA_MultiTreeCreateProb (pcl::gpu::TextureView<char4, 2, cudaReadModeElementType> multilabelTex, const int numTrees, PtrStepSz<prob_histogram> prob)
+     {
+       // map block and thread onto image coordinates
+       int u = blockIdx.x * blockDim.x + threadIdx.x;
+@@ -305,7 +309,8 @@ namespace pcl
+ 
+     /** \brief This will merge the votes from the different trees into one final vote */    
+     void CUDA_runMultiTreeMerge( int numTrees, const Depth& depth, const MultiLabels& multilabel, Labels& labels)
+-    {     
++    {
++  pcl::ScopeTime profile_timer("CUDA_runMultiTreeMerge"); // TEMP_PROFILE     
+       //std::cout << "(I) : CUDA_runMultiTreeMerge() called" << std::endl;
+       labels.create(depth.rows(), depth.cols());
+ 
+@@ -318,10 +323,10 @@ namespace pcl
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_MultiTreeMerge<<< grid, block >>>( numTrees, labels );
++      KernelCUDA_MultiTreeMerge<<< grid, block >>>(depthTex, multilabelTex,  numTrees, labels );
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );            
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );            
+     }
+ 
+     /** \brief This will merge the votes from the different trees into one final vote, including probabilistic's */
+@@ -343,10 +348,10 @@ namespace pcl
+       dim3 block(32, 8);      
+       dim3 grid(divUp(depth.cols(), block.x), divUp(depth.rows(), block.y) );      
+ 
+-      KernelCUDA_MultiTreeCreateProb<<< grid, block >>>( numTrees, probabilities);
++      KernelCUDA_MultiTreeCreateProb<<< grid, block >>>(multilabelTex,  numTrees, probabilities);
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );            
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );            
+     }
+   }
+ }
+diff --git a/gpu/people/src/cuda/nvidia/NCVAlg.hpp b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+index 5eede7d..e71e7c4 100644
+--- a/gpu/people/src/cuda/nvidia/NCVAlg.hpp
++++ b/gpu/people/src/cuda/nvidia/NCVAlg.hpp
+@@ -115,35 +115,13 @@ static __device__ Tdata subReduce(Tdata threadElem)
+     functor.assign(reduceArr + threadIdx.x, &threadElem);
+     __syncthreads();
+ 
+-    if (nThreads >= 256 && threadIdx.x < 128)
+-    {
+-        functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 128]);
+-    }
+-    __syncthreads();
+-
+-    if (nThreads >= 128 && threadIdx.x < 64)
+-    {
+-        functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 64]);
++    // Only the lower half writes; the upper half is read-only in each
++    // step. A CTA barrier separates successive levels of the tree.
++    for (unsigned offset = nThreads / 2; offset; offset /= 2) {
++        if (threadIdx.x < offset)
++            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + offset]);
++        __syncthreads();
+     }
+-    __syncthreads();
+-
+-    if (threadIdx.x < 32)
+-    {
+-        if (nThreads >= 64)
+-        {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 32]);
+-        }
+-        if (nThreads >= 32 && threadIdx.x < 16)
+-        {
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 16]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 8]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 4]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 2]);
+-            functor.reduce(reduceArr[threadIdx.x], reduceArr[threadIdx.x + 1]);
+-        }
+-    }
+-
+-    __syncthreads();
+     Tdata reduceRes;
+     functor.assign(&reduceRes, reduceArr);
+     return reduceRes;
+diff --git a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
+index 60c1f82..98e6581 100644
+--- a/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
++++ b/gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu
+@@ -1,3 +1,5 @@
++#include <pcl/gpu/containers/device_array.h>
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -78,18 +80,13 @@ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of th
+ //assuming size <= WARP_SIZE and size is power of 2
+ __device__ Ncv32u warpScanInclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    unsigned mask = __activemask();
++    unsigned lane = threadIdx.x & 31;
++    for (int delta=1; delta<32; delta*=2) {
++        Ncv32u v = __shfl_up_sync(mask, idata, delta);
++        if (lane >= delta) idata += v;
++    }
++    return idata;
+ }
+ 
+ __device__ __forceinline__ Ncv32u warpScanExclusive(Ncv32u idata, volatile Ncv32u *s_Data)
+@@ -155,7 +152,7 @@ const Ncv32u NUM_THREADS_ANCHORSPARALLEL = 64;
+ /** \internal
+ * Haar features solid array.
+ */
+-texture<uint2, 1, cudaReadModeElementType> texHaarFeatures;
++thread_local pcl::gpu::TextureView<uint2, 1, cudaReadModeElementType> texHaarFeatures;
+ 
+ 
+ /** \internal
+@@ -164,10 +161,10 @@ texture<uint2, 1, cudaReadModeElementType> texHaarFeatures;
+ * Drawback: breaks tree locality (might cause more cache misses
+ * Advantage: No need to introduce additional 32-bit field to index root nodes offsets
+ */
+-texture<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes;
++thread_local pcl::gpu::TextureView<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes;
+ 
+ 
+-texture<Ncv32u, 1, cudaReadModeElementType> texIImage;
++thread_local pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> texIImage;
+ 
+ 
+ __device__ HaarStage64 getStage(Ncv32u iStage, HaarStage64 *d_Stages)
+@@ -177,7 +174,7 @@ __device__ HaarStage64 getStage(Ncv32u iStage, HaarStage64 *d_Stages)
+ 
+ 
+ template <NcvBool tbCacheTextureCascade>
+-__device__ HaarClassifierNode128 getClassifierNode(Ncv32u iNode, HaarClassifierNode128 *d_ClassifierNodes)
++__device__ HaarClassifierNode128 getClassifierNode(pcl::gpu::TextureView<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes, Ncv32u iNode, HaarClassifierNode128 *d_ClassifierNodes)
+ {
+     HaarClassifierNode128 tmpNode;
+     if (tbCacheTextureCascade)
+@@ -193,7 +190,7 @@ __device__ HaarClassifierNode128 getClassifierNode(Ncv32u iNode, HaarClassifierN
+ 
+ 
+ template <NcvBool tbCacheTextureCascade>
+-__device__ void getFeature(Ncv32u iFeature, HaarFeature64 *d_Features,
++__device__ void getFeature(pcl::gpu::TextureView<uint2, 1, cudaReadModeElementType> texHaarFeatures, Ncv32u iFeature, HaarFeature64 *d_Features,
+                            Ncv32f *weight,
+                            Ncv32u *rectX, Ncv32u *rectY, Ncv32u *rectWidth, Ncv32u *rectHeight)
+ {
+@@ -212,7 +209,7 @@ __device__ void getFeature(Ncv32u iFeature, HaarFeature64 *d_Features,
+ 
+ 
+ template <NcvBool tbCacheTextureIImg>
+-__device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
++__device__ Ncv32u getElemIImg(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> texIImage, Ncv32u x, Ncv32u *d_IImg)
+ {
+     if (tbCacheTextureIImg)
+     {
+@@ -225,10 +222,10 @@ __device__ Ncv32u getElemIImg(Ncv32u x, Ncv32u *d_IImg)
+ }
+ 
+ 
+-__device__ Ncv32u d_outMaskPosition;
++thread_local Ncv32u* d_outMaskPosition;
+ 
+ 
+-__device__ void compactBlockWriteOutAnchorParallel(Ncv32u threadPassFlag, Ncv32u threadElem, Ncv32u *vectorOut)
++__device__ void compactBlockWriteOutAnchorParallel(Ncv32u* d_outMaskPosition, Ncv32u threadPassFlag, Ncv32u threadElem, Ncv32u *vectorOut)
+ {
+     __shared__ Ncv32u shmem[NUM_THREADS_ANCHORSPARALLEL * 2];
+     __shared__ Ncv32u numPassed;
+@@ -240,7 +237,7 @@ __device__ void compactBlockWriteOutAnchorParallel(Ncv32u threadPassFlag, Ncv32u
+     if (threadIdx.x == NUM_THREADS_ANCHORSPARALLEL-1)
+     {
+         numPassed = incScan;
+-        outMaskOffset = atomicAdd(&d_outMaskPosition, incScan);
++        outMaskOffset = atomicAdd(d_outMaskPosition, incScan);
+     }
+ 
+     if (threadPassFlag)
+@@ -263,7 +260,7 @@ template <NcvBool tbInitMaskPositively,
+           NcvBool tbCacheTextureCascade,
+           NcvBool tbReadPixelIndexFromVector,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStride,
++__global__ void applyHaarClassifierAnchorParallel(Ncv32u* d_outMaskPosition, pcl::gpu::TextureView<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes, pcl::gpu::TextureView<uint2, 1, cudaReadModeElementType> texHaarFeatures, pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> texIImage, Ncv32u *d_IImg, Ncv32u IImgStride,
+                                                   Ncv32f *d_weights, Ncv32u weightsStride,
+                                                   HaarFeature64 *d_Features, HaarClassifierNode128 *d_ClassifierNodes, HaarStage64 *d_Stages,
+                                                   Ncv32u *d_inMask, Ncv32u *d_outMask,
+@@ -354,7 +351,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+                 {
+                     while (bMoreNodesToTraverse)
+                     {
+-                        HaarClassifierNode128 curNode = getClassifierNode<tbCacheTextureCascade>(iNode, d_ClassifierNodes);
++                        HaarClassifierNode128 curNode = getClassifierNode<tbCacheTextureCascade>(texHaarClassifierNodes, iNode, d_ClassifierNodes);
+                         HaarFeatureDescriptor32 featuresDesc = curNode.getFeatureDesc();
+                         Ncv32u curNodeFeaturesNum = featuresDesc.getNumFeatures();
+                         Ncv32u iFeature = featuresDesc.getFeaturesOffset();
+@@ -366,7 +363,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+                             Ncv32f rectWeight;
+                             Ncv32u rectX, rectY, rectWidth, rectHeight;
+                             getFeature<tbCacheTextureCascade>
+-                                (iFeature + iRect, d_Features,
++                                (texHaarFeatures, iFeature + iRect, d_Features,
+                                 &rectWeight, &rectX, &rectY, &rectWidth, &rectHeight);
+ 
+                             Ncv32u iioffsTL = (y_offs + rectY) * IImgStride + (x_offs + rectX);
+@@ -374,10 +371,10 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+                             Ncv32u iioffsBL = iioffsTL + rectHeight * IImgStride;
+                             Ncv32u iioffsBR = iioffsBL + rectWidth;
+ 
+-                            Ncv32u rectSum = getElemIImg<tbCacheTextureIImg>(iioffsBR, d_IImg) -
+-                                             getElemIImg<tbCacheTextureIImg>(iioffsBL, d_IImg) +
+-                                             getElemIImg<tbCacheTextureIImg>(iioffsTL, d_IImg) -
+-                                             getElemIImg<tbCacheTextureIImg>(iioffsTR, d_IImg);
++                            Ncv32u rectSum = getElemIImg<tbCacheTextureIImg>(texIImage, iioffsBR, d_IImg) -
++                                             getElemIImg<tbCacheTextureIImg>(texIImage, iioffsBL, d_IImg) +
++                                             getElemIImg<tbCacheTextureIImg>(texIImage, iioffsTL, d_IImg) -
++                                             getElemIImg<tbCacheTextureIImg>(texIImage, iioffsTR, d_IImg);
+ 
+     #if defined CPU_FP_COMPLIANCE || defined DISABLE_MAD_SELECTIVELY
+                         curNodeVal += __fmul_rn((Ncv32f)rectSum, rectWeight);
+@@ -441,7 +438,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+     }
+     else
+     {
+-        compactBlockWriteOutAnchorParallel(bPass && !bInactiveThread,
++        compactBlockWriteOutAnchorParallel(d_outMaskPosition, bPass && !bInactiveThread,
+                                            outMaskVal,
+                                            d_outMask);
+     }
+@@ -451,7 +448,7 @@ __global__ void applyHaarClassifierAnchorParallel(Ncv32u *d_IImg, Ncv32u IImgStr
+ template <NcvBool tbCacheTextureIImg,
+           NcvBool tbCacheTextureCascade,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IImgStride,
++__global__ void applyHaarClassifierClassifierParallel(Ncv32u* d_outMaskPosition, pcl::gpu::TextureView<uint4, 1, cudaReadModeElementType> texHaarClassifierNodes, pcl::gpu::TextureView<uint2, 1, cudaReadModeElementType> texHaarFeatures, pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> texIImage, Ncv32u *d_IImg, Ncv32u IImgStride,
+                                                       Ncv32f *d_weights, Ncv32u weightsStride,
+                                                       HaarFeature64 *d_Features, HaarClassifierNode128 *d_ClassifierNodes, HaarStage64 *d_Stages,
+                                                       Ncv32u *d_inMask, Ncv32u *d_outMask,
+@@ -494,7 +491,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+ 
+                 while (bMoreNodesToTraverse)
+                 {
+-                    HaarClassifierNode128 curNode = getClassifierNode<tbCacheTextureCascade>(iNode, d_ClassifierNodes);
++                    HaarClassifierNode128 curNode = getClassifierNode<tbCacheTextureCascade>(texHaarClassifierNodes, iNode, d_ClassifierNodes);
+                     HaarFeatureDescriptor32 featuresDesc = curNode.getFeatureDesc();
+                     Ncv32u curNodeFeaturesNum = featuresDesc.getNumFeatures();
+                     Ncv32u iFeature = featuresDesc.getFeaturesOffset();
+@@ -506,7 +503,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+                         Ncv32f rectWeight;
+                         Ncv32u rectX, rectY, rectWidth, rectHeight;
+                         getFeature<tbCacheTextureCascade>
+-                            (iFeature + iRect, d_Features,
++                            (texHaarFeatures, iFeature + iRect, d_Features,
+                             &rectWeight, &rectX, &rectY, &rectWidth, &rectHeight);
+ 
+                         Ncv32u iioffsTL = (y_offs + rectY) * IImgStride + (x_offs + rectX);
+@@ -514,10 +511,10 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+                         Ncv32u iioffsBL = iioffsTL + rectHeight * IImgStride;
+                         Ncv32u iioffsBR = iioffsBL + rectWidth;
+ 
+-                        Ncv32u rectSum = getElemIImg<tbCacheTextureIImg>(iioffsBR, d_IImg) -
+-                                         getElemIImg<tbCacheTextureIImg>(iioffsBL, d_IImg) +
+-                                         getElemIImg<tbCacheTextureIImg>(iioffsTL, d_IImg) -
+-                                         getElemIImg<tbCacheTextureIImg>(iioffsTR, d_IImg);
++                        Ncv32u rectSum = getElemIImg<tbCacheTextureIImg>(texIImage, iioffsBR, d_IImg) -
++                                         getElemIImg<tbCacheTextureIImg>(texIImage, iioffsBL, d_IImg) +
++                                         getElemIImg<tbCacheTextureIImg>(texIImage, iioffsTL, d_IImg) -
++                                         getElemIImg<tbCacheTextureIImg>(texIImage, iioffsTR, d_IImg);
+ 
+ #if defined CPU_FP_COMPLIANCE || defined DISABLE_MAD_SELECTIVELY
+                         curNodeVal += __fmul_rn((Ncv32f)rectSum, rectWeight);
+@@ -585,7 +582,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+     {
+         if (bPass && !threadIdx.x)
+         {
+-            Ncv32u outMaskOffset = atomicAdd(&d_outMaskPosition, 1);
++            Ncv32u outMaskOffset = atomicAdd(d_outMaskPosition, 1);
+             d_outMask[outMaskOffset] = outMaskVal;
+         }
+     }
+@@ -594,7 +591,7 @@ __global__ void applyHaarClassifierClassifierParallel(Ncv32u *d_IImg, Ncv32u IIm
+ 
+ template <NcvBool tbMaskByInmask,
+           NcvBool tbDoAtomicCompaction>
+-__global__ void initializeMaskVector(Ncv32u *d_inMask, Ncv32u *d_outMask,
++__global__ void initializeMaskVector(Ncv32u* d_outMaskPosition, Ncv32u *d_inMask, Ncv32u *d_outMask,
+                                      Ncv32u mask1Dlen, Ncv32u mask2Dstride,
+                                      NcvSize32u anchorsRoi, Ncv32u step)
+ {
+@@ -620,7 +617,7 @@ __global__ void initializeMaskVector(Ncv32u *d_inMask, Ncv32u *d_outMask,
+     }
+     else
+     {
+-        compactBlockWriteOutAnchorParallel(outElem != OBJDET_MASK_ELEMENT_INVALID_32U,
++        compactBlockWriteOutAnchorParallel(d_outMaskPosition, outElem != OBJDET_MASK_ELEMENT_INVALID_32U,
+                                            outElem,
+                                            d_outMask);
+     }
+@@ -688,7 +685,7 @@ struct applyHaarClassifierAnchorParallelFunctor
+             Loki::TL::TypeAt<TList, 3>::Result::value,
+             Loki::TL::TypeAt<TList, 4>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_IImg, IImgStride,
++            (d_outMaskPosition, texHaarClassifierNodes, texHaarFeatures, texIImage, d_IImg, IImgStride,
+             d_weights, weightsStride,
+             d_Features, d_ClassifierNodes, d_Stages,
+             d_inMask, d_outMask,
+@@ -795,7 +792,7 @@ struct applyHaarClassifierClassifierParallelFunctor
+             Loki::TL::TypeAt<TList, 1>::Result::value,
+             Loki::TL::TypeAt<TList, 2>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_IImg, IImgStride,
++            (d_outMaskPosition, texHaarClassifierNodes, texHaarFeatures, texIImage, d_IImg, IImgStride,
+             d_weights, weightsStride,
+             d_Features, d_ClassifierNodes, d_Stages,
+             d_inMask, d_outMask,
+@@ -874,7 +871,7 @@ struct initializeMaskVectorFunctor
+             Loki::TL::TypeAt<TList, 0>::Result::value,
+             Loki::TL::TypeAt<TList, 1>::Result::value >
+             <<<gridConf, blockConf, 0, cuStream>>>
+-            (d_inMask, d_outMask,
++            (d_outMaskPosition, d_inMask, d_outMask,
+              mask1Dlen, mask2Dstride,
+              anchorsRoi, step);
+     }
+@@ -1055,13 +1052,16 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+ 
+     NCV_SKIP_COND_BEGIN
+ 
++    pcl::gpu::DeviceArray<Ncv32u> invocationCounter(1);
++    d_outMaskPosition = invocationCounter.ptr();
++
+     if (bTexCacheIImg)
+     {
+         cudaChannelFormatDesc cfdTexIImage;
+         cfdTexIImage = cudaCreateChannelDesc<Ncv32u>();
+ 
+         std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texIImage, d_integralImage.ptr(), cfdTexIImage,
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, texIImage, d_integralImage.ptr(), cfdTexIImage,
+             (anchorsRoi.height + haar.ClassifierSize.height) * d_integralImage.pitch()), NCV_CUDA_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+     }
+@@ -1074,10 +1074,10 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         cfdTexHaarClassifierNodes = cudaCreateChannelDesc<uint4>();
+ 
+         std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarFeatures,
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, texHaarFeatures,
+             d_HaarFeatures.ptr(), cfdTexHaarFeatures,sizeof(HaarFeature64) * haar.NumFeatures), NCV_CUDA_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, texHaarClassifierNodes,
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, texHaarClassifierNodes,
+             d_HaarNodes.ptr(), cfdTexHaarClassifierNodes, sizeof(HaarClassifierNode128) * haar.NumClassifierTotalNodes), NCV_CUDA_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NCV_TEXTURE_BIND_ERROR);
+     }
+@@ -1112,8 +1112,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+     {
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1139,8 +1138,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+             swap(d_ptrNowData, d_ptrNowTmp);
+         }
+@@ -1162,8 +1160,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+ 
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1195,8 +1192,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+@@ -1227,8 +1223,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+ 
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1265,8 +1260,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+@@ -1290,8 +1284,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+     {
+         if (bDoAtomicCompaction)
+         {
+-            ncvAssertCUDAReturn(cudaMemcpyToSymbolAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u),
+-                                                        0, cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(d_outMaskPosition, hp_zero, sizeof(Ncv32u), cudaMemcpyHostToDevice, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+ 
+@@ -1326,8 +1319,7 @@ NCVStatus ncvApplyHaarClassifierCascade_device(NCVMatrix<Ncv32u> &d_integralImag
+         if (bDoAtomicCompaction)
+         {
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaMemcpyFromSymbolAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u),
+-                                                          0, cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(cudaMemcpyAsync(hp_numDet, d_outMaskPosition, sizeof(Ncv32u), cudaMemcpyDeviceToHost, cuStream), NCV_CUDA_ERROR);
+             ncvAssertCUDAReturn(cudaStreamSynchronize(cuStream), NCV_CUDA_ERROR);
+         }
+         else
+diff --git a/gpu/people/src/cuda/nvidia/NCVPyramid.cu b/gpu/people/src/cuda/nvidia/NCVPyramid.cu
+index 440d80f..a4b8e0a 100644
+--- a/gpu/people/src/cuda/nvidia/NCVPyramid.cu
++++ b/gpu/people/src/cuda/nvidia/NCVPyramid.cu
+@@ -214,7 +214,7 @@ namespace cv { namespace gpu { namespace device
+             cudaSafeCall( cudaGetLastError() );
+ 
+             if (stream == 0)
+-                cudaSafeCall( cudaDeviceSynchronize() );
++                cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+         }
+ 
+         template void kernelDownsampleX2_gpu<uchar1>(DevMem2Db src, DevMem2Db dst, cudaStream_t stream);
+@@ -288,7 +288,7 @@ namespace cv { namespace gpu { namespace device
+             cudaSafeCall( cudaGetLastError() );
+ 
+             if (stream == 0)
+-                cudaSafeCall( cudaDeviceSynchronize() );
++                cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+         }
+ 
+         template void kernelInterpolateFrom1_gpu<uchar1>(DevMem2Db src, DevMem2Db dst, cudaStream_t stream);
+diff --git a/gpu/people/src/cuda/nvidia/NPP_staging.cu b/gpu/people/src/cuda/nvidia/NPP_staging.cu
+index 5efefc9..0e4821a 100644
+--- a/gpu/people/src/cuda/nvidia/NPP_staging.cu
++++ b/gpu/people/src/cuda/nvidia/NPP_staging.cu
+@@ -1,3 +1,4 @@
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -44,9 +45,9 @@
+ #include <cuda_runtime.h>
+ #include "NPP_staging.hpp"
+ 
+-texture<Ncv8u,  1, cudaReadModeElementType> tex8u;
+-texture<Ncv32u, 1, cudaReadModeElementType> tex32u;
+-texture<uint2,  1, cudaReadModeElementType> tex64u;
++thread_local pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u;
++thread_local pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u;
++thread_local pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u;
+ 
+ 
+ //==============================================================================
+@@ -56,7 +57,7 @@ texture<uint2,  1, cudaReadModeElementType> tex64u;
+ //==============================================================================
+ 
+ 
+-static cudaStream_t nppStream = 0;
++static thread_local cudaStream_t nppStream = 0;
+ 
+ 
+ cudaStream_t nppStGetActiveCUDAstream(void)
+@@ -89,23 +90,14 @@ NCV_CT_ASSERT(K_WARP_SIZE == 32); //this is required for the manual unroll of th
+ template <class T>
+ inline __device__ T warpScanInclusive(T idata, volatile T *s_Data)
+ {
+-    Ncv32u pos = 2 * threadIdx.x - (threadIdx.x & (K_WARP_SIZE - 1));
+-    s_Data[pos] = 0;
+-    pos += K_WARP_SIZE;
+-    s_Data[pos] = idata;
+-
+-    //for(Ncv32u offset = 1; offset < K_WARP_SIZE; offset <<= 1)
+-    //{
+-    //    s_Data[pos] += s_Data[pos - offset];
+-    //}
+-
+-    s_Data[pos] += s_Data[pos - 1];
+-    s_Data[pos] += s_Data[pos - 2];
+-    s_Data[pos] += s_Data[pos - 4];
+-    s_Data[pos] += s_Data[pos - 8];
+-    s_Data[pos] += s_Data[pos - 16];
+-
+-    return s_Data[pos];
++    const unsigned mask = __activemask();
++    const unsigned lane = threadIdx.x & 31;
++    #pragma unroll
++    for (int delta=1; delta<32; delta*=2) {
++        T other = __shfl_up_sync(mask, idata, delta);
++        if (lane >= delta) idata += other;
++    }
++    return idata;
+ }
+ 
+ 
+@@ -191,25 +183,25 @@ private:
+ 
+ 
+ template<class T>
+-inline __device__ T readElem(T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs);
++inline __device__ T readElem(pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u, T *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs);
+ 
+ 
+ template<>
+-inline __device__ Ncv8u readElem<Ncv8u>(Ncv8u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv8u readElem<Ncv8u>(pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u, Ncv8u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+     return tex1Dfetch(tex8u, texOffs + srcStride * blockIdx.x + curElemOffs);
+ }
+ 
+ 
+ template<>
+-inline __device__ Ncv32u readElem<Ncv32u>(Ncv32u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv32u readElem<Ncv32u>(pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u, Ncv32u *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+     return d_src[curElemOffs];
+ }
+ 
+ 
+ template<>
+-inline __device__ Ncv32f readElem<Ncv32f>(Ncv32f *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
++inline __device__ Ncv32f readElem<Ncv32f>(pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u, Ncv32f *d_src, Ncv32u texOffs, Ncv32u srcStride, Ncv32u curElemOffs)
+ {
+     return d_src[curElemOffs];
+ }
+@@ -234,7 +226,7 @@ inline __device__ Ncv32f readElem<Ncv32f>(Ncv32f *d_src, Ncv32u texOffs, Ncv32u
+ * \return None
+ */
+ template <class T_in, class T_out, bool tbDoSqr>
+-__global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u srcStride,
++__global__ void scanRows(pcl::gpu::TextureView<Ncv8u,  1, cudaReadModeElementType> tex8u, T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u srcStride,
+                          T_out *d_II, Ncv32u IIstride)
+ {
+     //advance pointers to the current line
+@@ -264,7 +256,7 @@ __global__ void scanRows(T_in *d_src, Ncv32u texOffs, Ncv32u srcWidth, Ncv32u sr
+         if (curElemOffs < srcWidth)
+         {
+             //load elements
+-            curElem = readElem<T_in>(d_src, texOffs, srcStride, curElemOffs);
++            curElem = readElem<T_in>(tex8u, d_src, texOffs, srcStride, curElemOffs);
+         }
+         curElemMod = _scanElemOp<T_in, T_out>::scanElemOp<tbDoSqr>(curElem);
+ 
+@@ -303,17 +295,17 @@ NCVStatus scanRowsWrapperDevice(T_in *d_src, Ncv32u srcStride,
+     if (sizeof(T_in) == 1)
+     {
+         cfdTex = cudaCreateChannelDesc<Ncv8u>();
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex8u, d_src, cfdTex, roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+         if (alignmentOffset > 0)
+         {
+-            ncvAssertCUDAReturn(cudaUnbindTexture(tex8u), NCV_CUDA_ERROR);
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex8u, d_src, cfdTex, alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::releaseTexture(tex8u), NCV_CUDA_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex8u, d_src, cfdTex, alignmentOffset + roi.height * srcStride), NPPST_TEXTURE_BIND_ERROR);
+         }
+     }
+     scanRows
+         <T_in, T_out, tbDoSqr>
+         <<<roi.height, NUM_SCAN_THREADS, 0, nppStGetActiveCUDAstream()>>>
+-        (d_src, (Ncv32u)alignmentOffset, roi.width, srcStride, d_dst, dstStride);
++        (tex8u, d_src, (Ncv32u)alignmentOffset, roi.width, srcStride, d_dst, dstStride);
+     
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+ 
+@@ -661,25 +653,25 @@ const Ncv32u NUM_DOWNSAMPLE_NEAREST_THREADS_Y = 8;
+ 
+ 
+ template<class T, NcvBool tbCacheTexture>
+-__device__ T getElem_Decimate(Ncv32u x, T *d_src);
++__device__ T getElem_Decimate(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, T *d_src);
+ 
+ 
+ template<>
+-__device__ Ncv32u getElem_Decimate<Ncv32u, true>(Ncv32u x, Ncv32u *d_src)
++__device__ Ncv32u getElem_Decimate<Ncv32u, true>(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, Ncv32u *d_src)
+ {
+     return tex1Dfetch(tex32u, x);
+ }
+ 
+ 
+ template<>
+-__device__ Ncv32u getElem_Decimate<Ncv32u, false>(Ncv32u x, Ncv32u *d_src)
++__device__ Ncv32u getElem_Decimate<Ncv32u, false>(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, Ncv32u *d_src)
+ {
+     return d_src[x];
+ }
+ 
+ 
+ template<>
+-__device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
++__device__ Ncv64u getElem_Decimate<Ncv64u, true>(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, Ncv64u *d_src)
+ {
+     uint2 tmp = tex1Dfetch(tex64u, x);
+     Ncv64u res = (Ncv64u)tmp.y;
+@@ -690,14 +682,14 @@ __device__ Ncv64u getElem_Decimate<Ncv64u, true>(Ncv32u x, Ncv64u *d_src)
+ 
+ 
+ template<>
+-__device__ Ncv64u getElem_Decimate<Ncv64u, false>(Ncv32u x, Ncv64u *d_src)
++__device__ Ncv64u getElem_Decimate<Ncv64u, false>(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, Ncv64u *d_src)
+ {
+     return d_src[x];
+ }
+ 
+ 
+ template <class T, NcvBool tbCacheTexture>
+-__global__ void decimate_C1R(T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
++__global__ void decimate_C1R(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
+                                       NcvSize32u dstRoi, Ncv32u scale)
+ {
+     int curX = blockIdx.x * blockDim.x + threadIdx.x;
+@@ -708,7 +700,7 @@ __global__ void decimate_C1R(T *d_src, Ncv32u srcStep, T *d_dst, Ncv32u dstStep,
+         return;
+     }
+ 
+-    d_dst[curY * dstStep + curX] = getElem_Decimate<T, tbCacheTexture>((curY * srcStep + curX) * scale, d_src);
++    d_dst[curY * dstStep + curX] = getElem_Decimate<T, tbCacheTexture>(tex32u, tex64u, (curY * srcStep + curX) * scale, d_src);
+ }
+ 
+ 
+@@ -739,7 +731,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+         decimate_C1R
+             <T, false>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_src, srcStep, d_dst, dstStep, dstRoi, scale);
++            (tex32u, tex64u, d_src, srcStep, d_dst, dstStep, dstRoi, scale);
+     }
+     else
+     {
+@@ -750,7 +742,7 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+             cfdTexSrc = cudaCreateChannelDesc<Ncv32u>();
+ 
+             std::size_t alignmentOffset;
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex32u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+             ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+         }
+         else
+@@ -758,14 +750,14 @@ static NCVStatus decimateWrapperDevice(T *d_src, Ncv32u srcStep,
+             cfdTexSrc = cudaCreateChannelDesc<uint2>();
+ 
+             std::size_t alignmentOffset;
+-            ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
++            ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex64u, d_src, cfdTexSrc, srcRoi.height * srcStep * sizeof(T)), NPPST_TEXTURE_BIND_ERROR);
+             ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+         }
+ 
+         decimate_C1R
+             <T, true>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_src, srcStep, d_dst, dstStep, dstRoi, scale);
++            (tex32u, tex64u, d_src, srcStep, d_dst, dstStep, dstRoi, scale);
+     }
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+@@ -851,7 +843,7 @@ const Ncv32u NUM_RECTSTDDEV_THREADS = 128;
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
++__device__ Ncv32u getElemSum(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, Ncv32u x, Ncv32u *d_sum)
+ {
+     if (tbCacheTexture)
+     {
+@@ -865,7 +857,7 @@ __device__ Ncv32u getElemSum(Ncv32u x, Ncv32u *d_sum)
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
++__device__ Ncv64u getElemSqSum(pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u x, Ncv64u *d_sqsum)
+ {
+     if (tbCacheTexture)
+     {
+@@ -883,7 +875,7 @@ __device__ Ncv64u getElemSqSum(Ncv32u x, Ncv64u *d_sqsum)
+ 
+ 
+ template <NcvBool tbCacheTexture>
+-__global__ void rectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
++__global__ void rectStdDev_32f_C1R(pcl::gpu::TextureView<Ncv32u, 1, cudaReadModeElementType> tex32u, pcl::gpu::TextureView<uint2,  1, cudaReadModeElementType> tex64u, Ncv32u *d_sum, Ncv32u sumStep,
+                                    Ncv64u *d_sqsum, Ncv32u sqsumStep,
+                                    Ncv32f *d_norm, Ncv32u normStep,
+                                    NcvSize32u roi, NcvRect32u rect, Ncv32f invRectArea)
+@@ -898,17 +890,17 @@ __global__ void rectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+     Ncv32u sqsum_offset = blockIdx.y * sqsumStep + x_offs;
+ 
+     //OPT: try swapping order (could change cache hit/miss ratio)
+-    Ncv32u sum_tl = getElemSum<tbCacheTexture>(sum_offset + rect.y * sumStep + rect.x, d_sum);
+-    Ncv32u sum_bl = getElemSum<tbCacheTexture>(sum_offset + (rect.y + rect.height) * sumStep + rect.x, d_sum);
+-    Ncv32u sum_tr = getElemSum<tbCacheTexture>(sum_offset + rect.y * sumStep + rect.x + rect.width, d_sum);
+-    Ncv32u sum_br = getElemSum<tbCacheTexture>(sum_offset + (rect.y + rect.height) * sumStep + rect.x + rect.width, d_sum);
++    Ncv32u sum_tl = getElemSum<tbCacheTexture>(tex32u, sum_offset + rect.y * sumStep + rect.x, d_sum);
++    Ncv32u sum_bl = getElemSum<tbCacheTexture>(tex32u, sum_offset + (rect.y + rect.height) * sumStep + rect.x, d_sum);
++    Ncv32u sum_tr = getElemSum<tbCacheTexture>(tex32u, sum_offset + rect.y * sumStep + rect.x + rect.width, d_sum);
++    Ncv32u sum_br = getElemSum<tbCacheTexture>(tex32u, sum_offset + (rect.y + rect.height) * sumStep + rect.x + rect.width, d_sum);
+     Ncv32u sum_val = sum_br + sum_tl - sum_tr - sum_bl;
+ 
+     Ncv64u sqsum_tl, sqsum_bl, sqsum_tr, sqsum_br;
+-    sqsum_tl = getElemSqSum<tbCacheTexture>(sqsum_offset + rect.y * sqsumStep + rect.x, d_sqsum);
+-    sqsum_bl = getElemSqSum<tbCacheTexture>(sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x, d_sqsum);
+-    sqsum_tr = getElemSqSum<tbCacheTexture>(sqsum_offset + rect.y * sqsumStep + rect.x + rect.width, d_sqsum);
+-    sqsum_br = getElemSqSum<tbCacheTexture>(sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x + rect.width, d_sqsum);
++    sqsum_tl = getElemSqSum<tbCacheTexture>(tex64u, sqsum_offset + rect.y * sqsumStep + rect.x, d_sqsum);
++    sqsum_bl = getElemSqSum<tbCacheTexture>(tex64u, sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x, d_sqsum);
++    sqsum_tr = getElemSqSum<tbCacheTexture>(tex64u, sqsum_offset + rect.y * sqsumStep + rect.x + rect.width, d_sqsum);
++    sqsum_br = getElemSqSum<tbCacheTexture>(tex64u, sqsum_offset + (rect.y + rect.height) * sqsumStep + rect.x + rect.width, d_sqsum);
+     Ncv64u sqsum_val = sqsum_br + sqsum_tl - sqsum_tr - sqsum_bl;
+ 
+     Ncv32f mean = sum_val * invRectArea;
+@@ -976,7 +968,7 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+         rectStdDev_32f_C1R
+             <false>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (d_sum, sumStep, d_sqsum, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
++            (tex32u, tex64u, d_sum, sumStep, d_sqsum, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
+     }
+     else
+     {
+@@ -986,15 +978,15 @@ NCVStatus nppiStRectStdDev_32f_C1R(Ncv32u *d_sum, Ncv32u sumStep,
+         cfdTexSqr = cudaCreateChannelDesc<uint2>();
+ 
+         std::size_t alignmentOffset;
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex32u, d_sum, cfdTexSrc, (roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex32u, d_sum, cfdTexSrc, (roi.height + rect.y + rect.height) * sumStep * sizeof(Ncv32u)), NPPST_TEXTURE_BIND_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+-        ncvAssertCUDAReturn(cudaBindTexture(&alignmentOffset, tex64u, d_sqsum, cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), NPPST_TEXTURE_BIND_ERROR);
++        ncvAssertCUDAReturn(pcl::gpu::bindTexture(&alignmentOffset, tex64u, d_sqsum, cfdTexSqr, (roi.height + rect.y + rect.height) * sqsumStep * sizeof(Ncv64u)), NPPST_TEXTURE_BIND_ERROR);
+         ncvAssertReturn(alignmentOffset==0, NPPST_TEXTURE_BIND_ERROR);
+ 
+         rectStdDev_32f_C1R
+             <true>
+             <<<grid, block, 0, nppStGetActiveCUDAstream()>>>
+-            (NULL, sumStep, NULL, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
++            (tex32u, tex64u, NULL, sumStep, NULL, sqsumStep, d_norm, normStep, roi, rect, invRectArea);
+     }
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+@@ -1624,11 +1616,11 @@ NCVStatus nppsStCompact_32f_host(Ncv32f *h_src, Ncv32u srcLen,
+ //==============================================================================
+ 
+ 
+-texture <float, 1, cudaReadModeElementType> texSrc;
+-texture <float, 1, cudaReadModeElementType> texKernel;
++thread_local pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc;
++thread_local pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texKernel;
+ 
+ 
+-__forceinline__ __device__ float getValueMirrorRow(const int rowOffset,
++__forceinline__ __device__ float getValueMirrorRow(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, const int rowOffset,
+                                                    int i,
+                                                    int w)
+ {
+@@ -1638,7 +1630,7 @@ __forceinline__ __device__ float getValueMirrorRow(const int rowOffset,
+ }
+ 
+ 
+-__forceinline__ __device__ float getValueMirrorColumn(const int offset,
++__forceinline__ __device__ float getValueMirrorColumn(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, const int offset,
+                                                       const int rowStep,
+                                                       int j,
+                                                       int h)
+@@ -1649,7 +1641,7 @@ __forceinline__ __device__ float getValueMirrorColumn(const int offset,
+ }
+ 
+ 
+-__global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
++__global__ void FilterRowBorderMirror_32f_C1R(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texKernel, pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, Ncv32u srcStep,
+                                               Ncv32f *pDst, 
+                                               NcvSize32u dstSize,
+                                               Ncv32u dstStep,
+@@ -1676,7 +1668,7 @@ __global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
+     float sum = 0.0f;
+     for (int m = 0; m < nKernelSize; ++m)
+     {
+-        sum += getValueMirrorRow (rowOffset, ix + m - p, roi.width) 
++        sum += getValueMirrorRow (texSrc, rowOffset, ix + m - p, roi.width) 
+             * tex1Dfetch (texKernel, m);
+     }
+ 
+@@ -1684,7 +1676,7 @@ __global__ void FilterRowBorderMirror_32f_C1R(Ncv32u srcStep,
+ }
+ 
+ 
+-__global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
++__global__ void FilterColumnBorderMirror_32f_C1R(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texKernel, pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, Ncv32u srcStep,
+                                                  Ncv32f *pDst,
+                                                  NcvSize32u dstSize,
+                                                  Ncv32u dstStep,
+@@ -1708,7 +1700,7 @@ __global__ void FilterColumnBorderMirror_32f_C1R(Ncv32u srcStep,
+     float sum = 0.0f;
+     for (int m = 0; m < nKernelSize; ++m)
+     {
+-        sum += getValueMirrorColumn (offset, srcStep, iy + m - p, roi.height) 
++        sum += getValueMirrorColumn (texSrc, offset, srcStep, iy + m - p, roi.height) 
+             * tex1Dfetch (texKernel, m);
+     }
+ 
+@@ -1760,8 +1752,8 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+     texSrc.normalized    = false;
+     texKernel.normalized = false;
+ 
+-    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+-    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
++    pcl::gpu::bindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
++    pcl::gpu::bindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+ 
+     dim3 ctaSize (32, 6);
+     dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
+@@ -1777,7 +1769,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+         return NPPST_ERROR;
+     case nppStBorderMirror:
+         FilterRowBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
++            (texKernel, texSrc, srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
+         ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+         break;
+     default:
+@@ -1832,8 +1824,8 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+     texSrc.normalized    = false;
+     texKernel.normalized = false;
+ 
+-    cudaBindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
+-    cudaBindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
++    pcl::gpu::bindTexture (0, texSrc, pSrc, floatChannel, srcSize.height * nSrcStep);
++    pcl::gpu::bindTexture (0, texKernel, pKernel, floatChannel, nKernelSize * sizeof (Ncv32f));
+ 
+     dim3 ctaSize (32, 6);
+     dim3 gridSize ((oROI.width + ctaSize.x - 1) / ctaSize.x,
+@@ -1847,7 +1839,7 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+         return NPPST_ERROR;
+     case nppStBorderMirror:
+         FilterColumnBorderMirror_32f_C1R <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
++            (texKernel, texSrc, srcStep, pDst, dstSize, dstStep, oROI, nKernelSize, nAnchor, multiplier);
+         ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+         break;
+     default:
+@@ -1871,11 +1863,11 @@ inline Ncv32u iDivUp(Ncv32u num, Ncv32u denom)
+ }
+ 
+ 
+-texture<float, 2, cudaReadModeElementType> tex_src1;
+-texture<float, 2, cudaReadModeElementType> tex_src0;
++thread_local pcl::gpu::TextureView<float, 2, cudaReadModeElementType> tex_src1;
++thread_local pcl::gpu::TextureView<float, 2, cudaReadModeElementType> tex_src0;
+ 
+ 
+-__global__ void BlendFramesKernel(const float *u, const float *v,   // forward flow
++__global__ void BlendFramesKernel(pcl::gpu::TextureView<float, 2, cudaReadModeElementType> tex_src0, pcl::gpu::TextureView<float, 2, cudaReadModeElementType> tex_src1, const float *u, const float *v,   // forward flow
+                                   const float *ur, const float *vr, // backward flow
+                                   const float *o0, const float *o1, // coverage masks
+                                   int w, int h, int s, 
+@@ -1944,14 +1936,14 @@ NCVStatus BlendFrames(const Ncv32f *src0,
+ 
+     cudaChannelFormatDesc desc = cudaCreateChannelDesc <float> ();
+     const Ncv32u pitch = stride * sizeof (float);
+-    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src1, src1, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
+-    ncvAssertCUDAReturn (cudaBindTexture2D (0, tex_src0, src0, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
++    ncvAssertCUDAReturn (pcl::gpu::bindTexture2D (0, tex_src1, src1, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
++    ncvAssertCUDAReturn (pcl::gpu::bindTexture2D (0, tex_src0, src0, desc, width, height, pitch), NPPST_TEXTURE_BIND_ERROR);
+ 
+     dim3 threads (32, 4);
+     dim3 blocks (iDivUp (width, threads.x), iDivUp (height, threads.y));
+ 
+     BlendFramesKernel<<<blocks, threads, 0, nppStGetActiveCUDAstream ()>>>
+-        (ufi, vfi, ubi, vbi, o1, o2, width, height, stride, theta, out);
++        (tex_src0, tex_src1, ufi, vfi, ubi, vbi, o1, o2, width, height, stride, theta, out);
+ 
+     ncvAssertCUDALastErrorReturn(NPPST_CUDA_KERNEL_EXECUTION_ERROR);
+ 
+@@ -2304,11 +2296,11 @@ NCVStatus nppiStVectorWarp_PSF2x2_32f_C1(const Ncv32f *pSrc,
+ //==============================================================================
+ 
+ 
+-texture <float, 2, cudaReadModeElementType> texSrc2D;
++thread_local pcl::gpu::TextureView<float, 2, cudaReadModeElementType> texSrc2D;
+ 
+ 
+ __forceinline__
+-__device__ float processLine(int spos,
++__device__ float processLine(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, int spos,
+                              float xmin,
+                              float xmax,
+                              int ixmin,
+@@ -2332,7 +2324,7 @@ __device__ float processLine(int spos,
+ }
+ 
+ 
+-__global__ void resizeSuperSample_32f(NcvSize32u srcSize,
++__global__ void resizeSuperSample_32f(pcl::gpu::TextureView<float, 1, cudaReadModeElementType> texSrc, NcvSize32u srcSize,
+                                       Ncv32u srcStep,
+                                       NcvRect32u srcROI,
+                                       Ncv32f *dst,
+@@ -2380,18 +2372,18 @@ __global__ void resizeSuperSample_32f(NcvSize32u srcSize,
+ 
+     float wsum = 1.0f - yBegin + floorYBegin;
+ 
+-    float sum = processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++    float sum = processLine (texSrc, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+         ceilXEnd) * (1.0f - yBegin + floorYBegin);
+     pos += srcStep;
+     for (int iy = iYBegin + 1; iy < iYEnd; ++iy)
+     {
+-        sum += processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++        sum += processLine (texSrc, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+             ceilXEnd);
+         pos += srcStep;
+         wsum += 1.0f;
+     }
+ 
+-    sum += processLine (pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
++    sum += processLine (texSrc, pos, xBegin, xEnd, iXBegin, iXEnd, floorXBegin,
+         ceilXEnd) * (ceilYEnd - yEnd);
+     wsum += ceilYEnd - yEnd;
+     sum /= wsum;
+@@ -2420,7 +2412,7 @@ __device__ float bicubicCoeff(float x_)
+ }
+ 
+ 
+-__global__ void resizeBicubic(NcvSize32u srcSize,
++__global__ void resizeBicubic(pcl::gpu::TextureView<float, 2, cudaReadModeElementType> texSrc2D, NcvSize32u srcSize,
+                               NcvRect32u srcROI,
+                               NcvSize32u dstSize,
+                               Ncv32u dstStep,
+@@ -2518,14 +2510,14 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+     if (interpolation == nppStSupersample)
+     {
+         // bind texture
+-        cudaBindTexture (0, texSrc, pSrc, srcSize.height * nSrcStep);
++        pcl::gpu::bindTexture (0, texSrc, pSrc, srcSize.height * nSrcStep);
+         // invoke kernel
+         dim3 ctaSize (32, 6);
+         dim3 gridSize ((dstROI.width  + ctaSize.x - 1) / ctaSize.x,
+             (dstROI.height + ctaSize.y - 1) / ctaSize.y);
+ 
+         resizeSuperSample_32f <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>> 
+-            (srcSize, srcStep, srcROI, pDst, dstSize, dstStep, dstROI, 1.0f / xFactor, 1.0f / yFactor);
++            (texSrc, srcSize, srcStep, srcROI, pDst, dstSize, dstStep, dstROI, 1.0f / xFactor, 1.0f / yFactor);
+     }
+     else if (interpolation == nppStBicubic)
+     {
+@@ -2535,7 +2527,7 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+ 
+         cudaChannelFormatDesc desc = cudaCreateChannelDesc <float> ();
+ 
+-        cudaBindTexture2D (0, texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
++        pcl::gpu::bindTexture2D (0, texSrc2D, pSrc, desc, srcSize.width, srcSize.height,
+             nSrcStep);
+ 
+         dim3 ctaSize (32, 6);
+@@ -2543,7 +2535,7 @@ NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+             (dstSize.height + ctaSize.y - 1) / ctaSize.y);
+ 
+         resizeBicubic <<<gridSize, ctaSize, 0, nppStGetActiveCUDAstream ()>>>
+-            (srcSize, srcROI, dstSize, dstStep, pDst, dstROI, 1.0f / xFactor, 1.0f / yFactor);
++            (texSrc2D, srcSize, srcROI, dstSize, dstStep, pDst, dstROI, 1.0f / xFactor, 1.0f / yFactor);
+     }
+     else
+     {
+diff --git a/gpu/people/src/cuda/prob.cu b/gpu/people/src/cuda/prob.cu
+index 52c89a5..87c4c56 100644
+--- a/gpu/people/src/cuda/prob.cu
++++ b/gpu/people/src/cuda/prob.cu
+@@ -261,7 +261,7 @@ namespace pcl
+       KernelCUDA_SelectLabel<<< grid, block >>>( labels, probabilities );
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+     }
+ 
+     /** \brief This will combine two probabilities according their weight **/
+@@ -280,7 +280,7 @@ namespace pcl
+       KernelCUDA_CombineProb<<< grid, block >>>( probIn1, weight1, probIn2, weight2, probOut );
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+     }
+ 
+     /** \brief This will combine two probabilities according their weight **/
+@@ -297,7 +297,7 @@ namespace pcl
+       KernelCUDA_WeightedSumProb<<< grid, block >>>( probIn, weight, probOut );
+ 
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+     }
+ 
+     /** \brief This will blur the input labelprobability with the given kernel **/
+@@ -334,12 +334,12 @@ namespace pcl
+       KernelCUDA_GaussianBlurVer<<< grid, block >>>( probIn, kernel, kernel.size(), probTemp );
+       //KernelCUDA_GaussianBlurVer<<< grid, block >>>( probIn, kernel, kernel.size(), probOut );
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+       // CUDA kernel call Horizontal
+       KernelCUDA_GaussianBlurHor<<< grid, block >>>( probTemp, kernel, kernel.size(), probOut );
+       cudaSafeCall( cudaGetLastError() );
+-      cudaSafeCall( cudaDeviceSynchronize() );
++      cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+       return 1;
+     }
+   }
+diff --git a/gpu/people/src/cuda/smooth.cu b/gpu/people/src/cuda/smooth.cu
+index 53540e3..085d8fc 100644
+--- a/gpu/people/src/cuda/smooth.cu
++++ b/gpu/people/src/cuda/smooth.cu
+@@ -1,3 +1,4 @@
++#include <pcl/common/time.h> // TEMP_PROFILE
+ /*
+  * Software License Agreement (BSD License)
+  *
+@@ -131,7 +132,9 @@ namespace pcl
+ 
+ void pcl::device::smoothLabelImage(const Labels& src, const Depth& depth, Labels& dst, int num_parts, int  patch_size, int  depthThres)
+ {
++  pcl::ScopeTime profile_timer("smoothLabelImage"); // TEMP_PROFILE
+   dst.create(src.rows(), src.cols());
++  cudaSafeCall(cudaMemset2DAsync(dst.ptr(), dst.step(), 0, dst.cols(), dst.rows(), cudaStreamPerThread));
+ 
+   dim3 block(32, 8);
+   dim3 grid(divUp(src.cols(), block.x), divUp(src.rows(), block.y));
+@@ -145,7 +148,7 @@ void pcl::device::smoothLabelImage(const Labels& src, const Depth& depth, Labels
+     throw std::exception(); //should instantiate another smoothKernel<N>
+ 
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ 
+diff --git a/gpu/people/src/cuda/utils.cu b/gpu/people/src/cuda/utils.cu
+index 5f29d5c..bc537f5 100644
+--- a/gpu/people/src/cuda/utils.cu
++++ b/gpu/people/src/cuda/utils.cu
+@@ -1,3 +1,4 @@
++#include <pcl/gpu/containers/impl/texture_object.hpp>
+ #include <limits>
+ 
+ #include "internal.h"
+@@ -12,9 +13,9 @@ namespace pcl
+ {
+   namespace device
+   {
+-    texture<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex;
++    thread_local pcl::gpu::TextureView<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex;
+ 
+-    __global__ void colorKernel(const PtrStepSz<unsigned char> labels, PtrStep<uchar4> output)
++    __global__ void colorKernel(pcl::gpu::TextureView<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex, const PtrStepSz<unsigned char> labels, PtrStep<uchar4> output)
+     {
+       int x = threadIdx.x + blockIdx.x * blockDim.x;
+       int y = threadIdx.y + blockIdx.y * blockDim.y;
+@@ -26,7 +27,7 @@ namespace pcl
+       }
+     }
+ 
+-    __global__ void mixedColorKernel(const PtrStepSz<unsigned char> labels, PtrStepSz<uchar4> rgba, PtrStep<uchar4> output)
++    __global__ void mixedColorKernel(pcl::gpu::TextureView<uchar4, cudaTextureType1D, cudaReadModeElementType> cmapTex, const PtrStepSz<unsigned char> labels, PtrStepSz<uchar4> rgba, PtrStep<uchar4> output)
+     {
+       int x = threadIdx.x + blockIdx.x * blockDim.x;
+       int y = threadIdx.y + blockIdx.y * blockDim.y;
+@@ -53,10 +54,10 @@ void pcl::device::colorLMap(const Labels& labels, const DeviceArray<uchar4>& map
+   dim3 block(32, 8);
+   dim3 grid( divUp(labels.cols(), block.x), divUp(labels.rows(), block.y) );
+ 
+-  colorKernel<<< grid, block >>>( labels, rgba );
++  colorKernel<<< grid, block >>>(cmapTex,  labels, rgba );
+ 
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );  
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );  
+ }
+ 
+ void pcl::device::mixedColorMap(const Labels& labels, const DeviceArray<uchar4>& map, const Image& rgba, Image& output)
+@@ -67,9 +68,9 @@ void pcl::device::mixedColorMap(const Labels& labels, const DeviceArray<uchar4>&
+   dim3 block(32, 8);
+   dim3 grid(divUp(labels.cols(), block.x), divUp(labels.rows(), block.y));
+ 
+-  mixedColorKernel<<<grid, block>>>(labels, rgba, output);
++  mixedColorKernel<<<grid, block>>>(cmapTex, labels, rgba, output);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -172,7 +173,7 @@ void pcl::device::prepareForeGroundDepth(const Depth& depth1, Mask& inverse_mask
+   fgDepthKernel<<< grid, block >>>( depth1, inverse_mask, depth2 );
+ 
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ 
+@@ -254,7 +255,7 @@ void pcl::device::computeHueWithNans(const Image& rgba, const Depth& depth, HueI
+   computeHueKernel<<<grid, block>>>(rgba, depth, hue);
+ 
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ namespace pcl
+@@ -296,5 +297,5 @@ void pcl::device::computeCloud(const Depth& depth, const Intr& intr, Cloud& clou
+   reprojectDepthKenrel<<<grid, block>>>(depth, intr, cloud);
+ 
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+diff --git a/gpu/people/src/people_detector.cpp b/gpu/people/src/people_detector.cpp
+index 430a59a..6ea745c 100644
+--- a/gpu/people/src/people_detector.cpp
++++ b/gpu/people/src/people_detector.cpp
+@@ -1,3 +1,4 @@
++#include <pcl/common/time.h> // TEMP_PROFILE
+ /*
+ * Software License Agreement (BSD License)
+ *
+@@ -130,7 +131,8 @@ pcl::gpu::people::PeopleDetector::allocate_buffers(int rows, int cols)
+ 
+ int
+ pcl::gpu::people::PeopleDetector::process(const Depth& depth, const Image& rgba)
+-{ 
++{
++  pcl::ScopeTime profile_timer("PeopleDetector::process"); // TEMP_PROFILE 
+   int cols;
+   allocate_buffers(depth.rows(), depth.cols());
+ 
+@@ -155,6 +157,7 @@ pcl::gpu::people::PeopleDetector::process(const Depth& depth, const Image& rgba)
+ int
+ pcl::gpu::people::PeopleDetector::process (const pcl::PointCloud<PointTC>::ConstPtr &cloud)
+ {
++  pcl::ScopeTime profile_timer("PeopleDetector::process"); // TEMP_PROFILE
+   allocate_buffers(cloud->height, cloud->width);
+ 
+   const float qnan = std::numeric_limits<float>::quiet_NaN();
+@@ -180,7 +183,8 @@ pcl::gpu::people::PeopleDetector::process (const pcl::PointCloud<PointTC>::Const
+ 
+ int
+ pcl::gpu::people::PeopleDetector::process ()
+-{  
++{
++  pcl::ScopeTime profile_timer("PeopleDetector::process"); // TEMP_PROFILE  
+   rdf_detector_->process(depth_device1_, cloud_host_, AREA_THRES);
+ 
+   const RDFBodyPartsDetector::BlobMatrix& sorted = rdf_detector_->getBlobMatrix();
+@@ -481,70 +485,59 @@ pcl::gpu::people::PeopleDetector::shs5(const pcl::PointCloud<PointT> &cloud, con
+   const float *hue = &hue_host_[0];
+   double squared_radius = CLUST_TOL_SHS * CLUST_TOL_SHS;
+ 
+-  std::vector< std::vector<int> > storage(100);
+-
+-  // Process all points in the indices vector
+-  int total = static_cast<int> (indices.size ());
+-#pragma omp parallel for \
+-  default(none) \
+-  shared(cloud, intr, hue, indices, mask, squared_radius, storage, total)
+-  for (int k = 0; k < total; ++k)
++  // Keep the serial seed order: each component is grown using its seed's
++  // hue, not its neighbours' hues. A bitmap skips already visited pixels in
++  // whole words without changing the historical window or sampling parity.
++  std::vector<std::uint32_t> unvisited((cloud.size() + 31) / 32, ~0u);
++  for (std::size_t i=0; i<cloud.size(); ++i)
++    if (mask[i]) unvisited[i/32] &= ~(1u << (i%32));
++  std::vector<int> seed_queue;
++  seed_queue.reserve(cloud.size());
++  int seeds_visited = 0; // TEMP_PROFILE
++  for (int i : indices)
+   {
+-    int i = indices[k];
+-    if (mask[i])
+-      continue;
+-
++    if (mask[i]) continue;
+     mask[i] = 255;
+-
+-    int id = 0;
+-#ifdef _OPENMP
+-    id = omp_get_thread_num();
+-#endif
+-    std::vector<int>& seed_queue = storage[id];
++    unvisited[i/32] &= ~(1u << (i%32));
+     seed_queue.clear();
+-    seed_queue.reserve(cloud.size());
+-    int sq_idx = 0;
+-    seed_queue.push_back (i);
+-
+-    float h = hue[i];    
+-
+-    while (sq_idx < (int)seed_queue.size ())
++    seed_queue.push_back(i);
++    ++seeds_visited; // TEMP_PROFILE
++    float h = hue[i];
++    for (std::size_t sq_idx=0; sq_idx<seed_queue.size(); ++sq_idx)
+     {
+-      int index = seed_queue[sq_idx];
+-      const PointT& q = cloud[index];
+-
+-      if(!pcl::isFinite (q))
+-        continue;
+-
+-      // search window                  
++      const PointT& q = cloud[seed_queue[sq_idx]];
++      if (!pcl::isFinite(q)) continue;
+       int left, right, top, bottom;
+-      getProjectedRadiusSearchBox(cloud.height, cloud.width, intr, q, squared_radius, left, right, top, bottom);
+-        
+-      int yEnd  = (bottom + 1) * cloud.width + right + 1;
+-      int idx  = top * cloud.width + left;
++      getProjectedRadiusSearchBox(cloud.height, cloud.width, intr, q, squared_radius,
++                                 left, right, top, bottom);
++      int yEnd = (bottom + 1) * cloud.width + right + 1;
++      int idx = top * cloud.width + left;
+       int skip = cloud.width - right + left - 1;
+       int xEnd = idx - left + right + 1;
+-
+-      for (; xEnd < yEnd; idx += 2*skip, xEnd += 2*cloud.width)
+-        for (; idx < xEnd; idx += 2)
+-        {
+-          if (mask[idx])
+-            continue;
+-
+-          if (sqnorm(cloud[idx], q) <= squared_radius)
+-          {
+-            float h_l = hue[idx];
+-
+-            if (std::abs(h_l - h) < DELTA_HUE_SHS)
+-            {                   
+-              seed_queue.push_back (idx);
+-              mask[idx] = 255;
++      for (; xEnd < yEnd; idx += 2*skip, xEnd += 2*cloud.width) {
++        int begin = idx;
++        if (begin >= xEnd) continue;
++        const std::uint32_t parity = 0x55555555u << (begin & 1);
++        for (int word=begin/32; word<=(xEnd-1)/32; ++word) {
++          std::uint32_t bits = unvisited[word] & parity;
++          if (word == begin/32) bits &= ~0u << (begin & 31);
++          if (word == (xEnd-1)/32 && (xEnd & 31)) bits &= (1u << (xEnd & 31)) - 1;
++          while (bits) {
++            int bit = __builtin_ctz(bits);
++            bits &= bits - 1;
++            int candidate = word*32 + bit;
++            if (sqnorm(cloud[candidate], q) <= squared_radius &&
++                std::abs(hue[candidate] - h) < DELTA_HUE_SHS) {
++              mask[candidate] = 255;
++              unvisited[word] &= ~(1u << bit);
++              seed_queue.push_back(candidate);
+             }
+           }
+         }
+-      
+-      sq_idx++;
+-    }        
++        idx = begin + 2*((xEnd-begin+1)/2);
++      }
++    }
+   }
+-}
++  std::cerr << "seeds " << seeds_visited << "\n"; // TEMP_PROFILE
+ 
++}
+diff --git a/gpu/surface/src/cuda/convex_hull.cu b/gpu/surface/src/cuda/convex_hull.cu
+index 13417c8..b76bc93 100644
+--- a/gpu/surface/src/cuda/convex_hull.cu
++++ b/gpu/surface/src/cuda/convex_hull.cu
+@@ -235,7 +235,7 @@ void pcl::device::FacetStream::setInitialFacets(const InitalSimplex& s)
+ {
+   init_fs<<<1, 1>>>(s.i1, s.i2, s.i3, s.i4, verts_inds);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+   facet_count = 4;
+ }
+ 
+@@ -342,7 +342,7 @@ void pcl::device::PointStream::initalClassify()
+ 
+   initalClassifyKernel<<<divUp(cloud_size, 256), 256>>>(ic, cloud, cloud_size, facets_dists);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+   thrust::device_ptr<int> pbeg(perm.ptr());
+   thrust::sort_by_key(out, out + cloud_size, pbeg);
+@@ -416,7 +416,7 @@ int pcl::device::PointStream::searchFacetHeads(std::size_t facet_count, DeviceAr
+ 
+     searchFacetHeadsKernel<<<divUp(facet_count+1, 256), 256>>>(sfh);
+     cudaSafeCall( cudaGetLastError() );
+-    cudaSafeCall( cudaDeviceSynchronize() );
++    cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+ 	int new_size;
+ 	cudaSafeCall( cudaMemcpyFromSymbol(	(void*)&new_size,  pcl::device::new_cloud_size, sizeof(new_size)) );
+@@ -554,7 +554,7 @@ void pcl::device::FacetStream::compactFacets()
+ 
+   compactionKernel<<<grid, block>>>(c);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+   verts_inds.swap(verts_inds2);
+   head_points.swap(head_points2);
+@@ -716,7 +716,7 @@ void pcl::device::PointStream::classify(FacetStream& fs)
+ 
+   classifyKernel<<<divUp(cloud_size, 256), 256>>>(c, cloud_size);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+   thrust::device_ptr<std::uint64_t> beg(facets_dists.ptr());
+   thrust::device_ptr<std::uint64_t> end = beg + cloud_size;
+@@ -781,7 +781,7 @@ void pcl::device::FacetStream::splitFacets()
+ 
+   splitFacetsKernel<<<divUp(facet_count, 256), 256>>>(sf);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ 
+   facet_count *= 3;
+ }
+@@ -826,5 +826,5 @@ void pcl::device::pack_hull(const DeviceArray<PointType>& points, const DeviceAr
+ 
+   gatherKernel<<<divUp(indeces.size(), 256), 256>>>(indeces, points, output);
+   cudaSafeCall( cudaGetLastError() );
+-  cudaSafeCall( cudaDeviceSynchronize() );
++  cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+diff --git a/gpu/tracking/src/cuda/particle_filter.cu b/gpu/tracking/src/cuda/particle_filter.cu
+index 6341003..6fd5a72 100644
+--- a/gpu/tracking/src/cuda/particle_filter.cu
++++ b/gpu/tracking/src/cuda/particle_filter.cu
+@@ -160,7 +160,7 @@ void
+ 	ParticleInitializerKernel<<<grid, block>>>(pi);
+ 
+ 	cudaSafeCall( cudaGetLastError() );
+-	cudaSafeCall( cudaDeviceSynchronize() );
++	cudaSafeCall( cudaStreamSynchronize(cudaStreamPerThread) );
+ }
+ 
+ void 
+diff --git a/gpu/utils/include/pcl/gpu/utils/device/block.hpp b/gpu/utils/include/pcl/gpu/utils/device/block.hpp
+index 4740bb2..9d0f1b0 100644
+--- a/gpu/utils/include/pcl/gpu/utils/device/block.hpp
++++ b/gpu/utils/include/pcl/gpu/utils/device/block.hpp
+@@ -131,12 +131,12 @@ namespace pcl
+ 
+ 				if (tid < 32)
+ 				{
+-					if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-					if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-					if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-					if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-					if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-					if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++					if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+ 				}
+ 			}
+ 
+@@ -154,12 +154,12 @@ namespace pcl
+ 
+ 				if (tid < 32)
+ 				{
+-					if (CTA_SIZE >=   64) { buffer[tid] = val = op(val, buffer[tid +  32]); }
+-					if (CTA_SIZE >=   32) { buffer[tid] = val = op(val, buffer[tid +  16]); }
+-					if (CTA_SIZE >=   16) { buffer[tid] = val = op(val, buffer[tid +   8]); }
+-					if (CTA_SIZE >=    8) { buffer[tid] = val = op(val, buffer[tid +   4]); }
+-					if (CTA_SIZE >=    4) { buffer[tid] = val = op(val, buffer[tid +   2]); }
+-					if (CTA_SIZE >=    2) { buffer[tid] = val = op(val, buffer[tid +   1]); }
++					if (CTA_SIZE >=   64) { val = op(val, buffer[tid +  32]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=   32) { val = op(val, buffer[tid +  16]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=   16) { val = op(val, buffer[tid +   8]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    8) { val = op(val, buffer[tid +   4]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    4) { val = op(val, buffer[tid +   2]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
++					if (CTA_SIZE >=    2) { val = op(val, buffer[tid +   1]); __syncwarp(); buffer[tid] = val; __syncwarp(); }
+ 				}
+ 				__syncthreads();				
+ 				return buffer[0];
+diff --git a/gpu/utils/include/pcl/gpu/utils/device/warp.hpp b/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
+index 0de4230..a5dca1e 100644
+--- a/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
++++ b/gpu/utils/include/pcl/gpu/utils/device/warp.hpp
+@@ -149,11 +149,11 @@ namespace pcl
+ 
+                 if (lane < 16) 
+                 {
+-                    buffer[lane] = val = op(val, buffer[lane + 16]);
+-                    buffer[lane] = val = op(val, buffer[lane +  8]);
+-                    buffer[lane] = val = op(val, buffer[lane +  4]);
+-                    buffer[lane] = val = op(val, buffer[lane +  2]);
+-                    buffer[lane] = val = op(val, buffer[lane +  1]);
++                    val = op(val, buffer[lane + 16]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  8]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  4]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  2]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  1]); __syncwarp(); buffer[lane] = val; __syncwarp();
+                 }
+             }
+ 
+@@ -165,11 +165,11 @@ namespace pcl
+                 
+                 if (lane < 16) 
+                 {
+-                    buffer[lane] = val = op(val, buffer[lane + 16]);
+-                    buffer[lane] = val = op(val, buffer[lane +  8]);
+-                    buffer[lane] = val = op(val, buffer[lane +  4]);
+-                    buffer[lane] = val = op(val, buffer[lane +  2]);
+-                    buffer[lane] = val = op(val, buffer[lane +  1]);
++                    val = op(val, buffer[lane + 16]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  8]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  4]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  2]); __syncwarp(); buffer[lane] = val; __syncwarp();
++                    val = op(val, buffer[lane +  1]); __syncwarp(); buffer[lane] = val; __syncwarp();
+                 }
+                 return buffer[0];
+             }       
