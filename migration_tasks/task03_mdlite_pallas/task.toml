@@ -4,7 +4,7 @@ artifacts = ["/logs/artifacts/model.patch"]
 [task]
 name = "rlsandbox/task03-mdlite-pallas"
 description = "Port mdlite, a CUDA C++ molecular dynamics engine (PME, LJ shift/switch, bonded terms, SHAKE/RATTLE, VV/BAOAB, CSVR, Berendsen/C-rescale, Philox RNG, fixed-point deterministic accumulation, bitwise restarts), to JAX + Pallas across a 3-repo workspace: same API, CLI and file formats, matching forces/energies/trajectories, bitwise determinism and restarts, pristine consumers, and per-case speed bars well below the CUDA engine."
-authors = ["ahmd-mohsin"]
+authors = [{ name = "ahmd-mohsin" }]
 keywords = ["cuda", "jax", "pallas", "molecular-dynamics", "kernel-migration", "performance", "gpu"]
 
 [metadata]

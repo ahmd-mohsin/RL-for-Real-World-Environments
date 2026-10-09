@@ -1,0 +1,125 @@
+"""Configuration (``crucible.toml``) with secret references.
+
+Discovery order: ``$CRUCIBLE_CONFIG``; ``./crucible.toml``; the nearest ``crucible.toml`` walking up
+from the working directory; ``~/.config/crucible/crucible.toml``; built-in defaults.
+
+Secrets never live in the file (agentenv rule): a value ``"env:NAME"`` is read from the process
+environment, falling back to the nearest ``.env`` file. Resolved secrets are never logged or
+serialized; ``Config.redacted()`` shows the references instead.
+"""
+
+from __future__ import annotations
+
+import os
+import tomllib
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from pydantic import Field
+
+from crucible.core.schema.base import CrucibleModel
+
+
+class LLMProvider(CrucibleModel):
+    base_url: str
+    api_key: str = ""  # "env:NAME"
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class GpuHost(CrucibleModel):
+    ssh: str  # user@host
+    docker_host: str | None = None  # e.g. ssh://user@host ; default derived from ssh
+    gpu_arch: str | None = None
+    shared: bool = True  # shared machine: run politely (containers only, clean up, check load)
+
+
+class Config(CrucibleModel):
+    data_dir: str = "data"
+    llm_providers: dict[str, LLMProvider] = Field(
+        default_factory=lambda: {
+            "openrouter": LLMProvider(base_url="https://openrouter.ai/api/v1", api_key="env:OPENROUTER_API_KEY"),
+        }
+    )
+    # Model aliases: name -> "<provider>:<model id>"
+    models: dict[str, str] = Field(
+        default_factory=lambda: {
+            "sim-default": "openrouter:openai/gpt-5.4-mini",
+            "judge-default": "openrouter:openai/gpt-5.4-mini",
+            "policy-default": "openrouter:openai/gpt-5.4-mini",
+        }
+    )
+    gpu_hosts: dict[str, GpuHost] = Field(default_factory=dict)
+    backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    root: str | None = None  # directory the config was loaded from (set by loader)
+
+    def data_path(self) -> Path:
+        p = Path(self.data_dir)
+        if not p.is_absolute() and self.root:
+            p = Path(self.root) / p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def model(self, alias_or_id: str) -> tuple[LLMProvider, str]:
+        """Resolve a model alias (or ``provider:model``) to (provider, model id)."""
+        spec = self.models.get(alias_or_id, alias_or_id)
+        provider_name, sep, model_id = spec.partition(":")
+        if not sep or provider_name not in self.llm_providers:
+            raise KeyError(f"model {alias_or_id!r} must be an alias or '<provider>:<model>' with a known provider")
+        return self.llm_providers[provider_name], model_id
+
+    def redacted(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+def resolve_secret(value: str, *, search_from: Path | None = None) -> str:
+    if not value.startswith("env:"):
+        return value
+    name = value[4:]
+    if name in os.environ and os.environ[name]:
+        return os.environ[name]
+    env = _dotenv(search_from or Path.cwd())
+    if name in env and env[name]:
+        return env[name]
+    raise KeyError(f"secret {name} is not set (environment or .env)")
+
+
+def _dotenv(start: Path) -> dict[str, str]:
+    for d in [start, *start.resolve().parents]:
+        f = d / ".env"
+        if f.is_file():
+            out: dict[str, str] = {}
+            for line in f.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.removeprefix("export ").strip()
+                v = v.strip().strip('"').strip("'")
+                out[k] = v
+            return out
+    return {}
+
+
+def _discover() -> Path | None:
+    if os.environ.get("CRUCIBLE_CONFIG"):
+        return Path(os.environ["CRUCIBLE_CONFIG"])
+    for d in [Path.cwd(), *Path.cwd().resolve().parents]:
+        if (d / "crucible.toml").is_file():
+            return d / "crucible.toml"
+    home = Path.home() / ".config" / "crucible" / "crucible.toml"
+    return home if home.is_file() else None
+
+
+@lru_cache(maxsize=1)
+def get_config() -> Config:
+    path = _discover()
+    if path is None:
+        return Config(root=str(Path.cwd()))
+    data = tomllib.loads(path.read_text())
+    data["root"] = str(path.parent.resolve())
+    return Config.model_validate(data)
+
+
+def reset_config() -> None:
+    get_config.cache_clear()

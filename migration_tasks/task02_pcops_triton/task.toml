@@ -4,7 +4,7 @@ artifacts = ["/logs/artifacts/model.patch"]
 [task]
 name = "rlsandbox/task02-pcops-triton"
 description = "Port the pcops PyTorch CUDA extension (15 point-cloud / sparse-reduction operators vendored from pytorch_cluster, pytorch_scatter and PointNet++) to Triton across a 3-repo workspace: identical integer outputs and tie-breaking, opcheck-clean registrations, deterministic, stream/thread safe, pristine downstream app reproduces CUDA logits and training, and per-op speed bars that require beating the CUDA kernels where they are weak."
-authors = ["ahmd-mohsin"]
+authors = [{ name = "ahmd-mohsin" }]
 keywords = ["cuda", "openmp", "offload", "kernel-migration", "performance", "gpu"]
 
 [metadata]

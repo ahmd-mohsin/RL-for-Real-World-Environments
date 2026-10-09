@@ -4,7 +4,7 @@ artifacts = ["/logs/artifacts/model.patch"]
 [task]
 name = "rlsandbox/task04-pcl-gpu-cuda12"
 description = "Bring PCL's legacy GPU KinectFusion, KinectFusion large-scale and people-detection modules (texture references, implicit warp-synchronous code, process-global device state, vendored NVIDIA NCV/NPP-staging) to CUDA 12.8 on an RTX 5090: same results as the pre-CUDA-12 original (exact labels, bit-identical NCV primitives, equal tracking and reconstruction), clean racecheck/synccheck/memcheck, thread-safe instances, and no slower than the original."
-authors = ["ahmd-mohsin"]
+authors = [{ name = "ahmd-mohsin" }]
 keywords = ["cuda", "cuda-12", "legacy-migration", "texture-objects", "independent-thread-scheduling", "pcl", "kinectfusion", "gpu"]
 
 [metadata]

@@ -4,7 +4,7 @@ artifacts = ["/logs/artifacts/model.patch"]
 [task]
 name = "rlsandbox/task01v2-tessera-omp"
 description = "Port the Tessera hybrid splat + mesh renderer (~12k lines, 16 modules) from CUDA to OpenMP target offload: identical frames to the CUDA build, portable to the host device, concurrent multi-view rendering, and within 1.25-1.5x of the CUDA build (CUB sorts) per frame and per stage at 1080p."
-authors = ["ahmd-mohsin"]
+authors = [{ name = "ahmd-mohsin" }]
 keywords = ["cuda", "openmp", "offload", "kernel-migration", "performance", "gpu"]
 
 [metadata]
