@@ -10,7 +10,9 @@ The first vertical is **coding**, and the first workflow family is **legacy code
 
 This document is the contract for what we build. Where it borrows from existing frameworks, it names the file it borrows from (Appendix A). Where it encodes a lesson we learned the hard way, it names the incident (Appendix B).
 
-Status: design only. No code exists yet. Section 13 lists the open decisions.
+Status: design only. No code exists yet. Section 13 lists the open decisions. `ARCHITECTURE.md` turns this design into a project structure and a module-by-module build plan, including what we take from each existing framework.
+
+**Scope rule.** The framework is open-ended: any workflow, in any domain, at any size, from one tool and one actor up to a multi-app, multi-actor world with its own clock (§4.4, P19). Coding is the first *domain pack*, not an assumption of the core. Tasks 01–04 are the MVP showcase.
 
 ---
 
@@ -45,16 +47,17 @@ This section restates `../Documentation/Enterprise-Native RL Environments Thesis
 ## 2. Goals, non-goals, success criteria
 
 ### 2.1 Goals (MVP)
+- **G0** A **domain-agnostic core**. Worlds, state, actors, signals, milestones, credit and acceptance are defined without reference to coding. Domain knowledge lives only in domain packs (§4.4). A non-coding toy pack has to pass through every module in CI.
 - **G1** Ingest coding workflow traces with expert signals into a typed trace store.
 - **G2** Build a Workflow Graph for one task family (legacy GPU migration): stages, milestones, and the dependencies between them.
 - **G3** Turn expert signals into dense rewards that are **outcome-anchored** and **cannot be farmed**.
-- **G4** Synthesize 20–50 tasks at horizons H1–H4 for that family. Every task must pass the Acceptance Contract (§9), and frontier models must fail at a rate inside a target band.
+- **G4** Push tasks 01–04 through the whole pipeline as the MVP showcase, together with the sub-span tasks (H1–H3) the forge derives from them. Every task must pass the Acceptance Contract (§9), and frontier models must fail at a rate inside a target band. Scaling to 20–50 forged tasks is the first milestone after the MVP.
 - **G5** Run an RL experiment on an open model: sparse reward vs dense reward, with equal compute.
 - **G6** Ship an OOD benchmark with step-level metrics, plus a version that is regenerated dynamically.
 
 ### 2.2 Non-goals (MVP)
 - A new RL algorithm. We use vanilla GRPO (thesis principle "boring optimizer"); all novelty goes into data, environments and credit.
-- Horizontal and non-coding connectors. These are designed for (§12.3) but not built.
+- Production connectors for horizontal or non-coding systems (ERP, mail, ticketing). They are designed for (§12.3), and the core is held to them by the toy pack (G0), but none is built for production.
 - A hosted SaaS. Everything runs locally or in the customer's cloud account; nothing leaves the building.
 
 ### 2.3 Success criteria
@@ -77,7 +80,7 @@ These are the MVP gates. Each one is a measurement, not a judgement.
 
 The thesis's ten principles hold: the LLM proposes and records decide; rubric items must predict outcomes; experts audit rather than author; hindsight tasks first; generate at the frontier; grade with an agent; every defect becomes a check; train where the agent will live; boring optimizer; nothing leaves the building.
 
-Eight more come from building tasks 01–04 and surveying nine frameworks:
+Nine more come from building tasks 01–04 and surveying nine frameworks:
 
 - **P11 — Solution-first construction.** A task is built backwards from a known-good end state (the expert's) and known failure modes (the expert's corrections). The builder never needs to solve the task. It needs to *verify* the task, and it holds the evidence to do so.
 - **P12 — Credit goes to states, not to actions.** A milestone is a predicate over the environment's state (the repo, the build, test results), not over the agent's action sequence. Agents take different paths; matching actions against the expert's (as NeMo-Gym's `swe_pivot` does) punishes valid alternatives. Action matching is allowed only as a weak, weight-0 diagnostic.
@@ -90,6 +93,10 @@ Eight more come from building tasks 01–04 and surveying nine frameworks:
 - **P16 — Classify infrastructure failures separately from policy failures.** Harness crashes, empty patch collection, blank usage responses, GPU contention and stale images are *infra* failures. They are masked from training (verl's −999, NeMo-Gym's `mask_sample`/`failure_kind`), never scored 0 (Appendix B.5).
 - **P17 — Isolation is layered and tested.** The agent image contains no tests, solution, references, or git history leading to them. Candidate code runs unprivileged. References are root-only. Grading happens in a separate verifier image. Outputs are sealed after each step. Every layer has an automated audit (§8.3).
 - **P18 — Interoperate, don't fork.** The canonical task format is a Harbor task directory with a superset extension. Thin adapters export it to every major runtime and trainer, so a customer can train in their own harness (thesis principle "train where the agent will live").
+- **P19 — One core, many worlds.** Every environment is a *World* built from Apps (state plus a tool surface), Actors (the policy, simulated people, peer agents, systems), an optional virtual Clock, and Events. Every check is a predicate over state read through a *State Adapter*.
+  - **Scaling down:** a single repo with one shell tool and one actor is the smallest World.
+  - **Scaling up:** a finance org with eight apps, four simulated departments and a clock is the same abstraction.
+  - **Domain packs:** everything domain-specific (connectors, signal mappings, app templates, milestone and verifier libraries, generators, horizon ladders) lives in a pack. The core never imports a pack.
 
 ---
 
@@ -112,6 +119,11 @@ Eight more come from building tasks 01–04 and surveying nine frameworks:
 | **Oracle** | Known-good solution; for grounded tasks usually derived from the expert's end state. |
 | **Negative** | A known-bad solution (mutant) that must score 0 on a specified gate. |
 | **Task card** | Provenance + value proof attached to every task (§4.3.4). |
+| **World** | The environment a task runs in: a set of Apps, Actors, an optional Clock and Event schedule, and the written policies in force (§4.4). |
+| **App** | One system in a World: a state store, the tool surface the policy can call (MCP, shell, HTTP, browser), and optionally a UI. Examples: a git repo with a GPU toolchain; an ERP database. |
+| **State Adapter** | The typed way the *verifier* reads, snapshots, restores and diffs one App's state (filesystem+git, SQL, document store, HTTP mock, browser DOM, process/GPU). The policy never uses it. |
+| **Actor** | Anyone or anything that acts in a World: the policy under training, simulated humans (users, reviewers, approvers, other departments), peer agents, and system actors (CI, cron, mail delivery). |
+| **Domain pack** | A plugin that holds everything domain-specific: connectors, signal mapping, App templates, milestone and verifier libraries, generators, horizon ladder. `coding` is the first pack. |
 
 ### 4.2 Trace schema (`crucible.trace/v1`)
 Agent trajectories reuse **ATIF** (Harbor `src/harbor/models/trajectories/`, v1.8; NeMo-Gym exports v1.7) so existing harness converters work. Crucible wraps ATIF in a workflow-level envelope that also holds non-agent events (commits, reviews, CI) and signals.
@@ -217,6 +229,45 @@ value_proof:
   leak_audit: pass
 splits: {train: false, bench: true, ood_axes: [repo, api_family]}
 ```
+
+### 4.4 World spec (`crucible.world/v1`): open-ended environments
+
+A task names a World. The same schema describes the smallest coding task and a multi-department workflow; only the parts listed change.
+
+```yaml
+# smallest: task 04 (one repo, one actor, no clock)
+world: coding/pcl-gpu-cuda12
+apps:
+  - {id: repo, template: coding/git_repo, state: {adapter: fs_git, root: /workspace/pcl}}
+  - {id: gpu, template: coding/gpu_toolchain, state: {adapter: process}, resources: {gpus: 1, arch: sm_120}}
+actors:
+  - {id: agent, kind: policy, tools: [repo.shell, repo.edit]}
+```
+
+```yaml
+# larger: an accounts-payable exception (four apps, four actors, a clock and events)
+world: finance_ap/invoice-exception
+apps:
+  - {id: erp,    template: finance_ap/erp,          state: {adapter: sql, engine: postgres}}
+  - {id: mail,   template: common/mailbox,          state: {adapter: sql, engine: sqlite}}
+  - {id: portal, template: finance_ap/vendor_portal, state: {adapter: browser}}
+  - {id: policy, template: common/doc_library,      state: {adapter: fs}}
+actors:
+  - {id: clerk,       kind: policy, tools: [erp.*, mail.*, portal.*, policy.read]}
+  - {id: procurement, kind: simulated, grounded_on: traces/procurement_replies, tools: [erp.po.*]}
+  - {id: vendor,      kind: simulated, grounded_on: traces/vendor_threads}
+  - {id: approver,    kind: simulated, policy_doc: policy/approval_matrix.md}
+clock: {t0: "2026-03-02T09:00:00Z", rate: 3600}       # 1 real second = 1 virtual hour
+events:
+  - {when: {after: "2d"}, actor: vendor, action: {type: nl, text: "credit note issued"}}
+```
+
+**Rules.**
+- Milestones and checks reference state only through State Adapters: `{adapter: sql, app: erp, query: ..., expect: ...}` or `{adapter: fs_git, app: repo, check: build}`. This is what makes credit assignment (§6) domain-agnostic.
+- Simulated Actors must be **grounded**: they answer only from recorded history or written policy, and say "no record" otherwise (§5.1, grounded responders).
+- Worlds snapshot and restore as a unit. That is what makes branch-rollout values (C3), replay (§5.3) and sub-span tasks (§7.3) possible in any domain.
+
+`ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
 
 ---
 
@@ -582,6 +633,17 @@ Seed assets:
 - Their graders, oracles and negatives.
 - Their MIGRATION_LOGs, which record expert-style corrections.
 
+**MVP showcase.** Tasks 01–04 are pushed through every module, end to end:
+1. Their construction transcripts are ingested as traces.
+2. Signals are extracted and milestones mined.
+3. Graders are re-expressed in the verifier kit and emit `steps.jsonl`.
+4. The forge derives H1–H3 sub-span tasks from each H4 task.
+5. Every task passes `crucible accept`.
+6. Tasks are exported to Harbor, verifiers and verl.
+7. A small sparse-vs-dense GRPO run and a step-level benchmark report close the loop.
+
+Scaling to 20–50 forged tasks, and to new repos, follows the MVP.
+
 ### 12.2 Data, before we have a design partner
 
 | Source | Role |
@@ -606,7 +668,7 @@ The same layers apply to horizontal workflows:
 | P0 Foundations | 1–2 | schemas (`trace`, `task` superset, `milestones`, `card`); `crucible accept` automating A1–A12; defect registry seeded with Appendix B; import tasks 01–04 | the 4 tasks pass `crucible accept` automatically, and the registry reproduces at least 3 historical incidents as caught failures |
 | P1 Capture & model | 2–4 | `github`, `ci`, `vcs_history` and `agent_sessions` connectors; trace store; replay test; milestone mining + stage induction for F1; state tracker | S1 ≥ 90% replay on ≥ 30 traces; tracker's stage agrees with a manual stage label at Cohen's κ ≥ 0.7 |
 | P2 Credit | 4–7 | C1, C2, C4 + validity gate; C3 offline; reward properties R1–R6 as tests; `steps.jsonl` emitted by graders; verl and verifiers advantage hooks | S2 (AUC ≥ 0.75 and > judge); R1–R6 pass on all tasks |
-| P3 Forge | 5–9 | swarm roles; generators (hindsight, span, trap, transplant, compose, tighten); calibrator; curator | 20–50 F1 tasks over H1–H4 with 100% A1–A12; frontier pass@1 ≤ 20% on the bench split |
+| P3 Forge | 5–9 | swarm roles; generators (hindsight, span, trap, transplant, compose, tighten); calibrator; curator | MVP: tasks 01–04 plus their derived H1–H3 span tasks, all passing A1–A12. After MVP: 20–50 F1 tasks over H1–H4 with 100% A1–A12, frontier pass@1 ≤ 20% on the bench split |
 | P4 Train & bench | 8–12 | GRPO runs on an open coder model: sparse vs dense, equal compute; OOD benchmark v1 (anchors + fresh); report | S5, S6 and S7 |
 
 Compute estimate: the fast-tier grade is GPU-minutes per rollout, so GRPO with n = 8 on about 50 tasks per step is the dominant cost. We size this after P2 measures the fast-tier grade time.
@@ -635,28 +697,9 @@ Compute estimate: the fast-tier grade is GPU-minutes per rollout, so GRPO with n
 
 ---
 
-## 14. Repository layout (planned)
+## 14. Repository layout
 
-```
-crucible/
-  DESIGN.md                      # this document
-  pyproject.toml
-  crucible/
-    schema/        trace.py task.py milestones.py card.py reward.py   # pydantic; JSON-schema export
-    connectors/    base.py github.py ci.py vcs_history.py agent_sessions.py capture_proxy.py policy_docs.py
-    workflow/      segment.py replay.py mine_milestones.py stages.py tracker.py
-    credit/        potential.py defect_to_check.py branch_value.py validity.py prm.py compose.py tests/
-    forge/         orchestrator.py roles/{miner,architect,env_builder,oracle,test_writer,adversary,auditor,calibrator,curator}.py
-                   generators/{hindsight,span,trap,transplant,compose,tighten}.py
-    verify/        patterns/{differential,hidden_tests,sanitizers,concurrency,fresh,perf,static}.py isolation.py calibrate.py
-    accept/        contract.py registry.py checks/A01..A12.py
-    runtime/       agentenv/{gpu_provider.py,separate_verifier_step.py} adapters/{harbor,verifiers,nemo_gym,openenv}.py
-    train/         rollout_bridge.py advantages/{verl_hook.py,verifiers_hook.py} sft_export.py curriculum.py
-    bench/         splits.py metrics.py dynamic.py irt.py report.py
-    cli.py         # crucible ingest | model | credit | forge | accept | export | bench
-  families/
-    legacy_gpu_migration/        # workflow graph, milestone library, verifier patterns, seed tasks 01–04
-```
+Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
 
 ---
 
