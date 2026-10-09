@@ -1,0 +1,142 @@
+{
+ "task01_prims_omp": {
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "image": "ahmedmohsin/task01-prims-omp:v1",
+  "main_repo": {
+   "bytes": 390317,
+   "files": 27,
+   "tar_bytes": 78701
+  },
+  "oracle_diff_files": 47,
+  "restores": [
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.3
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.4
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.4
+   }
+  ],
+  "seed": "task01_prims_omp",
+  "snapshot_s": 2.5,
+  "start_s": 16.0,
+  "total_s": 58.7
+ },
+ "task01v2_tessera_omp": {
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "image": "ahmedmohsin/task01v2-tessera-omp:v1",
+  "main_repo": {
+   "bytes": 710986,
+   "files": 82,
+   "tar_bytes": 160479
+  },
+  "oracle_diff_files": 108,
+  "restores": [
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.3
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.3
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.2
+   }
+  ],
+  "seed": "task01v2_tessera_omp",
+  "snapshot_s": 2.5,
+  "start_s": 7.4,
+  "total_s": 49.9
+ },
+ "task02_pcops_triton": {
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "image": "task02-pcops-triton:v1",
+  "main_repo": {
+   "bytes": 62946,
+   "files": 9,
+   "tar_bytes": 15404
+  },
+  "oracle_diff_files": 29,
+  "restores": [
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.5
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.5
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.5
+   }
+  ],
+  "seed": "task02_pcops_triton",
+  "snapshot_s": 2.6,
+  "start_s": 6.9,
+  "total_s": 53.7
+ },
+ "task03_mdlite_pallas": {
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "image": "task03-mdlite-pallas:v1",
+  "main_repo": {
+   "bytes": 117142,
+   "files": 19,
+   "tar_bytes": 32493
+  },
+  "oracle_diff_files": 31,
+  "restores": [
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.4
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.5
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 5.6
+   }
+  ],
+  "seed": "task03_mdlite_pallas",
+  "snapshot_s": 2.6,
+  "start_s": 6.5,
+  "total_s": 53.0
+ },
+ "task04_pcl_gpu_cuda12": {
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "image": "task04-pcl-gpu-cuda12:v1",
+  "main_repo": {
+   "bytes": 138351316,
+   "files": 3468,
+   "tar_bytes": 68588624
+  },
+  "oracle_diff_files": 56,
+  "restores": [
+   {
+    "fingerprint_equal": true,
+    "restore_s": 16.0
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 15.6
+   },
+   {
+    "fingerprint_equal": true,
+    "restore_s": 15.3
+   }
+  ],
+  "seed": "task04_pcl_gpu_cuda12",
+  "snapshot_s": 9.0,
+  "start_s": 13.1,
+  "total_s": 127.6
+ }
+}

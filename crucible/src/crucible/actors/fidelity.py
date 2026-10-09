@@ -1,0 +1,102 @@
+"""Fidelity measurement for simulated actors (ARCHITECTURE M2 exit gate).
+
+- ``grounding_audit``: re-checks every delivered reply of grounded actors against the records (deterministic),
+  optionally asking an LLM judge (different family) whether each factual sentence is *entailed* by its
+  cited records. Reports the fabrication rate = unsupported factual sentences / factual sentences.
+- ``consistency_summary``: per-reply consistency verdicts collected by scenario actors' judges.
+- ``location_metrics``: precision / recall of predicted (file, line) findings against recorded ones,
+  with a line tolerance — the reviewer-simulator fidelity measure.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from crucible.actors.grounding import CITE, NO_RECORD, check, split_sentences
+from crucible.actors.llm import LLMClient
+from crucible.actors.records import RecordStore
+
+ENTAIL = """Records:
+{records}
+
+Statement: {statement}
+
+Is every factual claim in the statement directly supported by the records above (no added facts, numbers or decisions)?
+Return JSON {{"entailed": true|false, "reason": "..."}}."""
+
+
+@dataclass
+class GroundingAudit:
+    replies: int = 0
+    no_record: int = 0
+    factual_sentences: int = 0
+    unsupported_sentences: int = 0
+    judged: int = 0
+    judge_rejected: int = 0
+    examples: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def fabrication_rate(self) -> float:
+        denom = self.factual_sentences
+        return (self.unsupported_sentences + self.judge_rejected) / denom if denom else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**{k: v for k, v in self.__dict__.items() if k != "examples"}, "fabrication_rate": round(self.fabrication_rate, 4), "examples": self.examples[:20]}
+
+
+async def grounding_audit(replies: list[tuple[str, list[str], str | None]], store: RecordStore, *, judge: LLMClient | None = None,
+                          judge_every: int = 1) -> GroundingAudit:
+    """``replies``: (delivered text, citations, virtual time). Text has citation markers stripped, so
+    each sentence is re-attached to the reply's citations before checking."""
+    a = GroundingAudit()
+    for i, (text, cites, now) in enumerate(replies):
+        a.replies += 1
+        if text.strip() == NO_RECORD:
+            a.no_record += 1
+            continue
+        marked = " ".join(f"{s} " + " ".join(f"[R:{c}]" for c in cites) for s in split_sentences(text))
+        rep = check(marked, store, now=now)
+        a.factual_sentences += len(rep.factual)
+        a.unsupported_sentences += len(rep.unsupported)
+        for s in rep.unsupported:
+            a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": s.reason})
+        if judge is not None and i % judge_every == 0:
+            recs = "\n".join(f"- {store.get(c).text}" for c in cites if store.get(c) is not None)
+            for s in rep.factual:
+                if not s.supported:
+                    continue
+                v = await judge.complete_json([{"role": "user", "content": ENTAIL.format(records=recs, statement=CITE.sub("", s.text).strip())}], max_tokens=150)
+                a.judged += 1
+                if not v.get("entailed", False):
+                    a.judge_rejected += 1
+                    a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": "judge: " + str(v.get("reason", ""))[:200]})
+    return a
+
+
+def consistency_summary(audit: list[dict[str, Any]]) -> dict[str, Any]:
+    n = len(audit)
+    bad = sum(1 for x in audit if not x.get("consistent", True))
+    return {"judged_replies": n, "inconsistent": bad, "inconsistency_rate": round(bad / n, 4) if n else 0.0}
+
+
+@dataclass(frozen=True)
+class Finding:
+    path: str
+    line: int
+    key: str = ""  # optional identity (e.g. recorded comment id)
+
+
+def location_metrics(pred: list[Finding], gold: list[Finding], *, tolerance: int = 3) -> dict[str, float]:
+    matched_gold: set[int] = set()
+    tp = 0
+    for p in pred:
+        for gi, g in enumerate(gold):
+            if gi in matched_gold or g.path != p.path or abs(g.line - p.line) > tolerance:
+                continue
+            matched_gold.add(gi)
+            tp += 1
+            break
+    precision = tp / len(pred) if pred else 1.0
+    recall = tp / len(gold) if gold else 1.0
+    return {"tp": tp, "pred": len(pred), "gold": len(gold), "precision": round(precision, 4), "recall": round(recall, 4)}

@@ -37,6 +37,7 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:node_contention",  # perf grading contaminated by foreign load
         "crucible:snapshot_mismatch",  # restore did not reproduce the snapshot fingerprint
         "crucible:backend_error",  # world backend failed to provision / exec
+        "crucible:sim_failure",  # a simulated actor broke character / stayed inconsistent (NeMo-Gym masks user_failure)
     }
 )
 

@@ -9,6 +9,13 @@ conflicts = [[
     { package = "crucible", extra = "mcp" },
 ]]
 
+[manifest]
+members = [
+    "crucible",
+    "crucible-pack-coding",
+    "crucible-pack-toy",
+]
+
 [[package]]
 name = "a2a-sdk"
 version = "0.3.26"
@@ -505,6 +512,12 @@ verifiers = [
     { name = "verifiers" },
 ]
 
+[package.dev-dependencies]
+packs = [
+    { name = "crucible-pack-coding" },
+    { name = "crucible-pack-toy" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "agentenv-framework", marker = "extra == 'agentenv'", editable = "../agentenv-framework" },
@@ -529,6 +542,22 @@ requires-dist = [
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },
 ]
 provides-extras = ["mcp", "harbor", "agentenv", "llm", "verifiers", "dev"]
+
+[package.metadata.requires-dev]
+packs = [
+    { name = "crucible-pack-coding", editable = "packs/coding" },
+    { name = "crucible-pack-toy", editable = "packs/_toy" },
+]
+
+[[package]]
+name = "crucible-pack-coding"
+version = "0.1.0"
+source = { editable = "packs/coding" }
+
+[[package]]
+name = "crucible-pack-toy"
+version = "0.1.0"
+source = { editable = "packs/_toy" }
 
 [[package]]
 name = "cryptography"

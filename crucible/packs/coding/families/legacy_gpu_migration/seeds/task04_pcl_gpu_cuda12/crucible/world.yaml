@@ -1,0 +1,88 @@
+schema_version: crucible.world/v1
+world: coding/legacy_gpu_migration/task04_pcl_gpu_cuda12
+description: 'PCL GPU modules: legacy CUDA -> CUDA 12.8 (speed + concurrency bars)'
+backend: harbor
+backend_params:
+  task_dir: ../../../../../../../migration_tasks/task04_pcl_gpu_cuda12
+  docker_image: task04-pcl-gpu-cuda12:v1
+  gpu_host: lab5090
+apps:
+- id: pcl
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/pcl
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: true
+  resources:
+    gpus: 0
+  description: the repository to migrate
+- id: kinfu_replay
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/kinfu_replay
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: people_eval
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/people_eval
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: gpu
+  template: coding/gpu_toolchain
+  state:
+    adapter: process
+    params:
+      cwd: /workspace/pcl
+  params: {}
+  resources:
+    cpus: 16.0
+    memory_mb: 65536
+    gpus: 1
+    gpu_arch: sm_120
+actors:
+- id: agent
+  kind: policy
+  tools:
+  - pcl.*
+  - kinfu_replay.*
+  - people_eval.*
+  grounded_on: []
+  params: {}
+events: []
+policies: []
+network: no-network
+seed: 0

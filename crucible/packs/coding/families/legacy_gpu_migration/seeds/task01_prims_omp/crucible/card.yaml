@@ -1,0 +1,29 @@
+schema_version: crucible.card/v1
+id: coding/legacy_gpu_migration/task01_prims_omp@v1
+family: legacy_gpu_migration
+horizon: H3
+title: 'tsr-prims: CUDA -> OpenMP target offload'
+grounding:
+  traces:
+  - task01_prims_omp/MIGRATION_LOG.md
+  oracle_source: builder_oracle
+value_proof:
+  frontier:
+  - model: fable-5.1
+    harness: mini-swe-agent 2.4.6
+    task_version: v1
+    score: 1.0
+    passed: true
+    failing_gates: []
+    steps: 200
+    cost_usd: 50.46
+    run_ref: runs/fable-5.1-run1
+    note: solved on first attempt -> superseded by task01v2
+  leak_audit: not_run
+splits:
+  train: false
+  bench: false
+  ood_axes: []
+  showcase: true
+history:
+- note: imported as an MVP showcase seed (DESIGN §12.1); never a published OOD split

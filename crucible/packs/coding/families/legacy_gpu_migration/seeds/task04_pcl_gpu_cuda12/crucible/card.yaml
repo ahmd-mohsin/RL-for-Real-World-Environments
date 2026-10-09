@@ -1,0 +1,60 @@
+schema_version: crucible.card/v1
+id: coding/legacy_gpu_migration/task04_pcl_gpu_cuda12@v3
+family: legacy_gpu_migration
+horizon: H4
+title: 'PCL GPU modules: legacy CUDA -> CUDA 12.8 (speed + concurrency bars)'
+grounding:
+  traces:
+  - task04_pcl_gpu_cuda12/MIGRATION_LOG.md
+  oracle_source: builder_oracle
+value_proof:
+  frontier:
+  - model: gpt-6-astra
+    harness: mini-swe-agent 2.4.6
+    task_version: v1
+    score: 1.0
+    passed: true
+    failing_gates: []
+    steps: 71
+    cost_usd: 11.08
+    run_ref: runs/gpt-6-astra-run1
+  - model: gpt-5.6-sol
+    harness: mini-swe-agent 2.4.6
+    task_version: v1
+    score: 1.0
+    passed: true
+    failing_gates: []
+    steps: 128
+    cost_usd: 3.63
+    run_ref: runs/gpt-5.6-sol-run1
+  - model: gpt-6-astra
+    harness: mini-swe-agent 2.4.6
+    task_version: v3
+    score: 0.0
+    passed: false
+    failing_gates:
+    - perf/kinfu_frame
+    - perf/kinfuls_frame
+    - perf/concurrent_trackers
+    steps: 134
+    cost_usd: 39.75
+    run_ref: runs/gpt-6-astra-v3-run2
+  - model: gpt-5.6-sol
+    harness: mini-swe-agent 2.4.6
+    task_version: v3
+    score: 0.0
+    passed: false
+    failing_gates:
+    - correctness/ncv
+    - fresh
+    steps: 99
+    cost_usd: 3.08
+    run_ref: runs/gpt-5.6-sol-v3-run1
+  leak_audit: not_run
+splits:
+  train: false
+  bench: false
+  ood_axes: []
+  showcase: true
+history:
+- note: imported as an MVP showcase seed (DESIGN §12.1); never a published OOD split

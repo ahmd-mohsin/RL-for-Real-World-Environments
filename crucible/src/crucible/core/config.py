@@ -44,12 +44,14 @@ class Config(CrucibleModel):
     # Model aliases: name -> "<provider>:<model id>"
     models: dict[str, str] = Field(
         default_factory=lambda: {
-            "sim-default": "openrouter:openai/gpt-5.4-mini",
-            "judge-default": "openrouter:openai/gpt-5.4-mini",
-            "policy-default": "openrouter:openai/gpt-5.4-mini",
+            "sim-default": "openrouter:openai/gpt-6-luna",
+            "judge-default": "openrouter:anthropic/claude-haiku-5.5",
+            "policy-default": "openrouter:openai/gpt-6-luna",
         }
     )
     gpu_hosts: dict[str, GpuHost] = Field(default_factory=dict)
+    prices: dict[str, list[float]] = Field(default_factory=dict)  # model id -> [usd per 1M input, usd per 1M output]
+    llm_budget_usd: float = 1.0  # default hard cap per LLMClient instance
     backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
     root: str | None = None  # directory the config was loaded from (set by loader)
 

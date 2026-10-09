@@ -51,7 +51,15 @@ conflicts = [
   [{ extra = "verifiers" }, { extra = "mcp" }],
 ]
 
+[tool.uv.workspace]
+members = ["packs/coding", "packs/_toy"]
+
+[dependency-groups]
+packs = ["crucible-pack-coding", "crucible-pack-toy"]
+
 [tool.uv.sources]
+crucible-pack-coding = { workspace = true }
+crucible-pack-toy = { workspace = true }
 harbor = { path = "../RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor", editable = true }
 agentenv-framework = { path = "../agentenv-framework", editable = true }
 agentenv-framework-protocol = { path = "../agentenv-framework/packages/agentenv-protocol", editable = true }

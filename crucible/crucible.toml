@@ -1,0 +1,23 @@
+# Crucible configuration for this repository. Secrets are references only (env:NAME, read from .env).
+data_dir = "data"
+
+[llm_providers.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+api_key = "env:OPENROUTER_API_KEY"
+
+[models]
+sim-default = "openrouter:openai/gpt-6-luna"
+judge-default = "openrouter:anthropic/claude-haiku-5.5"   # different family than the simulator
+policy-default = "openrouter:openai/gpt-6-luna"
+
+# The lab RTX 5090 (shared machine: containers only, clean up, keep GPU work polite).
+[gpu_hosts.lab5090]
+ssh = "ahmed@100.100.101.36"
+docker_host = "ssh://ahmed@100.100.101.36"
+gpu_arch = "sm_120"
+shared = true
+
+# USD per 1M tokens (input, output) for budget accounting when the provider omits cost.
+[prices]
+"openai/gpt-6-luna" = [0.10, 0.50]
+"anthropic/claude-haiku-5.5" = [0.10, 0.50]

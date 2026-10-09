@@ -1,0 +1,28 @@
+schema_version: crucible.card/v1
+id: coding/legacy_gpu_migration/task01v2_tessera_omp@v2
+family: legacy_gpu_migration
+horizon: H4
+title: 'Tessera renderer: CUDA -> OpenMP target offload'
+grounding:
+  traces:
+  - task01v2_tessera_omp/MIGRATION_LOG.md
+  oracle_source: builder_oracle
+value_proof:
+  frontier:
+  - model: gpt-5.6-sol
+    harness: mini-swe-agent 2.4.6
+    task_version: v2
+    score: 0.0
+    passed: false
+    failing_gates: []
+    steps: 95
+    cost_usd: 3.03
+    run_ref: runs/gpt-5.6-sol-run1
+  leak_audit: not_run
+splits:
+  train: false
+  bench: false
+  ood_axes: []
+  showcase: true
+history:
+- note: imported as an MVP showcase seed (DESIGN §12.1); never a published OOD split

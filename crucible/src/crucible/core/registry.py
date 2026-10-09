@@ -135,6 +135,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("app_template", "common/mailbox", "crucible.world.apps.mailbox:MailboxApp")
     r.register("app_template", "common/doc_library", "crucible.world.apps.doc_library:DocLibraryApp")
     r.register("app_template", "common/json_api", "crucible.world.apps.json_api:JsonApiApp")
+    r.register("app_template", "common/toolchain", "crucible.world.apps.toolchain:ToolchainApp")
     # World backends: core ships `local`; framework backends live in interop and load lazily.
     r.register("world_backend", "local", "crucible.world.backends.local:LocalBackend")
     r.register("world_backend", "harbor", "crucible.interop.harbor.world_backend:HarborBackend")
@@ -142,12 +143,12 @@ def _register_builtins(r: Registry) -> None:
     # Actors
     r.register("actor", "policy/scripted", "crucible.actors.policy:ScriptedPolicy")
     r.register("actor", "policy/llm", "crucible.actors.policy:LLMToolPolicy")
-    r.register("actor", "simulated", "crucible.actors.simulated:SimulatedActor")
     r.register("actor", "simulated/grounded", "crucible.actors.grounded:GroundedResponder")
+    r.register("actor", "simulated/scenario", "crucible.actors.simulated:SimulatedActor")
     r.register("actor", "system/ci", "crucible.actors.scripted:CheckRunnerActor")
     r.register("actor", "system/relay", "crucible.actors.scripted:RelayActor")
     r.register("actor", "human", "crucible.actors.human:HumanActor")
-    r.register("actor", "peer", "crucible.actors.peer:PeerActor")
+    r.register("actor", "peer", "crucible.actors.human:PeerActor")
     # Transports for human / peer actors
     r.register("transport", "file_queue", "crucible.actors.transports:FileQueueTransport")
     r.register("transport", "callable", "crucible.actors.transports:CallableTransport")

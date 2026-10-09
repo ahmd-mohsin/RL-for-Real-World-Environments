@@ -1,0 +1,28 @@
+schema_version: crucible.card/v1
+id: coding/legacy_gpu_migration/task03_mdlite_pallas@v1
+family: legacy_gpu_migration
+horizon: H4
+title: 'mdlite MD engine: CUDA C++ -> JAX + Pallas'
+grounding:
+  traces:
+  - task03_mdlite_pallas/MIGRATION_LOG.md
+  oracle_source: builder_oracle
+value_proof:
+  frontier:
+  - model: gpt-5.6-sol
+    harness: mini-swe-agent 2.4.6
+    task_version: v1
+    score: 0.0
+    passed: false
+    failing_gates: []
+    steps: 81
+    cost_usd: 2.96
+    run_ref: runs/gpt-5.6-sol-run1
+  leak_audit: not_run
+splits:
+  train: false
+  bench: false
+  ood_axes: []
+  showcase: true
+history:
+- note: imported as an MVP showcase seed (DESIGN §12.1); never a published OOD split

@@ -1,0 +1,88 @@
+schema_version: crucible.world/v1
+world: coding/legacy_gpu_migration/task03_mdlite_pallas
+description: 'mdlite MD engine: CUDA C++ -> JAX + Pallas'
+backend: harbor
+backend_params:
+  task_dir: ../../../../../../../migration_tasks/task03_mdlite_pallas
+  docker_image: task03-mdlite-pallas:v1
+  gpu_host: lab5090
+apps:
+- id: mdbuild
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/mdbuild
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: mdkit
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/mdkit
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: mdlite
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/mdlite
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: true
+  resources:
+    gpus: 0
+  description: the repository to migrate
+- id: gpu
+  template: coding/gpu_toolchain
+  state:
+    adapter: process
+    params:
+      cwd: /workspace/mdlite
+  params: {}
+  resources:
+    cpus: 16.0
+    memory_mb: 49152
+    gpus: 1
+    gpu_arch: sm_120
+actors:
+- id: agent
+  kind: policy
+  tools:
+  - mdbuild.*
+  - mdkit.*
+  - mdlite.*
+  grounded_on: []
+  params: {}
+events: []
+policies: []
+network: no-network
+seed: 0

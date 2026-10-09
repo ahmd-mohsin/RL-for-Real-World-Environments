@@ -1,0 +1,10 @@
+schema_version: crucible.task/v1
+id: coding/legacy_gpu_migration/task01_prims_omp@v1
+family: legacy_gpu_migration
+horizon: H3
+world: crucible/world.yaml
+card: crucible/card.yaml
+negatives: []
+oracle: solution/solution.patch
+harbor_dir: ../../../../../../../migration_tasks/task01_prims_omp
+seed_of: []

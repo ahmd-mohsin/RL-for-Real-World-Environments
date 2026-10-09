@@ -1,0 +1,88 @@
+schema_version: crucible.world/v1
+world: coding/legacy_gpu_migration/task02_pcops_triton
+description: pcops CUDA extension -> Triton
+backend: harbor
+backend_params:
+  task_dir: ../../../../../../../migration_tasks/task02_pcops_triton
+  docker_image: task02-pcops-triton:v1
+  gpu_host: lab5090
+apps:
+- id: pcdata
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/pcdata
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: pcnet
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/pcnet
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: false
+  resources:
+    gpus: 0
+  description: consumer repository (must keep working unmodified)
+- id: pcops
+  template: coding/git_repo
+  state:
+    adapter: fs_git
+    params:
+      root: /workspace/pcops
+      exclude:
+      - '**/build*/**'
+      - build*/**
+      - install*/**
+      - '**/__pycache__/**'
+      - '*.egg-info/**'
+      - '**/*.egg-info/**'
+  params:
+    shell: true
+  resources:
+    gpus: 0
+  description: the repository to migrate
+- id: gpu
+  template: coding/gpu_toolchain
+  state:
+    adapter: process
+    params:
+      cwd: /workspace/pcops
+  params: {}
+  resources:
+    cpus: 16.0
+    memory_mb: 32768
+    gpus: 1
+    gpu_arch: sm_120
+actors:
+- id: agent
+  kind: policy
+  tools:
+  - pcdata.*
+  - pcnet.*
+  - pcops.*
+  grounded_on: []
+  params: {}
+events: []
+policies: []
+network: no-network
+seed: 0
