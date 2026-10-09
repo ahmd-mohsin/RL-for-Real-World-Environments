@@ -171,6 +171,7 @@ class CiApp(App):
 
     async def tool_run_ci(self, checks: list[str] | None = None) -> Any:
         from crucible.world.leaks import scrub_text
+        from crucible.world.state.base import SnapshotMismatch
         from crucible.world.state.fs import FsAdapter
 
         st = await self._load()
@@ -192,7 +193,10 @@ class CiApp(App):
         root = runner.root(self.spec.params["target_root"])
         await runner.exec.run(f"mkdir -p {shlex.quote(root)}")
         target = FsAdapter(f"{self.id}-runner", runner.exec, {"root": root, "exclude": self.spec.params.get("runner_exclude", [])}, self.ctx.store)
-        await target.restore(candidate.model_copy(update={"adapter": "fs"}))
+        try:
+            await target.restore(candidate.model_copy(update={"adapter": "fs"}))
+        except SnapshotMismatch as e:  # sockets/devices/oversize files cannot be shipped to CI: the policy's problem
+            raise ToolError(f"cannot send the code to CI: {str(e).split(': ', 1)[-1]}") from e
         lines, results = [], {}
         hidden = runner.root(self.spec.params.get("hidden", {}).get("dest", "/opt/crucible-hidden"))
         for name in wanted:

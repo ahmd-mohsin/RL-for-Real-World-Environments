@@ -71,7 +71,7 @@ class StateAdapter(ABC):
 
     # ---- helpers ----
     def _tmp_remote(self, suffix: str) -> str:
-        return f"/tmp/.crucible_{self.app}_{os.getpid()}_{time.monotonic_ns()}{suffix}"
+        return f"{self.exec.staging_dir}/.crucible_{self.app}_{os.getpid()}_{time.monotonic_ns()}{suffix}"
 
     async def _pull_to_store(self, remote: str) -> tuple[str, int]:
         """Move a payload produced inside the exec into the store; returns (key, size)."""

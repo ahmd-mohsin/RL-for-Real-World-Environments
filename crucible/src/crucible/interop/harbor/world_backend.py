@@ -52,7 +52,7 @@ class HarborExec(Exec):
 
         if stdin is not None:
             # Harbor's exec has no stdin: stage the bytes in a file and redirect.
-            tmp = f"/tmp/.crucible_stdin_{uuid.uuid4().hex}"
+            tmp = f"{self.staging_dir}/.crucible_stdin_{uuid.uuid4().hex}"  # args may be secret (forbidden SHAs, gold paths)
             await self._put_bytes(stdin, tmp)
             cmd = f"{{ {cmd} ; }} < {tmp}; __rc=$?; rm -f {tmp}; exit $__rc"
         t0 = time.monotonic()
@@ -164,17 +164,58 @@ class HarborBackend(Backend):
         trial.mkdir()
         gpu_mode = self.params.get("gpu_mode", "runtime" if self._needs_gpu else "none")
         common = dict(environment_dir=env_dir, environment_name=name, session_id=self.session_id, trial_paths=trial, task_env_config=cfg)
-        if gpu_mode != "none" or self._network_none():
-            self.env = EnvironmentFactory.create_environment_from_import_path(
-                GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(),
-                keep_containers=bool(self.params.get("keep_containers")))
-        else:
-            self.env = EnvironmentFactory.create_environment(EnvironmentType.DOCKER, **common, keep_containers=bool(self.params.get("keep_containers")))
+        iso = self.spec.isolation
+        # Always our overlay subclass: GPUs (if any), no-network, init, and the policy sandbox's resource caps.
+        self.env = EnvironmentFactory.create_environment_from_import_path(
+            GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(), pids_limit=iso.pids_limit,
+            cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory, keep_containers=bool(self.params.get("keep_containers")))
         await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
         self._exec = HarborExec(self.env, default_user=self.params.get("user"))
         probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=60)
         if "ok" not in probe.stdout:
             raise RuntimeError("sandbox image needs python3 and git for Crucible's state adapters")
+
+    async def after_apps_started(self, world) -> None:
+        """Isolation (Karotte-style), after Apps seeded their files as root: policy user, ownership, git scrub, egress test."""
+        iso = self.spec.isolation
+        if not iso.policy_user:
+            return
+        from crucible.world.guard import Guard, PolicyExec
+
+        assert self._exec is not None
+        self.guard = Guard(self._exec)
+        await self.guard.install()
+        writable = [a.state.params["root"] if a.state.params["root"].startswith("/") else f"{self.base_path(a).rstrip('/')}/{a.state.params['root']}"
+                    for a in self.spec.apps if a.state.adapter in ("fs", "fs_git") and "root" in a.state.params and a.params.get("policy_writable", True)
+                    and a.template not in ("common/toolchain", "coding/gpu_toolchain")]
+        await self.guard.setup(user=iso.policy_user, uid=iso.policy_uid, writable=writable,
+                               root_only=self.params.get("root_only", []) + ["/var/lib/crucible"])
+        for a in self.spec.apps:
+            if a.params.get("scrub_history"):
+                root = world.apps[a.id].state.params["root"]
+                report = await self.guard.call("git_scrub", {"root": root, "keep": a.params.get("history_keep", "HEAD"),
+                                                             "forbidden": a.params.get("forbidden_commits", [])})
+                if not report["ok"]:
+                    raise RuntimeError(f"{a.id}: git history still leaks after scrub: {report}")
+                await self._exec.run(f"chown -R {iso.policy_uid}:{iso.policy_uid} {root}/.git")
+        # Verifier side: the interpreter resolved at setup, isolated mode (no PYTHONPATH, user site or cwd imports), and a
+        # root-only staging dir, so snippets and snapshot payloads (gold states included) never pass through /tmp.
+        await self._exec.run("mkdir -p /var/lib/crucible/stage && chmod 700 /var/lib/crucible/stage")
+        self._exec.python = f"{shlex.quote(self.guard.python)} -I"
+        self._exec.staging_dir = "/var/lib/crucible/stage"
+        self.policy_exec = PolicyExec(self.guard, iso.policy_uid)
+        for app in world.apps.values():
+            app.ctx.extra["policy_exec"] = self.policy_exec
+        if iso.egress_probe and self.spec.network in ("no-network", "allowlist"):
+            probe = await self.guard.call("egress", {"uid": iso.policy_uid})
+            self.egress_report = probe
+            if not probe["isolated"]:
+                raise RuntimeError(f"refusing to run: the policy user can reach {probe['reachable']} in a {self.spec.network} world")
+
+    async def quiesce(self) -> dict | None:
+        if getattr(self, "guard", None) is None:
+            return None
+        return await self.guard.call("quiesce", {"uid": self.spec.isolation.policy_uid})
 
     def exec_for(self, app: AppSpec) -> Exec:
         assert self._exec is not None, "provision() first"

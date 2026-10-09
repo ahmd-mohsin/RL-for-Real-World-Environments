@@ -180,6 +180,7 @@ class World:
         if not bundles:
             return
         import tarfile
+        import uuid
 
         exec_ = self.backend.exec_for(self.spec.apps[0])
         base = self.backend.base_path(self.spec.apps[0])
@@ -201,7 +202,7 @@ class World:
                     for p in sorted(src.rglob("*")):
                         if not skip.intersection(p.relative_to(src).parts):
                             tf.add(p, arcname=str(p.relative_to(src)), recursive=False)
-                remote = f"/tmp/.crucible_bundle_{abs(hash(dest))}.tar"
+                remote = f"{exec_.staging_dir}/.crucible_bundle_{uuid.uuid4().hex}.tar"
                 await exec_.push_file(tar, remote)
                 out = await exec_.run(f"mkdir -p '{dest}' && tar -xf {remote} -C '{dest}' && rm -f {remote}")
                 if not out.ok:
@@ -417,7 +418,18 @@ class World:
         self.log.append(TraceEvent(seq=len(self.log), time=self._now(), kind=kind, actor=actor, type=typ, text=text, data=data or {}))
 
     # ------------------------------------------------------------------ state
-    async def snapshot(self) -> WorldRef:
+    async def quiesce(self) -> dict | None:
+        """Verification boundary: stop every process the policy left behind (no-op without isolation)."""
+        rep = await self.backend.quiesce()
+        if rep is not None:
+            self._log("state", None, "quiesce", data=rep)
+            if not rep.get("ok", True):
+                raise WorldError(f"policy processes survived quiesce: {rep}")
+        return rep
+
+    async def snapshot(self, *, quiesce: bool = False) -> WorldRef:
+        if quiesce:
+            await self.quiesce()
         names = list(self.apps)
         refs: list[StateRef] = list(await asyncio.gather(*(self.apps[n].state.snapshot() for n in names)))
         ref = WorldRef(

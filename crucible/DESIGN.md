@@ -98,6 +98,14 @@ Nine more come from building tasks 01–04 and surveying nine frameworks:
   - **Scaling up:** a finance org with eight apps, four simulated departments and a clock is the same abstraction.
   - **Domain packs:** everything domain-specific (connectors, signal mappings, app templates, milestone and verifier libraries, generators, horizon ladders) lives in a pack. The core never imports a pack.
 
+Five more come from public post-mortems of RL environments: Preference Model's "Building RL environments for superintelligence" series and its MIT framework Karotte, and Hugging Face's "How not to build coding environments" (Repo2RLEnv). Both found frontier models taking every shortcut the environment left open.
+
+- **P20 — Grade outcomes, and the prompt asks only what the grader checks.** "If the grader can't check it, it cannot go into the prompt." An instruction the grader does not enforce is a lie the policy learns to ignore, and a grader that inspects the process (which commands were run) punishes valid alternatives (P12). Every sentence of a task's instructions maps to a check or is removed (Acceptance Contract, §9).
+- **P21 — The environment enforces; the prompt never asks.** "Don't use the internet" and "don't read the git history" are not constraints; `network_mode: none` and a verified history scrub are. Every prohibition is an enforced property with an automated audit, and is tested by an attacker that tries it (`tests/redteam/`).
+- **P22 — Accept environment awareness: security over realism.** A policy may notice it is in an environment (a user called `agent`, no network, a root-only directory). That costs little; an exploitable environment costs the run. When realism and security conflict, security wins.
+- **P23 — Rewards never come from inside the sandbox.** Nothing the policy can write is read as a reward or a verdict: rewards are computed from snapshots taken after the policy's process cohort is killed (quiesce), by code and an interpreter the policy cannot modify. Harbor 0.23 trusts a `reward.json` the agent can pre-write (Karotte's comparison); Crucible never reads one from the sandbox.
+- **P24 — Deep, non-saturating tasks.** A task should reward doing *better*, not only passing: perf bars, quality margins and multi-property strictness keep the reward informative after correctness saturates (Appendix B.1: correctness-only migrations were within frontier reach; perf and concurrency bars separated the models).
+
 ---
 
 ## 4. Glossary and data model
@@ -522,6 +530,20 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 5. The collection hook handles a dirty workspace and gitignored build directories, and errors from `git add` cannot abort the diff (Appendix B.5).
 6. Perf grading runs only when the node is quiet (load guard) and records the spread across rounds; contaminated rounds are re-graded, not scored (Appendix B.5).
 
+**Built in M1 (2026-10-09), tested by `tests/redteam/test_attacks.py` on a Harbor-backed World with `isolation.policy_user` set:**
+
+| Layer | Mechanism | Attack it defeats |
+|---|---|---|
+| Unprivileged policy | every policy tool runs through the in-sandbox guard as a demoted uid (setsid, `oom_score_adj=1000`, no groups, clean env); answer and harness paths are root 0700 | reading root-only answers, directly or through a symlink; writing grader paths; killing PID 1 |
+| Verifier integrity | verifier snippets run as root with the interpreter resolved at setup and `python -I`; snippets and snapshot payloads are staged in a root-only directory, never `/tmp` | a fake `python3` on the policy's `PATH` or in its rc files; reading a gold snapshot while it is restored |
+| Quiesce | before every verification snapshot, the policy uid's whole process cohort is killed (`kill(-1)` from a forked child at that uid, then a `/proc` sweep, repeated until clean) | a background process that keeps editing the code after submission |
+| Collection | the file walker never follows symlinks (O_NOFOLLOW at every component), never opens FIFOs or devices, caps file size (sparse files), and re-checks with `fstat`; specials are fingerprinted and reported as anomalies even where git cannot see them | a FIFO that hangs the grader, a 20 GB sparse file, a symlink swapped in after the check |
+| Resource caps | `pids_limit`, `mem_limit`; the policy runs at `oom_score_adj=1000`, written by root with `CAP_SYS_RESOURCE` so it is also the policy's floor | fork bombs, memory exhaustion of the grader, the policy opting out of being the OOM victim |
+| Git history | refs, remotes, reflogs and unreachable objects are removed, then **verified**: `rev-list --all` ⊆ ancestry of the base, `fsck --unreachable` empty, forbidden SHAs absent | `git log --all`, `git show <future-fix>` |
+| Network | `network_mode: none`, plus an egress self-test run as the policy uid that refuses to start the world if anything is reachable | `pip download` of the fixed version, following a PR link |
+| Text | instructions, simulated colleagues' replies and CI output are leak-scrubbed (Repo2RLEnv patterns + ours); actors' citations are kept in the trace but hidden from the policy | PR links, fix commits, "fixed in 1.2.3" in a reply |
+| Hidden CI | checks live in a separate runner sandbox; the policy gets `name: PASS/FAIL` only, under a run budget that is world state | reading or overfitting the hidden tests |
+
 ---
 
 ## 9. The Acceptance Contract (quality gate for every task)
@@ -723,12 +745,17 @@ All paths are under `../RL-Environments/06-frameworks-and-env-code/` unless they
 | GPU sandboxes | Harbor capabilities (gpus, gpu_types); NeMo-Gym `SandboxResources.gpu` → `--gpus`; verifiers `TaskResources.gpu`; Modal | `harbor-framework-harbor/src/harbor/environments/capabilities.py`, `nvidia-nemo-gym/nemo_gym/sandbox/providers/docker/provider.py` |
 | Horizontal workflows | multi-app MCP + per-app SQL state verifiers, distractor tools, infeasible tasks; tools over SQLite + hidden verifier uploaded after the rollout; tier = number of apps | `servicenow-enterpriseops-gym/benchmark/{verifier,executor}.py`; MiMo `general/envs/*/manifest.json` |
 | Rollouts / eval / hosting | agentenv `eval run --k`, A2A agents, artifact versioning, snapshots, explorer | `../agentenv-framework/src/agent_env/` |
+| Sandbox hardening | Karotte: demoted student user, process-cohort kill before collection, no-follow collection, egress self-test, fake-model attack tests | `preferencemodel-karotte/src/karotte/{subprocess,process_utils,untrusted_paths,confinement,demoted}.py` |
+| Leak scrubbing | Repo2RLEnv: fix-pointer regexes for task text, git-history scrub, gold = 1 / no-op = 0 validation | `huggingface-repo2rlenv/src/repo2rlenv/pipelines/{cve_patches,pr_runtime,_env_guard}.py` |
 
 **Known defects in surveyed frameworks that we must not inherit:**
 - SWE-smith instance branches keep the bug and test commits in history (`swesmith/profiles/base.py` `get_container` → `git checkout`).
 - NeMo-Gym's history scrub is best-effort (logs on failure).
 - OpenEnv's kernrl has no sandboxing inside the container and does nothing about timing noise.
 - Harbor's pass@k assumes binary rewards.
+- Harbor 0.23 (per Karotte's comparison): reads a `reward.json` the agent can pre-write; leftover agent processes can tamper after submission; a fake `python3` or a symlinked answer subverts grading; a FIFO hangs it; no resource limits; the internet is reachable.
+- agentenv (same comparison): a replaced `bash` subverts it; no resource limits; the internet is reachable.
+- Repo2RLEnv: the git-history scrub is not verified (unreachable objects can survive), and egress uses a denylist.
 
 ---
 
@@ -789,3 +816,16 @@ Registry check: A3, mutation score.
 | AWM sample data uses `datetime('now')` | initial state depends on wall-clock time | freeze "now" when forging tasks from generated environments |
 | LLM paraphrase of grounded records drifts (question becomes claim, hedge dropped, location added) | simulated actors fabricate subtly while passing citation checks | quote mode by default; audit paraphrase with a different-family entailment judge |
 | Reasoning models return empty completions under small token caps | judges and selectors silently "fail" (and episodes get masked) | caps ≥ 1k tokens for reasoning models; salvage verdicts from truncated JSON |
+
+**B.8 Found while adding the database, website, browser and CI apps and the isolation guard (2026-10-09).**
+
+| Defect | Where it bites | Check |
+|---|---|---|
+| `json_agg(... ORDER BY 1, 2)` orders by constants, not columns | Postgres fingerprints differ after an exact restore | restore → fingerprint round trip for every adapter |
+| `NUMERIC 1200.50` parsed as float `1200.5` | money compares wrong; fingerprints drift | parse decimals as `Decimal` |
+| Playwright MCP `--allowed-origins` is documented as "not a security boundary" | a browser App could reach the internet | network isolation of the world, not the browser flag |
+| The guard resolved the interpreter's real path on the host, not in the sandbox | the guard fails to start (or pins the wrong binary) | resolve every sandbox path inside the sandbox |
+| `git ls-files` never lists FIFOs, sockets or devices | a FIFO is invisible to the state adapter and can hang a grader later | lstat sweep for special files in git mode |
+| Tool errors carried the verifier snippet's traceback (paths, internals) | infrastructure details leak to the policy | policy-facing errors are the last exception line |
+| Verifier snippets and snapshot tarballs were staged in world-writable `/tmp` | the policy can read a gold snapshot while it is restored | root-only staging directory once a guard is installed |
+| A backgrounded process survives its shell call only if the shell lingers briefly | a red-team test passed without the attack ever running | every attack test first asserts that the attack took effect |

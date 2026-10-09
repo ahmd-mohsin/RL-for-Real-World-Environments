@@ -56,14 +56,19 @@ SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "descri
                 "parameters": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}}
 
 
+NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
+
+
 class LLMToolPolicy(Policy):
-    def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int = 6000):
+    def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int = 6000,
+                 max_nudges: int = 2):
         self.actor_id, self.llm, self.system = actor_id, llm, system
         self.max_tokens, self.max_tool_output = max_tokens, max_tool_output
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         self.tools: list[dict[str, Any]] = []
         self._queue: list[Action] = []
         self.error: str | None = None
+        self._nudges, self.max_nudges = 0, max_nudges
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -84,6 +89,11 @@ class LLMToolPolicy(Policy):
         except (LLMError, BudgetExceeded) as e:
             self.error = f"{getattr(e, 'failure_kind', 'provider_unavailable')}: {e}"
             return Done(reason=f"policy error: {e}")
+        if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
+            # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
+            self._nudges += 1
+            self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
+            return await self.act(Observation(actor=obs.actor, step=obs.step))
         if not r.tool_calls:
             self.messages.append({"role": "assistant", "content": r.text})
             return Done(reason=r.text[:2000])
@@ -139,4 +149,5 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
             break
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
     failures += [{"kind": "policy_error", "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
-    return EpisodeResult(steps=steps, done=done, trace=world.to_trace(), final=await world.snapshot(), masked=bool(failures), failures=failures, observations=log)
+    final = await world.snapshot(quiesce=True)  # the episode is over: nothing the policy started may keep changing state
+    return EpisodeResult(steps=steps, done=done, trace=world.to_trace(), final=final, masked=bool(failures), failures=failures, observations=log)

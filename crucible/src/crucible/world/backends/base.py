@@ -85,6 +85,10 @@ class Backend(ABC):
     async def on_reset(self, world: World) -> None:  # noqa: B027 - optional: fresh-episode hook (after state restore)
         pass
 
+    async def quiesce(self) -> dict | None:
+        """Kill everything the policy left running (before verification). Backends without isolation: no-op."""
+        return None
+
     @abstractmethod
     async def teardown(self) -> None: ...
 

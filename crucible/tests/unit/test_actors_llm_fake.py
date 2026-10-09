@@ -109,3 +109,25 @@ async def test_llm_tool_policy_episode(tmp_path: Path):
         assert "created" in flat and NO_RECORD in flat
     finally:
         await w.close()
+
+
+async def test_empty_turn_is_nudged_not_treated_as_done():
+    from crucible.core.schema.actions import Done, Observation
+
+    llm = FakeLLM(["", "  ", "", "all done"])
+    p = LLMToolPolicy("agent", llm, max_nudges=2)
+    a = await p.act(Observation(actor="agent", step=0, instruction="fix it"))
+    # two blank turns are nudged; the third blank one is accepted as the end (bounded)
+    assert isinstance(a, Done) and a.reason == "" and len(llm.prompts) == 3
+    assert sum(m["content"].startswith("Your last reply was empty") for m in p.messages if m["role"] == "user") == 2
+
+
+def test_retry_delay_honors_retry_after():
+    from types import SimpleNamespace
+
+    from crucible.actors.llm import _retry_delay
+
+    e = Exception("rate limited")
+    e.response = SimpleNamespace(headers={"retry-after": "7"})
+    assert _retry_delay(e, 0) == 7.0
+    assert _retry_delay(Exception("x"), 3) == 12.0 and _retry_delay(Exception("x"), 10) == 60.0

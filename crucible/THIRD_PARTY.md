@@ -19,6 +19,19 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `mimo_sidecar/` | Xiaomi MiMo v2.6 RL release, `general/envs/*/{mcp_http.py, mcp_bridge.py}` | md5 69484c5f…, 98d327a9… | Apache-2.0 | `mcp_http.py`: bind address parameter (default 127.0.0.1 instead of 0.0.0.0). `sidecar_entrypoint.py` not ported (Linux-only readiness probe, `/dump` and `/verify` not implemented upstream) |
 | `openenv_awm/` | OpenEnv `envs/agent_world_model_env/server/{data_loader.py, db_manager.py}` + `_patch_env_code` from `scenario_manager.py` | 49aa302 | BSD-3-Clause | per-file lazy download (upstream fetches all 7 files, ~500 MB, on first access) |
 
+## Code ported outside `_vendor/` (adapted into Crucible modules; the source is named in each module docstring)
+
+| Crucible module | Source | Revision | License | What was taken |
+|---|---|---|---|---|
+| `world/guard/guard.py` | Preference Model Karotte, `src/karotte/{subprocess.py, process_utils.py, confinement.py, demoted.py}` | 31c693e (2026-10-08) | MIT (`LICENSES/MIT-karotte.txt`) | privilege demotion in `preexec_fn` (setsid, `oom_score_adj=1000`, setgroups/setgid/setuid); killing a uid's whole process cohort with `kill(-1)` from a forked child plus a `/proc` sweep before any verification; egress self-test as the policy uid; no-follow, non-blocking file collection that refuses symlinks, FIFOs and devices. Re-written as a standalone stdlib script (no Karotte runtime) |
+| `world/state/snippets/fs.py` (`_open_parent`, `_entry`) | Karotte `src/karotte/{untrusted_paths.py, demoted.py}` | 31c693e | MIT | O_NOFOLLOW component walk, lstat-based special-file detection, size caps for sparse files, fstat re-check after open |
+| `world/leaks.py` | Hugging Face Repo2RLEnv, `pipelines/cve_patches.py` (`_strip_fix_leaks`) and `pipelines/pr_runtime.py` (`_LEAK_PATTERNS`) | 5555443 (2026-09-30) | Apache-2.0 (`LICENSES/Apache-2.0.txt`) | leak regexes verbatim (marked in the file); Crucible adds short-SHA context, code-host URLs, package pins, version pointers and debris clean-up |
+| `world/guard/guard.py` (`git_scrub`) | Repo2RLEnv `pipelines/_env_guard.py` git-history scrub | 5555443 | Apache-2.0 | the scrub sequence (checkout base, drop remotes, delete refs, expire reflog, gc/prune). Crucible adds the verification Repo2RLEnv lacks: `rev-list --all` ⊆ ancestry of base, `fsck --unreachable` empty, forbidden SHAs absent |
+
+## Attacks we test against (no code copied)
+
+`tests/redteam/test_attacks.py` reproduces the reward hacks reported by Karotte's comparison of frameworks (pre-written reward files, leftover processes, fake interpreters, symlinked and FIFO answers, fork bombs, internet access) and by Repo2RLEnv (PR links, `git log --all`, `pip download` of the fixed version) against a Harbor-backed World with `isolation.policy_user` set.
+
 ## Patterns re-implemented (no code copied)
 
 | Pattern | Source | Where in Crucible |

@@ -4,7 +4,7 @@ Ported from Hugging Face Repo2RLEnv (Apache-2.0; ``pipelines/cve_patches.py`` ``
 ``pipelines/pr_runtime.py`` ``_LEAK_PATTERNS``), whose agents earned perfect scores by following a PR
 link, diffing ``origin/main`` and downloading the fixed wheel. The lesson both they and Preference Model's
 Karotte draw: the environment enforces, the prompt never asks. Scrubbing is one layer; network and
-git-history isolation (``world/isolation.py``) are the others.
+git-history isolation (``world/guard/``) are the others.
 
 ``scrub_text(text, mode)``:
 - ``"strict"`` (instructions): also drops whole sections and lines that point at fixes

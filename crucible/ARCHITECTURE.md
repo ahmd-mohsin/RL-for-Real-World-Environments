@@ -35,7 +35,7 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
 | Module | Status | Gate | Spec + gate report |
 |---|---|---|---|
 | M0 core | built | passed | `docs/modules/M00-core.md` |
-| M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers) | `docs/modules/M01-world.md` |
+| M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers). Added after the gate: Postgres, any-MCP-server, website, browser and hidden-check CI Apps; leak scrubber; isolation guard; red-team suite (every attack defeated, 3/3 runs) | `docs/modules/M01-world.md` |
 | M2 actors | built | passed (reviewer location precision 0.96 / 0.98 on real PCL / CCCL reviews; fabrication 0/225 sentences (quote mode) and 0% on toy; LLM agent + simulated customer episode reaches the expert end state) | `docs/modules/M02-actors.md` |
 
 Environments: verifiers v1 pins `mcp==2.0.0` and agentenv needs `mcp<2`, so the `verifiers` extra is declared as conflicting and runs in its own environment (`THIRD_PARTY.md`).
@@ -156,6 +156,8 @@ Paths are relative to `crucible/`. Abbreviations: `FW = ../RL-Environments/06-fr
 | SWE-smith | `FW/swe-bench-swe-smith` | 9b74ac0 (2026-03-22) | MIT | PORT |
 | XiaomiMiMo verl fork (+ `third_party/mimoagent-osr`, MIT) | `FW/xiaomimimo-verl` | a2ad9f6 (2026-09-26) | Apache-2.0 | DEPEND, PORT, TARGET |
 | MiMo v2.6 RL release | `MM` | — | Apache-2.0 (per README) | PORT (sidecar), TARGET, DATA |
+| Karotte (Preference Model) | `FW/preferencemodel-karotte` | 31c693e (2026-10-08) | MIT | PORT (guard, no-follow collection), PATTERN (attack tests) |
+| Repo2RLEnv (Hugging Face) | `FW/huggingface-repo2rlenv` | 5555443 (2026-09-30) | Apache-2.0 | PORT (leak patterns, git scrub) |
 
 These pins go into `THIRD_PARTY.md` when M0 is built. Each version bump is a separate commit that re-runs every gate.
 
@@ -411,7 +413,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - `apps/` generic templates;
   - `packaging/` (App package = MiMo sidecar format);
   - `clock.py`, `events.py`;
-  - `isolation.py` (agent view vs verifier view, sealed paths, network modes);
+  - `guard/` (built: demoted policy user, quiesce, verified git scrub, egress self-test) and `leaks.py` (scrubber); agent view vs verifier view is the World's `VerifierView`;
   - `backends/{local,harbor,agentenv}`.
 - **Takes:**
   - DEPEND: Harbor environments and providers; agentenv `MultiEnv` / `MCPServerEnv` / `ServiceDBEnv` / `WebsiteEnv` / `GatewayEnv`, plus `snapshot_env`, `reset_env`, `sync_env_clock`, `modify_env_tool_access`.
@@ -541,7 +543,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
 - **Purpose:** build hidden checks that are correct, isolated, calibrated and fast enough to train with.
 - **Contents:**
   - **Generic `patterns/`:** state_predicate, differential (against a reference world or build), hidden_tests, adversarial_inputs, invariants, fresh_draws, perf (best-of-k, spread, load guard), static, judge_item (validated items only).
-  - **`isolation/`:** separate verifier environment, sealing, collect hooks, leak audit.
+  - **`isolation/`:** separate verifier environment, sealing, collect hooks, leak audit. Hidden-check CI as a policy tool (`world/apps/ci.py`) and the in-sandbox guard were pulled forward into M1.
   - **Support:** `calibrate.py` (tolerance tiers, induced perturbations, false-negative rate), `tiers.py` (fast/full), `grader.py` (runs inside the verifier environment and writes `reward.json` and `steps.jsonl`).
 - **Takes:**
   - DEPEND: Harbor verifier (separate mode, collect); verifiers `IsolatedVerifierEnv`.

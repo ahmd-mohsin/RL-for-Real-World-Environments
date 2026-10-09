@@ -57,12 +57,16 @@ class FsAdapter(StateAdapter):
             fingerprint=m["fingerprint"],
             blob=key,
             size_bytes=size,
-            meta={"files": m["count"], "bytes": m["bytes"], "head": m.get("head"), "manifest": manifest_key},
+            meta={"files": m["count"], "bytes": m["bytes"], "head": m.get("head"), "manifest": manifest_key,
+                  **({"anomalies": m["anomalies"]} if m.get("anomalies") else {}),
+                  **({"unpackable": m["unpackable"]} if m.get("unpackable") else {})},
         )
 
     async def restore(self, ref: StateRef) -> None:
         if ref.adapter != self.kind or ref.blob is None:
             raise ValueError(f"cannot restore {ref.adapter} ref (blob={ref.blob}) with {self.kind} adapter")
+        if ref.meta.get("unpackable"):
+            raise SnapshotMismatch(f"{self.app}: snapshot holds files that cannot be restored (sockets, devices, oversize): {ref.meta['unpackable'][:5]}")
         tar = await self._push_from_store(ref.blob, ".tar.gz")
         try:
             m = await self._snip("unpack", tar=tar)
@@ -134,7 +138,7 @@ class FsGitAdapter(FsAdapter):
         flag = "--stat" if stat else "--binary"
         cmd = (
             f'set -e; T=$(mktemp); trap "rm -f $T" EXIT; export GIT_INDEX_FILE=$T; '
-            f"git -C {root} read-tree {ref} && git -C {root} add -A -- . 2>/dev/null; git -C {root} diff --cached {flag} {ref}"
+            f"G='git -c safe.directory=* -C {root}'; $G read-tree {ref} && $G add -A -- . 2>/dev/null; $G diff --cached {flag} {ref}"
         )
         out = await self.exec.run(cmd, timeout_s=600)
         return QueryResult(ok=out.ok, exit_code=out.rc, stdout=out.stdout, stderr=out.stderr[-4000:], duration_s=out.duration_s)

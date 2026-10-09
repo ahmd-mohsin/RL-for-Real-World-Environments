@@ -46,6 +46,7 @@ class Exec(ABC):
     name: str = "exec"
     is_local: bool = False
     python: str = "python3"
+    staging_dir: str = "/tmp"  # where snippets and state payloads are staged; root-only once a guard isolates the world
 
     @abstractmethod
     async def run(
@@ -70,7 +71,7 @@ class Exec(ABC):
     async def run_python(self, code: str, args: dict[str, Any], *, timeout_s: float | None = 600) -> Any:
         """Run ``code`` (which must define ``main(args) -> json-able``) and return its result."""
         prog = code + "\n\nimport json as _j, sys as _s\n_r = main(_j.loads(_s.stdin.read()))\n_s.stdout.write('\\n__CRUCIBLE_JSON__' + _j.dumps(_r))\n"
-        script = f"/tmp/.crucible_py_{os.getpid()}_{time.monotonic_ns()}.py"
+        script = f"{self.staging_dir}/.crucible_py_{os.getpid()}_{time.monotonic_ns()}.py"
         await self.write_text(script, prog)
         try:
             out = await self.run(f"{self.python} {shlex.quote(script)}", stdin=json.dumps(args).encode(), timeout_s=timeout_s)

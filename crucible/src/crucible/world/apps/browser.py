@@ -50,7 +50,8 @@ class BrowserApp(McpServerApp):
 
     def server_command(self) -> list[str]:
         p = self.spec.params
-        cmd = ["npx", "-y", p.get("package", PINNED), "--headless", "--isolated"]
+        out_dir = self.ctx.host_workdir / f"{self.id}-playwright"  # page snapshots and traces stay with the world, not in the cwd
+        cmd = ["npx", "-y", p.get("package", PINNED), "--headless", "--isolated", "--output-dir", str(out_dir)]
         if p.get("browser"):
             cmd += ["--browser", p["browser"]]
         origins = self._origins()

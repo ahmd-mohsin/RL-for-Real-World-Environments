@@ -36,12 +36,22 @@ def _obj(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {"type": "object", "properties": props, "required": required, "additionalProperties": False}
 
 
+def _last_error_line(text: str) -> str:
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    return (lines[-1] if lines else "error")[:2000]
+
+
 class WorkspaceApp(App):
     template = "common/workspace"
 
     @property
     def root(self) -> str:
         return self.state_params["root"]
+
+    @property
+    def policy_exec(self):
+        """Policy tools run here: the guard's demoted Exec in isolated container worlds, else the App's Exec."""
+        return self.ctx.extra.get("policy_exec") or self.ctx.exec
 
     @property
     def max_output(self) -> int:
@@ -94,9 +104,9 @@ class WorkspaceApp(App):
 
     async def _ws(self, op: str, **kw: Any) -> dict[str, Any]:
         try:
-            return await self.ctx.exec.run_python(WS_SNIPPET, {"op": op, **kw})
-        except Exception as e:  # file errors are the policy's problem, not infrastructure
-            raise ToolError(str(e).split("python snippet failed: ")[-1][:2000]) from e
+            return await self.policy_exec.run_python(WS_SNIPPET, {"op": op, **kw})
+        except Exception as e:  # file errors are the policy's problem; the traceback (snippet paths) is not its business
+            raise ToolError(_last_error_line(str(e))) from e
 
     async def tool_list_dir(self, path: str = ".", depth: int = 1) -> Any:
         return "\n".join((await self._ws("list", path=confine(self.root, path), depth=min(max(depth, 1), 5)))["entries"]) or "(empty)"
@@ -119,18 +129,18 @@ class WorkspaceApp(App):
     async def tool_search(self, pattern: str, glob: str | None = None, max_hits: int = 100) -> Any:
         args = {"op": "grep", "root": self.root, "git": False, "include": [], "exclude": [".git/**"], "pattern": pattern, "glob": glob, "max_hits": min(max_hits, 500)}
         try:
-            r = await self.ctx.exec.run_python(FS_SNIPPET, args)
+            r = await self.policy_exec.run_python(FS_SNIPPET, args)
         except Exception as e:
-            raise ToolError(f"search failed: {e}") from e
+            raise ToolError(f"search failed: {_last_error_line(str(e))}") from e
         lines = [f"{p}:{n}:{t}" for p, n, t in r["hits"]]
         return "\n".join(lines) + ("\n... (truncated)" if r["truncated"] else "") if lines else "no matches"
 
     async def tool_shell(self, command: str, timeout_s: int = 600) -> Any:
         if not self.spec.params.get("shell"):
             raise ToolError("shell is disabled for this workspace")
-        if self.ctx.exec.is_local and not self.spec.params.get("allow_unsafe_local_shell"):
+        if self.policy_exec.is_local and not self.spec.params.get("allow_unsafe_local_shell"):
             raise ToolError("shell refused: the local backend has no sandbox (set allow_unsafe_local_shell for trusted policies only)")
-        out = await self.ctx.exec.run(command, cwd=self.root, timeout_s=min(timeout_s, int(self.spec.params.get("max_timeout_s", 3600))))
+        out = await self.policy_exec.run(command, cwd=self.root, timeout_s=min(timeout_s, int(self.spec.params.get("max_timeout_s", 3600))))
         text = (out.stdout + (("\n[stderr]\n" + out.stderr) if out.stderr.strip() else ""))
         if len(text) > self.max_output:
             text = text[: self.max_output // 2] + f"\n... [{len(text) - self.max_output} chars elided] ...\n" + text[-self.max_output // 2 :]
@@ -150,7 +160,7 @@ class GitRepoApp(WorkspaceApp):
         ]
 
     async def tool_git_status(self) -> Any:
-        out = await self.ctx.exec.run("git status --short", cwd=self.root, timeout_s=120)
+        out = await self.policy_exec.run("git status --short", cwd=self.root, timeout_s=120)
         return out.stdout or "clean"
 
     async def tool_git_diff(self, ref: str = "base", stat: bool = False) -> Any:

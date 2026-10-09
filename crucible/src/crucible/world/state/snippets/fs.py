@@ -70,7 +70,7 @@ def _managed(root, git, include, exclude):
     rels = []
     if git and (os.path.isdir(os.path.join(root, ".git")) or _in_git(root)):
         raw = subprocess.run(
-            ["git", "-C", root, "-c", "core.quotepath=off", "ls-files", "-co", "--exclude-standard", "-z"],
+            ["git", "-c", "safe.directory=*", "-C", root, "-c", "core.quotepath=off", "ls-files", "-co", "--exclude-standard", "-z"],
             capture_output=True,
             check=True,
         ).stdout
@@ -84,6 +84,7 @@ def _managed(root, git, include, exclude):
             seen.add(rel)
             if os.path.lexists(os.path.join(root, rel)) and not os.path.isdir(os.path.join(root, rel)):
                 rels.append(rel)
+        rels += _specials(root)  # git never lists FIFOs/sockets/devices: an invisible trap for the grader otherwise
     else:
         for dirpath, dirnames, filenames in os.walk(root):
             reld = os.path.relpath(dirpath, root)
@@ -113,25 +114,111 @@ def _managed(root, git, include, exclude):
     return sorted(set(out))
 
 
+def _specials(root):
+    """Non-regular, non-symlink, non-directory entries anywhere under root (outside .git), found with lstat only."""
+    found, stack = [], [""]
+    while stack:
+        reld = stack.pop()
+        try:
+            it = os.scandir(os.path.join(root, reld) if reld else root)
+        except OSError:
+            continue
+        with it:
+            for e in it:
+                rel = f"{reld}/{e.name}" if reld else e.name
+                if e.is_symlink():
+                    continue
+                if e.is_dir(follow_symlinks=False):
+                    if rel != ".git":
+                        stack.append(rel)
+                elif not e.is_file(follow_symlinks=False):
+                    found.append(rel)
+    return found
+
+
 def _in_git(root):
     try:
-        r = subprocess.run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"], capture_output=True)
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "--is-inside-work-tree"], capture_output=True)
         return r.returncode == 0 and r.stdout.strip() == b"true"
     except FileNotFoundError:
         return False
 
 
-def _entry(root, rel):
-    full = os.path.join(root, rel)
-    st = os.lstat(full)
-    if stat.S_ISLNK(st.st_mode):
-        return (rel, "120000", hashlib.sha256(os.readlink(full).encode("utf-8", "surrogateescape")).hexdigest(), 0)
-    h = hashlib.sha256()
-    with open(full, "rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            h.update(block)
-    mode = "100755" if st.st_mode & 0o111 else "100644"
-    return (rel, mode, h.hexdigest(), st.st_size)
+MAX_FILE_BYTES = 1 << 30  # per file; larger (or sparse-huge) files are recorded, not read
+_ANOMALIES = []
+
+
+def _open_parent(root, rel):
+    """dir fd of rel's parent, walking every component with O_NOFOLLOW (Karotte untrusted_paths.walk_to_parent):
+    a directory swapped for a symlink mid-walk raises instead of redirecting a root-side read."""
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    parts = rel.split("/")
+    try:
+        for comp in parts[:-1]:
+            nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nfd
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd, parts[-1]
+
+
+def _kind(mode):
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+        return "device"
+    return "other"
+
+
+def _entry(root, rel, max_bytes=None):
+    max_bytes = MAX_FILE_BYTES if max_bytes is None else max_bytes
+    try:
+        dfd, name = _open_parent(root, rel)
+    except OSError as e:
+        _ANOMALIES.append({"path": rel, "kind": "unsafe_path", "detail": e.strerror})
+        return (rel, "special:unsafe_path", hashlib.sha256(b"unsafe_path").hexdigest(), 0)
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+        if stat.S_ISLNK(st.st_mode):
+            return (rel, "120000", hashlib.sha256(os.readlink(name, dir_fd=dfd).encode("utf-8", "surrogateescape")).hexdigest(), 0)
+        if not stat.S_ISREG(st.st_mode):
+            k = _kind(st.st_mode)
+            _ANOMALIES.append({"path": rel, "kind": k})
+            return (rel, "special:" + k, hashlib.sha256(k.encode()).hexdigest(), 0)
+        if st.st_size > max_bytes:
+            _ANOMALIES.append({"path": rel, "kind": "oversize", "bytes": st.st_size})
+            return (rel, "oversize", hashlib.sha256(f"oversize:{st.st_size}".encode()).hexdigest(), 0)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY, dir_fd=dfd)
+        try:
+            fst = os.fstat(fd)
+            if not stat.S_ISREG(fst.st_mode):  # swapped between stat and open (TOCTOU)
+                k = _kind(fst.st_mode)
+                _ANOMALIES.append({"path": rel, "kind": k, "detail": "swapped"})
+                return (rel, "special:" + k, hashlib.sha256(k.encode()).hexdigest(), 0)
+            h = hashlib.sha256()
+            read = 0
+            while True:
+                block = os.read(fd, 1 << 20)
+                if not block:
+                    break
+                read += len(block)
+                if read > max_bytes:
+                    _ANOMALIES.append({"path": rel, "kind": "oversize", "bytes": read})
+                    return (rel, "oversize", hashlib.sha256(b"oversize-growing").hexdigest(), 0)
+                h.update(block)
+            mode = "100755" if fst.st_mode & 0o111 else "100644"
+            return (rel, mode, h.hexdigest(), read)
+        finally:
+            os.close(fd)
+    except OSError as e:
+        _ANOMALIES.append({"path": rel, "kind": "unreadable", "detail": e.strerror})
+        return (rel, "special:unreadable", hashlib.sha256(b"unreadable").hexdigest(), 0)
+    finally:
+        os.close(dfd)
 
 
 def _fingerprint(entries):
@@ -144,7 +231,7 @@ def _fingerprint(entries):
 def _head(root, git):
     if not git:
         return None
-    r = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True)
+    r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "HEAD"], capture_output=True)
     return r.stdout.decode().strip() if r.returncode == 0 else None
 
 
@@ -152,14 +239,16 @@ def manifest(a):
     root = a["root"]
     if not os.path.isdir(root):
         return {"entries": [], "fingerprint": _fingerprint([]), "count": 0, "bytes": 0, "head": None, "missing_root": True}
+    del _ANOMALIES[:]
     rels = _managed(root, a.get("git", False), a.get("include") or [], a.get("exclude") or [])
-    entries = [_entry(root, r) for r in rels]
+    entries = [_entry(root, r, a.get("max_file_bytes")) for r in rels]
     return {
         "entries": [[e[0], e[1], e[2]] for e in entries],
         "fingerprint": _fingerprint(entries),
         "count": len(entries),
         "bytes": sum(e[3] for e in entries),
         "head": _head(root, a.get("git", False)),
+        "anomalies": list(_ANOMALIES),
     }
 
 
@@ -179,9 +268,20 @@ def pack(a):
                 ti.linkname = os.readlink(full)
                 ti.mode = 0o777
                 tf.addfile(ti)
+            elif mode == "special:fifo":
+                ti.type = tarfile.FIFOTYPE
+                ti.mode = 0o644
+                tf.addfile(ti)
+            elif mode.startswith("special:") or mode == "oversize":
+                m.setdefault("unpackable", []).append(rel)
             else:
                 ti.mode = 0o755 if mode == "100755" else 0o644
-                with open(full, "rb") as f:
+                dfd, name = _open_parent(root, rel)
+                try:
+                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY, dir_fd=dfd)
+                finally:
+                    os.close(dfd)
+                with os.fdopen(fd, "rb") as f:
                     data = f.read()
                 ti.size = len(data)
                 tf.addfile(ti, io.BytesIO(data))
@@ -213,6 +313,8 @@ def unpack(a):
                 os.unlink(dest)
             if m.issym():
                 os.symlink(m.linkname, dest)
+            elif m.isfifo():
+                os.mkfifo(dest, 0o644)
             else:
                 src = tf.extractfile(m)
                 with open(dest, "wb") as f:

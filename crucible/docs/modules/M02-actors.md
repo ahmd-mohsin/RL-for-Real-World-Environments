@@ -19,6 +19,8 @@ Simulated people, bots, humans and peer agents run *inside* the World as environ
 | coding pack `reviewer.py` | **Grounded reviewer**: replays a recorded review comment exactly when its diff-hunk anchor is present in the reviewed file, at the matching line (nearest the recorded line when repeated); silent once the code changed. No LLM, so it cannot fabricate | GitHub review history |
 | coding pack `github_reviews.py` | Review comments → `Record`s (path, anchor, original commit) without auth: repo-wide comments endpoint + raw.githubusercontent.com + `git ls-remote refs/pull/*/head`; bot reviewers excluded | GitHub REST |
 
+**What the policy sees of an actor (2026-10-09).** Replies to a policy are leak-scrubbed (`world/leaks.py`: PR and commit links, fixed-version pointers, package pins), and the unscrubbed text stays in the trace. Citations stay in the trace for audit but are removed from the policy's observation (`isolation.hide_citations`, default on): a citation names a record, and records can name the answer.
+
 ## Exit gate
 
 | Requirement (ARCHITECTURE M2) | Result |

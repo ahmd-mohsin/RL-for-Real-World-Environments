@@ -49,6 +49,15 @@ class Spend:
     completion_tokens: int = 0
 
 
+def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
+    """Provider's Retry-After (seconds) when given, else capped exponential backoff (Karotte's agent loop)."""
+    headers = getattr(getattr(e, "response", None), "headers", None) or {}
+    try:
+        return min(float(headers.get("retry-after")), cap)
+    except (TypeError, ValueError):
+        return min(1.5 * 2**attempt, cap)
+
+
 class LLMClient:
     def __init__(self, model: str = "sim-default", *, config: Config | None = None, budget_usd: float | None = None,
                  cache_dir: Path | None = None, cache_mode: str | None = None, timeout_s: float = 120, max_retries: int = 3):
@@ -112,7 +121,10 @@ class LLMClient:
                 msg = str(e).lower()
                 if "402" in msg or "credit" in msg or "insufficient" in msg or "budget" in msg:
                     raise BudgetExceeded(f"provider refused for credits: {e}") from e
-                await asyncio.sleep(1.5 * (attempt + 1))
+                status = getattr(e, "status_code", None)
+                if status in (400, 401, 403, 404, 422):  # the request is wrong, retrying cannot help
+                    raise LLMError(f"{self.model} rejected the request ({status}): {e}") from e
+                await asyncio.sleep(_retry_delay(e, attempt))
         else:
             raise LLMError(f"{self.model} failed after {self.max_retries} attempts: {last}")
         choice = resp.choices[0]
