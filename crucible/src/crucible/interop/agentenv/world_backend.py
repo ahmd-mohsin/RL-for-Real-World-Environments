@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import sys
 import time
 from typing import TYPE_CHECKING, Any
@@ -31,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from crucible.core.schema.actions import Inbound, ToolResult, ToolSpec
-from crucible.core.schema.world import AppSpec, EventSpec
+from crucible.core.schema.world import AppSpec, EventSpec, SandboxSpec
 from crucible.world.backends.base import Backend, BackendCapabilities, ToolRouter
 from crucible.world.clock import parse_duration
 from crucible.world.exec import Exec, LocalExec, spawn_logged
@@ -44,7 +47,8 @@ if TYPE_CHECKING:
 ROLE_HEADER = "AgentEnv-Role"
 ACTOR_ARG = "__actor"
 EXECUTOR_ROLE = "crucible-executor"
-SYSTEM_ROLE = "crucible-system"  # environment dynamics (events): every tool, never given to an actor
+SYSTEM_ROLE = "crucible-system"  # kept disabled: environment dynamics call Apps directly, never through a header
+HOST_PROCESS_TEMPLATES = ("common/mcp_server", "common/website", "common/browser", "openenv/awm")
 
 
 def gw_name(app: str, tool: str) -> str:
@@ -56,11 +60,14 @@ class GatewayRouter(ToolRouter):
         self.b = backend
 
     async def call(self, actor: str, app: str, tool: str, args: dict[str, Any], call_id: str, *, system: bool = False) -> ToolResult:
+        if system:  # environment dynamics: straight to the App; no role header that a client could also send
+            assert self.b._world is not None
+            return await self.b._world.apps[app].call(tool, args, actor=actor, call_id=call_id)
         name = gw_name(app, tool)
         t0 = time.monotonic()
-        role = SYSTEM_ROLE if system else actor
         try:
-            r = await self.b.http.post("/step", headers={ROLE_HEADER: role}, json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: actor}})
+            r = await self.b.http.post("/step", headers={ROLE_HEADER: actor},
+                                       json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: self.b.sign_actor(actor)}})
         except httpx.HTTPError as e:
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=f"gateway unreachable: {e}", error="transport")
         dt = time.monotonic() - t0
@@ -97,24 +104,61 @@ class AgentEnvBackend(Backend):
         self._trigger_body: dict[str, Any] | None = None
         self._keepalive: asyncio.Task | None = None
         self._keepalive_stop = asyncio.Event()
+        self._secret = secrets.token_bytes(32)  # signs the actor identity carried to App servers (spoof-proof __actor)
+        self.sandbox_spec = SandboxSpec.model_validate(params["sandbox"]) if params.get("sandbox") else None
+        self.sandbox = None
+
+    def sign_actor(self, actor: str) -> str:
+        return f"{actor}:{hmac.new(self._secret, actor.encode(), hashlib.sha256).hexdigest()[:32]}"
+
+    def verify_actor(self, value: Any) -> str | None:
+        if not isinstance(value, str) or ":" not in value:
+            return None
+        actor, _, sig = value.rpartition(":")
+        return actor if hmac.compare_digest(self.sign_actor(actor), value) and sig else None
 
     # ---------------------------------------------------------------- Backend API
     @property
     def capabilities(self) -> BackendCapabilities:
-        return BackendCapabilities(isolation="none", native_acl=True, native_clock=self.spec.clock is not None and self.spec.clock.mode == "wall",
-                                   notes=["agentenv gateway: role-based tool access, clock, triggers"])
+        sbx = self.sandbox_spec is not None
+        return BackendCapabilities(isolation="container" if sbx else "none", gpus=sbx and any(a.resources.gpus for a in self.spec.apps),
+                                   native_acl=True, native_clock=self.spec.clock is not None and self.spec.clock.mode == "wall",
+                                   network_enforced=sbx and self.spec.network != "public",
+                                   notes=["agentenv gateway: role-based tool access, clock, triggers"]
+                                   + ([f"state and commands in a sandbox: {self.sandbox_spec.provider} {self.sandbox_spec.image}"] if sbx else []))
 
     def validate(self) -> list[str]:
-        return [f"app {a.id!r} needs GPUs; use the harbor backend" for a in self.spec.apps if a.resources.gpus]
+        problems = []
+        if self.sandbox_spec is None:
+            problems += [f"app {a.id!r} needs GPUs: give the backend a sandbox (backend_params.sandbox: docker on a GPU host, or modal)"
+                         for a in self.spec.apps if a.resources.gpus]
+            if self.spec.isolation.policy_user:
+                problems.append("isolation.policy_user needs a container: set backend_params.sandbox")
+        else:
+            for a in self.spec.apps:
+                if a.template in HOST_PROCESS_TEMPLATES or (a.template == "common/sqlite_app" and a.params.get("tools_module")):
+                    problems.append(f"app {a.id!r} runs a host-side server/tool module; in a sandboxed agentenv world it would run outside the sandbox")
+        return problems
 
     async def provision(self) -> None:
-        self.apps_dir.mkdir(parents=True, exist_ok=True)
+        if self.sandbox_spec is None:
+            self.apps_dir.mkdir(parents=True, exist_ok=True)
+            return
+        from crucible.interop.agentenv.sandbox import open_sandbox
+
+        iso = self.spec.isolation
+        self.sandbox = open_sandbox(self.sandbox_spec, self.spec, pids_limit=iso.pids_limit if iso.policy_user else None, memory=iso.memory)
+        await self.sandbox.start()
+        self._exec = self.sandbox.exec
+        probe = await self._exec.run(f"mkdir -p {self.sandbox_spec.workdir} && command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=120)
+        if "ok" not in probe.stdout:
+            raise RuntimeError(f"sandbox image needs python3 and git for Crucible's state adapters ({self.sandbox.description}): {probe.stderr[-300:]}")
 
     def exec_for(self, app: AppSpec) -> Exec:
         return self._exec
 
     def base_path(self, app: AppSpec) -> str:
-        return str(self.apps_dir)
+        return self.sandbox_spec.workdir if self.sandbox_spec else str(self.apps_dir)
 
     def router(self) -> ToolRouter:
         return self._router
@@ -133,10 +177,17 @@ class AgentEnvBackend(Backend):
 
     async def after_apps_started(self, world: World) -> None:
         self._world = world
+        if self.sandbox_spec is not None and self.spec.isolation.policy_user:
+            from crucible.world.guard.isolate import isolate_world
+
+            # the gateway's host port must be unreachable from the policy (it serves every tool to any role header)
+            self.isolation = await isolate_world(world, self._exec, base_path=self.sandbox_spec.workdir, root_only=self.params.get("root_only", []),
+                                                 egress_targets=[["host.docker.internal", self.gateway_port], ["172.17.0.1", self.gateway_port]])
         default_actor = self.params.get("default_actor") or world.spec.policy_actors[0].id
         for app_id, app in world.apps.items():
             async def caller(name: str, args: dict[str, Any], _app=app) -> ToolResult:
-                actor = args.pop(ACTOR_ARG, default_actor)
+                # only the World's own router can name an actor (HMAC); any other MCP client acts as the default actor
+                actor = self.verify_actor(args.pop(ACTOR_ARG, None)) or default_actor
                 return await _app.call(name, args, actor=actor, call_id=f"gw-{time.monotonic_ns()}")
 
             srv = AppMcpServer(app_id, world._tools[app_id], caller, prefix=True)
@@ -219,7 +270,6 @@ class AgentEnvBackend(Backend):
             await self._toggle("enable", a.id, self._expand(world, a.tools))
         await self._toggle("disable", EXECUTOR_ROLE, "*")
         await self._toggle("disable", SYSTEM_ROLE, "*")
-        await self._toggle("enable", SYSTEM_ROLE, self._expand(world, ["*"]))
 
     async def _refresh_allowed(self, world: World) -> None:
         for a in world.spec.actors:
@@ -376,6 +426,9 @@ class AgentEnvBackend(Backend):
         for s in self.servers.values():
             await s.stop()
         await self.http.aclose()
+        if self.sandbox is not None:
+            await self.sandbox.close()
+            self.sandbox = None
         if not self.params.get("keep_workdir"):
             import shutil
 

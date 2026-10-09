@@ -217,7 +217,7 @@ def run(a):
                          stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if stdin_data is not None:
         try:
-            p.stdin.write(stdin_data.encode())
+            p.stdin.write(stdin_data.encode("utf-8", "surrogateescape"))
             p.stdin.close()
         except BrokenPipeError:
             pass

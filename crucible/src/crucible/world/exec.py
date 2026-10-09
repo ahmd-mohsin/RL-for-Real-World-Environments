@@ -107,7 +107,8 @@ def with_deadline(cmd: str, timeout_s: float | None) -> str:
     running in the container (Harbor's exec, ``docker exec``). GNU/busybox ``timeout`` kills its process group."""
     if not timeout_s:
         return cmd
-    return f"timeout -s KILL {max(1, math.ceil(timeout_s))} bash -c {shlex.quote(cmd)}"
+    q = shlex.quote(cmd)  # images without coreutils/busybox timeout fall back to the client-side deadline
+    return f"if command -v timeout >/dev/null 2>&1; then timeout -s KILL {max(1, math.ceil(timeout_s))} bash -c {q}; else bash -c {q}; fi"
 
 
 def deadline_hit(rc: int, duration_s: float, timeout_s: float | None) -> bool:

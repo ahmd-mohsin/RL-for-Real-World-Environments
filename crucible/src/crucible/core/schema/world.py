@@ -25,6 +25,27 @@ class Resources(CrucibleModel):
     storage_mb: int | None = None
     gpus: int = 0
     gpu_arch: str | None = None  # e.g. "sm_120"
+    gpu_type: str | None = None  # cloud GPU class, e.g. "H100", "A100", "L4" (Modal/Harbor providers); None = any
+
+
+class SandboxSpec(CrucibleModel):
+    """Where a World's state and commands live when the backend puts them in a container.
+
+    ``provider``: ``docker`` (this machine's daemon, or a remote one via ``gpu_host``/``docker_host``, e.g. the lab
+    RTX 5090), or any agentenv sandbox provider (``modal``, ``e2b``, ...). GPUs come from the Apps' ``resources``
+    (count, ``gpu_type``); ``gpu`` overrides with a provider spec such as ``"H100:2"``.
+    """
+
+    provider: str = "docker"
+    image: str
+    gpu_host: str | None = None  # crucible.toml [gpu_hosts.<name>]
+    docker_host: str | None = None
+    gpu: str | None = None
+    gpu_mode: Literal["runtime", "devices"] = "runtime"  # docker: nvidia runtime (lab 5090) or --gpus
+    cpus: float | None = None
+    memory_mb: int | None = None
+    timeout_s: int = 7200
+    workdir: str = "/crucible"  # where relative App paths live inside the sandbox
 
 
 class StateSpec(CrucibleModel):

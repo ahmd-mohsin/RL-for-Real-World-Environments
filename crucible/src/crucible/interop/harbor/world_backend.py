@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from harbor.environments.factory import EnvironmentFactory
+from harbor.models.environment_type import EnvironmentType
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
 
@@ -138,9 +139,13 @@ class HarborBackend(Backend):
             name = self.spec.world.replace("/", "-")
         if self.params.get("docker_image"):
             cfg.docker_image = self.params["docker_image"]
-        gpus = max((a.resources.gpus for a in self.spec.apps), default=0)
+        from crucible.world.sandbox import gpu_request
+
+        gpus, gpu_type = gpu_request(self.spec)
         if gpus:
             cfg.gpus = gpus
+            if gpu_type or self.params.get("gpu_types"):  # cloud providers (Modal, GKE, Daytona, ...) pick the GPU class from this
+                cfg.gpu_types = list(self.params.get("gpu_types") or [gpu_type])
         for key in ("cpus", "memory_mb"):
             if self.params.get(key):
                 setattr(cfg, key, self.params[key])
@@ -168,7 +173,23 @@ class HarborBackend(Backend):
         gpu_mode = self.params.get("gpu_mode", "runtime" if self._needs_gpu else "none")
         common = {"environment_dir": env_dir, "environment_name": name, "session_id": self.session_id, "trial_paths": trial, "task_env_config": cfg}
         iso = self.spec.isolation
-        # Always our overlay subclass: GPUs (if any), no-network, init, and the policy sandbox's resource caps.
+        etype = self.params.get("environment_type", "docker")
+        if etype != "docker":
+            # Any Harbor provider (modal, daytona, gke, e2b, runloop, ...): GPUs come from cfg.gpus / cfg.gpu_types; the guard
+            # hardens the sandbox the same way afterwards. Provider-specific options go in backend_params.environment_kwargs.
+            from harbor.models.task.config import NetworkMode, NetworkPolicy
+
+            mode = {"no-network": NetworkMode.NO_NETWORK, "allowlist": NetworkMode.ALLOWLIST}.get(self.spec.network, NetworkMode.PUBLIC)
+            policy = NetworkPolicy(network_mode=mode, allowed_hosts=list(self.spec.allowed_hosts) if mode == NetworkMode.ALLOWLIST else [])
+            # Harbor refuses providers that cannot enforce the policy (_validate_network_policy_support) before creating anything
+            self.env = EnvironmentFactory.create_environment(EnvironmentType(etype), **common, network_policy=policy, **self.params.get("environment_kwargs", {}))
+            await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
+            self._exec = HarborExec(self.env, default_user=self.params.get("user"))
+            probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=120)
+            if "ok" not in probe.stdout:
+                raise RuntimeError(f"sandbox image needs python3 and git for Crucible's state adapters ({etype})")
+            return
+        # Local or remote Docker: our overlay subclass (GPUs via the nvidia runtime, no-network, init, the policy's caps).
         self.env = EnvironmentFactory.create_environment_from_import_path(
             GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(), pids_limit=iso.pids_limit,
             cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory,

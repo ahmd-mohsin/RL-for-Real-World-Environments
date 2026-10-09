@@ -46,7 +46,9 @@ class Isolation:
     policy_exec: PolicyExec
     writable: list[str]
     trusted_git: dict[str, tuple[str, str]] = field(default_factory=dict)  # app id -> (worktree root, trusted git dir)
+    private: list[str] = field(default_factory=list)  # App-owned state files: root 0600 (re-applied after restores)
     egress: dict[str, Any] | None = None
+    root_exec: Exec | None = None
 
 
 def _abs(root: str, base: str) -> str:
@@ -68,7 +70,9 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
     except GuardError as e:
         raise IsolationError(str(e)) from e
     uid = int(info["uid"])
-    # App state the policy must not own: refuse it inside a policy-writable tree (it could swap it for a symlink).
+    # App state the policy must not own: refuse it inside a policy-writable tree (it could swap it for a symlink), and
+    # keep it unreadable (a mailbox or ERP database holds other people's records; only the App's tools may read it).
+    private = []
     for a in spec.apps:
         path = a.state.params.get("path")
         if path and a.state.adapter in ("sql", "json_doc"):
@@ -76,6 +80,7 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
             inside = [w for w in writable if full == w or full.startswith(w.rstrip("/") + "/")]
             if inside:
                 raise IsolationError(f"app {a.id!r}: its state {full} lies inside the policy-writable root {inside[0]}")
+            private.append(full)
     trusted: dict[str, tuple[str, str]] = {}
     for a in spec.apps:
         if a.state.adapter != "fs_git" or a.template in NON_POLICY_TEMPLATES:
@@ -101,10 +106,13 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
     await root_exec.run(f"mkdir -p {STATE_DIR}/stage && chmod 700 {STATE_DIR}/stage")
     root_exec.python = f"{shlex.quote(guard.python)} -I -S"
     root_exec.staging_dir = f"{STATE_DIR}/stage"
-    policy_exec = PolicyExec(guard, uid)
+    policy_exec = PolicyExec(guard, uid, path=root_path or None)
     for app in world.apps.values():
         app.ctx.extra["policy_exec"] = policy_exec
-    out = Isolation(guard=guard, uid=uid, policy_exec=policy_exec, writable=writable, trusted_git=trusted)
+    out = Isolation(guard=guard, uid=uid, policy_exec=policy_exec, writable=writable, trusted_git=trusted, private=private, root_exec=root_exec)
+    await _seal(out)
+    if base_path != "/":
+        await root_exec.run(f"chmod 711 {shlex.quote(base_path)}")  # traversable to reach App roots, not listable
     if iso.egress_probe and spec.network in ("no-network", "allowlist"):
         probe = await guard.call("egress", {"uid": uid, "extra_targets": egress_targets or []})
         out.egress = probe
@@ -119,7 +127,14 @@ async def before_restore(iso: Isolation) -> None:
         raise IsolationError(f"policy processes survived quiesce before restore: {rep}")
 
 
+async def _seal(iso: Isolation) -> None:
+    if iso.private and iso.root_exec is not None:
+        files = " ".join(shlex.quote(p + s) for p in iso.private for s in ("", "-journal", "-wal", "-shm"))
+        await iso.root_exec.run(f"for f in {files}; do [ -e \"$f\" ] && chown 0:0 \"$f\" && chmod 600 \"$f\"; done; true")
+
+
 async def after_restore(iso: Isolation) -> dict[str, Any]:
     for root, git_dir in iso.trusted_git.values():
         await iso.guard.call("git_reset", {"root": root, "src": git_dir, "uid": iso.uid})
+    await _seal(iso)
     return await iso.guard.call("reclaim", {"uid": iso.uid})

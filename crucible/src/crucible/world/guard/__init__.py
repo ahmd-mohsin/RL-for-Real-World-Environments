@@ -68,16 +68,20 @@ class PolicyExec(Exec):
 
     name = "policy"
 
-    def __init__(self, guard: Guard, uid: int):
+    def __init__(self, guard: Guard, uid: int, *, path: str | None = None):
         self.guard = guard
         self.uid = uid
+        self.path = path  # the image's PATH (e.g. /usr/local/cuda/bin): the policy's own PATH is not a security boundary
         self.python = "python3"
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None) -> ExecOut:
         t0 = time.monotonic()
         try:
-            r = await self.guard.call("run", {"uid": self.uid, "cmd": cmd, "cwd": cwd, "env": env or {}, "timeout": timeout_s or 600,
-                                              "stdin": stdin.decode() if stdin is not None else None}, timeout_s=(timeout_s or 600) + 30)
+            args = {"uid": self.uid, "cmd": cmd, "cwd": cwd, "env": env or {}, "timeout": timeout_s or 600,
+                    "stdin": stdin.decode("utf-8", "surrogateescape") if stdin is not None else None}
+            if self.path:
+                args["path"] = self.path
+            r = await self.guard.call("run", args, timeout_s=(timeout_s or 600) + 30)
         except GuardError as e:
             raise ExecError(str(e)) from e
         return ExecOut(rc=r["rc"], stdout=r["stdout"], stderr=r["stderr"], duration_s=time.monotonic() - t0, timed_out=r["timed_out"])

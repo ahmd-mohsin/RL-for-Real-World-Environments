@@ -1,0 +1,33 @@
+{
+ "agentenv_docker_lab5090": {
+  "egress": {
+   "isolated": true,
+   "reachable": [],
+   "tested": [
+    "1.1.1.1:80",
+    "8.8.8.8:53",
+    "pypi.org:443",
+    "github.com:443",
+    "169.254.169.254:80",
+    "2606:4700:4700::1111:80",
+    "host.docker.internal:50509",
+    "172.17.0.1:50509"
+   ]
+  },
+  "policy_shell": "[exit 0]\nagent\nNVIDIA GeForce RTX 5090, 32607 MiB\nBuild cuda_12.8.r12.8/compiler.35583870_0\n",
+  "sandbox": "docker task04-pcl-gpu-cuda12:v1 on ssh://ahmed@100.100.101.36, 1 GPU(s)",
+  "start_s": 29.6,
+  "verifier_gpu": {
+   "gpus": [
+    {
+     "compute_cap": "12.0",
+     "driver": "590.48.01",
+     "memory_total_mb": 32607,
+     "memory_used_mb": 135,
+     "name": "NVIDIA GeForce RTX 5090",
+     "utilization_pct": 0
+    }
+   ]
+  }
+ }
+}
