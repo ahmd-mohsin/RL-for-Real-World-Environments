@@ -1,0 +1,109 @@
+{
+ "repos": {
+  "PointCloudLibrary/pcl": {
+   "evaluated": 90,
+   "raised_before": 90,
+   "anchor_changed_at_head": 55,
+   "silent_after_changed": 55,
+   "before_missing": 2,
+   "after_missing_or_deleted": 3,
+   "anchor_unchanged_at_head": 32,
+   "tp": 86,
+   "pred": 90,
+   "gold": 90,
+   "precision": 0.9556,
+   "recall": 0.9556,
+   "comments": 92,
+   "resolution_rate": 0.6322
+  },
+  "NVIDIA/cccl": {
+   "evaluated": 131,
+   "raised_before": 131,
+   "anchor_unchanged_at_head": 42,
+   "anchor_changed_at_head": 89,
+   "silent_after_changed": 89,
+   "tp": 128,
+   "pred": 131,
+   "gold": 131,
+   "precision": 0.9771,
+   "recall": 0.9771,
+   "comments": 131,
+   "resolution_rate": 0.6794
+  }
+ },
+ "overall": {
+  "tp": 214,
+  "pred": 221,
+  "gold": 221,
+  "precision": 0.9683,
+  "recall": 0.9683,
+  "evaluated": 221,
+  "raised_before": 221,
+  "anchor_changed_at_head": 144,
+  "silent_after_changed": 144,
+  "before_missing": 2,
+  "after_missing_or_deleted": 3,
+  "anchor_unchanged_at_head": 74,
+  "silence_after_changed": 1.0,
+  "resolution_rate": 0.6606
+ },
+ "tolerance_lines": 3,
+ "api_calls": 0,
+ "raw_calls": 0,
+ "examples": [
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6486,
+   "path": "test/io/test_io.cpp",
+   "line": 1853,
+   "raised_at": 1853,
+   "comment": "```suggestion\n  const auto append_unterminated = [&append_bytes, &append_uint32] (const std::string& str)\n```\n\n&data was not used and thats why it failed on MacOS.",
+   "changed_at_head": true
+  },
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6487,
+   "path": "test/io/test_io.cpp",
+   "line": 1043,
+   "raised_at": 1043,
+   "comment": "This fails on macOS because `GTEST_SKIP` is not known - probably because the gtest version we use there is currently too old. I would suggest to wrap the test in `#if SIZE_MAX == UINT64_MAX` instead",
+   "changed_at_head": true
+  },
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6487,
+   "path": "io/src/ascii_io.cpp",
+   "line": 173,
+   "raised_at": 173,
+   "comment": "I think I would rather change `total` to be a `std::size_t` instead of casting here.",
+   "changed_at_head": true
+  },
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6367,
+   "path": "common/include/pcl/impl/feature_types.hpp",
+   "line": 41,
+   "raised_at": 41,
+   "comment": "`value` should actually be 64 (mistake was introduced in a commit in the past, see also https://github.com/PointCloudLibrary/pcl/pull/6457 ). Depending on which pull request is merged first, the other",
+   "changed_at_head": true
+  },
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6457,
+   "path": "common/include/pcl/impl/point_types.hpp",
+   "line": 169,
+   "raised_at": 169,
+   "comment": "Shouldn't it be [64] ?(https://github.com/PointCloudLibrary/pcl/blob/4dd5652c59d8c5fb522156a85382fdf76639592c/common/include/pcl/impl/point_types.hpp#L1446)",
+   "changed_at_head": true
+  },
+  {
+   "repo": "PointCloudLibrary/pcl",
+   "pr": 6457,
+   "path": "search/include/pcl/search/brute_force.h",
+   "line": 105,
+   "raised_at": 105,
+   "comment": "```suggestion\n        , point_representation_ (new DefaultPointRepresentation<PointT>)\n```\nI think there is not really a point in having the `makeDefaultPointRepresentation` function any more, so I wo",
+   "changed_at_head": true
+  }
+ ]
+}

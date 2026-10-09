@@ -45,6 +45,8 @@ def test_records_time_visibility_and_bm25():
     assert s.search("bounds check latency", now="2026-02-01T00:00:00Z") == [] or all(r.id != "pr2#2" for r, _ in s.search("bounds check latency", now="2026-02-01T00:00:00Z"))
     assert s.get("pr2#2", now="2026-02-01T00:00:00Z") is None and s.get("pr2#2") is not None
     assert s.search("审批 refunds", k=1)[0][0].id == "fin#1"  # CJK tokens retrieve
+    # instants, not strings: a record at ...10:00:00Z is visible at ...10:00:00.5Z
+    assert s.get("pr1#3", now="2026-01-10T10:00:00.500000Z") is not None and s.get("pr1#3", now="2026-01-10T09:59:59.9Z") is None
 
 
 def test_grounding_checker():

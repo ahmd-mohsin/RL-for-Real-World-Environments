@@ -155,7 +155,7 @@ class EventScheduler:
                 continue
             if w.on_actor and w.on_actor != actor:
                 continue
-            limit = w.count if w.count is not None else (None if w.every else 1)
+            limit = w.count if w.count is not None else (None if (w.every or w.repeat) else 1)
             if limit is not None and self.fired_counts.get(ev.id, 0) >= limit:
                 continue
             self.fired_counts[ev.id] = self.fired_counts.get(ev.id, 0) + 1

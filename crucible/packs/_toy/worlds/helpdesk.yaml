@@ -1,0 +1,38 @@
+schema_version: crucible.world/v1
+world: toy/helpdesk
+description: A small e-commerce helpdesk (tickets, policy docs, email) with a grounded customer and a supervisor bot.
+backend: local
+backend_params:
+  bundles:
+  - {src: data/helpdesk, dest: helpdesk}
+apps:
+- id: tickets
+  template: common/sqlite_app
+  state: {adapter: sql, params: {path: helpdesk/db/tickets.db}}
+  params: {schema_sql: data/tickets.sql, tools_module: helpdesk/tools/tickets.py, transport: inprocess}
+  description: ticketing system of record
+- id: kb
+  template: common/doc_library
+  state: {adapter: fs, params: {root: kb}}
+  params: {seed_dir: data/kb}
+  description: policy documents
+- id: mail
+  template: common/mailbox
+  state: {adapter: sql, params: {path: mail/mail.db}}
+  params:
+    addresses: {agent: support@shop.example, customer_dana: dana@mail.example, customer_lee: lee@mail.example}
+    seed_messages:
+    - {from: lee@mail.example, to: [support@shop.example], subject: "TV order O-5003", body: "My TV order O-5003 still has not arrived. Can I get my money back?", at: "2026-03-02T08:56:00Z"}
+actors:
+- {id: agent, kind: policy, tools: ["tickets.*", "kb.*", "mail.*"]}
+- {id: customer_dana, kind: simulated, grounded_on: [data/customers.jsonl]}
+- {id: customer_lee, kind: simulated, grounded_on: [data/customers.jsonl]}
+- {id: supervisor, kind: system}
+- {id: ops, kind: system}
+clock: {mode: step, t0: "2026-03-02T09:00:00Z", step_dt_s: 300}
+events:
+- {id: sla_reminder, when: {after: 1h}, actor: ops, action: {type: nl, to: agent, text: "Reminder: every open ticket older than 1 hour needs a note or a status change."}}
+- {id: month_end_freeze, when: {after: 3h}, actor: ops, action: {type: permission, to: agent, revoke: ["tickets.issue_refund"]}}
+- {id: refund_audit, when: {on_tool: "tickets.issue_refund", repeat: true}, actor: ops, action: {type: tool, tool: mail.send_email, args: {to: [support@shop.example], subject: "refund logged", body: "A refund was issued and logged for audit."}}}
+policies:
+- {id: refund_policy, app: kb, path: refund_policy.md, applies_to: [agent, supervisor]}

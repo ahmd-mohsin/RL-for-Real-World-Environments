@@ -142,8 +142,11 @@ class LLMClient:
         return out
 
     async def complete_json(self, messages: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:
-        r = await self.complete(messages, json_mode=True, **kw)
+        kw.setdefault("json_mode", True)
+        r = await self.complete(messages, **kw)
         text = r.text.strip()
+        if not text:
+            raise LLMError(f"empty completion (finish={r.raw_finish})")
         if text.startswith("```"):
             text = text.strip("`").removeprefix("json").strip()
         try:

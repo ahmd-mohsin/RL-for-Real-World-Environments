@@ -1,0 +1,2002 @@
+[
+ {
+  "scenario": "marketplace_1",
+  "ok": true,
+  "tools": 43,
+  "tables": 18,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.17,
+  "error": null
+ },
+ {
+  "scenario": "booking_management_1",
+  "ok": true,
+  "tools": 51,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.53,
+  "error": null
+ },
+ {
+  "scenario": "order_management_1",
+  "ok": true,
+  "tools": 42,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 3.0,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_marketplace_2",
+  "ok": true,
+  "tools": 28,
+  "tables": 12,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 3.19,
+  "error": null
+ },
+ {
+  "scenario": "b2b_operations_management_1",
+  "ok": true,
+  "tools": 35,
+  "tables": 18,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.19,
+  "error": null
+ },
+ {
+  "scenario": "marketplace_2",
+  "ok": true,
+  "tools": 26,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.83,
+  "error": null
+ },
+ {
+  "scenario": "personal_finance_1",
+  "ok": true,
+  "tools": 27,
+  "tables": 12,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.79,
+  "error": null
+ },
+ {
+  "scenario": "social_networking_2",
+  "ok": true,
+  "tools": 36,
+  "tables": 24,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.43,
+  "error": null
+ },
+ {
+  "scenario": "social_community_platform_1",
+  "ok": true,
+  "tools": 31,
+  "tables": 16,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.52,
+  "error": null
+ },
+ {
+  "scenario": "scheduling_and_attendance_management_1",
+  "ok": true,
+  "tools": 27,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.35,
+  "error": null
+ },
+ {
+  "scenario": "property_management_2",
+  "ok": true,
+  "tools": 34,
+  "tables": 23,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.34,
+  "error": null
+ },
+ {
+  "scenario": "order_management_3",
+  "ok": true,
+  "tools": 40,
+  "tables": 24,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.61,
+  "error": null
+ },
+ {
+  "scenario": "project_management_2",
+  "ok": true,
+  "tools": 33,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.84,
+  "error": null
+ },
+ {
+  "scenario": "booking_and_reservations_2",
+  "ok": true,
+  "tools": 31,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.84,
+  "error": null
+ },
+ {
+  "scenario": "calendar_scheduling_1",
+  "ok": true,
+  "tools": 27,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.49,
+  "error": null
+ },
+ {
+  "scenario": "finance_crypto_trading_1",
+  "ok": true,
+  "tools": 30,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.48,
+  "error": null
+ },
+ {
+  "scenario": "authentication_and_identity_management_1",
+  "ok": true,
+  "tools": 43,
+  "tables": 33,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.5,
+  "error": null
+ },
+ {
+  "scenario": "booking_reservations_7",
+  "ok": true,
+  "tools": 29,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.48,
+  "error": null
+ },
+ {
+  "scenario": "hr_management_1",
+  "ok": true,
+  "tools": 48,
+  "tables": 25,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.6,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_8",
+  "ok": true,
+  "tools": 28,
+  "tables": 30,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.46,
+  "error": null
+ },
+ {
+  "scenario": "restaurant_ops_1",
+  "ok": true,
+  "tools": 47,
+  "tables": 26,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.26,
+  "error": null
+ },
+ {
+  "scenario": "ordering_and_fulfillment_1",
+  "ok": true,
+  "tools": 36,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.59,
+  "error": null
+ },
+ {
+  "scenario": "dating_3",
+  "ok": true,
+  "tools": 31,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.63,
+  "error": null
+ },
+ {
+  "scenario": "loyalty_and_rewards_1",
+  "ok": true,
+  "tools": 31,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.3,
+  "error": null
+ },
+ {
+  "scenario": "community_forum_2",
+  "ok": true,
+  "tools": 24,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.51,
+  "error": null
+ },
+ {
+  "scenario": "reviews_and_ratings_1",
+  "ok": true,
+  "tools": 27,
+  "tables": 12,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.64,
+  "error": null
+ },
+ {
+  "scenario": "marketplace_5",
+  "ok": true,
+  "tools": 33,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.22,
+  "error": null
+ },
+ {
+  "scenario": "productivity_1",
+  "ok": true,
+  "tools": 42,
+  "tables": 12,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.02,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_marketplace_10",
+  "ok": true,
+  "tools": 28,
+  "tables": 11,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.73,
+  "error": null
+ },
+ {
+  "scenario": "donation_management_1",
+  "ok": true,
+  "tools": 25,
+  "tables": 13,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.87,
+  "error": null
+ },
+ {
+  "scenario": "survey_and_form_engine_1",
+  "ok": true,
+  "tools": 32,
+  "tables": 11,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.51,
+  "error": null
+ },
+ {
+  "scenario": "lms_learning_management_system_1",
+  "ok": true,
+  "tools": 32,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.66,
+  "error": null
+ },
+ {
+  "scenario": "stock_trading_2",
+  "ok": true,
+  "tools": 45,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.28,
+  "error": null
+ },
+ {
+  "scenario": "workflow_task_management_2",
+  "ok": true,
+  "tools": 34,
+  "tables": 11,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.7,
+  "error": null
+ },
+ {
+  "scenario": "content_media_consumption_1",
+  "ok": true,
+  "tools": 35,
+  "tables": 29,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.91,
+  "error": null
+ },
+ {
+  "scenario": "it_service_management_2",
+  "ok": true,
+  "tools": 39,
+  "tables": 32,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.49,
+  "error": null
+ },
+ {
+  "scenario": "inventory_management_3",
+  "ok": true,
+  "tools": 28,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.55,
+  "error": null
+ },
+ {
+  "scenario": "operations_management_6",
+  "ok": true,
+  "tools": 36,
+  "tables": 25,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.31,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_14",
+  "ok": true,
+  "tools": 39,
+  "tables": 38,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.51,
+  "error": null
+ },
+ {
+  "scenario": "analytics_dashboard_2",
+  "ok": true,
+  "tools": 37,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.65,
+  "error": null
+ },
+ {
+  "scenario": "b2b_procurement_1",
+  "ok": true,
+  "tools": 39,
+  "tables": 16,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.26,
+  "error": null
+ },
+ {
+  "scenario": "iot_smart_home_2",
+  "ok": true,
+  "tools": 58,
+  "tables": 27,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.87,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_16",
+  "ok": true,
+  "tools": 33,
+  "tables": 34,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 3.2,
+  "error": null
+ },
+ {
+  "scenario": "job_board_5",
+  "ok": true,
+  "tools": 32,
+  "tables": 18,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.87,
+  "error": null
+ },
+ {
+  "scenario": "it_service_management_itsm_1",
+  "ok": true,
+  "tools": 43,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.55,
+  "error": null
+ },
+ {
+  "scenario": "marketplace_14",
+  "ok": true,
+  "tools": 37,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.98,
+  "error": null
+ },
+ {
+  "scenario": "inventory_management_6",
+  "ok": true,
+  "tools": 29,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.11,
+  "error": null
+ },
+ {
+  "scenario": "task_management_10",
+  "ok": true,
+  "tools": 41,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.49,
+  "error": null
+ },
+ {
+  "scenario": "payments_fintech_2",
+  "ok": true,
+  "tools": 33,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.91,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_19",
+  "ok": true,
+  "tools": 23,
+  "tables": 9,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.83,
+  "error": null
+ },
+ {
+  "scenario": "booking_and_reservations_5",
+  "ok": true,
+  "tools": 30,
+  "tables": 23,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.68,
+  "error": null
+ },
+ {
+  "scenario": "task_management_12",
+  "ok": true,
+  "tools": 37,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.5,
+  "error": null
+ },
+ {
+  "scenario": "hr_employee_engagement_1",
+  "ok": true,
+  "tools": 41,
+  "tables": 25,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.91,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_marketplace_17",
+  "ok": true,
+  "tools": 24,
+  "tables": 13,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.57,
+  "error": null
+ },
+ {
+  "scenario": "learning_management_system_6",
+  "ok": true,
+  "tools": 34,
+  "tables": 17,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.29,
+  "error": null
+ },
+ {
+  "scenario": "recruiting_platform_1",
+  "ok": true,
+  "tools": 46,
+  "tables": 18,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.66,
+  "error": null
+ },
+ {
+  "scenario": "food_ordering_2",
+  "ok": true,
+  "tools": 33,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.83,
+  "error": null
+ },
+ {
+  "scenario": "transportation_logistics_1",
+  "ok": true,
+  "tools": 19,
+  "tables": 9,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.93,
+  "error": null
+ },
+ {
+  "scenario": "forum_1",
+  "ok": true,
+  "tools": 37,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.58,
+  "error": null
+ },
+ {
+  "scenario": "workforce_management_3",
+  "ok": true,
+  "tools": 37,
+  "tables": 16,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.94,
+  "error": null
+ },
+ {
+  "scenario": "productivity_assistant_1",
+  "ok": true,
+  "tools": 75,
+  "tables": 33,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.79,
+  "error": null
+ },
+ {
+  "scenario": "collaboration_3",
+  "ok": true,
+  "tools": 38,
+  "tables": 24,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 3.0,
+  "error": null
+ },
+ {
+  "scenario": "dating_matchmaking_3",
+  "ok": true,
+  "tools": 24,
+  "tables": 13,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.99,
+  "error": null
+ },
+ {
+  "scenario": "application_portal_1",
+  "ok": true,
+  "tools": 32,
+  "tables": 16,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.88,
+  "error": null
+ },
+ {
+  "scenario": "gaming_matchmaking_2",
+  "ok": true,
+  "tools": 37,
+  "tables": 13,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.05,
+  "error": null
+ },
+ {
+  "scenario": "booking_scheduling_5",
+  "ok": true,
+  "tools": 22,
+  "tables": 9,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 2.39,
+  "error": null
+ },
+ {
+  "scenario": "gaming_platform_1",
+  "ok": true,
+  "tools": 31,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.63,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_ordering_5",
+  "ok": true,
+  "tools": 42,
+  "tables": 28,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.3,
+  "error": null
+ },
+ {
+  "scenario": "survey_and_feedback_management_2",
+  "ok": true,
+  "tools": 36,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.57,
+  "error": null
+ },
+ {
+  "scenario": "hr_payroll_management_5",
+  "ok": true,
+  "tools": 43,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.26,
+  "error": null
+ },
+ {
+  "scenario": "finance_accounting_2",
+  "ok": true,
+  "tools": 44,
+  "tables": 25,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.55,
+  "error": null
+ },
+ {
+  "scenario": "logistics_management_10",
+  "ok": true,
+  "tools": 34,
+  "tables": 13,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 3.09,
+  "error": null
+ },
+ {
+  "scenario": "booking_scheduling_6",
+  "ok": true,
+  "tools": 24,
+  "tables": 16,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.05,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_30",
+  "ok": true,
+  "tools": 31,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.57,
+  "error": null
+ },
+ {
+  "scenario": "enterprise_software_1",
+  "ok": true,
+  "tools": 38,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.76,
+  "error": null
+ },
+ {
+  "scenario": "booking_and_scheduling_13",
+  "ok": true,
+  "tools": 36,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.2,
+  "error": null
+ },
+ {
+  "scenario": "banking_3",
+  "ok": true,
+  "tools": 28,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.47,
+  "error": null
+ },
+ {
+  "scenario": "professional_networking_11",
+  "ok": true,
+  "tools": 39,
+  "tables": 17,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 3.24,
+  "error": null
+ },
+ {
+  "scenario": "job_board_9",
+  "ok": true,
+  "tools": 26,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 1.93,
+  "error": null
+ },
+ {
+  "scenario": "forms_and_workflow_management_1",
+  "ok": true,
+  "tools": 44,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.99,
+  "error": null
+ },
+ {
+  "scenario": "ride_hailing_2",
+  "ok": true,
+  "tools": 37,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 3.22,
+  "error": null
+ },
+ {
+  "scenario": "project_management_7",
+  "ok": true,
+  "tools": 39,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 1.88,
+  "error": null
+ },
+ {
+  "scenario": "fundraising_donations_4",
+  "ok": true,
+  "tools": 46,
+  "tables": 24,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 3.17,
+  "error": null
+ },
+ {
+  "scenario": "project_management_9",
+  "ok": true,
+  "tools": 37,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.6,
+  "error": null
+ },
+ {
+  "scenario": "booking_and_scheduling_16",
+  "ok": true,
+  "tools": 29,
+  "tables": 17,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 1.72,
+  "error": null
+ },
+ {
+  "scenario": "ticketing_system_3",
+  "ok": true,
+  "tools": 26,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.84,
+  "error": null
+ },
+ {
+  "scenario": "accounting_finance_management_1",
+  "ok": true,
+  "tools": 29,
+  "tables": 19,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.34,
+  "error": null
+ },
+ {
+  "scenario": "inventory_management_10",
+  "ok": true,
+  "tools": 28,
+  "tables": 12,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.96,
+  "error": null
+ },
+ {
+  "scenario": "property_management_13",
+  "ok": true,
+  "tools": 41,
+  "tables": 14,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.9,
+  "error": null
+ },
+ {
+  "scenario": "team_messaging_6",
+  "ok": true,
+  "tools": 37,
+  "tables": 20,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.27,
+  "error": null
+ },
+ {
+  "scenario": "social_friends_presence_management_1",
+  "ok": true,
+  "tools": 36,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.31,
+  "error": null
+ },
+ {
+  "scenario": "travel_booking_2",
+  "ok": true,
+  "tools": 25,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.79,
+  "error": null
+ },
+ {
+  "scenario": "operations_management_11",
+  "ok": true,
+  "tools": 44,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.71,
+  "error": null
+ },
+ {
+  "scenario": "stock_trading_3",
+  "ok": true,
+  "tools": 35,
+  "tables": 23,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.34,
+  "error": null
+ },
+ {
+  "scenario": "marketplace_22",
+  "ok": true,
+  "tools": 35,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.89,
+  "error": null
+ },
+ {
+  "scenario": "communication_messaging_2",
+  "ok": true,
+  "tools": 27,
+  "tables": 15,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 3.02,
+  "error": null
+ },
+ {
+  "scenario": "e_commerce_38",
+  "ok": true,
+  "tools": 25,
+  "tables": 31,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 2,
+  "calls_err": 1,
+  "seconds": 1.8,
+  "error": null
+ },
+ {
+  "scenario": "property_management_15",
+  "ok": true,
+  "tools": 36,
+  "tables": 22,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 1,
+  "calls_err": 2,
+  "seconds": 2.12,
+  "error": null
+ },
+ {
+  "scenario": "learning_management_2",
+  "ok": true,
+  "tools": 43,
+  "tables": 21,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 2.04,
+  "error": null
+ },
+ {
+  "scenario": "bookmarking_4",
+  "ok": true,
+  "tools": 39,
+  "tables": 11,
+  "tasks": 10,
+  "checks": {
+   "has_tools": true,
+   "instruction_and_tools_delivered": true,
+   "db_has_tables": true,
+   "reset_stable": true,
+   "mutation_visible": true,
+   "reset_undoes_mutation": true,
+   "transport_ok": true
+  },
+  "calls_ok": 0,
+  "calls_err": 3,
+  "seconds": 1.2,
+  "error": null
+ }
+]

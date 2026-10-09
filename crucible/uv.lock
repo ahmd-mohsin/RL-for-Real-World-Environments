@@ -7,6 +7,9 @@ conflicts = [[
 ], [
     { package = "crucible", extra = "verifiers" },
     { package = "crucible", extra = "mcp" },
+], [
+    { package = "crucible", extra = "verifiers" },
+    { package = "crucible", extra = "openenv-awm" },
 ]]
 
 [manifest]
@@ -117,7 +120,7 @@ dependencies = [
 
 [package.optional-dependencies]
 agent = [
-    { name = "a2a-sdk", extra = ["http-server"], marker = "extra == 'extra-8-crucible-agentenv' or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers')" },
+    { name = "a2a-sdk", extra = ["http-server"], marker = "extra == 'extra-8-crucible-agentenv' or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-openenv-awm' and extra == 'extra-8-crucible-verifiers')" },
     { name = "python-multipart" },
     { name = "regex" },
     { name = "uvicorn" },
@@ -487,7 +490,7 @@ dependencies = [
 [package.optional-dependencies]
 agentenv = [
     { name = "agentenv-framework" },
-    { name = "agentenv-framework-protocol", extra = ["agent"], marker = "extra == 'extra-8-crucible-agentenv' or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers')" },
+    { name = "agentenv-framework-protocol", extra = ["agent"], marker = "extra == 'extra-8-crucible-agentenv' or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-openenv-awm' and extra == 'extra-8-crucible-verifiers')" },
     { name = "mcp", version = "1.30.0", source = { registry = "https://pypi.org/simple" } },
     { name = "psycopg2-binary" },
 ]
@@ -508,6 +511,14 @@ mcp = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
+openenv-awm = [
+    { name = "fastapi" },
+    { name = "fastapi-mcp" },
+    { name = "huggingface-hub" },
+    { name = "mcp", version = "1.30.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "sqlalchemy" },
+    { name = "uvicorn" },
+]
 verifiers = [
     { name = "verifiers" },
 ]
@@ -523,12 +534,16 @@ requires-dist = [
     { name = "agentenv-framework", marker = "extra == 'agentenv'", editable = "../agentenv-framework" },
     { name = "agentenv-framework-protocol", extras = ["agent"], marker = "extra == 'agentenv'", editable = "../agentenv-framework/packages/agentenv-protocol" },
     { name = "click", specifier = ">=8.1" },
+    { name = "fastapi", marker = "extra == 'openenv-awm'", specifier = ">=0.110" },
+    { name = "fastapi-mcp", marker = "extra == 'openenv-awm'", specifier = ">=0.3" },
     { name = "harbor", marker = "extra == 'harbor'", editable = "../RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "huggingface-hub", marker = "extra == 'openenv-awm'", specifier = ">=0.24" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.1" },
     { name = "mcp", marker = "extra == 'agentenv'", specifier = ">=1.10,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10,<2" },
+    { name = "mcp", marker = "extra == 'openenv-awm'", specifier = ">=1.10,<2" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.60" },
     { name = "psycopg2-binary", marker = "extra == 'agentenv'", specifier = ">=2.9" },
     { name = "pydantic", specifier = ">=2.12" },
@@ -536,12 +551,14 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13" },
+    { name = "sqlalchemy", marker = "extra == 'openenv-awm'", specifier = ">=2.0" },
     { name = "starlette", marker = "extra == 'mcp'", specifier = ">=0.40" },
     { name = "tomli-w", specifier = ">=1.0" },
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
+    { name = "uvicorn", marker = "extra == 'openenv-awm'", specifier = ">=0.30" },
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },
 ]
-provides-extras = ["mcp", "harbor", "agentenv", "llm", "verifiers", "dev"]
+provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "verifiers", "dev"]
 
 [package.metadata.requires-dev]
 packs = [
@@ -707,6 +724,27 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0b/d7/6a8753ab6c1d432dc53703c3e1b92974a94531b7d047c32bbaae461ea844/fastapi-0.143.0.tar.gz", hash = "sha256:1acffe48206a80917cf7dac21992b5c44b25384e8902bf745c1fd9dabcf6c51f", size = 468391 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/f4/27e386913417ad32aae42bba48b0c0cce40e9ff2fba1a871ca2702c37324/fastapi-0.143.0-py3-none-any.whl", hash = "sha256:3e9395fd35276425b61b516a31fdd7c77fe2af83e41b4da22e30696fb1304c5d", size = 144665 },
+]
+
+[[package]]
+name = "fastapi-mcp"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "mcp", version = "1.30.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "tomli" },
+    { name = "typer" },
+    { name = "uvicorn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/1e/e3ba42f2e240dc67baabc431c68a82e380bcdae4e8b7d1310a756b2033fc/fastapi_mcp-0.4.0.tar.gz", hash = "sha256:d4ca9410996f4c7b8ea0d7b20fdf79878dc359ebf89cbf3b222e0b675a55097d", size = 184201 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/83/6bf02ff9e3ca1d24765050e3b51dceae9bb69909cc5385623cf6f3fd7c23/fastapi_mcp-0.4.0-py3-none-any.whl", hash = "sha256:d4a3fe7966af24d44e4b412720561c95eb12bed999a4443a88221834b3b15aec", size = 25085 },
 ]
 
 [[package]]
@@ -1537,7 +1575,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyjwt", extra = ["crypto"], marker = "extra == 'extra-8-crucible-agentenv' or extra == 'extra-8-crucible-mcp'" },
+    { name = "pyjwt", extra = ["crypto"], marker = "extra == 'extra-8-crucible-agentenv' or extra == 'extra-8-crucible-mcp' or extra == 'extra-8-crucible-openenv-awm'" },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "sse-starlette" },
@@ -2282,7 +2320,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-8-crucible-agentenv' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-8-crucible-agentenv' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-openenv-awm' and extra == 'extra-8-crucible-verifiers')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -2299,7 +2337,7 @@ version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-8-crucible-agentenv' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-8-crucible-agentenv' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-mcp' and extra == 'extra-8-crucible-verifiers') or (extra == 'extra-8-crucible-openenv-awm' and extra == 'extra-8-crucible-verifiers')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/43/7c/d36d04db312ecf4298932ef77e6e4a9e8ad017906e24e34f0b0c361a2473/pytest_asyncio-1.4.0.tar.gz", hash = "sha256:c6c0d2259945122819f171a32ecea2c349ead889ee28176caaf492143424be42", size = 58514 }
 wheels = [
@@ -2659,6 +2697,38 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575 },
+]
+
+[[package]]
+name = "sqlalchemy"
+version = "2.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/44/311bac6b6ef81e4dfd0287d04900108b1f5c00c9761dd3c0a2b7b9d0f86b/sqlalchemy-2.1.4.tar.gz", hash = "sha256:7bd7ad604487daa7eab8716471c29a7185f17b5287ce73bb7bc79fea050d8cfd", size = 10544216 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/5e/cb5b078e007340661b010fa8bd31ce27468f88e09b35266544df4e0c52ca/sqlalchemy-2.1.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f953be9ba26039a24a5205c65d33518b608ce6f4f0f4e9b9c14eaf42a10dfc52", size = 2466469 },
+    { url = "https://files.pythonhosted.org/packages/b1/98/44e2fdc5bc053dae559bf4f4eb7967ceecbad162299ecfc8de2edc3fcbe7/sqlalchemy-2.1.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1ac64fce94c5b389062d2e3806db5dc780447591e0dfd5ead218c884f0703f2e", size = 4668213 },
+    { url = "https://files.pythonhosted.org/packages/08/25/ed2262f964687b06f10c2c98b2dc9c9ed211f7cc11702879969a9ac217e4/sqlalchemy-2.1.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3e5045fb6aadbb0f978ab9b9d8822f7b7a97d2281814e7d13d791155664eace3", size = 4720857 },
+    { url = "https://files.pythonhosted.org/packages/4d/d4/fab64c61d5d22ddbb077afd1e6b29b498bdacdf6406a03f53566e7e01686/sqlalchemy-2.1.4-cp312-cp312-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:e3a026436c51f296aa1d01243909a3b76490950e927824b10899a083cc26e7c3", size = 4369351 },
+    { url = "https://files.pythonhosted.org/packages/d9/e4/33413f0fafbcf3b332320aac2c1e40f3b4f17e56359a9474cb10de4bee8b/sqlalchemy-2.1.4-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:71040390ef01c85e9d26e5c83cb0c5942dcc8725c49186430af160ce2f54234d", size = 4591496 },
+    { url = "https://files.pythonhosted.org/packages/bb/65/19821440cbd5c93da053d627b3e402eff11ff252bfae37700645b3c155a4/sqlalchemy-2.1.4-cp312-cp312-musllinux_1_2_riscv64.whl", hash = "sha256:07c60abaffb980b7382f2c75be8a5279c2b5df2626a0f5d751dd942799bf3b5c", size = 4362379 },
+    { url = "https://files.pythonhosted.org/packages/01/e3/168a0f93efd6ec40f59645a7e45ab08918e0bc8ecf07656e4ca09acdcc30/sqlalchemy-2.1.4-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:a577e2127e52b0fe2bc54c73abb375a20ffe6f59fbc5568ccafc233f5bfcf8ef", size = 4667997 },
+    { url = "https://files.pythonhosted.org/packages/54/79/0a852ef65864acd8d577d7aa6f67146167382bd6faee7a7586b9e6e28275/sqlalchemy-2.1.4-cp312-cp312-win32.whl", hash = "sha256:6c79e0c824d51c586757ecd342160bbdede9010df04bb71b9bbfffd5c7b6ee29", size = 2376664 },
+    { url = "https://files.pythonhosted.org/packages/27/b9/a5934263bb1d712f743289ca224ab3b87e3570ac157802291e37ab85d365/sqlalchemy-2.1.4-cp312-cp312-win_amd64.whl", hash = "sha256:dffa69d2f3ba1933c1c1882dbef8fb3231b33eb19263e8b8c5cea24995071f06", size = 2429357 },
+    { url = "https://files.pythonhosted.org/packages/a5/fa/a2323d81384ff214aa189057b7455b63623e66f28208b982e86c3cb042f5/sqlalchemy-2.1.4-cp312-cp312-win_arm64.whl", hash = "sha256:e30524ae24e31d83e1b5f734862882c442f4158e3566f2c5f5e9bd3c659bb517", size = 2388756 },
+    { url = "https://files.pythonhosted.org/packages/dc/e4/23174288ed2c03d6dbd5dfacd69e28303ee95f49642a8ed0544932999fb6/sqlalchemy-2.1.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:70006e9e6157200b795beeee04bd5cb15bccb40a14de595eb9f5dcf5945ed244", size = 2460507 },
+    { url = "https://files.pythonhosted.org/packages/9f/ac/254fadc98bfd600445b976e81c6d777b08a728a415c3b77a8c8d35b89a83/sqlalchemy-2.1.4-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3341ddc430733cd961bc064889f42712a0b4056733a21c83176842aad67d12a6", size = 4594505 },
+    { url = "https://files.pythonhosted.org/packages/83/6f/ac7beddc57c9c87bd77bc1c158fcbcdc20822f1873bf33ea3480d04e865f/sqlalchemy-2.1.4-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:98f7a4bfeaed3722804f737ae2bd4077b35e57d6f4531fe612bac8160cda5acd", size = 4647364 },
+    { url = "https://files.pythonhosted.org/packages/0a/82/fc3891f261c4738a8b90cfdd805fe292d1af3b77f680a63b7349304c74e5/sqlalchemy-2.1.4-cp313-cp313-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:ec5d079935f67febe0ab8a3a203ad591b99508adc34ae0027f696dcb20373537", size = 4311619 },
+    { url = "https://files.pythonhosted.org/packages/b0/1a/160c1320ab20e764a29721dc3fe7c31af34e291c652dca875d1ca6022b9a/sqlalchemy-2.1.4-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:3d675b0856b6703b29d023517a4c19fecfbb55214ff5c72cd813527e40aed9b4", size = 4518031 },
+    { url = "https://files.pythonhosted.org/packages/30/2c/15a204333896e5dc63cb089ea20ca3ebc3c892bedf9fa00cc1a65e20d7b5/sqlalchemy-2.1.4-cp313-cp313-musllinux_1_2_riscv64.whl", hash = "sha256:a0bb9ee6a38cb36240dc88da11888348f61506047be54de3f09496c3b0ead6f5", size = 4312818 },
+    { url = "https://files.pythonhosted.org/packages/a6/55/5e78d288f198598f278b4b7baef42f18e039b14b1e1045e9df3cf571300d/sqlalchemy-2.1.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:61a2c48771cf314b6613d327c795902bbc0eb6d6169deb23b35004ba6ad6cc0d", size = 4608584 },
+    { url = "https://files.pythonhosted.org/packages/ab/f6/e83b93ecc6e6528623fd7aa2af27ff0660d22354b78fe6ccad03f9ecbd9f/sqlalchemy-2.1.4-cp313-cp313-win32.whl", hash = "sha256:3fd608a06bafa768ad5711df4e17eb058bdc490e9df7d39b12a90947471e8712", size = 2373880 },
+    { url = "https://files.pythonhosted.org/packages/8f/46/afb02975023db6aa4b8608177c2fae17d0b435d9cbfcb5df4fa6e65a8078/sqlalchemy-2.1.4-cp313-cp313-win_amd64.whl", hash = "sha256:b756d74527c56a7e4cfae297f7930c1d75bdf4b23f214c8c13779746d28060cb", size = 2424430 },
+    { url = "https://files.pythonhosted.org/packages/21/e5/76dc82d59186b98b27589b33b01175c0d49512679276170271d9384418e2/sqlalchemy-2.1.4-cp313-cp313-win_arm64.whl", hash = "sha256:a64d54015233f824f171009977bfbb6b08bd0347b700cf17cb047ffb94c4148f", size = 2385057 },
+    { url = "https://files.pythonhosted.org/packages/f7/62/dbf11a262f6fbb41390cab2d8e47a30ec0961018b68201607b599dd489f5/sqlalchemy-2.1.4-py3-none-any.whl", hash = "sha256:0b96edcc2cd60fe1e35f67a46f4eb076e57297841b9eae949ac5f196593f00a7", size = 2054935 },
 ]
 
 [[package]]

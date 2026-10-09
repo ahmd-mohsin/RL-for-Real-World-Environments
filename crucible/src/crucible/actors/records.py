@@ -14,6 +14,8 @@ import math
 import re
 from collections import Counter
 from collections.abc import Iterable
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 from crucible.core.schema.trace import Record, Trace, records_from_trace
@@ -24,6 +26,13 @@ STOP = frozenset(
     "may me my no not of on or our she so than that the their them then there these they this to too up us was we were "
     "what when where which who will with would you your yes ok okay please thanks thank hi hello".split()
 )
+
+
+@lru_cache(maxsize=65536)
+def _ts(text: str) -> datetime:
+    from crucible.world.clock import parse_time
+
+    return parse_time(text)
 
 
 def tokens(text: str) -> list[str]:
@@ -47,7 +56,8 @@ class RecordStore:
         self.by_id = {r.id: r for r in self.records}
         if len(self.by_id) != len(self.records):
             raise ValueError("duplicate record ids")
-        self._tf = [Counter(content_tokens(r.text)) for r in self.records]
+        # What a person knows about their own note includes what it was about (e.g. the file path).
+        self._tf = [Counter(content_tokens(r.text + (" " + r.target.object if r.target and r.target.object else ""))) for r in self.records]
         self._len = [sum(c.values()) for c in self._tf]
         self._avg = (sum(self._len) / len(self._len)) if self._len else 1.0
         df: Counter[str] = Counter()
@@ -62,7 +72,8 @@ class RecordStore:
 
     @staticmethod
     def _visible(r: Record, now: str | None) -> bool:
-        return now is None or r.time is None or r.time <= now
+        # Compare instants, never strings: "…56Z" > "…56.5Z" lexically although it is earlier.
+        return now is None or r.time is None or _ts(r.time) <= _ts(now)
 
     def get(self, rid: str, *, now: str | None = None) -> Record | None:
         r = self.by_id.get(rid)

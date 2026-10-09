@@ -96,6 +96,7 @@ class EventWhen(CrucibleModel):
     count: int | None = None  # max firings for `every`
     on_tool: str | None = None  # fire after a call to "<app>.<tool>" (by any actor, unless on_actor)
     on_actor: str | None = None
+    repeat: bool = False  # on_tool: fire on every matching call (agentenv action-trigger "repeat"); default once
 
     @model_validator(mode="after")
     def _one_anchor(self) -> EventWhen:

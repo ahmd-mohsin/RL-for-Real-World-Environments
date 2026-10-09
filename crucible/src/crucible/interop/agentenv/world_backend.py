@@ -250,7 +250,7 @@ class AgentEnvBackend(Backend):
             app, _, tool = w.on_tool.partition(".")
             if "*" in w.on_tool or "?" in w.on_tool:
                 return None
-            when: dict[str, Any] = {"type": "action", "tool": gw_name(app, tool), "repeat": bool(w.every)}
+            when: dict[str, Any] = {"type": "action", "tool": gw_name(app, tool), "repeat": bool(w.repeat or w.every)}
         else:
             if world.spec.clock is None or world.spec.clock.mode != "wall":
                 return None  # time triggers need the gateway clock armed

@@ -14,16 +14,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from crucible.actors.grounding import CITE, NO_RECORD, check, split_sentences
-from crucible.actors.llm import LLMClient
+from crucible.actors.llm import LLMClient, LLMError
 from crucible.actors.records import RecordStore
 
-ENTAIL = """Records:
+ENTAIL = """The records below were written by the speaker of the statement ("I" in the statement is the author of the records).
+Records:
 {records}
 
 Statement: {statement}
 
-Is every factual claim in the statement directly supported by the records above (no added facts, numbers or decisions)?
-Return JSON {{"entailed": true|false, "reason": "..."}}."""
+Does the statement say only what the records say? Count it as NOT entailed if it adds a fact, number, reason or decision,
+turns a question into a claim (or the reverse), or states with certainty what a record states tentatively.
+Ignore harmless changes of tense or wording. Return only JSON {{"entailed": true|false, "reason": "<one short sentence>"}}."""
 
 
 @dataclass
@@ -34,6 +36,7 @@ class GroundingAudit:
     unsupported_sentences: int = 0
     judged: int = 0
     judge_rejected: int = 0
+    judge_failed: int = 0
     examples: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -66,12 +69,33 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
             for s in rep.factual:
                 if not s.supported:
                     continue
-                v = await judge.complete_json([{"role": "user", "content": ENTAIL.format(records=recs, statement=CITE.sub("", s.text).strip())}], max_tokens=150)
+                prompt = [{"role": "user", "content": ENTAIL.format(records=recs, statement=CITE.sub("", s.text).strip())}]
+                try:
+                    v = await judge.complete_json(prompt, max_tokens=500)
+                except LLMError as e:
+                    v = _salvage(str(e))
+                    if v is None:
+                        try:
+                            v = await judge.complete_json(prompt, max_tokens=900, temperature=0.0, seed=1)
+                        except LLMError as e2:
+                            v = _salvage(str(e2))
+                    if v is None:
+                        a.judge_failed += 1
+                        a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": "judge failed (no verdict)"})
+                        continue
                 a.judged += 1
                 if not v.get("entailed", False):
                     a.judge_rejected += 1
                     a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": "judge: " + str(v.get("reason", ""))[:200]})
     return a
+
+
+def _salvage(err: str) -> dict[str, Any] | None:
+    """Recover the verdict from a truncated JSON reply ('{"entailed": false, "reason": "...')."""
+    import re
+
+    m = re.search(r'"entailed"\s*:\s*(true|false)', err)
+    return {"entailed": m.group(1) == "true", "reason": "(truncated)"} if m else None
 
 
 def consistency_summary(audit: list[dict[str, Any]]) -> dict[str, Any]:

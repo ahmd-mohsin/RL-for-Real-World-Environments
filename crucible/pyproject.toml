@@ -22,6 +22,8 @@ mcp = ["mcp>=1.10,<2", "uvicorn>=0.30", "starlette>=0.40"]
 harbor = ["harbor"]
 # agentenv: multi-app worlds (MCP / service DB / website / gateway clock + triggers), A2A agents.
 agentenv = ["agentenv-framework", "agentenv-framework-protocol[agent]", "mcp>=1.10,<2", "psycopg2-binary>=2.9"]
+# OpenEnv AgentWorldModel-1K worlds (generated FastAPI + SQLAlchemy services exposed via fastapi-mcp).
+openenv-awm = ["fastapi>=0.110", "sqlalchemy>=2.0", "fastapi-mcp>=0.3", "huggingface-hub>=0.24", "mcp>=1.10,<2", "uvicorn>=0.30"]
 # LLM-backed actors (OpenAI-compatible endpoints: OpenRouter, vLLM, SGLang).
 llm = ["openai>=1.60"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
@@ -49,6 +51,7 @@ packages = ["src/crucible"]
 conflicts = [
   [{ extra = "verifiers" }, { extra = "agentenv" }],
   [{ extra = "verifiers" }, { extra = "mcp" }],
+  [{ extra = "verifiers" }, { extra = "openenv-awm" }],
 ]
 
 [tool.uv.workspace]

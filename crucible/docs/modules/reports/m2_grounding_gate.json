@@ -1,0 +1,137 @@
+{
+ "records": 223,
+ "replies": 200,
+ "answerable": 170,
+ "answered_with_citations": 133,
+ "answerable_no_record": 37,
+ "unanswerable": 30,
+ "unanswerable_correct_no_record": 30,
+ "uncited_non_no_record_replies": 0,
+ "factual_sentences": 137,
+ "unsupported_or_judge_rejected": 31,
+ "fabrication_rate": 0.2263,
+ "judged_sentences": 47,
+ "judge_rejected": 16,
+ "responder_stats": {
+  "replies": 200,
+  "no_record": 67,
+  "dropped_sentences": 25,
+  "regenerations": 56
+ },
+ "spend_usd": {
+  "responder": 0.02852,
+  "judge": 0.01468
+ },
+ "llm_calls": {
+  "responder": 197,
+  "responder_cached": 53,
+  "judge": 59
+ },
+ "models": {
+  "responder": "openai/gpt-6-luna",
+  "judge": "anthropic/claude-haiku-5.5"
+ },
+ "stopped_early": null,
+ "examples": [
+  {
+   "sentence": "I wondered whether it might be better to keep the function and modify it accordingly.",
+   "reason": "judge failed: judge output is not JSON: {\"entailed\": false, \"reason\": \"The record is a present-tense question ('I am wondering') askin"
+  },
+  {
+   "sentence": "I asked whether the zero value is replaced by `omp_get_num_procs`, since it doesn’t inherit from `PCLBase`.",
+   "reason": "judge: The records show the speaker's belief that the zero value is nowhere replaced by `omp_get_num_procs`, followed by the parenthetical note that it doesn't inherit from `PCLBase`. The statement's core co"
+  },
+  {
+   "sentence": "I asked what “naturally aligned” means.",
+   "reason": "judge: The records contain the question 'what does \"naturally aligned\" mean?' but do not state who asked it. The statement attributes the asking to 'I', which is an inference about the speaker that the recor"
+  },
+  {
+   "sentence": "I noted that `reset_text_color` technically only has to be called for `L_DEBUG`, `L_WARN`, and `L_ERROR`.",
+   "reason": "judge: The core claim, that reset_text_color technically only has to be called for L_DEBUG, L_WARN, and L_ERROR, is directly supported by the record. The statement adds an attribution the records do not cont"
+  },
+  {
+   "sentence": "I asked why code had been moved from the `.hpp` file into `sac_model_ellipse3d.hpp` .",
+   "reason": "judge: The record shows a question asking whether there was a reason for moving code 'from the .hpp file to here.' That supports the claim that someone asked why code was moved from a .hpp file. However, the"
+  },
+  {
+   "sentence": "I asked why `NumChannels == 3` doesn’t get special treatment and whether the distinction is about alignment or vectorization; I left the comment unresolved.",
+   "reason": "judge failed: judge output is not JSON: {\"entailed\": false, \"reason\": \"The records support that the comment asks why NumChannels == 3 "
+  },
+  {
+   "sentence": "I asked what “naturally aligned” means.",
+   "reason": "judge: The records contain the question 'what does \"naturally aligned\" mean?' but do not state who asked it. The statement attributes the asking to 'I', which is an inference about the speaker that the recor"
+  },
+  {
+   "sentence": "I suggested an rvalue-reference overload of `released_allocation` to signify ownership transfer and save typing, and wondered whether this should instead be a `make_buffer()` overload to help with type deduction.",
+   "reason": "judge failed: judge output is not JSON: {\"entailed\": true, \"reason\": \"The records contain both points: nit 1 says an rvalue-reference "
+  },
+  {
+   "sentence": "I noted that the file sometimes uses `::(max)` and sometimes doesn’t, and suggested avoiding the parentheses in test code for now; we were thinking of fixing them in another PR.",
+   "reason": "judge: Most of the statement is supported: the records say the usage of `::(max)` is inconsistent, that the speaker would avoid the parentheses in test code for now, and that the fix is planned for another P"
+  },
+  {
+   "sentence": "I asked for consistency with the file, suggesting `__host__ __device__ unsigned char operator()(uint64_t i) const`.",
+   "reason": "judge: The records show a review comment 'for consistency with the file' with a suggested signature `__host__ __device__ unsigned char operator()(uint64_t i) const`. The suggested signature and the consisten"
+  },
+  {
+   "sentence": "I raised that the file must use the correct license, as required for all new files.",
+   "reason": "judge: The records say only that using the correct license is important and applies to all new files. They do not say that anyone raised this point. The claim that 'I raised that' adds an action and a speake"
+  },
+  {
+   "sentence": "I asked, “Do we ever intend this to not be an arithmetic type?”  I noted it could technically be `bit_cast`, but that was “not really helping.”  I suggested turning the static assert into the final `else` with an `__always_false_v` and a good error message.",
+   "reason": "no citation"
+  }
+ ],
+ "sample_replies": [
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of cub/cub/device/device_histogram.cuh, what concern did you raise about that file?",
+   "a": "I asked why `NumChannels == 3` doesn’t get special treatment, and whether that’s about alignment or vectorization; I left the comment unresolved.",
+   "cites": [
+    "NVIDIA/cccl#10568/c4207885555"
+   ]
+  },
+  {
+   "q": "As the reviewer of cudax/include/cuda/experimental/coop/__group/synchronizer/barrier_synchronizer.cuh, what concern did you raise about that file?",
+   "a": "I wondered whether it might be better to keep the function and modify it accordingly.",
+   "cites": [
+    "NVIDIA/cccl#11903/c4204867157"
+   ]
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__type_traits/is_arithmetic.h, what concern did you raise about that file?",
+   "a": "I noted that we already have `__is_extended_arithmetic` and said I honestly believe that is a better name.",
+   "cites": [
+    "NVIDIA/cccl#11922/c4215884202"
+   ]
+  },
+  {
+   "q": "As the reviewer of sample_consensus/include/pcl/sample_consensus/impl/sac_model_ellipse3d.hpp, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of search/include/pcl/search/search.h, what concern did you raise about that file?",
+   "a": "I asked whether the zero value is replaced by `omp_get_num_procs`, since it doesn’t inherit from `PCLBase`.",
+   "cites": [
+    "PointCloudLibrary/pcl#6293/c2395676395"
+   ]
+  },
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__driver/entry_point.h, what concern did you raise about that file?",
+   "a": "I said the functions in that file should no longer be `static`, since “we want to be able to retry the load.”",
+   "cites": [
+    "NVIDIA/cccl#11933/c4218840476"
+   ]
+  }
+ ]
+}

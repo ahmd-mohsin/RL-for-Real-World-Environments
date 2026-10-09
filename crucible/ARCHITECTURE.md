@@ -26,9 +26,19 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
    | **SWE-smith** | Synthesis pipeline we port, with its history leak fixed |
    | **EnterpriseOps-Gym** | Patterns for horizontal worlds, and an external OOD benchmark |
 
-4. **Only `src/crucible/interop/<framework>/` may import a framework.** Everything else talks to Crucible interfaces, so upgrading a framework touches one folder. An import-linter contract enforces this. The single exception: `core.schema` re-exports Harbor's task and ATIF models, because Harbor's format is our wire format.
+4. **Only `src/crucible/interop/<framework>/` may import a framework.** Everything else talks to Crucible interfaces, so upgrading a framework touches one folder. An import-linter contract enforces this, with no exceptions. *(As built: the core does not import Harbor at all. Harbor's `TaskConfig` / `Task` / `Packager` validate task directories at the interop boundary, which keeps the core installable without Harbor's dependency tree.)*
 5. **Tasks 01–04 are golden fixtures and the MVP showcase.** Their historical results (oracle 1.0, negatives 0, the Astra and sol gate profiles) must be reproduced exactly by the new code.
 6. **The 16 modules are built in five stages, A–E**, which match DESIGN phases P0–P4 (§5).
+
+**Build status (2026-10-09).**
+
+| Module | Status | Gate | Spec + gate report |
+|---|---|---|---|
+| M0 core | built | passed | `docs/modules/M00-core.md` |
+| M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers) | `docs/modules/M01-world.md` |
+| M2 actors | built | see report | `docs/modules/M02-actors.md` |
+
+Environments: verifiers v1 pins `mcp==2.0.0` and agentenv needs `mcp<2`, so the `verifiers` extra is declared as conflicting and runs in its own environment (`THIRD_PARTY.md`).
 
 ---
 
