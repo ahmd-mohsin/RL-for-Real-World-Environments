@@ -42,6 +42,8 @@ class SqliteAdapter(StateAdapter):
     async def snapshot(self) -> StateRef:
         out = self._tmp_remote(".sqlite")
         d = await self._snip("backup", out=out)
+        if d.get("missing"):  # no database at all is a valid (empty) state
+            return StateRef(app=self.app, adapter=self.kind, fingerprint=d["fingerprint"], blob=None, meta={"missing": True, "tables": {}})
         key, size = await self._pull_to_store(out)
         rows = await self._snip("dump", rows=True)
         if rows["fingerprint"] != d["fingerprint"]:
@@ -62,8 +64,13 @@ class SqliteAdapter(StateAdapter):
         )
 
     async def restore(self, ref: StateRef) -> None:
-        if ref.adapter != self.kind or ref.blob is None:
+        if ref.adapter != self.kind:
             raise ValueError(f"cannot restore {ref.adapter} ref with sql adapter")
+        if ref.blob is None:
+            if not ref.meta.get("missing"):
+                raise ValueError("sql ref has no payload")
+            d = await self._snip("restore", src=None)
+            return
         # Always restore from a private copy: SQLite may create -shm/-journal files next to the source.
         src = await self._push_from_store(ref.blob, ".sqlite", copy=True)
         try:
@@ -92,6 +99,8 @@ class SqliteAdapter(StateAdapter):
         return StateDiff(app=self.app, adapter=self.kind, before=a.fingerprint, after=b.fingerprint, rows=changes, tables_changed=tables_changed)
 
     def _rows_of(self, ref: StateRef) -> dict[str, list[str]]:
+        if ref.meta.get("missing"):
+            return {}
         key = ref.meta.get("manifest")
         if not key:
             raise ValueError("ref carries no row manifest; diff needs captured snapshots")

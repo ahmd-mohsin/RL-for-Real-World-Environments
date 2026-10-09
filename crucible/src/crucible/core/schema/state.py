@@ -96,4 +96,9 @@ class WorldRef(CrucibleModel):
     clock: ClockState = Field(default_factory=ClockState)
     pending_events: list[PendingEvent] = Field(default_factory=list)
     actors: dict[str, dict[str, Any]] = Field(default_factory=dict)  # actor id -> serialized actor state
-    fingerprint: str = ""  # hash over app fingerprints + clock + events + actors
+    fired_counts: dict[str, int] = Field(default_factory=dict)
+    acl_rules: dict[str, list[list[str]]] = Field(default_factory=dict)  # actor -> [[grant|revoke, pattern]]
+    inboxes: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # undelivered messages per actor
+    done: list[str] = Field(default_factory=list)  # actors that declared done
+    backend: dict[str, Any] = Field(default_factory=dict)  # backend-held runtime state (e.g. agentenv gateway clock/triggers)
+    fingerprint: str = ""  # hash over everything above except `step` (same state reached in different #steps is the same state)

@@ -81,7 +81,7 @@ def _ro(path):
 
 def dump(a):
     if not os.path.exists(a["path"]):
-        return {"tables": {}, "fingerprint": hashlib.sha256(b"").hexdigest(), "missing": True}
+        return {"tables": {}, "fingerprint": _EMPTY, "missing": True}
     con = _ro(a["path"])
     try:
         return _dump(con, a.get("include") or [], a.get("exclude") or [], bool(a.get("rows")))
@@ -89,7 +89,12 @@ def dump(a):
         con.close()
 
 
+_EMPTY = hashlib.sha256(b"").hexdigest()
+
+
 def backup(a):
+    if not os.path.exists(a["path"]):
+        return {"tables": {}, "fingerprint": _EMPTY, "missing": True}
     src = sqlite3.connect(a["path"])
     dst = sqlite3.connect(a["out"])
     try:
@@ -101,6 +106,11 @@ def backup(a):
 
 
 def restore(a):
+    if a.get("src") is None:  # the snapshot had no database: make it absent again
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            if os.path.exists(a["path"] + suffix):
+                os.unlink(a["path"] + suffix)
+        return {"tables": {}, "fingerprint": _EMPTY, "missing": True}
     src = sqlite3.connect(f"file:{a['src']}?mode=ro", uri=True)
     os.makedirs(os.path.dirname(a["path"]) or ".", exist_ok=True)
     dst = sqlite3.connect(a["path"])

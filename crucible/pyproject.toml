@@ -21,7 +21,7 @@ mcp = ["mcp>=1.10,<2", "uvicorn>=0.30", "starlette>=0.40"]
 # Harbor: task + trajectory models, sandbox environments, agents, jobs.
 harbor = ["harbor"]
 # agentenv: multi-app worlds (MCP / service DB / website / gateway clock + triggers), A2A agents.
-agentenv = ["agentenv-framework", "agentenv-framework-protocol[agent]", "mcp>=1.10,<2"]
+agentenv = ["agentenv-framework", "agentenv-framework-protocol[agent]", "mcp>=1.10,<2", "psycopg2-binary>=2.9"]
 # LLM-backed actors (OpenAI-compatible endpoints: OpenRouter, vLLM, SGLang).
 llm = ["openai>=1.60"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
