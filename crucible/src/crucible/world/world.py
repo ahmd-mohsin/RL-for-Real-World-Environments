@@ -132,6 +132,15 @@ class World:
         problems = self.backend.validate()
         if problems:
             raise WorldError("; ".join(problems))
+        try:
+            return await self._start()
+        except BaseException:
+            # A failed start must not leak containers, gateways or servers (found: a crashed App.provision
+            # left a Harbor sandbox running).
+            await self.close()
+            raise
+
+    async def _start(self) -> WorldRef:
         await self.backend.provision()
         await self._seed_bundles()
         reg = get_registry()

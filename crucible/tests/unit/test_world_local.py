@@ -223,3 +223,16 @@ async def test_guards(pack, tmp_path):
             await w_other.restore(w.initial)
     finally:
         await w.close()
+
+
+async def test_failed_start_tears_down(tmp_path):
+    """A World whose App fails during start is closed: nothing keeps running."""
+    from crucible.core.schema.world import WorldSpec as WS
+
+    spec_bad = WS.model_validate({"world": "test/bad", "apps": [
+        {"id": "db", "template": "common/sqlite_app", "state": {"adapter": "sql", "params": {"path": "x.db"}}, "params": {"tools_module": "missing.py"}}],
+        "actors": [{"id": "agent", "kind": "policy", "tools": ["db.*"]}]})
+    w = World(spec_bad, store=Store(tmp_path / "s"))
+    with pytest.raises(Exception):
+        await w.start()
+    assert not w.workdir.exists()  # close() ran and removed the world's scratch dir
