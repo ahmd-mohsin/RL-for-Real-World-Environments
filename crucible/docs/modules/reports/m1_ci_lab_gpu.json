@@ -1,0 +1,51 @@
+{
+ "ci_base": {
+  "content": "CI run #1 of 4 (2 checks, 16s)\nstatic: FAIL (0.7s)\n51 texture/surface references remain\ngpu: PASS (0.4s)",
+  "seconds": 17.6
+ },
+ "ci_history": {
+  "history": [
+   {
+    "candidate": "c6941ac8b8717ad3",
+    "results": {
+     "gpu": "PASS",
+     "static": "FAIL"
+    },
+    "run": 1
+   },
+   {
+    "candidate": "14cfc8e80d5ffab9",
+    "results": {
+     "configure": "PASS",
+     "gpu": "PASS",
+     "static": "PASS"
+    },
+    "run": 2
+   }
+  ],
+  "max_runs": 4,
+  "runs": 2
+ },
+ "ci_oracle": {
+  "content": "CI run #2 of 4 (3 checks, 21s)\nstatic: PASS (0.6s)\ngpu: PASS (0.4s)\nconfigure: PASS (5.2s)",
+  "seconds": 21.5
+ },
+ "egress": {
+  "isolated": true,
+  "reachable": [],
+  "tested": [
+   "1.1.1.1:80",
+   "8.8.8.8:53",
+   "pypi.org:443",
+   "github.com:443",
+   "169.254.169.254:80",
+   "2606:4700:4700::1111:80"
+  ]
+ },
+ "policy_shell": "[exit 0]\nagent\nNVIDIA GeForce RTX 5090\nls: cannot access '/opt/crucible-hidden': No such file or directory\nls: cannot open directory '/var/lib/crucible': Permission denied\n",
+ "runner_image": "task04-pcl-gpu-cuda12-verifier:v1",
+ "start_s": 39.2,
+ "total_s": 82.5,
+ "virtual_time": "1970-01-01T00:00:00Z",
+ "world": "coding/legacy_gpu_migration/task04_pcl_gpu_cuda12"
+}
