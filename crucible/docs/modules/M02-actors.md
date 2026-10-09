@@ -38,6 +38,7 @@ Simulated people, bots, humans and peer agents run *inside* the World as environ
 - **Failures and masking.** Every failure carries its own mask. Infrastructure is masked; the policy's own outcomes (`agent_timeout`, `crucible:policy_misbehavior`) are scored. The unregistered `policy_error` kind is gone.
 - **Simulated actors end the conversation.** `###DONE###` and out-of-scope make a simulated actor emit `Done`, which the World records (`world.finished`). The marker never reaches the policy. A DONE as the opening reply is regenerated (NeMo-Gym: the first user message cannot be STOP). `run_episode(end_on=...)` stops on it.
 - **Mailbox identity.** The acting identity is held in a `ContextVar`: a shared attribute let concurrent calls send mail as the wrong actor.
+- **Prefilled conversations** (NeMo-Gym `prefill`). `Scenario.prefill` replays the first turns of a real ticket or thread, then the simulated person continues from there. On every fresh reset the World delivers them through the responder's `episode_start` hook: the person's lines as messages, the policy's own earlier lines as its own turns. All are flagged `prefill`, and a `continuation_start` trace event marks where live interaction begins (so training can skip the replayed part). The same hook delivers a scenario's `opening` line, which nothing called before.
 
 ## Exit gate
 

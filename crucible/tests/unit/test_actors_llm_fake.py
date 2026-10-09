@@ -143,3 +143,35 @@ def test_retry_delay_honors_retry_after():
     assert _retry_delay(e, 0) == 7.0
     assert all(6.0 <= _retry_delay(Exception("x"), 3) <= 18.0 for _ in range(50))  # 12 s with full jitter
     assert all(_retry_delay(Exception("x"), 10) <= 60.0 for _ in range(50))
+
+
+async def test_prefilled_conversation_starts_the_episode(tmp_path: Path):
+    """A recorded thread (NeMo-Gym prefill): both sides see it, the trace marks where the live part begins, and every
+    reset starts from it again (no duplication)."""
+    spec = WorldSpec.model_validate({
+        "world": "test/prefill",
+        "apps": [{"id": "ws", "template": "common/workspace", "state": {"adapter": "fs", "params": {"root": "ws"}}}],
+        "actors": [{"id": "agent", "kind": "policy", "tools": ["ws.*"]}, {"id": "lee", "kind": "simulated", "tools": []}],
+    })
+    sc = Scenario(persona="Lee", reason_for_contact="double charge", prefill=[
+        {"role": "user", "text": "Hi, I was charged twice for order 77."},
+        {"role": "agent", "text": "Sorry about that! Which card did you use?"},
+        {"role": "user", "text": "The Visa ending 4242."}])
+    sim = SimulatedActor("lee", sc, FakeLLM(["Thanks!"]))
+    w = World(spec, store=Store(tmp_path / "s"), workdir=tmp_path / "w")
+    w.attach(sim)
+    await w.start()
+    try:
+        for _ in range(2):
+            obs = await w.reset()
+            inbox = obs["agent"].inbox
+            assert [m.frm for m in inbox] == ["lee", "agent", "lee"] and all(m.prefill for m in inbox)
+            assert [h["role"] for h in sim.history] == ["assistant", "user", "assistant"]
+            assert any(e.type == "continuation_start" for e in w.log)
+        llm = FakeLLM([LLMResponse(text="Refund issued.")])
+        p = LLMToolPolicy("agent", llm)
+        await p.act(obs["agent"])
+        roles = [m["role"] for m in llm.prompts[0]][1:]
+        assert roles[:3] == ["user", "assistant", "user"]  # its own earlier line is its own turn (the fake keeps a live reference)
+    finally:
+        await w.close()

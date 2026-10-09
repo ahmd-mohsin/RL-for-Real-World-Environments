@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
-from crucible.world.exec import spawn_logged
+from crucible.world.exec import safe_environ, spawn_logged
 from crucible.world.packaging.mcp_tools import _content_text
 
 
@@ -108,7 +108,7 @@ class McpServerProcess:
             sys.executable, "-m", "crucible._vendor.mimo_sidecar.mcp_http",
             "--tools-path", str(self.tools_path), "--server-name", self.name, "--port", str(self.port), "--host", self.host,
             cwd=str(self.cwd) if self.cwd else None,
-            env={**os.environ, **self.env},
+            env=safe_environ(self.env),
             log=self.log_path,
         )
         deadline = time.monotonic() + timeout_s

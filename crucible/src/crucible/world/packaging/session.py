@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
+from crucible.world.exec import safe_environ
 from crucible.world.packaging.mcp_tools import _content_text
 
 
@@ -54,7 +54,7 @@ class PersistentMcpSession:
         if self.command:
             from mcp.client.stdio import StdioServerParameters, stdio_client
 
-            params = StdioServerParameters(command=self.command[0], args=self.command[1:], env={**os.environ, **self.env}, cwd=self.cwd)
+            params = StdioServerParameters(command=self.command[0], args=self.command[1:], env=safe_environ(self.env), cwd=self.cwd)
             async with stdio_client(params) as (r, w):
                 yield r, w
         else:

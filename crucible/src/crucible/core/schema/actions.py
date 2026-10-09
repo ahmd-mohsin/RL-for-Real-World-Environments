@@ -91,6 +91,7 @@ class Inbound(CrucibleModel):
     """A message delivered to an actor: from another actor or from a fired event."""
 
     frm: str = Field(alias="from")
+    prefill: bool = False  # part of a recorded conversation the episode continues from (NeMo-Gym prefill), not live
     text: str
     at: str | None = None  # virtual time
     citations: list[str] = Field(default_factory=list)

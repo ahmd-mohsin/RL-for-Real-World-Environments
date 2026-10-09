@@ -37,7 +37,7 @@ from crucible.core.schema.actions import Inbound, ToolResult, ToolSpec
 from crucible.core.schema.world import AppSpec, EventSpec, SandboxSpec
 from crucible.world.backends.base import Backend, BackendCapabilities, ToolRouter
 from crucible.world.clock import parse_duration
-from crucible.world.exec import Exec, LocalExec, spawn_logged
+from crucible.world.exec import Exec, LocalExec, safe_environ, spawn_logged
 from crucible.world.packaging.app_server import AppMcpServer
 from crucible.world.packaging.sidecar import free_port
 
@@ -205,7 +205,7 @@ class AgentEnvBackend(Backend):
 
     async def _start_gateway(self) -> None:
         env = {
-            **os.environ,
+            **safe_environ(),
             "INTERNAL_MCP_SERVERS": ",".join(f"{n}={s.url}" for n, s in self.servers.items()),
             "MCP_HOST": "127.0.0.1",
             "MCP_PORT": str(self.gateway_port),
@@ -432,6 +432,8 @@ class AgentEnvBackend(Backend):
 
     async def snapshot_state(self) -> dict[str, Any]:
         st: dict[str, Any] = {}
+        if getattr(self.sandbox, "image_id", None):
+            st["image"] = self.sandbox.image_id
         r = await self.http.get("/clock/state")
         if r.status_code == 200:
             st["clock"] = r.json()
@@ -446,6 +448,9 @@ class AgentEnvBackend(Backend):
         world = self._world
         if world is None or not state:
             return
+        from crucible.world.sandbox import check_image
+
+        check_image(state, getattr(self.sandbox, "image_id", None))
         clock = state.get("clock") or {}
         if clock.get("armed") and clock.get("virtual_time"):
             await self._set_clock(clock["virtual_time"], clock.get("virtual_seconds_per_real_second", 1))

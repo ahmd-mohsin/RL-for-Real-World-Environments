@@ -236,3 +236,14 @@ async def test_failed_start_tears_down(tmp_path):
     with pytest.raises(FileNotFoundError, match="missing.py"):
         await w.start()
     assert not w.workdir.exists()  # close() ran and removed the world's scratch dir
+
+
+async def test_subprocesses_never_see_host_credentials(monkeypatch):
+    from crucible.world.exec import LocalExec
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-secret")
+    monkeypatch.setenv("HF_TOKEN", "hf_secret")
+    monkeypatch.setenv("HARMLESS_SETTING", "visible")
+    out = (await LocalExec().run("env")).stdout
+    assert "sk-or-secret" not in out and "hf_secret" not in out and "HARMLESS_SETTING=visible" in out
+    assert "DATABASE_URL=postgres://x" in (await LocalExec().run("env", env={"DATABASE_URL": "postgres://x"})).stdout

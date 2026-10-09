@@ -46,6 +46,32 @@ def resolve_docker_host(sb: SandboxSpec) -> str | None:
     return None
 
 
+async def image_id(ref: str, docker_host: str | None = None, *, container: bool = False) -> str | None:
+    """Digest of the filesystem layers of an image (or of a running container's image): what a WorldRef was taken in.
+    Layers, not the image id: compose stamps project labels into images it builds, so two identical builds differ in id."""
+    import hashlib
+
+    env = {"DOCKER_HOST": docker_host} if docker_host else None
+    if container:
+        out = await _run_subprocess(["docker", "inspect", "-f", "{{.Image}}", ref], cwd=None, env=env, timeout_s=60, stdin=None)
+        if not out.ok or not out.stdout.strip():
+            return None
+        ref = out.stdout.strip()
+    out = await _run_subprocess(["docker", "image", "inspect", "-f", "{{json .RootFS.Layers}}", ref], cwd=None, env=env, timeout_s=60, stdin=None)
+    if not out.ok or not out.stdout.strip():
+        return None
+    return "layers:" + hashlib.sha256(out.stdout.strip().encode()).hexdigest()
+
+
+def check_image(state: dict, current: str | None) -> None:
+    """A WorldRef restores only into the image it was taken in (DESIGN B.5: stale images silently change behavior)."""
+    taken = state.get("image")
+    if taken and current and taken != current:
+        from crucible.world.state.base import SnapshotMismatch
+
+        raise SnapshotMismatch(f"WorldRef was taken in image {taken[:19]}, this world runs {current[:19]}")
+
+
 class DockerSandbox:
     def __init__(self, sb: SandboxSpec, spec: WorldSpec, *, pids_limit: int | None = None, memory: str | None = None):
         self.sb, self.spec = sb, spec
@@ -79,10 +105,13 @@ class DockerSandbox:
     def _env(self) -> dict[str, str] | None:
         return {"DOCKER_HOST": self.docker_host} if self.docker_host else None
 
+    image_id: str | None = None
+
     async def start(self) -> None:
         out = await _run_subprocess(self.argv(), cwd=None, env=self._env(), timeout_s=1800, stdin=None)
         if not out.ok:
             raise RuntimeError(f"sandbox container failed to start ({self.description}): {(out.stderr or out.stdout)[-800:]}")
+        self.image_id = await image_id(self.name, self.docker_host, container=True)
 
     async def close(self) -> None:
         await _run_subprocess(["docker", "rm", "-f", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)

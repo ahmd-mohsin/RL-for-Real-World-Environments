@@ -80,7 +80,7 @@ A second world, whose image puts a policy-writable directory on root's `PATH`, m
 | Any Harbor provider (Modal, Daytona, GKE, E2B, Runloop, …) | `harbor` + `environment_type: modal` (+ `environment_kwargs`) | `cfg.gpus` + `cfg.gpu_types` from `resources.gpu_type`; network policy passed through | wiring unit-tested; live run needs provider credentials |
 | Any agentenv sandbox provider (Modal, E2B, Sail, registered ones) | `agentenv` + `sandbox: {provider: modal, image}` | Modal: agentenv's `ModalSandboxProvider(gpu="H100" / "A100:2" / ...)` | adapter unit-tested through a fake provider; `CRUCIBLE_MODAL=1` runs it live |
 
-`Resources.gpu_type` asks for a GPU class on any backend. The same guard hardens every container option. In a sandboxed agentenv World the gateway and App servers stay on the host as trusted routers. Apps that would spawn host-side servers are refused, and so is a host-side tool module: it would run outside the sandbox.
+`Resources.gpu_type` asks for a GPU class on any backend. A WorldRef records the digest of the container image's filesystem layers, and restoring it into a World that runs a different image raises `SnapshotMismatch` (DESIGN B.5: stale images). Layers, not image ids, because Compose stamps project labels into the images it builds. The same guard hardens every container option. In a sandboxed agentenv World the gateway and App servers stay on the host as trusted routers. Apps that would spawn host-side servers are refused, and so is a host-side tool module: it would run outside the sandbox.
 
 ### The tool-call choke point (`World._call_tool`)
 
@@ -138,3 +138,11 @@ Seed-world numbers (lab RTX 5090, remote Docker over SSH):
 14. **Harbor / Docker:** Harbor's exec timeout kills only the local `docker` client; the command keeps running in the container. Deadlines are now enforced inside the sandbox (`timeout -s KILL`). `--security-opt no-new-privileges` breaks `--init` on the lab host (`exec /sbin/docker-init: operation not permitted`), so no-new-privs is set per policy process tree instead. Container root has no `CAP_IPC_OWNER`, so it cannot remove the policy's SysV segments; the owner has to.
 15. **Images:** Ubuntu-based images ship a uid-1000 user, and a guard that "creates" uid 1000 silently becomes that user. Task images run Python 3.8–3.10, so `shutil.rmtree(dir_fd=)` (3.11+) cannot be used in snippets. Some images have no `timeout`, and BSD/busybox `base64` flags differ, so commands use the portable forms.
 16. **MiMo:** 1,174 of the 1,796 tool modules read the wall clock, and 707 return `{"error": {...}}` as a successful value. Both are now handled (virtual time; envelope → `ok=False`, `fault=tool`).
+
+## Deferred from the survey (with the module that owns them)
+- **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
+- **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.
+- **Per-uid firewall** (Karotte `iptables --uid-owner`, needs `NET_ADMIN`) for allowlist worlds where root keeps network; Harbor's allowlist sidecar for the same. Today allowlist worlds rely on the provider's policy and the egress probe.
+- **agentenv driver lifetime:** an external MCP client that connects and disconnects stops the gateway's trigger driver even while Crucible's keepalive session is open. External harnesses must keep their session open for the episode.
+- **Harbor and `DOCKER_HOST`:** Harbor's compose subprocesses read `DOCKER_HOST` from the process environment, so one process cannot drive worlds on two different Docker hosts at once (the backend refuses rather than racing).
+- **Baked world images** (SWE-smith / Repo2RLEnv): provision once, commit, start from the image, so the 68 MB task04 seed push disappears. M10 runtime.

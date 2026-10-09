@@ -40,6 +40,9 @@ class Scenario(CrucibleModel):
     task_instructions: str = ""
     outside_policy_scope: bool = False
     opening: str | None = None  # first message to send if the actor opens the conversation
+    # A recorded conversation the episode continues from (NeMo-Gym ``prefill``): [{"role": "user"|"agent", "text": ...}],
+    # "user" being this actor's lines. Real tickets / threads replayed up to a point, then simulated from there.
+    prefill: list[dict[str, str]] = Field(default_factory=list)
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def render(self) -> str:
@@ -97,6 +100,23 @@ class SimulatedActor(ActorBase):
     def load_state_dict(self, state: dict[str, Any]) -> None:
         super().load_state_dict(state)
         self.audit = list(state.get("audit", []))
+
+    def episode_start(self, policies: list[str]) -> list[tuple[str, str, str]]:
+        """Messages that open a fresh episode, as (from, to, text): the prefilled conversation (this actor's lines and
+        the policy's own earlier lines), else the scenario's opening line. Loaded into this actor's history too."""
+        to = str(self.scenario.extra.get("talks_to") or (policies[0] if policies else ""))
+        out: list[tuple[str, str, str]] = []
+        for turn in self.scenario.prefill:
+            if turn.get("role") == "user":
+                self.history.append({"role": "assistant", "content": turn["text"]})
+                out.append((self.actor_id, to, turn["text"]))
+            else:
+                self.history.append({"role": "user", "content": f"[{to}] {turn['text']}"})
+                out.append((to, to, turn["text"]))  # the policy's own earlier line, delivered back to it as its turn
+        if not out and self.scenario.opening:
+            self.history.append({"role": "assistant", "content": self.scenario.opening})
+            out.append((self.actor_id, to, self.scenario.opening))
+        return out
 
     def opening_message(self, to: str) -> Message | None:
         if not self.scenario.opening:

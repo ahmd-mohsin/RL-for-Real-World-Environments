@@ -103,7 +103,10 @@ class LLMToolPolicy(Policy):
             self.messages.append({"role": "tool", "tool_call_id": tr.tool_call_id, "content": content})
             self._pending.discard(tr.tool_call_id)
         for m in obs.inbox:
-            self._held.append({"role": "user", "content": f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}"})
+            if m.frm == self.actor_id:  # its own line from a prefilled conversation
+                self._held.append({"role": "assistant", "content": m.text})
+            else:
+                self._held.append({"role": "user", "content": f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}"})
         if not self._pending:  # the batch is complete: now the messages that arrived during it
             self.messages += self._held
             self._held = []

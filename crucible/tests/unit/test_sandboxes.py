@@ -163,3 +163,13 @@ async def test_harbor_backend_passes_gpu_types_and_network_to_cloud_providers(mo
     cfg = seen["task_env_config"]
     assert seen["type"].value == "modal" and cfg.gpus == 2 and cfg.gpu_types == ["H100"] and cfg.docker_image == "ghcr.io/acme/world:1"
     assert seen["network_policy"].network_mode == NetworkMode.NO_NETWORK
+
+
+def test_worldrefs_restore_only_into_their_image():
+    from crucible.world.sandbox import check_image
+    from crucible.world.state.base import SnapshotMismatch
+
+    check_image({"image": "layers:aa"}, "layers:aa")
+    check_image({}, "layers:aa")  # refs from before images were recorded, or from non-container worlds
+    with pytest.raises(SnapshotMismatch, match="taken in image"):
+        check_image({"image": "layers:aa"}, "layers:bb")

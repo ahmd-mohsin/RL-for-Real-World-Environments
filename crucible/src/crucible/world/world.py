@@ -372,6 +372,16 @@ class World:
         self.finished = {}
         self.episode_id = new_id("ep")
         self._log("state", None, "reset", data={"world_ref": ref.fingerprint})
+        if start is None:  # a fresh episode: recorded conversations and opening lines (responders' episode_start hooks)
+            prefilled = 0
+            policies = [p.id for p in self.spec.policy_actors]
+            for aid, r in self.responders.items():
+                for frm, to, text in (r.episode_start(policies) if hasattr(r, "episode_start") else []):
+                    self.inboxes.setdefault(to, []).append(Inbound(**{"from": frm, "text": text, "at": self._now(), "prefill": True}))
+                    self._log("message", frm, "message", text=text, data={"to": to, "prefill": True, "via": aid})
+                    prefilled += 1
+            if prefilled:
+                self._log("state", None, "continuation_start", data={"prefilled_messages": prefilled})
         # Events due at t0 (e.g. an opening email) fire before the first observation.
         await self._fire_due()
         return {a.id: self._observe(a.id, [], first=True) for a in self.spec.policy_actors}

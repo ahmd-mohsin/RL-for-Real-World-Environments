@@ -15,6 +15,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import time
@@ -102,6 +103,17 @@ class Exec(ABC):
         pass
 
 
+_SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|SESSION)", re.IGNORECASE)
+
+
+def safe_environ(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """The host environment minus anything that looks like a credential: every subprocess Crucible starts (shells,
+    tool servers, the agentenv gateway) gets this, so an API key in the operator's shell never reaches a policy.
+    Explicit ``extra`` entries (an App's own ``env`` params, e.g. DATABASE_URL) are kept."""
+    env = {k: v for k, v in os.environ.items() if not _SECRET_NAME.search(k)}
+    return {**env, **(extra or {})}
+
+
 def with_deadline(cmd: str, timeout_s: float | None) -> str:
     """Enforce a timeout *inside* the sandbox: killing the local ``docker exec``/compose client leaves the command
     running in the container (Harbor's exec, ``docker exec``). GNU/busybox ``timeout`` kills its process group."""
@@ -134,7 +146,7 @@ async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, st
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
-        env={**os.environ, **(env or {})},
+        env=safe_environ(env),
         stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

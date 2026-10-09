@@ -211,6 +211,22 @@ class HarborBackend(Backend):
         self.isolation = await isolate_world(world, self._exec, base_path=self.params.get("base_path", "/"),
                                              root_only=self.params.get("root_only", []))
 
+    async def _image_id(self) -> str | None:
+        if getattr(self, "_image", None) is None and self.params.get("environment_type", "docker") == "docker":
+            from crucible.world.sandbox import image_id
+
+            self._image = await image_id(f"{self.session_id}-main-1", self.params.get("docker_host"), container=True) or ""
+        return getattr(self, "_image", None) or None
+
+    async def snapshot_state(self) -> dict[str, Any]:
+        img = await self._image_id()
+        return {"image": img} if img else {}
+
+    async def restore_state(self, state: dict[str, Any]) -> None:
+        from crucible.world.sandbox import check_image
+
+        check_image(state or {}, await self._image_id())
+
     def exec_for(self, app: AppSpec) -> Exec:
         assert self._exec is not None, "provision() first"
         return self._exec
