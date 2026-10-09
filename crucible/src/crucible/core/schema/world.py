@@ -162,7 +162,7 @@ class IsolationSpec(CrucibleModel):
     scrub_messages: bool = True
     hide_citations: bool = True
     policy_user: str | None = None
-    policy_uid: int = 1000
+    policy_uid: int | None = None  # None: the guard allocates a free uid (image accounts are never reused)
     quiesce: bool = True
     egress_probe: bool = True
     pids_limit: int | None = 4096

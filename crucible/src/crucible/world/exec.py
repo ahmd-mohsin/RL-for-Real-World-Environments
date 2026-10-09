@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import shlex
 import shutil
@@ -99,6 +100,18 @@ class Exec(ABC):
 
     async def close(self) -> None:
         pass
+
+
+def with_deadline(cmd: str, timeout_s: float | None) -> str:
+    """Enforce a timeout *inside* the sandbox: killing the local ``docker exec``/compose client leaves the command
+    running in the container (Harbor's exec, ``docker exec``). GNU/busybox ``timeout`` kills its process group."""
+    if not timeout_s:
+        return cmd
+    return f"timeout -s KILL {max(1, math.ceil(timeout_s))} bash -c {shlex.quote(cmd)}"
+
+
+def deadline_hit(rc: int, duration_s: float, timeout_s: float | None) -> bool:
+    return bool(timeout_s) and rc in (124, 137) and duration_s >= 0.9 * float(timeout_s)
 
 
 async def spawn_logged(*argv: str, log: Path | None, **kw: Any) -> asyncio.subprocess.Process:
@@ -197,8 +210,11 @@ class DockerExec(Exec):
         u = user or self.default_user
         if u:
             argv += ["-u", u]
-        argv += [self.container, "bash", "-c", cmd]
-        return await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s, stdin=stdin)
+        argv += [self.container, "bash", "-c", with_deadline(cmd, timeout_s)]
+        out = await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin)
+        if deadline_hit(out.rc, out.duration_s, timeout_s):
+            out.timed_out, out.rc = True, -9
+        return out
 
     async def push_file(self, src: Path, dest: str) -> None:
         parent = str(Path(dest).parent)

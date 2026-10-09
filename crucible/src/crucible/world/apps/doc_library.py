@@ -122,22 +122,22 @@ class DocLibraryApp(App):
         return tools
 
     async def tool_list_docs(self, path: str = ".", pattern: str | None = None) -> Any:
-        r = await self.ctx.exec.run_python(FS_SNIPPET, {"op": "list", "root": confine(self.root, path), "git": False, "include": [], "exclude": [], "pattern": pattern})
+        r = await self.policy_exec.run_python(FS_SNIPPET, {"op": "list", "root": confine(self.root, path), "git": False, "include": [], "exclude": [], "pattern": pattern})
         return "\n".join(r["paths"]) or "(no documents)"
 
     async def tool_read_doc(self, path: str, offset: int = 1, limit: int = 400) -> Any:
         try:
-            r = await self.ctx.exec.run_python(_EXTRACT, {"path": confine(self.root, path), "offset": offset, "limit": min(limit, 2000)})
+            r = await self.policy_exec.run_python(_EXTRACT, {"path": confine(self.root, path), "offset": offset, "limit": min(limit, 2000)})
         except Exception as e:
             raise ToolError(str(e).split("python snippet failed: ")[-1][:500]) from e
         return r["text"]
 
     async def tool_search_docs(self, pattern: str, glob: str | None = None) -> Any:
-        r = await self.ctx.exec.run_python(FS_SNIPPET, {"op": "grep", "root": self.root, "git": False, "include": [], "exclude": [], "pattern": pattern, "glob": glob, "max_hits": 200})
+        r = await self.policy_exec.run_python(FS_SNIPPET, {"op": "grep", "root": self.root, "git": False, "include": [], "exclude": [], "pattern": pattern, "glob": glob, "max_hits": 200})
         return "\n".join(f"{p}:{n}:{t}" for p, n, t in r["hits"]) or "no matches"
 
     async def tool_write_doc(self, path: str, content: str) -> Any:
         if not self.spec.params.get("writable"):
             raise ToolError("the library is read-only")
-        await self.ctx.exec.run_python(WS_SNIPPET, {"op": "write", "path": confine(self.root, path), "content": content})
+        await self.policy_exec.run_python(WS_SNIPPET, {"op": "write", "path": confine(self.root, path), "content": content})
         return f"saved {path}"

@@ -464,7 +464,9 @@ class World:
         missing = set(self.apps) ^ set(ref.apps)
         if missing:
             raise WorldError(f"WorldRef apps mismatch: {sorted(missing)}")
+        await self.backend.before_restore(self)
         await asyncio.gather(*(self.apps[n].state.restore(r) for n, r in ref.apps.items()))
+        await self.backend.after_restore(self)
         self.clock.restore(ref.clock)
         self.scheduler.restore(ref.pending_events, ref.fired_counts)
         self.acl.restore(ref.acl_rules)

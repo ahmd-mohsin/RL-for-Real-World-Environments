@@ -31,7 +31,7 @@ from harbor.models.trial.paths import TrialPaths
 
 from crucible.core.schema.world import AppSpec
 from crucible.world.backends.base import Backend, BackendCapabilities
-from crucible.world.exec import Exec, ExecOut
+from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
 
@@ -55,13 +55,17 @@ class HarborExec(Exec):
             await self._put_bytes(stdin, tmp)
             cmd = f"{{ {cmd} ; }} < {tmp}; __rc=$?; rm -f {tmp}; exit $__rc"
         t0 = time.monotonic()
-        try:
-            r = await self.env.exec(cmd, cwd=cwd, env=env, timeout_sec=int(timeout_s) if timeout_s else None, user=user or self.default_user)
+        try:  # the in-container deadline is the real one; Harbor's client-side timeout is only a backstop
+            r = await self.env.exec(with_deadline(cmd, timeout_s), cwd=cwd, env=env, timeout_sec=int(timeout_s) + 15 if timeout_s else None,
+                                    user=user or self.default_user)
         except RuntimeError as e:
             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
                 return ExecOut(rc=-9, stdout="", stderr=str(e), duration_s=time.monotonic() - t0, timed_out=True)
             raise
-        return ExecOut(rc=r.return_code, stdout=r.stdout or "", stderr=r.stderr or "", duration_s=time.monotonic() - t0)
+        out = ExecOut(rc=r.return_code, stdout=r.stdout or "", stderr=r.stderr or "", duration_s=time.monotonic() - t0)
+        if deadline_hit(out.rc, out.duration_s, timeout_s):
+            out.timed_out, out.rc = True, -9
+        return out
 
     async def _put_bytes(self, data: bytes, dest: str) -> None:
         import tempfile
@@ -167,7 +171,9 @@ class HarborBackend(Backend):
         # Always our overlay subclass: GPUs (if any), no-network, init, and the policy sandbox's resource caps.
         self.env = EnvironmentFactory.create_environment_from_import_path(
             GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(), pids_limit=iso.pids_limit,
-            cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory, keep_containers=bool(self.params.get("keep_containers")))
+            cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory,
+            security_opt=self.params.get("security_opt", []),  # opt-in: the guard sets no_new_privs on the policy tree itself
+            keep_containers=bool(self.params.get("keep_containers")))
         await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
         self._exec = HarborExec(self.env, default_user=self.params.get("user"))
         probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=60)
@@ -175,46 +181,14 @@ class HarborBackend(Backend):
             raise RuntimeError("sandbox image needs python3 and git for Crucible's state adapters")
 
     async def after_apps_started(self, world) -> None:
-        """Isolation (Karotte-style), after Apps seeded their files as root: policy user, ownership, git scrub, egress test."""
-        iso = self.spec.isolation
-        if not iso.policy_user:
+        """Isolation (Karotte-style), after Apps seeded their files as root (``crucible.world.guard.isolate``)."""
+        if not self.spec.isolation.policy_user:
             return
-        from crucible.world.guard import Guard, PolicyExec
+        from crucible.world.guard.isolate import isolate_world
 
         assert self._exec is not None
-        self.guard = Guard(self._exec)
-        await self.guard.install()
-        writable = [a.state.params["root"] if a.state.params["root"].startswith("/") else f"{self.base_path(a).rstrip('/')}/{a.state.params['root']}"
-                    for a in self.spec.apps if a.state.adapter in ("fs", "fs_git") and "root" in a.state.params and a.params.get("policy_writable", True)
-                    and a.template not in ("common/toolchain", "coding/gpu_toolchain")]
-        await self.guard.setup(user=iso.policy_user, uid=iso.policy_uid, writable=writable,
-                               root_only=self.params.get("root_only", []) + ["/var/lib/crucible"])
-        for a in self.spec.apps:
-            if a.params.get("scrub_history"):
-                root = world.apps[a.id].state.params["root"]
-                report = await self.guard.call("git_scrub", {"root": root, "keep": a.params.get("history_keep", "HEAD"),
-                                                             "forbidden": a.params.get("forbidden_commits", [])})
-                if not report["ok"]:
-                    raise RuntimeError(f"{a.id}: git history still leaks after scrub: {report}")
-                await self._exec.run(f"chown -R {iso.policy_uid}:{iso.policy_uid} {root}/.git")
-        # Verifier side: the interpreter resolved at setup, isolated mode (no PYTHONPATH, user site or cwd imports), and a
-        # root-only staging dir, so snippets and snapshot payloads (gold states included) never pass through /tmp.
-        await self._exec.run("mkdir -p /var/lib/crucible/stage && chmod 700 /var/lib/crucible/stage")
-        self._exec.python = f"{shlex.quote(self.guard.python)} -I"
-        self._exec.staging_dir = "/var/lib/crucible/stage"
-        self.policy_exec = PolicyExec(self.guard, iso.policy_uid)
-        for app in world.apps.values():
-            app.ctx.extra["policy_exec"] = self.policy_exec
-        if iso.egress_probe and self.spec.network in ("no-network", "allowlist"):
-            probe = await self.guard.call("egress", {"uid": iso.policy_uid})
-            self.egress_report = probe
-            if not probe["isolated"]:
-                raise RuntimeError(f"refusing to run: the policy user can reach {probe['reachable']} in a {self.spec.network} world")
-
-    async def quiesce(self) -> dict | None:
-        if getattr(self, "guard", None) is None:
-            return None
-        return await self.guard.call("quiesce", {"uid": self.spec.isolation.policy_uid})
+        self.isolation = await isolate_world(world, self._exec, base_path=self.params.get("base_path", "/"),
+                                             root_only=self.params.get("root_only", []))
 
     def exec_for(self, app: AppSpec) -> Exec:
         assert self._exec is not None, "provision() first"

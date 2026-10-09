@@ -49,11 +49,6 @@ class WorkspaceApp(App):
         return self.state_params["root"]
 
     @property
-    def policy_exec(self):
-        """Policy tools run here: the guard's demoted Exec in isolated container worlds, else the App's Exec."""
-        return self.ctx.extra.get("policy_exec") or self.ctx.exec
-
-    @property
     def max_output(self) -> int:
         return int(self.spec.params.get("max_output", 30000))
 
@@ -160,14 +155,18 @@ class GitRepoApp(WorkspaceApp):
         ]
 
     async def tool_git_status(self) -> Any:
-        out = await self.policy_exec.run("git status --short", cwd=self.root, timeout_s=120)
+        out = await self.policy_exec.run("git -c core.quotepath=off status --short", cwd=self.root, timeout_s=120)
         return out.stdout or "clean"
 
     async def tool_git_diff(self, ref: str = "base", stat: bool = False) -> Any:
-        from crucible.core.schema.state import Query
+        from crucible.world.state.fs import git_diff_command
 
-        r = await self.state.query(Query(op="git_diff", args={"ref": ref, "stat": stat}))
-        if not r.ok:
-            raise ToolError(r.stderr or r.error or "git diff failed")
-        text = r.stdout or "(no changes)"
+        try:  # the policy's own view of its own repo, run as the policy: its hooks and config are its business
+            cmd = git_diff_command(self.root, ref, stat)
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+        out = await self.policy_exec.run(cmd, timeout_s=600)
+        if not out.ok:
+            raise ToolError(_last_error_line(out.stderr or out.stdout or "git diff failed"))
+        text = out.stdout or "(no changes)"
         return text if len(text) <= self.max_output else text[: self.max_output] + "\n... (truncated)"

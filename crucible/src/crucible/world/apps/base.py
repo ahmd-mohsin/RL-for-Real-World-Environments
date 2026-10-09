@@ -79,6 +79,12 @@ class App(ABC):
     @abstractmethod
     async def list_tools(self) -> list[ToolSpec]: ...
 
+    @property
+    def policy_exec(self):
+        """Exec for tools that touch policy-owned files: the guard's demoted Exec in isolated worlds, else ctx.exec.
+        Tools over App-owned state (an SQLite file, a mailbox) run as the App, i.e. ctx.exec, like a real server."""
+        return self.ctx.extra.get("policy_exec") or self.ctx.exec
+
     async def call(self, name: str, args: dict[str, Any], *, actor: str, call_id: str) -> ToolResult:
         fn = getattr(self, f"tool_{name}", None)
         qualified = f"{self.id}.{name}"

@@ -1,0 +1,125 @@
+"""Backend-independent isolation: everything a container backend does to turn a running World into a hardened one.
+
+Used by every backend that gives the World a container with a root Exec (Harbor, agentenv's sandbox providers).
+The sequence, after the Apps have seeded their files as root and before the policy's first step:
+
+1. install the guard (root 0600) and create a fresh policy account (never an image account), refusing images
+   whose root PATH or interpreter the policy could alter;
+2. scrub git history where asked, and keep a root-only copy of every repo's ``.git``: verifier-side git reads
+   only that copy (``--git-dir``), so hooks, filters, fsmonitor or excludes the policy plants are never used;
+3. hand the policy-writable roots to the policy uid; App state the policy does not own (SQLite, mailbox, JSON
+   documents) must not sit inside them;
+4. pin the verifier interpreter (``python -I -S``) and stage payloads in a root-only directory;
+5. route every policy tool through the guard as the demoted uid;
+6. prove there is no egress (no-network / allowlist worlds).
+
+Between episodes (``before_restore`` / ``after_restore``) the policy's processes are killed, restored files are
+written as the policy uid, its ``.git`` returns to the trusted copy, and ``/tmp``, ``/var/tmp``, ``/dev/shm``,
+its home and its SysV IPC objects are emptied.
+"""
+
+from __future__ import annotations
+
+import posixpath
+import shlex
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from crucible.world.exec import Exec
+from crucible.world.guard import Guard, GuardError, PolicyExec
+
+if TYPE_CHECKING:
+    from crucible.world.world import World
+
+STATE_DIR = "/var/lib/crucible"
+NON_POLICY_TEMPLATES = ("common/toolchain", "coding/gpu_toolchain")
+
+
+class IsolationError(RuntimeError):
+    pass
+
+
+@dataclass
+class Isolation:
+    guard: Guard
+    uid: int
+    policy_exec: PolicyExec
+    writable: list[str]
+    trusted_git: dict[str, tuple[str, str]] = field(default_factory=dict)  # app id -> (worktree root, trusted git dir)
+    egress: dict[str, Any] | None = None
+
+
+def _abs(root: str, base: str) -> str:
+    return root if root.startswith("/") else posixpath.normpath(posixpath.join(base, root))
+
+
+async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", root_only: list[str] | None = None,
+                        egress_targets: list[list[Any]] | None = None) -> Isolation:
+    spec, iso = world.spec, world.spec.isolation
+    guard = Guard(root_exec)
+    await guard.install()
+    writable = [_abs(a.state.params["root"], base_path) for a in spec.apps
+                if a.state.adapter in ("fs", "fs_git") and "root" in a.state.params and a.params.get("policy_writable", True)
+                and a.template not in NON_POLICY_TEMPLATES]
+    root_path = (await root_exec.run("printenv PATH", timeout_s=30)).stdout.strip()
+    try:
+        info = await guard.setup(user=iso.policy_user, uid=iso.policy_uid, writable=writable, root_path=root_path,
+                                 root_only=[*(root_only or []), STATE_DIR])
+    except GuardError as e:
+        raise IsolationError(str(e)) from e
+    uid = int(info["uid"])
+    # App state the policy must not own: refuse it inside a policy-writable tree (it could swap it for a symlink).
+    for a in spec.apps:
+        path = a.state.params.get("path")
+        if path and a.state.adapter in ("sql", "json_doc"):
+            full = _abs(path, base_path)
+            inside = [w for w in writable if full == w or full.startswith(w.rstrip("/") + "/")]
+            if inside:
+                raise IsolationError(f"app {a.id!r}: its state {full} lies inside the policy-writable root {inside[0]}")
+    trusted: dict[str, tuple[str, str]] = {}
+    for a in spec.apps:
+        if a.state.adapter != "fs_git" or a.template in NON_POLICY_TEMPLATES:
+            continue
+        root = _abs(world.apps[a.id].state.params["root"], base_path)
+        if not (await root_exec.run(f"test -d {shlex.quote(root)}/.git")).ok:
+            continue
+        if a.params.get("scrub_history"):
+            report = await guard.call("git_scrub", {"root": root, "keep": a.params.get("history_keep", "HEAD"),
+                                                    "forbidden": a.params.get("forbidden_commits", [])})
+            if not report["ok"]:
+                raise IsolationError(f"{a.id}: git history still leaks after scrub: {report}")
+        dest = f"{STATE_DIR}/git/{a.id}.git"
+        await guard.call("git_trust", {"root": root, "dest": dest})
+        trusted[a.id] = (root, dest)
+        world.apps[a.id].state.trusted_git_dir = dest
+    await guard.call("own", {"uid": uid, "paths": writable})
+    for a in spec.apps:
+        if a.state.adapter in ("fs", "fs_git") and _abs(world.apps[a.id].state.params.get("root", "/"), base_path) in writable:
+            world.apps[a.id].state.owner_uid = uid
+    # Verifier side: the interpreter resolved at setup, isolated mode without site (no PYTHONPATH, user site, .pth
+    # files or cwd imports), and a root-only staging dir, so snippets and snapshot payloads never pass through /tmp.
+    await root_exec.run(f"mkdir -p {STATE_DIR}/stage && chmod 700 {STATE_DIR}/stage")
+    root_exec.python = f"{shlex.quote(guard.python)} -I -S"
+    root_exec.staging_dir = f"{STATE_DIR}/stage"
+    policy_exec = PolicyExec(guard, uid)
+    for app in world.apps.values():
+        app.ctx.extra["policy_exec"] = policy_exec
+    out = Isolation(guard=guard, uid=uid, policy_exec=policy_exec, writable=writable, trusted_git=trusted)
+    if iso.egress_probe and spec.network in ("no-network", "allowlist"):
+        probe = await guard.call("egress", {"uid": uid, "extra_targets": egress_targets or []})
+        out.egress = probe
+        if not probe["isolated"]:
+            raise IsolationError(f"refusing to run: the policy user can reach {probe['reachable']} in a {spec.network} world")
+    return out
+
+
+async def before_restore(iso: Isolation) -> None:
+    rep = await iso.guard.call("quiesce", {"uid": iso.uid})
+    if not rep.get("ok"):
+        raise IsolationError(f"policy processes survived quiesce before restore: {rep}")
+
+
+async def after_restore(iso: Isolation) -> dict[str, Any]:
+    for root, git_dir in iso.trusted_git.values():
+        await iso.guard.call("git_reset", {"root": root, "src": git_dir, "uid": iso.uid})
+    return await iso.guard.call("reclaim", {"uid": iso.uid})

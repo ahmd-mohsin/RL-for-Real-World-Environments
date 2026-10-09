@@ -9,7 +9,8 @@ nothing but the compose overlay appended last to ``_docker_compose_paths``:
 - ``gpu_mode="devices"``: compose device reservations (``--gpus``), for nvidia-container-toolkit hosts;
 - ``network_none``: ``network_mode: none`` on ``main`` (what our migration runs used: ``--network none``);
 - ``init: true`` (zombie reaping — DESIGN Appendix B.5) and ``shm_size``;
-- ``pids_limit``, ``cap_add`` and ``mem_limit`` for the policy's sandbox (Karotte's fork-bomb, OOM and memory defenses).
+- ``pids_limit``, ``cap_add``, ``mem_limit`` and ``security_opt`` for the policy's sandbox (Karotte's fork-bomb, OOM and
+  memory defenses; ``no-new-privileges`` so no setuid binary or sudo rule can make the policy user root).
 
 Loaded through Harbor's factory: ``create_environment_from_import_path("crucible.interop.harbor.gpu_docker:GpuDockerEnvironment", ...)``.
 Remote daemons work unchanged: Harbor's compose subprocess inherits ``DOCKER_HOST`` (e.g. ``ssh://user@gpu-host``).
@@ -29,7 +30,7 @@ from harbor.environments.docker.docker import DockerEnvironment
 class GpuDockerEnvironment(DockerEnvironment):
     def __init__(self, *args: Any, gpu_mode: str = "runtime", gpu_devices: str = "all", network_none: bool = False,
                  init: bool = True, shm_size: str | None = "8g", pids_limit: int | None = None, cap_add: list[str] | None = None,
-                 mem_limit: str | None = None, **kwargs: Any) -> None:
+                 mem_limit: str | None = None, security_opt: list[str] | None = None, **kwargs: Any) -> None:
         if gpu_mode not in ("runtime", "devices", "none"):
             raise ValueError(f"gpu_mode must be runtime|devices|none, got {gpu_mode!r}")
         self._gpu_mode = gpu_mode
@@ -40,6 +41,7 @@ class GpuDockerEnvironment(DockerEnvironment):
         self._pids_limit = pids_limit
         self._cap_add = cap_add or []
         self._mem_limit = mem_limit
+        self._security_opt = security_opt or []
         self._overlay_dir: tempfile.TemporaryDirectory[str] | None = None
         self._overlay_path: Path | None = None
         super().__init__(*args, **kwargs)  # capability validation runs in here: state above must exist first
@@ -81,6 +83,8 @@ class GpuDockerEnvironment(DockerEnvironment):
                 svc["cap_add"] = self._cap_add  # SYS_RESOURCE: the policy's oom_score_adj=1000 cannot be lowered back
             if self._mem_limit:
                 svc["mem_limit"] = self._mem_limit
+            if self._security_opt:
+                svc["security_opt"] = self._security_opt  # no-new-privileges: setuid binaries and sudo cannot raise the policy's privileges
             path = Path(self._overlay_dir.name) / "docker-compose-crucible-gpu.json"
             path.write_text(json.dumps({"services": {"main": svc}}, indent=2))
             self._overlay_path = path

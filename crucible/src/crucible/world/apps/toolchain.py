@@ -23,8 +23,8 @@ class ToolchainApp(App):
                          input_schema={"type": "object", "properties": {"command": {"type": "string"}, "timeout_s": {"type": "integer"}}, "required": ["command"]})]
 
     async def tool_shell(self, command: str, timeout_s: int = 600) -> Any:
-        if self.ctx.exec.is_local and not self.spec.params.get("allow_unsafe_local_shell"):
+        if self.policy_exec.is_local and not self.spec.params.get("allow_unsafe_local_shell"):
             raise ToolError("shell refused: the local backend has no sandbox")
-        out = await self.ctx.exec.run(command, cwd=self.state_params.get("cwd"), timeout_s=timeout_s)
+        out = await self.policy_exec.run(command, cwd=self.state_params.get("cwd"), timeout_s=timeout_s)
         text = out.stdout + (("\n[stderr]\n" + out.stderr) if out.stderr.strip() else "")
         return f"[{'TIMEOUT' if out.timed_out else f'exit {out.rc}'}]\n{text[-30000:]}"

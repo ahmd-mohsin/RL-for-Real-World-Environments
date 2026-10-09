@@ -8,12 +8,41 @@ For ``fs_git`` the managed set is tracked + untracked-but-not-ignored files: bui
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from typing import Any, ClassVar
 
 from crucible.core.schema.state import FileChange, StateDiff, StateRef
 from crucible.world.state.base import SnapshotMismatch, StateAdapter, snippet
 
 FS_SNIPPET = snippet("fs")
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@^~{}-]{0,200}$")
+
+
+def check_ref(ref: str) -> str:
+    """A git revision safe to put on a command line (no options, no shell metacharacters)."""
+    if not _REF.match(ref):
+        raise ValueError(f"invalid git ref {ref!r}")
+    return ref
+
+
+def git_shell(root: str, git_dir: str | None = None, extra_env: str = "") -> str:
+    """A git command line that reads no system/global config, runs no hooks or fsmonitor, and (with ``git_dir``)
+    uses a root-owned copy of the repository instead of the policy-writable ``.git``."""
+    q = shlex.quote
+    loc = f"--git-dir={q(git_dir)} --work-tree={q(root)} -C {q(root)}" if git_dir else f"-C {q(root)}"
+    return (f"env -i PATH={SAFE_PATH} HOME=/nonexistent LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 {extra_env} "
+            f"git -c safe.directory='*' -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.quotepath=off {loc}")
+
+
+def git_diff_command(root: str, ref: str = "base", stat: bool = False, git_dir: str | None = None) -> str:
+    """Working tree (incl. untracked, minus ignored) vs ``ref`` through a throwaway index; the repo's index is untouched."""
+    ref = shlex.quote(check_ref(ref))
+    flag = "--stat" if stat else "--binary"
+    g = git_shell(root, git_dir, 'GIT_INDEX_FILE="$T"')
+    return (f'set -e; T=$(mktemp); trap \'rm -f "$T"\' EXIT; {g} read-tree {ref}; {g} add -A -- . 2>/dev/null || true; '
+            f"{g} diff --cached --no-ext-diff --no-textconv {flag} {ref}")
 
 
 class FsAdapter(StateAdapter):
@@ -28,17 +57,27 @@ class FsAdapter(StateAdapter):
         "run": "run a shell command in root: {cmd, timeout_s}",
     }
 
+    # Set by an isolating backend: a root-owned copy of the repo's .git taken before the policy ran, and the uid
+    # that owns what a restore writes (the policy's, so its files stay writable after a reset).
+    trusted_git_dir: str | None = None
+    owner_uid: int | None = None
+
     def _args(self, **extra: Any) -> dict[str, Any]:
         root = self.params.get("root")
         if not root:
             raise ValueError(f"{self.kind} adapter for app {self.app!r} needs params.root")
-        return {
+        args = {
             "root": root,
             "git": bool(self.params.get("git", self.GIT)),
             "include": list(self.params.get("include", [])),
             "exclude": list(self.params.get("exclude", [])),
             **extra,
         }
+        if self.trusted_git_dir:
+            args["git_dir"] = self.trusted_git_dir
+        if self.owner_uid is not None:
+            args["owner"] = self.owner_uid
+        return args
 
     async def _snip(self, op: str, **extra: Any) -> dict[str, Any]:
         return await self.exec.run_python(FS_SNIPPET, self._args(op=op, **extra))
@@ -132,13 +171,9 @@ class FsGitAdapter(FsAdapter):
     async def q_git_diff(self, ref: str = "base", stat: bool = False) -> Any:
         from crucible.core.schema.state import QueryResult
 
-        # Diff the working tree (incl. untracked, minus ignored) against `ref` without touching the
-        # repo's real index: a throwaway index file (GIT_INDEX_FILE) is used and deleted.
-        root = self.params["root"]
-        flag = "--stat" if stat else "--binary"
-        cmd = (
-            f'set -e; T=$(mktemp); trap "rm -f $T" EXIT; export GIT_INDEX_FILE=$T; '
-            f"G='git -c safe.directory=* -C {root}'; $G read-tree {ref} && $G add -A -- . 2>/dev/null; $G diff --cached {flag} {ref}"
-        )
+        try:
+            cmd = git_diff_command(self.params["root"], ref, stat, self.trusted_git_dir)
+        except ValueError as e:
+            return QueryResult(ok=False, error=str(e))
         out = await self.exec.run(cmd, timeout_s=600)
         return QueryResult(ok=out.ok, exit_code=out.rc, stdout=out.stdout, stderr=out.stderr[-4000:], duration_s=out.duration_s)

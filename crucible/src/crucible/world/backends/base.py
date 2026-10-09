@@ -85,9 +85,36 @@ class Backend(ABC):
     async def on_reset(self, world: World) -> None:
         pass
 
+    # Set by container backends that harden the World (``crucible.world.guard.isolate.isolate_world``).
+    isolation: Any = None
+
+    @property
+    def policy_uid(self) -> int | None:
+        return self.isolation.uid if self.isolation else None
+
+    @property
+    def egress_report(self) -> dict | None:
+        return self.isolation.egress if self.isolation else None
+
     async def quiesce(self) -> dict | None:
         """Kill everything the policy left running (before verification). Backends without isolation: no-op."""
-        return None
+        if self.isolation is None:
+            return None
+        return await self.isolation.guard.call("quiesce", {"uid": self.isolation.uid})
+
+    async def before_restore(self, world: World) -> None:
+        """Nothing of the policy may run while state is rewritten under it."""
+        if self.isolation is not None:
+            from crucible.world.guard.isolate import before_restore
+
+            await before_restore(self.isolation)
+
+    async def after_restore(self, world: World) -> None:
+        """Episode hygiene: the policy's .git back to the trusted copy; /tmp, home, /dev/shm and SysV IPC emptied."""
+        if self.isolation is not None:
+            from crucible.world.guard.isolate import after_restore
+
+            world._log("state", None, "reclaim", data=await after_restore(self.isolation))
 
     @abstractmethod
     async def teardown(self) -> None: ...
