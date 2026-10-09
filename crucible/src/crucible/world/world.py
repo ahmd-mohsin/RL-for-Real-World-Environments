@@ -28,12 +28,14 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol, Self, runtime_checkable
 
+from crucible.connectors.agent_events import annotate_probes, writes_of
 from crucible.core.ids import new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
 from crucible.core.schema.run import Failure
+from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.state import Query, QueryResult, StateRef, WorldRef
-from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
+from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
 from crucible.world.apps.base import App, AppContext
@@ -591,13 +593,19 @@ class World:
     def to_trace(self) -> Trace:
         actors = [TraceActor(id=a.id, role=a.kind, kind="agent" if a.kind in ("policy", "peer") else ("human" if a.kind == "human" else "system")) for a in self.spec.actors]
         actor_ids = {a.id for a in actors}
-        events = [e if e.actor is None or e.actor in actor_ids else e.model_copy(update={"actor": None}) for e in self.log]
+        events = [e.model_copy(deep=True, update={} if e.actor is None or e.actor in actor_ids else {"actor": None}) for e in self.log]
+        for e in events:  # what each edit wrote: M4 grades a later signal about that file to this step, whichever agent made it
+            if e.type == "tool_call" and (w := writes_of(str(e.data.get("function", "")), e.data.get("arguments"))):
+                e.data["writes"] = w
+                e.target = SignalTarget(app=str(e.data["function"]).split(".")[0], object=w[0])
+        probes = annotate_probes(events)  # answer-key attempts are recorded, never scored (P12); an exposure masks the episode
         return Trace(
             trace_id=self.episode_id,
             family=self.spec.world,
             source=TraceSource(connector="crucible.world", ref=f"world:{self.spec_hash[:16]}", privacy="internal"),
             actors=actors,
             events=events,
+            outcome=TraceOutcome(details={"probes": probes} if probes["attempted"] else {}),
         )
 
     def actor_spec(self, actor: str) -> ActorSpec:

@@ -98,7 +98,7 @@ Nine more come from building tasks 01–04 and surveying nine frameworks:
   - **Scaling up:** a finance org with eight apps, four simulated departments and a clock is the same abstraction.
   - **Domain packs:** everything domain-specific (connectors, signal mappings, app templates, milestone and verifier libraries, generators, horizon ladders) lives in a pack. The core never imports a pack.
 
-Five more come from public post-mortems of RL environments: Preference Model's "Building RL environments for superintelligence" series and its MIT framework Karotte, and Hugging Face's "How not to build coding environments" (Repo2RLEnv). Both found frontier models taking every shortcut the environment left open.
+Eight more come from public post-mortems of RL environments and our own audits of them: Preference Model's "Building RL environments for superintelligence" series and its MIT framework Karotte, and Hugging Face's "How not to build coding environments" (Repo2RLEnv). Both found frontier models taking every shortcut the environment left open.
 
 - **P20 — Grade outcomes, and the prompt asks only what the grader checks.** "If the grader can't check it, it cannot go into the prompt." An instruction the grader does not enforce is a lie the policy learns to ignore, and a grader that inspects the process (which commands were run) punishes valid alternatives (P12). Every sentence of a task's instructions maps to a check or is removed (Acceptance Contract, §9).
 - **P21 — The environment enforces; the prompt never asks.** "Don't use the internet" and "don't read the git history" are not constraints; `network_mode: none` and a verified history scrub are. Every prohibition is an enforced property with an automated audit, and is tested by an attacker that tries it (`tests/redteam/`).
@@ -106,6 +106,9 @@ Five more come from public post-mortems of RL environments: Preference Model's "
 - **P23 — Rewards never come from inside the sandbox.** Nothing the policy can write is read as a reward or a verdict: rewards are computed from snapshots taken after the policy's process cohort is killed (quiesce), by code and an interpreter the policy cannot modify. Harbor 0.23 trusts a `reward.json` the agent can pre-write (Karotte's comparison); Crucible never reads one from the sandbox.
 - **P25 — One choke point.** Every tool call (the policy's, simulated people's, events') passes through `World._call_tool`: validation, ACL, deadline, crash containment, fault labels, output bounds. MiMo's anti-hack guard never ran on its own RL path because the RL agent called tools around it; a check that is not at the single choke point is a check that can be bypassed.
 - **P24 — Deep, non-saturating tasks.** A task should reward doing *better*, not only passing: perf bars, quality margins and multi-property strictness keep the reward informative after correctness saturates (Appendix B.1: correctness-only migrations were within frontier reach; perf and concurrency bars separated the models).
+- **P26 — Trust only channels the candidate cannot write.** In the verifier, candidate code runs unprivileged in its own processes and produces *artifacts*; a separate trusted process compares them with references the candidate could neither read nor write. Never evidence: an exit code, a summary line or JSON row on the candidate's stdout, a test binary its own build system produced, timing measured inside its process, a file under a path it can write, a consumer package it can shadow on `PYTHONPATH`. Found in our own seeds (2026-10-09 audit, Appendix B.10): task01's hidden suite was built by the candidate's CMake and judged by doctest's exit code (`DOCTEST_CONFIG_DISABLE` passes it), task03 trusted pytest's exit code (`os._exit(0)` under pytest passes it), task02 ran candidate code as root next to the benchmark it then re-ran. CI-as-a-tool results (exit code + `expect` regex) are feedback to the policy, never reward.
+- **P27 — Answer-key probes are recorded, never scored; an exposure masks.** Every tool call that probes git history, a package registry, a code host, grader files, root or other processes is tagged in the trace (`data.probes`, M3 `agent_events.py`), with whether it *ran* and whether its output actually *exposed* an answer source (a `git log --all` listing only `base` ran and exposed nothing). Probing is not punished: exploring history is ordinary work, and grading the process punishes valid alternatives (P12, P20). But an outcome reached after an exposure is not evidence: the World masks the episode (`crucible:answer_exposed`, an environment failure under P21) and imported runs lose their label (Repo2RLEnv: "every green score was contamination").
+- **P28 — Many agents, one World.** Swarms scale by peers sharing a workspace, not by a root that holds everyone's context (Prime Intellect, "On the nature of the swarm"). A World therefore drives any number of policy agents as peers: they coordinate through shared Apps (a git repo, an issue tracker, a mailbox) and direct messages under ACLs, with no orchestrator in the loop; persistent peers keep their memory in the `WorldRef`; and credit follows writes (every edit records what it wrote, so M4 grades a later signal to the agent, or sub-agent, that made the change). Communication is a cost the benchmark reports (§11.1).
 
 ---
 
@@ -307,6 +310,13 @@ Connectors for the coding MVP:
 
 Privacy is enforced by the connector contract: `redact()` runs inside the tenant, and the trace store is tenant-local. Public traces (open-source upstream) are marked `privacy: public` and are what the MVP uses (§11.2).
 
+**As built (M3, 2026-10-09; `docs/modules/M03-connectors.md`).**
+- **Generic connectors (core):** `file_drop`, `sql_audit_log`, `otel_import` (OTel GenAI conventions), `capture_proxy` (OpenAI `/v1/chat/completions` and Anthropic `/v1/messages`, streaming, per-session capability keys, retries collapsed to the attempt the agent saw), and `atif` (Harbor converters, DEPEND).
+- **Coding pack:** `github_pr` (plus git-only discovery with no API), `claude_code_sessions`, `agent_runs`, `ci_logs` (JUnit / CTest / GoogleTest / pytest / build logs; infra failures masked per P16; flaky tests listed), `policy_docs` (normative rules with modality, config rules, revision history).
+- **Redaction:** provider key formats, bearer tokens, the tenant's known secret values, and human actor ids as well as handles. The gate found a real Docker Hub token and a RunPod key in our transcript that the first patterns missed.
+- **Every agent-session connector, and the World itself, tags answer-key probes (P27).**
+- **Not built:** `issues` and `gitlab` (they need API calls).
+
 ### 5.2 Taxonomy of expert signals in coding
 
 | Signal | Where it is recorded | Credit it implies | Reliability | Use |
@@ -404,6 +414,13 @@ with κ ≤ 0.3, α ≤ 0.1 and β ≤ 0.05:
 - A full success is worth at least 1, and a failure at most κ < 1. So partial credit can never beat finishing.
 - Partial credit exists only *inside* the gates. It gives GRPO variance on hard tasks where every rollout fails (all-fail groups get 0 advantage under sparse reward).
 
+**Open-ended objectives (P24; Preference Model: "reward doing better rather than clearing a fixed bar").** For families with a measurable objective (speedup, memory, accuracy, cost), the efficiency channel e can be *record-relative* instead of a bar:
+- e = clip(log(m / bar) / log(record / bar), 0, e_max), where m is the policy's measured value, bar is the pass bar and record is the best value seen so far for the task.
+- A run that beats the record gets e > 1, up to e_max, and the record moves, so the task does not saturate.
+- m is measured outside the candidate's process on fresh inputs (P26), with a noise band from repeated oracle measurements (P15).
+- e only ever adds to a full success (it sits inside O · (…)), so it cannot trade against correctness.
+- Designed, not built (M6/M9).
+
 Per-turn advantage for multi-turn GRPO. Let A^GRPO be the usual group-normalized episode advantage. The turn-level advantage is:
 
   A_t = A^GRPO + η · ( Σ_{u≥t} r_u^sh − mean_group ) / std_group
@@ -469,6 +486,8 @@ Each role is an LLM agent with a narrow toolset and a typed output. The orchestr
 | **Calibrator** | accepted task | frontier and target-policy pass rates; failure taxonomy; difficulty knob adjustment | — |
 | **Curator** | task pool | dedup (semantic + content hash), difficulty ladder, split assignment, contamination check | — |
 
+**Coordination (P28).** The orchestrator is deterministic but holds no content: roles coordinate through a shared task repository (drafts, checks, negatives as commits) and an issue tracker (audit findings, calibration results), so no single context has to hold every task. Roles are persistent specialists per family: the auditor that found a family's defects keeps them, instead of a fresh agent rediscovering them. Tasks may target problems nobody can solve yet (Preference Model's elliptic-curve rank) as long as the grader checks the outcome (P20).
+
 ### 7.3 Horizon levels for coding
 
 | Level | Typical scope | Agent steps | Example in this family |
@@ -530,6 +549,7 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 4. The verifier runs in a separate image (Harbor `environment_mode="separate"`, verifiers `IsolatedVerifierEnv`). Candidate code runs as an unprivileged UID. Reference directories are 0700 root. Outputs are chown-sealed after every candidate step (task-03/04 grader).
 5. The collection hook handles a dirty workspace and gitignored build directories, and errors from `git add` cannot abort the diff (Appendix B.5).
 6. Perf grading runs only when the node is quiet (load guard) and records the spread across rounds; contaminated rounds are re-graded, not scored (Appendix B.5).
+7. **Trusted channels only (P26).** Candidate code runs unprivileged in the verifier too, with privileges dropped *before* any candidate code (its `setup.py`, its import side effects) runs. The test harness, the benchmark and the reference build are root-owned copies made before the candidate runs. Verdicts come from artifacts compared by a trusted process, never from exit codes or the candidate's stdout. Timing is taken outside the candidate's process. Every timed repetition gets fresh inputs, and every candidate invocation a fresh HOME and TMPDIR (no memoization, no replay of cached results). Consumers come before the candidate on `PYTHONPATH`. Any grader exception writes reward 0 plus an `infra_error` record; `reward.txt` is never left empty.
 
 **Built in M1 (2026-10-09), tested by `tests/redteam/test_attacks.py` on a Harbor-backed World with `isolation.policy_user` set:**
 
@@ -547,6 +567,8 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Trusted git | verifier-side git reads only a root-owned copy of `.git` taken before the policy ran; refs are validated and quoted | git-ref shell injection; hooks, filters, fsmonitor, external diff or `info/exclude` planted to run code as root or hide files |
 | Fresh account, no escalation | a new uid (never an image account), `PR_SET_NO_NEW_PRIVS` on the policy tree, root's `PATH` and interpreter audited for policy-writable components | the image's uid-1000 user with sudo, setuid-root binaries, a planted `git` on root's `PATH` |
 | Episode hygiene | quiesce before restore; restore through directory fds, owned by the policy; `.git` reset; `/tmp`, `/dev/shm`, home, SysV IPC emptied; App-owned state root `0600` | a symlinked parent redirecting a root write; stashing state for the next episode; reading other people's mail from the database file |
+| Egress self-test, answer sources | 17 code hosts, registries and mirrors (GitHub incl. `codeload`/`raw`, GitLab, PyPI incl. `files.pythonhosted.org`, npm, crates, Go proxy, conda, Hugging Face, `web.archive.org`, …) probed as the policy uid with a TLS/SNI handshake (a transparent egress proxy accepts every TCP connect); allowlisted hosts are excluded and checked as working lanes; audit `network.answer_sources` fails any allowlist that opens one of them (added 2026-10-09) | `pip download` of the fixed release through an allowlisted index; a mirror or archive after GitHub is blocked |
+| Answer-key probes (P27) | every policy tool call is scanned for history, registry, code-host, grader-file, root and `/proc` probes; an exposure masks the episode (`crucible:answer_exposed`) | a pass reached by reading the published fix |
 
 ---
 
@@ -556,7 +578,7 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
 
 | # | Check | Requirement |
 |---|---|---|
-| A1 | Oracle | reward = 1 on ≥ 3 independent full grades; every perf bar has ≥ 10% headroom |
+| A1 | Oracle | reward = 1 on ≥ 3 independent full grades **in the declared environment** (the task's own images, network and privilege settings; never a native run or the agent's own pod); every perf bar has ≥ 15% headroom; ≥ 10 grades on random fresh seeds never crash the grader |
 | A2 | Floors | the no-op/empty patch, the unmodified original, and the "obvious naive" solution all score 0 |
 | A3 | Mutation score | ≥ 1 negative per hidden-check family (≥ 4 in total for H3+); each fails the intended gate; ≥ 90% of generic defect-class mutants are killed |
 | A4 | Flakiness | oracle false-negative rate = 0 over ≥ 40 fresh-seed draws plus induced-perturbation draws; reference self-consistency (≥ 3 identical reference runs) |
@@ -568,6 +590,7 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
 | A10 | Calibration | ≥ 2 frontier runs recorded with their failure taxonomy; the pass rate is inside the target band for the task's split |
 | A11 | Harness hygiene | a dry run with a dirty workspace, ignored build directories and a blank-usage response is classified correctly (infra vs policy) |
 | A12 | Cost budget | the full grade fits the verifier timeout; the fast-grade tier (§10.2) correlates with the full grade (Spearman ≥ 0.8 on calibration rollouts) |
+| A13 | Grader attack suite | every cheat mutant scores 0: disabling the tests through the candidate's build (`DOCTEST_CONFIG_DISABLE`, `-DNDEBUG`-style defines, skipped test subdirectories); `os._exit(0)` when a test runner is loaded; injected result or timing rows on stdout; rewriting the benchmark, references or reward files; background processes; memoizing repeated inputs; replaying results cached in HOME/TMPDIR; shadowing consumers on `PYTHONPATH`; delegating to the original binary; banned code hidden behind macros, aliases, `importlib`, renamed binaries or skipped directories. Seeded from the 2026-10-09 seed-task audit (Appendix B.10) |
 
 **Defect registry.** Every defect found in any task, by any audit, model run or reviewer, becomes a new automated check that A1–A12 run on *all* tasks from then on. The registry starts with the 14 defects in Appendix B.
 
@@ -625,6 +648,8 @@ Each one is reported per task and aggregated per horizon level.
 | **Regression count** | milestones lost after being gained |
 | **Recovery rate** | on fault-injected starts (the H-span task starts at an expert state with a known injected defect), the share of episodes that repair it |
 | **Cost** | tokens, tool calls, wall time, GPU-seconds per success |
+| **Communication** | multi-agent worlds: messages and tokens exchanged between agents per success (P28: communication is the swarm's cost) |
+| **Probe profile** | answer-key probes attempted / ran / exposed per run (P27); an exposed pass is never counted |
 
 ### 11.2 OOD design
 
@@ -641,6 +666,7 @@ Contamination control: the benchmark split is sealed before any builder sees the
 ### 11.3 Dynamic benchmark
 - Each benchmark version has a **fixed anchor set** (about 30%, never rotated, for comparability) and a **fresh set** (about 70%), regenerated by the swarm from held-out seed traces with new secret parameters.
 - The difficulty of fresh items is placed on the anchor scale with an item-response-theory (IRT) model (2PL) fitted on frontier and baseline runs, so scores across versions stay comparable.
+- **Temporal decontamination** (SWE-rebench): a benchmark item derived from a public trace (a PR, an issue, a CVE) is scored for a model only if the trace post-dates that model's training cutoff. M3 keeps every trace's merge and commit times for this; the filter itself belongs to M10/M14.
 - A "best-operator series" (thesis): a human expert tries to break the trained agent on a fixed set of cases.
 
 ---
@@ -713,6 +739,8 @@ Compute estimate: the fast-tier grade is GPU-minutes per rollout, so GRPO with n
 | Grader flakiness fails correct policies | P15; induced-perturbation calibration; A4 |
 | A frontier builder leaks its priors into tasks (homogeneous traps) | traps must cite expert signals (A8); dedup by semantic trap signature; human audit of a random 10% |
 | Benchmark contamination | sealed time-split; fingerprints; fresh-set rotation |
+| A grader trusts a channel the candidate controls (exit codes, stdout rows, its own build, timing in its process) | P26; A13 grader attack suite run on every task; found in 4 of our 5 seed graders (Appendix B.10) |
+| An answer source is reachable (a mirror, an allowlisted index, an archive) | allowlists only; audit `network.answer_sources`; egress self-test on 17 answer-source hosts; answer-key probes mask exposed episodes (P27) |
 
 **Open decisions for the user:**
 1. The name ("Crucible").
@@ -849,3 +877,24 @@ Registry check: A3, mutation score.
 | A malformed argument crashed `World.step`; `to="bob@x"` became five recipients | episodes die or state is corrupted | schema validation at the choke point |
 | Batched tool calls interleaved with messages; no-usage responses priced at $0; replay cache shared across samples; context overflow masked | invalid requests masked as outages; the budget never trips; zero-variance groups; long-horizon failures disappear | policy loop and LLM client fixes (M02) |
 | agentenv role header and `__actor` were self-asserted; restored worlds re-fired triggers | any MCP client gets every tool or acts as anyone; duplicate events after restore | direct system calls, HMAC actor, absolute trigger instants, settled snapshots |
+
+**B.10 Found by auditing our own seed graders and the M3 gate against the Preference Model, Repo2RLEnv and Prime Intellect articles (2026-10-09).** Full evidence and file:line references in `docs/reviews/2026-10-09-articles-crosscheck.md`. Crucible-side defects are fixed; seed-grader defects are open until the tasks are re-versioned and re-validated on the lab GPU.
+
+| Defect | Where it bites | Check / status |
+|---|---|---|
+| task01/01v2 build the hidden suite with the candidate's CMake and judge doctest by exit code | a PUBLIC `DOCTEST_CONFIG_DISABLE` passes every test gate with 0 cases run | P26, A13; open |
+| task01/01v2 parse probe and perf rows from candidate stdout (last row / minimum wins) | library code injects passing rows | P26, A13; open |
+| task02 runs candidate code (`setup.py`, imports) as root in the verifier, then re-runs `/tests/hidden/bench_pcops.py` | the candidate rewrites the benchmark, slows the reference, writes the reward file, leaves processes | §8.3 (7), A13; open |
+| task03 pytest gates pass on `rc == 0`; timing measured inside the candidate's process; original engine reachable at grade time | `os._exit(0)` under pytest passes; delegate to the original | P26, A13; open |
+| task03 `fresh_cases.py:34` draws boxes smaller than 2 × cutoff on 5/28 ≈ 18% of seeds | the grader crashes whatever the submission (P15/P16) | A1 (≥ 10 fresh grades); open |
+| tasks 01–03 leave `reward.txt` empty on any grader exception | an infra error reads as a missing result | §8.3 (7); open |
+| task04 perf: repeated identical inputs, a HOME/TMPDIR that persists across the grading run, timers in a process that links candidate code | memoization or cache-and-replay fakes perf and the concurrency check | §8.3 (7), A13; open |
+| task04 KinFu-LS falls back to BIFURCATED tolerances (3 cm, 6–14% TSDF) whenever the strict bound fails | "within floating-point noise" in the prompt is not what is graded (P20) | open |
+| Unenforced or looser-than-stated instruction sentences in tasks 01–03 | the prompt lies (P20) | A7; open |
+| task01/01v2 recorded runs were graded inside the agent's pod, which had internet | the calibration was not measured in the declared environment | A1 (declared environment); open |
+| Seed-world gate (M1) checked snapshot/restore only, never gold = 1 / no-op = 0 through the World | an untrustworthy oracle goes unnoticed (Repo2RLEnv's first rule) | A1; open (needs lab GPU time) |
+| The egress self-test made plain TCP connects to two hosts | a transparent egress proxy accepts every connect (false alarm); mirrors and wheel hosts were never probed | 17 answer-source hosts, TLS/SNI, allowlist lanes; fixed |
+| An allowlist could open a public index or code host | `pip download` of the fixed release through the "narrow lane" | audit `network.answer_sources`; fixed |
+| No record of answer-key probes in traces | a contaminated pass counts as a solve | P27, `agent_events.py`, `crucible:answer_exposed`; fixed (no exposure in any of the 11 frontier runs) |
+| World traces recorded no `writes` | M4 cannot credit the agent (or peer) that made an edit | `writes` per edit call; fixed |
+| Docker Hub and RunPod key formats were not redacted; human actor ids were not pseudonymized | real credentials and identities in stored traces | M3 redaction; fixed |

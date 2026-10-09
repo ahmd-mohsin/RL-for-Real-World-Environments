@@ -245,6 +245,10 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     except WorldError as e:  # the policy defeated the verification boundary: its outcome (score 0), never an infra mask
         failures.append({"kind": "crucible:policy_misbehavior", "reason": str(e)[:500], "mask": False})
         final = await world.snapshot()
+    trace = world.to_trace()
+    hit = (trace.outcome.details.get("probes") or {}).get("first_strong_exposure")
+    if hit:  # the World let the policy reach the answer (P21 says it must not): whatever it scores is not evidence
+        failures.append({"kind": "crucible:answer_exposed", "reason": f"{hit['kind']} at event {hit['seq']}: {hit['evidence'][:200]}", "mask": True})
     stops = {getattr(p, "stop", None) for p in policies.values()}
     if state["stop"] == "running":
         if "context_overflow" in stops:
@@ -258,7 +262,7 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         else:
             state["stop"] = "agent_done"
     calls = {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}
-    return EpisodeResult(steps=state["steps"], done=state["done"], trace=world.to_trace(), final=final, masked=any(_masks(f) for f in failures),
+    return EpisodeResult(steps=state["steps"], done=state["done"], trace=trace, final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
                          truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls,
                          snapshots=series)

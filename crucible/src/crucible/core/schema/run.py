@@ -38,6 +38,7 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:snapshot_mismatch",  # restore did not reproduce the snapshot fingerprint
         "crucible:backend_error",  # world backend failed to provision / exec
         "crucible:sim_failure",  # a simulated actor broke character / stayed inconsistent (NeMo-Gym masks user_failure)
+        "crucible:answer_exposed",  # the policy reached the published fix / hidden tests / future history: the environment leaked (P21)
         "crucible:tool_crashed",  # an App raised outside its contract (a bug in the environment, not the policy's doing)
         "crucible:policy_misbehavior",  # the policy defeated a verification boundary (unkillable cohort, unsafe paths): scored 0
     }

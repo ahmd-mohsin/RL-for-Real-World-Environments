@@ -155,7 +155,9 @@ async def test_reward_hacks_are_defeated(env_dir: Path, tmp_path: Path):
         # 9. network (Repo2RLEnv: "pip is a search engine"); the egress self-test ran at start, metadata and gateway included
         out = await sh(w, "python3 -c \"import socket; socket.create_connection(('1.1.1.1', 80), 3)\" 2>&1 | tail -1; pip download requests 2>&1 | tail -1")
         assert "Network is unreachable" in out or "Errno" in out
-        assert w.backend.egress_report["isolated"] and "169.254.169.254:80" in w.backend.egress_report["tested"]
+        rep = w.backend.egress_report
+        assert rep["isolated"] and "169.254.169.254:80" in rep["tested"]
+        assert {"files.pythonhosted.org:443", "codeload.github.com:443", "web.archive.org:443"} <= set(rep["tested"])  # mirrors, wheels, archives
         # 10. grader / harness paths are root-only; no privilege escalation
         out = await sh(w, "ls /var/lib/crucible 2>&1; echo 1 > /var/lib/crucible/x 2>&1; touch /usr/local/bin/python3 2>&1; kill -9 1 2>&1")
         assert out.count("Permission denied") + out.count("Operation not permitted") >= 3

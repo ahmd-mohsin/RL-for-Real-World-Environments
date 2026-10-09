@@ -32,9 +32,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from crucible.connectors.agent_events import REJECTED, user_type, writes_of
+from crucible.connectors.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.connectors.base import RawRecord, SourceRef
-from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
+from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 
 SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # becomes a file name: no separators, no leading dot
 MAX_TEXT = 4000
@@ -328,9 +328,10 @@ class CaptureLogConnector:
                 for tc in m.get("tool_calls") or []:
                     fn = tc.get("function") or {}
                     call(t, tc.get("id"), fn.get("name") or "", _args(fn.get("arguments") or ""))
+        probes = annotate_probes(events)
         actors = [TraceActor(id="user", role="user", kind="human"),
                   TraceActor(id="agent", role="agent", kind="agent", handle=",".join(sorted(models)) or None),
                   TraceActor(id="system", role="system", kind="system")]
         return Trace(trace_id=f"capture:{raw.ref.key}", family=self.family,
                      source=TraceSource(connector=self.name, ref=raw.ref.key, privacy=raw.privacy),  # type: ignore[arg-type]
-                     actors=actors, events=events)
+                     actors=actors, events=events, outcome=TraceOutcome(details={"probes": probes} if probes["attempted"] else {}))

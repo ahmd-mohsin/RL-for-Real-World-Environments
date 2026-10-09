@@ -114,6 +114,19 @@ async def audit_world(world: World, *, gold: list[Action] | None = None, verifie
     await world.reset()
     add(CheckResult("tool_smoke", "fail" if crashed else "pass", "major", {"called": called, "crashed": crashed}))
 
+    # --- network.answer_sources (static): an allowlist that opens a code host or a public package index hands the policy
+    # the published fix (Repo2RLEnv: GitHub, PyPI wheels and sdists, mirrors). A world that needs packages serves a
+    # date-frozen mirror under its own name instead; a public-network world is flagged for the same reason.
+    from crucible.world.guard.guard import ANSWER_SOURCES, allowed
+
+    if world.spec.network == "allowlist":
+        opened = sorted(h for h in ANSWER_SOURCES if allowed(h, world.spec.allowed_hosts))
+        add(CheckResult("network.answer_sources", "fail" if opened else "pass", "critical", {"allowed": list(world.spec.allowed_hosts), "answer_sources_opened": opened}))
+    elif world.spec.network == "public":
+        add(CheckResult("network.answer_sources", "fail", "major", {"reason": "public network: published fixes, wheels and mirrors are reachable"}))
+    else:
+        add(CheckResult("network.answer_sources", "pass", "critical", {"network": world.spec.network}))
+
     # --- no_solution_leakage (static): fix pointers in what the policy reads before acting
     texts = {"instruction": world.instructions.get(actor, "")} | {f"tool:{t.qualified}": t.description or "" for t in world.tools_for(actor)}
     leaks = {k: leak_tokens(v) for k, v in texts.items() if leak_tokens(v)}

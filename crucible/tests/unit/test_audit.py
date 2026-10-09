@@ -97,3 +97,22 @@ async def test_planted_defects_are_caught(tmp_path: Path):
     assert st["no_solution_leakage.dynamic"] == "fail"  # the oracle string reached an observation
     assert st["episode_determinism"] == "fail"  # wall-clock timestamps differ between replays
     assert st["oracle_passes"] == "skip"
+
+
+async def test_allowlist_must_not_open_answer_sources(tmp_path: Path):
+    """Repo2RLEnv: a denylist is whack-a-mole and an allowlisted public index serves the fixed release."""
+    out = {}
+    for name, hosts in (("model_lane", ["api.anthropic.com", "*.openrouter.ai"]), ("index", ["api.anthropic.com", "pypi.org"]), ("wild", ["*.githubusercontent.com"])):
+        (tmp_path / name).mkdir()
+        d = spec(tmp_path / name).model_dump()
+        s = WorldSpec.model_validate({**d, "network": "allowlist", "allowed_hosts": hosts})
+        w = World(s, store=Store(tmp_path / name / "s"), workdir=tmp_path / name / "w")
+        await w.start()
+        try:
+            rep = await audit_world(w)
+        finally:
+            await w.close()
+        out[name] = next(c for c in rep.checks if c.id == "network.answer_sources")
+    assert out["model_lane"].status == "pass"
+    assert out["index"].status == "fail" and out["index"].detail["answer_sources_opened"] == ["pypi.org"]
+    assert out["wild"].status == "fail" and "raw.githubusercontent.com" in out["wild"].detail["answer_sources_opened"]

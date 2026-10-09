@@ -43,6 +43,13 @@ Redaction runs on every trace before it is stored:
 - **Stable salted pseudonyms** for e-mails, internal hosts and private or Tailscale IPs. The same input gives the same token, so threads stay linkable.
 - **Human actors:** both the handle **and the id** of a human actor are pseudonymized, and every reference to the id is rewritten. `file_drop` uses the exported name or e-mail as the id, so handles alone were not enough. Agents and systems keep their ids.
 
+### Answer-key probes (`agent_events.py`, added in the article cross-check, 2026-10-09)
+Every agent-session connector (ATIF, capture proxy, OTel), and the World, tags tool calls that probe for the answer: git history, package registries, code hosts and web tools, grader files, privilege escalation, `/proc` snooping and test edits.
+
+- Each tag records whether the probe **ran** (an output, no failure) and whether it **exposed** an answer source (judged from the output). A `git log --all` that lists one `base` commit per repository ran but exposed nothing.
+- **Probes are never scored.** An agent-run trace whose pass followed an exposure is relabelled `unknown` (`contaminated`).
+- **All 11 frontier runs:** probes ran in 7 of them (history, installs, `/proc`, test edits), and **none exposed an answer source**. A manual audit of every command agreed.
+
 ## Exit gate (`python -m crucible_pack_coding.m3.gate`, offline, 0 GitHub API calls, 45 s)
 
 | Requirement (ARCHITECTURE M3) | Result |

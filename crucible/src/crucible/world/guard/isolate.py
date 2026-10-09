@@ -20,6 +20,7 @@ its home and its SysV IPC objects are emptied.
 
 from __future__ import annotations
 
+import logging
 import posixpath
 import shlex
 from dataclasses import dataclass, field
@@ -27,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 from crucible.world.exec import Exec
 from crucible.world.guard import Guard, GuardError, PolicyExec
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from crucible.world.world import World
@@ -115,10 +118,13 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
     if base_path != "/":
         await root_exec.run(f"chmod 711 {shlex.quote(base_path)}")  # traversable to reach App roots, not listable
     if iso.egress_probe and spec.network in ("no-network", "allowlist"):
-        probe = await guard.call("egress", {"uid": uid, "extra_targets": egress_targets or []})
+        allow = list(spec.allowed_hosts) if spec.network == "allowlist" else []
+        probe = await guard.call("egress", {"uid": uid, "extra_targets": egress_targets or [], "allowed": allow})
         out.egress = probe
         if not probe["isolated"]:
             raise IsolationError(f"refusing to run: the policy user can reach {probe['reachable']} in a {spec.network} world")
+        if probe.get("lanes_ok") is False:  # the allowlist is enforced but too narrow: the agent would fail for the environment's reasons
+            log.warning("allowlisted hosts unreachable from the policy user: %s", {k: v for k, v in probe["allowed_reachable"].items() if not v})
     return out
 
 

@@ -139,6 +139,28 @@ Seed-world numbers (lab RTX 5090, remote Docker over SSH):
 15. **Images:** Ubuntu-based images ship a uid-1000 user, and a guard that "creates" uid 1000 silently becomes that user. Task images run Python 3.8–3.10, so `shutil.rmtree(dir_fd=)` (3.11+) cannot be used in snippets. Some images have no `timeout`, and BSD/busybox `base64` flags differ, so commands use the portable forms.
 16. **MiMo:** 1,174 of the 1,796 tool modules read the wall clock, and 707 return `{"error": {...}}` as a successful value. Both are now handled (virtual time; envelope → `ok=False`, `fault=tool`).
 
+## Article cross-check (2026-10-09)
+
+Source: Preference Model, Repo2RLEnv and Prime Intellect, re-checked after M3. See `docs/reviews/2026-10-09-articles-crosscheck.md`.
+
+- **Egress self-test** (`guard.py egress`):
+  - **Targets:** 17 answer-source hosts (code hosts, package registries, wheel and archive mirrors), in addition to DNS, cloud metadata, IPv6 and the gateway.
+  - **TLS/SNI on port 443:** a TLS handshake carrying the host name, because Harbor's transparent egress sidecar accepts every TCP connect.
+  - **Allowlists:** allowlisted hosts are excluded from the deny set and probed as lanes (`allowed_reachable`, a warning if a lane is closed).
+  - Red-team suite: 3/3 on local Docker.
+- **Audit `network.answer_sources`:**
+  - critical failure when an allowlist opens a code host or public package index (serve a date-frozen mirror instead);
+  - major failure for `public` worlds.
+- **World traces:**
+  - every edit call records `data.writes` (M4 credits the agent or peer that wrote the file);
+  - every policy tool call is scanned for answer-key probes;
+  - `run_episode` masks an episode whose probe actually exposed an answer source (`crucible:answer_exposed`).
+  - Tests: `tests/unit/test_probes.py`, including two peer policies sharing a workspace.
+- **Open: gold = 1 / no-op = 0 for the seed worlds.**
+  - The seed-world gate above tested snapshot and restore only. It never graded the oracle and a no-op through the World.
+  - The audit also found grader holes in four of the five seed tasks (DESIGN Appendix B.10).
+  - Both need the task graders re-versioned and re-validated on the lab GPU.
+
 ## Gate re-verified after the hardening (2026-10-09)
 With the choke point (schema validation, deadlines, fault labels), virtual time for tool modules and the new error envelopes in place, the generality gate still holds: **266/266** complete MiMo envs (`reports/m1_mimo_sweep_inprocess.json`) and **100/100** AWM scenarios (`reports/m1_awm_sweep.json`) pass every check. The test suite is `tests/unit` + `tests/toy_e2e` (82) and `tests/redteam` (3 tests, 25+ attacks), and the lab gates are `tests/gpu` (seed worlds, CI on the verifier image, agentenv GPU sandbox).
 

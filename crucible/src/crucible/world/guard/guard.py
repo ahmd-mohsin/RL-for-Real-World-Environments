@@ -340,14 +340,55 @@ def quiesce(a):
 
 
 # ----------------------------------------------------------------------------------------- egress self-test (Karotte reachable_as)
+# Where a published fix lives (Repo2RLEnv: GitHub, PyPI wheels and sdists, mirrors, archives): none of these may be
+# reachable from a no-network or allowlist world unless the world allows it by name.
+ANSWER_SOURCES = ["github.com", "codeload.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com", "gitlab.com",
+                  "bitbucket.org", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "crates.io", "static.crates.io",
+                  "proxy.golang.org", "conda.anaconda.org", "huggingface.co", "web.archive.org", "sourceforge.net", "git.kernel.org"]
+
+
+def allowed(host, allow):
+    """``allow`` entries are host names, ``*.suffix`` wildcards or IPs (Harbor / agentenv allowlist syntax)."""
+    host = str(host).lower().rstrip(".")
+    for a in allow or []:
+        a = str(a).lower().rstrip(".")
+        if host == a or (a.startswith("*.") and (host == a[2:] or host.endswith(a[1:]))):
+            return True
+    return False
+
+
+def _reach(host, port, timeout):
+    """True if the policy user gets a working connection. Port 443 needs a completed TLS handshake with the host's SNI:
+    a transparent egress proxy (Harbor's docker sidecar) accepts every TCP connection and drops denied names at SNI."""
+    import ssl
+
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+            if int(port) != 443:
+                return True
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE  # reachability, not authenticity: a MITM proxy that answers counts as reachable
+            sock.settimeout(timeout)
+            name = None if all(c.isdigit() or c in ".:" for c in str(host)) else host
+            with ctx.wrap_socket(sock, server_hostname=name):
+                return True
+    except (OSError, ValueError):
+        return False
+
+
 def egress(a):
     uid = int(a["uid"])
-    targets = a.get("targets") or [["1.1.1.1", 80], ["8.8.8.8", 53], ["pypi.org", 443], ["github.com", 443],
-                                   ["169.254.169.254", 80], ["2606:4700:4700::1111", 80]]  # cloud metadata, IPv6
+    allow = a.get("allowed") or []
+    targets = a.get("targets") or [["1.1.1.1", 80], ["8.8.8.8", 53], ["169.254.169.254", 80], ["2606:4700:4700::1111", 80],  # cloud metadata, IPv6
+                                   *[[h, 443] for h in ANSWER_SOURCES], ["pypi.org", 80], ["github.com", 22]]
     gw = _default_gateway()
     if gw:
         targets = [*targets, [gw, 80], [gw, 53], [gw, 22]]
     targets = [*targets, *a.get("extra_targets", [])]  # e.g. host services the backend runs (gateway, App servers)
+    denied = [t for t in targets if not allowed(t[0], allow)]
+    lanes = [[h, 443] for h in allow if not str(h).startswith("*.")]
+    timeout = float(a.get("timeout", 3))
     r, w = os.pipe()
     pid = os.fork()
     if pid == 0:
@@ -355,16 +396,11 @@ def egress(a):
         os.setgroups([])
         os.setgid(uid)
         os.setuid(uid)
-        reachable = []
-        for host, port in targets:
-            try:
-                with socket.create_connection((host, int(port)), timeout=float(a.get("timeout", 3))):
-                    reachable.append(f"{host}:{port}")
-            except OSError:
-                pass
-        if _udp_dns_answers("8.8.8.8", float(a.get("timeout", 3))):
+        reachable = [f"{h}:{p}" for h, p in denied if _reach(h, p, timeout)]
+        if _udp_dns_answers("8.8.8.8", timeout) and not allowed("8.8.8.8", allow):
             reachable.append("udp:8.8.8.8:53")
-        os.write(w, json.dumps(reachable).encode())
+        lane = {f"{h}:{p}": _reach(h, p, timeout) for h, p in lanes}
+        os.write(w, json.dumps({"reachable": reachable, "lanes": lane}).encode())
         os._exit(0)
     os.close(w)
     data = b""
@@ -372,8 +408,10 @@ def egress(a):
         data += chunk
     os.close(r)
     os.waitpid(pid, 0)
-    reach = json.loads(data or b"[]")
-    return {"reachable": reach, "isolated": not reach, "tested": [f"{h}:{p}" for h, p in targets]}
+    out = json.loads(data or b"{}")
+    reach, lanes_ok = out.get("reachable", []), out.get("lanes", {})
+    return {"reachable": reach, "isolated": not reach, "tested": [f"{h}:{p}" for h, p in denied],
+            "allowed": list(allow), "allowed_reachable": lanes_ok, "lanes_ok": all(lanes_ok.values()) if lanes_ok else None}
 
 
 def _default_gateway():

@@ -24,7 +24,7 @@ from typing import Any
 
 from harbor.models.trajectories import Trajectory
 
-from crucible.connectors.agent_events import INTERRUPT, REJECTED, writes_of
+from crucible.connectors.agent_events import INTERRUPT, REJECTED, annotate_probes, writes_of
 from crucible.connectors.base import RawRecord, SourceRef
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
@@ -93,10 +93,12 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
             walk(s, s.session_id or s.trajectory_id or "subagent")
 
     walk(traj, None)
+    probes = annotate_probes(events)
     fm = traj.final_metrics.model_dump(exclude_none=True) if traj.final_metrics else {}
     return Trace(trace_id=trace_id, family=family, source=source, actors=actors, events=events,
                  outcome={"label": "unknown", "details": {"agent": traj.agent.name if traj.agent else None, "model": model, "atif": atif_key,  # type: ignore[arg-type]
-                                                          "schema": traj.schema_version, "final_metrics": fm}})
+                                                          "schema": traj.schema_version, "final_metrics": fm,
+                                                          **({"probes": probes} if probes["attempted"] else {})}})
 
 
 def convert_mini_swe_agent(data: dict[str, Any], session_id: str) -> Trajectory:

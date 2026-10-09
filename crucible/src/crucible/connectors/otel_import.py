@@ -22,8 +22,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from crucible.connectors.agent_events import annotate_probes
 from crucible.connectors.base import RawRecord, SourceRef
-from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
+from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 
 LLM_OPS = {"chat", "text_completion", "generate_content"}
 AGENT_OPS = {"invoke_agent", "create_agent"}
@@ -134,5 +135,6 @@ class OtelConnector:
             else:
                 events.append(TraceEvent(seq=len(events), time=t, kind="observation", actor=who, type="span", text=sp.get("name"),
                                          data={**base, "attributes": {k: v for k, v in a.items() if not k.startswith("gen_ai.")}}))
+        probes = annotate_probes(events)
         return Trace(trace_id=f"otel:{raw.ref.key}", family=raw.ref.meta.get("family"), source=TraceSource(connector=self.name, ref=raw.ref.key, privacy=raw.privacy),  # type: ignore[arg-type]
-                     actors=list(actors.values()), events=events)
+                     actors=list(actors.values()), events=events, outcome=TraceOutcome(details={"probes": probes} if probes["attempted"] else {}))

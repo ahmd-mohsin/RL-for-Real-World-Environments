@@ -81,8 +81,12 @@ class AgentRunConnector:
         if reward is None and p.get("result_md"):
             m = re.search(r"\*\*Reward:\s*([0-9.]+)", p["result_md"])
             reward = float(m.group(1)) if m else None
+        hit = (details.get("probes") or {}).get("first_strong_exposure")
         if reward is None:
             outcome = TraceOutcome(label="unknown", label_source="no recorded verifier result for this run", details=details)
+        elif hit and float(reward) >= 1.0:  # Repo2RLEnv: every green score reached through the answer key was contamination
+            outcome = TraceOutcome(label="unknown", label_source=f"reward {reward} after a {hit['kind']} probe reached an answer source at event {hit['seq']}: not trusted",
+                                   details={**details, "reward": float(reward), "contaminated": True})
         else:
             outcome = TraceOutcome(label="good" if float(reward) >= 1.0 else "bad", label_source=f"hidden verifier reward {reward}",
                                    details={**details, "reward": float(reward)})

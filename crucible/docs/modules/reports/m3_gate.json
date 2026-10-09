@@ -19,7 +19,7 @@
   "github_pr": {
    "refs": 55,
    "traces": 55,
-   "seconds": 14.6,
+   "seconds": 13.5,
    "events": 207,
    "outcomes": {
     "unknown": 55
@@ -35,7 +35,7 @@
   "claude_code_sessions": {
    "refs": 1,
    "traces": 1,
-   "seconds": 5.2,
+   "seconds": 6.1,
    "events": 9684,
    "events_per_task": {
     "task01_prims_omp": 111,
@@ -48,7 +48,7 @@
   "agent_runs": {
    "refs": 11,
    "traces": 11,
-   "seconds": 0.7,
+   "seconds": 0.9,
    "events": 2532,
    "outcomes": {
     "bad": 5,
@@ -69,7 +69,7 @@
   "policy_docs": {
    "refs": 11,
    "traces": 11,
-   "seconds": 0.3,
+   "seconds": 0.2,
    "events": 252,
    "rules": 173
   },
@@ -232,7 +232,7 @@
   "docs_before": 106,
   "docs_after": 106,
   "same_keys": true,
-  "seconds": 22.9
+  "seconds": 23.6
  },
- "seconds": 44.7
+ "seconds": 45.3
 }
