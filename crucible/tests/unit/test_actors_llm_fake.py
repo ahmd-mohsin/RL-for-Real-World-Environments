@@ -49,10 +49,10 @@ async def test_quote_mode_returns_records_verbatim():
     llm = FakeLLM(['{"notes": [1], "lead": "On that file I wrote:"}', '{"notes": []}', '{"notes": [1], "lead": "The stride was checked 3 times"}'])
     r = GroundedResponder("rev", RECS, mode="quote", llm=llm, min_score=0.1)
     text, cites = await r.answer("what about the stride in fps_cuda.cu?", now="2026-02-01T00:00:00Z")
-    assert text.startswith("On that file I wrote:") and "As far as I see, the stride is never checked" in text and len(cites) == 1
+    assert text == "As far as I see, the stride is never checked in fps_cuda.cu." and cites == ["a"]  # pure quote
     assert (await r.answer("stride fps_cuda?", now="2026-02-01T00:00:00Z"))[0] == NO_RECORD
     text, _ = await r.answer("stride fps_cuda?", now="2026-02-01T00:00:00Z")
-    assert "3 times" not in text  # a factual lead-in is dropped; the record speaks for itself
+    assert "3 times" not in text  # whatever the model adds is never shown; only the record speaks
 
 
 async def test_paraphrase_mode_drops_unsupported_after_regeneration():

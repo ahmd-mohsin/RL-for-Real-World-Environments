@@ -154,5 +154,8 @@ class LLMClient:
         except json.JSONDecodeError:
             start, end = text.find("{"), text.rfind("}")
             if start >= 0 and end > start:
-                return json.loads(text[start : end + 1])
-            raise LLMError(f"judge output is not JSON: {text[:300]}") from None
+                try:
+                    return json.loads(text[start : end + 1])
+                except json.JSONDecodeError:
+                    pass
+            raise LLMError(f"output is not JSON: {text[:300]}") from None

@@ -1,0 +1,119 @@
+{
+ "mode": "quote",
+ "records": 223,
+ "replies": 200,
+ "answerable": 170,
+ "answered_with_citations": 92,
+ "answerable_no_record": 78,
+ "unanswerable": 30,
+ "unanswerable_correct_no_record": 30,
+ "uncited_non_no_record_replies": 0,
+ "factual_sentences": 125,
+ "unsupported_or_judge_rejected": 6,
+ "fabrication_rate": 0.048,
+ "judged_sentences": 107,
+ "judge_rejected": 5,
+ "responder_stats": {
+  "replies": 200,
+  "no_record": 31,
+  "dropped_sentences": 0,
+  "regenerations": 0
+ },
+ "responder_failures": 77,
+ "responder_failure_examples": [
+  "empty completion (finish=length)",
+  "empty completion (finish=length)",
+  "empty completion (finish=length)"
+ ],
+ "spend_usd": {
+  "responder": 0.01643,
+  "judge": 0.00856
+ },
+ "llm_calls": {
+  "responder": 154,
+  "responder_cached": 40,
+  "judge": 72
+ },
+ "models": {
+  "responder": "openai/gpt-6-luna",
+  "judge": "anthropic/claude-haiku-5.5"
+ },
+ "stopped_early": null,
+ "examples": [
+  {
+   "sentence": "Same for copy_point.hpp",
+   "reason": "judge: (truncated)"
+  },
+  {
+   "sentence": "On that file I wrote: We already have `__is_extended_arithmetic` and I honestly believe that is a better name",
+   "reason": "judge: The statement adds a fact not in the records, namely that the author wrote this on a specific file, which the records do not mention."
+  },
+  {
+   "sentence": "On that file I wrote: Documentation, e.g  .",
+   "reason": "judge: (truncated)"
+  },
+  {
+   "sentence": "On that file I wrote: Take a look at #10556  .",
+   "reason": "judge: The statement adds a fact not in the records: the records say the author wrote the instruction 'Take a look at #10556' in a different context, but the statement asserts the author wrote that exact sen"
+  },
+  {
+   "sentence": "On that file I wrote: ```suggestion  size_t point_offset = this->fields_[this->field_idx_].offset;  ```  const does not work here",
+   "reason": "judge: The statement adds the claim that the comment was written 'on that file', a location detail that the records do not mention."
+  },
+  {
+   "sentence": "On that file I asked: Thanks for the rebase .",
+   "reason": "low overlap 0.33"
+  }
+ ],
+ "sample_replies": [
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "Could it be possible to remove the include for point_types.h from this file now? As far as I see, it was only included for `pcl::traits::has_*` before. Same for copy_point.hpp",
+   "cites": [
+    "PointCloudLibrary/pcl#6375/c2576308098"
+   ]
+  },
+  {
+   "q": "As the reviewer of cub/cub/device/device_histogram.cuh, what concern did you raise about that file?",
+   "a": "What about NumChannels == 3? Why doesn't it get special treatment? Is this about alignment/vectorization? Leave this comment unresolved.",
+   "cites": [
+    "NVIDIA/cccl#10568/c4207885555"
+   ]
+  },
+  {
+   "q": "As the reviewer of cudax/include/cuda/experimental/coop/__group/synchronizer/barrier_synchronizer.cuh, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__type_traits/is_arithmetic.h, what concern did you raise about that file?",
+   "a": "On that file I wrote: We already have `__is_extended_arithmetic` and I honestly believe that is a better name",
+   "cites": [
+    "NVIDIA/cccl#11922/c4215884202"
+   ]
+  },
+  {
+   "q": "As the reviewer of sample_consensus/include/pcl/sample_consensus/impl/sac_model_ellipse3d.hpp, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of search/include/pcl/search/search.h, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "```suggestion\n              for (const auto& index : euclidean_label_index.indices) {\n``` ```suggestion\n        for (const auto& index : region_index.indices) {\n```",
+   "cites": [
+    "PointCloudLibrary/pcl#6380/c2724100052",
+    "PointCloudLibrary/pcl#6380/c2724100814"
+   ]
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__driver/entry_point.h, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  }
+ ]
+}

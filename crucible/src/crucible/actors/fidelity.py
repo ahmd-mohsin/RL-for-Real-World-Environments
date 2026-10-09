@@ -58,7 +58,9 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
         if text.strip() == NO_RECORD:
             a.no_record += 1
             continue
-        marked = " ".join(f"{s} " + " ".join(f"[R:{c}]" for c in cites) for s in split_sentences(text))
+        tags = " ".join(f"[R:{c}]" for c in cites)
+        # citations go before the sentence's closing punctuation, so they stay with that sentence
+        marked = " ".join(_cite(s, tags) for s in split_sentences(text))
         rep = check(marked, store, now=now)
         a.factual_sentences += len(rep.factual)
         a.unsupported_sentences += len(rep.unsupported)
@@ -88,6 +90,15 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
                     a.judge_rejected += 1
                     a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": "judge: " + str(v.get("reason", ""))[:200]})
     return a
+
+
+def _cite(sentence: str, tags: str) -> str:
+    stripped = sentence.rstrip()
+    end = ""
+    while stripped and stripped[-1] in ".!?。！？":
+        end = stripped[-1] + end
+        stripped = stripped[:-1]
+    return f"{stripped} {tags}{end}"
 
 
 def _salvage(err: str) -> dict[str, Any] | None:

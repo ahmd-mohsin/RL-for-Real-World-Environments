@@ -1,0 +1,100 @@
+{
+ "grounded_customers": {
+  "replies": 200,
+  "no_record": 57,
+  "unanswerable_correct_no_record": 32,
+  "unanswerable": 40,
+  "answerable_answered": 135,
+  "uncited_non_no_record_replies": 0,
+  "factual_sentences": 34,
+  "unsupported_or_judge_rejected": 0,
+  "fabrication_rate": 0.0,
+  "judged": 26,
+  "judge_spend_usd": 0.0,
+  "examples": []
+ },
+ "scenario_episodes": {
+  "episodes": [
+   {
+    "episode": 0,
+    "steps": 7,
+    "done": true,
+    "masked": false,
+    "failures": [],
+    "agent_actions": [
+     "message->customer_lee",
+     "tickets.get_ticket",
+     "kb.search_docs",
+     "tickets.issue_refund",
+     "tickets.add_note",
+     "tickets.set_status",
+     "done"
+    ],
+    "dialog": [
+     "agent: Hi Lee, I’m reviewing your support ticket about a possible duplicate charge. Could you please confirm whether you see two charges for the same order, and share the amounts or dates if available? I’ll review the ticket and refund policy once confirmed.",
+     "customer_lee: Yes, I see two charges of $39.50 for order O-5002 on the same day. I only placed the order once."
+    ],
+    "customer_messages": 1,
+    "ticket2_refund": [
+     [
+      "O-5002",
+      {
+       "f": "0x1.3c00000000000p+5"
+      }
+     ]
+    ],
+    "ticket2_status": "resolved",
+    "consistency": {
+     "judged_replies": 1,
+     "inconsistent": 0,
+     "inconsistency_rate": 0.0
+    }
+   },
+   {
+    "episode": 1,
+    "steps": 7,
+    "done": true,
+    "masked": false,
+    "failures": [],
+    "agent_actions": [
+     "message->customer_lee",
+     "tickets.get_ticket",
+     "kb.search_docs",
+     "tickets.issue_refund",
+     "tickets.add_note",
+     "tickets.set_status",
+     "done"
+    ],
+    "dialog": [
+     "agent: Hi Lee, I’m reviewing your support ticket about a possible duplicate charge. Could you please confirm whether you see two charges for the same order, and share the amounts or dates if available? I’ll review the ticket and refund policy once confirmed.",
+     "customer_lee: Yes, I see two charges of $39.50 for order O-5002 on the same day. I only placed the order once."
+    ],
+    "customer_messages": 1,
+    "ticket2_refund": [
+     [
+      "O-5002",
+      {
+       "f": "0x1.3c00000000000p+5"
+      }
+     ]
+    ],
+    "ticket2_status": "resolved",
+    "consistency": {
+     "judged_replies": 1,
+     "inconsistent": 0,
+     "inconsistency_rate": 0.0
+    }
+   }
+  ],
+  "spend_usd": {
+   "agent": 0.0,
+   "sim": 0.0,
+   "judge": 9e-05
+  },
+  "models": {
+   "agent": "openai/gpt-6-luna",
+   "sim": "openai/gpt-6-luna",
+   "judge": "anthropic/claude-haiku-5.5"
+  }
+ }
+}

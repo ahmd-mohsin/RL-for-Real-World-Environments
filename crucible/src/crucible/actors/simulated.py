@@ -78,7 +78,7 @@ Conversation so far (the simulated person is "SIM"):
 {history}
 Candidate reply from SIM:
 <reply>{reply}</reply>
-Return JSON {{"consistent": true|false, "reason": "..."}}. A reply is inconsistent if it states a fact not supported by the
+Return only JSON {{"consistent": true|false, "reason": "<one short sentence>"}}. A reply is inconsistent if it states a fact not supported by the
 scenario or the conversation, contradicts either, breaks character (acts as an assistant / does the other party's task), or
 reveals information the scenario says SIM does not know."""
 
@@ -157,8 +157,16 @@ class SimulatedActor(ActorBase):
         assert self.judge is not None
         hist = "\n".join(f"{'SIM' if h['role'] == 'assistant' else 'OTHER'}: {h.get('content', '')}" for h in self.history if h["role"] in ("user", "assistant"))
         try:
-            v = await self.judge.complete_json([{"role": "user", "content": JUDGE.format(scenario=self.scenario.render(), history=hist or "(none)", reply=reply)}], max_tokens=200)
+            v = await self.judge.complete_json([{"role": "user", "content": JUDGE.format(scenario=self.scenario.render(), history=hist or "(none)", reply=reply)}], max_tokens=400)
             return {"consistent": bool(v.get("consistent", False)), "reason": str(v.get("reason", ""))[:300]}
-        except (LLMError, BudgetExceeded) as e:
+        except LLMError as e:
+            import re
+
+            m = re.search(r'"consistent"\s*:\s*(true|false)', str(e))  # verdict survives a truncated reason
+            if m:
+                return {"consistent": m.group(1) == "true", "reason": "(truncated)"}
+            self.failures.append({"kind": "judge_failed", "reason": str(e)[:300]})
+            return {"consistent": True, "reason": "judge unavailable"}
+        except BudgetExceeded as e:
             self.failures.append({"kind": "judge_failed", "reason": str(e)[:300]})
             return {"consistent": True, "reason": "judge unavailable"}

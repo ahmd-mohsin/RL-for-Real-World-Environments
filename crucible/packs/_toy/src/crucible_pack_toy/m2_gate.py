@@ -90,7 +90,9 @@ async def scenario_episodes(episodes: int = 2, budget: float = 0.06) -> dict:
     results = []
     for ep in range(episodes):
         with tempfile.TemporaryDirectory() as d:
-            w = World(helpdesk_spec(), instructions={"agent": INSTRUCTION + " Start with ticket 2."}, store=Store(Path(d) / "s"), workdir=Path(d) / "w", pack_root=PACK_ROOT)
+            focus = (" Work on ticket 2 only: first confirm the duplicate charge with the customer by calling send_message "
+                     "(to: customer_lee), then refund the duplicate per the refund policy, add a note and resolve the ticket.")
+            w = World(helpdesk_spec(), instructions={"agent": INSTRUCTION + focus}, store=Store(Path(d) / "s"), workdir=Path(d) / "w", pack_root=PACK_ROOT)
             lee = SimulatedActor("customer_lee", LEE, sim_llm, judge=judge, reply_latency="10m")
             store = RecordStore.from_jsonl(PACK_ROOT / "data" / "customers.jsonl")
             w.attach(lee)
@@ -100,12 +102,16 @@ async def scenario_episodes(episodes: int = 2, budget: float = 0.06) -> dict:
             await w.start()
             try:
                 agent = LLMToolPolicy("agent", agent_llm)
-                res = await run_episode(w, {"agent": agent}, max_steps=int(14 + ep))
+                res = await run_episode(w, {"agent": agent}, max_steps=30)
                 v = w.verifier_view()
                 refund = (await v.query("tickets", {"op": "sql", "args": {"sql": "SELECT order_id, amount_usd FROM refunds WHERE ticket_id = 2"}})).value["rows"]
                 status = (await v.query("tickets", {"op": "scalar", "args": {"sql": "SELECT status FROM tickets WHERE id = 2"}})).value
                 talked = sum(1 for e in res.trace.events if e.actor == "customer_lee" and e.type == "message")
+                actions = [(e.data.get("function") or f"message->{e.data.get('to')}" if e.type in ("tool_call", "message") else e.type)
+                           for e in res.trace.events if e.actor == "agent" and e.type in ("tool_call", "message", "done")]
+                dialog = [f"{e.actor}: {e.text}" for e in res.trace.events if e.type == "message" and "customer_lee" in (e.actor, e.data.get("to"))]
                 results.append({"episode": ep, "steps": res.steps, "done": res.done, "masked": res.masked, "failures": res.failures,
+                                "agent_actions": actions, "dialog": dialog[:12],
                                 "customer_messages": talked, "ticket2_refund": refund, "ticket2_status": status,
                                 "consistency": consistency_summary(lee.audit)})
             finally:

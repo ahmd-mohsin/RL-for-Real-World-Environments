@@ -9,8 +9,8 @@ are regenerated once with feedback, then dropped; if nothing supported remains t
 Three modes:
 - ``mode="verbatim"``: no LLM; the best-matching record is returned verbatim (deterministic, free) —
   the default for replaying recorded expert feedback;
-- ``mode="quote"``: an LLM only *chooses* which retrieved records answer the question (and may add a
-  short fact-free lead-in); the reply is those records verbatim. Selection is flexible, wording cannot
+- ``mode="quote"``: an LLM only *chooses* which retrieved records answer the question; the reply is
+  those records verbatim (no lead-in: even "On that file I wrote:" asserts something the record does not). Selection is flexible, wording cannot
   drift — the M2 gate showed paraphrasing turns tentative notes into claims and questions into
   statements even when citations check out;
 - ``mode="llm"``: an LLM paraphrases from retrieved records with ``[R:id]`` citations, checked and
@@ -78,22 +78,25 @@ class GroundedResponder(ActorBase):
         assert self.llm is not None
         listing = "\n".join(f"{i + 1}. ({r.author or 'unknown'}, {r.time or 'n.d.'}) {r.text.strip()}" for i, (r, _) in enumerate(hits))
         prompt = (f"You are {self.who}. A colleague asks: {question!r}\n\nYour own notes:\n{listing}\n\n"
-                  "Which notes answer the question? Return JSON {\"notes\": [numbers, at most 2, most relevant first], \"lead\": \"optional lead-in of at most 8 words with no facts, e.g. 'On that file I wrote:'\"}. "
+                  "Which notes answer the question? Return JSON {\"notes\": [numbers, at most 2, most relevant first]}. "
                   "If no note answers it, return {\"notes\": []}.")
         try:
-            v = await self.llm.complete_json([{"role": "user", "content": prompt}], max_tokens=150)
-        except (LLMError, BudgetExceeded) as e:
-            self.failures.append({"kind": getattr(e, "failure_kind", "provider_unavailable"), "reason": str(e)[:300], "at": now})
+            # reasoning models spend hidden tokens before answering: a small cap returns an empty completion
+            v = await self.llm.complete_json([{"role": "user", "content": prompt}], max_tokens=1200)
+        except LLMError as e:
+            v = _salvage_selection(str(e))
+            if v is None:
+                self.failures.append({"kind": "provider_unavailable", "reason": str(e)[:300], "at": now})
+                return NO_RECORD, []
+        except BudgetExceeded as e:
+            self.failures.append({"kind": e.failure_kind, "reason": str(e)[:300], "at": now})
             return NO_RECORD, []
         picks = [hits[int(n) - 1][0] for n in v.get("notes", []) if str(n).isdigit() and 1 <= int(n) <= len(hits)][:2]
         if not picks:
             self.stats["no_record"] += 1
             return NO_RECORD, []
-        lead = str(v.get("lead") or "").strip()
-        if not _safe_lead(lead):
-            lead = ""
-        body = " ".join(r.text.strip() for r in picks)
-        return (f"{lead} {body}".strip(), [r.id for r in picks])
+        # Pure quotes: the gate showed even "On that file I wrote:" adds a claim (where) the text does not make.
+        return " ".join(r.text.strip() for r in picks), [r.id for r in picks]
 
     async def answer(self, question: str, *, now: str | None) -> tuple[str, list[str]]:
         self.stats["replies"] += 1
@@ -111,14 +114,14 @@ class GroundedResponder(ActorBase):
         system = SYSTEM.format(who=self.who, persona=(f"\nAbout you: {self.persona}\n" if self.persona else ""), records=records, no_record=NO_RECORD)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         try:
-            draft = (await self.llm.complete(messages, max_tokens=400)).text
+            draft = (await self.llm.complete(messages, max_tokens=1200)).text
             rep = check(draft, self.store, now=now, min_overlap=self.min_overlap)
             if not rep.ok:
                 self.stats["regenerations"] += 1
                 feedback = "; ".join(f"'{s.text[:80]}': {s.reason}" for s in rep.unsupported)
                 messages += [{"role": "assistant", "content": draft},
                              {"role": "user", "content": f"Some sentences are not supported by the cited records ({feedback}). Rewrite using only the records, citing each factual sentence, or reply exactly: {NO_RECORD}"}]
-                draft = (await self.llm.complete(messages, max_tokens=400)).text
+                draft = (await self.llm.complete(messages, max_tokens=1200)).text
                 rep = check(draft, self.store, now=now, min_overlap=self.min_overlap)
         except (LLMError, BudgetExceeded) as e:
             self.failures.append({"kind": getattr(e, "failure_kind", "provider_unavailable"), "reason": str(e)[:300], "at": now})
@@ -131,8 +134,11 @@ class GroundedResponder(ActorBase):
         return text, sorted({c for s in rep.sentences if s.supported for c in s.citations})
 
 
-def _safe_lead(lead: str) -> bool:
-    """A lead-in may only introduce the quoted notes: <= 8 words, ends with ':', no numbers or identifiers."""
-    from crucible.actors.grounding import _FACT_TOKEN
+def _salvage_selection(err: str) -> dict | None:
+    """Recover {"notes": [...]} from malformed JSON (e.g. an unescaped quote inside "lead")."""
+    import re
 
-    return bool(lead) and lead.endswith(":") and len(lead.split()) <= 8 and not _FACT_TOKEN.search(lead)
+    m = re.search(r'"notes"\s*:\s*\[([\d,\s]*)\]', err)
+    if not m:
+        return None
+    return {"notes": [int(x) for x in m.group(1).replace(" ", "").split(",") if x], "lead": ""}

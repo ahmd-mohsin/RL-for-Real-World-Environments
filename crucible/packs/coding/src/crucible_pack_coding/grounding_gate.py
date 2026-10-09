@@ -83,6 +83,8 @@ async def run(out: Path, n_answerable: int = 170, n_unanswerable: int = 30, *, m
         "judged_sentences": audit_judged.judged,
         "judge_rejected": audit_judged.judge_rejected,
         "responder_stats": resp.stats,
+        "responder_failures": len(resp.failures),
+        "responder_failure_examples": [f["reason"][:160] for f in resp.failures[:3]],
         "spend_usd": {"responder": round(llm.spend.usd, 5), "judge": round(judge.spend.usd, 5)},
         "llm_calls": {"responder": llm.spend.calls, "responder_cached": llm.spend.cached_calls, "judge": judge.spend.calls},
         "models": {"responder": llm.model, "judge": judge.model},
