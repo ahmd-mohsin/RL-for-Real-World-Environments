@@ -37,6 +37,7 @@ class GroundingAudit:
     judged: int = 0
     judge_rejected: int = 0
     judge_failed: int = 0
+    verbatim_sentences: int = 0  # factual sentences copied verbatim from a cited record (supported by construction)
     examples: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -68,8 +69,12 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
             a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": s.reason})
         if judge is not None and i % judge_every == 0:
             recs = "\n".join(f"- {store.get(c).text}" for c in cites if store.get(c) is not None)
+            corpus = _norm(" ".join(store.get(c).text for c in cites if store.get(c) is not None))
             for s in rep.factual:
                 if not s.supported:
+                    continue
+                if _norm(CITE.sub("", s.text)) in corpus:
+                    a.verbatim_sentences += 1  # a verbatim quote cannot add or change meaning: no judge needed
                     continue
                 prompt = [{"role": "user", "content": ENTAIL.format(records=recs, statement=CITE.sub("", s.text).strip())}]
                 try:
@@ -90,6 +95,14 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
                     a.judge_rejected += 1
                     a.examples.append({"sentence": CITE.sub("", s.text).strip(), "reason": "judge: " + str(v.get("reason", ""))[:200]})
     return a
+
+
+def _norm(text: str) -> str:
+    import re
+
+    t = " ".join(text.split())
+    t = re.sub(r"\s+([.,;:!?。！？])", r"\1", t)  # "rebase ." -> "rebase." (left behind by removed citation tags)
+    return t.rstrip(".!?。！？ ").strip()
 
 
 def _cite(sentence: str, tags: str) -> str:

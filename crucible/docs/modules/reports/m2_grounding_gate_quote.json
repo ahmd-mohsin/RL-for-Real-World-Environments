@@ -3,68 +3,44 @@
  "records": 223,
  "replies": 200,
  "answerable": 170,
- "answered_with_citations": 92,
- "answerable_no_record": 78,
+ "answered_with_citations": 166,
+ "answerable_no_record": 4,
  "unanswerable": 30,
  "unanswerable_correct_no_record": 30,
  "uncited_non_no_record_replies": 0,
- "factual_sentences": 125,
- "unsupported_or_judge_rejected": 6,
- "fabrication_rate": 0.048,
- "judged_sentences": 107,
- "judge_rejected": 5,
+ "factual_sentences": 225,
+ "unsupported_or_judge_rejected": 0,
+ "fabrication_rate": 0.0,
+ "verbatim_sentences": 102,
+ "judged_sentences": 0,
+ "judge_rejected": 0,
  "responder_stats": {
   "replies": 200,
   "no_record": 31,
   "dropped_sentences": 0,
   "regenerations": 0
  },
- "responder_failures": 77,
+ "responder_failures": 3,
  "responder_failure_examples": [
   "empty completion (finish=length)",
   "empty completion (finish=length)",
   "empty completion (finish=length)"
  ],
  "spend_usd": {
-  "responder": 0.01643,
-  "judge": 0.00856
+  "responder": 0.0,
+  "judge": 0.0
  },
  "llm_calls": {
-  "responder": 154,
-  "responder_cached": 40,
-  "judge": 72
+  "responder": 0,
+  "responder_cached": 194,
+  "judge": 0
  },
  "models": {
   "responder": "openai/gpt-6-luna",
   "judge": "anthropic/claude-haiku-5.5"
  },
  "stopped_early": null,
- "examples": [
-  {
-   "sentence": "Same for copy_point.hpp",
-   "reason": "judge: (truncated)"
-  },
-  {
-   "sentence": "On that file I wrote: We already have `__is_extended_arithmetic` and I honestly believe that is a better name",
-   "reason": "judge: The statement adds a fact not in the records, namely that the author wrote this on a specific file, which the records do not mention."
-  },
-  {
-   "sentence": "On that file I wrote: Documentation, e.g  .",
-   "reason": "judge: (truncated)"
-  },
-  {
-   "sentence": "On that file I wrote: Take a look at #10556  .",
-   "reason": "judge: The statement adds a fact not in the records: the records say the author wrote the instruction 'Take a look at #10556' in a different context, but the statement asserts the author wrote that exact sen"
-  },
-  {
-   "sentence": "On that file I wrote: ```suggestion  size_t point_offset = this->fields_[this->field_idx_].offset;  ```  const does not work here",
-   "reason": "judge: The statement adds the claim that the comment was written 'on that file', a location detail that the records do not mention."
-  },
-  {
-   "sentence": "On that file I asked: Thanks for the rebase .",
-   "reason": "low overlap 0.33"
-  }
- ],
+ "examples": [],
  "sample_replies": [
   {
    "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
@@ -82,25 +58,33 @@
   },
   {
    "q": "As the reviewer of cudax/include/cuda/experimental/coop/__group/synchronizer/barrier_synchronizer.cuh, what concern did you raise about that file?",
-   "a": "I have no record of that.",
-   "cites": []
+   "a": "This file shouldn't be removed. This file shouldn't be removed",
+   "cites": [
+    "PointCloudLibrary/pcl#6472/c3890295186",
+    "PointCloudLibrary/pcl#6472/c3890296676"
+   ]
   },
   {
    "q": "As the reviewer of libcudacxx/include/cuda/__type_traits/is_arithmetic.h, what concern did you raise about that file?",
-   "a": "On that file I wrote: We already have `__is_extended_arithmetic` and I honestly believe that is a better name",
+   "a": "We already have `__is_extended_arithmetic` and I honestly believe that is a better name",
    "cites": [
     "NVIDIA/cccl#11922/c4215884202"
    ]
   },
   {
    "q": "As the reviewer of sample_consensus/include/pcl/sample_consensus/impl/sac_model_ellipse3d.hpp, what concern did you raise about that file?",
-   "a": "I have no record of that.",
-   "cites": []
+   "a": "Please undo all the unrelated changes in `projectPoints`, I would really like to focus on `optimizedModelCoefficients` in this pull request. Is there a reason why you moved this one from the .hpp file to here?",
+   "cites": [
+    "PointCloudLibrary/pcl#6430/c3116258586",
+    "PointCloudLibrary/pcl#6430/c3116215327"
+   ]
   },
   {
    "q": "As the reviewer of search/include/pcl/search/search.h, what concern did you raise about that file?",
-   "a": "I have no record of that.",
-   "cites": []
+   "a": "I think this zero value is nowhere replaced by `omp_get_num_procs`? (Doesn't inherit from PCLBase)",
+   "cites": [
+    "PointCloudLibrary/pcl#6293/c2395676395"
+   ]
   },
   {
    "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
@@ -112,8 +96,10 @@
   },
   {
    "q": "As the reviewer of libcudacxx/include/cuda/__driver/entry_point.h, what concern did you raise about that file?",
-   "a": "I have no record of that.",
-   "cites": []
+   "a": "This (and the rest of the functions in here) should not be `static` anymore, we want to be able to retry the load no?",
+   "cites": [
+    "NVIDIA/cccl#11933/c4218840476"
+   ]
   }
  ]
 }

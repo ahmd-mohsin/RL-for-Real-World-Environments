@@ -76,8 +76,12 @@ def load_harbor_task(task_dir: str | Path, *, require_tests: bool = True) -> Loa
     task_dir = Path(task_dir).resolve()
     raw_text = (task_dir / "task.toml").read_text()
     raw = tomllib.loads(raw_text)
-    config = TaskConfig.model_validate_toml(raw_text)
-    task = Task(task_dir, disable_verification=not require_tests)
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:  # Harbor's validation warnings are task-quality signals: keep them
+        warnings.simplefilter("always")
+        config = TaskConfig.model_validate_toml(raw_text)
+        task = Task(task_dir, disable_verification=not require_tests)
     content_hash, _files = Packager.compute_content_hash(task_dir)
     env = config.environment
     ver = config.verifier
@@ -99,7 +103,7 @@ def load_harbor_task(task_dir: str | Path, *, require_tests: bool = True) -> Loa
         collect_commands=[c.command for c in ver.collect],
         artifacts=[a if isinstance(a, str) else a.source for a in config.artifacts],
         ignored_keys=_ignored_keys(raw, TaskConfig),
-        metadata=dict(config.metadata),
+        metadata={**dict(config.metadata), "harbor_warnings": sorted({str(w.message)[:300] for w in caught})},
     )
     return LoadedHarborTask(path=task_dir, task=task, config=config, summary=summary)
 

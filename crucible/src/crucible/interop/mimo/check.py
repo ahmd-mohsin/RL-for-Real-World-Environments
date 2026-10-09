@@ -43,14 +43,14 @@ def _public_functions(path: Path) -> list[str]:
     return sorted({n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not n.name.startswith("_")})
 
 
-async def check_env(env: Path, store: Store, workroot: Path, *, transport: str = "inprocess", calls_per_app: int = 2) -> EnvCheck:
+async def check_env(env: Path, store: Store, workroot: Path, *, transport: str = "inprocess", backend: str = "local", calls_per_app: int = 2) -> EnvCheck:
     r = EnvCheck(env=env.name)
     t0 = time.monotonic()
     w: World | None = None
     try:
         m = import_mimo_env(env, transport=transport)
         r.tier = m.meta.get("tier")
-        w = World(m.world, instructions={"agent": m.instruction}, store=store, workdir=workroot / env.name)
+        w = World(m.world, instructions={"agent": m.instruction}, store=store, workdir=workroot / env.name, backend=backend)
         await w.start()
         app_ids = [a.id for a in m.world.apps if a.id != "workspace"]
         r.apps = len(app_ids)
@@ -109,17 +109,17 @@ async def check_env(env: Path, store: Store, workroot: Path, *, transport: str =
     return r
 
 
-async def sweep(envs: list[Path], store: Store, workroot: Path, *, transport: str = "inprocess", concurrency: int = 4) -> list[EnvCheck]:
+async def sweep(envs: list[Path], store: Store, workroot: Path, *, transport: str = "inprocess", backend: str = "local", concurrency: int = 4) -> list[EnvCheck]:
     sem = asyncio.Semaphore(concurrency)
 
     async def one(e: Path) -> EnvCheck:
         async with sem:
-            return await check_env(e, store, workroot, transport=transport)
+            return await check_env(e, store, workroot, transport=transport, backend=backend)
 
     return list(await asyncio.gather(*(one(e) for e in envs)))
 
 
-def main() -> None:  # python -m crucible.interop.mimo.check <envs_root> [out.json] [transport]
+def main() -> None:  # python -m crucible.interop.mimo.check <envs_root> [out.json] [transport] [backend] [stride]
     import sys
     import tempfile
 
@@ -128,9 +128,11 @@ def main() -> None:  # python -m crucible.interop.mimo.check <envs_root> [out.js
     root = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     transport = sys.argv[3] if len(sys.argv) > 3 else "inprocess"
-    envs = [e for e in list_mimo_envs(root) if is_complete(e)]
+    backend = sys.argv[4] if len(sys.argv) > 4 else "local"
+    stride = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+    envs = [e for e in list_mimo_envs(root) if is_complete(e)][::stride]
     with tempfile.TemporaryDirectory() as d:
-        res = asyncio.run(sweep(envs, Store(Path(d) / "store"), Path(d) / "worlds", transport=transport))
+        res = asyncio.run(sweep(envs, Store(Path(d) / "store"), Path(d) / "worlds", transport=transport, backend=backend))
     passed = sum(r.ok for r in res)
     print(f"{passed}/{len(res)} MiMo envs pass all world checks ({len(list_mimo_envs(root)) - len(envs)} incomplete skipped)")
     for r in res:

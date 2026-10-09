@@ -774,3 +774,18 @@ Registry check: A3, mutation score.
 | Self-matching `pkill -f` over ssh | `[x]yz` pattern |
 
 **B.6 Leak.** A history leak is a known class (SWE-smith). Our images use a single-commit history, and the agent images were audited before every model run.
+
+**B.7 Found while building M0–M2 (2026-10-09).** Each becomes a registry check in M9.
+
+| Defect | Where it bites | Check |
+|---|---|---|
+| Seed `task.toml` used `authors = ["…"]`; Harbor requires objects | the task is not a valid Harbor task at all | validate every task with Harbor's own `TaskConfig` (done at import) |
+| Harbor silently drops unknown keys; `verifier.environment.dockerfile` is one | task04's separate verifier would be built from the **agent** image, without the hidden reference | fail import on ignored keys that change semantics; give the verifier env a prebuilt `docker_image` |
+| `no-network` set only per phase; `[environment]` baseline public | setup and build phases have network | report the effective network per phase |
+| Local Docker has no GPU path in Harbor | GPU tasks rejected or silently CPU-only | probe the GPU inside the sandbox before every episode (`process` adapter `gpu` op) |
+| agentenv time triggers need an open MCP session | REST-only drivers never fire time events | keepalive session + a test that a time trigger fires |
+| Event actions under a role without tools are refused by the gateway | environment dynamics silently missing on one backend | backend-independence test: the same episode yields identical final fingerprints on every backend |
+| Untracked, non-ignored files (`__pycache__`) count as state | spurious diffs / leaked artifacts in collected patches | per-pack derived-artifact excludes, shared by the collect hook and the state adapter |
+| AWM sample data uses `datetime('now')` | initial state depends on wall-clock time | freeze "now" when forging tasks from generated environments |
+| LLM paraphrase of grounded records drifts (question becomes claim, hedge dropped, location added) | simulated actors fabricate subtly while passing citation checks | quote mode by default; audit paraphrase with a different-family entailment judge |
+| Reasoning models return empty completions under small token caps | judges and selectors silently "fail" (and episodes get masked) | caps ≥ 1k tokens for reasoning models; salvage verdicts from truncated JSON |

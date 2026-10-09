@@ -1,0 +1,140 @@
+{
+ "mode": "llm",
+ "records": 223,
+ "replies": 200,
+ "answerable": 170,
+ "answered_with_citations": 148,
+ "answerable_no_record": 22,
+ "unanswerable": 30,
+ "unanswerable_correct_no_record": 30,
+ "uncited_non_no_record_replies": 0,
+ "factual_sentences": 147,
+ "unsupported_or_judge_rejected": 10,
+ "fabrication_rate": 0.068,
+ "judged_sentences": 79,
+ "judge_rejected": 10,
+ "responder_stats": {
+  "replies": 200,
+  "no_record": 52,
+  "dropped_sentences": 25,
+  "regenerations": 44
+ },
+ "responder_failures": 0,
+ "responder_failure_examples": [],
+ "spend_usd": {
+  "responder": 0.02869,
+  "judge": 0.01166
+ },
+ "llm_calls": {
+  "responder": 197,
+  "responder_cached": 41,
+  "judge": 67
+ },
+ "models": {
+  "responder": "openai/gpt-6-luna",
+  "judge": "anthropic/claude-haiku-5.5"
+ },
+ "stopped_early": null,
+ "examples": [
+  {
+   "sentence": "I think the zero value is nowhere replaced by `omp_get_num_procs`—it doesn’t inherit from `PCLBase` .",
+   "reason": "judge: (truncated)"
+  },
+  {
+   "sentence": "I raised that the file must use the correct license, as the requirement applies to all new files .",
+   "reason": "judge: The statement adds facts not in the records: that the author 'raised' the point, and that it concerns 'the file' specifically, plus a causal 'as' link."
+  },
+  {
+   "sentence": "I also said that always defining them as arithmetic types would cause users to wonder why their code suddenly stopped working as before  .",
+   "reason": "judge: (truncated)"
+  },
+  {
+   "sentence": "I think this `.cpp` file can also be removed .",
+   "reason": "judge: The record is phrased as a question (ending in '?'), while the statement presents the same content as a declarative claim, which the rules count as not entailed."
+  },
+  {
+   "sentence": "I think the `.cpp` files that only include the `.h` files are not really necessary .",
+   "reason": "judge: The record ends with a question mark, so its opinion is tentative, while the statement presents it as a flat declarative claim."
+  },
+  {
+   "sentence": "I asked whether we could reuse `tuple` machinery instead of duplicating it, since `tuple` may use builtins like `__builtin_dedup_pack` to make this more efficient .",
+   "reason": "judge failed (no verdict)"
+  },
+  {
+   "sentence": "I raised that the file shouldn’t be removed .",
+   "reason": "judge: The statement adds a fact not in the records: that the author raised the point, which implies a communication or action the records do not mention."
+  },
+  {
+   "sentence": "You asked why `NumChannels == 3` doesn’t get special treatment, whether the difference is about alignment or vectorization, and said to leave the comment unresolved .",
+   "reason": "judge: The statement attributes the questions to 'you', but the records were written by the speaker ('I'), so the attribution of who asked changes the content."
+  },
+  {
+   "sentence": "I asked whether the `point_types.h` include could now be removed from `io.hpp`, since as far as I could see, it was only included for `pcl::traits::has_*` before .",
+   "reason": "judge: The record says only \"this file\", but the statement adds that the file is io.hpp, a fact the record does not state."
+  },
+  {
+   "sentence": "I asked why the `maybe_unused` attributes were there, since all the parameters are used .",
+   "reason": "judge: The record frames 'all the parameters are used' as a tentative question, but the statement presents it as a settled fact in the 'since' clause."
+  },
+  {
+   "sentence": "You asked whether it should be an optional argument to `autoSelectMethod`, since otherwise there’s no way to change it afterward; one can still create an octree manually if it’s a better fit .",
+   "reason": "judge: The statement adds an attribution not in the records: it says 'You asked' (someone other than the author asked the question), while the records only show the author asking 'Should we add...'."
+  }
+ ],
+ "sample_replies": [
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "I asked whether `point_types.h` could be removed from the file, since as far as I could see it was only included for `pcl::traits::has_*`; I raised the same question about `copy_point.hpp`.",
+   "cites": [
+    "PointCloudLibrary/pcl#6375/c2576308098"
+   ]
+  },
+  {
+   "q": "As the reviewer of cub/cub/device/device_histogram.cuh, what concern did you raise about that file?",
+   "a": "I asked why `NumChannels == 3` doesn’t get special treatment and whether that was related to alignment or vectorization; I asked to leave the comment unresolved.",
+   "cites": [
+    "NVIDIA/cccl#10568/c4207885555"
+   ]
+  },
+  {
+   "q": "As the reviewer of cudax/include/cuda/experimental/coop/__group/synchronizer/barrier_synchronizer.cuh, what concern did you raise about that file?",
+   "a": "I was wondering whether it might be better to keep the function and modify it accordingly.",
+   "cites": [
+    "NVIDIA/cccl#11903/c4204867157"
+   ]
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__type_traits/is_arithmetic.h, what concern did you raise about that file?",
+   "a": "You noted that `__is_extended_arithmetic` already exists and said you honestly believe that is a better name.",
+   "cites": [
+    "NVIDIA/cccl#11922/c4215884202"
+   ]
+  },
+  {
+   "q": "As the reviewer of sample_consensus/include/pcl/sample_consensus/impl/sac_model_ellipse3d.hpp, what concern did you raise about that file?",
+   "a": "I asked to undo the unrelated changes in `projectPoints` so the pull request could focus on `optimizedModelCoefficients`.",
+   "cites": [
+    "PointCloudLibrary/pcl#6430/c3116258586"
+   ]
+  },
+  {
+   "q": "As the reviewer of search/include/pcl/search/search.h, what concern did you raise about that file?",
+   "a": "I think the zero value is nowhere replaced by `omp_get_num_procs`—it doesn’t inherit from `PCLBase`.",
+   "cites": [
+    "PointCloudLibrary/pcl#6293/c2395676395"
+   ]
+  },
+  {
+   "q": "As the reviewer of apps/src/stereo_ground_segmentation.cpp, what concern did you raise about that file?",
+   "a": "I have no record of that.",
+   "cites": []
+  },
+  {
+   "q": "As the reviewer of libcudacxx/include/cuda/__driver/entry_point.h, what concern did you raise about that file?",
+   "a": "I noted that the functions in the file should no longer be `static`, so the load can be retried.",
+   "cites": [
+    "NVIDIA/cccl#11933/c4218840476"
+   ]
+  }
+ ]
+}

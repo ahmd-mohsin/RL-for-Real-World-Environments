@@ -80,6 +80,7 @@ async def run(out: Path, n_answerable: int = 170, n_unanswerable: int = 30, *, m
         "factual_sentences": factual,
         "unsupported_or_judge_rejected": bad,
         "fabrication_rate": round(bad / factual, 4) if factual else 0.0,
+        "verbatim_sentences": audit_judged.verbatim_sentences,
         "judged_sentences": audit_judged.judged,
         "judge_rejected": audit_judged.judge_rejected,
         "responder_stats": resp.stats,

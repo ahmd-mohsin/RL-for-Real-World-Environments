@@ -36,7 +36,7 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
 |---|---|---|---|
 | M0 core | built | passed | `docs/modules/M00-core.md` |
 | M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers) | `docs/modules/M01-world.md` |
-| M2 actors | built | see report | `docs/modules/M02-actors.md` |
+| M2 actors | built | passed (reviewer location precision 0.96 / 0.98 on real PCL / CCCL reviews; fabrication 0/225 sentences (quote mode) and 0% on toy; LLM agent + simulated customer episode reaches the expert end state) | `docs/modules/M02-actors.md` |
 
 Environments: verifiers v1 pins `mcp==2.0.0` and agentenv needs `mcp<2`, so the `verifiers` extra is declared as conflicting and runs in its own environment (`THIRD_PARTY.md`).
 
