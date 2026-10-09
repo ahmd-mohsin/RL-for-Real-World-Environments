@@ -134,3 +134,28 @@ async def test_agentenv_snapshot_restore_roles_and_state(tmp_path: Path):
         assert '"amount": 5' in r.observation.tool_results[0].content
     finally:
         await w.close()
+
+
+async def test_external_mcp_harness_drives_world_through_gateway(tmp_path: Path):
+    """Any MCP harness (Claude Code, Codex, ...) can work a Crucible World: connect to the gateway's
+    aggregate MCP endpoint with an AgentEnv-Role header; agentenv enforces that role's tool access."""
+    from crucible.world.packaging.sidecar import McpClient
+
+    w = World(spec("step"), store=Store(tmp_path / "store"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        await w.reset()
+        url = w.backend.mcp_url
+        clerk = McpClient(url, headers={"AgentEnv-Role": "clerk"})
+        auditor = McpClient(url, headers={"AgentEnv-Role": "auditor"})
+        clerk_tools = {t.name for t in await clerk.list_tools("gw")}
+        auditor_tools = {t.name for t in await auditor.list_tools("gw")}
+        assert {"erp__create_resource", "mail__send_email"} <= clerk_tools
+        assert auditor_tools == {"erp__list_resources", "erp__get_resource"}
+        r = await clerk.call("gw", "erp__create_resource", {"collection": "invoices", "id": "INV-42", "data": {"amount": 7}}, call_id="x1")
+        assert r.ok, r.content
+        denied = await auditor.call("gw", "erp__create_resource", {"collection": "invoices", "id": "INV-43", "data": {}}, call_id="x2")
+        assert not denied.ok
+        assert (await w.verifier_view().query("erp", {"op": "get", "args": {"path": "/invoices"}})).value == {"INV-42": {"amount": 7}}
+    finally:
+        await w.close()

@@ -250,7 +250,7 @@ class World:
             return ToolResult(tool_call_id=call.tool_call_id, function_name=qualified, ok=False, content=f"Permission denied: {qualified}", error="permission_denied")
         router = self.backend.router()
         if router is not None:
-            result = await router.call(actor, app_id, tool, call.arguments, call.tool_call_id)
+            result = await router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system)
         else:
             result = await self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id)
         return result

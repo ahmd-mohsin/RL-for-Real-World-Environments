@@ -35,7 +35,8 @@ class ToolRouter(ABC):
     """Optional: a backend that routes tool calls itself (e.g. through agentenv's gateway)."""
 
     @abstractmethod
-    async def call(self, actor: str, app: str, tool: str, args: dict[str, Any], call_id: str) -> ToolResult: ...
+    async def call(self, actor: str, app: str, tool: str, args: dict[str, Any], call_id: str, *, system: bool = False) -> ToolResult:
+        """``system=True``: an environment-dynamics action (event), not subject to the actor's tool access."""
 
 
 class Backend(ABC):

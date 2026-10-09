@@ -79,3 +79,42 @@ async def test_toy_helpdesk_on_agentenv_gateway(tmp_path: Path):
         await _check_expert_end_state(w)
     finally:
         await w.close()
+
+
+async def test_toy_episode_exports_valid_atif(tmp_path: Path):
+    from harbor.models.trajectories import Trajectory
+
+    from crucible.interop.harbor.atif import episode_to_atif
+
+    w = World(helpdesk_spec(), instructions={"agent": INSTRUCTION}, store=Store(tmp_path / "s"), workdir=tmp_path / "w", pack_root=PACK_ROOT)
+    for r in responders():
+        w.attach(r)
+    await w.start()
+    try:
+        res = await run_episode(w, {"agent": ScriptedPolicy("agent", oracle())}, max_steps=40)
+        traj = episode_to_atif(res.trace, "agent", instruction=INSTRUCTION, model_name="oracle")
+        again = Trajectory.model_validate_json(traj.model_dump_json())  # Harbor's validators: step ids, call ids
+        tool_steps = [s for s in again.steps if s.tool_calls]
+        assert len(tool_steps) == 11 and all(s.observation and s.observation.results for s in tool_steps)
+        assert any(s.source == "user" and "crack along the base" in str(s.message) for s in again.steps)
+        assert again.schema_version.startswith("ATIF-v1")
+    finally:
+        await w.close()
+
+
+async def test_same_episode_same_state_on_local_and_agentenv(tmp_path: Path):
+    """Backend independence: the oracle episode ends in identical App fingerprints on both backends."""
+    pytest.importorskip("agent_env")
+    fps = {}
+    for backend in ("local", "agentenv"):
+        w = World(helpdesk_spec(), instructions={"agent": INSTRUCTION}, store=Store(tmp_path / f"s-{backend}"), workdir=tmp_path / f"w-{backend}",
+                  pack_root=PACK_ROOT, backend=backend)
+        for r in responders():
+            w.attach(r)
+        await w.start()
+        try:
+            res = await run_episode(w, {"agent": ScriptedPolicy("agent", oracle())}, max_steps=40)
+            fps[backend] = {a: ref.fingerprint for a, ref in res.final.apps.items()}
+        finally:
+            await w.close()
+    assert fps["local"] == fps["agentenv"]

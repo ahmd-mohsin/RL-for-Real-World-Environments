@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 ROLE_HEADER = "AgentEnv-Role"
 ACTOR_ARG = "__actor"
 EXECUTOR_ROLE = "crucible-executor"
+SYSTEM_ROLE = "crucible-system"  # environment dynamics (events): every tool, never given to an actor
 
 
 def gw_name(app: str, tool: str) -> str:
@@ -54,11 +55,12 @@ class GatewayRouter(ToolRouter):
     def __init__(self, backend: AgentEnvBackend):
         self.b = backend
 
-    async def call(self, actor: str, app: str, tool: str, args: dict[str, Any], call_id: str) -> ToolResult:
+    async def call(self, actor: str, app: str, tool: str, args: dict[str, Any], call_id: str, *, system: bool = False) -> ToolResult:
         name = gw_name(app, tool)
         t0 = time.monotonic()
+        role = SYSTEM_ROLE if system else actor
         try:
-            r = await self.b.http.post("/step", headers={ROLE_HEADER: actor}, json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: actor}})
+            r = await self.b.http.post("/step", headers={ROLE_HEADER: role}, json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: actor}})
         except httpx.HTTPError as e:
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=f"gateway unreachable: {e}", error="transport")
         dt = time.monotonic() - t0
@@ -215,6 +217,8 @@ class AgentEnvBackend(Backend):
             await self._toggle("disable", a.id, "*")
             await self._toggle("enable", a.id, self._expand(world, a.tools))
         await self._toggle("disable", EXECUTOR_ROLE, "*")
+        await self._toggle("disable", SYSTEM_ROLE, "*")
+        await self._toggle("enable", SYSTEM_ROLE, self._expand(world, ["*"]))
 
     async def _refresh_allowed(self, world: World) -> None:
         for a in world.spec.actors:
