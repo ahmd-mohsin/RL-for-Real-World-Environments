@@ -241,3 +241,20 @@ async def test_world_refuses_a_policy_writable_root_path(env_dir: Path, tmp_path
     w = World(s, store=Store(tmp_path / "s"), workdir=tmp_path / "w")
     with pytest.raises(IsolationError, match=r"/workspace/proj/\.venv/bin"):
         await w.start()
+
+
+async def test_audit_of_the_hardened_world(env_dir: Path, tmp_path: Path):
+    """The World audit's containment checks run for real on an isolated world (and pass)."""
+    from crucible.world.audit import audit_world
+
+    w = World(spec(env_dir), store=Store(tmp_path / "s"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        gold = [ToolCall(tool_call_id="g", function_name="repo.write_file", arguments={"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"})]
+        rep = await audit_world(w, gold=gold, forbidden=["future-fix", "/root/answers"])
+    finally:
+        await w.close()
+    st = {c.id: c.status for c in rep.checks}
+    assert rep.ok, rep.summary()
+    assert st["network_policy"] == st["runtime.host_containment"] == st["oracle_containment"] == "pass", st
+    assert st["episode_determinism"] == st["runtime.episode_isolation"] == "pass"

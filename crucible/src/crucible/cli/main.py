@@ -98,6 +98,46 @@ def check_mimo(envs_root: Path, transport: str, backend: str, stride: int, out: 
         out.write_text(json.dumps([asdict(r) for r in res], indent=1))
 
 
+@world.command("validate")
+@click.argument("world_yaml", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--gold", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="JSON list of actions (the oracle trajectory)")
+@click.option("--forbidden", multiple=True, help="a string that must never reach the policy (repeatable)")
+@click.option("--instruction", default=None, help="the policy's instruction (checked for fix pointers)")
+@click.option("--pack-root", type=click.Path(exists=True, file_okay=False, path_type=Path), help="where the spec's relative seeds live")
+@click.option("--out", type=click.Path(path_type=Path))
+def validate(world_yaml: Path, gold: Path | None, forbidden: tuple[str, ...], instruction: str | None, pack_root: Path | None, out: Path | None) -> None:
+    """Audit a World (OpenEnv RFC 008 check ids): reset / state contract, tools, leakage, determinism, containment."""
+    import asyncio
+
+    from pydantic import TypeAdapter
+
+    from crucible.core.schema.actions import Action
+    from crucible.core.schema.world import WorldSpec
+    from crucible.world.audit import audit_world
+    from crucible.world.world import World
+
+    spec = WorldSpec.load(world_yaml)
+    actions = TypeAdapter(list[Action]).validate_json(gold.read_text()) if gold else None
+
+    async def run():
+        w = World(spec, pack_root=pack_root or world_yaml.parent)
+        if instruction:
+            w.instructions = {spec.policy_actors[0].id: instruction}
+        await w.start()
+        try:
+            return await audit_world(w, gold=actions, forbidden=list(forbidden))
+        finally:
+            await w.close()
+
+    rep = asyncio.run(run())
+    for c in rep.checks:
+        click.echo(f"  {c.status.upper():4s} {c.severity:8s} {c.id}" + (f"  {json.dumps(c.detail)[:160]}" if c.status != "pass" else ""))
+    click.echo(rep.summary())
+    if out:
+        out.write_text(json.dumps(rep.to_dict(), indent=1))
+    raise SystemExit(0 if rep.ok else 1)
+
+
 @world.command("check-awm")
 @click.argument("n", default=20, type=int)
 @click.option("--out", type=click.Path(path_type=Path))

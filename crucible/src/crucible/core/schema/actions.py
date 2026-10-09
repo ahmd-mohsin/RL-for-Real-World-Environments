@@ -7,11 +7,24 @@ and tool surfaces convert to MCP without renaming.
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
+
+_FN_OK = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def openai_name(qualified: str) -> str:
+    """A function name OpenAI-style APIs accept (^[a-zA-Z0-9_-]{1,64}$) for an ``app.tool`` name."""
+    name = qualified.replace(".", "__", 1)
+    if _FN_OK.match(name):
+        return name
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+    return clean if len(clean) <= 64 else clean[:55] + "_" + hashlib.sha256(qualified.encode()).hexdigest()[:8]
 
 
 class ToolSpec(CrucibleModel):

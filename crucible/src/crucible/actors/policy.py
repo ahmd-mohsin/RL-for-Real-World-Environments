@@ -12,16 +12,14 @@ A *policy* is the actor under training or evaluation: it alone calls ``World.ste
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
-from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall
+from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall, openai_name
 from crucible.core.schema.state import WorldRef
 from crucible.core.schema.trace import Trace
 from crucible.world.world import World, WorldError
@@ -60,18 +58,6 @@ SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "descri
 
 
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
-_FN_OK = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
-
-
-def openai_name(qualified: str) -> str:
-    """A function name OpenAI-style APIs accept (^[a-zA-Z0-9_-]{1,64}$) for an ``app.tool`` name."""
-    name = qualified.replace(".", "__", 1)
-    if _FN_OK.match(name):
-        return name
-    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
-    return clean if len(clean) <= 64 else clean[:55] + "_" + hashlib.sha256(qualified.encode()).hexdigest()[:8]
-
-
 class LLMToolPolicy(Policy):
     """A minimal function-calling harness. Parallel tool calls in one turn are executed in order and their results
     are appended together before any message that arrived meanwhile (a valid history for OpenAI-style APIs);
