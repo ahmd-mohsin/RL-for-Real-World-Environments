@@ -1,0 +1,6 @@
+{"id": "hist#dana-1", "source": "ticket-1", "author": "C-100", "role": "customer_dana", "time": "2026-03-02T08:10:00Z", "text": "The blender from order O-5001 arrived with a crack along the base of the jar. It was like that when I opened the box."}
+{"id": "hist#dana-2", "source": "ticket-1", "author": "C-100", "role": "customer_dana", "time": "2026-03-02T08:12:00Z", "text": "I would prefer a refund to a replacement. I still have the box and the packing slip."}
+{"id": "hist#dana-3", "source": "ticket-1", "author": "C-100", "role": "customer_dana", "time": "2026-03-02T08:13:00Z", "text": "I can send photos of the crack if you need them."}
+{"id": "hist#lee-1", "source": "ticket-2", "author": "C-200", "role": "customer_lee", "time": "2026-03-02T08:40:00Z", "text": "My card statement shows two charges of 39.50 USD for order O-5002 on the same day."}
+{"id": "hist#lee-2", "source": "ticket-2", "author": "C-200", "role": "customer_lee", "time": "2026-03-02T08:41:00Z", "text": "I only placed order O-5002 once, so one of the 39.50 USD charges should be refunded."}
+{"id": "hist#lee-3", "source": "ticket-3", "author": "C-200", "role": "customer_lee", "time": "2026-03-02T08:55:00Z", "text": "The TV from order O-5003 was supposed to arrive on 2026-02-27 and tracking has not moved since 2026-02-25."}

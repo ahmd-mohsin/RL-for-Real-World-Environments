@@ -161,6 +161,8 @@ def _register_builtins(r: Registry) -> None:
     r.register("actor", "human", "crucible.actors.human:HumanActor")
     r.register("actor", "peer", "crucible.actors.human:PeerActor")
     # Transports for human / peer actors
+    r.register("connector", "file_drop", "crucible.connectors.file_drop:FileDropConnector")
+
     r.register("transport", "file_queue", "crucible.actors.transports:FileQueueTransport")
     r.register("transport", "callable", "crucible.actors.transports:CallableTransport")
     r.register("transport", "a2a", "crucible.interop.agentenv.a2a:A2ATransport")

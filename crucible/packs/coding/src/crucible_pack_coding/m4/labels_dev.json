@@ -1,0 +1,494 @@
+{
+ "pack": "coding",
+ "split": "dev",
+ "labeled_by": "Claude (the builder), from raw PR records with evidence independent of the connector: git log -L for the line's last writer, and final-code inspection for whether the requested change was made. Not a human expert; spot checks welcome.",
+ "guideline": "Root review comment by a reviewer: suggestion_accepted if its concrete fix (suggestion block or 'suggested fix' code) is in the final code; correction if it requests a change and the requested change was made; rejection if it requests a change that was not made; a clarifying question after which the code there changed counts as a correction; approval for praise; none for questions answered without change and for discussion. Replies in threads and the author's own comments: none. Reviews: APPROVED -> approval, CHANGES_REQUESTED -> rejection, COMMENTED without a request -> none. CI runs: check_result. Grades: the PR commit that last wrote the commented line (git log -L at the comment's commit); null when the line predates the PR. Outcome: merged and 30+ days without revert or hotfix -> good; closed unmerged or reverted -> bad; otherwise unknown.",
+ "now": "2026-10-09T12:00:00+00:00",
+ "events": [
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 20,
+   "type": "correction",
+   "grades": [
+    3
+   ],
+   "note": "asks for documentation of set_sigma; the commented code changed afterwards"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 28,
+   "type": "correction",
+   "grades": [
+    1
+   ],
+   "note": "'can also be removed?' implies a change; the file was removed"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 32,
+   "type": "correction",
+   "grades": [
+    1
+   ],
+   "note": "SPDX switch requested; final header is SPDX"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 36,
+   "type": "suggestion_accepted",
+   "grades": [
+    1
+   ],
+   "note": "suggested '/** \\brief Constructor */' is in the final file, use_umeyama gone"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 39,
+   "type": "correction",
+   "grades": [
+    1
+   ],
+   "note": "wrong class name in message; the TransformationSVD tag is gone"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "seq": 60,
+   "type": "correction",
+   "grades": [
+    4
+   ],
+   "note": "suggested pcl::index_t; final has neither form -> changed, not the suggestion verbatim"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 11,
+   "type": "none",
+   "grades": null,
+   "note": "draft alternative phrased as a question ('wouldn't this work?') on a pre-existing line"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 41,
+   "type": "none",
+   "grades": null,
+   "note": "Copilot: could not review any files"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 47,
+   "type": "correction",
+   "grades": [
+    36
+   ],
+   "note": "compile error flagged; LogRecorder class removed (suggestion not applied verbatim)"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 68,
+   "type": "correction",
+   "grades": [
+    48
+   ],
+   "note": "asked to check isVerbosityLevelEnabled before to_string; final print() returns early on it (change is adjacent to the commented line)"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 70,
+   "type": "none",
+   "grades": null,
+   "note": "reply in a thread"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 81,
+   "type": "correction",
+   "grades": [
+    80
+   ],
+   "note": "revised after re-examination: the shared std::stringstream member was removed (the reviewer's second option); my first string check matched another class"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "seq": 101,
+   "type": "check_result",
+   "grades": [
+    95
+   ],
+   "note": "CI success on the head"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 1,
+   "type": "correction",
+   "grades": [
+    15
+   ],
+   "note": "omp_get_num_procs outside #ifdef flagged; code changed (suggestion not verbatim)"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 2,
+   "type": "correction",
+   "grades": [
+    15
+   ],
+   "note": "uninitialized member flagged; final has no such member declaration"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 6,
+   "type": "none",
+   "grades": null,
+   "note": "author's own review, empty"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 8,
+   "type": "none",
+   "grades": null,
+   "note": "Copilot overview, no request"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 30,
+   "type": "none",
+   "grades": null,
+   "note": "reviewer reply in a thread (guideline: the thread root carries the signal)"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 42,
+   "type": "none",
+   "grades": null,
+   "note": "author reply 'Done'"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 49,
+   "type": "check_result",
+   "grades": [
+    63
+   ],
+   "note": "tidy success"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "seq": 71,
+   "type": "rejection",
+   "grades": [
+    63
+   ],
+   "note": "points out num_threads_{0} is never replaced (a bug report); unchanged in the final head"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6309",
+   "seq": 8,
+   "type": "correction",
+   "grades": [
+    1
+   ],
+   "note": "asked to move getFields to io.h; gone from this file"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6309",
+   "seq": 22,
+   "type": "correction",
+   "grades": null,
+   "note": "revised after re-examination: after 'intentional?', getFieldName() was moved back to public"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6309",
+   "seq": 44,
+   "type": "none",
+   "grades": null,
+   "note": "empty COMMENTED review"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6309",
+   "seq": 54,
+   "type": "check_result",
+   "grades": [
+    63
+   ],
+   "note": "formatting check success"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6358",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": "empty COMMENTED review"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6358",
+   "seq": 5,
+   "type": "none",
+   "grades": null,
+   "note": "author reply"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6363",
+   "seq": 8,
+   "type": "rejection",
+   "grades": [
+    3
+   ],
+   "note": "nitpick suggestion return (*this); final keeps return *this;"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6363",
+   "seq": 12,
+   "type": "rejection",
+   "grades": [
+    3
+   ],
+   "note": "same nitpick, not applied"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6363",
+   "seq": 13,
+   "type": "rejection",
+   "grades": [
+    3
+   ],
+   "note": "same nitpick, not applied"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6363",
+   "seq": 33,
+   "type": "none",
+   "grades": null,
+   "note": "author's review, empty"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6364",
+   "seq": 1,
+   "type": "suggestion_accepted",
+   "grades": null,
+   "note": "deletion suggestion applied (source_group line gone); the line predates the PR"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6371",
+   "seq": 25,
+   "type": "correction",
+   "grades": null,
+   "note": "'can be removed?' -> the using statement was removed; the line predates the PR"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6371",
+   "seq": 37,
+   "type": "suggestion_accepted",
+   "grades": [
+    1
+   ],
+   "note": "'Suggested fix' code block applied verbatim (emplace_back ( spacing)"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6371",
+   "seq": 53,
+   "type": "approval",
+   "grades": [
+    30
+   ],
+   "note": "APPROVED 'Thanks!'"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6375",
+   "seq": 26,
+   "type": "rejection",
+   "grades": [
+    1
+   ],
+   "note": "asks to add a removal note; none added"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6375",
+   "seq": 38,
+   "type": "none",
+   "grades": null,
+   "note": "reply in a thread"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6375",
+   "seq": 53,
+   "type": "check_result",
+   "grades": [
+    54
+   ],
+   "note": "Build success"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "seq": 2,
+   "type": "suggestion_accepted",
+   "grades": null,
+   "note": "ptrdiff_t loop suggestion applied; the commented line predates the PR"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "seq": 17,
+   "type": "correction",
+   "grades": [
+    27
+   ],
+   "note": "\\warn -> \\warning done"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "seq": 21,
+   "type": "rejection",
+   "grades": [
+    27
+   ],
+   "note": "asks to merge the two critical sections; both remain"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "seq": 23,
+   "type": "correction",
+   "grades": [
+    27
+   ],
+   "note": "revised after re-examination: the author added a DIRECT27 case using getAllNeighborsAtPoint next to the commented line, as the reviewer proposed"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "seq": 25,
+   "type": "correction",
+   "grades": [
+    27
+   ],
+   "note": "revised after re-examination: same DIRECT27 addition next to the commented line"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6379",
+   "seq": 9,
+   "type": "none",
+   "grades": null,
+   "note": "author reply"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6379",
+   "seq": 14,
+   "type": "check_result",
+   "grades": [
+    24
+   ],
+   "note": "CI success"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6379",
+   "seq": 20,
+   "type": "check_result",
+   "grades": [
+    24
+   ],
+   "note": "CI success"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6380",
+   "seq": 12,
+   "type": "none",
+   "grades": null,
+   "note": "empty COMMENTED review"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6380",
+   "seq": 21,
+   "type": "suggestion_accepted",
+   "grades": [
+    2
+   ],
+   "note": "suggested const auto& loop is in the final file"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6380",
+   "seq": 29,
+   "type": "none",
+   "grades": null,
+   "note": "empty COMMENTED review"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6380",
+   "seq": 30,
+   "type": "suggestion_accepted",
+   "grades": [
+    2
+   ],
+   "note": "same suggestion repeated, applied"
+  }
+ ],
+ "outcomes": [
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#5958",
+   "label": "unknown",
+   "note": "open"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6199",
+   "label": "good",
+   "note": "merged 55 days ago, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6244",
+   "label": "good",
+   "note": "merged, no revert in 30 days"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6293",
+   "label": "unknown",
+   "note": "open"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6309",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6358",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6363",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6364",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6367",
+   "label": "unknown",
+   "note": "merged 6 days ago: the 30-day window is still open"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6371",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6375",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6376",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6379",
+   "label": "good",
+   "note": "merged, no revert"
+  },
+  {
+   "trace_id": "github:PointCloudLibrary/pcl#6380",
+   "label": "good",
+   "note": "merged, no revert"
+  }
+ ],
+ "revisions": "4 labels revised after re-examining the diffs (notes say which); revisions follow evidence in the code, never a prediction"
+}

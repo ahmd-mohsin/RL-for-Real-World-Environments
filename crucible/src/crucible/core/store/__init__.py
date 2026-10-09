@@ -140,7 +140,7 @@ class Store:
         if name is not None:
             q += " AND name=?"
             args.append(name)
-        q += " ORDER BY created_at"
+        q += " ORDER BY created_at, rowid"  # rowid: two versions stored within one second keep their order
         with self._lock:
             rows = self._db.execute(q, args).fetchall()
         return [

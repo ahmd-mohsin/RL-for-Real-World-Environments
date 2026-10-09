@@ -112,6 +112,12 @@ source_modules = ["crucible.core", "crucible.world", "crucible.actors"]
 forbidden_modules = ["crucible_pack_coding", "crucible_pack_toy"]
 
 [[tool.importlinter.contracts]]
+name = "Data modules (connectors, signals) depend only on core: no runtime, no frameworks, no packs"
+type = "forbidden"
+source_modules = ["crucible.connectors", "crucible.signals"]
+forbidden_modules = ["crucible.world", "crucible.actors", "crucible.interop", "harbor", "agent_env", "verifiers", "openenv", "crucible_pack_coding", "crucible_pack_toy"]
+
+[[tool.importlinter.contracts]]
 name = "Layering: core < world < actors"
 type = "layers"
 layers = ["crucible.actors", "crucible.world", "crucible.core"]

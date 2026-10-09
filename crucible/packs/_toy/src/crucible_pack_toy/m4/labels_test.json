@@ -1,0 +1,692 @@
+{
+ "pack": "toy",
+ "split": "test",
+ "labeled_by": "Claude (the builder), before the toy mapper was written; the ticket logs were also written by the builder, so this is a weaker check than the coding pack's",
+ "guideline": "Customer reply: negative about the answer -> rejection, positive -> approval (both grade the reply it answers), a question -> none. reopened -> rework (grades the resolving status change). Reassignment to another team -> escalation (grades the last answer given before it, none if there was none). refund_reversed -> revert (grades the refund). supervisor_edit -> correction (grades the reply it edits). policy_flag -> violation (grades the event that wrote the flagged object). supervisor_approval -> approval (same). sla_breach -> sla_breach (grades the assignment). csat -> outcome (trace level). Everything else -> none. Outcome: CSAT <= 2, or reopened without a later resolution -> bad; resolved with CSAT >= 4 or no CSAT -> good; CSAT 3 -> unknown.",
+ "events": [
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 4,
+   "type": "rejection",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 5,
+   "type": "rework",
+   "grades": [
+    3
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 6,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 7,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 8,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "seq": 9,
+   "type": "outcome",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 2,
+   "type": "escalation",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 4,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "seq": 5,
+   "type": "approval",
+   "grades": [
+    3
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 4,
+   "type": "violation",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 5,
+   "type": "approval",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 6,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "seq": 7,
+   "type": "outcome",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 4,
+   "type": "rejection",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 5,
+   "type": "rework",
+   "grades": [
+    3
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 6,
+   "type": "correction",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 7,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "seq": 8,
+   "type": "approval",
+   "grades": [
+    6
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 4,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 5,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "seq": 6,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 2,
+   "type": "sla_breach",
+   "grades": [
+    1
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 4,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 5,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "seq": 6,
+   "type": "outcome",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 4,
+   "type": "rejection",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 5,
+   "type": "rework",
+   "grades": [
+    3
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "seq": 6,
+   "type": "escalation",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "seq": 4,
+   "type": "outcome",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 4,
+   "type": "revert",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 5,
+   "type": "correction",
+   "grades": [
+    3
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 6,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "seq": 7,
+   "type": "outcome",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 4,
+   "type": "approval",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "seq": 5,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 4,
+   "type": "violation",
+   "grades": [
+    2
+   ],
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "seq": 5,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "seq": 0,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "seq": 1,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "seq": 2,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "seq": 3,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "seq": 4,
+   "type": "none",
+   "grades": null,
+   "note": ""
+  }
+ ],
+ "outcomes": [
+  {
+   "trace_id": "toy/helpdesk_ticket:T1013",
+   "label": "unknown",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1014",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1015",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1016",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1017",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1018",
+   "label": "bad",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1019",
+   "label": "bad",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1020",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1021",
+   "label": "bad",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1022",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1023",
+   "label": "good",
+   "note": ""
+  },
+  {
+   "trace_id": "toy/helpdesk_ticket:T1024",
+   "label": "good",
+   "note": ""
+  }
+ ]
+}
