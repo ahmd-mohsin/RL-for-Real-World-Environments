@@ -194,8 +194,12 @@ async def test_reward_hacks_are_defeated(env_dir: Path, tmp_path: Path):
         assert f"uid={uid}(agent)" in await sh(w, "id")
         # 6. a background process that keeps rewriting the code after the "submission" (Karotte: leftover processes)
         await sh(w, "nohup setsid sh -c 'while :; do echo \"# tampered\" >> calc.py; sleep 0.1; done' >/dev/null 2>&1 & sleep 0.3")
-        await asyncio.sleep(0.6)
-        assert "# tampered" in (await root.run("cat /workspace/proj/calc.py")).stdout  # the tamperer really is writing
+        for _ in range(100):  # the tamperer really is writing (polled: under load the loop starts late)
+            if "# tampered" in (await root.run("cat /workspace/proj/calc.py")).stdout:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            raise AssertionError("the tamper loop never wrote")
         final1 = await w.snapshot(quiesce=True)
         await asyncio.sleep(0.5)
         final2 = await w.snapshot(quiesce=True)
