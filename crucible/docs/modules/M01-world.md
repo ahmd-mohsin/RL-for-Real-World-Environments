@@ -1,6 +1,6 @@
 # M1 `world` — runtime for any environment
 
-**Status: built; exit gate passed (2026-10-09).** Code: `src/crucible/world/`, `src/crucible/interop/{harbor,agentenv,mimo,openenv}/`, `src/crucible/_vendor/{mimo_sidecar,openenv_awm}/`. Tests: `tests/unit/test_{state_adapters,world_local,agentenv_backend,harbor_backend,postgres_app,website_browser,ci_app}.py`, `tests/redteam/`, `tests/toy_e2e/`, `tests/gpu/`.
+**Status: built; exit gate passed (2026-10-09).** Code: `src/crucible/world/`, `src/crucible/interop/{harbor,agentenv,mimo,openenv}/`, `src/crucible/_vendor/{mimo_sidecar,openenv_awm}/`. Tests: `tests/unit/test_{state_adapters,world_local,agentenv_backend,agentenv_sandbox,harbor_backend,sandboxes,postgres_app,website_browser,ci_app,virtual_env,episode_loop,audit}.py`, `tests/redteam/`, `tests/toy_e2e/`, `tests/gpu/`.
 
 ## What it is
 A gym-like runtime over any World: Apps (state + tools), Actors, a virtual Clock and Events. Policies call `reset` / `step`. Verifiers get a `VerifierView` of State Adapters, never handed to a policy. Whole worlds snapshot and restore exactly, and that is verified by fingerprints.
@@ -38,14 +38,67 @@ The toy pack's vendor portal shows the website and browser Apps end to end: a cl
 
 ### Isolation (`WorldSpec.isolation`)
 
-`isolation.policy_user` turns a container world into a hardened one. After the Apps seed their files as root, the backend installs `guard.py` (a standalone stdlib script, root 0600) and:
-1. creates the policy user, hands it the writable App roots, and makes `root_only` paths and the harness directory 0700 root;
-2. scrubs git history for Apps with `scrub_history` and **verifies** it (every reachable commit is an ancestor of the kept base, nothing unreachable remains, forbidden SHAs are absent);
-3. routes every policy tool (shell, file tools, search) through `guard run` as the demoted uid, and pins the verifier side to the resolved interpreter with `python -I` and a root-only staging directory;
-4. runs an egress self-test as the policy uid and refuses to start the world if anything answers;
-5. kills the policy's whole process cohort before verification snapshots (`World.quiesce`, `snapshot(quiesce=True)`; `run_episode` takes its final state this way).
+`isolation.policy_user` turns a container World into a hardened one, on every container backend (Harbor, or agentenv with a sandbox). One module does it, `world/guard/isolate.py`, after the Apps seed their files as root and before the policy's first step:
+1. **A fresh account.** The guard (`guard.py`, standalone stdlib, root 0600) creates the policy user and never reuses an image account. Ubuntu-based images ship `ubuntu` at uid 1000, which might own files or have sudo, so the uid is allocated. The world refuses to start if root's `PATH` or interpreter chain contains anything the policy could write: it would plant `git` or `tar` there, and the verifier would run them as root.
+2. **Git the verifier can trust.** Where asked, history is scrubbed and the scrub is **verified**: every reachable commit is an ancestor of the base, nothing unreachable remains, and forbidden SHAs are absent. Every repo's `.git` is also copied to root-only storage. Verifier-side git (fingerprints, snapshots, diffs) uses only that copy, through `--git-dir/--work-tree`, so hooks, filters, `fsmonitor`, external diff drivers and `info/exclude` planted by the policy are never read.
+3. **Ownership.** The policy-writable App roots are handed to the policy. App-owned state (SQLite, mailbox, JSON documents) may not sit inside them and is root `0600`. The sandbox workdir is `0711`.
+4. **A pinned verifier side.** The verifier uses `python -I -S` at the path resolved inside the sandbox, and stages snippets, stdin and snapshot payloads in a root-only directory, never `/tmp`.
+5. **Demoted policy tools.** Every policy tool (shells, file tools, the doc library, the toolchain shell) runs through `guard run`. That means: `setsid`; `PR_SET_NO_NEW_PRIVS`, so setuid binaries and sudo are inert; `oom_score_adj=1000` pinned with `CAP_SYS_RESOURCE`; `RLIMIT_NPROC` below the container's pids limit, so the harness can always exec the guard; and the image's `PATH`. When a command exits, its process group goes with it; work detached with `setsid` lives until the next quiesce.
+6. **No egress.** An egress self-test runs as the policy against the internet, cloud metadata, the default gateway, IPv6 and UDP DNS (plus the agentenv gateway's host port). The world refuses to start if anything answers.
 
-`tests/redteam/test_attacks.py` attacks this on local Docker. Each attack first asserts it took effect, then that it was defeated: root-only answers read directly and via symlink; `git log --all` / `git show <future-fix>`; socket connect and `pip download`; writing harness paths, replacing `/usr/local/bin/python3`, killing PID 1; a fake `python3` planted in the policy's `PATH`, rc files, workspace and `/tmp`; a FIFO and a 20 GB sparse file (snapshot in under 30 s, both reported as anomalies); lowering `oom_score_adj`; a fork bomb (`pids_limit`); a background process rewriting the code after submission (identical fingerprints across two quiesced snapshots); reading the hidden CI checks. Passed on 3 of 3 runs.
+Between episodes, `World.restore` first kills the policy's process cohort, then writes the snapshot with directory fds and `O_NOFOLLOW`. Files are created `O_EXCL` and owned by the policy, so a symlinked parent can't redirect a root write. Then the policy's `.git` is reset to the trusted copy, and `/tmp`, `/var/tmp`, `/dev/shm`, its home and its SysV IPC objects are emptied. Root lacks `CAP_IPC_OWNER` in Docker, so the IPC removal runs as the owner. Verification snapshots quiesce first (`snapshot(quiesce=True)`; `run_episode` does it). A cohort that cannot be killed is scored as `crucible:policy_misbehavior`, not masked.
+
+`tests/redteam/test_attacks.py` attacks this on local Docker. Each attack first asserts it took effect, then that it was defeated:
+- root-only answers read directly or through a symlink, by the policy *and* by verifier-side reads of the policy's tree;
+- a FIFO answer;
+- `git log --all` and `git show <future-fix>`;
+- git-ref injection into a root shell;
+- git config traps (fsmonitor, external diff, clean filter, hooks): these fire for the policy and never for root;
+- hiding a file through `.git/info/exclude`;
+- restoring through a parent replaced by a symlink to `/etc`;
+- leftovers in `/tmp`, `/dev/shm`, home, rc files and SysV shared memory across a reset;
+- an image account with passwordless sudo and a setuid-root `bash`;
+- network, including `pip download`;
+- harness paths;
+- a fake `python3` planted everywhere;
+- a FIFO and a 20 GB sparse file;
+- the OOM floor;
+- a background job without redirection;
+- a verifier timeout that must kill the process inside the container;
+- a fork bomb;
+- a post-submission tamper loop;
+- CI candidate code that rewrites the hidden check and leaves a daemon behind.
+
+A second world, whose image puts a policy-writable directory on root's `PATH`, must refuse to start.
+
+### Sandboxes and GPUs
+
+| Where the World's state and commands run | Backend + params | GPUs | Verified |
+|---|---|---|---|
+| This machine's Docker | `harbor` (`environment_dir`/`task_dir`/`docker_image`) or `agentenv` + `sandbox: {provider: docker, image}` | nvidia runtime (`gpu_mode: runtime`) or `--gpus` | red-team suite, `test_agentenv_sandbox.py` |
+| A GPU host's Docker over SSH (the lab RTX 5090) | the same + `gpu_host: lab5090` (`crucible.toml [gpu_hosts]`) | `runtime: nvidia` (that host's `--gpus` lacks the MPS mount) | seed worlds 3/3, CI on the verifier image, agentenv sandbox with `nvcc 12.8` (`reports/m1_gpu_sandboxes.json`) |
+| Any Harbor provider (Modal, Daytona, GKE, E2B, Runloop, …) | `harbor` + `environment_type: modal` (+ `environment_kwargs`) | `cfg.gpus` + `cfg.gpu_types` from `resources.gpu_type`; network policy passed through | wiring unit-tested; live run needs provider credentials |
+| Any agentenv sandbox provider (Modal, E2B, Sail, registered ones) | `agentenv` + `sandbox: {provider: modal, image}` | Modal: agentenv's `ModalSandboxProvider(gpu="H100" / "A100:2" / ...)` | adapter unit-tested through a fake provider; `CRUCIBLE_MODAL=1` runs it live |
+
+`Resources.gpu_type` asks for a GPU class on any backend. The same guard hardens every container option. In a sandboxed agentenv World the gateway and App servers stay on the host as trusted routers. Apps that would spawn host-side servers are refused, and so is a host-side tool module: it would run outside the sandbox.
+
+### The tool-call choke point (`World._call_tool`)
+
+Every call goes through one place: the policy's, simulated people's and events'. It checks names and the ACL, validates arguments against the tool's JSON schema (bad arguments come back as `invalid_arguments` with field errors), suggests near matches for unknown tools, enforces a deadline (`limits.tool_timeout_s`), and contains App crashes as `internal_error`. The traceback stays in the trace, and the episode is masked as an infrastructure failure. It labels every failure's `fault` (`policy` / `tool` / `infra`) and bounds output once (head + tail with a banner; the full text goes to the store).
+
+MiMo-style tool modules read the World's **virtual clock and seed** instead of wall time and `os.urandom` (`packaging/virtual_env.py`). `datetime`, `time`, `uuid` and `random` are rebound inside the loaded modules only, so replaying a call from the same WorldRef gives the same database. Before this, 1,174 of the 1,796 MiMo modules made every replay different.
+
+### World audit (`crucible world validate`)
+
+`world/audit.py` runs OpenEnv RFC 008-style checks on any World:
+- reset stability and the state contract;
+- tool declarations and a smoke call of read tools;
+- static and dynamic leakage (fix pointers, forbidden strings in any observation);
+- episode isolation and determinism (gold replayed twice);
+- oracle passes / no-op fails (with a verifier predicate);
+- for isolated Worlds: network policy, planted setuid/ownership anomalies, and root-only paths read as the policy.
+
+A check that cannot run is a named SKIP. Each planted defect in `test_audit.py` is caught, and the hardened red-team World passes.
 
 ## Exit gate
 
@@ -81,3 +134,7 @@ Seed-world numbers (lab RTX 5090, remote Docker over SSH):
 10. **Harbor 0.23 / agentenv (per Karotte's comparison):** neither demotes the agent, kills leftover processes before grading, limits resources or blocks egress by default. With `isolation.policy_user`, Crucible does all four on the Harbor backend (above); the agentenv backend does not yet (its tools run in the gateway's process).
 11. **Playwright MCP:** element arguments are `target` (an accessibility ref), not `ref`. `browser_evaluate` replies are Markdown; only the `### Result` section is JSON. Navigations race evaluations ("Execution context was destroyed"), so reads retry. `--allowed-origins` is documented as not a security boundary, so network isolation still has to come from the world.
 12. **git:** `ls-files --others` never lists FIFOs, sockets or devices, so a git-aware state adapter cannot see them without a separate lstat sweep.
+13. **agentenv:** the gateway grants tools by a self-asserted `AgentEnv-Role` header, and passes tool arguments to backing servers unauthenticated. Crucible's environment dynamics now call Apps directly; the system role has no tools; the actor identity carried to App servers is HMAC-signed. Relative time triggers re-anchor whenever the clock is set (so restored worlds re-fire them). Triggers are now registered at absolute instants; snapshots wait for in-flight triggers to settle (agentenv's own `prompt_agent` logic); restores re-register only what had not fired.
+14. **Harbor / Docker:** Harbor's exec timeout kills only the local `docker` client; the command keeps running in the container. Deadlines are now enforced inside the sandbox (`timeout -s KILL`). `--security-opt no-new-privileges` breaks `--init` on the lab host (`exec /sbin/docker-init: operation not permitted`), so no-new-privs is set per policy process tree instead. Container root has no `CAP_IPC_OWNER`, so it cannot remove the policy's SysV segments; the owner has to.
+15. **Images:** Ubuntu-based images ship a uid-1000 user, and a guard that "creates" uid 1000 silently becomes that user. Task images run Python 3.8–3.10, so `shutil.rmtree(dir_fd=)` (3.11+) cannot be used in snippets. Some images have no `timeout`, and BSD/busybox `base64` flags differ, so commands use the portable forms.
+16. **MiMo:** 1,174 of the 1,796 tool modules read the wall clock, and 707 return `{"error": {...}}` as a successful value. Both are now handled (virtual time; envelope → `ok=False`, `fault=tool`).

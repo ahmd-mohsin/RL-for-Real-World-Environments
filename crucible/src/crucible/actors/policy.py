@@ -163,6 +163,7 @@ class EpisodeLimits:
     max_tool_errors: int | None = 25  # consecutive failed policy calls: a policy stuck in an error loop ends "too_many_errors"
     timeout_s: float | None = None  # wall clock for the whole episode; the final snapshot is still taken
     end_on: tuple[str, ...] = ()  # simulated actors whose end of conversation ends the episode (stop "user_stop" / "out_of_scope")
+    snapshot_every: int = 0  # >0: a WorldRef every N steps (deduplicated by fingerprint) for state-based credit and branching
 
 
 @dataclass
@@ -175,6 +176,7 @@ class EpisodeResult:
     failures: list[dict[str, Any]] = field(default_factory=list)
     observations: dict[str, list[Observation]] = field(default_factory=dict)
     stop_condition: str = "running"  # agent_done | all_done | max_steps | too_many_errors | timeout | context_overflow | <failure kind>
+    snapshots: list[tuple[int, WorldRef]] = field(default_factory=list)  # (step, ref) when limits.snapshot_every > 0
     truncated: bool = False
     model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
@@ -188,8 +190,16 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
             p.begin_episode(world.episode_id)
     log: dict[str, list[Observation]] = {a: [o] for a, o in obs.items()}
     order = list(policies)
+    if limits.snapshot_every:
+        series_start = await world.snapshot()
     current = {a: obs.get(a) or Observation(actor=a, step=0) for a in order}
     state = {"steps": 0, "done": False, "stop": "running", "errors": 0}
+    series: list[tuple[int, WorldRef]] = [(0, series_start)] if limits.snapshot_every else []
+
+    async def capture() -> None:
+        ref = await world.snapshot()  # no quiesce mid-episode: the policy's servers may legitimately run
+        if not series or series[-1][1].fingerprint != ref.fingerprint:
+            series.append((state["steps"], ref))
 
     async def loop() -> None:
         while state["steps"] < limits.max_steps and not state["done"]:
@@ -203,6 +213,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 log.setdefault(a, []).append(res.observation)
                 state["steps"] += 1
                 progressed = True
+                if limits.snapshot_every and state["steps"] % limits.snapshot_every == 0:
+                    await capture()
                 state["done"] = res.done
                 bad = [r for r in res.observation.tool_results if not r.ok and r.fault in ("policy", "tool")]
                 state["errors"] = state["errors"] + 1 if bad else (0 if res.observation.tool_results else state["errors"])
@@ -245,7 +257,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     calls = {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}
     return EpisodeResult(steps=state["steps"], done=state["done"], trace=world.to_trace(), final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
-                         truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls)
+                         truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls,
+                         snapshots=series)
 
 
 def _masks(f: dict[str, Any]) -> bool:

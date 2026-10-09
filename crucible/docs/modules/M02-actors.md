@@ -1,6 +1,6 @@
 # M2 `actors` — everyone who isn't the policy
 
-**Status: built (2026-10-09).** Code: `src/crucible/actors/`, `src/crucible/interop/agentenv/a2a.py`, `packs/coding/src/crucible_pack_coding/{github_reviews,reviewer,reviewer_fidelity,grounding_gate}.py`, `packs/_toy/src/crucible_pack_toy/m2_gate.py`. Tests: `tests/unit/test_actors*.py`, `tests/unit/test_reviewer_actor.py`, `tests/toy_e2e/`.
+**Status: built (2026-10-09).** Code: `src/crucible/actors/`, `src/crucible/interop/agentenv/a2a.py`, `packs/coding/src/crucible_pack_coding/{github_reviews,reviewer,reviewer_fidelity,grounding_gate}.py`, `packs/_toy/src/crucible_pack_toy/m2_gate.py`. Tests: `tests/unit/test_actors*.py`, `tests/unit/test_reviewer_actor.py`, `tests/unit/test_episode_loop.py`, `tests/toy_e2e/`.
 
 ## What it is
 Simulated people, bots, humans and peer agents run *inside* the World as environment dynamics: they act when they receive a message or an event, under their own tool permissions, and their memory is part of the `WorldRef`. Policies are wrapped here too, with the episode loop.
@@ -20,6 +20,24 @@ Simulated people, bots, humans and peer agents run *inside* the World as environ
 | coding pack `github_reviews.py` | Review comments → `Record`s (path, anchor, original commit) without auth: repo-wide comments endpoint + raw.githubusercontent.com + `git ls-remote refs/pull/*/head`; bot reviewers excluded | GitHub REST |
 
 **What the policy sees of an actor (2026-10-09).** Replies to a policy are leak-scrubbed (`world/leaks.py`: PR and commit links, fixed-version pointers, package pins), and the unscrubbed text stays in the trace. Citations stay in the trace for audit but are removed from the policy's observation (`isolation.hide_citations`, default on): a citation names a record, and records can name the answer.
+
+## Episode loop and LLM client (hardened 2026-10-09, from the verifiers / NeMo-Gym / OpenEnv / MiMo survey)
+
+- **Parallel tool calls.** `LLMToolPolicy` runs a batch in order and appends all of its results before any message that arrived meanwhile. A reply to a batched `send_message` used to split the batch and made the next request invalid for OpenAI-style APIs, which silently masked the episode.
+- **What is replayed.** Provider reasoning fields (`reasoning`, `reasoning_details`, thinking signatures) are replayed verbatim. Tool names are made safe for `^[a-zA-Z0-9_-]{1,64}$` through a reversible map (`core.schema.actions.openai_name`). Output is bounded once, by the World.
+- **Errors by status code** (`actors/llm.py`):
+  - 402 or quota → `crucible:credits_exhausted` (masked);
+  - a context overflow (verifiers' provider markers) → the episode ends **truncated and scored**, so long-horizon failures stay in the data;
+  - any other 4xx → `agent_request_failed`;
+  - 429/5xx → retried with jittered backoff and `Retry-After`;
+  - an empty `choices` list → retried;
+  - a missing `usage` block → `crucible:usage_blank`. It used to be priced at $0, so the budget could never trip.
+  - Double-encoded JSON arguments are accepted; non-object arguments become a typed `invalid_arguments` result.
+- **Record/replay cache.** Policies key the cache by episode (`sample_key`). N samples of one task no longer replay one completion with zero variance. Simulators and judges stay content-keyed.
+- **Episode limits and stop conditions.** `EpisodeLimits` has `max_steps`, `max_tool_errors`, `timeout_s`, `end_on` and `snapshot_every`. Every `EpisodeResult` carries a `stop_condition`: `agent_done`, `all_done`, `max_steps`, `too_many_errors`, `timeout`, `context_overflow`, `user_stop`, `out_of_scope`, or a failure kind. It also carries `truncated`, per-call model records (usage incl. reasoning and cached tokens, latency, finish reason, cache hit) and an optional fingerprint-deduplicated snapshot series.
+- **Failures and masking.** Every failure carries its own mask. Infrastructure is masked; the policy's own outcomes (`agent_timeout`, `crucible:policy_misbehavior`) are scored. The unregistered `policy_error` kind is gone.
+- **Simulated actors end the conversation.** `###DONE###` and out-of-scope make a simulated actor emit `Done`, which the World records (`world.finished`). The marker never reaches the policy. A DONE as the opening reply is regenerated (NeMo-Gym: the first user message cannot be STOP). `run_episode(end_on=...)` stops on it.
+- **Mailbox identity.** The acting identity is held in a `ContextVar`: a shared attribute let concurrent calls send mail as the wrong actor.
 
 ## Exit gate
 

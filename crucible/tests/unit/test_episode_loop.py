@@ -138,3 +138,16 @@ def test_openai_names():
     long = "erp_" + "x" * 80 + ".do.it"
     n = openai_name(long)
     assert len(n) <= 64 and n != openai_name(long + "2") and all(c.isalnum() or c in "_-" for c in n)
+
+
+async def test_snapshot_series_and_unchanged(world: World):
+    calls = [ToolCall(tool_call_id="w1", function_name="ws.write_file", arguments={"path": "a.txt", "content": "1"}),
+             ToolCall(tool_call_id="r1", function_name="ws.read_file", arguments={"path": "a.txt"}),  # no state change: deduplicated
+             ToolCall(tool_call_id="w2", function_name="ws.write_file", arguments={"path": "a.txt", "content": "2"})]
+    res = await run_episode(world, {"agent": ScriptedPolicy("agent", calls)}, limits=EpisodeLimits(snapshot_every=1))
+    # the read at step 2 changes nothing (deduplicated); step 4 is Done, and who is done is world state too
+    assert [s for s, _ in res.snapshots] == [0, 1, 3, 4] and len({r.fingerprint for _, r in res.snapshots}) == 4
+    view = world.verifier_view()
+    assert await view.unchanged("mail") == {"mail": True} and (await view.unchanged("ws"))["ws"] is False
+    await world.reset()
+    assert all((await view.unchanged()).values())

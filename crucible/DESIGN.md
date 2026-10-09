@@ -104,6 +104,7 @@ Five more come from public post-mortems of RL environments: Preference Model's "
 - **P21 — The environment enforces; the prompt never asks.** "Don't use the internet" and "don't read the git history" are not constraints; `network_mode: none` and a verified history scrub are. Every prohibition is an enforced property with an automated audit, and is tested by an attacker that tries it (`tests/redteam/`).
 - **P22 — Accept environment awareness: security over realism.** A policy may notice it is in an environment (a user called `agent`, no network, a root-only directory). That costs little; an exploitable environment costs the run. When realism and security conflict, security wins.
 - **P23 — Rewards never come from inside the sandbox.** Nothing the policy can write is read as a reward or a verdict: rewards are computed from snapshots taken after the policy's process cohort is killed (quiesce), by code and an interpreter the policy cannot modify. Harbor 0.23 trusts a `reward.json` the agent can pre-write (Karotte's comparison); Crucible never reads one from the sandbox.
+- **P25 — One choke point.** Every tool call (the policy's, simulated people's, events') passes through `World._call_tool`: validation, ACL, deadline, crash containment, fault labels, output bounds. MiMo's anti-hack guard never ran on its own RL path because the RL agent called tools around it; a check that is not at the single choke point is a check that can be bypassed.
 - **P24 — Deep, non-saturating tasks.** A task should reward doing *better*, not only passing: perf bars, quality margins and multi-property strictness keep the reward informative after correctness saturates (Appendix B.1: correctness-only migrations were within frontier reach; perf and concurrency bars separated the models).
 
 ---
@@ -542,7 +543,10 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Git history | refs, remotes, reflogs and unreachable objects are removed, then **verified**: `rev-list --all` ⊆ ancestry of the base, `fsck --unreachable` empty, forbidden SHAs absent | `git log --all`, `git show <future-fix>` |
 | Network | `network_mode: none`, plus an egress self-test run as the policy uid that refuses to start the world if anything is reachable | `pip download` of the fixed version, following a PR link |
 | Text | instructions, simulated colleagues' replies and CI output are leak-scrubbed (Repo2RLEnv patterns + ours); actors' citations are kept in the trace but hidden from the policy | PR links, fix commits, "fixed in 1.2.3" in a reply |
-| Hidden CI | checks live in a separate runner sandbox; the policy gets `name: PASS/FAIL` only, under a run budget that is world state | reading or overfitting the hidden tests |
+| Hidden CI | checks live in a separate runner sandbox, run unprivileged by default, re-staged every run, leftovers killed; the policy gets `name: PASS/FAIL` only, under a run budget that is world state | reading, overfitting or rewriting the hidden tests |
+| Trusted git | verifier-side git reads only a root-owned copy of `.git` taken before the policy ran; refs are validated and quoted | git-ref shell injection; hooks, filters, fsmonitor, external diff or `info/exclude` planted to run code as root or hide files |
+| Fresh account, no escalation | a new uid (never an image account), `PR_SET_NO_NEW_PRIVS` on the policy tree, root's `PATH` and interpreter audited for policy-writable components | the image's uid-1000 user with sudo, setuid-root binaries, a planted `git` on root's `PATH` |
+| Episode hygiene | quiesce before restore; restore through directory fds, owned by the policy; `.git` reset; `/tmp`, `/dev/shm`, home, SysV IPC emptied; App-owned state root `0600` | a symlinked parent redirecting a root write; stashing state for the next episode; reading other people's mail from the database file |
 
 ---
 
@@ -829,3 +833,19 @@ Registry check: A3, mutation score.
 | Tool errors carried the verifier snippet's traceback (paths, internals) | infrastructure details leak to the policy | policy-facing errors are the last exception line |
 | Verifier snippets and snapshot tarballs were staged in world-writable `/tmp` | the policy can read a gold snapshot while it is restored | root-only staging directory once a guard is installed |
 | A backgrounded process survives its shell call only if the shell lingers briefly | a red-team test passed without the attack ever running | every attack test first asserts that the attack took effect |
+
+**B.9 Found by surveying nine frameworks against M0–M2 (2026-10-09).** Each was reproduced by a test before it was fixed.
+
+| Defect | Where it bites | Check |
+|---|---|---|
+| `git_diff(ref=...)` was pasted into a root shell | the policy runs commands as root | refs validated and quoted; red-team injection test |
+| Root ran git in the policy-owned repo with `safe.directory=*` | a planted hook, filter or fsmonitor runs as root at the next snapshot | trusted `.git` copy; red-team git-trap test |
+| The toolchain shell and the doc library ran as root | the policy gets a root shell or reads through symlinks | every policy tool through `policy_exec`; red-team checks the uid |
+| Verifier reads followed symlinks and opened FIFOs | a verifier reads the gold answer through the policy's link, or hangs | no-follow, regular-file-only reads |
+| Restores wrote through symlinked parents as root; restored files were root-owned | writes into `/etc`; the policy can no longer edit its own files after a reset | dirfd restore with `O_EXCL`, owner uid |
+| The guard "created" uid 1000, which the image already used | the policy runs as the image's `ubuntu` account | uid allocation, image accounts never reused |
+| A plain `cmd &` kept the call open until its timeout; a fork bomb outlived its call and starved `docker exec` | timeouts in the trace; the harness cannot quiesce | process-group kill at call end; `RLIMIT_NPROC` headroom |
+| Tool modules read the wall clock | replay from a WorldRef is not deterministic; tool timestamps contradict the World's clock | virtual time and seed in tool modules; audit `episode_determinism` |
+| A malformed argument crashed `World.step`; `to="bob@x"` became five recipients | episodes die or state is corrupted | schema validation at the choke point |
+| Batched tool calls interleaved with messages; no-usage responses priced at $0; replay cache shared across samples; context overflow masked | invalid requests masked as outages; the budget never trips; zero-variance groups; long-horizon failures disappear | policy loop and LLM client fixes (M02) |
+| agentenv role header and `__actor` were self-asserted; restored worlds re-fired triggers | any MCP client gets every tool or acts as anyone; duplicate events after restore | direct system calls, HMAC actor, absolute trigger instants, settled snapshots |

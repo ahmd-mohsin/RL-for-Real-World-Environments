@@ -40,6 +40,9 @@ asyncio.run(main())
 ## What else is there
 - **Seed coding worlds** (tasks 01–04) on a GPU host through Harbor: `packs/coding/families/legacy_gpu_migration/seeds/*/crucible/world.yaml`. Gate: `CRUCIBLE_GPU=1 pytest tests/gpu -m gpu`.
 - **Import any MiMo env or AgentWorldModel-1K scenario as a World:** `crucible.interop.mimo.importer.import_mimo_env`, `crucible.interop.openenv.awm.awm_world`. Sweeps: `python -m crucible.interop.mimo.check <envs_dir>`, `python -m crucible.interop.openenv.awm_check 100`.
+- **GPU sandboxes:** the lab GPU host through Harbor (`backend_params: {gpu_host: lab5090}`) or agentenv (`sandbox: {provider: docker, image, gpu_host: lab5090}`); cloud GPUs through Harbor (`environment_type: modal`) or agentenv (`sandbox: {provider: modal, image}` with `resources.gpu_type: H100`). Gates: `CRUCIBLE_GPU=1 pytest tests/gpu -m gpu`; `CRUCIBLE_MODAL=1` for Modal.
+- **Harden any container World:** `isolation: {policy_user: agent}` (guard, trusted git, episode hygiene, egress self-test); attack suite: `pytest tests/redteam -m docker`.
+- **Audit a World before using it:** `crucible world validate <world.yaml> [--gold actions.json] [--forbidden STR]`.
 - **Serve a World to any MCP harness:** with the agentenv backend, `world.backend.mcp_url` plus the header `AgentEnv-Role: <actor>`.
 - **Export an episode as an ATIF trajectory:** `crucible.interop.harbor.atif.episode_to_atif`.
 - **Grounded actors:** `GroundedResponder` (verbatim / quote / llm), and the coding pack's `ReviewerActor`, which replays real review comments. Fidelity: `python -m crucible_pack_coding.reviewer_fidelity`.

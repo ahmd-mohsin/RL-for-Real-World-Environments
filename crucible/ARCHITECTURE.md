@@ -35,8 +35,8 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
 | Module | Status | Gate | Spec + gate report |
 |---|---|---|---|
 | M0 core | built | passed | `docs/modules/M00-core.md` |
-| M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers). Added after the gate: Postgres, any-MCP-server, website, browser and hidden-check CI Apps; leak scrubber; isolation guard; red-team suite (every attack defeated, 3/3 runs) | `docs/modules/M01-world.md` |
-| M2 actors | built | passed (reviewer location precision 0.96 / 0.98 on real PCL / CCCL reviews; fabrication 0/225 sentences (quote mode) and 0% on toy; LLM agent + simulated customer episode reaches the expert end state) | `docs/modules/M02-actors.md` |
+| M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers). Added after the gate: Postgres, any-MCP-server, website, browser and hidden-check CI Apps; leak scrubber; isolation guard on every container backend (Harbor, agentenv sandboxes) with a red-team suite of 25+ attacks; GPU sandboxes everywhere (lab RTX 5090 via Harbor and agentenv, Modal/Daytona/GKE via Harbor, Modal via agentenv); one tool-call choke point; virtual time for tool modules; World audit (`crucible world validate`) | `docs/modules/M01-world.md` |
+| M2 actors | built | passed (reviewer location precision 0.96 / 0.98 on real PCL / CCCL reviews; fabrication 0/225 sentences (quote mode) and 0% on toy; LLM agent + simulated customer episode reaches the expert end state). Hardened after the gate: episode limits and typed stop conditions, valid histories under parallel calls, status-code error classes, per-sample cache keys, simulated users that end conversations | `docs/modules/M02-actors.md` |
 
 Environments: verifiers v1 pins `mcp==2.0.0` and agentenv needs `mcp<2`, so the `verifiers` extra is declared as conflicting and runs in its own environment (`THIRD_PARTY.md`).
 

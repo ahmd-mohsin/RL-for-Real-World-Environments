@@ -28,6 +28,15 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `world/leaks.py` | Hugging Face Repo2RLEnv, `pipelines/cve_patches.py` (`_strip_fix_leaks`) and `pipelines/pr_runtime.py` (`_LEAK_PATTERNS`) | 5555443 (2026-09-30) | Apache-2.0 (`LICENSES/Apache-2.0.txt`) | leak regexes verbatim (marked in the file); Crucible adds short-SHA context, code-host URLs, package pins, version pointers and debris clean-up |
 | `world/guard/guard.py` (`git_scrub`) | Repo2RLEnv `pipelines/_env_guard.py` git-history scrub | 5555443 | Apache-2.0 | the scrub sequence (checkout base, drop remotes, delete refs, expire reflog, gc/prune). Crucible adds the verification Repo2RLEnv lacks: `rev-list --all` ⊆ ancestry of base, `fsck --unreachable` empty, forbidden SHAs absent |
 
+| `actors/llm.py` (`CONTEXT_OVERFLOW_MARKERS`, `is_context_overflow`) | Prime Intellect verifiers v1 `harnesses/utils/compaction.py` | ae819de | MIT | the provider wordings of a context overflow, verbatim; backoff curve with full jitter from `utils/retries.py` |
+
+## Frameworks we call (DEPEND), added in the hardening pass
+
+| Framework piece | Where | What for |
+|---|---|---|
+| agentenv `providers/sandbox_providers` (`ModalSandboxProvider(gpu=...)`, `build_sandbox_provider`, `NetworkPolicy`) | `interop/agentenv/sandbox.py` | cloud GPU sandboxes (Modal H100/A100/L4, ...) and any registered agentenv provider for the agentenv backend |
+| Harbor `EnvironmentFactory.create_environment` + `NetworkPolicy` | `interop/harbor/world_backend.py` (`environment_type`) | any Harbor provider (Modal, Daytona, GKE, E2B, Runloop, ...) with `gpus`/`gpu_types` |
+
 ## Attacks we test against (no code copied)
 
 `tests/redteam/test_attacks.py` reproduces the reward hacks reported by Karotte's comparison of frameworks (pre-written reward files, leftover processes, fake interpreters, symlinked and FIFO answers, fork bombs, internet access) and by Repo2RLEnv (PR links, `git log --all`, `pip download` of the fixed version) against a Harbor-backed World with `isolation.policy_user` set.
@@ -44,6 +53,15 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | user-simulator persona and done marker | verifiers v1 `envs/user_sim/env.py` | `actors/simulated.py` |
 | scenario fields, per-message consistency judge, simulator failures mask the sample | NeMo-Gym `resources_servers/conversational_tool_use_simulation` | `actors/simulated.py`, `core/schema/run.py` |
 | "never hallucinate; unknown info is unavailable; disclose progressively; out-of-scope token" | tau2 guidelines (via NeMo-Gym `indian_banking`) | `actors/simulated.py` |
+| check ids and report shape for environment validation; named SKIPs | OpenEnv RFC 008 + `src/openenv/validation/` | `world/audit.py` |
+| full / zero reward and determinism fixtures; masking only infra failures; STOP not allowed as the first user message | NeMo-Gym `verifier_fixture.py`, `conversational_tool_use_simulation/app.py` | `world/audit.py`, `actors/simulated.py` |
+| gold / noop validation | verifiers `cli/validate.py` | `world/audit.py` |
+| settled trigger snapshots (re-poll while a trigger is firing / queued) | agentenv `task_step/task_steps/prompt_agent.py` | `interop/agentenv/world_backend.py` |
+| process-group cleanup after a call; subreaper-style drain | NeMo-Gym `sandbox/process_supervisor.py` | `world/guard/guard.py` (`run`) |
+| tool results appended together after one assistant turn; non-object arguments answered with a corrective error | verifiers `harnesses/utils/core.py` | `actors/policy.py`, `world/world.py` |
+| reasoning content replayed verbatim | research-environments `tau_common/program.py` | `actors/policy.py` |
+| error envelopes `{"error": {"code": ...}}`; virtual time for generated tool code (the problem, measured) | MiMo v2.6 release tool modules | `world/packaging/mcp_tools.py`, `virtual_env.py` |
+| refusing infeasible requests = leaving apps unchanged | EnterpriseOps-Gym refusal subset, MiMo `verifier_meta.act` | `VerifierView.unchanged` |
 
 ## Data used for tests and gates (never in training or benchmark splits)
 

@@ -111,6 +111,16 @@ class VerifierView:
         fps = await asyncio.gather(*(a.state.fingerprint() for a in apps.values()))
         return dict(zip(apps, fps, strict=True))
 
+    async def unchanged(self, *apps: str) -> dict[str, bool]:
+        """Whether each App (default: all) still has its episode-start state: the check for infeasible requests, where
+        the right outcome is to refuse and touch nothing (EnterpriseOps' refusal subset, MiMo ``act: none``)."""
+        start = self._world.initial
+        if start is None:
+            raise WorldError("no initial WorldRef: start() the world first")
+        names = apps or tuple(self._world.apps)
+        fps = await asyncio.gather(*(self._world.apps[a].state.fingerprint() for a in names))
+        return {a: fp == start.apps[a].fingerprint for a, fp in zip(names, fps, strict=True)}
+
 
 class World:
     def __init__(
