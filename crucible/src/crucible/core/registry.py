@@ -160,9 +160,13 @@ def _register_builtins(r: Registry) -> None:
     r.register("actor", "system/relay", "crucible.actors.scripted:RelayActor")
     r.register("actor", "human", "crucible.actors.human:HumanActor")
     r.register("actor", "peer", "crucible.actors.human:PeerActor")
-    # Transports for human / peer actors
+    # Connectors (M3); domain connectors register from packs
     r.register("connector", "file_drop", "crucible.connectors.file_drop:FileDropConnector")
-
+    r.register("connector", "sql_audit_log", "crucible.connectors.sql_audit_log:SqlAuditLogConnector")
+    r.register("connector", "otel_import", "crucible.connectors.otel_import:OtelConnector")
+    r.register("connector", "capture_proxy", "crucible.connectors.capture_proxy:CaptureLogConnector")
+    r.register("connector", "atif", "crucible.interop.harbor.atif_import:AtifConnector")
+    # Transports for human / peer actors
     r.register("transport", "file_queue", "crucible.actors.transports:FileQueueTransport")
     r.register("transport", "callable", "crucible.actors.transports:CallableTransport")
     r.register("transport", "a2a", "crucible.interop.agentenv.a2a:A2ATransport")

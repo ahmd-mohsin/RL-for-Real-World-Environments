@@ -58,9 +58,9 @@ def create_app(db_path: str) -> Starlette:
                 c.execute("UPDATE invoices SET status = ?, note = ? WHERE id = ?", ("approved" if action == "approve" else "disputed", note or None, inv))
             return RedirectResponse(f"/invoices/{inv}?saved=1", status_code=303)
         saved = '<p role="status">Saved.</p>' if r.query_params.get("saved") else ""
-        form = (f'<form method="post"><label for="action">Action</label><select id="action" name="action">'
-                f'<option value="">--</option><option value="approve">Approve</option><option value="dispute">Dispute</option></select>'
-                f'<label for="note">Note</label><textarea id="note" name="note"></textarea><button type="submit">Submit</button></form>')
+        form = ('<form method="post"><label for="action">Action</label><select id="action" name="action">'
+                '<option value="">--</option><option value="approve">Approve</option><option value="dispute">Dispute</option></select>'
+                '<label for="note">Note</label><textarea id="note" name="note"></textarea><button type="submit">Submit</button></form>')
         return page(f"Invoice {inv}", f'{saved}<p>Vendor: {html.escape(row["vendor"])}</p><p>Amount: {row["amount_usd"]:.2f} USD</p>'
                                       f'<p>Status: {row["status"]}</p><p><a href="/">All invoices</a></p>{form}')
 

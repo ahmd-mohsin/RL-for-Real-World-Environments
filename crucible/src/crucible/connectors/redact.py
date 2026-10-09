@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
@@ -26,11 +27,20 @@ SECRET_PATTERNS = [
     r"glpat-[A-Za-z0-9_\-]{20}",  # GitLab
     r"AIza[0-9A-Za-z_\-]{35}",  # Google API key
     r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",  # JWT
+    r"dckr_pat_[A-Za-z0-9_\-]{20,}",  # Docker Hub
+    r"rpa_[A-Za-z0-9]{30,}",  # RunPod
+    r"npm_[A-Za-z0-9]{36}", r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}",  # npm, PyPI
+    r"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}",  # Stripe
+    r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",  # SendGrid
+    r"r8_[A-Za-z0-9]{30,}", r"gsk_[A-Za-z0-9]{40,}", r"xai-[A-Za-z0-9]{40,}",  # Replicate, Groq, xAI
+    r"tskey-[a-z]+-[A-Za-z0-9\-]{20,}", r"dapi[0-9a-f]{32}",  # Tailscale, Databricks
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-    r"(?i:(?:password|passwd|secret|api[_-]?key|token)\s*[:=]\s*['\"]?[^\s'\"]{8,})",
+    r"(?i:\bbearer\s+[A-Za-z0-9._~+/\-]{20,}=*)",  # any bearer token in a header or a curl command
+    r"(?i:(?:password|passwd|secret|api[_-]?key|access[_-]?key|auth[_-]?token|token)['\"]?\s*[:=]\s*['\"]?[^\s'\",]{8,})",
 ]
 EMAIL = r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
 PRIVATE_IP = r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01])|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}\b"
+GENERIC_ACTORS = {"user", "agent", "system", "author", "reviewer", "ci"}
 INTERNAL_HOST = r"\b[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?)*\.(?:internal|corp|local|lan|intra|ts\.net)\b"
 
 
@@ -42,6 +52,22 @@ class RedactionPolicy(CrucibleModel):
     terms: list[str] = Field(default_factory=list)  # extra strings to remove (customer names, project code names)
     salt: str = "crucible"  # per-tenant salt for pseudonyms
     keep_emails: list[str] = Field(default_factory=list)  # e.g. a world's synthetic addresses
+    # Exact secret values the tenant knows it holds (its .env / secret store): removed whatever their format. Never
+    # serialized, so a stored policy cannot carry them.
+    secret_values: list[str] = Field(default_factory=list, exclude=True, repr=False)
+
+    @classmethod
+    def with_env_file(cls, path: str | Path, **kw: Any) -> RedactionPolicy:
+        """A policy that also removes every credential-like value (``*TOKEN*``, ``*KEY*``, ``*SECRET*``, ``*PASSWORD*``,
+        ``*PAT*``) defined in a dotenv file."""
+        vals = []
+        p = Path(path)
+        for line in p.read_text().splitlines() if p.exists() else []:
+            k, _, v = line.removeprefix("export ").partition("=")
+            v = v.strip().strip("'\"")
+            if re.search(r"TOKEN|KEY|SECRET|PASSWORD|PASSWD|\bPAT\b|_PAT$", k.upper()) and len(v) >= 8:
+                vals.append(v)
+        return cls(secret_values=vals, **kw)
 
 
 def pseudonym(kind: str, value: str, salt: str) -> str:
@@ -51,7 +77,8 @@ def pseudonym(kind: str, value: str, salt: str) -> str:
 class Redactor:
     def __init__(self, policy: RedactionPolicy):
         self.p = policy
-        self._secret = re.compile("|".join(f"(?:{s})" for s in SECRET_PATTERNS))
+        known = [re.escape(v) for v in sorted(set(policy.secret_values), key=len, reverse=True)]
+        self._secret = re.compile("|".join([*known, *(f"(?:{s})" for s in SECRET_PATTERNS)]))
         self._email = re.compile(EMAIL)
         self._host = re.compile(f"{PRIVATE_IP}|{INTERNAL_HOST}", re.IGNORECASE)
         self._terms = re.compile("|".join(re.escape(t) for t in sorted(policy.terms, key=len, reverse=True)), re.IGNORECASE) if policy.terms else None
@@ -93,9 +120,19 @@ def redact(trace: Trace, policy: RedactionPolicy | None = None) -> Trace:
             s["text"] = r.text(s["text"])
         s["meta"] = r.value(s.get("meta") or {})
     if r.p.pseudonymize_actors:
+        # A human's id is as identifying as their handle (file_drop uses the exported name / e-mail as the id), so
+        # both become salted pseudonyms; every reference to the id is rewritten. Role placeholders stay readable.
+        ids: dict[str, str] = {}
         for a in d["actors"]:
             if a.get("handle"):
                 a["handle"] = pseudonym("user", a["handle"], r.p.salt)
+            if a["kind"] == "human" and a["id"] not in GENERIC_ACTORS and not a["id"].startswith("<"):
+                ids[a["id"]] = pseudonym("actor", a["id"], r.p.salt)
+                a["id"] = ids[a["id"]]
+        for e in d["events"]:
+            e["actor"] = ids.get(e.get("actor"), e.get("actor"))
+        for s in d.get("signals", []):
+            s["actor"] = ids.get(s.get("actor"), s.get("actor"))
     d["outcome"]["details"] = r.value(d["outcome"].get("details") or {})
     out = Trace.model_validate(d)
     out.source.ref = r.text(out.source.ref)

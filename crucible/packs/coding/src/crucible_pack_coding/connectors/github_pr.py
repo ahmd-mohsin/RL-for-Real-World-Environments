@@ -46,7 +46,8 @@ def _norm(s: str) -> str:
 class GitHubPRConnector:
     name = "github_pr"
 
-    def __init__(self, cache_dir: Path, git_dir: Path, *, family: str = "coding/pull_request", now: str | None = None):
+    def __init__(self, cache_dir: Path, git_dir: Path, *, family: str = "coding/pull_request", now: str | None = None, offline: bool = False):
+        self.offline = offline  # never call the GitHub API: cached payloads if complete, else the PR as git recorded it
         self.gh = GitHubCache(cache_dir)
         self.git_dir = git_dir
         self.family = family
@@ -73,9 +74,75 @@ class GitHubPRConnector:
         for n in prs:
             yield SourceRef(connector=self.name, key=f"{repo}#{n}", url=f"https://github.com/{repo}/pull/{n}", meta={"repo": repo, "pr": n})
 
+    def discover_git(self, scope: dict[str, Any]) -> Iterator[SourceRef]:
+        """PRs as the default branch recorded them (no API): merge commits "Merge pull request #N from owner/branch"
+        and squash commits "... (#N)" touching ``paths``, newest first, optionally filtered by a title regex."""
+        repo = scope["repo"]
+        g = self.repo(repo)
+        branch = scope.get("branch", "master")
+        args = ["log", branch, "--first-parent", "--format=%H%x00%P%x00%s%x00%b%x1e"]
+        if scope.get("since"):
+            args.append(f"--since={scope['since']}")
+        out = g.git(*args, "--", *scope.get("paths", []))
+        title_re = re.compile(scope["title_re"], re.IGNORECASE) if scope.get("title_re") else None
+        n = 0
+        for rec in out.split("\x1e"):
+            if not rec.strip():
+                continue
+            sha, _parents, subject, body = rec.strip("\n").split("\x00", 3)
+            m = re.match(r"Merge pull request #(\d+) from (\S+)", subject)
+            s = re.search(r"\(#(\d+)\)$", subject)
+            if m:
+                title = (body.strip().splitlines() or [subject])[0]
+                meta = {"pr": int(m.group(1)), "merge": sha, "kind": "merge", "owner": m.group(2).split("/")[0], "title": title}
+            elif s:
+                meta = {"pr": int(s.group(1)), "merge": sha, "kind": "squash", "title": subject[: s.start()].strip()}
+            else:
+                continue
+            if title_re and not title_re.search(meta["title"]):
+                continue
+            yield SourceRef(connector=self.name, key=f"{repo}#{meta['pr']}", url=f"https://github.com/{repo}/pull/{meta['pr']}", meta={"repo": repo, **meta})
+            n += 1
+            if scope.get("limit") and n >= int(scope["limit"]):
+                return
+
+    def _git_payload(self, ref: SourceRef) -> dict[str, Any]:
+        """The PR as git recorded it: no reviews or CI (those live only in the API), everything else from history."""
+        g = self.repo(ref.meta["repo"])
+        merge = g.commit(ref.meta["merge"])
+        if ref.meta.get("kind") == "merge" and len(merge.parents) == 2:
+            base, head = merge.parents
+            merged_sha = merge.sha
+            author = ref.meta.get("owner")
+        else:
+            base, head = (merge.parents[0] if merge.parents else merge.sha), merge.sha
+            merged_sha = merge.sha
+            author = f"git:{merge.author}"
+        first = g.git("log", "--reverse", "--format=%cI", f"{base}..{head}").split()
+        pr = {"number": ref.meta["pr"], "title": ref.meta.get("title") or merge.subject, "body": merge.body, "user": {"login": author},
+              "created_at": first[0] if first else merge.time, "merged_at": merge.time, "closed_at": merge.time, "state": "closed",
+              "merge_commit_sha": merged_sha, "head": {"sha": head}, "base": {"sha": base, "ref": "master"}, "html_url": ref.url, "merged_by": None}
+        return {"pr": pr, "reviews": [], "comments": [], "checks": {"check_runs": []}, "origin": "git"}
+
+    def _cached(self, url: str) -> bool:
+        return self.gh._path(url).exists()
+
     # ------------------------------------------------------------------ fetch (API, cached)
     def fetch(self, ref: SourceRef) -> RawRecord:
         repo, n = ref.meta["repo"], int(ref.meta["pr"])
+        if self.offline:
+            pr_url = f"{API}/repos/{repo}/pulls/{n}"
+            urls = [pr_url, f"{pr_url}/reviews?per_page=100", f"{pr_url}/comments?per_page=100"]
+            if all(self._cached(u) for u in urls):
+                head = self.gh.get_json(pr_url)["head"]["sha"]
+                checks_url = f"{API}/repos/{repo}/commits/{head}/check-runs?per_page=100"
+                payload = {"pr": self.gh.get_json(pr_url), "reviews": self.gh.get_json(urls[1]), "comments": self.gh.get_json(urls[2]),
+                           "checks": self.gh.get_json(checks_url) if self._cached(checks_url) else {"check_runs": []}, "origin": "api-cache"}
+            elif "merge" in ref.meta:
+                payload = self._git_payload(ref)
+            else:
+                raise LookupError(f"{ref.key}: not cached and offline (discover it from git with discover_git)")
+            return RawRecord(ref=ref, payload=payload, privacy="public", fetched_at=self.now.isoformat())
         pr = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}")
         reviews = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}/reviews?per_page=100")
         comments = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}/comments?per_page=100")
@@ -169,7 +236,8 @@ class GitHubPRConnector:
             trace_id=f"github:{repo_name}#{pr['number']}", family=self.family,
             source=TraceSource(connector=self.name, ref=raw.ref.key, url=pr.get("html_url"), privacy="public", fetched_at=raw.fetched_at),
             actors=list(actors.values()), events=events,
-            outcome={"label": "unknown", "details": {"state": pr.get("state"), "merged": bool(pr.get("merged_at")), "ended_at": ended}},  # type: ignore[arg-type]
+            outcome={"label": "unknown", "details": {"state": pr.get("state"), "merged": bool(pr.get("merged_at")), "ended_at": ended,  # type: ignore[arg-type]
+                                                    "origin": p.get("origin", "api")}},
         )
 
     def _comment_event(self, g: GitRepo, cm: dict, commits: list[Commit], by_sha: dict[str, Commit], author: str, actor, head: str) -> dict[str, Any]:
@@ -213,31 +281,75 @@ class GitHubPRConnector:
                 "_id": cm["id"], "_reply": cm.get("in_reply_to_id")}
 
     def _after_merge(self, g: GitRepo, pr: dict, commits: list[Commit], merge_sha: str | None, squash: bool, actor) -> list[dict[str, Any]]:
-        """vcs_history: commits on the base branch within 30 days that revert the PR or change lines it wrote."""
+        """vcs_history: first-parent commits on the base branch within 30 days that revert the PR or change lines it
+        wrote. The lines the PR wrote (at its merge) are carried forward through every later first-parent commit with
+        diffs only; a commit "touches" the PR when its changed lines overlap them. Blame runs only for those commits,
+        bounded to ``base..merge``, to name the PR commits whose lines were changed."""
+        if not merge_sha or not g.has(merge_sha):
+            return []
         merged = datetime.fromisoformat(pr["merged_at"])
         until = merged + timedelta(days=WINDOW_DAYS)
-        pr_shas = {c.sha for c in commits} | ({merge_sha} if squash and merge_sha else set())
-        files = sorted({path for c in commits for path in c.added})
-        if not files:
+        pr_shas = {c.sha for c in commits} | ({merge_sha} if squash else set())
+        base = pr["base"]["sha"]
+        mparents = g.commit(merge_sha).parents
+        before = mparents[0] if mparents else base
+        # segments [current_lo, current_hi, lo_at_merge]: where the PR's lines are now, and where they were at the merge
+        ranges = {path: [[s, s + n - 1, s] for _os, _ol, s, n in hs if n] for path, hs in g.hunks_multi(before, merge_sha).items()}
+        ranges = {p_: r for p_, r in ranges.items() if r}
+        if not ranges:
             return []
+        branch = pr["base"]["ref"] if g.has(pr["base"]["ref"]) else "master"
+        later = g.git("log", "--first-parent", "--reverse", "--format=%H", f"--until={until.isoformat()}", f"{merge_sha}..{branch}", "--", *sorted(ranges)[:200]).split()
         out = []
-        branch = f"origin/{pr['base']['ref']}" if g.has(f"origin/{pr['base']['ref']}") else pr["base"]["ref"]
-        for c in g.log_since(branch, merged.isoformat(), until.isoformat(), files[:200]):
-            if c.sha in pr_shas or not c.parents:
+        for sha in later:
+            c = g.commit(sha)
+            if not c.parents:
                 continue
-            touched: set[str] = set()
-            for path in files:
-                for os_, ol, _ns, _nl in g.hunks(c.parents[0], c.sha, path):
-                    for ln in range(os_, os_ + ol):
-                        b = g.blame(c.parents[0], path, ln)
-                        if b in pr_shas:
-                            touched.add(b)
-            is_revert = bool(REVERT.match(c.subject)) and (f"#{pr['number']}" in c.subject + c.body or (merge_sha or "-")[:7] in c.body
-                                                           or _norm(pr["title"]).lower()[:40] in c.subject.lower())
-            if not touched and not is_revert:
+            hunks = g.hunks_multi(c.parents[0], c.sha, sorted(ranges))
+            touched_at_merge: dict[str, list[tuple[int, int]]] = {}
+            new_ranges: dict[str, list[list[int]]] = {}
+            for path, rs in ranges.items():
+                hs = hunks.get(path, [])
+                moved: list[list[int]] = []
+                for lo, hi, orig in rs:
+                    segs = [[lo, hi, orig]]
+                    for os_, ol, _ns, _nl in hs:  # cut out what this commit changed
+                        if not ol:
+                            continue
+                        e = os_ + ol - 1
+                        nxt = []
+                        for a, b, o in segs:
+                            if e < a or os_ > b:
+                                nxt.append([a, b, o])
+                                continue
+                            ta, tb = max(a, os_), min(b, e)
+                            touched_at_merge.setdefault(path, []).append((o + ta - a, o + tb - a))
+                            if a < os_:
+                                nxt.append([a, os_ - 1, o])
+                            if b > e:
+                                nxt.append([e + 1, b, o + (e + 1 - a)])
+                        segs = nxt
+                    for a, b, o in segs:  # shift what survives
+                        shift = sum(nl - ol for os_, ol, _ns, nl in hs if (ol and os_ + ol - 1 < a) or (not ol and os_ < a))
+                        moved.append([a + shift, b + shift, o])
+                if moved:
+                    new_ranges[path] = moved
+            ranges = new_ranges
+            text = f"{c.subject}\n\n{c.body}"
+            if len(c.parents) == 2:  # a merge on the base branch: what it says is in the commits it brings in
+                text += "\n\n" + g.git("log", "--format=%B", f"{c.parents[0]}..{c.parents[1]}", check=False)[:20000]
+            refs_pr = f"#{pr['number']}" in text or f"/pull/{pr['number']}" in text
+            is_revert = bool(re.search(r"\brevert", text, re.IGNORECASE)) and (refs_pr or (merge_sha or "-")[:9] in text or _norm(pr["title"]).lower()[:40] in text.lower())
+            if not touched_at_merge and not is_revert:
                 continue
+            writers: set[str] = set()
+            for path, spans in touched_at_merge.items():
+                for a, b in spans[:20]:  # which PR commits wrote those lines (history walk bounded to the PR)
+                    writers |= g.blame_range(f"{before}..{merge_sha}", path, a, b) & pr_shas
+            touched_lines = touched_at_merge
             out.append({"time": c.time, "kind": "action", "actor": actor(f"git:{c.author}", "maintainer"), "type": "post_merge_commit",
-                        "text": f"{c.subject}\n\n{c.body}".strip(), "state_ref": f"git:{c.sha}",
-                        "data": {"sha": c.sha, "is_revert": is_revert, "fixlike": bool(FIXLIKE.search(c.subject + " " + c.body)),
-                                 "touches_pr_commits": sorted(touched), "days_after_merge": round((datetime.fromisoformat(c.time) - merged).total_seconds() / 86400, 1)}})
+                        "text": text.strip()[:4000], "state_ref": f"git:{c.sha}",
+                        "data": {"sha": c.sha, "is_revert": is_revert, "fixlike": bool(FIXLIKE.search(text)), "mentions_pr": refs_pr,
+                                 "touched_lines": {k: v[:20] for k, v in touched_lines.items()}, "touches_pr_commits": sorted(writers),
+                                 "days_after_merge": round((datetime.fromisoformat(c.time) - merged).total_seconds() / 86400, 1)}})
         return out

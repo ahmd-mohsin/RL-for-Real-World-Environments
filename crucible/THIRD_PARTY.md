@@ -29,6 +29,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `world/guard/guard.py` (`git_scrub`) | Repo2RLEnv `pipelines/_env_guard.py` git-history scrub | 5555443 | Apache-2.0 | the scrub sequence (checkout base, drop remotes, delete refs, expire reflog, gc/prune). Crucible adds the verification Repo2RLEnv lacks: `rev-list --all` ⊆ ancestry of base, `fsck --unreachable` empty, forbidden SHAs absent |
 
 | `actors/llm.py` (`CONTEXT_OVERFLOW_MARKERS`, `is_context_overflow`) | Prime Intellect verifiers v1 `harnesses/utils/compaction.py` | ae819de | MIT | the provider wordings of a context overflow, verbatim; backoff curve with full jitter from `utils/retries.py` |
+| `packs/coding/.../connectors/ci_logs.py` (`parse_ctest`, `parse_gtest`, `parse_pytest`) | SWE-bench SWE-smith `swesmith/profiles/cpp.py` (`parse_log_ctest`, `parse_log_gtest`, `parse_log_pytest`) | 9b74ac0 (2026-03-22) | MIT (`LICENSES/MIT-swe-smith.txt`) | the line patterns; changed: no synthetic test names from summary lines (counts kept apart), first failure message kept, CTest "Not Run" is a skip |
 
 ## Frameworks we call (DEPEND), added in the hardening pass
 
@@ -36,6 +37,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 |---|---|---|
 | agentenv `providers/sandbox_providers` (`ModalSandboxProvider(gpu=...)`, `build_sandbox_provider`, `NetworkPolicy`) | `interop/agentenv/sandbox.py` | cloud GPU sandboxes (Modal H100/A100/L4, ...) and any registered agentenv provider for the agentenv backend |
 | Harbor `EnvironmentFactory.create_environment` + `NetworkPolicy` | `interop/harbor/world_backend.py` (`environment_type`) | any Harbor provider (Modal, Daytona, GKE, E2B, Runloop, ...) with `gpus`/`gpu_types` |
+| Harbor ATIF models, `convert_mini_swe_agent_to_atif`, `ClaudeCode._convert_events_to_trajectory` | `interop/harbor/atif_import.py`, coding pack `agent_runs`, `claude_code_sessions` | agent transcripts → ATIF → traces (M3) |
 
 ## Attacks we test against (no code copied)
 
@@ -62,6 +64,10 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | reasoning content replayed verbatim | research-environments `tau_common/program.py` | `actors/policy.py` |
 | error envelopes `{"error": {"code": ...}}`; virtual time for generated tool code (the problem, measured) | MiMo v2.6 release tool modules | `world/packaging/mcp_tools.py`, `virtual_env.py` |
 | refusing infeasible requests = leaving apps unchanged | EnterpriseOps-Gym refusal subset, MiMo `verifier_meta.act` | `VerifierView.unchanged` |
+| recording proxy: per-session capability keys, one server for many sessions, request digest for retries | verifiers v1 `interception/server.py` | `connectors/capture_proxy.py` (retries recorded and collapsed to the last attempt instead of dropped) |
+| Anthropic Messages SSE event sequence (`message_start`, `content_block_*`, `input_json_delta`, `thinking_delta`, `message_delta`) | NeMo-Gym `nemo_gym/anthropic_converter.py` | `connectors/capture_proxy.py` (`assemble_anthropic`) |
+| GenAI span conventions (`gen_ai.operation.name`, `gen_ai.tool.*`, `gen_ai.usage.*`) | OpenTelemetry GenAI semantic conventions | `connectors/otel_import.py` |
+| flaky tests are dropped from FAIL_TO_PASS / PASS_TO_PASS | SWE-smith `harness/repair.py` | `ci_logs.flaky` (listed for M4 instead of dropped) |
 
 ## Data used for tests and gates (never in training or benchmark splits)
 
@@ -70,3 +76,5 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | 267 MiMo "general" environments (266 complete) | `RL-Environments/01-lab-releases/xiaomi-mimo-v2.6-rl-oss/general/envs` | Apache-2.0 (release README) | M1 generality gate |
 | AgentWorldModel-1K (1,000 scenarios) | HF `Snowflake/AgentWorldModel-1K` → `crucible/data/cache/awm` (gitignored) | see dataset card | M1 generality gate |
 | Public review comments | GitHub `PointCloudLibrary/pcl`, `NVIDIA/cccl` (via the REST API + raw.githubusercontent.com) → `crucible/data/cache/github` (gitignored) | public repositories | M2 reviewer-fidelity and grounding gates |
+| PCL git history and policy documents (CONTRIBUTING, style guide, `.clang-format`, `.clang-tidy`) | `git clone --filter=blob:none` of `PointCloudLibrary/pcl` → `crucible/data/cache/git` (gitignored) | BSD-3-Clause | M3 gate (55 PR traces from git, policy rules) |
+| Our Claude Code construction transcript (tasks 01–04) | `~/.claude/projects/...` frozen to `crucible/data/cache/sessions` (gitignored, unredacted) | private | M3 gate; only redacted traces are stored |

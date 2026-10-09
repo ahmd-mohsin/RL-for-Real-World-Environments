@@ -40,7 +40,7 @@ class GitRepo:
         return self
 
     def git(self, *args: str, timeout: float = 600, check: bool = True) -> str:
-        r = subprocess.run(["git", "-C", str(self.path), *args], capture_output=True, text=True, timeout=timeout, check=False,
+        r = subprocess.run(["git", "-C", str(self.path), *args], capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, check=False,  # old sources are Latin-1
                            env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(Path.home())})
         if check and r.returncode != 0:
             raise RuntimeError(f"git {' '.join(args[:3])}: {r.stderr.strip()[-400:]}")
@@ -86,6 +86,27 @@ class GitRepo:
             if m:
                 hs.append((int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1)))
         return hs
+
+    def hunks_multi(self, a: str, b: str, paths: list[str] | None = None) -> dict[str, list[tuple[int, int, int, int]]]:
+        """All files' hunks between two revisions in one diff: path -> [(old_start, old_len, new_start, new_len)]."""
+        out = self.git("diff", "-U0", "--no-color", "--no-renames", a, b, "--", *(paths or []))
+        res: dict[str, list[tuple[int, int, int, int]]] = {}
+        path = None
+        for line in out.splitlines():
+            if line.startswith("--- "):
+                path = line[6:] if line.startswith("--- a/") else None
+            elif line.startswith("+++ ") and path is None:
+                path = line[6:] if line.startswith("+++ b/") else None
+            elif line.startswith("@@") and path:
+                m = HUNK.match(line)
+                if m:
+                    res.setdefault(path, []).append((int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1)))
+        return res
+
+    def blame_range(self, rev_range: str, path: str, first: int, last: int) -> set[str]:
+        """Commits that wrote lines [first, last] of ``path``; ``rev_range`` like ``base..merge`` bounds the history walk."""
+        out = self.git("blame", "--porcelain", "-L", f"{first},{last}", rev_range, "--", path, check=False)
+        return {ln.split(" ", 1)[0] for ln in out.splitlines() if re.match(r"^[0-9a-f]{40} \d+ \d+", ln)}
 
     def blame(self, rev: str, path: str, line: int) -> str | None:
         out = self.git("blame", "--porcelain", "-L", f"{line},{line}", rev, "--", path, check=False)

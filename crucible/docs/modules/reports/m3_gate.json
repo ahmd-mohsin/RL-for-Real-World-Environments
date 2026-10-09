@@ -1,0 +1,238 @@
+{
+ "gate": "M3",
+ "pass": true,
+ "checks": {
+  "pr_traces>=30": true,
+  "construction_transcript_tasks_01_04": true,
+  "every_frontier_run": true,
+  "schema_valid_100pct": true,
+  "planted_canaries_removed_100pct": true,
+  "env_secrets_absent": true,
+  "env_secrets_caught_by_patterns_alone": true,
+  "reingest_idempotent": true
+ },
+ "now": "2026-10-09T12:00:00+00:00",
+ "github_api_calls": 0,
+ "traces": 106,
+ "invalid": [],
+ "sources": {
+  "github_pr": {
+   "refs": 55,
+   "traces": 55,
+   "seconds": 14.6,
+   "events": 207,
+   "outcomes": {
+    "unknown": 55
+   },
+   "post_merge": {
+    "reverted": 0,
+    "fix_touching_pr_lines": 8,
+    "origin": {
+     "git": 55
+    }
+   }
+  },
+  "claude_code_sessions": {
+   "refs": 1,
+   "traces": 1,
+   "seconds": 5.2,
+   "events": 9684,
+   "events_per_task": {
+    "task01_prims_omp": 111,
+    "task01v2_tessera_omp": 75,
+    "task02_pcops_triton": 106,
+    "task03_mdlite_pallas": 171,
+    "task04_pcl_gpu_cuda12": 209
+   }
+  },
+  "agent_runs": {
+   "refs": 11,
+   "traces": 11,
+   "seconds": 0.7,
+   "events": 2532,
+   "outcomes": {
+    "bad": 5,
+    "good": 3,
+    "unknown": 3
+   }
+  },
+  "ci_logs": {
+   "refs": 4,
+   "traces": 4,
+   "seconds": 0.0,
+   "events": 53,
+   "outcomes": {
+    "bad": 3,
+    "good": 1
+   }
+  },
+  "policy_docs": {
+   "refs": 11,
+   "traces": 11,
+   "seconds": 0.3,
+   "events": 252,
+   "rules": 173
+  },
+  "file_drop": {
+   "refs": 24,
+   "traces": 24,
+   "seconds": 0.0,
+   "events": 172
+  }
+ },
+ "frontier_runs": [
+  "task01_prims_omp/fable-5.1-run1",
+  "task01v2_tessera_omp/gpt-5.6-sol-run1",
+  "task02_pcops_triton/gpt-5.6-sol-run1",
+  "task03_mdlite_pallas/gpt-5.6-sol-run1",
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-run1",
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-v2-run1",
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-v3-run1",
+  "task04_pcl_gpu_cuda12/gpt-6-astra-run1",
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v2-run1",
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v3-aborted",
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v3-run2"
+ ],
+ "redaction": {
+  "canary_formats": [
+   "anthropic",
+   "aws",
+   "bearer",
+   "dockerhub",
+   "email",
+   "github",
+   "github_pat",
+   "gitlab",
+   "google",
+   "host",
+   "huggingface",
+   "ip",
+   "ip_tailscale",
+   "jwt",
+   "openai",
+   "openrouter",
+   "password",
+   "runpod",
+   "slack",
+   "tailnet"
+  ],
+  "planted": {
+   "file_drop": {
+    "traces": 1,
+    "planted": [
+     "anthropic",
+     "aws",
+     "bearer",
+     "dockerhub",
+     "email",
+     "github",
+     "github_pat",
+     "gitlab",
+     "google",
+     "host",
+     "huggingface",
+     "ip",
+     "ip_tailscale",
+     "jwt",
+     "openai",
+     "openrouter",
+     "password",
+     "runpod",
+     "slack",
+     "tailnet"
+    ],
+    "leaked": []
+   },
+   "agent_runs": {
+    "traces": 1,
+    "planted": [
+     "anthropic",
+     "aws",
+     "bearer",
+     "dockerhub",
+     "email",
+     "github",
+     "github_pat",
+     "gitlab",
+     "google",
+     "host",
+     "huggingface",
+     "ip",
+     "ip_tailscale",
+     "jwt",
+     "openai",
+     "openrouter",
+     "password",
+     "runpod",
+     "slack",
+     "tailnet"
+    ],
+    "leaked": []
+   },
+   "capture_proxy": {
+    "traces": 1,
+    "planted": [
+     "anthropic",
+     "aws",
+     "bearer",
+     "dockerhub",
+     "email",
+     "github",
+     "github_pat",
+     "gitlab",
+     "google",
+     "host",
+     "huggingface",
+     "ip",
+     "ip_tailscale",
+     "jwt",
+     "openai",
+     "openrouter",
+     "password",
+     "runpod",
+     "slack",
+     "tailnet"
+    ],
+    "leaked": []
+   },
+   "ci_logs": {
+    "traces": 1,
+    "planted": [
+     "ip",
+     "jwt"
+    ],
+    "leaked": []
+   },
+   "policy_docs": {
+    "traces": 1,
+    "planted": [
+     "email",
+     "huggingface",
+     "password"
+    ],
+    "leaked": []
+   }
+  },
+  "env_secrets": [
+   "DOCKERHUB_TOKEN",
+   "HF_TOKEN",
+   "OPENROUTER_API_KEY",
+   "RUNPOD_API_KEY"
+  ],
+  "env_secrets_in_raw_transcript": [
+   "DOCKERHUB_TOKEN",
+   "HF_TOKEN",
+   "OPENROUTER_API_KEY",
+   "RUNPOD_API_KEY"
+  ],
+  "env_secrets_in_store": [],
+  "env_secrets_missed_by_patterns": []
+ },
+ "idempotency": {
+  "docs_before": 106,
+  "docs_after": 106,
+  "same_keys": true,
+  "seconds": 22.9
+ },
+ "seconds": 44.7
+}

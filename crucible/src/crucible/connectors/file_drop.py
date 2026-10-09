@@ -72,28 +72,33 @@ class FileDropConnector:
         return RawRecord(ref=ref, payload={"rows": rows}, privacy=f.privacy)  # type: ignore[arg-type]
 
     def normalize(self, raw: RawRecord) -> Trace:
-        f = self.fields
-        rows = sorted(raw.payload["rows"], key=lambda r: (str(r.get(f.time) or ""), str(r.get(f.id) or "")))
-        actors: dict[str, TraceActor] = {}
-        events: list[TraceEvent] = []
-        by_id: dict[str, int] = {}
-        for seq, r in enumerate(rows):
-            who = r.get(f.actor)
-            if who and who not in actors:
-                actors[who] = TraceActor(id=str(who), role=str(r.get(f.role) or "participant"), kind=r.get(f.actor_kind) or "human", handle=str(who))
-            writes = r.get(f.writes) or []
-            if isinstance(writes, str):
-                writes = [w for w in writes.split(";") if w]
-            kind = r.get(f.kind) or "action"
-            obj = r.get(f.object)
-            data = {k: r[k] for k in f.extra if k in r}
-            if writes:
-                data["writes"] = list(writes)
-            reply = by_id.get(str(r.get(f.reply_to))) if r.get(f.reply_to) not in (None, "") else None
-            events.append(TraceEvent(seq=seq, time=r.get(f.time), kind=kind if kind in KINDS else "action", actor=str(who) if who else None,
-                                     type=str(r.get(f.type) or "event"), text=r.get(f.text), target=SignalTarget(object=str(obj)) if obj else None,
-                                     reply_to=reply, data=data))
-            if r.get(f.id) not in (None, ""):
-                by_id[str(r[f.id])] = seq
-        return Trace(trace_id=f"{f.family or 'file_drop'}:{raw.ref.key}", family=f.family,
-                     source=TraceSource(connector=self.name, ref=raw.ref.key, privacy=raw.privacy), actors=list(actors.values()), events=events)
+        return rows_to_trace(raw.payload["rows"], self.fields, case=raw.ref.key, connector=self.name, privacy=raw.privacy)
+
+
+def rows_to_trace(rows: list[dict[str, Any]], f: FieldMap, *, case: str, connector: str, privacy: str = "internal") -> Trace:
+    """Rows of one case (any tabular export: a CSV, an audit table, a log) -> a Trace, via the field map."""
+    rows = sorted(rows, key=lambda r: (str(r.get(f.time) or ""), str(r.get(f.id) or "")))
+    actors: dict[str, TraceActor] = {}
+    events: list[TraceEvent] = []
+    by_id: dict[str, int] = {}
+    for seq, r in enumerate(rows):
+        who = r.get(f.actor)
+        if who not in (None, "") and str(who) not in actors:
+            kind = r.get(f.actor_kind) or "human"
+            actors[str(who)] = TraceActor(id=str(who), role=str(r.get(f.role) or "participant"), kind=kind if kind in ("human", "agent", "system") else "human", handle=str(who))
+        writes = r.get(f.writes) or []
+        if isinstance(writes, str):
+            writes = [w for w in writes.split(";") if w]
+        kind = r.get(f.kind) or "action"
+        obj = r.get(f.object)
+        data = {k: r[k] for k in f.extra if k in r and r[k] is not None}
+        if writes:
+            data["writes"] = list(writes)
+        reply = by_id.get(str(r.get(f.reply_to))) if r.get(f.reply_to) not in (None, "") else None
+        events.append(TraceEvent(seq=seq, time=str(r[f.time]) if r.get(f.time) is not None else None, kind=kind if kind in KINDS else "action",
+                                 actor=str(who) if who not in (None, "") else None, type=str(r.get(f.type) or "event"), text=r.get(f.text),
+                                 target=SignalTarget(object=str(obj)) if obj not in (None, "") else None, reply_to=reply, data=data))
+        if r.get(f.id) not in (None, ""):
+            by_id[str(r[f.id])] = seq
+    return Trace(trace_id=f"{f.family or connector}:{case}", family=f.family,
+                 source=TraceSource(connector=connector, ref=case, privacy=privacy), actors=list(actors.values()), events=events)  # type: ignore[arg-type]

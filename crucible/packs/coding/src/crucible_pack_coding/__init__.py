@@ -19,6 +19,10 @@ def register(registry) -> None:
     registry.register("app_template", "coding/git_repo", "crucible.world.apps.workspace:GitRepoApp", source="crucible-pack-coding")
     registry.register("app_template", "coding/gpu_toolchain", "crucible.world.apps.toolchain:ToolchainApp", source="crucible-pack-coding")
     registry.register("connector", "github_pr", "crucible_pack_coding.connectors.github_pr:GitHubPRConnector", source="crucible-pack-coding")
+    registry.register("connector", "agent_runs", "crucible_pack_coding.connectors.agent_runs:AgentRunConnector", source="crucible-pack-coding")
+    registry.register("connector", "claude_code_sessions", "crucible_pack_coding.connectors.claude_code_sessions:ClaudeCodeSessionConnector", source="crucible-pack-coding")
+    registry.register("connector", "ci_logs", "crucible_pack_coding.connectors.ci_logs:CILogConnector", source="crucible-pack-coding")
+    registry.register("connector", "policy_docs", "crucible_pack_coding.connectors.policy_docs:PolicyDocConnector", source="crucible-pack-coding")
     registry.register("signal_mapper", "coding/pull_request", "crucible_pack_coding.signals:CodingSignalMapper", source="crucible-pack-coding")
     registry.register("outcome_labeler", "coding/pull_request", "crucible_pack_coding.outcomes:PullRequestOutcome", source="crucible-pack-coding")
 
