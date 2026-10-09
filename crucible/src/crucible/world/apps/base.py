@@ -79,6 +79,9 @@ class App(ABC):
     @abstractmethod
     async def list_tools(self) -> list[ToolSpec]: ...
 
+    async def after_restore(self) -> None:
+        """Hook: the World just restored this App's state (and every other App's) from a WorldRef."""
+
     @property
     def policy_exec(self):
         """Exec for tools that touch policy-owned files: the guard's demoted Exec in isolated worlds, else ctx.exec.

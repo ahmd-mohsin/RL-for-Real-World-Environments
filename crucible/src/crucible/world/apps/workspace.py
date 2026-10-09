@@ -38,7 +38,7 @@ def _obj(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
 
 def _last_error_line(text: str) -> str:
     lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
-    return (lines[-1] if lines else "error")[:2000]
+    return (lines[-1] if lines else "error").removeprefix("python snippet failed: ")[:2000]
 
 
 class WorkspaceApp(App):

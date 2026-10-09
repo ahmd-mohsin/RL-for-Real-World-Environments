@@ -24,7 +24,7 @@ from pydantic import Field
 
 from crucible.actors.base import ActorBase
 from crucible.actors.llm import BudgetExceeded, LLMClient, LLMError
-from crucible.core.schema.actions import Action, Message, ToolCall
+from crucible.core.schema.actions import Action, Done, Message, ToolCall
 from crucible.core.schema.base import CrucibleModel
 from crucible.world.world import ActorTurn
 
@@ -133,13 +133,21 @@ class SimulatedActor(ActorBase):
                     self.history.append({"role": "assistant", "content": r.text or "", "tool_calls": msg_calls})
                     return list(calls)
                 text = (r.text or "").strip()
-                verdict = await self._judge(text) if self.judge and text not in (DONE, OUT_OF_SCOPE) else {"consistent": True}
+                marker = DONE if DONE in text else (OUT_OF_SCOPE if OUT_OF_SCOPE in text else None)
+                if marker == DONE and not any(h["role"] == "assistant" for h in self.history):
+                    verdict = {"consistent": False, "reason": "ended the conversation before saying anything"}  # NeMo-Gym: no STOP first
+                elif marker:
+                    verdict = {"consistent": True}
+                else:
+                    verdict = await self._judge(text) if self.judge else {"consistent": True}
                 self.audit.append({"reply": text[:500], **verdict, "attempt": attempt})
                 if verdict.get("consistent", True):
                     self.history.append({"role": "assistant", "content": text})
-                    if text == DONE:
+                    if marker:  # the conversation ends; the World records why (the policy never sees the marker)
                         self.finished = True
-                        return []
+                        before = text.split(marker, 1)[0].strip()
+                        out: list[Action] = [Message(to=reply_to, text=before)] if before else []
+                        return [*out, Done(reason="user_stop" if marker == DONE else "out_of_scope")]
                     return [Message(to=reply_to, text=text)]
             self.failures.append({"kind": "crucible:sim_failure", "reason": "inconsistent after regenerations", "at": turn.time})
             return []

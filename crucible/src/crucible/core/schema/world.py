@@ -165,6 +165,13 @@ class PolicyDoc(CrucibleModel):
     applies_to: list[str] = Field(default_factory=list)  # actor ids
 
 
+class LimitsSpec(CrucibleModel):
+    """Bounds the World enforces at its single tool-call choke point (``World._call_tool``)."""
+
+    tool_timeout_s: float = 3600  # a hung tool becomes an infra-fault result, never a hung episode
+    max_tool_output_chars: int = 30000  # one head+tail cut with a banner; the full text goes to the store
+
+
 class IsolationSpec(CrucibleModel):
     """How the World protects itself from the policy (DESIGN P17; Karotte / Repo2RLEnv lessons).
 
@@ -204,6 +211,7 @@ class WorldSpec(VersionedDocument):
     network: Literal["no-network", "public", "allowlist"] = "no-network"
     allowed_hosts: list[str] = Field(default_factory=list)  # network == "allowlist" (e.g. the model API)
     isolation: IsolationSpec = Field(default_factory=IsolationSpec)
+    limits: LimitsSpec = Field(default_factory=LimitsSpec)
     seed: int = 0
 
     @model_validator(mode="after")

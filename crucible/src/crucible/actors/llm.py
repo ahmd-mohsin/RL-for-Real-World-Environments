@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,50 @@ class BudgetExceeded(RuntimeError):
 
 
 class LLMError(RuntimeError):
-    failure_kind = "provider_unavailable"
+    failure_kind: str | None = "provider_unavailable"
+
+
+class RequestRejected(LLMError):
+    """A 4xx the provider will keep returning for this request (bad params, auth, model): never retried."""
+
+    failure_kind = "agent_request_failed"
+
+
+class UsageBlank(LLMError):
+    """The provider answered without usage: spend cannot be accounted, so the hard budget could never trip."""
+
+    failure_kind = "crucible:usage_blank"
+
+
+class ContextOverflow(LLMError):
+    """The conversation no longer fits the model's context: the policy's episode ends *truncated* (scored, not
+    masked) -- an infra mask would hide every long-horizon failure from the data."""
+
+    failure_kind = None
+
+
+# Ported from verifiers v1 (MIT) harnesses/utils/compaction.py: provider wordings of a context overflow.
+CONTEXT_OVERFLOW_MARKERS = (
+    "context_length_exceeded", "exceeds the context window", "reduce the length of the messages", "maximum context length",
+    "prompt is too long", "request_too_large", "request entity too large", "exceeds the maximum number of tokens", "maximum prompt length is",
+)
+
+
+def is_context_overflow(e: Exception) -> bool:
+    status = getattr(e, "status_code", None)
+    details = f"{e} {getattr(e, 'body', '') or ''}".casefold()
+    return status in (400, 413) and any(m in details for m in CONTEXT_OVERFLOW_MARKERS)
+
+
+def _parse_arguments(raw: str | None) -> dict[str, Any]:
+    """Tool-call arguments as a dict; anything else is kept raw for the World to answer with a usable error."""
+    try:
+        val = json.loads(raw or "{}")
+        if isinstance(val, str):  # double-encoded JSON objects are common; accept them
+            val = json.loads(val)
+    except (json.JSONDecodeError, TypeError):
+        return {"__unparseable__": raw}
+    return val if isinstance(val, dict) else {"__unparseable__": raw, "__type__": type(val).__name__}
 
 
 @dataclass
@@ -38,6 +82,9 @@ class LLMResponse:
     model: str = ""
     cached: bool = False
     raw_finish: str | None = None
+    raw_message: dict[str, Any] = field(default_factory=dict)  # provider fields (reasoning, signatures) to replay verbatim
+    latency_s: float = 0.0
+    response_id: str | None = None
 
 
 @dataclass
@@ -50,17 +97,25 @@ class Spend:
 
 
 def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
-    """Provider's Retry-After (seconds) when given, else capped exponential backoff (Karotte's agent loop)."""
+    """Provider's Retry-After (seconds) when given, else capped exponential backoff with jitter (Karotte's agent
+    loop; verifiers' ``backoff`` curve)."""
+    import random
+
     headers = getattr(getattr(e, "response", None), "headers", None) or {}
     try:
         return min(float(headers.get("retry-after")), cap)
     except (TypeError, ValueError):
-        return min(1.5 * 2**attempt, cap)
+        return min(min(1.5 * 2**attempt, cap) * (0.5 + random.random()), cap)
+
+
+class _NoChoices(RuntimeError):
+    pass
 
 
 class LLMClient:
     def __init__(self, model: str = "sim-default", *, config: Config | None = None, budget_usd: float | None = None,
-                 cache_dir: Path | None = None, cache_mode: str | None = None, timeout_s: float = 120, max_retries: int = 3):
+                 cache_dir: Path | None = None, cache_mode: str | None = None, timeout_s: float = 120, max_retries: int = 3,
+                 require_usage: bool = True):
         self.config = config or get_config()
         self.provider, self.model = self.config.model(model)
         self.budget_usd = self.config.llm_budget_usd if budget_usd is None else budget_usd
@@ -69,6 +124,7 @@ class LLMClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
         self.max_retries = max_retries
+        self.require_usage = require_usage  # False only for endpoints known to omit usage (and then set prices)
         self.spend = Spend()
         self._client = None
 
@@ -90,15 +146,17 @@ class LLMClient:
         return usage.get("prompt_tokens", 0) / 1e6 * p[0] + usage.get("completion_tokens", 0) / 1e6 * p[1]
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 0.0,
-                       max_tokens: int = 800, json_mode: bool = False, seed: int | None = 0, **extra: Any) -> LLMResponse:
+                       max_tokens: int = 800, json_mode: bool = False, seed: int | None = 0, sample_key: str | None = None, **extra: Any) -> LLMResponse:
+        """``sample_key`` (e.g. episode id / sample index) separates rollouts in the record/replay cache: without it,
+        N samples of one task would all replay the first completion (zero variance). Simulators and judges omit it."""
         params: dict[str, Any] = {"temperature": temperature, "max_tokens": max_tokens, "json": json_mode, "seed": seed, **extra}
-        key = self._key(messages, tools, params)
+        key = self._key(messages, tools, {**params, **({"sample": sample_key} if sample_key else {})})
         path = self.cache_dir / key[:2] / f"{key}.json"
         if self.cache_mode in ("record", "replay") and path.exists():
             d = json.loads(path.read_text())
             self.spend.cached_calls += 1
             return LLMResponse(text=d["text"], tool_calls=d.get("tool_calls", []), usage=d.get("usage", {}), cost_usd=0.0, model=d.get("model", self.model), cached=True,
-                               raw_finish=d.get("finish"))
+                               raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
         if self.spend.usd >= self.budget_usd:
@@ -112,31 +170,35 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
         kwargs.update(extra)
         last: Exception | None = None
+        t0 = time.monotonic()
         for attempt in range(self.max_retries):
             try:
                 resp = await self._openai().chat.completions.create(**kwargs)
+                if not getattr(resp, "choices", None):  # OpenRouter can answer 200 with an error body and no choices
+                    raise _NoChoices(f"no choices in response: {getattr(resp, 'error', None) or getattr(resp, 'model_extra', {})}")
                 break
             except Exception as e:
                 last = e
-                msg = str(e).lower()
-                if "402" in msg or "credit" in msg or "insufficient" in msg or "budget" in msg:
-                    raise BudgetExceeded(f"provider refused for credits: {e}") from e
                 status = getattr(e, "status_code", None)
-                if status in (400, 401, 403, 404, 422):  # the request is wrong, retrying cannot help
-                    raise LLMError(f"{self.model} rejected the request ({status}): {e}") from e
-                await asyncio.sleep(_retry_delay(e, attempt))
+                text = str(e).casefold()
+                if status == 402 or (status == 429 and "insufficient_quota" in text):
+                    raise BudgetExceeded(f"provider refused for credits ({status}): {e}") from e
+                if is_context_overflow(e):
+                    raise ContextOverflow(f"{self.model}: {e}") from e
+                if status is not None and 400 <= status < 500 and status not in (408, 409, 425, 429):  # retrying cannot help
+                    raise RequestRejected(f"{self.model} rejected the request ({status}): {e}") from e
+                if attempt + 1 < self.max_retries:
+                    await asyncio.sleep(_retry_delay(e, attempt))
         else:
             raise LLMError(f"{self.model} failed after {self.max_retries} attempts: {last}")
         choice = resp.choices[0]
         msg = choice.message
-        calls = []
-        for tc in msg.tool_calls or []:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {"__unparseable__": tc.function.arguments}
-            calls.append({"id": tc.id, "name": tc.function.name, "arguments": args})
+        calls = [{"id": tc.id, "name": tc.function.name, "arguments": _parse_arguments(tc.function.arguments)} for tc in msg.tool_calls or []]
+        raw_message = {k: v for k, v in (msg.model_dump(exclude_none=True) if hasattr(msg, "model_dump") else {}).items()
+                       if k not in ("role", "content", "tool_calls", "refusal", "annotations", "audio", "function_call")}
         u = resp.usage
+        if u is None and self.require_usage:
+            raise UsageBlank(f"{self.model} returned no usage (finish={choice.finish_reason}); spend cannot be accounted")
         usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0, "completion_tokens": getattr(u, "completion_tokens", 0) or 0} if u else {}
         cost = getattr(u, "cost", None) if u else None
         if cost is None and u is not None:
@@ -147,10 +209,18 @@ class LLMClient:
         self.spend.calls += 1
         self.spend.prompt_tokens += usage.get("prompt_tokens", 0)
         self.spend.completion_tokens += usage.get("completion_tokens", 0)
-        out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=choice.finish_reason)
+        details = getattr(u, "completion_tokens_details", None) if u else None
+        if details is not None and getattr(details, "reasoning_tokens", None):
+            usage["reasoning_tokens"] = details.reasoning_tokens
+        pdetails = getattr(u, "prompt_tokens_details", None) if u else None
+        if pdetails is not None and getattr(pdetails, "cached_tokens", None):
+            usage["cached_tokens"] = pdetails.cached_tokens
+        out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=choice.finish_reason,
+                          raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None))
         if self.cache_mode == "record":
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish}, ensure_ascii=False))
+            path.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
+                                        "raw_message": raw_message}, ensure_ascii=False, default=str))
         return out
 
     async def complete_json(self, messages: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:

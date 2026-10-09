@@ -17,10 +17,12 @@ ever calls ``reset`` / ``step``.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -29,6 +31,7 @@ from typing import Any, Protocol, Self, runtime_checkable
 from crucible.core.ids import new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
+from crucible.core.schema.run import Failure
 from crucible.core.schema.state import Query, QueryResult, StateRef, WorldRef
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
@@ -40,6 +43,25 @@ from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualCl
 MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inbound batch
 
 logger = logging.getLogger(__name__)
+INFRA_ERRORS = frozenset({"transport", "gateway_error", "internal_error", "timeout", "session_lost"})
+
+
+def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
+    """Why ``args`` do not fit the tool's JSON schema (None when they do). verifiers' wording for non-objects."""
+    if not isinstance(args, dict):
+        return f"tool arguments must be a JSON object, got {type(args).__name__}"
+    if "__unparseable__" in args:
+        return f"tool arguments must be a JSON object, got {args['__type__']}" if "__type__" in args else "the arguments were not valid JSON"
+    if not schema:
+        return None
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:  # pragma: no cover - jsonschema ships with the MCP SDK
+        return None
+    errors = sorted(Draft202012Validator(schema).iter_errors(args), key=lambda e: list(e.path))
+    if not errors:
+        return None
+    return "; ".join(f"{'/'.join(map(str, e.path)) or '(arguments)'}: {e.message}" for e in errors[:5])
 
 
 class WorldError(RuntimeError):
@@ -127,6 +149,9 @@ class World:
         self.episode_id = new_id("ep")
         self.initial: WorldRef | None = None
         self._tools: dict[str, list[ToolSpec]] = {}
+        self._step_lock = asyncio.Lock()
+        self.finished: dict[str, str] = {}  # non-policy actors that ended their part (user_stop, out_of_scope, ...)
+        self.failures: list[Failure] = []  # infrastructure faults this episode (cleared by reset)
         self._acl_changed: set[str] = set()
         self._started = False
 
@@ -155,7 +180,7 @@ class World:
                 host_workdir=self.workdir,
                 clock=self.clock,
                 pack_root=self.pack_root,
-                extra={"peers": self.apps},  # live dict: an App can reach peers started before it (e.g. a browser -> a website's URL)
+                extra={"peers": self.apps, "seed": self.spec.seed},  # peers: live dict (a browser reaches a website's URL)
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
         for app in self.apps.values():
@@ -232,6 +257,8 @@ class World:
         actor = self.spec.actor(responder.actor_id)
         if actor.kind == "policy":
             raise WorldError(f"{actor.id!r} is a policy actor; policies act through step(), not attach()")
+        if self._started:  # its memory would be missing from the initial snapshot, so reset() could not rewind it
+            raise WorldError(f"attach {actor.id!r} before start(): the initial WorldRef must hold every responder's state")
         self.responders[actor.id] = responder
 
     # ------------------------------------------------------------------ tools
@@ -254,21 +281,66 @@ class World:
         return app, tool
 
     async def _call_tool(self, actor: str, call: ToolCall, *, system: bool = False) -> ToolResult:
+        """The single choke point for every tool call (policy, simulated people, events): name and ACL checks,
+        argument validation against the tool's schema, a deadline, crash containment, output bounding, and the
+        fault label that decides whether a failure is the policy's (scored) or the infrastructure's (masked)."""
+
+        def fail(name: str, content: str, error: str, fault: str = "policy") -> ToolResult:
+            return ToolResult(tool_call_id=call.tool_call_id, function_name=name, ok=False, content=content, error=error, fault=fault)
+
         try:
             app_id, tool = self._split(call.function_name)
         except WorldError as e:
-            return ToolResult(tool_call_id=call.tool_call_id, function_name=call.function_name, ok=False, content=str(e), error="bad_tool_name")
+            return fail(call.function_name, str(e), "bad_tool_name")
         qualified = f"{app_id}.{tool}"
         if app_id not in self.apps:
-            return ToolResult(tool_call_id=call.tool_call_id, function_name=qualified, ok=False, content=f"Unknown app: {app_id}", error="unknown_app")
+            return fail(qualified, f"Unknown app: {app_id}", "unknown_app")
+        spec = next((t for t in self._tools.get(app_id, []) if t.name == tool), None)
+        if spec is None:
+            near = difflib.get_close_matches(qualified, [t.qualified for t in self.tools_for(actor)], n=3, cutoff=0.6)
+            return fail(qualified, f"Unknown tool: {qualified}" + (f". Did you mean: {', '.join(near)}?" if near else ""), "unknown_tool")
         if not system and not self.backend.capabilities.native_acl and not self.acl.allows(actor, qualified):
-            return ToolResult(tool_call_id=call.tool_call_id, function_name=qualified, ok=False, content=f"Permission denied: {qualified}", error="permission_denied")
+            return fail(qualified, f"Permission denied: {qualified}", "permission_denied")
+        problem = _argument_problem(call.arguments, spec.input_schema)
+        if problem:
+            return fail(qualified, f"Invalid arguments for {qualified}: {problem}. Resend the call with a JSON object matching the tool's schema.", "invalid_arguments")
         router = self.backend.router()
-        if router is not None:
-            result = await router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system)
-        else:
-            result = await self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id)
-        return result
+        t0 = time.monotonic()
+        try:
+            coro = (router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system) if router is not None
+                    else self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id))
+            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s)
+        except TimeoutError:
+            self._infra("transport_timeout", f"{qualified} exceeded {self.spec.limits.tool_timeout_s}s")
+            return fail(qualified, f"{qualified} timed out", "timeout", "infra")
+        except Exception as e:  # noqa: BLE001 - an App crashing is an environment bug: contain it, record it, mask the episode
+            import traceback
+
+            self._infra("crucible:tool_crashed", f"{qualified}: {type(e).__name__}: {e}", traceback.format_exc()[-4000:])
+            return fail(qualified, f"internal error in {qualified}", "internal_error", "infra")
+        if result.duration_s is None:
+            result.duration_s = time.monotonic() - t0
+        if not result.ok and result.fault is None:
+            result.fault = "infra" if result.error in INFRA_ERRORS else ("tool" if result.error in ("tool_error",) else "policy")
+        if result.fault == "infra":
+            self._infra("transport_unreachable" if result.error in ("transport", "gateway_error") else "crucible:tool_crashed", f"{qualified}: {result.content[:300]}")
+        return self._bound(result)
+
+    def _infra(self, kind: str, reason: str, detail: str | None = None) -> None:
+        """An infrastructure fault during the episode: run_episode masks the sample (DESIGN P16)."""
+        self.failures.append(Failure(kind=kind, stage="agent", reason=reason[:500]))
+        self._log("state", None, "infra_fault", text=reason[:2000], data={"kind": kind, **({"traceback": detail} if detail else {})})
+
+    def _bound(self, r: ToolResult) -> ToolResult:
+        """One head+tail cut with an explicit banner (errors live at the tail); the full text goes to the store."""
+        cap = self.spec.limits.max_tool_output_chars
+        if len(r.content) <= cap:
+            return r
+        key = self.store.put_bytes(r.content.encode("utf-8", "surrogateescape"))
+        head, tail = r.content[: cap * 2 // 3], r.content[-(cap // 3):]
+        cut = len(r.content) - len(head) - len(tail)
+        banner = f"\n\n[... {cut} characters truncated; narrow the command or read the output in parts ...]\n\n"
+        return r.model_copy(update={"content": head + banner + tail, "truncated": True, "content_ref": key})
 
     # ------------------------------------------------------------------ episode
     async def reset(self, *, start: WorldRef | None = None, instructions: dict[str, str] | None = None) -> dict[str, Observation]:
@@ -286,6 +358,8 @@ class World:
                 self.clock.reset()
             await self.backend.on_reset(self)
         self.log = []
+        self.failures = []
+        self.finished = {}
         self.episode_id = new_id("ep")
         self._log("state", None, "reset", data={"world_ref": ref.fingerprint})
         # Events due at t0 (e.g. an opening email) fire before the first observation.
@@ -293,6 +367,10 @@ class World:
         return {a.id: self._observe(a.id, [], first=True) for a in self.spec.policy_actors}
 
     async def step(self, actor: str, action: Action | dict[str, Any]) -> StepResult:
+        async with self._step_lock:  # concurrent callers (several harnesses on one World) are serialized
+            return await self._step(actor, action)
+
+    async def _step(self, actor: str, action: Action | dict[str, Any]) -> StepResult:
         if isinstance(action, dict):
             from pydantic import TypeAdapter
 
@@ -308,7 +386,8 @@ class World:
             self._log("action", actor, "tool_call", data={"function": action.function_name, "arguments": action.arguments, "id": action.tool_call_id})
             res = await self._call_tool(actor, action)
             results.append(res)
-            self._log("observation", actor, "tool_result", text=res.content[:4000], data={"function": res.function_name, "ok": res.ok, "error": res.error, "id": res.tool_call_id})
+            self._log("observation", actor, "tool_result", text=res.content, data={"function": res.function_name, "ok": res.ok, "error": res.error, "id": res.tool_call_id,
+                                                                                    "fault": res.fault, "truncated": res.truncated, "content_ref": res.content_ref})
             await self._run_fired(self.scheduler.on_tool(res.function_name, actor))
         elif isinstance(action, Message):
             await self._send(actor, action)
@@ -322,7 +401,7 @@ class World:
             self._acl_changed |= self.backend.pop_acl_changes()  # type: ignore[attr-defined]
         obs = self._observe(actor, results)
         all_done = all(a.id in self.done for a in self.spec.policy_actors)
-        return StepResult(observation=obs, done=all_done, info={"step": self.step_index, "time": obs.time})
+        return StepResult(observation=obs, done=all_done, info={"step": self.step_index, "time": obs.time, "finished": dict(self.finished)})
 
     def _observe(self, actor: str, results: list[ToolResult], *, first: bool = False) -> Observation:
         inbox, self.inboxes[actor] = self.inboxes.get(actor, []), []
@@ -365,7 +444,7 @@ class World:
                 if isinstance(a, ToolCall):
                     self._log("action", actor_id, "tool_call", data={"function": a.function_name, "arguments": a.arguments, "id": a.tool_call_id})
                     r = await self._call_tool(actor_id, a)
-                    self._log("observation", actor_id, "tool_result", text=r.content[:4000], data={"function": r.function_name, "ok": r.ok, "error": r.error})
+                    self._log("observation", actor_id, "tool_result", text=r.content, data={"function": r.function_name, "ok": r.ok, "error": r.error, "fault": r.fault})
                     results.append(r)
                 elif isinstance(a, Message):
                     latency = getattr(responder, "reply_latency", None)
@@ -380,10 +459,12 @@ class World:
                     # Replies are not re-dispatched to other responders here (no unbounded chains).
                     self.inboxes.setdefault(a.to, []).append(Inbound(**{"from": actor_id, "text": text, "at": self._now(), "citations": a.citations}))
                 elif isinstance(a, Done):
+                    self.finished[actor_id] = a.reason or "done"
                     self._log("action", actor_id, "done", text=a.reason)
             if not calls:
                 return
         self._log("action", actor_id, "responder_turn_limit", data={"max": MAX_INNER_TURNS})
+        self.failures.append(Failure(kind="crucible:sim_failure", stage="agent", reason=f"{actor_id} exceeded {MAX_INNER_TURNS} tool turns"))
 
     async def _fire_due(self) -> None:
         for _ in range(1000):  # bounded catch-up
@@ -467,6 +548,8 @@ class World:
         await self.backend.before_restore(self)
         await asyncio.gather(*(self.apps[n].state.restore(r) for n, r in ref.apps.items()))
         await self.backend.after_restore(self)
+        for app in self.apps.values():
+            await app.after_restore()
         self.clock.restore(ref.clock)
         self.scheduler.restore(ref.pending_events, ref.fired_counts)
         self.acl.restore(ref.acl_rules)

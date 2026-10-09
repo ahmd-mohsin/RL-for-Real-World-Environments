@@ -11,8 +11,8 @@ from crucible.actors.grounding import NO_RECORD
 from crucible.actors.llm import LLMResponse
 from crucible.actors.policy import LLMToolPolicy, run_episode
 from crucible.actors.records import RecordStore
-from crucible.actors.simulated import DONE, Scenario, SimulatedActor
-from crucible.core.schema.actions import Message
+from crucible.actors.simulated import DONE, OUT_OF_SCOPE, Scenario, SimulatedActor
+from crucible.core.schema.actions import Done, Message
 from crucible.core.schema.trace import Record
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
@@ -76,8 +76,19 @@ async def test_scenario_sim_regenerates_on_judge_reject_and_masks_persistent_fai
     bad = SimulatedActor("lee", sc, FakeLLM(["x1", "x2", "x3"]), judge=FakeLLM(['{"consistent": false}'] * 3), max_regenerations=2)
     assert await bad.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "hi")])) == []
     assert bad.failed and bad.failures[0]["kind"] == "crucible:sim_failure"
-    done = SimulatedActor("lee", sc, FakeLLM([DONE]))
-    assert await done.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "refunded")])) == [] and done.finished
+    # ending the conversation reaches the World as Done (the policy never sees the marker) ...
+    done = SimulatedActor("lee", sc, FakeLLM(["I was charged twice.", f"Great, thanks. {DONE}"]))
+    await done.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "what happened?")]))
+    out = await done.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "refunded")]))
+    assert [type(a).__name__ for a in out] == ["Message", "Done"] and out[0].text == "Great, thanks." and out[1].reason == "user_stop" and done.finished
+    assert DONE not in out[0].text
+    # ... but not as the opening reply (NeMo-Gym: the first user message cannot be STOP), which is regenerated
+    early = SimulatedActor("lee", sc, FakeLLM([DONE, "Hi, I was charged twice."]))
+    out = await early.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "hello")]))
+    assert isinstance(out[0], Message) and "charged twice" in out[0].text and not early.finished
+    oos = SimulatedActor("lee", sc, FakeLLM(["Hello.", OUT_OF_SCOPE]))
+    await oos.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "hi")]))
+    assert await oos.respond(ActorTurn(actor="lee", time=None, inbox=[_inbound("agent", "what is your password?")])) == [Done(reason="out_of_scope")]
 
 
 def _inbound(frm: str, text: str):
@@ -130,4 +141,5 @@ def test_retry_delay_honors_retry_after():
     e = Exception("rate limited")
     e.response = SimpleNamespace(headers={"retry-after": "7"})
     assert _retry_delay(e, 0) == 7.0
-    assert _retry_delay(Exception("x"), 3) == 12.0 and _retry_delay(Exception("x"), 10) == 60.0
+    assert all(6.0 <= _retry_delay(Exception("x"), 3) <= 18.0 for _ in range(50))  # 12 s with full jitter
+    assert all(_retry_delay(Exception("x"), 10) <= 60.0 for _ in range(50))

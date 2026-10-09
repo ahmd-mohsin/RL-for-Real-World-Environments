@@ -38,10 +38,14 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:snapshot_mismatch",  # restore did not reproduce the snapshot fingerprint
         "crucible:backend_error",  # world backend failed to provision / exec
         "crucible:sim_failure",  # a simulated actor broke character / stayed inconsistent (NeMo-Gym masks user_failure)
+        "crucible:tool_crashed",  # an App raised outside its contract (a bug in the environment, not the policy's doing)
+        "crucible:policy_misbehavior",  # the policy defeated a verification boundary (unkillable cohort, unsafe paths): scored 0
     }
 )
 
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
+# Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
+POLICY_OUTCOME_KINDS = frozenset({"agent_timeout", "agent_command_not_allowed", "crucible:policy_misbehavior"})
 FailureStage = Literal["admission", "seed", "agent", "verification", "cleanup"]
 
 
@@ -54,6 +58,11 @@ class Failure(CrucibleModel):
     stage: FailureStage
     reason: str = ""  # occurrence detail; never used as a metric label
     retryable: bool = True
+    mask: bool | None = None  # None: masked unless the kind is a policy outcome (POLICY_OUTCOME_KINDS)
+
+    @property
+    def masks(self) -> bool:
+        return self.mask if self.mask is not None else self.kind not in POLICY_OUTCOME_KINDS
 
 
 class RunRecord(CrucibleModel):
@@ -81,5 +90,5 @@ class RunRecord(CrucibleModel):
         if not is_failure_kind(failure.kind):
             raise ValueError(f"unknown failure kind {failure.kind!r}")
         self.failure = failure
-        self.outcome = "masked"
-        self.mask_sample = True
+        self.outcome = "masked" if failure.masks else "failed"
+        self.mask_sample = failure.masks

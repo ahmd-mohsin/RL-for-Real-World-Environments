@@ -42,10 +42,26 @@ def _content_text(blocks: Any) -> str:
     return "\n".join(parts)
 
 
+def envelope_error(structured: Any, content: str) -> str | None:
+    """The error code of a MiMo-style error envelope (``{"error": {"code": "NOT_FOUND", ...}}``), else None."""
+    obj = structured
+    if isinstance(obj, dict) and set(obj) == {"result"}:
+        obj = obj["result"]
+    if obj is None and content.lstrip().startswith("{"):
+        try:
+            obj = json.loads(content)
+        except ValueError:
+            return None
+    if isinstance(obj, dict) and isinstance(obj.get("error"), dict | str) and not obj.get("ok", False) and not obj.get("success", False):
+        err = obj["error"]
+        return str(err.get("code") or err.get("type") or "error") if isinstance(err, dict) else "error"
+    return None
+
+
 class InProcessToolModule:
     """All public functions of one tools file, as FastMCP Tools, called in this process."""
 
-    def __init__(self, app: str, tools_path: str | Path, *, server_name: str | None = None):
+    def __init__(self, app: str, tools_path: str | Path, *, server_name: str | None = None, env: Any = None):
         from mcp.server.fastmcp.tools.base import Tool
 
         self.app = app
@@ -55,6 +71,14 @@ class InProcessToolModule:
         before = set(sys.modules)
         module = mh._load_tools_module(self.path)
         self._module_names = set(sys.modules) - before
+        self.virtualized: list[str] = []
+        if env is not None:  # the World's virtual clock and seed instead of wall time and os.urandom (virtual_env.py)
+            from crucible.world.packaging.virtual_env import patch_module, shims
+
+            s = shims(env)
+            for n in sorted(self._module_names | {module.__name__}):
+                if sys.modules.get(n) is not None:
+                    self.virtualized += [f"{n}.{k}" for k in patch_module(sys.modules[n], env, s)]
         self.tools: dict[str, Any] = {}
         for name, fn in mh._public_functions(module):
             self.tools[name] = Tool.from_function(mh._wrap_capped(fn), name=name, description=mh._first_line(fn.__doc__) or name)
@@ -73,15 +97,20 @@ class InProcessToolModule:
         try:
             result = await tool.run(args, convert_result=True)
         except Exception as e:  # noqa: BLE001 - FastMCP surfaces tool exceptions as isError text; mirror that exactly
-            return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=str(e), error=type(e).__name__, duration_s=time.monotonic() - t0)
+            return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=str(e), error=type(e).__name__,
+                              fault="tool", duration_s=time.monotonic() - t0)
         unstructured = result[0] if isinstance(result, tuple) else result
         structured = result[1] if isinstance(result, tuple) and len(result) > 1 else None
+        content = _content_text(unstructured)
+        code = envelope_error(structured, content)
         return ToolResult(
             tool_call_id=call_id,
             function_name=f"{self.app}.{name}",
-            ok=True,
-            content=_content_text(unstructured),
+            ok=code is None,  # MiMo convention: {"error": {"code": ...}} returned as a value is still a failed call
+            content=content,
             data=structured,
+            error=f"tool:{code}" if code else None,
+            fault="tool" if code else None,
             duration_s=time.monotonic() - t0,
         )
 

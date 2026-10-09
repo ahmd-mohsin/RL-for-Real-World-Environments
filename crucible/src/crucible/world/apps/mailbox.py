@@ -8,6 +8,7 @@ Params: ``addresses`` (actor id -> email address), ``owner`` (whose inbox list_i
 
 from __future__ import annotations
 
+import contextvars
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
@@ -67,6 +68,8 @@ def main(a):
 '''
 
 
+_ACTOR: contextvars.ContextVar[str] = contextvars.ContextVar("mailbox_actor")
+
 class MailboxApp(App):
     template = "common/mailbox"
     PATH_PARAMS = ("path",)
@@ -100,25 +103,28 @@ class MailboxApp(App):
         ]
 
     async def call(self, name, args, *, actor, call_id):
-        self._actor = actor
-        return await super().call(name, args, actor=actor, call_id=call_id)
+        token = _ACTOR.set(actor)  # per call (asyncio tasks copy contexts): concurrent calls never swap senders
+        try:
+            return await super().call(name, args, actor=actor, call_id=call_id)
+        finally:
+            _ACTOR.reset(token)
 
     async def tool_send_email(self, to: list[str], subject: str, body: str, thread_id: str | None = None) -> Any:
         if not to:
             raise ToolError("no recipients")
-        return await self._op(op="send", sender=self._addr(self._actor), to=to, subject=subject, body=body, thread_id=thread_id, now=self._now())
+        return await self._op(op="send", sender=self._addr(_ACTOR.get()), to=to, subject=subject, body=body, thread_id=thread_id, now=self._now())
 
     async def tool_list_inbox(self, unread_only: bool = False) -> Any:
-        return await self._op(op="inbox", who=self._addr(self._actor), unread_only=unread_only)
+        return await self._op(op="inbox", who=self._addr(_ACTOR.get()), unread_only=unread_only)
 
     async def tool_list_sent(self) -> Any:
-        return await self._op(op="sent", who=self._addr(self._actor))
+        return await self._op(op="sent", who=self._addr(_ACTOR.get()))
 
     async def tool_read_email(self, id: int) -> Any:
-        return await self._op(op="read", id=id, who=self._addr(self._actor))
+        return await self._op(op="read", id=id, who=self._addr(_ACTOR.get()))
 
     async def tool_search_email(self, query: str) -> Any:
-        return await self._op(op="search", query=query, who=self._addr(self._actor))
+        return await self._op(op="search", query=query, who=self._addr(_ACTOR.get()))
 
     async def deliver(self, *, sender: str, to: list[str], subject: str, body: str, thread_id: str | None = None) -> dict[str, Any]:
         """System-side delivery (events / simulated actors), bypassing tool permissions."""

@@ -58,6 +58,10 @@ class SqliteApp(App):
                 await self.ctx.exec.run(f"mkdir -p {shlex.quote(str(Path(self.db_path).parent))}")
                 await self.ctx.exec.push_file(local, self.db_path)
 
+    async def after_restore(self) -> None:
+        if getattr(self, "_venv", None) is not None:
+            self._venv.reset()
+
     def _module_path(self) -> str | None:
         m = self.spec.params.get("tools_module")
         return self.ctx.resolve(m) if m else None
@@ -72,7 +76,20 @@ class SqliteApp(App):
         if transport == "inprocess":
             from crucible.world.packaging.mcp_tools import InProcessToolModule
 
-            self._module = InProcessToolModule(self.id, mod)
+            env = None
+            if self.spec.params.get("virtual_time", True):
+                from crucible.world.clock import parse_time
+                from crucible.world.packaging.virtual_env import VirtualEnv
+
+                clock = self.ctx.clock
+                if clock is not None and clock.spec is not None:
+                    now = clock.now
+                else:  # an unclocked World still gets one fixed, plausible instant (deterministic, not 1970)
+                    epoch = parse_time(self.spec.params.get("virtual_epoch", "2026-01-05T09:00:00Z"))
+                    now = lambda: epoch
+                env = VirtualEnv(now, int(self.ctx.extra.get("seed", 0)))
+            self._venv = env
+            self._module = InProcessToolModule(self.id, mod, env=env)
             self._specs = self._module.specs()
         elif transport == "mcp":
             from crucible.world.packaging.sidecar import McpClient, McpServerProcess

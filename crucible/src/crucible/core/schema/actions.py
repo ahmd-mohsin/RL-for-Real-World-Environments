@@ -68,6 +68,10 @@ class ToolResult(CrucibleModel):
     error: str | None = None
     duration_s: float | None = None
     truncated: bool = False
+    # who is at fault when ok=False: the policy (bad call, denied), the tool (a domain error it reports), or the
+    # infrastructure (transport down, App crashed, timeout of a hung service) -- infra faults mask the episode.
+    fault: Literal["policy", "tool", "infra"] | None = None
+    content_ref: str | None = None  # store key of the full output when ``content`` was bounded
 
 
 class Inbound(CrucibleModel):

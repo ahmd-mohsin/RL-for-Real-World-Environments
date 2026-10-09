@@ -11,17 +11,20 @@ A *policy* is the actor under training or evaluation: it alone calls ``World.ste
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from crucible.actors.llm import BudgetExceeded, LLMClient, LLMError
+from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall
 from crucible.core.schema.state import WorldRef
 from crucible.core.schema.trace import Trace
-from crucible.world.world import World
+from crucible.world.world import World, WorldError
 
 
 class Policy:
@@ -57,61 +60,123 @@ SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "descri
 
 
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
+_FN_OK = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def openai_name(qualified: str) -> str:
+    """A function name OpenAI-style APIs accept (^[a-zA-Z0-9_-]{1,64}$) for an ``app.tool`` name."""
+    name = qualified.replace(".", "__", 1)
+    if _FN_OK.match(name):
+        return name
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+    return clean if len(clean) <= 64 else clean[:55] + "_" + hashlib.sha256(qualified.encode()).hexdigest()[:8]
 
 
 class LLMToolPolicy(Policy):
-    def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int = 6000,
-                 max_nudges: int = 2):
+    """A minimal function-calling harness. Parallel tool calls in one turn are executed in order and their results
+    are appended together before any message that arrived meanwhile (a valid history for OpenAI-style APIs);
+    provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
+
+    def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
+                 max_nudges: int = 2, temperature: float = 0.0):
         self.actor_id, self.llm, self.system = actor_id, llm, system
-        self.max_tokens, self.max_tool_output = max_tokens, max_tool_output
+        self.max_tokens, self.max_tool_output, self.temperature = max_tokens, max_tool_output, temperature
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         self.tools: list[dict[str, Any]] = []
+        self._names: dict[str, str] = {}  # openai function name -> qualified tool name
         self._queue: list[Action] = []
+        self._pending: set[str] = set()  # tool call ids of the current batch still waiting for results
+        self._held: list[dict[str, Any]] = []  # messages that arrived while a batch was in flight
         self.error: str | None = None
+        self.failure_kind: str | None = None
+        self.stop: str | None = None
+        self.sample_key: str | None = None
+        self.model_calls: list[dict[str, Any]] = []
         self._nudges, self.max_nudges = 0, max_nudges
+
+    def begin_episode(self, episode_id: str) -> None:
+        self.sample_key = episode_id
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
-            self.tools = [t.to_openai() for t in obs.tools] + [SEND_MESSAGE]
+            self.tools, self._names = [], {}
+            for t in obs.tools:
+                fn = t.to_openai()
+                name = openai_name(t.qualified)
+                fn["function"]["name"] = name
+                self._names[name] = t.qualified
+                self.tools.append(fn)
+            self.tools.append(SEND_MESSAGE)
         if obs.instruction:
             self.messages.append({"role": "user", "content": obs.instruction})
         for tr in obs.tool_results:
-            self.messages.append({"role": "tool", "tool_call_id": tr.tool_call_id, "content": tr.content[: self.max_tool_output]})
+            content = tr.content
+            if self.max_tool_output and len(content) > self.max_tool_output:
+                h = self.max_tool_output * 2 // 3
+                content = content[:h] + f"\n[... {len(content) - self.max_tool_output} characters truncated ...]\n" + content[-(self.max_tool_output - h):]
+            self.messages.append({"role": "tool", "tool_call_id": tr.tool_call_id, "content": content})
+            self._pending.discard(tr.tool_call_id)
         for m in obs.inbox:
-            self.messages.append({"role": "user", "content": f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}"})
+            self._held.append({"role": "user", "content": f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}"})
+        if not self._pending:  # the batch is complete: now the messages that arrived during it
+            self.messages += self._held
+            self._held = []
 
     async def act(self, obs: Observation) -> Action:
         self._ingest(obs)
         if self._queue:
             return self._queue.pop(0)
         try:
-            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens)
+            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
+                                        sample_key=self.sample_key)
+        except ContextOverflow as e:
+            self.stop = "context_overflow"  # truncated, scored: a long-horizon failure is data, not an outage
+            return Done(reason=f"context overflow: {e}")
         except (LLMError, BudgetExceeded) as e:
-            self.error = f"{getattr(e, 'failure_kind', 'provider_unavailable')}: {e}"
+            self.failure_kind = getattr(e, "failure_kind", None) or "provider_unavailable"
+            self.error = f"{self.failure_kind}: {e}"
             return Done(reason=f"policy error: {e}")
+        self.model_calls.append({"model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                                 "cached": r.cached, "response_id": r.response_id, "tool_calls": len(r.tool_calls)})
         if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
             return await self.act(Observation(actor=obs.actor, step=obs.step))
         if not r.tool_calls:
-            self.messages.append({"role": "assistant", "content": r.text})
+            self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})
+            self.stop = "agent_done"
             return Done(reason=r.text[:2000])
         calls = []
         actions: list[Action] = []
         for tc in r.tool_calls:
             cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
-            calls.append({"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}})
+            raw_args = tc["arguments"].get("__unparseable__") if "__unparseable__" in tc["arguments"] else None
+            calls.append({"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": raw_args if raw_args is not None else json.dumps(tc["arguments"])}})
             if tc["name"] == "send_message":
                 actions.append(Message(to=str(tc["arguments"].get("to", "")), text=str(tc["arguments"].get("text", ""))))
             else:
-                actions.append(ToolCall(tool_call_id=cid, function_name=tc["name"].replace("__", ".", 1), arguments=tc["arguments"]))
-        self.messages.append({"role": "assistant", "content": r.text or "", "tool_calls": calls})
+                qualified = self._names.get(tc["name"]) or tc["name"].replace("__", ".", 1)
+                actions.append(ToolCall(tool_call_id=cid, function_name=qualified, arguments=tc["arguments"]))
+        # provider fields (reasoning, reasoning_details, thinking signatures) replay verbatim: reasoning models degrade without them
+        self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "", "tool_calls": calls})
         for a, c in zip(actions, calls, strict=True):
             if isinstance(a, Message):  # every tool call id needs a tool reply; send_message is acknowledged here
                 self.messages.append({"role": "tool", "tool_call_id": c["id"], "content": f"message sent to {a.to}"})
+            else:
+                self._pending.add(c["id"])
         self._queue = actions[1:]
         return actions[0]
+
+
+@dataclass
+class EpisodeLimits:
+    """Stop conditions of one episode (verifiers' RolloutLimits / tau2's max_errors)."""
+
+    max_steps: int = 50
+    max_tool_errors: int | None = 25  # consecutive failed policy calls: a policy stuck in an error loop ends "too_many_errors"
+    timeout_s: float | None = None  # wall clock for the whole episode; the final snapshot is still taken
+    end_on: tuple[str, ...] = ()  # simulated actors whose end of conversation ends the episode (stop "user_stop" / "out_of_scope")
 
 
 @dataclass
@@ -123,31 +188,83 @@ class EpisodeResult:
     masked: bool
     failures: list[dict[str, Any]] = field(default_factory=list)
     observations: dict[str, list[Observation]] = field(default_factory=dict)
+    stop_condition: str = "running"  # agent_done | all_done | max_steps | too_many_errors | timeout | context_overflow | <failure kind>
+    truncated: bool = False
+    model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
-async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True) -> EpisodeResult:
+async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
+                      limits: EpisodeLimits | None = None) -> EpisodeResult:
+    limits = limits or EpisodeLimits(max_steps=max_steps)
     obs = await world.reset() if reset else {a: Observation(actor=a, step=world.step_index) for a in policies}
+    for p in policies.values():
+        if hasattr(p, "begin_episode"):
+            p.begin_episode(world.episode_id)
     log: dict[str, list[Observation]] = {a: [o] for a, o in obs.items()}
     order = list(policies)
     current = {a: obs.get(a) or Observation(actor=a, step=0) for a in order}
-    steps, done = 0, False
-    while steps < max_steps and not done:
-        progressed = False
-        for a in order:
-            if a in world.done:
-                continue
-            action = await policies[a].act(current[a])
-            res = await world.step(a, action)
-            current[a] = res.observation
-            log.setdefault(a, []).append(res.observation)
-            steps += 1
-            progressed = True
-            done = res.done
-            if done or steps >= max_steps:
+    state = {"steps": 0, "done": False, "stop": "running", "errors": 0}
+
+    async def loop() -> None:
+        while state["steps"] < limits.max_steps and not state["done"]:
+            progressed = False
+            for a in order:
+                if a in world.done:
+                    continue
+                action = await policies[a].act(current[a])
+                res = await world.step(a, action)
+                current[a] = res.observation
+                log.setdefault(a, []).append(res.observation)
+                state["steps"] += 1
+                progressed = True
+                state["done"] = res.done
+                bad = [r for r in res.observation.tool_results if not r.ok and r.fault in ("policy", "tool")]
+                state["errors"] = state["errors"] + 1 if bad else (0 if res.observation.tool_results else state["errors"])
+                if limits.max_tool_errors and state["errors"] >= limits.max_tool_errors:
+                    state["stop"] = "too_many_errors"
+                    return
+                ended = [world.finished[x] for x in limits.end_on if x in world.finished]
+                if ended:
+                    state["stop"] = ended[0]
+                    return
+                if state["done"] or state["steps"] >= limits.max_steps:
+                    break
+            if not progressed:
                 break
-        if not progressed:
-            break
+
+    try:
+        await asyncio.wait_for(loop(), timeout=limits.timeout_s)
+    except TimeoutError:
+        state["stop"] = "timeout"
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
-    failures += [{"kind": "policy_error", "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
-    final = await world.snapshot(quiesce=True)  # the episode is over: nothing the policy started may keep changing state
-    return EpisodeResult(steps=steps, done=done, trace=world.to_trace(), final=final, masked=bool(failures), failures=failures, observations=log)
+    failures += [{"kind": p.failure_kind, "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
+    failures += [f.model_dump() for f in world.failures]  # infra faults at the World's choke point (tool crashed, transport)
+    try:
+        final = await world.snapshot(quiesce=True)  # the episode is over: nothing the policy started may keep changing state
+    except WorldError as e:  # the policy defeated the verification boundary: its outcome (score 0), never an infra mask
+        failures.append({"kind": "crucible:policy_misbehavior", "reason": str(e)[:500], "mask": False})
+        final = await world.snapshot()
+    stops = {getattr(p, "stop", None) for p in policies.values()}
+    if state["stop"] == "running":
+        if "context_overflow" in stops:
+            state["stop"] = "context_overflow"
+        elif failures and any(_masks(f) for f in failures):
+            state["stop"] = next(f["kind"] for f in failures if _masks(f))
+        elif state["done"]:
+            state["stop"] = "all_done" if len(policies) > 1 else "agent_done"
+        elif state["steps"] >= limits.max_steps:
+            state["stop"] = "max_steps"
+        else:
+            state["stop"] = "agent_done"
+    calls = {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}
+    return EpisodeResult(steps=state["steps"], done=state["done"], trace=world.to_trace(), final=final, masked=any(_masks(f) for f in failures),
+                         failures=failures, observations=log, stop_condition=state["stop"],
+                         truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls)
+
+
+def _masks(f: dict[str, Any]) -> bool:
+    from crucible.core.schema.run import POLICY_OUTCOME_KINDS
+
+    if f.get("mask") is not None:
+        return bool(f["mask"])
+    return f.get("kind") not in POLICY_OUTCOME_KINDS
