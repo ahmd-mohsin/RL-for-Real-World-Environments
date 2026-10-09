@@ -139,6 +139,9 @@ Seed-world numbers (lab RTX 5090, remote Docker over SSH):
 15. **Images:** Ubuntu-based images ship a uid-1000 user, and a guard that "creates" uid 1000 silently becomes that user. Task images run Python 3.8–3.10, so `shutil.rmtree(dir_fd=)` (3.11+) cannot be used in snippets. Some images have no `timeout`, and BSD/busybox `base64` flags differ, so commands use the portable forms.
 16. **MiMo:** 1,174 of the 1,796 tool modules read the wall clock, and 707 return `{"error": {...}}` as a successful value. Both are now handled (virtual time; envelope → `ok=False`, `fault=tool`).
 
+## Gate re-verified after the hardening (2026-10-09)
+With the choke point (schema validation, deadlines, fault labels), virtual time for tool modules and the new error envelopes in place, the generality gate still holds: **266/266** complete MiMo envs (`reports/m1_mimo_sweep_inprocess.json`) and **100/100** AWM scenarios (`reports/m1_awm_sweep.json`) pass every check. The test suite is `tests/unit` + `tests/toy_e2e` (82) and `tests/redteam` (3 tests, 25+ attacks), and the lab gates are `tests/gpu` (seed worlds, CI on the verifier image, agentenv GPU sandbox).
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.
