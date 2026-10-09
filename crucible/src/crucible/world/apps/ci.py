@@ -15,12 +15,20 @@ any image — e.g. a task's verifier image — on the local daemon or a remote o
 ``--network none``, ``--init`` and optional GPUs).
 
 Params: ``source``, ``target_root``, ``runner`` {kind, ...}, ``hidden`` {src, dest}, ``checks`` [{name, cmd,
-timeout_s, show_output, user}], ``max_runs``, ``latency``, ``setup`` (runner commands run once, as root).
+timeout_s, show_output, user, expect}], ``check_user`` (default ``65534``), ``max_runs``, ``latency``, ``setup``
+(runner commands run once, as root).
+
+Hardening (Karotte / Repo2RLEnv / MiMo findings): in container runners checks run unprivileged by default, the
+candidate tree is handed to that user, the hidden checks are re-staged from the host for every run (readable, not
+writable), every process the check user left behind is killed after each check, and ``expect`` (a regex the
+output must match) makes PASS mean more than exit code 0 -- a candidate that calls ``os._exit(0)`` at import
+cannot pass a check whose test runner must print its own summary.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import tarfile
@@ -129,27 +137,43 @@ class CiApp(App):
         cls = get_registry().get("ci_runner", rp.get("kind", "local"))
         self.runner = cls(rp, workdir=self.ctx.host_workdir)
         await self.runner.start()
-        hidden = self.spec.params.get("hidden")
-        if hidden:
-            src = self.ctx.host_seed(hidden["src"])
-            dest = self.runner.root(hidden.get("dest", "/opt/crucible-hidden"))
-            with tempfile.TemporaryDirectory() as d:
-                tar = Path(d) / "hidden.tar"
-                with tarfile.open(tar, "w") as tf:
-                    for f in sorted(src.rglob("*")):
-                        if "__pycache__" not in f.parts:
-                            tf.add(f, arcname=str(f.relative_to(src)), recursive=False)
-                remote = f"/tmp/.crucible_hidden_{uuid.uuid4().hex[:8]}.tar"
-                await self.runner.exec.push_file(tar, remote)
-                out = await self.runner.exec.run(f"mkdir -p {shlex.quote(dest)} && tar -xf {remote} -C {shlex.quote(dest)} && rm -f {remote} && chmod -R go-rwx {shlex.quote(dest)}")
-                if not out.ok:
-                    raise RuntimeError(f"cannot stage hidden checks: {out.stderr[-400:]}")
         for cmd in self.spec.params.get("setup", []):
             out = await self.runner.exec.run(cmd, timeout_s=1800)
             if not out.ok:
                 raise RuntimeError(f"CI runner setup failed ({cmd!r}): {(out.stderr or out.stdout)[-600:]}")
         self._runner_ready = True
         return self.runner
+
+    def _check_user(self, check: dict[str, Any], runner: CiRunner) -> str | None:
+        """Checks run unprivileged by default in container runners (candidate code must not be able to rewrite the
+        hidden checks or the runner); ``user: root`` is for graders that demote candidate code themselves (task04's
+        grade.py). The local runner has no users to switch to."""
+        if runner.exec.is_local:
+            return None
+        u = str(check.get("user", self.spec.params.get("check_user", "65534")))
+        return None if u in ("root", "0") else u
+
+    async def _stage_hidden(self, runner: CiRunner, readable: bool) -> str:
+        """A fresh copy of the hidden checks for every run: nothing a candidate did in an earlier run survives."""
+        dest = runner.root(self.spec.params.get("hidden", {}).get("dest", "/opt/crucible-hidden"))
+        hidden = self.spec.params.get("hidden")
+        if not hidden:
+            return dest
+        src = self.ctx.host_seed(hidden["src"])
+        with tempfile.TemporaryDirectory() as d:
+            tar = Path(d) / "hidden.tar"
+            with tarfile.open(tar, "w") as tf:
+                for f in sorted(src.rglob("*")):
+                    if "__pycache__" not in f.parts:
+                        tf.add(f, arcname=str(f.relative_to(src)), recursive=False)
+            remote = f"/tmp/.crucible_hidden_{uuid.uuid4().hex[:8]}.tar"
+            await runner.exec.push_file(tar, remote)
+            q = shlex.quote(dest)
+            perms = f"chown -R 0:0 {q} && chmod -R u=rwX,go=rX {q}" if readable else f"chmod -R go-rwx {q}"
+            out = await runner.exec.run(f"rm -rf {q} && mkdir -p {q} && tar -xf {remote} -C {q} && rm -f {remote} && {perms}")
+            if not out.ok:
+                raise RuntimeError(f"cannot stage hidden checks: {out.stderr[-400:]}")
+        return dest
 
     async def stop(self) -> None:
         if self.runner is not None:
@@ -198,12 +222,20 @@ class CiApp(App):
         except SnapshotMismatch as e:  # sockets/devices/oversize files cannot be shipped to CI: the policy's problem
             raise ToolError(f"cannot send the code to CI: {str(e).split(': ', 1)[-1]}") from e
         lines, results = [], {}
-        hidden = runner.root(self.spec.params.get("hidden", {}).get("dest", "/opt/crucible-hidden"))
+        users = {self._check_user(all_checks[n], runner) for n in wanted}
+        hidden = await self._stage_hidden(runner, readable=any(u is not None for u in users))
+        for u in sorted(x for x in users if x is not None):  # unprivileged checks may build in the tree
+            await runner.exec.run(f"chown -R {shlex.quote(u)}:{shlex.quote(u)} {shlex.quote(root)}")
         for name in wanted:
             c = all_checks[name]
+            user = self._check_user(c, runner)
             cmd = c["cmd"].replace("{hidden}", hidden).replace("{root}", root)
-            out = await runner.exec.run(cmd, cwd=root, timeout_s=float(c.get("timeout_s", 1800)), user=c.get("user"))
-            status = "TIMEOUT" if out.timed_out else ("PASS" if out.rc == 0 else "FAIL")
+            out = await runner.exec.run(cmd, cwd=root, timeout_s=float(c.get("timeout_s", 1800)), user=user)
+            if user is not None:  # nothing the check started may outlive it (a daemon could fake the next run's result)
+                await runner.exec.run(f"python3 -c 'import os; os.setgid({int(user)}); os.setuid({int(user)}); os.kill(-1, 9)' 2>/dev/null; true"
+                                      if user.isdigit() else "true")
+            passed = out.rc == 0 and (not c.get("expect") or re.search(c["expect"], out.stdout + out.stderr) is not None)
+            status = "TIMEOUT" if out.timed_out else ("PASS" if passed else "FAIL")
             results[name] = status
             line = f"{name}: {status} ({out.duration_s:.1f}s)"
             if c.get("show_output") and status != "PASS":

@@ -312,8 +312,11 @@ class AgentEnvBackend(Backend):
             when = {"type": "time"}
             if w.at:
                 when["at"] = w.at
-            else:
-                when["at"] = f"PT{int(parse_duration(w.after or '0s').total_seconds())}S"
+            else:  # absolute: a relative mark would re-anchor to whatever time a restore sets the clock to
+                from crucible.world.clock import parse_time
+
+                t0 = parse_time(world.spec.clock.t0)
+                when["at"] = (t0 + parse_duration(w.after or "0s")).isoformat().replace("+00:00", "Z")
             if w.every:
                 when["every"] = f"PT{int(parse_duration(w.every).total_seconds())}S"
             if w.count:
@@ -367,6 +370,33 @@ class AgentEnvBackend(Backend):
         await self._refresh_allowed(world)
         self._acl_changed.clear()
 
+    async def _restore_triggers(self, snap: dict[str, Any]) -> None:
+        """Triggers as they stood in the snapshot: one-shots that had fired stay fired, bounded recurrences keep only
+        their remaining arrivals (from their next mark). agentenv has no import API, so the set is re-registered."""
+        assert self._trigger_body is not None
+        seen = {t["id"]: t for t in snap.get("triggers", [])}
+        keep = []
+        for t in self._trigger_body["triggers"]:
+            s = seen.get(t["id"], {})
+            fired = int(s.get("fire_count") or 0)
+            when = dict(t["when"])
+            recurring = bool(when.get("every")) or bool(when.get("repeat"))
+            if fired and not recurring:
+                continue
+            if when.get("count"):
+                left = int(when["count"]) - fired
+                if left <= 0:
+                    continue
+                when["count"] = left
+            if when.get("every") and fired and s.get("next_mark"):
+                when["at"] = s["next_mark"]
+            keep.append({**t, "when": when})
+        (await self.http.post("/triggers/clear")).raise_for_status()
+        if keep:
+            r = await self.http.post("/triggers/register", json={**self._trigger_body, "triggers": keep})
+            if r.status_code != 200:
+                raise RuntimeError(f"trigger restore failed: {r.text[:500]}")
+
     async def _deliver(self, payload: dict[str, Any]) -> None:
         world = self._world
         assert world is not None
@@ -385,14 +415,29 @@ class AgentEnvBackend(Backend):
         self._pending_responders.clear()
         await self._refresh_allowed(world)
 
+    async def _settled_trigger_state(self, settle_s: float = 15.0) -> dict[str, Any] | None:
+        """/triggers/state once no trigger is mid-fire (agentenv prompt_agent._fetch_settled_trigger_state): a snapshot
+        taken while an action is queued would restore a world in which it neither happened nor will happen."""
+        deadline = time.monotonic() + settle_s
+        while True:
+            r = await self.http.get("/triggers/state")
+            if r.status_code != 200:
+                return None
+            st = r.json()
+            busy = [t for t in st.get("triggers", []) if (t.get("status") in ("firing", "queued") or t.get("pending"))
+                    and not ((t.get("when") or {}).get("every") and not (t.get("when") or {}).get("count"))]  # unbounded recurrences never settle
+            if not busy or time.monotonic() > deadline:
+                return st
+            await asyncio.sleep(0.25)
+
     async def snapshot_state(self) -> dict[str, Any]:
         st: dict[str, Any] = {}
         r = await self.http.get("/clock/state")
         if r.status_code == 200:
             st["clock"] = r.json()
-        r = await self.http.get("/triggers/state")
-        if r.status_code == 200:
-            st["triggers"] = r.json()
+        trig = await self._settled_trigger_state()
+        if trig is not None:
+            st["triggers"] = trig
         for a in self._allowed:
             st.setdefault("allowed", {})[a] = sorted(self._allowed[a])
         return st
@@ -404,6 +449,8 @@ class AgentEnvBackend(Backend):
         clock = state.get("clock") or {}
         if clock.get("armed") and clock.get("virtual_time"):
             await self._set_clock(clock["virtual_time"], clock.get("virtual_seconds_per_real_second", 1))
+        if self._trigger_body is not None and state.get("triggers") is not None:
+            await self._restore_triggers(state["triggers"])
         # Role rules: restore exactly the allowed tool sets captured with the snapshot.
         for actor, names in (state.get("allowed") or {}).items():
             await self._toggle("disable", actor, "*")

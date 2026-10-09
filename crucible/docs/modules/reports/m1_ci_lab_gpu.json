@@ -1,7 +1,7 @@
 {
  "ci_base": {
-  "content": "CI run #1 of 4 (2 checks, 16s)\nstatic: FAIL (0.7s)\n51 texture/surface references remain\ngpu: PASS (0.4s)",
-  "seconds": 17.6
+  "content": "CI run #1 of 4 (2 checks, 21s)\nstatic: FAIL (0.6s)\n51 texture/surface references remain\ngpu: PASS (0.4s)",
+  "seconds": 21.8
  },
  "ci_history": {
   "history": [
@@ -27,8 +27,8 @@
   "runs": 2
  },
  "ci_oracle": {
-  "content": "CI run #2 of 4 (3 checks, 21s)\nstatic: PASS (0.6s)\ngpu: PASS (0.4s)\nconfigure: PASS (5.2s)",
-  "seconds": 21.5
+  "content": "CI run #2 of 4 (3 checks, 23s)\nstatic: PASS (0.7s)\ngpu: PASS (0.4s)\nconfigure: PASS (4.7s)",
+  "seconds": 23.4
  },
  "egress": {
   "isolated": true,
@@ -44,8 +44,8 @@
  },
  "policy_shell": "[exit 0]\nagent\nNVIDIA GeForce RTX 5090\nls: cannot access '/opt/crucible-hidden': No such file or directory\nls: cannot open directory '/var/lib/crucible': Permission denied\n",
  "runner_image": "task04-pcl-gpu-cuda12-verifier:v1",
- "start_s": 39.2,
- "total_s": 82.5,
+ "start_s": 51.6,
+ "total_s": 100.9,
  "virtual_time": "1970-01-01T00:00:00Z",
  "world": "coding/legacy_gpu_migration/task04_pcl_gpu_cuda12"
 }

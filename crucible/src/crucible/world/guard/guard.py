@@ -199,9 +199,15 @@ def run(a):
            "TERM": "dumb", **a.get("env", {})}
     stdin_data = a.get("stdin")
 
+    nproc = a.get("nproc")
+
     def demote():  # Karotte subprocess.py _demote(): new session, OOM victim first, drop every privilege
         os.setsid()
         _no_new_privs()
+        if nproc:  # below the container's pids limit: a fork bomb can never starve the harness of the pids to stop it
+            import resource
+
+            resource.setrlimit(resource.RLIMIT_NPROC, (int(nproc), int(nproc)))
         try:
             with open("/proc/self/oom_score_adj", "w") as f:
                 f.write("1000")
@@ -248,11 +254,12 @@ def run(a):
             if len(head) < OUT_CAP:
                 head += chunk[: OUT_CAP - len(head)]
             tails[fd] = (tails[fd] + chunk)[-8192:]
-    if timed_out:
-        try:
-            os.killpg(p.pid, signal.SIGKILL)  # the whole foreground session; leftovers die at quiesce
-        except ProcessLookupError:
-            pass
+    # The call is over: its process group goes with it (plain `cmd &` jobs, fork bombs). Deliberately detached work
+    # (setsid / nohup setsid) has left the group and lives until the next quiesce.
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
     rc = p.wait()
     detached = bool(open_fds) and not timed_out  # background jobs still hold the pipes; they live on until quiesce
     p.stdout.close()

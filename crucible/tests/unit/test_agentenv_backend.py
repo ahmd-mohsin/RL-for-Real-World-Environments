@@ -159,3 +159,34 @@ async def test_external_mcp_harness_drives_world_through_gateway(tmp_path: Path)
         assert (await w.verifier_view().query("erp", {"op": "get", "args": {"path": "/invoices"}})).value == {"INV-42": {"amount": 7}}
     finally:
         await w.close()
+
+
+async def test_agentenv_restore_keeps_fired_triggers_fired(tmp_path: Path):
+    """Snapshots taken after a one-shot time trigger fired restore it as fired (no second vendor reply), and the
+    permission trigger that is still due fires at its absolute instant after a restore."""
+    w = World(spec("wall"), store=Store(tmp_path / "store"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        await w.reset()
+        assert {"vendor_reply", "freeze"} <= w.backend.delegated_events()
+        await _until(lambda: any("CN-7" in m.text for m in w.inboxes["clerk"]), 8)  # fired at t0 + 1h (1 s real)
+        w.inboxes["clerk"].clear()
+        ref = await w.snapshot()
+        fired = {t["id"]: t["fire_count"] for t in ref.backend["triggers"]["triggers"]}
+        assert fired["vendor_reply"] == 1
+        await w.restore(ref)
+        state = (await w.backend.http.get("/triggers/state")).json()
+        ids = {t["id"] for t in state["triggers"]}
+        one_shots = {"vendor_reply", "freeze"}
+        assert ids == {i for i in fired if not (i in one_shots and fired[i])}  # fired one-shots stay fired, the rest stay armed
+        await asyncio.sleep(1.5)
+        assert not any("CN-7" in m.text for m in w.inboxes["clerk"])  # no duplicate delivery after the restore
+        if not fired["freeze"]:
+            await _until_async(lambda: _lacks(w, "clerk", "erp.create_resource"), 8)  # still due: fires at t0 + 2h
+    finally:
+        await w.close()
+
+
+async def _lacks(w: World, actor: str, tool: str) -> bool:
+    await w.backend._refresh_allowed(w)
+    return tool not in {t.qualified for t in w.backend.allowed_tools(actor)}

@@ -106,7 +106,8 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
     await root_exec.run(f"mkdir -p {STATE_DIR}/stage && chmod 700 {STATE_DIR}/stage")
     root_exec.python = f"{shlex.quote(guard.python)} -I -S"
     root_exec.staging_dir = f"{STATE_DIR}/stage"
-    policy_exec = PolicyExec(guard, uid, path=root_path or None)
+    nproc = max(16, iso.pids_limit - 64) if iso.pids_limit else None  # headroom for the harness under the container's limit
+    policy_exec = PolicyExec(guard, uid, path=root_path or None, nproc=nproc)
     for app in world.apps.values():
         app.ctx.extra["policy_exec"] = policy_exec
     out = Isolation(guard=guard, uid=uid, policy_exec=policy_exec, writable=writable, trusted_git=trusted, private=private, root_exec=root_exec)

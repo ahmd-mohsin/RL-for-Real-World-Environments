@@ -68,9 +68,10 @@ class PolicyExec(Exec):
 
     name = "policy"
 
-    def __init__(self, guard: Guard, uid: int, *, path: str | None = None):
+    def __init__(self, guard: Guard, uid: int, *, path: str | None = None, nproc: int | None = None):
         self.guard = guard
         self.uid = uid
+        self.nproc = nproc
         self.path = path  # the image's PATH (e.g. /usr/local/cuda/bin): the policy's own PATH is not a security boundary
         self.python = "python3"
 
@@ -81,6 +82,8 @@ class PolicyExec(Exec):
                     "stdin": stdin.decode("utf-8", "surrogateescape") if stdin is not None else None}
             if self.path:
                 args["path"] = self.path
+            if self.nproc:
+                args["nproc"] = self.nproc
             r = await self.guard.call("run", args, timeout_s=(timeout_s or 600) + 30)
         except GuardError as e:
             raise ExecError(str(e)) from e
