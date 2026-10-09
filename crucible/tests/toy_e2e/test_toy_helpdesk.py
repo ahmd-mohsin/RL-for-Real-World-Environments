@@ -7,16 +7,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from crucible_pack_toy import INSTRUCTION, PACK_ROOT, helpdesk_spec, responders
 
 from crucible.actors.policy import ScriptedPolicy, run_episode
 from crucible.core.schema.actions import Message, ToolCall
 from crucible.core.store import Store
 from crucible.world.world import World
-from crucible_pack_toy import INSTRUCTION, PACK_ROOT, helpdesk_spec, responders
 
 
 def oracle() -> list:
-    T = lambda i, f, a: ToolCall(tool_call_id=f"o{i}", function_name=f, arguments=a)  # noqa: E731
+    T = lambda i, f, a: ToolCall(tool_call_id=f"o{i}", function_name=f, arguments=a)
     return [
         T(1, "tickets.list_tickets", {}),
         T(2, "kb.read_doc", {"path": "refund_policy.md"}),

@@ -233,6 +233,6 @@ async def test_failed_start_tears_down(tmp_path):
         {"id": "db", "template": "common/sqlite_app", "state": {"adapter": "sql", "params": {"path": "x.db"}}, "params": {"tools_module": "missing.py"}}],
         "actors": [{"id": "agent", "kind": "policy", "tools": ["db.*"]}]})
     w = World(spec_bad, store=Store(tmp_path / "s"))
-    with pytest.raises(Exception):
+    with pytest.raises(FileNotFoundError, match="missing.py"):
         await w.start()
     assert not w.workdir.exists()  # close() ran and removed the world's scratch dir

@@ -72,7 +72,7 @@ class VersionedDocument(CrucibleModel):
     SCHEMA: ClassVar[str] = ""
     schema_version: str = ""
 
-    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+    def model_post_init(self, context: Any, /) -> None:
         if not self.schema_version:
             object.__setattr__(self, "schema_version", self.SCHEMA)
         name, _, version = self.schema_version.partition("/")

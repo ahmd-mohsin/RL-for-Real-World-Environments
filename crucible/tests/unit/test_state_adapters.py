@@ -102,7 +102,7 @@ async def test_fs_git_managed_set_and_git_diff(tmp_path):
     d = await ad.query(Query(op="git_diff", args={"ref": "base"}))
     assert d.ok and "untracked.cu" in d.stdout and "ported" in d.stdout
     # the real index is untouched by git_diff
-    st = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True).stdout
+    st = (await LocalExec().run("git status --porcelain", cwd=str(root))).stdout
     assert "?? untracked.cu" in st
     await ad.restore(ref0)
     assert not (root / "untracked.cu").exists() and (root / "src/a.cu").read_text() == "__global__ void k() {}\n"
@@ -192,13 +192,13 @@ async def test_fingerprints_identical_local_vs_linux_container(tmp_path):
     _db(db)
     store = Store(tmp_path / "store")
     name = f"crucible-test-{uuid.uuid4().hex[:8]}"
-    subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "python:3.12-slim", "sleep", "600"], check=True, capture_output=True)
+    host = LocalExec()
+    assert (await host.run(f"docker run -d --rm --name {name} python:3.12-slim sleep 600")).ok
     try:
         dx = DockerExec(name)
         r = await dx.run("apt-get -qq update >/dev/null 2>&1; apt-get -qq install -y git >/dev/null 2>&1; git --version", timeout_s=300)
         assert r.ok, r.stdout
-        subprocess.run(["docker", "cp", str(root), f"{name}:/work"], check=True)
-        subprocess.run(["docker", "cp", str(db), f"{name}:/s.db"], check=True)
+        assert (await host.run(f"docker cp {root} {name}:/work && docker cp {db} {name}:/s.db")).ok
         await dx.run("git config --global --add safe.directory '*'")
         local_fs = FsGitAdapter("repo", LocalExec(), {"root": str(root)}, store)
         ctr_fs = FsGitAdapter("repo", dx, {"root": "/work"}, store)
@@ -214,4 +214,4 @@ async def test_fingerprints_identical_local_vs_linux_container(tmp_path):
         dref = await ctr_db.snapshot()
         assert dref.fingerprint == (await local_db.snapshot()).fingerprint
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        await host.run(f"docker rm -f {name}")

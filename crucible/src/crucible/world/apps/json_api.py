@@ -59,20 +59,20 @@ class JsonApiApp(App):
             ToolSpec(app=self.id, name="delete_resource", description="Delete a resource.", input_schema={"type": "object", "properties": {"collection": s, "id": s}, "required": ["collection", "id"]}),
         ]
 
-    async def tool_list_resources(self, collection: str, filter: dict[str, Any] | None = None) -> Any:  # noqa: A002
+    async def tool_list_resources(self, collection: str, filter: dict[str, Any] | None = None) -> Any:
         col = self._check(await self._load(), collection, False)
         items = [{"id": k, **v} for k, v in sorted(col.items())]
         if filter:
             items = [x for x in items if all(x.get(k) == v for k, v in filter.items())]
         return items
 
-    async def tool_get_resource(self, collection: str, id: str) -> Any:  # noqa: A002
+    async def tool_get_resource(self, collection: str, id: str) -> Any:
         col = self._check(await self._load(), collection, False)
         if id not in col:
             raise ToolError(f"{collection}/{id} not found")
         return {"id": id, **col[id]}
 
-    async def tool_create_resource(self, collection: str, id: str, data: dict[str, Any]) -> Any:  # noqa: A002
+    async def tool_create_resource(self, collection: str, id: str, data: dict[str, Any]) -> Any:
         doc = await self._load()
         col = self._check(doc, collection, True)
         if id in col:
@@ -81,7 +81,7 @@ class JsonApiApp(App):
         await self._save(doc)
         return {"created": f"{collection}/{id}"}
 
-    async def tool_update_resource(self, collection: str, id: str, patch: dict[str, Any]) -> Any:  # noqa: A002
+    async def tool_update_resource(self, collection: str, id: str, patch: dict[str, Any]) -> Any:
         doc = await self._load()
         col = self._check(doc, collection, True)
         if id not in col:
@@ -90,7 +90,7 @@ class JsonApiApp(App):
         await self._save(doc)
         return {"id": id, **col[id]}
 
-    async def tool_delete_resource(self, collection: str, id: str) -> Any:  # noqa: A002
+    async def tool_delete_resource(self, collection: str, id: str) -> Any:
         doc = await self._load()
         col = self._check(doc, collection, True)
         if col.pop(id, None) is None:

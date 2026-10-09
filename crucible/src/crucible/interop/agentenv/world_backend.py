@@ -34,7 +34,7 @@ from crucible.core.schema.actions import Inbound, ToolResult, ToolSpec
 from crucible.core.schema.world import AppSpec, EventSpec
 from crucible.world.backends.base import Backend, BackendCapabilities, ToolRouter
 from crucible.world.clock import parse_duration
-from crucible.world.exec import Exec, LocalExec
+from crucible.world.exec import Exec, LocalExec, spawn_logged
 from crucible.world.packaging.app_server import AppMcpServer
 from crucible.world.packaging.sidecar import free_port
 
@@ -162,8 +162,7 @@ class AgentEnvBackend(Backend):
             "GATEWAY_MODE": self.params.get("gateway_mode", "consistent"),
             "GATEWAY_TRAJECTORY_FILE": str(self.workdir / "gateway_trajectory.jsonl"),
         }
-        log = open(self.workdir / "gateway.log", "ab")  # noqa: SIM115
-        self.gateway = await asyncio.create_subprocess_exec(sys.executable, "-m", "agent_env.env.gateway.entrypoint", env=env, stdout=log, stderr=log, start_new_session=True)
+        self.gateway = await spawn_logged(sys.executable, "-m", "agent_env.env.gateway.entrypoint", env=env, log=self.workdir / "gateway.log")
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             if self.gateway.returncode is not None:
@@ -189,12 +188,14 @@ class AgentEnvBackend(Backend):
             from mcp.client.session import ClientSession
             from mcp.client.streamable_http import streamable_http_client
 
-            async with httpx.AsyncClient(headers={ROLE_HEADER: EXECUTOR_ROLE}, timeout=None) as http:
-                async with streamable_http_client(f"{self.gateway_url}/mcp", http_client=http) as (r, w, _):
-                    async with ClientSession(r, w) as session:
-                        await session.initialize()
-                        ready.set()
-                        await self._keepalive_stop.wait()
+            async with (
+                httpx.AsyncClient(headers={ROLE_HEADER: EXECUTOR_ROLE}, timeout=None) as http,
+                streamable_http_client(f"{self.gateway_url}/mcp", http_client=http) as (r, w, _),
+                ClientSession(r, w) as session,
+            ):
+                await session.initialize()
+                ready.set()
+                await self._keepalive_stop.wait()
 
         self._keepalive = asyncio.create_task(hold())
         await asyncio.wait_for(ready.wait(), 30)

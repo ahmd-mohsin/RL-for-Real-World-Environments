@@ -31,7 +31,6 @@ import typing
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
-
 # 从函数体的 isinstance(param, T) 反推每个形参的期望类型(仅当无显式注解/默认值推不出时兜底)。
 # db_gen 生成的工具常无参数注解但用 isinstance(int/bool/list) 严格校验 → 若不据此定 schema,
 # FastMCP 会把无注解参数当 string,与函数体冲突(MCP 边界死结)。函数体 isinstance 是"body 到底收什么"

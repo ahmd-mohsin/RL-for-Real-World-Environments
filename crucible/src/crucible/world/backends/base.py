@@ -63,7 +63,7 @@ class Backend(ABC):
     def base_path(self, app: AppSpec) -> str:
         """Directory that relative App paths resolve against, inside the App's exec."""
 
-    async def after_apps_started(self, world: World) -> None:  # noqa: B027 - optional hook
+    async def after_apps_started(self, world: World) -> None:
         """Called once Apps are up (e.g. to start a gateway in front of their MCP servers)."""
 
     def router(self) -> ToolRouter | None:
@@ -76,13 +76,13 @@ class Backend(ABC):
     async def snapshot_state(self) -> dict[str, Any]:
         return {}
 
-    async def restore_state(self, state: dict[str, Any]) -> None:  # noqa: B027 - optional
+    async def restore_state(self, state: dict[str, Any]) -> None:
         pass
 
-    async def after_step(self, world: World) -> None:  # noqa: B027 - optional: import backend-side happenings
+    async def after_step(self, world: World) -> None:
         pass
 
-    async def on_reset(self, world: World) -> None:  # noqa: B027 - optional: fresh-episode hook (after state restore)
+    async def on_reset(self, world: World) -> None:
         pass
 
     async def quiesce(self) -> dict | None:

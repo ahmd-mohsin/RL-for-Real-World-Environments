@@ -3,16 +3,17 @@ while the defect is in the code and goes quiet once the code is fixed (no LLM)."
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+
+from crucible_pack_coding.reviewer import ReviewerActor
 
 from crucible.core.schema.actions import Message, ToolCall
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.trace import Record
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
+from crucible.world.exec import LocalExec
 from crucible.world.world import World
-from crucible_pack_coding.reviewer import ReviewerActor
 
 KERNEL = """__global__ void gather(const float* in, float* out, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -61,7 +62,7 @@ async def test_reviewer_actor_replays_recorded_feedback(tmp_path: Path):
             "path": "gpu/gather.cu", "old_string": "    out[i] = __ldg(&in[i + 1]);", "new_string": "    if (i + 1 < n) out[i] = __ldg(&in[i + 1]);"}))
         r = await w.step("agent", Message(to="reviewer", text="Fixed, please re-review."))
         assert r.observation.inbox[0].text == "I have no further comments based on my notes." and not r.observation.inbox[0].citations
-        log = subprocess.run(["git", "log", "--oneline"], cwd=w.workdir / "apps" / "repo", capture_output=True, text=True).stdout
+        log = (await LocalExec().run("git log --oneline", cwd=str(w.workdir / "apps" / "repo"))).stdout
         assert len(log.strip().splitlines()) == 1  # the reviewer only read; it never touched history
     finally:
         await w.close()

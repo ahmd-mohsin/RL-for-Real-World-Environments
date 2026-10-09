@@ -9,7 +9,7 @@ Postgres-backed Apps (agentenv ServiceDB) are reached through ``interop.agentenv
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.schema.state import QueryResult, RowChange, StateDiff, StateRef
 from crucible.world.state.base import SnapshotMismatch, StateAdapter, snippet
@@ -19,7 +19,7 @@ SQL_SNIPPET = snippet("sql")
 
 class SqliteAdapter(StateAdapter):
     kind = "sql"
-    OPS = {
+    OPS: ClassVar[dict[str, str]] = {
         "sql": "read-only SQL: {sql, params, max_rows}",
         "scalar": "first column of first row: {sql, params}",
         "count": "row count of a table, optional where: {table, where, params}",

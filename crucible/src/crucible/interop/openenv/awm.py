@@ -22,6 +22,7 @@ from typing import Any
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.core.schema.world import WorldSpec
 from crucible.world.apps.base import App
+from crucible.world.exec import spawn_logged
 from crucible.world.packaging.sidecar import McpClient, free_port, port_open
 
 DEFAULT_CACHE = Path(os.environ.get("AWM_DATA_DIR", "data/cache/awm"))
@@ -62,8 +63,7 @@ class AwmServiceApp(App):
         code = _patch_env_code(ld.get_env_code(self.scenario), os.path.abspath(self.state_params["path"]), "127.0.0.1", self.port)
         script = self.ctx.host_workdir / f"awm_{self.id}.py"
         script.write_text(code)
-        log = open(self.ctx.host_workdir / f"awm_{self.id}.log", "ab")  # noqa: SIM115
-        self.proc = await asyncio.create_subprocess_exec(sys.executable, str(script), stdout=log, stderr=log, start_new_session=True)
+        self.proc = await spawn_logged(sys.executable, str(script), log=self.ctx.host_workdir / f"awm_{self.id}.log")
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if self.proc.returncode is not None:

@@ -8,12 +8,12 @@ import shutil
 from pathlib import Path
 
 import pytest
+from crucible_pack_toy import PACK_ROOT
 
 from crucible.core.schema.actions import ToolCall
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
 from crucible.world.world import World
-from crucible_pack_toy import PACK_ROOT
 
 pytestmark = [pytest.mark.slow]
 if shutil.which("npx") is None:

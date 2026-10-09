@@ -78,10 +78,10 @@ def resolve_secret(value: str, *, search_from: Path | None = None) -> str:
     if not value.startswith("env:"):
         return value
     name = value[4:]
-    if name in os.environ and os.environ[name]:
+    if os.environ.get(name):
         return os.environ[name]
     env = _dotenv(search_from or Path.cwd())
-    if name in env and env[name]:
+    if env.get(name):
         return env[name]
     raise KeyError(f"secret {name} is not set (environment or .env)")
 

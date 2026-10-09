@@ -19,7 +19,7 @@ World), ``allow_tools``, ``package`` (pinned ``@playwright/mcp`` version), ``bro
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.ids import sha256_text
 from crucible.core.schema.state import StateDiff, StateRef
@@ -90,7 +90,7 @@ class BrowserApp(McpServerApp):
 
 class BrowserStateAdapter(StateAdapter):
     kind = "browser"
-    OPS = {"page": "current {url, cookie, storage}"}
+    OPS: ClassVar[dict[str, str]] = {"page": "current {url, cookie, storage}"}
 
     def __init__(self, app_id, exec_, params, store, *, app: BrowserApp | None = None):
         super().__init__(app_id, exec_, params, store)

@@ -9,7 +9,7 @@ deterministic commands whose outputs define the fingerprint; default none -> con
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.ids import sha256_text
 from crucible.core.schema.state import QueryResult, StateDiff, StateRef
@@ -18,7 +18,7 @@ from crucible.world.state.base import StateAdapter
 
 class ProcessAdapter(StateAdapter):
     kind = "process"
-    OPS = {
+    OPS: ClassVar[dict[str, str]] = {
         "run": "run a command: {cmd, cwd, timeout_s, env} -> exit code, stdout/stderr tails",
         "gpu": "nvidia-smi summary (name, memory, utilization, driver)",
         "which": "tool availability: {tools: [...]}",

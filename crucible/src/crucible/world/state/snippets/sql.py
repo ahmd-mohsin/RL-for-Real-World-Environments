@@ -71,7 +71,7 @@ def _dump(con, include, exclude, rows):
         outer.update(line.encode("utf-8"))
         outer.update(b"\n")
     for name in sorted(tables):
-        outer.update(f"{name}\0{tables[name]['rows_hash']}\n".encode("utf-8"))
+        outer.update(f"{name}\0{tables[name]['rows_hash']}\n".encode())
     return {"tables": tables, "fingerprint": outer.hexdigest()}
 
 

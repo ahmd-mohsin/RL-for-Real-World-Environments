@@ -114,7 +114,7 @@ class MailboxApp(App):
     async def tool_list_sent(self) -> Any:
         return await self._op(op="sent", who=self._addr(self._actor))
 
-    async def tool_read_email(self, id: int) -> Any:  # noqa: A002 - tool argument name
+    async def tool_read_email(self, id: int) -> Any:
         return await self._op(op="read", id=id, who=self._addr(self._actor))
 
     async def tool_search_email(self, query: str) -> Any:

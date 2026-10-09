@@ -23,6 +23,7 @@ import httpx
 from crucible.core.schema.actions import ToolSpec
 from crucible.world.apps.base import ToolError
 from crucible.world.apps.sqlite_app import SqliteApp
+from crucible.world.exec import spawn_logged
 from crucible.world.packaging.sidecar import free_port, port_open
 
 
@@ -46,11 +47,9 @@ class WebsiteApp(SqliteApp):
         site = self.ctx.host_seed(path)
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self.port = free_port()
-        log = open(self.ctx.host_workdir / f"site_{self.id}.log", "ab")  # noqa: SIM115
-        self.proc = await asyncio.create_subprocess_exec(
+        self.proc = await spawn_logged(
             sys.executable, "-m", "crucible.world.apps.website_runner", "--site", str(site), "--factory", factory or "create_app",
-            "--db", os.path.abspath(self.db_path), "--port", str(self.port),
-            stdout=log, stderr=log, start_new_session=True,
+            "--db", os.path.abspath(self.db_path), "--port", str(self.port), log=self.ctx.host_workdir / f"site_{self.id}.log",
         )
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:

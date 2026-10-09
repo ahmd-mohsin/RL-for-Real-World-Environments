@@ -37,7 +37,7 @@ def parse_duration(text: str) -> timedelta:
 
 
 def parse_time(text: str) -> datetime:
-    dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(text)  # 3.11+ accepts a trailing "Z"
     if dt.tzinfo is None:
         raise ValueError(f"time {text!r} must carry a timezone (RFC 3339)")
     return dt.astimezone(UTC)

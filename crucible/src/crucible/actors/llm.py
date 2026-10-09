@@ -116,7 +116,7 @@ class LLMClient:
             try:
                 resp = await self._openai().chat.completions.create(**kwargs)
                 break
-            except Exception as e:  # noqa: BLE001 - classify below
+            except Exception as e:
                 last = e
                 msg = str(e).lower()
                 if "402" in msg or "credit" in msg or "insufficient" in msg or "budget" in msg:

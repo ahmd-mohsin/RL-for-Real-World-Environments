@@ -101,7 +101,7 @@ class Registry:
                 fn(self)
             except RegistryError:
                 raise
-            except Exception as e:  # a broken plugin must not take the core down
+            except Exception as e:  # noqa: BLE001 - a broken plugin must not take the core down
                 logger.warning("crucible plugin %s failed to load: %s", ep.name, e)
 
 

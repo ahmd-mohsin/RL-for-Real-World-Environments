@@ -59,8 +59,9 @@ def task_show(path: Path) -> None:
 @cli.command()
 def seeds() -> None:
     """List the coding pack's seed tasks (MVP showcase)."""
-    from crucible.interop.harbor.task_io import load_crucible_task
     from crucible_pack_coding import seed_dirs
+
+    from crucible.interop.harbor.task_io import load_crucible_task
 
     for d in seed_dirs():
         t = load_crucible_task(d)

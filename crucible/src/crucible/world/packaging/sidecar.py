@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
+from crucible.world.exec import spawn_logged
 from crucible.world.packaging.mcp_tools import _content_text
 
 
@@ -48,11 +49,13 @@ class McpClient:
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamable_http_client
 
-        async with httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s, read=self.timeout_s * 5)) as http:
-            async with streamable_http_client(self.url, http_client=http) as (r, w, _):
-                async with ClientSession(r, w) as session:
-                    await session.initialize()
-                    yield session
+        async with (
+            httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s, read=self.timeout_s * 5)) as http,
+            streamable_http_client(self.url, http_client=http) as (r, w, _),
+            ClientSession(r, w) as session,
+        ):
+            await session.initialize()
+            yield session
 
     async def list_tools(self, app: str) -> list[ToolSpec]:
         async with self._session() as s:
@@ -69,7 +72,7 @@ class McpClient:
         try:
             async with self._session() as s:
                 res = await s.call_tool(name, args, read_timeout_seconds=timedelta(seconds=self.timeout_s))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - httpx, anyio and MCP errors all mean the same thing to the caller: the server is unreachable
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{name}", ok=False, content=f"transport error: {e}", error="transport", duration_s=time.monotonic() - t0)
         return ToolResult(
             tool_call_id=call_id,
@@ -101,13 +104,12 @@ class McpServerProcess:
     async def start(self, timeout_s: float = 60) -> None:
         if not self.port:
             self.port = free_port()
-        log = open(self.log_path, "ab") if self.log_path else asyncio.subprocess.DEVNULL  # noqa: SIM115
-        self.proc = await asyncio.create_subprocess_exec(
+        self.proc = await spawn_logged(
             sys.executable, "-m", "crucible._vendor.mimo_sidecar.mcp_http",
             "--tools-path", str(self.tools_path), "--server-name", self.name, "--port", str(self.port), "--host", self.host,
             cwd=str(self.cwd) if self.cwd else None,
             env={**os.environ, **self.env},
-            stdout=log, stderr=log, start_new_session=True,
+            log=self.log_path,
         )
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:

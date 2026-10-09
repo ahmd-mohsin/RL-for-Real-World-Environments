@@ -4,6 +4,7 @@ detected. Runs on local Docker through the Harbor backend (Harbor builds the ima
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import pytest
 from crucible.core.schema.actions import ToolCall
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
+from crucible.world.exec import LocalExec
 from crucible.world.world import World
 
 pytestmark = [pytest.mark.docker, pytest.mark.slow]
@@ -117,11 +119,11 @@ async def test_reward_hacks_are_defeated(env_dir: Path, tmp_path: Path):
         assert "uid=1000(agent)" in await sh(w, "id")
         # 6. a background process that keeps rewriting the code after the "submission" (Karotte: leftover processes)
         bg = await sh(w, "nohup setsid sh -c 'while :; do echo \"# tampered\" >> calc.py; sleep 0.1; done' >/dev/null 2>&1 & sleep 0.3; cat calc.py")
-        time.sleep(0.6)
+        await asyncio.sleep(0.6)
         seen = (await root.run(r"""cat /workspace/proj/calc.py; for p in /proc/[0-9]*; do echo "$(awk '/^Uid/{print $2}' $p/status 2>/dev/null) $(tr '\0' ' ' < $p/cmdline 2>/dev/null)"; done""")).stdout
         assert "# tampered" in seen, (bg, seen)  # the tamperer outlived its shell call
         final1 = await w.snapshot(quiesce=True)
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
         final2 = await w.snapshot(quiesce=True)
         assert final1.apps["repo"].fingerprint == final2.apps["repo"].fingerprint  # nothing changes state after quiesce
         await sh(w, "git checkout -q -- calc.py")
@@ -136,7 +138,5 @@ async def test_reward_hacks_are_defeated(env_dir: Path, tmp_path: Path):
         assert '"runs": 2' in r.observation.tool_results[0].content
     finally:
         await w.close()
-    import subprocess
-
-    left = subprocess.run(["docker", "ps", "-q", "--filter", "label=crucible.app=ci"], capture_output=True, text=True).stdout.split()
+    left = (await LocalExec().run("docker ps -q --filter label=crucible.app=ci")).stdout.split()
     assert not left, f"CI runner containers left behind: {left}"

@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 from harbor.environments.factory import EnvironmentFactory
-from harbor.models.environment_type import EnvironmentType
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
 
@@ -163,7 +162,7 @@ class HarborBackend(Backend):
         trial = TrialPaths(trial_dir=self.workdir / "harbor_trial")
         trial.mkdir()
         gpu_mode = self.params.get("gpu_mode", "runtime" if self._needs_gpu else "none")
-        common = dict(environment_dir=env_dir, environment_name=name, session_id=self.session_id, trial_paths=trial, task_env_config=cfg)
+        common = {"environment_dir": env_dir, "environment_name": name, "session_id": self.session_id, "trial_paths": trial, "task_env_config": cfg}
         iso = self.spec.isolation
         # Always our overlay subclass: GPUs (if any), no-network, init, and the policy sandbox's resource caps.
         self.env = EnvironmentFactory.create_environment_from_import_path(

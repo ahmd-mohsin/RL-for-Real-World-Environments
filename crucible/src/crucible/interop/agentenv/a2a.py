@@ -89,9 +89,9 @@ def make_relay_agent(deliver: Deliver) -> AgentEnvAgent:
             text = "".join(p.text for p in request.parts if isinstance(p, TextPart))
             try:
                 payload = json.loads(text)
-                if not isinstance(payload, dict):
-                    raise ValueError
             except ValueError:
+                payload = None
+            if not isinstance(payload, dict):  # plain text, or JSON that is not an envelope
                 payload = {"text": text}
             await deliver(payload)
             return TaskResult.builder().succeeded().add_text("delivered").build()

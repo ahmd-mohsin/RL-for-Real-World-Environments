@@ -1,9 +1,9 @@
 """CLI smoke tests (click runner)."""
 
 from click.testing import CliRunner
+from crucible_pack_coding import seed_dirs
 
 from crucible.cli.main import cli
-from crucible_pack_coding import seed_dirs
 
 
 def test_cli_registry_seeds_and_task_show():

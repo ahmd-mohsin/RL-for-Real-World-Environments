@@ -8,7 +8,7 @@ For ``fs_git`` the managed set is tracked + untracked-but-not-ignored files: bui
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.schema.state import FileChange, StateDiff, StateRef
 from crucible.world.state.base import SnapshotMismatch, StateAdapter, snippet
@@ -19,7 +19,7 @@ FS_SNIPPET = snippet("fs")
 class FsAdapter(StateAdapter):
     kind = "fs"
     GIT = False
-    OPS = {
+    OPS: ClassVar[dict[str, str]] = {
         "read": "read a file: {path, max_bytes}",
         "exists": "path exists: {path}",
         "list": "managed paths, optionally filtered by glob: {pattern}",
@@ -127,7 +127,7 @@ class FsAdapter(StateAdapter):
 class FsGitAdapter(FsAdapter):
     kind = "fs_git"
     GIT = True
-    OPS = {**FsAdapter.OPS, "git_diff": "git diff against a ref (default 'base'), excluding ignored files: {ref, stat}"}
+    OPS: ClassVar[dict[str, str]] = {**FsAdapter.OPS, "git_diff": "git diff against a ref (default 'base'), excluding ignored files: {ref, stat}"}
 
     async def q_git_diff(self, ref: str = "base", stat: bool = False) -> Any:
         from crucible.core.schema.state import QueryResult

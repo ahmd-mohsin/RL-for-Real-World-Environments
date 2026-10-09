@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import shlex
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.ids import sha256_text
 from crucible.core.schema.state import QueryResult, RowChange, StateDiff, StateRef
@@ -36,7 +36,7 @@ def _ident(s: str) -> str:
 
 class PostgresAdapter(StateAdapter):
     kind = "postgres"
-    OPS = {
+    OPS: ClassVar[dict[str, str]] = {
         "sql": "read-only SQL (runs in a READ ONLY transaction): {sql, max_rows} -> {columns, rows}",
         "scalar": "first column of first row: {sql}",
         "count": "row count: {table, where}",

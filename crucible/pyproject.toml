@@ -33,6 +33,7 @@ dev = [
   "pytest-asyncio>=0.24",
   "hypothesis>=6.100",
   "import-linter>=2.1",
+  "ruff>=0.16",
 ]
 
 [project.scripts]
@@ -67,6 +68,17 @@ harbor = { path = "../RL-Environments/06-frameworks-and-env-code/harbor-framewor
 agentenv-framework = { path = "../agentenv-framework", editable = true }
 agentenv-framework-protocol = { path = "../agentenv-framework/packages/agentenv-protocol", editable = true }
 verifiers = { path = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers", editable = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 200
+extend-exclude = [".playwright-mcp", "data/cache"]
+
+[tool.ruff.lint.per-file-ignores]
+# ported code is kept as close to upstream as possible (THIRD_PARTY.md); only our [crucible]-tagged lines change
+"src/crucible/_vendor/**" = ["BLE001", "SIM117", "EXE001", "FURB129", "F401"]
+# Repo2RLEnv leak patterns are kept verbatim, flags included
+"src/crucible/world/leaks.py" = ["FURB167"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

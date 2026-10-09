@@ -138,7 +138,7 @@ def _specials(root):
 
 def _in_git(root):
     try:
-        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "--is-inside-work-tree"], capture_output=True)
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "--is-inside-work-tree"], capture_output=True, check=False)
         return r.returncode == 0 and r.stdout.strip() == b"true"
     except FileNotFoundError:
         return False
@@ -231,7 +231,7 @@ def _fingerprint(entries):
 def _head(root, git):
     if not git:
         return None
-    r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "HEAD"], capture_output=True)
+    r = subprocess.run(["git", "-c", "safe.directory=*", "-C", root, "rev-parse", "HEAD"], capture_output=True, check=False)
     return r.stdout.decode().strip() if r.returncode == 0 else None
 
 
@@ -286,9 +286,8 @@ def pack(a):
                 ti.size = len(data)
                 tf.addfile(ti, io.BytesIO(data))
     raw = buf.getvalue()
-    with open(out, "wb") as f:
-        with gzip.GzipFile(filename="", fileobj=f, mode="wb", mtime=0, compresslevel=6) as gz:
-            gz.write(raw)
+    with open(out, "wb") as f, gzip.GzipFile(filename="", fileobj=f, mode="wb", mtime=0, compresslevel=6) as gz:
+        gz.write(raw)
     m["tar_bytes"] = os.path.getsize(out)
     return m
 

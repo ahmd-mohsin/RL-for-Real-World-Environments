@@ -35,7 +35,7 @@ class PostgresApp(App):
     def __init__(self, spec, ctx):
         super().__init__(spec, ctx)
         if not isinstance(self.state, PostgresAdapter):
-            raise ValueError(f"{self.id}: common/postgres_app needs state.adapter = postgres")
+            raise TypeError(f"{self.id}: common/postgres_app needs state.adapter = postgres")
         p = spec.params
         self.container = f"crucible-pg-{spec.id}-{uuid.uuid4().hex[:8]}"
         self.docker_host = p.get("docker_host")

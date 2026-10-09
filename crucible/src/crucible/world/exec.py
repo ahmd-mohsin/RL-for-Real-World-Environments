@@ -97,8 +97,22 @@ class Exec(ABC):
         finally:
             tmp.unlink(missing_ok=True)
 
-    async def close(self) -> None:  # noqa: B027 - optional hook
+    async def close(self) -> None:
         pass
+
+
+async def spawn_logged(*argv: str, log: Path | None, **kw: Any) -> asyncio.subprocess.Process:
+    """Start a long-running helper process (server, gateway) in its own session, stdout+stderr appended to ``log``.
+
+    The log is opened with ``os.open`` and the parent's descriptor is closed once the child holds it, so
+    servers started and stopped many times (sweeps, tests) do not leak file handles.
+    """
+    fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644) if log is not None else asyncio.subprocess.DEVNULL
+    try:
+        return await asyncio.create_subprocess_exec(*argv, stdout=fd, stderr=fd, start_new_session=True, **kw)
+    finally:
+        if log is not None:
+            os.close(fd)
 
 
 async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None) -> ExecOut:

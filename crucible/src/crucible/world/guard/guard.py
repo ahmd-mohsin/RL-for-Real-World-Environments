@@ -14,6 +14,7 @@ import json
 import os
 import pwd
 import select
+import shutil
 import signal
 import socket
 import stat
@@ -37,7 +38,7 @@ def _trusted(binary):
 
 
 def _run_root(argv, timeout=120):
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env={"PATH": SAFE_PATH, "LC_ALL": "C"})
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env={"PATH": SAFE_PATH, "LC_ALL": "C"}, check=False)
 
 
 # ----------------------------------------------------------------------------------------- setup
@@ -63,7 +64,8 @@ def setup(a):
         created = True
     for f in ("/etc/subuid", "/etc/subgid"):  # no user-namespace remapping around uid-based rules (Karotte)
         if os.path.exists(f):
-            lines = [ln for ln in open(f) if not (ln.startswith(user + ":") or ln.startswith(f"{uid}:"))]
+            with open(f) as fh:
+                lines = [ln for ln in fh if not ln.startswith((user + ":", f"{uid}:"))]
             with open(f, "w") as fh:
                 fh.writelines(lines)
     for path in a.get("writable", []):
@@ -127,7 +129,8 @@ def run(a):
         os.setuid(uid)
 
     t0 = time.monotonic()
-    p = subprocess.Popen(["/bin/bash", "-c", a["cmd"]], cwd=a.get("cwd") or pw.pw_dir, env=env, preexec_fn=demote,
+    # preexec_fn is safe here: the guard is a single-threaded short-lived process (Karotte does the same)
+    p = subprocess.Popen(["/bin/bash", "-c", a["cmd"]], cwd=a.get("cwd") or pw.pw_dir, env=env, preexec_fn=demote,  # noqa: PLW1509
                          stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if stdin_data is not None:
         try:
@@ -288,7 +291,7 @@ def audit(a):
         if dirpath.startswith(skip):
             dirnames[:] = []
             continue
-        if any(dirpath == r or dirpath.startswith(r + "/") for r in roots) or dirpath.startswith("/tmp") or dirpath.startswith("/var/tmp"):
+        if any(dirpath == r or dirpath.startswith(r + "/") for r in roots) or dirpath.startswith(("/tmp", "/var/tmp")):
             dirnames[:] = []
             continue
         for n in filenames + dirnames:
@@ -309,7 +312,7 @@ def audit(a):
 # ----------------------------------------------------------------------------------------- git history
 def _git(root, *args, check=True):
     r = subprocess.run([_trusted("git"), "-C", root, *args], capture_output=True, text=True, env={"PATH": SAFE_PATH, "LC_ALL": "C",
-                       "GIT_CONFIG_NOSYSTEM": "1", "HOME": "/root"}, timeout=600)
+                       "GIT_CONFIG_NOSYSTEM": "1", "HOME": "/root"}, timeout=600, check=False)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()[-400:]}")
     return r.stdout
@@ -334,7 +337,7 @@ def git_scrub(a):
     for f in ("FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "logs", "refs/original", "packed-refs"):
         p = os.path.join(gitdir, f)
         if os.path.isdir(p):
-            subprocess.run(["/bin/rm", "-rf", p])
+            shutil.rmtree(p)
         elif os.path.exists(p):
             os.unlink(p)
     _git(root, "reflog", "expire", "--expire=now", "--all", check=False)
@@ -353,7 +356,7 @@ def git_audit(a):
     unreachable = [ln for ln in _git(root, "fsck", "--unreachable", "--no-reflogs", "--no-progress", check=False).splitlines() if ln.startswith("unreachable")]
     present = []
     for sha in a.get("forbidden", []):
-        r = subprocess.run([_trusted("git"), "-C", root, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, env={"PATH": SAFE_PATH, "HOME": "/root"})
+        r = subprocess.run([_trusted("git"), "-C", root, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, env={"PATH": SAFE_PATH, "HOME": "/root"}, check=False)
         if r.returncode == 0:
             present.append(sha)
     remotes = _git(root, "remote").split()

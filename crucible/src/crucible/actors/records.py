@@ -9,6 +9,7 @@ Two rules make it safe for hindsight tasks:
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import re
@@ -22,9 +23,7 @@ from crucible.core.schema.trace import Record, Trace, records_from_trace
 
 _WORD = re.compile(r"[A-Za-z0-9_]+(?:[.\-][A-Za-z0-9_]+)*|[一-鿿]")
 STOP = frozenset(
-    "a an and are as at be been but by can could did do does for from had has have he her his i if in into is it its "
-    "may me my no not of on or our she so than that the their them then there these they this to too up us was we were "
-    "what when where which who will with would you your yes ok okay please thanks thank hi hello".split()
+    ["a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "had", "has", "have", "he", "her", "his", "i", "if", "in", "into", "is", "it", "its", "may", "me", "my", "no", "not", "of", "on", "or", "our", "she", "so", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this", "to", "too", "up", "us", "was", "we", "were", "what", "when", "where", "which", "who", "will", "with", "would", "you", "your", "yes", "ok", "okay", "please", "thanks", "thank", "hi", "hello"]
 )
 
 
@@ -42,7 +41,7 @@ def tokens(text: str) -> list[str]:
         out.append(t)
     # CJK bigrams so Chinese records retrieve on words, not single characters
     cjk = [t for t in out if len(t) == 1 and "一" <= t <= "鿿"]
-    out.extend(a + b for a, b in zip(cjk, cjk[1:], strict=False))
+    out.extend(a + b for a, b in itertools.pairwise(cjk))
     return out
 
 

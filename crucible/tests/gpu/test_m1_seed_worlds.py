@@ -25,8 +25,9 @@ pytestmark = [pytest.mark.gpu, pytest.mark.slow]
 if not os.environ.get("CRUCIBLE_GPU"):
     pytest.skip("set CRUCIBLE_GPU=1 to run GPU gates on the lab host", allow_module_level=True)
 
-from crucible.interop.harbor.task_io import load_crucible_task  # noqa: E402
-from crucible_pack_coding import seed_dirs  # noqa: E402
+from crucible_pack_coding import seed_dirs
+
+from crucible.interop.harbor.task_io import load_crucible_task
 
 REPORT = Path(__file__).resolve().parents[2] / "docs" / "modules" / "reports" / "m1_seed_worlds_gpu.json"
 SELECT = [s for s in os.environ.get("CRUCIBLE_SEEDS", "").split(",") if s]

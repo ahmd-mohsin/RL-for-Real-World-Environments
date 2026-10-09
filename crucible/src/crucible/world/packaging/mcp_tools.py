@@ -37,7 +37,8 @@ def _content_text(blocks: Any) -> str:
         if text is not None:
             parts.append(text)
         else:
-            parts.append(json.dumps(getattr(b, "model_dump", lambda: b)(), default=str))
+            dump = getattr(b, "model_dump", None)
+            parts.append(json.dumps(dump() if dump else b, default=str))
     return "\n".join(parts)
 
 
@@ -71,7 +72,7 @@ class InProcessToolModule:
             return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=f"Unknown tool: {name}", error="unknown_tool")
         try:
             result = await tool.run(args, convert_result=True)
-        except Exception as e:  # FastMCP surfaces tool exceptions as isError text; mirror that exactly
+        except Exception as e:  # noqa: BLE001 - FastMCP surfaces tool exceptions as isError text; mirror that exactly
             return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=str(e), error=type(e).__name__, duration_s=time.monotonic() - t0)
         unstructured = result[0] if isinstance(result, tuple) else result
         structured = result[1] if isinstance(result, tuple) and len(result) > 1 else None

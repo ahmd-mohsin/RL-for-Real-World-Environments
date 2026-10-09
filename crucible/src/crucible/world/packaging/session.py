@@ -61,9 +61,8 @@ class PersistentMcpSession:
             import httpx
             from mcp.client.streamable_http import streamable_http_client
 
-            async with httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s)) as http:
-                async with streamable_http_client(self.url, http_client=http) as (r, w, _):
-                    yield r, w
+            async with httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s)) as http, streamable_http_client(self.url, http_client=http) as (r, w, _):
+                yield r, w
 
     async def _run(self) -> None:
         from mcp.client.session import ClientSession

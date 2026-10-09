@@ -66,13 +66,13 @@ class App(ABC):
         self.state_params = params
 
     # ---- lifecycle ----
-    async def provision(self) -> None:  # noqa: B027 - optional: seed initial data (first start only)
+    async def provision(self) -> None:
         pass
 
-    async def start(self) -> None:  # noqa: B027 - optional: start servers
+    async def start(self) -> None:
         pass
 
-    async def stop(self) -> None:  # noqa: B027
+    async def stop(self) -> None:
         pass
 
     # ---- tools ----

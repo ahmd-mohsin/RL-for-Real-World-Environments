@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import tempfile
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, Self, runtime_checkable
 
 from crucible.core.ids import new_id, sha256_text
 from crucible.core.registry import get_registry
@@ -37,6 +38,8 @@ from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
 
 MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inbound batch
+
+logger = logging.getLogger(__name__)
 
 
 class WorldError(RuntimeError):
@@ -212,17 +215,17 @@ class World:
         for app in self.apps.values():
             try:
                 await app.stop()
-            except Exception:  # noqa: BLE001 - best effort on teardown
-                pass
+            except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent
+                logger.warning("world %s: stopping app %s failed: %s", self.spec.world, app.id, e)
         await self.backend.teardown()
         if self._own_workdir:
             shutil.rmtree(self.workdir, ignore_errors=True)
 
-    async def __aenter__(self) -> World:
+    async def __aenter__(self) -> Self:
         await self.start()
         return self
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         await self.close()
 
     def attach(self, responder: Responder) -> None:

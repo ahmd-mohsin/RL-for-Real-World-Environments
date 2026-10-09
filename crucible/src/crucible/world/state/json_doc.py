@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from crucible.core.ids import sha256_text
 from crucible.core.schema.state import StateDiff, StateRef
@@ -35,7 +35,7 @@ def _paths(obj: Any, prefix: str = "") -> dict[str, str]:
 
 class JsonDocAdapter(StateAdapter):
     kind = "json_doc"
-    OPS = {"get": "value at a /-separated path: {path}", "doc": "the whole document"}
+    OPS: ClassVar[dict[str, str]] = {"get": "value at a /-separated path: {path}", "doc": "the whole document"}
 
     async def _load(self) -> Any:
         try:
