@@ -152,11 +152,13 @@ class World:
                 host_workdir=self.workdir,
                 clock=self.clock,
                 pack_root=self.pack_root,
+                extra={"peers": self.apps},  # live dict: an App can reach peers started before it (e.g. a browser -> a website's URL)
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
         for app in self.apps.values():
             await app.provision()
-        await asyncio.gather(*(app.start() for app in self.apps.values()))
+        for app in self.apps.values():  # spec order: dependencies first (a browser after the sites it opens)
+            await app.start()
         for app_id, app in self.apps.items():
             self._tools[app_id] = await app.list_tools()
         await self.backend.after_apps_started(self)
@@ -320,6 +322,8 @@ class World:
 
     def _observe(self, actor: str, results: list[ToolResult], *, first: bool = False) -> Observation:
         inbox, self.inboxes[actor] = self.inboxes.get(actor, []), []
+        if self.spec.isolation.hide_citations:  # citations (record ids name repos / PRs) stay in the trace only
+            inbox = [m.model_copy(update={"citations": []}) if m.citations else m for m in inbox]
         send_tools = first or actor in self._acl_changed
         self._acl_changed.discard(actor)
         return Observation(
@@ -363,9 +367,14 @@ class World:
                     latency = getattr(responder, "reply_latency", None)
                     if latency and self.clock.mode == "step":
                         self.clock.advance(parse_duration(latency) if isinstance(latency, str) else timedelta(seconds=latency))
-                    self._log("message", actor_id, "message", text=a.text, data={"to": a.to, "citations": a.citations})
+                    text = a.text
+                    if self.spec.isolation.scrub_messages and a.to in {p.id for p in self.spec.policy_actors}:
+                        from crucible.world.leaks import scrub_text
+
+                        text = scrub_text(a.text) or "(no comment)"
+                    self._log("message", actor_id, "message", text=text, data={"to": a.to, "citations": a.citations, **({"unscrubbed": a.text} if text != a.text else {})})
                     # Replies are not re-dispatched to other responders here (no unbounded chains).
-                    self.inboxes.setdefault(a.to, []).append(Inbound(**{"from": actor_id, "text": a.text, "at": self._now(), "citations": a.citations}))
+                    self.inboxes.setdefault(a.to, []).append(Inbound(**{"from": actor_id, "text": text, "at": self._now(), "citations": a.citations}))
                 elif isinstance(a, Done):
                     self._log("action", actor_id, "done", text=a.reason)
             if not calls:

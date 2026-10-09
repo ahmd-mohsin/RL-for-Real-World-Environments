@@ -54,7 +54,8 @@ async def test_reviewer_actor_replays_recorded_feedback(tmp_path: Path):
         await w.reset()
         r = await w.step("agent", Message(to="reviewer", text="Please review my port."))
         reply = r.observation.inbox[0]
-        assert reply.text.startswith("gpu/gather.cu:3:") and "Guard the index" in reply.text and reply.citations == ["pcl#6012/c1"]
+        assert reply.text.startswith("gpu/gather.cu:3:") and "Guard the index" in reply.text and reply.citations == []
+        assert any(e.data.get("citations") == ["pcl#6012/c1"] for e in w.log if e.actor == "reviewer")
         assert w.clock.now_iso() >= "2026-03-01T11:00:00Z"  # reviews take virtual time (2h latency)
         await w.step("agent", ToolCall(tool_call_id="1", function_name="repo.edit_file", arguments={
             "path": "gpu/gather.cu", "old_string": "    out[i] = __ldg(&in[i + 1]);", "new_string": "    if (i + 1 < n) out[i] = __ldg(&in[i + 1]);"}))

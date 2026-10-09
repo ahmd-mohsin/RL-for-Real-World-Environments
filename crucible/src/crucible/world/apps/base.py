@@ -99,7 +99,7 @@ class App(ABC):
 def _json(x: Any) -> str:
     import json
 
-    return json.dumps(x, ensure_ascii=False, indent=1, default=str)
+    return json.dumps(x, ensure_ascii=False, indent=1, default=str)  # Decimal / datetime render exactly as text
 
 
 def confine(root: str, path: str) -> str:

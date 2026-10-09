@@ -1,0 +1,17 @@
+- generic [active] [ref=f1e1]:
+  - heading "Invoice INV-1003" [level=1] [ref=f1e2]
+  - paragraph [ref=f1e3]: "Vendor: Acme Parts"
+  - paragraph [ref=f1e4]: "Amount: 1200.50 USD"
+  - paragraph [ref=f1e5]: "Status: pending"
+  - paragraph [ref=f1e6]:
+    - link "All invoices" [ref=f1e7] [cursor=pointer]:
+      - /url: /
+  - generic [ref=f1e8]:
+    - text: Action
+    - combobox "Action" [ref=f1e9]:
+      - option "--" [selected]
+      - option "Approve"
+      - option "Dispute"
+    - text: Note
+    - textbox "Note" [ref=f1e10]
+    - button "Submit" [ref=f1e11]

@@ -104,7 +104,9 @@ async def test_actors_in_world_and_snapshot(tmp_path: Path):
         await w.reset()
         await w.step("agent", ToolCall(tool_call_id="1", function_name="erp.create_resource", arguments={"collection": "orders", "id": "O7", "data": {"status": "shipped"}}))
         r = await w.step("agent", Message(to="reviewer", text="Any concerns about the out of range texture fetch?"))
-        assert "garbage past the end" in r.observation.inbox[0].text and r.observation.inbox[0].citations == ["pr1#3"]
+        assert "garbage past the end" in r.observation.inbox[0].text
+        assert r.observation.inbox[0].citations == []  # record ids never reach the policy ...
+        assert any(e.data.get("citations") == ["pr1#3"] for e in w.log if e.actor == "reviewer")  # ... but stay in the trace
         assert w.clock.now_iso() >= "2026-03-01T09:30:00Z"  # reviewer reply latency advanced virtual time
         r = await w.step("agent", Message(to="reviewer", text="What is our policy on cafeteria menus?"))
         assert r.observation.inbox[0].text == NO_RECORD

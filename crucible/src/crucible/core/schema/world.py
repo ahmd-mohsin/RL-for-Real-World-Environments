@@ -144,6 +144,31 @@ class PolicyDoc(CrucibleModel):
     applies_to: list[str] = Field(default_factory=list)  # actor ids
 
 
+class IsolationSpec(CrucibleModel):
+    """How the World protects itself from the policy (DESIGN P17; Karotte / Repo2RLEnv lessons).
+
+    - ``scrub_messages``: simulated actors' replies to policy actors are scrubbed of fix pointers
+      (PR / issue / commit / CVE ids, code-host URLs, "fixed in vX") before delivery;
+    - ``hide_citations``: record ids cited by grounded actors (they name repos and PRs) stay in the trace,
+      never in the policy's observation;
+    - ``policy_user``: container backends run every policy tool as this unprivileged user (created at
+      provision); root-only paths stay unreadable, and verifier operations stay root-side;
+    - ``quiesce``: before any snapshot or verification, kill every process the policy user left behind;
+    - ``egress_probe``: for ``no-network`` / ``allowlist`` worlds, refuse to start if the policy user can
+      reach the internet (Karotte's self-test);
+    - ``pids_limit`` / ``memory``: resource caps for the policy's sandbox (fork bombs, memory floods).
+    """
+
+    scrub_messages: bool = True
+    hide_citations: bool = True
+    policy_user: str | None = None
+    policy_uid: int = 1000
+    quiesce: bool = True
+    egress_probe: bool = True
+    pids_limit: int | None = 4096
+    memory: str | None = None
+
+
 class WorldSpec(VersionedDocument):
     SCHEMA = "crucible.world/v1"
     world: str  # "<pack>/<name>"
@@ -156,6 +181,8 @@ class WorldSpec(VersionedDocument):
     events: list[EventSpec] = Field(default_factory=list)
     policies: list[PolicyDoc] = Field(default_factory=list)
     network: Literal["no-network", "public", "allowlist"] = "no-network"
+    allowed_hosts: list[str] = Field(default_factory=list)  # network == "allowlist" (e.g. the model API)
+    isolation: IsolationSpec = Field(default_factory=IsolationSpec)
     seed: int = 0
 
     @model_validator(mode="after")
