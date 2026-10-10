@@ -69,7 +69,7 @@ The corpus audit's ten picks:
 - EnterpriseOps-Gym (new `interop/eog`);
 - ✅ verifiers v1 import (any v1 env runs its own episode on Crucible engines; tau2/tau3 need the upstream repo + a user-sim model, BrowseComp-Plus its corpus); v0 import open;
 - ✅ NeMo-Gym import (workplace_assistant, ruler/mrcr; math needs a judge server);
-- OpenEnv two-player games as multi-agent;
+- ✅ OpenEnv two-player games as multi-agent (connect4; seats, turns, per-seat rewards);
 - geoguesser (vision); browsergym (GUI);
 - the AWM grader (G12).
 

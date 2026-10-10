@@ -1120,6 +1120,26 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**E: two-player OpenEnv games as multi-agent Worlds (2026-10-10; audit 03 pick 8).** The OpenEnv importer had a single
+`agent` actor.
+
+- **Seats:** `OpenEnvTask(players=[...], turn_from=..., turn_map=...)` makes every seat a policy actor.
+  - The App tracks whose move it is from each observation's metadata (connect4: `next_player`), after reset, every
+    step and every replay.
+  - A call from another seat is refused (`not_your_turn`, a policy fault, never executed or journaled), and the
+    journal records each step's mover.
+- **Game end:** `ToolResult.ends_for` lets a terminal observation end every seat, not only the mover.
+- **Rewards:** `actor_rewards(journal)` attributes the outcome per seat. With `zero_sum`, the terminal reward goes to its
+  mover and its negation to the others; otherwise each seat sums its own step rewards. The grade's check details carry
+  it.
+- **Test** (in the OpenEnv env), 100 seeded connect4 games of random legal moves, with two scripted seats in
+  `run_episode` round robin:
+  - final reward and termination equal the native environment's;
+  - movers alternate in the journal, and the game's end ends both seats;
+  - per-seat rewards are zero-sum, with the winning mover +1;
+  - an out-of-turn first move by p2 is refused;
+  - a mid-game restore replays with verified digests and restores whose turn it is.
+
 **E: verifiers v1 import (2026-10-10; audit 03 G6, pick 6).** Rather than port each v1 environment's internals,
 Crucible lets verifiers run its own episode (harness, toolsets, user simulator, `@reward` rubric) unchanged in its own
 Python (`crucible/.envs/verifiers`), and supplies only the model.

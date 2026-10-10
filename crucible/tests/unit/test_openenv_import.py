@@ -92,3 +92,9 @@ def test_openenv_catalog_native_equals_imported(tmp_path):
     """OpenEnv's grid_world, connect4, maze and wildfire through the importer: native rewards and termination, bare
     ``reset()`` signatures handled, a stochastic simulation restored mid-episode by replay."""
     _case("openenv_catalog", tmp_path)
+
+
+def test_two_player_games_are_multi_agent_worlds(tmp_path):
+    """connect4 with two policy seats: 100 seeded games equal to the native environment, per-seat zero-sum rewards, turn
+    enforcement, both seats ended at game over, restore replays (m13 E pick 8)."""
+    _case("two_player", tmp_path)

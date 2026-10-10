@@ -97,6 +97,7 @@ class ToolResult(CrucibleModel):
     # the environment ended the episode with this call (an OpenEnv / Gym ``done``: a final answer, a step budget); the
     # World marks the calling actor done, exactly as if it had sent ``Done``
     ends_episode: bool = False
+    ends_for: list[str] | None = None  # actors the termination applies to (default: the caller); a finished game ends every seat
     images: list[ImageRef] = Field(default_factory=list)  # image outputs (vision environments); text stays in ``content``
 
 

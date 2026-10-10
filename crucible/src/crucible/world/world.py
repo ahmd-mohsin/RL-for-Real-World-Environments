@@ -447,8 +447,10 @@ class World:
             self._log("observation", actor, "tool_result", text=res.content, data=data)
             await self._run_fired(self.scheduler.on_tool(res.function_name, actor))
             if res.ends_episode:  # the environment terminated the episode (imported OpenEnv / Gym environments)
-                self.done.add(actor)
-                self._log("action", actor, "done", text="environment_terminal")
+                for a in res.ends_for or [actor]:
+                    if a not in self.done:
+                        self.done.add(a)
+                        self._log("action", a, "done", text="environment_terminal")
         elif isinstance(action, Message):
             await self._send(actor, action)
         elif isinstance(action, Done):

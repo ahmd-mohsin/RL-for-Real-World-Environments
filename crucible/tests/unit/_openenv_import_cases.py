@@ -352,8 +352,68 @@ async def openenv_catalog(d: Path) -> None:
             await w.close()
 
 
+async def two_player(d: Path) -> None:
+    """m13 E pick 8: connect4 as a true two-player World. 100 seeded games of random legal moves: the imported reward and
+    termination equal the native environment's; the outcome is attributed per seat (zero-sum, the winning mover +1); an
+    out-of-turn move is refused and never executed; the game's end stops both seats; a mid-game restore replays."""
+    import random
+
+    from crucible.actors.policy import EpisodeLimits, ScriptedPolicy, run_episode
+    from crucible.interop.openenv.import_env import OpenEnvTask, load
+
+    sys.path.insert(0, str(OPENENV_ENVS))
+    fac, act, _ = CATALOG["connect4"]
+    wins = 0
+    for seed in range(100):
+        rng = random.Random(seed)
+        env = load(fac)()
+        o = env.reset()
+        moves = []
+        while True:
+            c = rng.choice(o.legal_actions)
+            moves.append(c)
+            o = env.step(load(act).model_validate({"column": c}))
+            if o.done:
+                break
+        native_reward, mover = float(o.reward), ("p1" if len(moves) % 2 == 1 else "p2")
+        t = OpenEnvTask("openenv/connect4/duel@1", fac, action_cls=act, players=["p1", "p2"], turn_map={1: "p1", -1: "p2"}, reward_range=(-1.0, 1.0))
+        w = await t.open(d / f"g{seed}")
+        try:
+            if seed == 0:  # p2 cannot move first: refused, nothing executed or journaled
+                r = await w.step("p2", tc(0, "step", {"column": 3}))
+                assert r.observation.tool_results[0].error == "not_your_turn" and not w.apps["env"].journal["steps"]
+            pol = {"p1": ScriptedPolicy("p1", [tc(i, "step", {"column": c}) for i, c in enumerate(moves[0::2])]),
+                   "p2": ScriptedPolicy("p2", [tc(i, "step", {"column": c}) for i, c in enumerate(moves[1::2])])}
+            ep = await run_episode(w, pol, limits=EpisodeLimits(max_steps=60), reset=False)
+            j = w.apps["env"].journal
+            assert j["done"] and j["final_reward"] == native_reward and len(j["steps"]) == len(moves), (seed, j["final_reward"], native_reward)
+            assert [s_["actor"] for s_ in j["steps"]] == [("p1" if i % 2 == 0 else "p2") for i in range(len(moves))]
+            assert w.done == {"p1", "p2"} and ep.done  # the game's end ends both seats
+            ar = t.actor_rewards(j)
+            assert ar[mover] == native_reward and ar["p2" if mover == "p1" else "p1"] == -native_reward
+            wins += native_reward == 1.0
+            rep = await t.grade(w, d / f"grade{seed}")
+            assert next(c for c in rep.checks if c.id == "env_reward").detail["actor_rewards"] == ar  # the grade carries the per-seat outcome
+        finally:
+            await w.close()
+    assert wins > 50  # random play mostly ends in a win, not a draw
+    t = OpenEnvTask("openenv/connect4/duel@1", fac, action_cls=act, players=["p1", "p2"], turn_map={1: "p1", -1: "p2"})
+    w = await t.open(d / "restore")
+    try:
+        for i, (who, c) in enumerate([("p1", 3), ("p2", 3), ("p1", 4)]):
+            await w.step(who, tc(i, "step", {"column": c}))
+        ref = await w.snapshot()
+        await w.step("p2", tc(9, "step", {"column": 0}))
+        await w.restore(ref)  # replay of the journal, digests verified; the turn is p2's again
+        assert len(w.apps["env"].journal["steps"]) == 3 and w.apps["env"].turn == "p2"
+        r = await w.step("p1", tc(10, "step", {"column": 0}))
+        assert r.observation.tool_results[0].error == "not_your_turn"
+    finally:
+        await w.close()
+
+
 CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime, mcp_image_clock_seed,
-                                 openenv_catalog)}
+                                 openenv_catalog, two_player)}
 
 if __name__ == "__main__":
     asyncio.run(CASES[sys.argv[1]](Path(sys.argv[2])))

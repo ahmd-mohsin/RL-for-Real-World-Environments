@@ -29,6 +29,13 @@ non-deterministic environment and raises ``SnapshotMismatch`` (never silently a 
 done). OpenEnv environments end themselves (a final answer, a step budget); Crucible Worlds otherwise end on the
 policy's ``Done``.
 
+**Multi-agent** (two-player games: connect4, chess, textarena; m13 E pick 8): ``players`` (seat order) makes every seat a
+policy actor of the World. ``turn_from`` (a dotted metadata path, default ``next_player``) and ``turn_map`` ({value:
+actor}) say whose move it is after each observation; a call from any other seat is refused (``not_your_turn``, a policy
+fault, never executed or journaled), and the journal records each step's mover. A terminal observation ends every seat
+(``ToolResult.ends_for``). ``OpenEnvTask.actor_rewards`` attributes the outcome per seat: the terminal step's reward to its
+mover and, with ``zero_sum`` (default), its negation to the others.
+
 **Reward** (``OpenEnvTask.grade``): one score gate over the journal. The environment's reward (its rubric's value on
 the terminal step, ``reward_mode="last"``, or the sum of step rewards, ``"sum"``) normalized by ``reward_range``. An
 episode that never terminated (the policy stopped without a final answer) scores 0: a policy outcome, never a mask
@@ -146,6 +153,7 @@ class OpenEnvApp(App):
         self._tools: list[ToolSpec] = []
         self.journal: dict = {}
         self.reset_observation: Any = None
+        self.turn: str | None = None  # multi-agent: the seat whose move it is
 
     # ---- lifecycle --------------------------------------------------------------------------------------------
     def _reset_kwargs(self) -> dict:
@@ -181,7 +189,22 @@ class OpenEnvApp(App):
         self.mcp = isinstance(self.env, MCPEnvironment)
         obs = await _call(self.env, "reset", **self._reset_kwargs())
         self.reset_observation = obs
+        self._update_turn(obs)
         return obs
+
+    def _players(self) -> list[str]:
+        return list(self.spec.params.get("players") or [])
+
+    def _update_turn(self, obs: Any) -> None:
+        players = self._players()
+        if not players:
+            return
+        node: Any = getattr(obs, "metadata", None) or {}
+        for part in str(self.spec.params.get("turn_from") or "next_player").split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        tmap = {str(k): v for k, v in (self.spec.params.get("turn_map") or {}).items()} or {"1": players[0], "-1": players[-1]}
+        if node is not None and str(node) in tmap:
+            self.turn = tmap[str(node)]
 
     async def start(self) -> None:
         obs = await self._fresh()
@@ -233,6 +256,7 @@ class OpenEnvApp(App):
             raise SnapshotMismatch(f"{self.id}: the environment's reset observation changed (non-deterministic reset)")
         for i, s in enumerate(doc["steps"]):
             obs, text, _, _ = await self._issue(s["tool"], s["args"])
+            self._update_turn(obs)
             if self._step_digest(obs, text) != s["digest"]:
                 raise SnapshotMismatch(f"{self.id}: replayed step {i} ({s['tool']}) gave a different result: the environment is not deterministic")
         self.journal = doc
@@ -275,14 +299,19 @@ class OpenEnvApp(App):
         q = f"{self.id}.{name}"
         if name not in {t.name for t in self._tools}:
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=f"Unknown tool: {name}", error="unknown_tool")
+        ends_for = self._players() or None
         if self.journal.get("done"):
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content="The episode is over.", error="episode_over", fault="policy",
-                              ends_episode=True)
+                              ends_episode=True, ends_for=ends_for)
+        if ends_for and self.turn is not None and actor != self.turn:  # not this seat's move: refused, never executed
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=f"It is not your turn ({self.turn} to move).", error="not_your_turn",
+                              fault="policy")
         obs, text, reward, done = await self._issue(name, args)
+        self._update_turn(obs)
         self._sim_time(obs)
         err = getattr(obs, "error", None)
         images = [self.image(b, mime) for b, mime in self._images(obs)]
-        self.journal["steps"].append({"tool": name, "args": args, "digest": self._step_digest(obs, text), "text": text[:TEXT_CAP], "reward": reward, "done": done,
+        self.journal["steps"].append({"tool": name, "args": args, "actor": actor, "digest": self._step_digest(obs, text), "text": text[:TEXT_CAP], "reward": reward, "done": done,
                                       **({"images": [i.ref for i in images]} if images else {})})
         self.journal["rewards"].append(reward)
         if done:
@@ -292,10 +321,12 @@ class OpenEnvApp(App):
         await self._write()
         if err is not None:
             fault = {"invalid_args": "policy", "tool_not_found": "policy", "execution_error": "tool"}.get(err.error_type.value, "infra")
-            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=err.error_type.value, fault=fault, ends_episode=done)
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=err.error_type.value, fault=fault, ends_episode=done,
+                              ends_for=ends_for)
         if self.mcp and _is_error(obs.result):
-            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error="tool_error", fault="tool", ends_episode=done)
-        return ToolResult(tool_call_id=call_id, function_name=q, ok=True, content=text, data={"reward": reward, "done": done}, ends_episode=done, images=images)
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error="tool_error", fault="tool", ends_episode=done, ends_for=ends_for)
+        return ToolResult(tool_call_id=call_id, function_name=q, ok=True, content=text, data={"reward": reward, "done": done}, ends_episode=done, images=images,
+                          ends_for=ends_for)
 
 
 # ---- the RunTask ----------------------------------------------------------------------------------------------
@@ -313,7 +344,8 @@ class OpenEnvTask:
                  instruction: str | Callable[[Any], str] = "", action_cls: str | None = None, allow_tools: Sequence[str] | None = None,
                  show_metadata: bool = False, reward_range: tuple[float, float] = (0.0, 1.0), reward_mode: str = "last",
                  progress: dict[str, Callable[[dict], bool]] | None = None, tool_timeout_s: float = 120.0, tool_quota: dict[str, int] | None = None,
-                 clock: dict | None = None, clock_from: str | None = None, seed: int = 0, events: Sequence[dict] | None = None):
+                 clock: dict | None = None, clock_from: str | None = None, seed: int = 0, events: Sequence[dict] | None = None,
+                 players: Sequence[str] | None = None, turn_from: str | None = None, turn_map: dict | None = None, zero_sum: bool = True):
         if reward_mode not in ("last", "sum"):
             raise ValueError("reward_mode: 'last' | 'sum'")
         self.id, self.world_id, self.app = id, f"openenv/{id.split('/')[1] if '/' in id else id}", app
@@ -325,6 +357,13 @@ class OpenEnvTask:
         self.instruction, self.reward_range, self.reward_mode = instruction, reward_range, reward_mode
         if clock_from:
             self.params["clock_from"] = clock_from
+        self.players, self.zero_sum = list(players or []), zero_sum
+        if self.players:
+            self.params["players"] = self.players
+            if turn_from:
+                self.params["turn_from"] = turn_from
+            if turn_map:
+                self.params["turn_map"] = {str(k): v for k, v in turn_map.items()}
         self.progress = progress or {}
         self.tool_timeout_s, self.tool_quota, self.clock, self.seed = tool_timeout_s, dict(tool_quota or {}), clock, seed
         self.events = list(events or [])  # World events over the imported environment (disruptions, deadlines, messages)
@@ -339,7 +378,23 @@ class OpenEnvTask:
                                          "apps": [{"id": self.app, "template": "openenv/env",
                                                    "state": {"adapter": "json_doc", "params": {"path": str(Path(workdir).resolve() / "openenv" / "journal.json")}},
                                                    "params": self.params}],
-                                         "actors": [{"id": "agent", "kind": "policy", "tools": [f"{self.app}.*"]}]})
+                                         "actors": [{"id": a, "kind": "policy", "tools": [f"{self.app}.*"]} for a in (self.players or ["agent"])]})
+
+    def actor_rewards(self, j: dict) -> dict[str, float]:
+        """Per-seat outcome: the terminal step's reward to its mover, its negation to the other seats (``zero_sum``), or
+        each seat's own step rewards summed (not zero-sum). Seats get 0 while the game is unfinished."""
+        players = self.players or ["agent"]
+        out = {a: 0.0 for a in players}
+        steps = j.get("steps") or []
+        if not j.get("done") or not steps:
+            return out
+        if self.zero_sum:
+            mover, r = steps[-1].get("actor") or players[0], float(j.get("final_reward") or 0.0)
+            return {a: (r if a == mover else -r) for a in players}
+        for s_ in steps:
+            if s_.get("actor") in out:
+                out[s_["actor"]] += float(s_.get("reward") or 0.0)
+        return out
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
@@ -350,7 +405,7 @@ class OpenEnvTask:
         await w.start()
         app = w.apps[self.app]
         text = self.instruction(app.reset_observation) if callable(self.instruction) else self.instruction
-        await w.reset(instructions={"agent": text})
+        await w.reset(instructions={a: (text if isinstance(text, str) else text[a]) for a in (self.players or ["agent"])})
         return w
 
     # ---- grading ----------------------------------------------------------------------------------------------
@@ -377,7 +432,8 @@ class OpenEnvTask:
             if r is None:
                 return Verdict(False, {"reason": "the episode never terminated (no final answer): scored 0", "steps": len(j.get("steps", []))})
             norm = min(1.0, max(0.0, (r - lo) / (hi - lo))) if hi > lo else float(r > lo)
-            return Verdict(True, {"score": r, "normalized": norm, "normalized_reward": norm, "steps": len(j.get("steps", []))})
+            return Verdict(True, {"score": r, "normalized": norm, "normalized_reward": norm, "steps": len(j.get("steps", [])),
+                                  **({"actor_rewards": self.actor_rewards(j)} if self.players else {})})
 
         return Plan(self.id, [Gate("env_reward", kind="score", description="the OpenEnv environment's own reward")],
                     [Check("env_reward", "env_reward", env_reward, tier="fast", provenance="openenv:rubric")])
