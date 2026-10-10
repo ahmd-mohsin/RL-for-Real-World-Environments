@@ -1120,6 +1120,37 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-7 (2026-10-10): context strategies, compaction as an action, thinking-history modes (A2-46..48).**
+- **Strategies (`ContextConfig.strategy`, mode `compact`):** each keeps system + task verbatim and starts a new segment
+  recorded with its `strategy`.
+  - `summary`: the policy writes the summary, a recorded, trained call (as before).
+  - `keep_recent`: GLM, the last k turns; no model call.
+  - `discard_all`: system + task + a note.
+  - `tiered`: HCM. Older tool outputs shrink to `tier_tool_chars` first (`tiered:shrink`), with a summary only if still
+    over (`tiered:summary`).
+  - `hybrid`: LongCat. `hybrid_summaries` summaries, then discard-all keeping the latest summary.
+- **Compaction as a policy action (`mode="action"`, MiniMax):** the policy gets a `context_compact(summary,
+  keep_recent_turns)` tool and compacts only when it chooses to; there is no automatic trigger.
+  - The summary is that call's own output, so the call is recorded as `kind="compaction"` and trains with the episode
+    advantage, with no extra LLM call.
+  - Other tool calls in the same reply are not executed.
+  - More than two compactions in a row without acting ends the episode as `too_many_compactions`.
+- **Thinking history (`EngineLLM(thinking=...)`):**
+  - `preserved` extends token for token. `interleaved` extends inside a tool loop and re-renders the history when a
+    new user message arrives (the deployed template drops earlier reasoning there). `strip` re-renders every call.
+  - The codec probes its own template (`thinking_behaviour()`: Qwen3 = interleaved, Qwen2.5 and the byte codec =
+    preserved). A mode the template does not implement is refused, because training contexts would then differ from
+    deployment.
+  - A re-render is marked `new_segment` on the call's token record, and the policy starts a segment
+    (`strategy="rerender"`). Exact TITO therefore holds within every segment.
+- **Tests:**
+  - each strategy on a scripted transcript: what is kept, whether a model call happened, the segment and its strategy;
+  - hybrid discards after its summaries and keeps the latest one; tiered falls back to a summary;
+  - action mode: no automatic trigger even far over budget, the compaction call is recorded and segmented, the next
+    call sees the summary instead of the history; repeated compaction stops;
+  - template probing and refusal;
+  - interleaved on Qwen3: the tool loop extends exactly, and a user turn re-renders into a new segment.
+
 **C-6 (2026-10-10): multi-domain runtime (A2-53..55).**
 - **Per-source maps:** `Runtime` used to take one `rollout_fn`, one `reward_fn` and one harness. Now `env_factory`,
   `harness`, `rollout_fn`, `reward_fn` and `aux_fn` each accept `{source: value, "*": default}`, resolved by the

@@ -63,6 +63,15 @@ SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "descri
                 "parameters": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}}
 
 
+CONTEXT_COMPACT = {"type": "function", "function": {
+    "name": "context_compact",
+    "description": "Replace your conversation history with a summary you write, when the context is getting long. Include what is done, "
+                   "what is pending, every rule that changes how you act, and the exact ids and values you still need. Other tool calls in "
+                   "the same reply are not executed.",
+    "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "keep_recent_turns": {"type": "integer", "minimum": 0}},
+                   "required": ["summary"]}}}
+SUMMARY_HEAD = "[Summary of your earlier work in this episode; the full history was compacted]\n"
+
 COMPACT = ("Your context is nearly full. Write a summary of your work so far that lets you continue without the earlier history: "
            "what is done, what is pending and why (including anything you are waiting for), every rule or announcement that changes how "
            "you must act, and the exact ids and amounts you still need. Reply with the summary only, no tool call.")
@@ -79,7 +88,17 @@ class ContextConfig:
     trigger: float = 0.8
     keep_recent_turns: int = 3
     summary_max_tokens: int = 2_000
-    mode: str = "compact"  # "compact" | "none" (overflow ends the episode as context_overflow, scored)
+    # "compact": the harness triggers ``strategy`` at trigger × budget; "action": the policy has a ``context_compact``
+    # tool and compacts only when it decides to (MiniMax; no automatic trigger); "none": overflow ends the episode as
+    # context_overflow (scored)
+    mode: str = "compact"
+    # m13 C-7 (A2-46) strategies for mode="compact": "summary" (the policy writes a summary: a recorded, trained call),
+    # "keep_recent" (GLM: drop all but the last ``keep_recent_turns`` turns; GLM uses k = 5), "discard_all" (keep only
+    # system + task), "tiered" (HCM: first shrink older tool outputs to ``tier_tool_chars``; summarize only if still
+    # over), "hybrid" (LongCat: ``hybrid_summaries`` summaries, then discard-all keeping the latest summary)
+    strategy: str = "summary"
+    tier_tool_chars: int = 200
+    hybrid_summaries: int = 1
 
 
 IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
@@ -163,29 +182,74 @@ class LLMToolPolicy(Policy):
     def _count_reply(self, usage: dict[str, Any], fallback: list[dict[str, Any]]) -> None:
         self.trajectory_tokens += int(usage.get("completion_tokens") or approx_tokens(fallback))
 
+    def _rebuild(self, keep_turns: int, summary: str | None, *, keep_summary: bool = False) -> int:
+        """New context: system + task (verbatim) + [summary] + the last ``keep_turns`` complete turns. Returns turns kept."""
+        task = next((m for m in self.messages if m["role"] == "user"), None)
+        prev_summary = next((m for m in reversed(self.messages) if m["role"] == "user" and str(m.get("content", "")).startswith(SUMMARY_HEAD)), None)
+        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+        cut = starts[-keep_turns] if keep_turns and len(starts) >= keep_turns else (starts[0] if (starts and keep_turns) else len(self.messages))
+        recent = self.messages[cut:] if keep_turns else []
+        head = [self.messages[0], *([task] if task is not None and task is not self.messages[0] else [])]
+        if summary is not None:
+            head.append({"role": "user", "content": SUMMARY_HEAD + summary})
+        elif keep_summary and prev_summary is not None:
+            head.append(prev_summary)
+        else:
+            head.append({"role": "user", "content": "[Earlier history of this episode was discarded to fit the context; continue from the current state]"})
+        self.messages = [*head, *recent]
+        self._seen = len(self.messages)
+        return min(keep_turns, len(starts))
+
+    def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
+        self.segments.append({"index": self.segment + 1, "strategy": strategy, "summary_call": summary_call, "context_before": before,
+                              "context_after": approx_tokens(self.messages), "kept_turns": kept})
+        self.segment += 1
+
+    def _shrink_tool_outputs(self, keep_turns: int, chars: int) -> bool:
+        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+        cut = starts[-keep_turns] if keep_turns and len(starts) >= keep_turns else len(self.messages)
+        changed = False
+        for i in range(cut):
+            m = self.messages[i]
+            c = m.get("content")
+            if m["role"] == "tool" and isinstance(c, str) and len(c) > chars:
+                self.messages[i] = {**m, "content": c[:chars] + f"\n[... older tool output elided ({len(c) - chars} characters) ...]"}
+                changed = True
+        return changed
+
     async def _maybe_compact(self) -> None:
         cfg = self.context
         if cfg is None or cfg.mode != "compact" or self._queue or self._pending:
             return
         if approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
             return
+        before = approx_tokens(self.messages)
+        strategy = cfg.strategy
+        if strategy not in ("summary", "keep_recent", "discard_all", "tiered", "hybrid"):
+            raise ValueError(f"unknown context strategy {strategy!r}")
+        if strategy == "hybrid":
+            done = sum(1 for sg in self.segments if sg.get("strategy") in ("summary", "hybrid:summary"))
+            strategy = "hybrid:summary" if done < cfg.hybrid_summaries else "hybrid:discard_all"
+        if strategy == "tiered":
+            if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
+                self._seen = len(self.messages)
+                self._new_segment("tiered:shrink", before, len(self.messages))
+                return
+            strategy = "tiered:summary"
+        if strategy == "keep_recent":
+            self._new_segment("keep_recent", before, self._rebuild(cfg.keep_recent_turns, None))
+            return
+        if strategy in ("discard_all", "hybrid:discard_all"):
+            self._new_segment(strategy, before, self._rebuild(0, None, keep_summary=strategy == "hybrid:discard_all"))
+            return
         r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
                                     temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
-        before = approx_tokens(self.messages)
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
                                  "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
                                  "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})
-        task = next((m for m in self.messages if m["role"] == "user"), None)  # the instruction, kept verbatim
-        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
-        cut = starts[-cfg.keep_recent_turns] if len(starts) >= cfg.keep_recent_turns else (starts[0] if starts else len(self.messages))
-        recent = self.messages[cut:]
-        self.messages = [self.messages[0], *([task] if task else []),
-                         {"role": "user", "content": f"[Summary of your earlier work in this episode; the full history was compacted]\n{r.text}"}, *recent]
-        self._seen = len(self.messages)
-        self.segments.append({"index": self.segment + 1, "summary_call": self.model_calls[-1]["call_id"], "context_before": before,
-                              "context_after": approx_tokens(self.messages), "kept_turns": min(cfg.keep_recent_turns, len(starts))})
-        self.segment += 1
+        kept = self._rebuild(cfg.keep_recent_turns, r.text or "")
+        self._new_segment(strategy, before, kept, summary_call=self.model_calls[-1]["call_id"])
 
     def state_dict(self) -> dict[str, Any]:
         """Everything needed to continue this policy mid-episode (``runtime.checkpoint``): its context, tools, queued actions,
@@ -217,6 +281,8 @@ class LLMToolPolicy(Policy):
                 self._names[name] = t.qualified
                 self.tools.append(fn)
             self.tools.append(SEND_MESSAGE)
+            if self.context is not None and self.context.mode == "action":
+                self.tools.append(CONTEXT_COMPACT)
         if obs.instruction:
             self.messages.append({"role": "user", "content": obs.instruction})
         for tr in obs.tool_results:
@@ -257,6 +323,8 @@ class LLMToolPolicy(Policy):
             self.failure_kind = getattr(e, "failure_kind", None) or "provider_unavailable"
             self.error = f"{self.failure_kind}: {e}"
             return Done(reason=f"policy error: {e}")
+        if (r.tokens or {}).get("new_segment") and self.model_calls:  # the engine re-rendered the history (thinking mode): a new segment
+            self._new_segment("rerender", approx_tokens(self.messages), len(self.messages))
         call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
                 "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
@@ -279,6 +347,20 @@ class LLMToolPolicy(Policy):
             self.stop = "agent_done"
             call["actions"] = ["done"]
             return Done(reason=r.text[:2000])
+        compact = next((tc for tc in r.tool_calls if tc["name"] == "context_compact"), None)
+        if compact is not None and self.context is not None and self.context.mode == "action":
+            # m13 C-7 (A2-47): the policy compacts by its own decision; the summary is this (recorded, trained) call's output
+            before = approx_tokens(self.messages)
+            call["kind"], call["actions"] = "compaction", ["context_compact"]
+            keep = int(compact["arguments"].get("keep_recent_turns", 0) or 0) if isinstance(compact["arguments"], dict) else 0
+            summary = str(compact["arguments"].get("summary", "")) if isinstance(compact["arguments"], dict) else ""
+            self._new_segment("action", before, self._rebuild(max(0, keep), summary), summary_call=call["call_id"])
+            self._compactions_in_row = getattr(self, "_compactions_in_row", 0) + 1
+            if self._compactions_in_row > 2:  # compacting again and again without acting is not progress
+                self.stop = "too_many_compactions"
+                return Done(reason="the policy kept compacting without acting")
+            return await self.act(Observation(actor=obs.actor, step=obs.step))
+        self._compactions_in_row = 0
         calls = []
         actions: list[Action] = []
         for tc in r.tool_calls:

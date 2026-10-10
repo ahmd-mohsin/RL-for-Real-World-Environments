@@ -82,6 +82,9 @@ class ByteChatCodec:
         text = bytes(t for t in completion_ids if t < 256).decode(errors="replace")
         return parse_tool_calls(text)
 
+    def thinking_behaviour(self) -> str:
+        return "preserved"  # renders every message verbatim
+
 
 class HFChatCodec:
     """A Hugging Face tokenizer's chat template. ``suffix`` = render([dummy user, dummy assistant] + new, gen prompt)
@@ -134,3 +137,21 @@ class HFChatCodec:
 
     def parse(self, completion_ids: list[int]) -> tuple[str, list[dict[str, Any]]]:
         return parse_tool_calls(self.tok.decode(completion_ids, skip_special_tokens=True))
+
+    def thinking_behaviour(self) -> str:
+        """What this chat template does with earlier reasoning (m13 C-7, A2-48), probed by rendering: "preserved" (kept
+        everywhere), "interleaved" (kept for assistant turns after the last user message, i.e. inside the current tool
+        loop, dropped once a new user turn arrives: Qwen3, DeepSeek V3.x), "strip" (always dropped)."""
+        mark = "zq7reasoningmark"
+        a = {"role": "assistant", "content": f"<think>{mark}</think>answer"}
+
+        def has(msgs: list[dict[str, Any]]) -> bool:
+            return mark in self.tok.decode(self._apply(msgs, None, gen=True))
+
+        before_user = has([{"role": "user", "content": "q"}, a, {"role": "user", "content": "q2"}])
+        try:
+            in_loop = has([{"role": "user", "content": "q"}, {**a, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]},
+                           {"role": "tool", "tool_call_id": "c1", "content": "r"}])
+        except Exception:  # noqa: BLE001 -- a template without tool turns: reasoning after the last user message, plainly
+            in_loop = has([{"role": "user", "content": "q"}, a])
+        return "preserved" if before_user else ("interleaved" if in_loop else "strip")

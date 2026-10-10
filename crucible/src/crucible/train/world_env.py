@@ -35,8 +35,21 @@ class _Spend:
 
 class EngineLLM:
     def __init__(self, codec: ChatCodec, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, model: str = "policy",
-                 max_conversations: int = 4096):
+                 max_conversations: int = 4096, thinking: str | None = None):
+        """``thinking`` (m13 C-7, A2-48): how earlier reasoning is shown, matching the deployment template:
+        "preserved" (extend token for token), "interleaved" (extend inside a tool loop; a new user message re-renders the
+        history, which drops reasoning: a new segment), "strip" (every call renders the history: each call its own
+        segment). Default: the codec's own template behaviour; a mode the template does not implement is refused."""
         self.codec, self.gen, self.model = codec, gen, model
+        probe = getattr(codec, "thinking_behaviour", None)
+        actual = probe() if callable(probe) else "preserved"
+        self.thinking = thinking or actual
+        if self.thinking not in ("preserved", "interleaved", "strip"):
+            raise ValueError(f"thinking: preserved | interleaved | strip (got {self.thinking!r})")
+        if self.thinking != actual:
+            raise ValueError(f"thinking={self.thinking!r} but the chat template is {actual!r}: training contexts would differ from deployment")
+        self.rerenders = 0
+        self._rerendered = False
         self.spend = _Spend()
         # served conversations: (message list of a call without its reply, that call's prompt + completion (+EOS))
         self._convs: list[tuple[list[dict[str, Any]], list[int]]] = []
@@ -44,13 +57,19 @@ class EngineLLM:
         self.prefix_breaks = 0
 
     def _prompt(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
+        self._rerendered = False
         best = None
         for i, (s, _ids) in enumerate(self._convs):
             if len(messages) > len(s) and messages[len(s)].get("role") == "assistant" and messages[: len(s)] == s and (best is None or len(s) > len(self._convs[best][0])):
                 best = i
         if best is not None:
             s, ids = self._convs.pop(best)  # the conversation moves on: its next entry replaces this one
-            return ids + self.codec.suffix(messages[len(s) + 1:], tools)
+            new = messages[len(s) + 1:]
+            if self.thinking == "strip" or (self.thinking == "interleaved" and any(m.get("role") == "user" for m in new)):
+                self.rerenders += 1  # the deployed template re-renders (and drops) earlier reasoning here: so do we, in a new segment
+                self._rerendered = True
+                return self.codec.render(messages, tools)
+            return ids + self.codec.suffix(new, tools)
         if any(m.get("role") == "assistant" for m in messages):
             self.prefix_breaks += 1  # mid-conversation but extends nothing served (compaction rewrote it): a new segment, rendered whole
         return self.codec.render(messages, tools)
@@ -70,7 +89,8 @@ class EngineLLM:
         return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp)}, model=self.model,
                            raw_finish=finish, latency_s=time.monotonic() - t0,
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
-                                   "policy_version": res.version, "version_spans": res.version_spans})
+                                   "policy_version": res.version, "version_spans": res.version_spans,
+                                   **({"new_segment": True} if self._rerendered else {})})
 
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
