@@ -18,6 +18,7 @@ own math so every knob is testable end to end:
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -54,6 +55,17 @@ class TrainerConfig:
     # "segment" (default): one causal sequence per (rollout, actor, compaction segment), loss only on sampled tokens:
     # forward tokens O(turns) instead of O(turns²) (m13 B-1). "call": one item per model call with its full prompt.
     item_unit: str = "segment"
+    # on-policy distillation (m13 C-5, route ④): ``opd_coef`` β mixes the teacher signal with the RL advantage scaled by
+    # ``rl_coef`` (0 = pure distillation). "token": per sampled token the dense advantage rl_coef·A + β(log π_T − log
+    # π_behaviour) (Kimi / MiMo MOPD; needs ``Turn.teacher_logprobs`` from a teacher pool). "full_vocab": a loss term
+    # β·KL(π_θ ‖ π_T) over the whole vocabulary at every trained position (DeepSeek), with ``TorchTrainer(teacher=...)``.
+    opd_coef: float = 0.0
+    rl_coef: float = 1.0
+    opd_mode: str = "token"
+    # KL to a reference model (A2-14): k3 estimator exp(r − l) − (r − l) − 1 on sampled tokens (``Turn.ref_logprobs``),
+    # coefficient ``kl_coef`` or per source ``kl_coef_by_source`` (StepFun 0.001, Seed 1e-5 / 0)
+    kl_coef: float = 0.0
+    kl_coef_by_source: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -66,13 +78,22 @@ class _Item:
     candidates: list[list[int]] | None = None  # top-p nucleus per token: π_θ is renormalized over it (checklist #37)
     routing: list[list[int]] | None = None  # MoE experts per token, replayed under routing_replay="r3"
     mask: list[int] | None = None  # per completion position: 1 = trained (sampled), 0 = observation (segment items); None = all
+    ref: list[float] | None = None  # per completion position: reference log-prob (KL term), aligned with ``ref_mask``
+    ref_mask: list[int] | None = None
+    kl: float = 0.0
 
 
 class TorchTrainer:
-    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, critic: torch.nn.Module | None = None, critic_cfg=None):
+    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, critic: torch.nn.Module | None = None, critic_cfg=None,
+                 teacher: torch.nn.Module | None = None):
         """``critic``: a value model (``critic.TinyValue`` / ``HFValue``): critic mode — token-level GAE advantages instead of
         group-relative ones (works with n = 1), and ``critic_cfg.updates_per_policy_update`` critic steps per policy step."""
         self.model, self.cfg = model, cfg or TrainerConfig()
+        self.teacher = teacher  # full-vocabulary OPD (opd_mode="full_vocab"): a local teacher with completion_logprob_rows
+        if self.cfg.opd_mode not in ("token", "full_vocab"):
+            raise ValueError(f"opd_mode: token | full_vocab (got {self.cfg.opd_mode!r})")
+        if self.cfg.opd_mode == "full_vocab" and self.cfg.opd_coef and teacher is None:
+            raise ValueError("opd_mode='full_vocab' needs TorchTrainer(teacher=...)")
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
         self.updates = 0
         self.critic = critic
@@ -240,8 +261,22 @@ class TorchTrainer:
                     if vals is not None:
                         adv[s0:s1] = [x + credit.get(cid, 0.0) for x in vals[: s1 - s0]]
             if sum(seq.response_mask):
-                out.append(_Item(list(seq.prompt_ids), list(seq.response_ids), list(seq.logprobs), adv, pid, mask=list(seq.response_mask)))
+                it = _Item(list(seq.prompt_ids), list(seq.response_ids), list(seq.logprobs), adv, pid, mask=list(seq.response_mask))
+                kl = self._kl_coef(r)
+                if kl:
+                    ref, rm = [0.0] * len(it.completion), [0] * len(it.completion)
+                    turns = {t.call_id: t for t in r.turns}
+                    for cid, s0, s1 in seq.call_spans:
+                        rl = turns[cid].ref_logprobs if cid in turns else None
+                        if rl is not None and len(rl) >= s1 - s0:
+                            ref[s0:s1], rm[s0:s1] = rl[: s1 - s0], [1] * (s1 - s0)
+                    if any(rm):
+                        it.ref, it.ref_mask, it.kl = ref, rm, kl
+                out.append(it)
         return out
+
+    def _kl_coef(self, r: RolloutRecord) -> float:
+        return float(self.cfg.kl_coef_by_source.get(r.source, self.cfg.kl_coef)) if r.source in self.cfg.kl_coef_by_source else float(self.cfg.kl_coef)
 
     def _items(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[_Item]:
         if self.critic is not None:
@@ -260,6 +295,21 @@ class TorchTrainer:
                 if all(records[i].advantage is not None for i in idx):
                     for i in idx:
                         advs[i] = float(records[i].advantage)
+        if (self.cfg.opd_coef and self.cfg.opd_mode == "token") or self.cfg.rl_coef != 1.0:  # m13 C-5: per-token OPD advantage
+            pt: dict[tuple[str, str], list[float]] = {}
+            for r, a in zip(records, advs, strict=True):
+                if r.mask_sample or r.reward is None:
+                    continue
+                for t in r.turns:
+                    n = len(t.completion_token_ids or [])
+                    if not n:
+                        continue
+                    base = [self.cfg.rl_coef * x for x in (per_token[(r.rollout_id, t.call_id)] if per_token is not None else [a] * n)]
+                    tl, bl = t.teacher_logprobs, t.logprobs
+                    if self.cfg.opd_mode == "token" and tl is not None and bl is not None and len(tl) == n == len(bl):
+                        base = [b + self.cfg.opd_coef * (x - y) for b, x, y in zip(base, tl, bl, strict=True)]
+                    pt[(r.rollout_id, t.call_id)] = base
+            per_token = pt
         pids = {g: i for i, g in enumerate(dict.fromkeys(groups))}
         items = []
         for r, a, g in zip(records, advs, groups, strict=True):
@@ -280,9 +330,13 @@ class TorchTrainer:
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
                 credit = self.cfg.turn_weight * (t.advantage or 0.0)
                 adv = [x + credit for x in per_token[(r.rollout_id, t.call_id)]] if per_token is not None else a + credit
-                items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
-                                   t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
-                                   t.routing if self.cfg.routing_replay == "r3" else None))
+                it = _Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
+                           t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
+                           t.routing if self.cfg.routing_replay == "r3" else None)
+                kl = self._kl_coef(r)
+                if kl and t.ref_logprobs is not None and len(t.ref_logprobs) == len(t.completion_token_ids):
+                    it.ref, it.ref_mask, it.kl = list(t.ref_logprobs), [1] * len(t.ref_logprobs), kl
+                items.append(it)
         return items
 
     def _logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
@@ -319,6 +373,34 @@ class TorchTrainer:
         out = [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates) for i in idx]
         if hasattr(self.model, "last_confidence"):
             self._confidence.append(float(self.model.last_confidence))
+        return out
+
+    def _extra_terms(self, items: list[_Item], idx: list[int], lp: torch.Tensor, mask: torch.Tensor) -> torch.Tensor | None:
+        """Per-token penalties subtracted from the objective: kl·k3(ref, log π_θ) where a reference log-prob exists, and
+        opd_coef·KL(π_θ ‖ π_T) over the vocabulary (opd_mode="full_vocab")."""
+        out = None
+        dev, fdt, T = lp.device, lp.dtype, lp.shape[1]
+        if any(items[i].kl and items[i].ref is not None for i in idx):
+            ref = torch.zeros(len(idx), T, dtype=fdt, device=dev)
+            w = torch.zeros(len(idx), T, dtype=fdt, device=dev)
+            for k, i in enumerate(idx):
+                it = items[i]
+                if it.kl and it.ref is not None:
+                    n = len(it.ref)
+                    ref[k, :n] = torch.tensor(it.ref, dtype=fdt, device=dev)
+                    w[k, :n] = it.kl * torch.tensor(it.ref_mask, dtype=fdt, device=dev)
+            d = ref - lp
+            out = w * (torch.exp(d) - d - 1.0)  # k3: unbiased, non-negative; 0 when π_θ = π_ref
+        if self.cfg.opd_coef and self.cfg.opd_mode == "full_vocab":
+            kl = torch.zeros(len(idx), T, dtype=fdt, device=dev)
+            for k, i in enumerate(idx):
+                it = items[i]
+                s_rows = self.model.completion_logprob_rows(it.prompt, it.completion, self.cfg.temperature)
+                with torch.no_grad():
+                    t_rows = self.teacher.completion_logprob_rows(it.prompt, it.completion, self.cfg.temperature).to(s_rows.device)
+                kl_k = (s_rows.exp() * (s_rows - t_rows)).sum(-1)  # Σ_v π_θ(v) (log π_θ(v) − log π_T(v)) per position
+                kl[k, : kl_k.shape[0]] = kl_k.to(fdt)
+            out = (out if out is not None else 0.0) + self.cfg.opd_coef * kl
         return out
 
     def _padded(self, items: list[_Item], idx: list[int], old: dict[int, torch.Tensor] | None):
@@ -385,6 +467,9 @@ class TorchTrainer:
             for idx in mbs:
                 lp, roll, adv, mask, old_t = self._padded(items, idx, old)
                 terms = correct(self.cfg.correction, logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t)
+                extra = self._extra_terms(items, idx, lp, mask)
+                if extra is not None:  # m13 C-5: k3 KL to the reference, full-vocabulary OPD (trained positions only)
+                    terms = dataclasses.replace(terms, objective=terms.objective - extra * mask.to(extra.dtype))
                 if single:
                     J = aggregate(terms.objective, mask, self.cfg.loss_agg, prompt_ids=[items[i].prompt_index for i in idx])
                 else:

@@ -48,7 +48,7 @@ Already closed in this session:
 | C-2 ✅ | Group grading stage (the group-level reward hook: tournaments, hack zeroing, recompute the group mean) | A2-15 |
 | C-3 ✅ | GAR (mass-conserving redistribution, λ cap) and GRS-style multiplicative rubric reward | A2-16/17 |
 | C-4 ✅ | Online hack interception at `World._call_tool` (refusal or dummy result, episode continues); a two-level detector (rules for recall, then an LLM judge for precision) | A2-28/29 |
-| C-5 | On-policy distillation: a teacher pool and a per-token OPD/MOPD loss (route ④) | A2-9/10 |
+| C-5 ✅ | On-policy distillation: a teacher pool and a per-token OPD/MOPD loss (route ④) | A2-9/10 |
 | C-6 | Multi-domain runtime: per-source `rollout_fn` / `reward_fn` / harness, plus per-source staleness and metrics | A2-53..55 |
 | C-7 | Context modes: keep-recent-k, discard-all, tiered; compaction as a policy action; thinking-history modes in the chat codec | A2-46..48 |
 | C-8 | Shaping: verbosity budget, speed term, reward-to-go, incomplete-trajectory and tool-format penalties | A2-20..26 |

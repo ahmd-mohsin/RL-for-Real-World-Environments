@@ -1120,6 +1120,42 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-5 (2026-10-10): teacher pool, on-policy distillation and the KL reference (route ④; A2-9..A2-12, A2-14).**
+- **Teacher pool (`train/teachers.py`):** a teacher scores `(prompt, completion)` token ids.
+  - **Implementations:** `TorchTeacher` (a local model under `no_grad`, in a thread) and `VLLMTeacher`
+    (`/v1/completions` with `prompt_logprobs`, keeping the completion positions; a missing sampled token is an error,
+    never a guess).
+  - **Routing:** `TeacherPool(route={source: teacher})` with a default (MOPD: one expert per domain). An optional
+    `reference` scorer fills `Turn.ref_logprobs`.
+  - **Tokenizer gate:** `check_vocab(vocab_signature(tokenizer))` refuses a student/teacher vocabulary mismatch at
+    `Runtime` construction, before any rollout.
+- **Runtime:** `Runtime(teacher_pool=...)` scores each finished rollout before it enters the pool (status `grading`),
+  overlapping other rollouts.
+  - It sets `Turn.teacher_logprobs`, `RolloutRecord.teacher_id` and `RolloutRecord.source` (the scheduler source,
+    now on every record).
+  - Past `teacher_deadline_s` or on error: `teacher_on_miss="fallback"` trains the record on the RL signal only
+    (`opd_fallback`), and `"mask"` masks it.
+  - Metrics: `teacher/scored`, `teacher/fallback`, `teacher/seconds`.
+- **Trainer:**
+  - **Token OPD:** the per-token advantage `rl_coef·A + β(log π_T − log π_behaviour)` (Kimi / MiMo MOPD as a dense
+    reward through the same correction and aggregation). A teacher identical to the policy contributes exactly 0;
+    `rl_coef=0` is pure distillation.
+  - **Full-vocabulary OPD (`opd_mode="full_vocab"`, DeepSeek):** `β·KL(π_θ‖π_T)` summed over the vocabulary at every
+    trained position, with a local `TorchTrainer(teacher=...)`. The policies gained `completion_logprob_rows`.
+  - **KL to the reference:** k3 `exp(r−l) − (r−l) − 1` on sampled tokens, with `kl_coef` and `kl_coef_by_source`
+    (call and segment items).
+  - With every coefficient at its neutral value, the step is the RL step bit for bit.
+- **Tests:**
+  - zero weights reproduce the RL step bitwise (call and segment items);
+  - a teacher equal to the policy gives a zero gradient, and a different teacher a nonzero one;
+  - the token advantage is checked by hand;
+  - full-vocab KL equals a hand computation within 1e-6;
+  - k3 golden value, 0 at the reference, per-source 0 honoured;
+  - through the runtime: 100% token coverage with routed `teacher_id`, and a vocabulary mismatch refused;
+  - a late teacher falls back on every record, or masks (never trained as 0);
+  - `VLLMTeacher` against a mock server.
+- **Not done (P2):** teacher offload (A2-13) and the actor serving as the judge (A2-27).
+
 **Critic mode: advantages collided across rollouts (fixed 2026-10-10).** `TorchTrainer._gae_advantages` keyed per-token
 advantages by `call_id`. World episodes all number their calls `agent:c1`, `agent:c2`…, so in a batch of World
 rollouts each record overwrote the previous one's GAE: every rollout trained on the last record's advantages. The

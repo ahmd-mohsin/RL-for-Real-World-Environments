@@ -45,6 +45,10 @@ class Turn(CrucibleModel):
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
     candidates: list[list[int]] | None = None  # per completion token, the top-p nucleus it was sampled from (checklist #37)
     advantage: float | None = None  # per-turn credit from steps.jsonl (M6), attached to this call's tokens
+    # on-policy distillation / KL reference (m13 C-5, ``train.teachers``): per completion token, the teacher's and the
+    # reference model's log-prob of the sampled token given exactly this prompt
+    teacher_logprobs: list[float] | None = None
+    ref_logprobs: list[float] | None = None
     atif_step_ids: list[int] = Field(default_factory=list)
 
     def versions(self) -> list[int]:
@@ -129,6 +133,9 @@ class RolloutRecord(CrucibleModel):
     # level-1 hack suspicions (m13 C-4, ``credit.hack_detector.rule_flags``): intercepted calls and rule hits, with evidence;
     # the level-2 judge in the group stage turns them into ``hack/confirmed`` (or not)
     flags: list[dict[str, Any]] = Field(default_factory=list)
+    source: str | None = None  # the scheduler source (domain) the prompt came from: routes teachers, selects per-source KL
+    teacher_id: str | None = None
+    opd_fallback: bool = False  # the teacher missed its deadline or failed: this record trains on the RL signal only
 
     def oldest_version(self) -> int | str | None:
         vs = [v for t in self.turns for v in (t.versions() or ([t.policy_version] if t.policy_version is not None else []))]

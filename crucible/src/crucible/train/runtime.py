@@ -87,6 +87,12 @@ class RuntimeConfig:
     # tournaments, hack zeroing). It starts as soon as the group is terminal (overlapping other rollouts); at the training
     # barrier it gets what is left of ``group_deadline_s``, then the raw advantages are used (``group_credit_fallback``).
     group_deadline_s: float = 30.0
+    # teacher pool (m13 C-5): a finished rollout is scored by its routed teacher (and the reference) before it enters the
+    # pool, off the training critical path; past ``teacher_deadline_s`` or on error: ``teacher_on_miss`` = "fallback"
+    # (RL signal only, ``opd_fallback``) or "mask"; ``student_vocab_id`` is checked against every teacher at start
+    teacher_deadline_s: float = 120.0
+    teacher_on_miss: str = "fallback"
+    student_vocab_id: str | None = None
     reward_deadline_s: float | None = None
     reward_timeout_s: float = 600.0
     aux_deadline_s: float | None = None
@@ -141,7 +147,8 @@ class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
                  rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None,
-                 on_alarm: Callable | None = None, audit_fn: Callable | None = None, group_fn: Callable | None = None):
+                 on_alarm: Callable | None = None, audit_fn: Callable | None = None, group_fn: Callable | None = None,
+                 teacher_pool: Any = None):
         """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
@@ -153,6 +160,13 @@ class Runtime:
         self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
         self.audit_fn = audit_fn
         self.group_fn = group_fn  # m13 C-2: the group grading stage (see RuntimeConfig.group_deadline_s)
+        self.teacher_pool = teacher_pool  # m13 C-5
+        if teacher_pool is not None:
+            if cfg.teacher_on_miss not in ("fallback", "mask"):
+                raise ValueError(f"teacher_on_miss: fallback | mask (got {cfg.teacher_on_miss!r})")
+            if cfg.student_vocab_id is not None:
+                teacher_pool.check_vocab(cfg.student_vocab_id)  # A2-12: refused before any rollout
+        self._teach_stats = {"scored": 0, "fallback": 0, "seconds": 0.0}
         self._group_stage: dict[str, tuple[float, asyncio.Task]] = {}
         self._audit_tasks: set[asyncio.Task] = set()
         self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
@@ -270,6 +284,12 @@ class Runtime:
             self.pool.grading(rid)
             self.changed.set()
             rec = await self._grade(rec)
+        if rec is not None:
+            rec.source = self.pool.tags[rid].source
+        if rec is not None and self.teacher_pool is not None and not rec.mask_sample:
+            self.pool.grading(rid)
+            self.changed.set()
+            rec = await self._teach(rec)
         if rec is None:
             self.pool.finish(rid, reward=None, status="masked", now=time.monotonic())
             self.report.masked_rollouts += 1
@@ -328,6 +348,24 @@ class Runtime:
                 r.reward_components.setdefault("raw", float(self.pool.values[r.rollout_id].reward or 0.0))
                 self.pool.values[r.rollout_id] = r
         return {"group/graded": float(done), "group/fallback": float(fell), "group/barrier_wait_s": waited}
+
+    async def _teach(self, rec: RolloutRecord) -> RolloutRecord | None:
+        t0 = time.monotonic()
+        try:
+            out = await asyncio.wait_for(self.teacher_pool.teach(rec, rec.source), timeout=self.cfg.teacher_deadline_s)
+            self._teach_stats["scored"] += 1
+        except Exception as e:  # noqa: BLE001 -- late (TimeoutError) or failed teacher: fallback or mask, never a crash
+            if not isinstance(e, TimeoutError | asyncio.TimeoutError):
+                self._failure(_blame(e), e, rollout=False)
+            self._teach_stats["fallback"] += 1
+            for t in rec.turns:
+                t.teacher_logprobs = t.ref_logprobs = None
+            if self.cfg.teacher_on_miss == "mask":
+                return None
+            rec.opd_fallback = True
+            out = rec
+        self._teach_stats["seconds"] += time.monotonic() - t0
+        return out
 
     async def _grade(self, rec: RolloutRecord) -> RolloutRecord | None:
         cfg = self.cfg
@@ -481,6 +519,10 @@ class Runtime:
         by_group: dict[str, list[float]] = {}
         for r, g in zip(recs, groups, strict=True):
             by_group.setdefault(g, []).append(r.reward)
+        if self.teacher_pool is not None:
+            gm = {**gm, "teacher/scored": float(self._teach_stats["scored"]), "teacher/fallback": float(self._teach_stats["fallback"]),
+                  "teacher/seconds": self._teach_stats["seconds"]}
+            self._teach_stats = {"scored": 0, "fallback": 0, "seconds": 0.0}
         return {**m, **gm, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
                 "_truncated": [bool(r.truncated or any(t.finish == "length" for t in r.turns[-1:])) for r in recs],
                 "_group_rewards": list(by_group.values()),

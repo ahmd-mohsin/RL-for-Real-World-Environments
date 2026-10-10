@@ -183,6 +183,12 @@ class TinyPolicy(torch.nn.Module):
             return renormalized(lp[: len(completion)], completion, candidates)
         return lp[torch.arange(len(completion), device=dev), torch.tensor(completion, device=dev)]
 
+    def completion_logprob_rows(self, prompt: list[int], completion: list[int], temperature: float = 1.0) -> torch.Tensor:
+        """[len(completion), V] full log-softmax rows at the completion positions (full-vocabulary OPD, m13 C-5)."""
+        dev = self.emb.weight.device
+        ids = torch.tensor([prompt + completion[:-1]] if completion else [prompt], device=dev)
+        return torch.log_softmax(self(ids)[0, len(prompt) - 1: len(prompt) - 1 + len(completion)] / temperature, -1)
+
     def shared_prefix_logprobs(self, prompt: list[int], completions: list[list[int]], temperature: float = 1.0) -> list[torch.Tensor]:
         """Prefix sharing (checklist #50): the prompt runs once; every completion continues from its final GRU state. The
         gradient through the shared prompt is the sum over the group, exactly as in separate passes."""

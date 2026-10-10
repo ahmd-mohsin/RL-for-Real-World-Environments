@@ -109,6 +109,13 @@ class HFPolicy(torch.nn.Module):
                  for i in range(0, h.shape[0], C)]
         return torch.cat(parts)
 
+    def completion_logprob_rows(self, prompt: list[int], completion: list[int], temperature: float = 1.0) -> torch.Tensor:
+        """[len(completion), V] full log-softmax rows at the completion positions (full-vocabulary OPD, m13 C-5): the one
+        place a full-vocabulary fp32 row per position is materialized, so keep segments short in this mode."""
+        ids = torch.tensor([prompt + completion[:-1]], device=self.device)
+        h = self._hidden(ids)[0, len(prompt) - 1: len(prompt) - 1 + len(completion)]
+        return torch.log_softmax(self._head_rows(h, temperature), -1)
+
     def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0, candidates: list[list[int]] | None = None) -> torch.Tensor:
         return self.batch_token_logprobs([(prompt, completion)], temperature, candidates=[candidates])[0]
 
