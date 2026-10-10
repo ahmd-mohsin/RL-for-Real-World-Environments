@@ -41,6 +41,7 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
 | M4 signals | in progress | dev gate passed (type, attribution, outcome on 50 hand labels); held-out coding labels and the toy mapper pending | `docs/modules/reports/m4_gate_coding_dev.json` |
 | M5 workflow | built | 2 of 3: replay 94.9% (strict 91.1%) on 913 public OpenHands traces and 24/24 toy logs (31 recorded checks reproduced); tracker κ 0.87 vs manual stage labels (toy); rediscovery 5/6 families on 55 PCL GPU PRs (bit-exactness not in upstream history, only in reference-differential checks) | `docs/modules/M05-workflow.md` |
 | M6 credit | built | R1–R6 pass on every coding (tasks 01–04, recorded outcomes) and toy task; S2 fails as specified: Φ at the midpoint 0.50 vs LLM judge 0.75 (state unchanged by then), at the end Φ is better within a task (0.72 vs 0.67); C3 vs ΔΦ on task04 pending (GPU + ~$130). Native harness `BashLoopPolicy` (mini-swe-agent v2 loop) | `docs/modules/M06-credit.md` |
+| M7 verify | built | toy golden ✅ (oracle 1, no-op 0, 7/7 negatives at their gate); A13 attack suite ✅ (honest 1, 11/11 cheats 0, 6 controls prove the cheats beat a seed-style grader); CPU golden ✅ (task04 36/36 recorded verdicts, task03 static 10/10; one contaminated historical grade masked as designed); GPU golden ⏳ 1/8 task04 grades (empty patch profile reproduced in the real verifier image), 7 queued for an idle lab GPU; tasks 01/01v2/02 plans not written. Record-relative score gates and honest abstention (P29) | `docs/modules/M07-verify.md` |
 
 Environments: verifiers v1 pins `mcp==2.0.0` and agentenv needs `mcp<2`, so the `verifiers` extra is declared as conflicting and runs in its own environment (`THIRD_PARTY.md`).
 
@@ -551,7 +552,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - **Support:** `calibrate.py` (tolerance tiers, induced perturbations, false-negative rate), `tiers.py` (fast/full), `grader.py` (runs inside the verifier environment and writes `reward.json` and `steps.jsonl`).
 - **Takes:**
   - DEPEND: Harbor verifier (separate mode, collect); verifiers `IsolatedVerifierEnv`.
-  - PATTERN: NeMo-Gym two-sandbox grading and `anti_cheat`; EnterpriseOps-Gym `database_state`, `response_check` and `tool_execution` verifiers; MiMo `/verify` and `run_verify.py`; mimoagent `antihack.py`.
+  - PATTERN: NeMo-Gym two-sandbox grading and `anti_cheat`; EnterpriseOps-Gym `database_state` (turned into violating-row invariants; `response_check` skipped: the policy's own model judges itself); MiMo `run_verify.py` ("no parseable reward → masked"; there is no `/verify` endpoint); Repo2RLEnv `recipes/swe_smith/grade.py` (pre-written 0, exact expected tests); mimoagent `antihack.py` only as a probe list (off by default, easy to bypass). verifiers `IsolatedVerifierEnv` moves to M11 export (as-built 2026-10-09).
   - PORT: **our own task 03/04 graders**, generalized into patterns.
 - **Coding:** sanitizers, concurrency equivalence against solo references, bit-exact compares, perf rounds.
 - **Toy:** SQL invariants and state predicates.

@@ -76,6 +76,11 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | GenAI span conventions (`gen_ai.operation.name`, `gen_ai.tool.*`, `gen_ai.usage.*`) | OpenTelemetry GenAI semantic conventions | `connectors/otel_import.py` |
 | flaky tests are dropped from FAIL_TO_PASS / PASS_TO_PASS | SWE-smith `harness/repair.py` | `ci_logs.flaky` (listed for M4 instead of dropped) |
 
+| pre-write reward 0 before grading; tests run with `-I` and a scrubbed environment; pass only on the exact expected test set | Hugging Face Repo2RLEnv `recipes/swe_smith/grade.py`, `test_driver.py` (Apache-2.0; pattern, no code copied) | `verify/runtime/plan.py` (`prewrite_zero`), `patterns/hidden_tests.py` |
+| privilege drop before candidate code, cohort kill, sealing, references at grade time | our task03/04 graders (`as_unpriv`, `kill_unpriv`, `seal`), Karotte `subprocess.py` / `process_utils` (via the M1 guard) | `verify/runtime/trusted.py` |
+| "no parseable reward → masked" | MiMo `run_verify.py` (Apache-2.0; pattern) | `verify/runtime/plan.py` |
+| expected-row database verifier, inverted to violating-row invariants | EnterpriseOps-Gym `database_state` (Apache-2.0; pattern) | `verify/runtime/patterns/invariants.py` |
+| reward files read by Harbor (flat numeric `reward.json`, `reward.txt`) | Harbor `verifier/verifier.py:104-121` (Apache-2.0; format) | `verify/runtime/plan.py` (`flat_reward`), `core/schema/reward.py` (`flat`) |
 ## Data used for tests and gates (never in training or benchmark splits)
 
 | Data | Source | License / terms | Use |

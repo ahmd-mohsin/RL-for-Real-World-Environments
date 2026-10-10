@@ -109,6 +109,7 @@ Eight more come from public post-mortems of RL environments and our own audits o
 - **P26 — Trust only channels the candidate cannot write.** In the verifier, candidate code runs unprivileged in its own processes and produces *artifacts*; a separate trusted process compares them with references the candidate could neither read nor write. Never evidence: an exit code, a summary line or JSON row on the candidate's stdout, a test binary its own build system produced, timing measured inside its process, a file under a path it can write, a consumer package it can shadow on `PYTHONPATH`. Found in our own seeds (2026-10-09 audit, Appendix B.10): task01's hidden suite was built by the candidate's CMake and judged by doctest's exit code (`DOCTEST_CONFIG_DISABLE` passes it), task03 trusted pytest's exit code (`os._exit(0)` under pytest passes it), task02 ran candidate code as root next to the benchmark it then re-ran. CI-as-a-tool results (exit code + `expect` regex) are feedback to the policy, never reward.
 - **P27 — Answer-key probes are recorded, never scored; an exposure masks.** Every tool call that probes git history, a package registry, a code host, grader files, root or other processes is tagged in the trace (`data.probes`, M3 `agent_events.py`), with whether it *ran* and whether its output actually *exposed* an answer source (a `git log --all` listing only `base` ran and exposed nothing). Probing is not punished: exploring history is ordinary work, and grading the process punishes valid alternatives (P12, P20). But an outcome reached after an exposure is not evidence: the World masks the episode (`crucible:answer_exposed`, an environment failure under P21) and imported runs lose their label (Repo2RLEnv: "every green score was contamination").
 - **P28 — Many agents, one World.** Swarms scale by peers sharing a workspace, not by a root that holds everyone's context (Prime Intellect, "On the nature of the swarm"). A World therefore drives any number of policy agents as peers: they coordinate through shared Apps (a git repo, an issue tracker, a mailbox) and direct messages under ACLs, with no orchestrator in the loop; persistent peers keep their memory in the `WorldRef`; and credit follows writes (every edit records what it wrote, so M4 grades a later signal to the agent, or sub-agent, that made the change). Communication is a cost the benchmark reports (§11.1).
+- **P29 — Depth over bars; an honest way out.** Tasks that a fixed bar grades saturate: once a policy clears "implement this feature", there is no more signal. Deep tasks are ones an expert could pour unbounded time into (the highest-rank elliptic curve: 28 in 2006, 29 in 2024, 30 and 31 in August 2026), and their graders reward doing *better*, measured against the best known result, with no ceiling (`verify/runtime/patterns/record.py`: normalized score, 1 = the best known, above 1 = a new record with a log tail). We often will not know how to solve them; that is fine as long as the outcome is checkable (P20). Some may not be solvable at all, so a task may allow an honest **abstention**: full credit on a task constructed infeasible, nothing on a feasible one, a small constant (below the training band's floor) on an open problem; on an infeasible task any claimed solution earns 0 (§7.5).
 
 ---
 
@@ -181,6 +182,7 @@ task/
 ```
 
 #### 4.3.1 `reward.json` (terminal, multi-key)
+The full document is `crucible_reward.json` (`core/schema/reward.py` `RewardJson`):
 ```json
 {"reward": 0.0,
  "gates": {"build": 1, "static": 1, "binary": 1, "correctness": 1, "concurrency": 1, "sanitizer": 1, "perf": 0},
@@ -188,8 +190,11 @@ task/
  "progress": 0.86,
  "rubric": {"validated_items_met": 0.75},
  "efficiency": 0.4,
- "infra": {"status": "ok"}}
+ "infra": {"status": "ok"},
+ "components": {"check/t1": 1.0}}
 ```
+`reward.json` is its **flat numeric projection** (`RewardJson.flat()`): `{"reward": 0.0, "outcome": 0.0, "gate/build": 1.0, …, "infra/masked": 0.0}`. *Corrected in M7 (2026-10-09):* Harbor rejects any non-numeric value in `reward.json` (`harbor/verifier/verifier.py:104-121`), so the nested document cannot live under that name. `reward.txt` is always written too, and a grader pre-writes reward 0 before it starts (an interrupted grade never leaves a stale or agent-written reward). `gates` holds hard constraints only; outcome and score checks are `components["check/<gate>"]`.
+
 `reward` is the **training scalar** defined by the task's reward formula (§6.4). The other keys are **reported channels**, readable by trainers that accept multi-component rewards (NeMo-Gym `reward_components`, verifiers `@vf.reward` / `@vf.metric`).
 
 #### 4.3.2 `steps.jsonl` (dense channel)
@@ -542,6 +547,14 @@ These follow Frontier Learning's procedural-generator idea: each generator's par
 
 **Learnability steering.** When generating RL training tasks, target a pass rate p ∈ [0.1, 0.7] for the *policy being trained*, using a proposer reward of 4p(1−p) as in verifiers `environments/proposer_solver`. When generating benchmark tasks, target frontier pass@1 ≤ 20%. Difficulty is adjusted with the generator knobs, never by making the instruction more obscure.
 
+### 7.5 Depth: record-relative graders and honest abstention (P29)
+
+The forge prefers depth to breadth. A task is deep when more effort keeps paying: a faster kernel than the best known, a larger rank, a tighter bound, a smaller counterexample, a migration that is also faster than the original. Such tasks are graded with **score gates** (`Gate(kind="score")`): validity checks are hard gates; the score check maps the result onto the known scale, `(score − baseline) / (best_known − baseline)`, so the reward grows past 1 when the policy sets a record (log tail, so records pay without dominating a batch). The task card records `best_known` with its provenance and is updated when a run beats it (verified by the full tier, never self-reported).
+
+**Abstention.** Tasks the forge cannot prove feasible, and tasks constructed infeasible (EnterpriseOps-Gym's impossible requests; a refund on an in-transit order), declare an `AbstainPolicy`. An abstention is judged only on the hard constraints (did the agent do damage on the way out?) and earns the policy's credit: 1 on an infeasible task, 0 on a feasible one, a small constant on an open problem, chosen below the learnability band's floor (p ≥ 0.1, §7.4) so giving up never beats a genuine attempt in expectation. A claimed solution to an infeasible task earns 0.
+
+**Learnability for deep tasks.** 4p(1−p) is defined on a binary outcome; for score gates, M8 steers on the share of rollouts that beat the baseline (p) and separately tracks the record frontier (the best normalized score per round), which is the benchmark's non-saturating axis (§11.3).
+
 ---
 
 ## 8. Layer 4: verification and isolation
@@ -597,6 +610,20 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Episode hygiene | quiesce before restore; restore through directory fds, owned by the policy; `.git` reset; `/tmp`, `/dev/shm`, home, SysV IPC emptied; App-owned state root `0600` | a symlinked parent redirecting a root write; stashing state for the next episode; reading other people's mail from the database file |
 | Egress self-test, answer sources | 17 code hosts, registries and mirrors (GitHub incl. `codeload`/`raw`, GitLab, PyPI incl. `files.pythonhosted.org`, npm, crates, Go proxy, conda, Hugging Face, `web.archive.org`, …) probed as the policy uid with a TLS/SNI handshake (a transparent egress proxy accepts every TCP connect); allowlisted hosts are excluded and checked as working lanes; audit `network.answer_sources` fails any allowlist that opens one of them (added 2026-10-09) | `pip download` of the fixed release through an allowlisted index; a mirror or archive after GitHub is blocked |
 | Answer-key probes (P27) | every policy tool call is scanned for history, registry, code-host, grader-file, root and `/proc` probes; an exposure masks the episode (`crucible:answer_exposed`) | a pass reached by reading the published fix |
+
+**Built in M7 (2026-10-09): the grader-side trusted channels (layer 7), `crucible.verify.runtime`, standard library only, staged read-only into any verifier image and run as root with `--network none`. Tested by `tests/redteam/test_grader_attacks.py`: the honest solution scores 1, 11 cheat mutants score 0 at their intended gate, and 6 of them are shown to beat a seed-style grader (exit-code verdicts, candidate-first `PYTHONPATH`, one shared HOME, no sealing):**
+
+| Mechanism | Attack it defeats |
+|---|---|
+| Patch applied and every candidate command run as a fresh uid (new session, `PR_SET_NO_NEW_PRIVS`, no groups) before its first instruction | `setup.py`/CMake/import side effects as root; writing the benchmark, references or reward files |
+| Fresh HOME/TMPDIR per invocation, removed afterwards; `/dev/shm` and SysV IPC of the uid cleared | memoizing or replaying results across timed repetitions (`memoize_in_home`) |
+| Cohort killed **the moment the main process exits** (not after the pipe-drain grace), outputs sealed root-owned read-only before comparison | a detached child rewriting outputs after the run (`background_fixup`; found by the control: a 1 s grace was enough) |
+| Python runs `-I` with grader paths first and the candidate **after the standard library** | shadowing the stdlib (`json.py`), the consumer or the test runner (`pytest/`) |
+| Test verdicts from a grader-opened results fd: a finish record, the expected count (collected against the original), every test passed, no skips; exit code ignored | `os._exit(0)` under pytest, `pytest.skip` from library code, fake "4 passed" on stdout |
+| Static scan of the pruned tree that gets built: macro expansion, token pasting, dynamic imports, native binaries under any suffix, runner references | banned constructs behind `#define`, `##`, `importlib.import_module("cty" + "pes")`, skipped directories |
+| Hidden material under `/root` (0700) or root-only copies; references computed at grade time into 0700 dirs | delegating to the original, reading or rewriting hidden tests |
+| Perf: load guard, round-spread check (contaminated → infra, re-graded), wall time from the grader's clock (`wall_ratio_max`, or K/5K differential runs), end-state sanity | timers forged in-process; scoring another user's GPU job as a perf failure |
+| `reward.txt` pre-written 0; any grader exception → reward 0, masked `grader_exception`; candidate crashes while judged → fail, never masked | turning a 0 into a masked grade by crashing the grader |
 
 ---
 
@@ -939,3 +966,21 @@ Registry check: A3, mutation score.
 | Reasoning models return empty text under small token caps | the judge baseline parsed nothing | judge cap 2,500 tokens |
 | DESIGN's shaping return-to-go is a state baseline | no per-turn credit for the action | delta mode in `credit/compose.py` (§6.4) |
 | Φ is blind before the first state change | S2 at the midpoint fails on exploration-heavy harnesses | S2 revision proposed (§2.3) |
+
+**B.12 Found while building M7 (2026-10-09).** Each is fixed (kit or registry check) or recorded for the seed re-versioning.
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| `reward.json` with nested keys | Harbor raises on any non-numeric value (`verifier.py:104-121`): every Crucible task would fail to grade under Harbor | flat `reward.json` + `crucible_reward.json`; fixed |
+| task04 sanitizer gate read the *first* `RACECHECK SUMMARY` line of a log the candidate also writes to | warnings-only hazards pass behind a forged first summary | every summary line must report 0, exit code 0; fixed in the kit plan |
+| task04 consumers build through the candidate's own `PCLConfig.cmake` | the candidate can inject compile flags into the pristine consumers | open (grader-owned config or flag allowlist at re-versioning) |
+| task03 installed the CUDA original where the candidate could read it, and put the candidate first on `PYTHONPATH` | delegation to the original; shadowing consumers | root-only original, isolated interpreter; fixed in the kit plan |
+| task03 benchmark rows printed inside the candidate's process | forged ms/step rows | K/5K differential wall timing from the grader; fixed in the kit plan (needs GPU golden) |
+| task03 `fresh_cases.py` draws unrunnable systems on ~18% of seeds | grader crash, reward lost | reference runs first, redraw before any candidate run; fixed in the kit plan |
+| task04 `astra_v3` was graded while another user's job ran (KinFu 1.6 → 60 ms/frame inside one grade) and scored as a perf failure | a contaminated measurement became a verdict | spread check → infra; the CPU golden re-scores it as masked and reproduces its re-grade `astra_v3b` |
+| task04 v3 oracle KinFu headroom 12% (0.571 vs bar 0.65) | A1 requires ≥ 15% headroom on every perf bar | `calibrate.perf_headroom`; open (bar or oracle at re-versioning) |
+| `PYTHONPATH` entries precede the standard library | "consumers first" is not enough: a candidate `json.py` shadows the grader's own imports | `Trusted.python` bootstrap; red-team `shadow_stdlib_json` |
+| The trusted runner reaped its child in `poll()` and then crashed in `wait4`; and it killed the cohort only after a 1 s drain grace | an attack "failed" because the grader crashed into a fail; a detached child rewrote outputs in the grace | `wait4(WNOHANG)` exit observation, cohort kill at exit; found by the red-team control |
+| M5 `phi` compared the sql adapter's exact float encoding (`{"f": hex}`), not the value | every float-valued milestone or predicate was unmeasurable | `evaluate.decode`; toy golden |
+| A runner liveness check used `pgrep -f` matching its own ssh command line | the GPU golden runner never started (B.5 repeated) | pidfile |
+

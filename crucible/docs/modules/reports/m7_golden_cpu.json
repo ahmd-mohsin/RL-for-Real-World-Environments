@@ -262,5 +262,118 @@
    }
   }
  },
+ "task03": {
+  "pass": true,
+  "matched": {
+   "static": "10/10"
+  },
+  "grades": {
+   "grade_empty": {
+    "static": {
+     "recorded": false,
+     "kit": false,
+     "match": true,
+     "violations": [
+      {
+       "rule": "forbidden_file",
+       "file": "CMakeLists.txt"
+      },
+      {
+       "rule": "foreign_kernels",
+       "file": "mdlite/_lib.py",
+       "match": "\nimport ctypes"
+      },
+      {
+       "rule": "load_library",
+       "file": "mdlite/_lib.py",
+       "match": "CDLL"
+      },
+      {
+       "rule": "foreign_kernels",
+       "file": "mdlite/simulation.py",
+       "match": "\nimport ctypes"
+      },
+      {
+       "rule": "native_build",
+       "file": "setup.py",
+       "match": "cmake"
+      }
+     ]
+    }
+   },
+   "grade_sol": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "gradeh_solution": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "gradeh_gpt1": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "gradeh_cheat_tamper": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "grade_neg_aserfc": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "grade_neg_floatgrid": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "grade_neg_fp32pos": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "grade_neg_jaxrandom": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "grade_neg_truncate": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   }
+  }
+ },
  "pass": true
 }
