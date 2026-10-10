@@ -111,16 +111,21 @@ def status() -> None:
     print(lab(f"cd ~/{REMOTE} && cat status.txt; ls out 2>/dev/null").stdout)
 
 
-def compare(name: str, got: dict) -> dict:
+def compare(name: str, got: dict, statuses: dict | None = None) -> dict:
+    """``statuses``: the kit's per-gate status (report.json). A gate the kit *masked* (``infra``: e.g. node_contention when
+    another job took the GPU mid-grade) is not a disagreement with history: it is listed in ``needs_regrade`` and the
+    grade is re-run on a quiet GPU (M10 ``Runner.regrade`` semantics), never counted as a mismatch."""
     rec = json.loads((HIST / name / "verifier" / "report.json").read_text())
     want = {g: int(bool(v.get("pass"))) for g, v in rec["gates"].items() if isinstance(v, dict)}
     gates = got.get("gates", {})
+    masked = sorted(g for g, st in (statuses or {}).items() if st == "infra")
     expect_fail = GRADES[name]
-    diffs = {g: (want.get(g), gates.get(g)) for g in set(want) | set(gates) if want.get(g) != gates.get(g) and g != "fresh"}
+    diffs = {g: (want.get(g), gates.get(g)) for g in set(want) | set(gates) if want.get(g) != gates.get(g) and g != "fresh" and g not in masked}
     fresh_ok = not (want.get("fresh") == 1 and gates.get("fresh") == 0)
     intended = (got.get("reward") == 1.0 and got.get("infra", {}).get("status") == "ok") if expect_fail is None else gates.get(expect_fail) == 0
-    return {"recorded": want, "kit": gates, "reward": got.get("reward"), "infra": got.get("infra"), "intended_gate": expect_fail,
-            "intended": intended, "profile_diffs": diffs, "fresh_consistent": fresh_ok, "match": intended and not diffs and fresh_ok}
+    return {"recorded": want, "kit": gates, "kit_status": statuses or {}, "reward": got.get("reward"), "infra": got.get("infra"),
+            "intended_gate": expect_fail, "intended": intended, "profile_diffs": diffs, "needs_regrade": masked, "fresh_consistent": fresh_ok,
+            "match": intended and not diffs and fresh_ok}
 
 
 def collect() -> dict:
@@ -131,12 +136,17 @@ def collect() -> dict:
     rows = {}
     for name in GRADES:
         f = dest / "out" / name / "crucible_reward.json"
-        rows[name] = compare(name, json.loads(f.read_text())) if f.exists() else {"pending": True}
+        rp = dest / "out" / name / "report.json"
+        statuses = json.loads(rp.read_text()).get("gates") if rp.exists() else None
+        rows[name] = compare(name, json.loads(f.read_text()), statuses) if f.exists() else {"pending": True}
     done = [r for r in rows.values() if "match" in r]
+    regrade = sorted(k for k, r in rows.items() if r.get("needs_regrade"))
     rep = {"gate": "M7 golden, GPU part (task04 kit grader in the verifier image)", "graded": f"{len(done)}/{len(GRADES)}",
-           "pass": len(done) == len(GRADES) and all(r["match"] for r in done), "grades": rows}
+           "pass": len(done) == len(GRADES) and all(r["match"] for r in done) and not regrade, "needs_regrade": regrade,
+           "agree_where_measured": all(r["match"] for r in done), "grades": rows}
     REPORT.write_text(json.dumps(rep, indent=1, default=str) + "\n")
-    print(json.dumps({k: (v.get("match"), v.get("reward"), v.get("profile_diffs")) if "match" in v else "pending" for k, v in rows.items()}, indent=1))
+    print(json.dumps({k: (v.get("match"), v.get("reward"), v.get("profile_diffs"), v.get("needs_regrade")) if "match" in v else "pending"
+                      for k, v in rows.items()}, indent=1))
     return rep
 
 

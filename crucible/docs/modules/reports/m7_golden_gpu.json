@@ -1,0 +1,390 @@
+{
+ "gate": "M7 golden, GPU part (task04 kit grader in the verifier image)",
+ "graded": "7/8",
+ "pass": false,
+ "needs_regrade": [
+  "oob",
+  "sol_v3"
+ ],
+ "agree_where_measured": true,
+ "grades": {
+  "oracle3": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 1,
+    "fresh": 1,
+    "sanitizer": 1,
+    "perf": 1
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 1,
+    "fresh": 1,
+    "sanitizer": 1,
+    "perf": 1
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "pass",
+    "concurrency": "pass",
+    "fresh": "pass",
+    "sanitizer": "pass",
+    "perf": "pass"
+   },
+   "reward": 1.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended_gate": null,
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "astra_v3b": {
+   "pending": true
+  },
+  "sol_v3": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 1,
+    "fresh": 0,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 0,
+    "fresh": 0,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "fail",
+    "concurrency": "infra",
+    "fresh": "fail",
+    "sanitizer": "pass",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "masked",
+    "failure_kind": "check_infra",
+    "reason": "concurrency: node_contention: GPU out of memory while other processes held 27547 MiB (kinfu_replay)"
+   },
+   "intended_gate": "ncv",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [
+    "concurrency"
+   ],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "global": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 0,
+    "fresh": 1,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 0,
+    "fresh": 1,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "pass",
+    "concurrency": "fail",
+    "fresh": "pass",
+    "sanitizer": "pass",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended_gate": "concurrency",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "oob": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 1,
+    "fresh": 0,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 0,
+    "fresh": 0,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "fail",
+    "concurrency": "infra",
+    "fresh": "fail",
+    "sanitizer": "fail",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "masked",
+    "failure_kind": "check_infra",
+    "reason": "concurrency: node_contention: GPU out of memory while other processes held 28023 MiB (kinfu_replay)"
+   },
+   "intended_gate": "ncv",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [
+    "concurrency"
+   ],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "tex": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 1,
+    "fresh": 0,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 0,
+    "concurrency": 1,
+    "fresh": 0,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "fail",
+    "concurrency": "pass",
+    "fresh": "fail",
+    "sanitizer": "pass",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended_gate": "ncv",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "warp": {
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 1,
+    "fresh": 1,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 1,
+    "fresh": 1,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "pass",
+    "concurrency": "pass",
+    "fresh": "pass",
+    "sanitizer": "fail",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended_gate": "sanitizer",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [],
+   "fresh_consistent": true,
+   "match": true
+  },
+  "empty": {
+   "recorded": {
+    "static": 0,
+    "build": 1,
+    "binary": 0,
+    "consumers": 0,
+    "kinfu": 0,
+    "people": 0,
+    "ncv": 0,
+    "concurrency": 0,
+    "fresh": 0,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit": {
+    "static": 0,
+    "build": 1,
+    "binary": 0,
+    "consumers": 0,
+    "kinfu": 0,
+    "people": 0,
+    "ncv": 0,
+    "concurrency": 0,
+    "fresh": 0,
+    "sanitizer": 0,
+    "perf": 0
+   },
+   "kit_status": {
+    "static": "fail",
+    "build": "pass",
+    "binary": "fail",
+    "consumers": "fail",
+    "kinfu": "skip",
+    "people": "skip",
+    "ncv": "skip",
+    "concurrency": "skip",
+    "fresh": "skip",
+    "sanitizer": "skip",
+    "perf": "skip"
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended_gate": "static",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [],
+   "fresh_consistent": true,
+   "match": true
+  }
+ }
+}
