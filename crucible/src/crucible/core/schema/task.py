@@ -26,10 +26,14 @@ Horizon = Literal["H0", "H1", "H2", "H3", "H4", "H5"]
 
 class Negative(CrucibleModel):
     id: str
-    path: str  # relative to the task dir, e.g. crucible/negatives/no_guard_band.patch
-    expected_gate: str  # the gate this negative must fail
+    path: str  # relative to the task dir, e.g. crucible/negatives/no_guard_band.patch (or .jsonl actions)
+    expected_gate: str | None = None  # the gate this negative must fail (None only for valid alternatives)
     description: str = ""
     provenance: str | None = None  # signal or incident it encodes
+    # floor (no-op / naive), trap_reversion, defect_mutant, cheat, or valid_alternative (a different correct solution
+    # that must PASS: catches checks that grade the oracle's internals instead of the property; M8, R2E probes)
+    kind: Literal["floor", "trap_reversion", "defect_mutant", "cheat", "valid_alternative", "negative"] = "negative"
+    expected: Literal["fail", "pass"] = "fail"
 
 
 class CrucibleTask(VersionedDocument):
@@ -42,6 +46,7 @@ class CrucibleTask(VersionedDocument):
     card: str = "crucible/card.yaml"
     negatives: list[Negative] = Field(default_factory=list)
     oracle: str = "solution/solution.patch"
+    oracle_kind: Literal["patch", "actions", "state"] = "patch"  # actions: a replayable tool-call script (World tasks)
     # When the crucible/ folder is an overlay kept outside the Harbor dir (e.g. seed tasks in a pack),
     # this points at the Harbor task dir, relative to the overlay dir.
     harbor_dir: str | None = None
@@ -96,6 +101,27 @@ class Splits(CrucibleModel):
     showcase: bool = False  # MVP showcase only (tasks 01-04): never a published OOD split
 
 
+class ForgeRecord(CrucibleModel):
+    """How a forged task was made (M8): generator, knobs, seed, roles with the inputs each could see, final state."""
+
+    generator: str
+    knobs: dict[str, Any] = Field(default_factory=dict)
+    seed_ref: str | None = None
+    roles: list[dict[str, Any]] = Field(default_factory=list)  # {role, runner, model, input_keys, cost_usd}
+    state: str = "draft"
+    state_hash: str | None = None
+
+
+class Difficulty(CrucibleModel):
+    apps_used: int | None = None
+    distractor_tools: int = 0
+    decoys: int = 0
+    clock_events: int = 0
+    infeasible: bool = False
+    traps: int = 0
+    span_steps: int | None = None
+
+
 class TaskCard(VersionedDocument):
     SCHEMA = "crucible.card/v1"
     id: str
@@ -106,6 +132,9 @@ class TaskCard(VersionedDocument):
     value_proof: ValueProof = Field(default_factory=ValueProof)
     splits: Splits = Field(default_factory=Splits)
     history: list[dict[str, Any]] = Field(default_factory=list)  # version notes
+    forge: ForgeRecord | None = None
+    difficulty: Difficulty | None = None
+    best_known: dict[str, Any] | None = None  # record-relative tasks (P29): {score, by, provenance}
 
 
 class HarborTaskSummary(CrucibleModel):

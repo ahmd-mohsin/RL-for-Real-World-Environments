@@ -1,0 +1,1271 @@
+{
+ "plan": "toy/helpdesk_v2@seed7",
+ "state": "constructed",
+ "reason": null,
+ "llm": null,
+ "nodes": {
+  "architect": {
+   "status": "done",
+   "attempts": 0,
+   "reused": true,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "env": {
+   "status": "done",
+   "attempts": 0,
+   "reused": true,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "checks": {
+   "status": "done",
+   "attempts": 0,
+   "reused": true,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "oracle": {
+   "status": "done",
+   "attempts": 0,
+   "reused": true,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "negatives": {
+   "status": "done",
+   "attempts": 1,
+   "reused": false,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "audit": {
+   "status": "done",
+   "attempts": 1,
+   "reused": false,
+   "findings": [],
+   "cost_usd": 0.0
+  }
+ },
+ "signals": {
+  "approval": "sig_62a4da715b814529"
+ },
+ "audit": {
+  "sound": true,
+  "findings": []
+ },
+ "tasks_dir": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks",
+ "accept": {
+  "toy/helpdesk_v2/t1_duplicate": {
+   "task_id": "toy/helpdesk_v2/t1_duplicate",
+   "task_hash": "b353524591ede4a9f735c40f",
+   "ok": true,
+   "checks": [
+    {
+     "id": "A1",
+     "status": "pass",
+     "detail": {
+      "rewards": [
+       1.0,
+       1.0,
+       1.0
+      ],
+      "replay_identical": true,
+      "reasons": [],
+      "outcome_gates_false_at_start": [
+       "outcome"
+      ]
+     }
+    },
+    {
+     "id": "A2",
+     "status": "pass",
+     "detail": {
+      "rewards": {
+       "noop": 0.0,
+       "t1_duplicate/naive": 0.0
+      },
+      "reasons": []
+     }
+    },
+    {
+     "id": "A3",
+     "status": "pass",
+     "detail": {
+      "negatives": {
+       "t1_duplicate/naive": {
+        "kind": "floor",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/partial_refund_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/double_refund_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/extra_refund_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/note_wrong_ticket_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/wrong_status_2": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t1_duplicate/alt_notes_first": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
+       "t1_duplicate/alt_extra_note": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       }
+      },
+      "mutation_score": 1.0,
+      "families": [
+       "outcome",
+       "policy",
+       "scope"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4-lite",
+     "status": "pass",
+     "detail": {
+      "replays": 3,
+      "distinct_verdicts": 1,
+      "distinct_end_states": 1
+     }
+    },
+    {
+     "id": "A5",
+     "status": "pass",
+     "detail": {
+      "scanned": [
+       "customers.jsonl",
+       "instruction",
+       "kb/archive/refund_policy_2025-01.md",
+       "kb/escalation.md",
+       "kb/refund_policy.md"
+      ],
+      "hits": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A7",
+     "status": "pass",
+     "detail": {
+      "properties": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "graded": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A8",
+     "status": "pass",
+     "detail": {
+      "checks_with_provenance": "11/11",
+      "share": 1.0,
+      "trap_signals": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4",
+     "status": "skip",
+     "detail": {
+      "reason": "full flake measurement (>= 40 draws) runs in M9"
+     }
+    },
+    {
+     "id": "A6",
+     "status": "skip",
+     "detail": {
+      "reason": "isolation audit runs in M9 (M1 audits cover the world)"
+     }
+    },
+    {
+     "id": "A9",
+     "status": "skip",
+     "detail": {
+      "reason": "rebuild fingerprints: M9"
+     }
+    },
+    {
+     "id": "A10",
+     "status": "skip",
+     "detail": {
+      "reason": "frontier calibration: the forge Calibrator"
+     }
+    },
+    {
+     "id": "A11",
+     "status": "skip",
+     "detail": {
+      "reason": "harness hygiene: M10"
+     }
+    },
+    {
+     "id": "A12",
+     "status": "skip",
+     "detail": {
+      "reason": "tier agreement: M9"
+     }
+    },
+    {
+     "id": "A13",
+     "status": "skip",
+     "detail": {
+      "reason": "grader attack suite: verify red-team (coding images)"
+     }
+    }
+   ]
+  },
+  "toy/helpdesk_v2/t2_approval": {
+   "task_id": "toy/helpdesk_v2/t2_approval",
+   "task_hash": "ea87efe9301b79639874147f",
+   "ok": true,
+   "checks": [
+    {
+     "id": "A1",
+     "status": "pass",
+     "detail": {
+      "rewards": [
+       1.0,
+       1.0,
+       1.0
+      ],
+      "replay_identical": true,
+      "reasons": [],
+      "outcome_gates_false_at_start": [
+       "outcome"
+      ]
+     }
+    },
+    {
+     "id": "A2",
+     "status": "pass",
+     "detail": {
+      "rewards": {
+       "noop": 0.0,
+       "t2_approval/naive": 0.0
+      },
+      "reasons": []
+     }
+    },
+    {
+     "id": "A3",
+     "status": "pass",
+     "detail": {
+      "negatives": {
+       "t2_approval/naive": {
+        "kind": "floor",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t2_approval/no_approval": {
+        "kind": "trap_reversion",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy"
+        ],
+        "ok": true
+       },
+       "t2_approval/partial_refund_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t2_approval/double_refund_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t2_approval/fabricated_approver_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy"
+        ],
+        "ok": true
+       },
+       "t2_approval/extra_refund_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope"
+        ],
+        "ok": true
+       },
+       "t2_approval/note_wrong_ticket_2": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t2_approval/wrong_status_3": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t2_approval/alt_notes_first": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
+       "t2_approval/alt_extra_note": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       }
+      },
+      "mutation_score": 1.0,
+      "families": [
+       "outcome",
+       "policy",
+       "scope"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4-lite",
+     "status": "pass",
+     "detail": {
+      "replays": 3,
+      "distinct_verdicts": 1,
+      "distinct_end_states": 1
+     }
+    },
+    {
+     "id": "A5",
+     "status": "pass",
+     "detail": {
+      "scanned": [
+       "customers.jsonl",
+       "instruction",
+       "kb/archive/refund_policy_2025-01.md",
+       "kb/escalation.md",
+       "kb/refund_policy.md"
+      ],
+      "hits": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A7",
+     "status": "pass",
+     "detail": {
+      "properties": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "graded": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A8",
+     "status": "pass",
+     "detail": {
+      "checks_with_provenance": "11/11",
+      "share": 1.0,
+      "trap_signals": [
+       "sig_62a4da715b814529"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4",
+     "status": "skip",
+     "detail": {
+      "reason": "full flake measurement (>= 40 draws) runs in M9"
+     }
+    },
+    {
+     "id": "A6",
+     "status": "skip",
+     "detail": {
+      "reason": "isolation audit runs in M9 (M1 audits cover the world)"
+     }
+    },
+    {
+     "id": "A9",
+     "status": "skip",
+     "detail": {
+      "reason": "rebuild fingerprints: M9"
+     }
+    },
+    {
+     "id": "A10",
+     "status": "skip",
+     "detail": {
+      "reason": "frontier calibration: the forge Calibrator"
+     }
+    },
+    {
+     "id": "A11",
+     "status": "skip",
+     "detail": {
+      "reason": "harness hygiene: M10"
+     }
+    },
+    {
+     "id": "A12",
+     "status": "skip",
+     "detail": {
+      "reason": "tier agreement: M9"
+     }
+    },
+    {
+     "id": "A13",
+     "status": "skip",
+     "detail": {
+      "reason": "grader attack suite: verify red-team (coding images)"
+     }
+    }
+   ]
+  },
+  "toy/helpdesk_v2/t3_in_transit": {
+   "task_id": "toy/helpdesk_v2/t3_in_transit",
+   "task_hash": "70d6c65231a10afaa0ece2ff",
+   "ok": true,
+   "checks": [
+    {
+     "id": "A1",
+     "status": "pass",
+     "detail": {
+      "rewards": [
+       1.0,
+       1.0,
+       1.0
+      ],
+      "replay_identical": true,
+      "reasons": [],
+      "outcome_gates_false_at_start": [
+       "outcome"
+      ]
+     }
+    },
+    {
+     "id": "A2",
+     "status": "pass",
+     "detail": {
+      "rewards": {
+       "noop": 0.0,
+       "t3_in_transit/naive": 0.0
+      },
+      "reasons": []
+     }
+    },
+    {
+     "id": "A3",
+     "status": "pass",
+     "detail": {
+      "negatives": {
+       "t3_in_transit/naive": {
+        "kind": "floor",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t3_in_transit/refund_in_transit_O-7372": {
+        "kind": "trap_reversion",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t3_in_transit/note_wrong_ticket_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t3_in_transit/wrong_status_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t3_in_transit/alt_notes_first": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
+       "t3_in_transit/alt_extra_note": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       }
+      },
+      "mutation_score": 1.0,
+      "families": [
+       "outcome",
+       "policy",
+       "scope"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4-lite",
+     "status": "pass",
+     "detail": {
+      "replays": 3,
+      "distinct_verdicts": 1,
+      "distinct_end_states": 1
+     }
+    },
+    {
+     "id": "A5",
+     "status": "pass",
+     "detail": {
+      "scanned": [
+       "customers.jsonl",
+       "instruction",
+       "kb/archive/refund_policy_2025-01.md",
+       "kb/escalation.md",
+       "kb/refund_policy.md"
+      ],
+      "hits": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A7",
+     "status": "pass",
+     "detail": {
+      "properties": [
+       "no_refund",
+       "note",
+       "policy",
+       "scope",
+       "status"
+      ],
+      "graded": [
+       "no_refund",
+       "note",
+       "policy",
+       "scope",
+       "status"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A8",
+     "status": "pass",
+     "detail": {
+      "checks_with_provenance": "11/11",
+      "share": 1.0,
+      "trap_signals": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4",
+     "status": "skip",
+     "detail": {
+      "reason": "full flake measurement (>= 40 draws) runs in M9"
+     }
+    },
+    {
+     "id": "A6",
+     "status": "skip",
+     "detail": {
+      "reason": "isolation audit runs in M9 (M1 audits cover the world)"
+     }
+    },
+    {
+     "id": "A9",
+     "status": "skip",
+     "detail": {
+      "reason": "rebuild fingerprints: M9"
+     }
+    },
+    {
+     "id": "A10",
+     "status": "skip",
+     "detail": {
+      "reason": "frontier calibration: the forge Calibrator"
+     }
+    },
+    {
+     "id": "A11",
+     "status": "skip",
+     "detail": {
+      "reason": "harness hygiene: M10"
+     }
+    },
+    {
+     "id": "A12",
+     "status": "skip",
+     "detail": {
+      "reason": "tier agreement: M9"
+     }
+    },
+    {
+     "id": "A13",
+     "status": "skip",
+     "detail": {
+      "reason": "grader attack suite: verify red-team (coding images)"
+     }
+    }
+   ]
+  },
+  "toy/helpdesk_v2/t4_decoy": {
+   "task_id": "toy/helpdesk_v2/t4_decoy",
+   "task_hash": "f874f536a834cd2dd803a7c6",
+   "ok": true,
+   "checks": [
+    {
+     "id": "A1",
+     "status": "pass",
+     "detail": {
+      "rewards": [
+       1.0,
+       1.0,
+       1.0
+      ],
+      "replay_identical": true,
+      "reasons": [],
+      "outcome_gates_false_at_start": [
+       "outcome"
+      ]
+     }
+    },
+    {
+     "id": "A2",
+     "status": "pass",
+     "detail": {
+      "rewards": {
+       "noop": 0.0,
+       "t4_decoy/naive": 0.0
+      },
+      "reasons": []
+     }
+    },
+    {
+     "id": "A3",
+     "status": "pass",
+     "detail": {
+      "negatives": {
+       "t4_decoy/naive": {
+        "kind": "floor",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t4_decoy/followed_decoy": {
+        "kind": "trap_reversion",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy"
+        ],
+        "ok": true
+       },
+       "t4_decoy/partial_refund_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t4_decoy/double_refund_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t4_decoy/fabricated_approver_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy"
+        ],
+        "ok": true
+       },
+       "t4_decoy/note_wrong_ticket_2": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t4_decoy/wrong_status_3": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t4_decoy/alt_notes_first": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
+       "t4_decoy/alt_extra_note": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       }
+      },
+      "mutation_score": 1.0,
+      "families": [
+       "outcome",
+       "policy",
+       "scope"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4-lite",
+     "status": "pass",
+     "detail": {
+      "replays": 3,
+      "distinct_verdicts": 1,
+      "distinct_end_states": 1
+     }
+    },
+    {
+     "id": "A5",
+     "status": "pass",
+     "detail": {
+      "scanned": [
+       "customers.jsonl",
+       "instruction",
+       "kb/archive/refund_policy_2025-01.md",
+       "kb/escalation.md",
+       "kb/refund_policy.md"
+      ],
+      "hits": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A7",
+     "status": "pass",
+     "detail": {
+      "properties": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "graded": [
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A8",
+     "status": "pass",
+     "detail": {
+      "checks_with_provenance": "11/11",
+      "share": 1.0,
+      "trap_signals": [
+       "sig_62a4da715b814529"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4",
+     "status": "skip",
+     "detail": {
+      "reason": "full flake measurement (>= 40 draws) runs in M9"
+     }
+    },
+    {
+     "id": "A6",
+     "status": "skip",
+     "detail": {
+      "reason": "isolation audit runs in M9 (M1 audits cover the world)"
+     }
+    },
+    {
+     "id": "A9",
+     "status": "skip",
+     "detail": {
+      "reason": "rebuild fingerprints: M9"
+     }
+    },
+    {
+     "id": "A10",
+     "status": "skip",
+     "detail": {
+      "reason": "frontier calibration: the forge Calibrator"
+     }
+    },
+    {
+     "id": "A11",
+     "status": "skip",
+     "detail": {
+      "reason": "harness hygiene: M10"
+     }
+    },
+    {
+     "id": "A12",
+     "status": "skip",
+     "detail": {
+      "reason": "tier agreement: M9"
+     }
+    },
+    {
+     "id": "A13",
+     "status": "skip",
+     "detail": {
+      "reason": "grader attack suite: verify red-team (coding images)"
+     }
+    }
+   ]
+  },
+  "toy/helpdesk_v2/t5_compose": {
+   "task_id": "toy/helpdesk_v2/t5_compose",
+   "task_hash": "8d35e701129426badc3611c2",
+   "ok": true,
+   "checks": [
+    {
+     "id": "A1",
+     "status": "pass",
+     "detail": {
+      "rewards": [
+       1.0,
+       1.0,
+       1.0
+      ],
+      "replay_identical": true,
+      "reasons": [],
+      "outcome_gates_false_at_start": [
+       "outcome"
+      ]
+     }
+    },
+    {
+     "id": "A2",
+     "status": "pass",
+     "detail": {
+      "rewards": {
+       "noop": 0.0,
+       "t5_compose/naive": 0.0
+      },
+      "reasons": []
+     }
+    },
+    {
+     "id": "A3",
+     "status": "pass",
+     "detail": {
+      "negatives": {
+       "t5_compose/naive": {
+        "kind": "floor",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/refund_in_transit_O-7673": {
+        "kind": "trap_reversion",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/partial_refund_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/double_refund_0": {
+        "kind": "defect_mutant",
+        "expected_gate": "policy",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "policy",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/note_wrong_ticket_1": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/note_wrong_ticket_2": {
+        "kind": "defect_mutant",
+        "expected_gate": "scope",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "scope",
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/wrong_status_3": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/wrong_status_4": {
+        "kind": "defect_mutant",
+        "expected_gate": "outcome",
+        "expected": "fail",
+        "reward": 0.0,
+        "failing": [
+         "outcome"
+        ],
+        "ok": true
+       },
+       "t5_compose/alt_notes_first": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
+       "t5_compose/alt_extra_note": {
+        "kind": "valid_alternative",
+        "expected_gate": null,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       }
+      },
+      "mutation_score": 1.0,
+      "families": [
+       "outcome",
+       "policy",
+       "scope"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4-lite",
+     "status": "pass",
+     "detail": {
+      "replays": 3,
+      "distinct_verdicts": 1,
+      "distinct_end_states": 1
+     }
+    },
+    {
+     "id": "A5",
+     "status": "pass",
+     "detail": {
+      "scanned": [
+       "customers.jsonl",
+       "instruction",
+       "kb/archive/refund_policy_2025-01.md",
+       "kb/escalation.md",
+       "kb/refund_policy.md"
+      ],
+      "hits": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A7",
+     "status": "pass",
+     "detail": {
+      "properties": [
+       "no_refund",
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "graded": [
+       "no_refund",
+       "note",
+       "policy",
+       "refund",
+       "scope",
+       "status"
+      ],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A8",
+     "status": "pass",
+     "detail": {
+      "checks_with_provenance": "14/14",
+      "share": 1.0,
+      "trap_signals": [],
+      "reasons": []
+     }
+    },
+    {
+     "id": "A4",
+     "status": "skip",
+     "detail": {
+      "reason": "full flake measurement (>= 40 draws) runs in M9"
+     }
+    },
+    {
+     "id": "A6",
+     "status": "skip",
+     "detail": {
+      "reason": "isolation audit runs in M9 (M1 audits cover the world)"
+     }
+    },
+    {
+     "id": "A9",
+     "status": "skip",
+     "detail": {
+      "reason": "rebuild fingerprints: M9"
+     }
+    },
+    {
+     "id": "A10",
+     "status": "skip",
+     "detail": {
+      "reason": "frontier calibration: the forge Calibrator"
+     }
+    },
+    {
+     "id": "A11",
+     "status": "skip",
+     "detail": {
+      "reason": "harness hygiene: M10"
+     }
+    },
+    {
+     "id": "A12",
+     "status": "skip",
+     "detail": {
+      "reason": "tier agreement: M9"
+     }
+    },
+    {
+     "id": "A13",
+     "status": "skip",
+     "detail": {
+      "reason": "grader attack suite: verify red-team (coding images)"
+     }
+    }
+   ]
+  }
+ },
+ "summary": {
+  "accepted": 5,
+  "total": 5,
+  "failing": {}
+ },
+ "pass": true,
+ "spend_usd": 0,
+ "task_dirs": [
+  "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks/t1_duplicate",
+  "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks/t2_approval",
+  "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks/t3_in_transit",
+  "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks/t4_decoy",
+  "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/forge/toy_helpdesk_v2_s7/tasks/t5_compose"
+ ]
+}

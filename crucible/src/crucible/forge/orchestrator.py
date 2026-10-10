@@ -1,0 +1,289 @@
+"""The forge orchestrator (DESIGN §7.2, ARCHITECTURE M8): a deterministic DAG of role nodes, with a journal, budgets,
+retries that carry feedback, and asymmetric information enforced by what is staged.
+
+- A **plan** is one forged task: nodes, each a role run with named inputs. An input is a store key, or ``@<node>`` for
+  an upstream node's output. ``visible`` lists the inputs the role may see. Roles never get a store handle: they receive
+  only the staged values, so a role cannot read what it must not (the Test writer cannot open the oracle), whatever its
+  prompt says (Repo2RLEnv: a prompt instruction is a nudge, not a control).
+- Nodes run in topological order, sorted by id within a level (deterministic). Each node's **input hash** is
+  ``H(role, role.version, visible input keys, knobs)``. A journal hit with status ``done`` reuses the stored output, so
+  an interrupted forge resumes where it stopped and re-running costs nothing (RTS ``publish.py`` pattern).
+- A role's output goes through deterministic **validators**. Their findings become **feedback** for the next attempt
+  (at most ``max_attempts``, default 3). Infrastructure errors (``RoleInfraError``, an exhausted budget) never count as
+  content attempts.
+- **Budgets**: a reserve/settle ledger per forge run (``budget.py``); a node that cannot reserve its estimate is
+  ``abandoned(budget)``, never half-run.
+- **Canaries**: oracle material can be planted with a canary string; any later node whose output contains it fails
+  (an asymmetric-information breach is a hard error, not a warning).
+- **Task states** (journaled): ``draft -> constructed -> audited -> accepted | rejected(reason) | abandoned(reason)``.
+  ``accepted`` is bound to the content hash of the assembled task (any edit sends it back).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol
+
+from pydantic import BaseModel
+
+from crucible.core.store import Store
+from crucible.forge.budget import BudgetExhausted, Ledger
+
+
+class RoleInfraError(RuntimeError):
+    """The role could not run (provider down, sandbox failed): retried as infra, never a content attempt."""
+
+
+class BreachError(RuntimeError):
+    """An asymmetric-information breach: a role's output contains material it was not allowed to see."""
+
+
+class Role(Protocol):
+    name: str
+    version: str
+
+    async def run(self, staged: dict[str, Any], *, feedback: list[str], knobs: dict[str, Any]) -> BaseModel: ...
+
+
+Validator = Callable[[BaseModel, dict[str, Any]], list[str]]  # (output, staged inputs) -> findings (empty = ok)
+
+
+@dataclass
+class Node:
+    id: str
+    role: str
+    inputs: dict[str, str] = field(default_factory=dict)  # name -> store key | "@node_id" | literal JSON via "=..."
+    visible: list[str] | None = None  # None = every input
+    validators: list[Validator] = field(default_factory=list)
+    max_attempts: int = 3
+    estimate_usd: float = 0.0
+    canary_out: bool = False  # this node's output carries oracle material: plant and track a canary
+
+    def needs(self) -> list[str]:
+        return sorted({v[1:] for v in self.inputs.values() if v.startswith("@")})
+
+
+@dataclass
+class Plan:
+    task_id: str
+    generator: str
+    nodes: list[Node]
+    knobs: dict[str, Any] = field(default_factory=dict)
+
+    def order(self) -> list[Node]:
+        by = {n.id: n for n in self.nodes}
+        missing = {d for n in self.nodes for d in n.needs()} - set(by)
+        if missing:
+            raise ValueError(f"plan {self.task_id}: unknown upstream nodes {sorted(missing)}")
+        done: list[Node] = []
+        seen: set[str] = set()
+        while len(done) < len(self.nodes):
+            level = sorted((n for n in self.nodes if n.id not in seen and set(n.needs()) <= seen), key=lambda n: n.id)
+            if not level:
+                raise ValueError(f"plan {self.task_id}: cycle among {sorted(set(by) - seen)}")
+            done += level
+            seen |= {n.id for n in level}
+        return done
+
+
+@dataclass
+class NodeResult:
+    node: str
+    status: str  # done | failed | breach | abandoned (budget/infra) | skipped (an upstream node did not finish)
+    output_key: str | None = None
+    attempts: int = 0
+    findings: list[str] = field(default_factory=list)
+    reused: bool = False
+    cost_usd: float = 0.0
+    seconds: float = 0.0
+
+
+@dataclass
+class ForgeResult:
+    task_id: str
+    state: str
+    nodes: dict[str, NodeResult]
+    outputs: dict[str, Any]
+    reason: str | None = None
+
+
+class Journal:
+    """Append-only ``events.jsonl``; the latest ``done`` event for an input hash is reusable."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._done: dict[str, dict] = {}
+        self._states: dict[str, list[dict]] = {}
+        if self.path.exists():
+            for line in self.path.read_text().splitlines():
+                if line.strip():
+                    self._index(json.loads(line))
+
+    def _index(self, ev: dict) -> None:
+        if ev.get("event") == "node" and ev.get("status") == "done":
+            self._done[ev["input_hash"]] = ev
+        if ev.get("event") == "state":
+            self._states.setdefault(ev["task_id"], []).append(ev)
+
+    def append(self, ev: dict) -> None:
+        ev = {"ts": round(time.time(), 3), **ev}
+        with self.path.open("a") as f:
+            f.write(json.dumps(ev, default=str) + "\n")
+            f.flush()
+        self._index(ev)
+
+    def reusable(self, input_hash: str) -> dict | None:
+        return self._done.get(input_hash)
+
+    def state(self, task_id: str) -> dict | None:
+        evs = self._states.get(task_id)
+        return evs[-1] if evs else None
+
+    def history(self, task_id: str) -> list[dict]:
+        return list(self._states.get(task_id, []))
+
+
+def _hash(*parts: Any) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:24]
+
+
+def content_hash(obj: Any) -> str:
+    if isinstance(obj, BaseModel):
+        obj = obj.model_dump(mode="json")
+    return _hash(obj)
+
+
+class Orchestrator:
+    def __init__(self, store: Store, journal: Journal, ledger: Ledger, roles: dict[str, Role], *, run_id: str = "forge"):
+        self.store, self.journal, self.ledger, self.roles, self.run_id = store, journal, ledger, roles, run_id
+        self.canaries: dict[str, str] = {}  # node id -> canary planted in its output
+        self.sees: dict[str, set[str]] = {}  # node id -> upstream nodes whose outputs reach it through visible inputs (transitively)
+
+    def set_state(self, task_id: str, state: str, *, reason: str | None = None, task_hash: str | None = None) -> None:
+        self.journal.append({"event": "state", "task_id": task_id, "state": state, "reason": reason, "task_hash": task_hash})
+
+    def _resolve(self, plan: Plan, node: Node, outputs: dict[str, str]) -> dict[str, str]:
+        keys = {}
+        for name, ref in node.inputs.items():
+            if ref.startswith("@"):
+                keys[name] = outputs[ref[1:]]
+            elif ref.startswith("="):
+                keys[name] = self.store.put_bytes(ref[1:].encode())
+            else:
+                keys[name] = ref
+        return keys
+
+    def _stage(self, node: Node, keys: dict[str, str]) -> dict[str, Any]:
+        visible = node.inputs.keys() if node.visible is None else node.visible
+        unknown = set(visible) - set(node.inputs)
+        if unknown:
+            raise ValueError(f"node {node.id}: visible names {sorted(unknown)} are not inputs")
+        staged = {}
+        for name in sorted(visible):
+            raw = self.store.get_bytes(keys[name])
+            try:
+                staged[name] = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                staged[name] = raw.decode("utf-8", "replace")
+        return staged
+
+    def _sees(self, node: Node) -> set[str]:
+        visible = set(node.inputs.keys() if node.visible is None else node.visible)
+        direct = {ref[1:] for name, ref in node.inputs.items() if ref.startswith("@") and name in visible}
+        out = set(direct)
+        for d in direct:
+            out |= self.sees.get(d, set())
+        return out
+
+    def _breach(self, node: Node, text: str) -> list[str]:
+        """Canaries of upstream outputs that cannot reach this node through visible inputs must not appear in it."""
+        allowed = self._sees(node)
+        return sorted(nid for nid, c in self.canaries.items() if nid not in allowed and nid != node.id and c in text)
+
+    async def run_plan(self, plan: Plan) -> ForgeResult:
+        outputs: dict[str, str] = {}
+        results: dict[str, NodeResult] = {}
+        prior = self.journal.state(plan.task_id)
+        if prior is None:
+            self.set_state(plan.task_id, "draft")
+        for node in plan.order():
+            failed_up = [d for d in node.needs() if results.get(d) and results[d].status != "done"]
+            if failed_up:
+                results[node.id] = NodeResult(node.id, "skipped", findings=[f"upstream did not finish: {failed_up}"])
+                continue
+            res = await self._run_node(plan, node, outputs)
+            results[node.id] = res
+            if res.status == "done":
+                outputs[node.id] = res.output_key
+        bad = [r for r in results.values() if r.status != "done"]
+        # a content failure or breach rejects the task; budget or infra exhaustion abandons it (it may be retried later)
+        state = "constructed" if not bad else ("rejected" if any(r.status in ("failed", "breach") for r in bad) else "abandoned")
+        reason = None if not bad else "; ".join(f"{r.node}: {r.status} {r.findings[:2]}" for r in bad)[:800]
+        self.set_state(plan.task_id, state, reason=reason)
+        docs = {nid: self.store.get_json(k) for nid, k in outputs.items()}
+        return ForgeResult(plan.task_id, state, results, docs, reason)
+
+    async def _run_node(self, plan: Plan, node: Node, outputs: dict[str, str]) -> NodeResult:
+        role = self.roles[node.role]
+        self.sees[node.id] = self._sees(node)
+        keys = self._resolve(plan, node, outputs)
+        visible = node.inputs.keys() if node.visible is None else node.visible
+        ih = _hash(node.role, getattr(role, "version", "0"), {k: keys[k] for k in sorted(visible)}, plan.knobs, node.id)
+        hit = self.journal.reusable(ih)
+        if hit is not None and self.store.has(hit["output_key"]):
+            if node.canary_out and hit.get("canary"):
+                self.canaries[node.id] = hit["canary"]
+            return NodeResult(node.id, "done", hit["output_key"], 0, reused=True)
+        staged = self._stage(node, keys)
+        feedback: list[str] = []
+        t0 = time.time()
+        attempts = infra = 0
+        while attempts < node.max_attempts:
+            try:
+                self.ledger.reserve(f"{plan.task_id}/{node.id}", node.estimate_usd)
+            except BudgetExhausted as ex:
+                self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "abandoned", "reason": str(ex)})
+                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts)
+            spent0 = self.ledger.observed()
+            try:
+                out = await role.run(staged, feedback=list(feedback), knobs=dict(plan.knobs))
+            except RoleInfraError as ex:
+                self.ledger.settle(f"{plan.task_id}/{node.id}", self.ledger.observed() - spent0)
+                infra += 1
+                if infra >= 3:
+                    return NodeResult(node.id, "abandoned", findings=[f"infra: {ex}"], attempts=attempts)
+                await asyncio.sleep(0)
+                continue
+            except BudgetExhausted as ex:
+                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts)
+            cost = self.ledger.observed() - spent0
+            self.ledger.settle(f"{plan.task_id}/{node.id}", cost)
+            attempts += 1
+            text = out.model_dump_json()
+            breached = self._breach(node, text)
+            if breached:
+                self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "breach", "sources": breached})
+                return NodeResult(node.id, "breach", findings=[f"output contains material from {breached} it was not allowed to see"], attempts=attempts)
+            findings = [f for v in node.validators for f in v(out, staged)]
+            if not findings:
+                payload = out.model_dump(mode="json")
+                canary = None
+                if node.canary_out:
+                    canary = "CRUCIBLE-CANARY-" + _hash(plan.task_id, node.id, ih)[:16]
+                    payload = {**payload, "_canary": canary}
+                    self.canaries[node.id] = canary
+                key = self.store.put_bytes(json.dumps(payload, sort_keys=True).encode())
+                self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "role": node.role, "status": "done", "input_hash": ih,
+                                     "output_key": key, "attempts": attempts, "cost_usd": round(cost, 6), "canary": canary,
+                                     "visible": sorted(visible), "input_keys": {k: keys[k] for k in sorted(visible)}})
+                return NodeResult(node.id, "done", key, attempts, cost_usd=cost, seconds=round(time.time() - t0, 3))
+            feedback = findings
+            self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "retry", "attempt": attempts, "findings": findings[:10]})
+        return NodeResult(node.id, "failed", findings=feedback, attempts=attempts, seconds=round(time.time() - t0, 3))

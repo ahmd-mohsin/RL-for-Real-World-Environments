@@ -43,6 +43,7 @@ class Milestone(CrucibleModel):
     cost: Literal["cheap", "medium", "expensive"] = "cheap"
     gate: bool = False  # a gate milestone zeroes reward when unmet at the terminal state
     provenance: list[Provenance] = Field(default_factory=list)
+    states: list[str] = Field(default_factory=list)  # instruction property ids this milestone grades (A7 coverage)
 
 
 class MilestoneSet(VersionedDocument):

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-from crucible.core.schema.signal import Signal
+from crucible.core.schema.signal import Signal, SignalTarget
 from crucible.core.schema.trace import Trace, TraceEvent
 from crucible.signals.extract import signal_id
 
@@ -124,3 +124,36 @@ class CodingSignalMapper:
 
 
 
+
+
+class AgentRunSignalMapper:
+    """Frontier-run traces (``coding/agent_run``) -> gate-level outcome signals (ARCHITECTURE §6, M4 row: "frontier
+    failures -> gate-level outcomes"). Each failing hidden-verifier gate becomes a ``check_result`` -1 signal on the
+    run's final patch, targeting ``gate:<name>``; a passing run yields one ``check_result`` +1. These are the privileged
+    failure knowledge the forge turns into trap tasks (DESIGN §7.1): what a frontier model got wrong, verified by the
+    grader, not by an opinion."""
+
+    def map(self, trace: Trace) -> list[Signal]:
+        det = (trace.outcome.details if trace.outcome else None) or {}
+        fin = next((e for e in reversed(trace.events) if e.type == "final_patch"), None)
+        if fin is None:
+            return []
+        base = {"task": det.get("task"), "run": det.get("run"), "model": det.get("model"), "reward": det.get("reward"), "automated": True}
+        out = []
+        graded = [e for e in trace.events if e.type == "grade_gate"]
+        for e in graded:  # the grade report's own gate events (the run was graded with its report kept)
+            g, ok = e.data.get("gate"), bool(e.data.get("pass"))
+            if not ok:
+                out.append(Signal(id=signal_id(trace.trace_id, "check_result", e.seq, g), type="check_result", polarity=-1, source_event=e.seq,
+                                  grades=[fin.seq], actor="hidden_verifier", target=SignalTarget(object=f"gate:{g}"),
+                                  text=f"{det.get('model')} failed hidden gate {g}", meta={**base, "gate": g}))
+        if graded:
+            return out
+        gates = det.get("failing_gates") or []
+        if not gates and det.get("reward") is not None:
+            return [Signal(id=signal_id(trace.trace_id, "check_result", fin.seq, "pass"), type="check_result", polarity=1 if det["reward"] >= 1 else -1,
+                           source_event=fin.seq, grades=[fin.seq], actor="hidden_verifier", target=SignalTarget(object="gate:*"),
+                           text=f"hidden verifier reward {det['reward']}", meta=base)]
+        return [Signal(id=signal_id(trace.trace_id, "check_result", fin.seq, g), type="check_result", polarity=-1, source_event=fin.seq, grades=[fin.seq],
+                       actor="hidden_verifier", target=SignalTarget(object=f"gate:{g}"), text=f"{det.get('model')} failed hidden gate {g}",
+                       meta={**base, "gate": g}) for g in gates]

@@ -17,6 +17,7 @@ INSTRUCTION = (
 
 def register(registry) -> None:
     registry.register("pack", "toy", "crucible_pack_toy:PACK_ROOT", source="crucible-pack-toy")
+    registry.register("signal_mapper", "toy/support_ticket", "crucible_pack_toy.signals:ToyTicketSignalMapper", source="crucible-pack-toy")
 
 
 def helpdesk_spec():

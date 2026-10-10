@@ -24,6 +24,7 @@ def register(registry) -> None:
     registry.register("connector", "ci_logs", "crucible_pack_coding.connectors.ci_logs:CILogConnector", source="crucible-pack-coding")
     registry.register("connector", "policy_docs", "crucible_pack_coding.connectors.policy_docs:PolicyDocConnector", source="crucible-pack-coding")
     registry.register("signal_mapper", "coding/pull_request", "crucible_pack_coding.signals:CodingSignalMapper", source="crucible-pack-coding")
+    registry.register("signal_mapper", "coding/agent_run", "crucible_pack_coding.signals:AgentRunSignalMapper", source="crucible-pack-coding")
     registry.register("outcome_labeler", "coding/pull_request", "crucible_pack_coding.outcomes:PullRequestOutcome", source="crucible-pack-coding")
 
 

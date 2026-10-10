@@ -1,0 +1,63 @@
+{
+ "plan": "toy/helpdesk_v2@seed7",
+ "state": "rejected",
+ "reason": "checks: failed ['toy/helpdesk_v2/t1_duplicate/refund_amount: SQL error Incorrect number of bindings supplied. The current statement uses 2, and there are 0 supplied.', 'toy/helpdesk_v2/t1_duplicate/refund_order: SQL error Incorrect number of bindings supplied. The current statement uses 1, and there are 0 supplied.']; negatives: skipped [\"upstream did not finish: ['checks']\"]; audit: skipped [\"upstream did not finish: ['checks', 'negatives']\"]",
+ "llm": "smoke-cheap",
+ "nodes": {
+  "architect": {
+   "status": "done",
+   "attempts": 1,
+   "reused": false,
+   "findings": [],
+   "cost_usd": 1.7e-05
+  },
+  "env": {
+   "status": "done",
+   "attempts": 1,
+   "reused": false,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "checks": {
+   "status": "failed",
+   "attempts": 3,
+   "reused": false,
+   "findings": [
+    "toy/helpdesk_v2/t1_duplicate/refund_amount: SQL error Incorrect number of bindings supplied. The current statement uses 2, and there are 0 supplied.",
+    "toy/helpdesk_v2/t1_duplicate/refund_order: SQL error Incorrect number of bindings supplied. The current statement uses 1, and there are 0 supplied.",
+    "toy/helpdesk_v2/t1_duplicate/refund_ticket: SQL error Incorrect number of bindings supplied. The current statement uses 1, and there are 0 supplied.",
+    "toy/helpdesk_v2/t1_duplicate/note_body: SQL error Incorrect number of bindings supplied. The current statement uses 1, and there are 0 supplied.",
+    "toy/helpdesk_v2/t1_duplicate/note_ticket: a predicate must return one value"
+   ],
+   "cost_usd": 0.0
+  },
+  "oracle": {
+   "status": "done",
+   "attempts": 1,
+   "reused": false,
+   "findings": [],
+   "cost_usd": 0.0
+  },
+  "negatives": {
+   "status": "skipped",
+   "attempts": 0,
+   "reused": false,
+   "findings": [
+    "upstream did not finish: ['checks']"
+   ],
+   "cost_usd": 0.0
+  },
+  "audit": {
+   "status": "skipped",
+   "attempts": 0,
+   "reused": false,
+   "findings": [
+    "upstream did not finish: ['checks', 'negatives']"
+   ],
+   "cost_usd": 0.0
+  }
+ },
+ "signals": {
+  "approval": "sig_62a4da715b814529"
+ }
+}
