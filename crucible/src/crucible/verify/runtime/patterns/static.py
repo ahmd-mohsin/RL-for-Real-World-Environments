@@ -58,6 +58,10 @@ def strip_c(text: str) -> str:
     return "".join(out)
 
 
+def strip_cmake(text: str) -> str:
+    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+
+
 def strip_py(text: str) -> str:
     """Remove Python comments (string-aware), keep strings: a banned name in a string is still evidence."""
     lines = []
@@ -103,6 +107,8 @@ class RuleSet:
     banned_modules: set = field(default_factory=set)  # Python modules (dynamic import check)
     runner_tamper: bool = True
     tamper_roots: tuple = ()  # top-level directories the runner-tamper rules apply to (empty = all)
+    skip: tuple = ()  # top-level directories that are not scanned (they must then be frozen: unchanged from the base)
+    frozen_base: str | None = None  # the pristine tree ``skip`` directories are compared with (A13: no code hidden in skipped dirs)
     exclude: tuple = (".git", "__pycache__")  # pruned before scanning (and therefore never built)
     text_suffixes: set = field(default_factory=lambda: C_LIKE | PY | {".txt", ".cmake", ".toml", ".cfg", ".in", ".sh", ".mk", ".json", ".yaml", ".yml"})
 
@@ -141,6 +147,8 @@ def scan(root: Path, rules: RuleSet) -> dict:
     files = [p for p in sorted(root.rglob("*")) if p.is_file() and not p.is_symlink()]
     for p in files:
         rel = p.relative_to(root).as_posix()
+        if rel.split("/", 1)[0] in rules.skip:
+            continue
         if p.suffix in rules.forbidden_files or p.name in rules.forbidden_files:
             violations.append({"rule": "forbidden_file", "file": rel})
             continue
@@ -150,15 +158,18 @@ def scan(root: Path, rules: RuleSet) -> dict:
             continue
         if p.suffix not in rules.text_suffixes:
             continue
-        raw = p.read_text(errors="replace")
-        code = strip_c(raw) if p.suffix in C_LIKE else strip_py(raw) if p.suffix in PY else raw
         top = rel.split("/", 1)[0]
-        active = [r for r in rules.forbid if (not r.suffixes or p.suffix in r.suffixes) and (not r.roots or top in r.roots)]
+        if top in rules.skip:
+            continue
+        raw = p.read_text(errors="replace")
+        is_cmake = p.name == "CMakeLists.txt" or p.suffix == ".cmake"
+        code = strip_c(raw) if p.suffix in C_LIKE else strip_py(raw) if p.suffix in PY else strip_cmake(raw) if is_cmake else raw
+        active = [r for r in rules.forbid if (not r.suffixes or p.suffix in r.suffixes or p.name in r.suffixes) and (not r.roots or top in r.roots)]
         for r in active:
             for m in re.finditer(r.pattern, code, r.flags):
                 violations.append({"rule": r.id, "file": rel, "match": m.group(0)[:120]})
         for r in rules.require:
-            if (not r.suffixes or p.suffix in r.suffixes) and (not r.roots or top in r.roots) and re.search(r.pattern, code, r.flags):
+            if (not r.suffixes or p.suffix in r.suffixes or p.name in r.suffixes) and (not r.roots or top in r.roots) and re.search(r.pattern, code, r.flags):
                 required[r.id] = True
         if p.suffix in C_LIKE and "##" in code:  # token pasting: join the arguments of each call and rescan
             for d in re.finditer(r"(?m)^\s*#\s*define\s+(\w+)\(([^)]*)\)\s+(.*##.*)$", code):
@@ -210,4 +221,22 @@ def scan(root: Path, rules: RuleSet) -> dict:
     for rid, ok in required.items():
         if not ok:
             violations.append({"rule": f"missing:{rid}", "file": "-"})
+    if rules.skip and rules.frozen_base:  # skipped directories are not scanned: no buildable file there may be new or modified
+        import hashlib
+
+        def buildable(q: Path) -> bool:
+            return q.suffix in C_LIKE | PY | {".cmake", ".cu", ".cuh"} or q.name == "CMakeLists.txt"
+
+        def digest(top: Path) -> dict:
+            if not top.exists():
+                return {}
+            return {q.relative_to(top).as_posix(): hashlib.sha256(q.read_bytes()).hexdigest()
+                    for q in top.rglob("*") if q.is_file() and not q.is_symlink() and buildable(q)}
+
+        for d in rules.skip:
+            if d == ".git":
+                continue
+            a, b = digest(root / d), digest(Path(rules.frozen_base) / d)
+            changed = sorted(k for k in a if a.get(k) != b.get(k))  # new or modified; deleting code hides nothing
+            violations += [{"rule": "frozen_dir_changed", "file": f"{d}/{k}"} for k in changed[:20]]
     return {"pass": not violations, "violations": violations[:200], "count": len(violations), "pruned": pruned[:50]}

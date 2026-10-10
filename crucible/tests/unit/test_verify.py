@@ -256,3 +256,27 @@ async def test_host_grader_composes(tmp_path):
     assert out.reward.outcome == 0.0 and 0 < out.reward.reward <= 0.3  # failed but half the milestones: bounded partial credit
     flat = json.loads((tmp_path / "o" / "reward.json").read_text())
     assert flat["gate/policy"] == 1.0 and all(isinstance(v, float) for v in flat.values())
+
+
+def test_rows_vs_clock():
+    from crucible.verify.runtime.patterns.perf import rows_vs_clock
+
+    honest = rows_vs_clock({"a": 4.0, "b": 6.0}, wall_short_s=5.0, wall_long_s=5.0 + 0.011 * 20, extra_reps=20)
+    assert honest["pass"]  # rows claim 10 ms/rep, the clock measured 11
+    forged = rows_vs_clock({"a": 0.4, "b": 0.6}, wall_short_s=5.0, wall_long_s=5.0 + 0.011 * 20, extra_reps=20)
+    assert not forged["pass"]  # rows claim 1 ms/rep, the clock measured 11
+
+
+def test_static_frozen_skipped_dirs(tmp_path):
+    base, cand = tmp_path / "base", tmp_path / "cand"
+    for d in (base, cand):
+        (d / "third_party" / "lib").mkdir(parents=True)
+        (d / "third_party" / "lib" / "a.cpp").write_text("int a() { return 1; }\n")
+        (d / "docs").mkdir()
+        (d / "docs" / "x.md").write_text("old\n")
+    (cand / "docs" / "x.md").write_text("edited docs are fine\n")
+    rs = RuleSet(forbid=[Rule("cuda", r"__global__")], skip=("third_party", "docs"), frozen_base=str(base), runner_tamper=False)
+    assert scan(cand, rs)["pass"]
+    (cand / "third_party" / "lib" / "hidden.cu.cpp").write_text("__global__ void k() {}\n")  # banned code hidden in an unscanned dir
+    r = scan(cand, rs)
+    assert not r["pass"] and r["violations"][0]["rule"] == "frozen_dir_changed"

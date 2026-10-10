@@ -146,3 +146,16 @@ class PerfBars:
             if orig:
                 return Verdict(False, {"attempts": attempts}, infra=f"original's perf rounds contaminated: {orig[:5]}")
         return Verdict(last["pass"], {**last, **({"first_attempts": attempts[:-1]} if len(attempts) > 1 else {})})
+
+
+def rows_vs_clock(reported_ms: dict, wall_short_s: float, wall_long_s: float, extra_reps: int, *, min_share: float = 0.6) -> dict:
+    """Cross-check per-case timings a candidate's process printed against the grader's own clock (P26).
+
+    The benchmark runs twice, with ``extra_reps`` more timed repetitions per case the second time; the grader measures
+    both processes from outside. ``(wall_long - wall_short) / extra_reps`` is the time one repetition of every case
+    really took. Rows that claim less than ``min_share`` of it were not measured honestly (in-process timers can be
+    forged; the grader's clock cannot)."""
+    measured_ms = max(0.0, (wall_long_s - wall_short_s) / max(1, extra_reps)) * 1e3
+    claimed_ms = float(sum(reported_ms.values()))
+    ok = measured_ms <= 0 or claimed_ms >= min_share * measured_ms
+    return {"pass": ok, "claimed_ms_per_rep": round(claimed_ms, 3), "measured_ms_per_rep": round(measured_ms, 3), "min_share": min_share}

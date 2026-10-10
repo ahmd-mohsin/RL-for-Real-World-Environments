@@ -24,7 +24,7 @@ from pathlib import Path
 from crucible.verify.runtime.patterns.perf import PerfBars
 from crucible.verify.runtime.patterns.static import scan
 from crucible_pack_coding import PACK_ROOT
-from crucible_pack_coding.verify import task03, task04
+from crucible_pack_coding.verify import task01, task02, task03, task04
 
 CRUCIBLE = PACK_ROOT.parent.parent
 HIST = CRUCIBLE / "data" / "m7" / "history"
@@ -144,11 +144,76 @@ def task03_golden() -> dict:
     return {"pass": ok and n == len(TASK03_GRADES), "matched": {"static": f"{sum(1 for r in rows.values() if r.get('static', {}).get('match'))}/{n}"}, "grades": rows}
 
 
+TASK02 = CRUCIBLE.parent / "migration_tasks" / "task02_pcops_triton"
+TASK02_GRADES = {"report_oracle.json": ("tree", "oracle"), "report_naive_fps.json": ("tree", "naive_fps"), "report_cheat_knn_torch.json": ("tree", "cheat_knn_torch"),
+                 "report_pcops.json": ("base", None), "gptrun/out/report.json": ("patch", TASK02 / "runs" / "gpt-5.6-sol-run1" / "model.patch")}
+
+
+def task02_golden() -> dict:
+    """Static verdicts of the recorded task02 grades (candidate trees, the unmodified original, the GPT 5.6 sol run)."""
+    rows, ok = {}, True
+    for rep_name, (kind, ref) in TASK02_GRADES.items():
+        rep = HIST / "task02" / rep_name
+        recorded = json.loads(rep.read_text())["gates"]["static"]["pass"]
+        with tempfile.TemporaryDirectory() as d:
+            tree = Path(d) / "pcops"
+            if kind == "tree":
+                shutil.copytree(HIST / "task02" / "cands" / ref, tree)
+            else:
+                shutil.copytree(TASK02 / "repos" / "pcops", tree, ignore=shutil.ignore_patterns(".git"))
+                if kind == "patch":
+                    subprocess.run(["git", "init", "-q"], cwd=tree, check=True)
+                    r = subprocess.run(["git", "apply", "--whitespace=nowarn", str(ref)], cwd=tree, capture_output=True, text=True, check=False)
+                    if r.returncode:
+                        rows[rep_name] = {"skipped": f"patch does not apply: {r.stderr[-200:]}"}
+                        continue
+            s = scan(tree, task02.RULES)
+        rows[rep_name] = {"static": {"recorded": recorded, "kit": s["pass"], "match": recorded == s["pass"], "violations": s["violations"][:4]}}
+        ok &= recorded == s["pass"]
+    n = sum(1 for r in rows.values() if "static" in r)
+    return {"pass": ok and n == len(TASK02_GRADES), "matched": {"static": f"{sum(1 for r in rows.values() if r.get('static', {}).get('match'))}/{n}"}, "grades": rows}
+
+
+MT = CRUCIBLE.parent / "migration_tasks"
+
+
+def task01_golden() -> dict:
+    """Static verdicts for task01/01v2: the recorded frontier runs, plus the oracle (scored 1) and the base (CUDA, must fail)."""
+    rows, ok = {}, True
+    for task, version in (("task01_prims_omp", "v1"), ("task01v2_tessera_omp", "v2")):
+        base = MT / task / "repo"
+        subjects = {"base": (None, False), "oracle": (MT / task / "solution" / "solution.patch", True)}
+        for rd in sorted((MT / task / "runs").glob("*")):
+            g = rd / "grade_report.json"
+            if g.exists() and "static" in json.loads(g.read_text()).get("gates", {}):
+                subjects[rd.name] = (rd / "model.patch", json.loads(g.read_text())["gates"]["static"]["pass"])
+        for name, (patch, recorded) in subjects.items():
+            with tempfile.TemporaryDirectory() as d:
+                tree = Path(d) / "repo"
+                shutil.copytree(base, tree, ignore=shutil.ignore_patterns(".git", "build*"))
+                if patch is not None:
+                    subprocess.run(["git", "init", "-q"], cwd=tree, check=True)
+                    r = subprocess.run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=tree, capture_output=True, text=True, check=False)
+                    if r.returncode:
+                        rows[f"{task}/{name}"] = {"skipped": f"patch does not apply: {r.stderr[-200:]}"}
+                        continue
+                s = scan(tree, task01.rules(version, frozen_base=str(base)))
+            rows[f"{task}/{name}"] = {"static": {"recorded": recorded, "kit": s["pass"], "match": recorded == s["pass"], "violations": s["violations"][:4]}}
+            ok &= recorded == s["pass"]
+    n = sum(1 for r in rows.values() if "static" in r)
+    return {"pass": ok and n == len(rows), "matched": {"static": f"{sum(1 for r in rows.values() if r.get('static', {}).get('match'))}/{n}"}, "grades": rows}
+
+
 def main() -> None:
-    rep = {"gate": "M7 golden, CPU part (recorded history re-scored by the kit)", "task04": task04_golden(), "task03": task03_golden()}
-    rep["pass"] = rep["task04"]["pass"] and rep["task03"]["pass"]
+    rep = {"gate": "M7 golden, CPU part (recorded history re-scored by the kit)", "task04": task04_golden(), "task03": task03_golden(), "task02": task02_golden(),
+           "task01": task01_golden()}
+    rep["pass"] = all(rep[k]["pass"] for k in ("task04", "task03", "task02", "task01"))
     REPORT.write_text(json.dumps(rep, indent=1, default=str) + "\n")
-    print(json.dumps({"pass": rep["pass"], "task04": rep["task04"]["matched"], "task03": rep["task03"]["matched"]}, indent=1))
+    print(json.dumps({"pass": rep["pass"], **{k: rep[k]["matched"] for k in ("task04", "task03", "task02", "task01")}}, indent=1))
+    for n, r in rep["task01"]["grades"].items():
+        print("task01", n, r)
+    for n, r in rep["task02"]["grades"].items():
+        print("task02", n, r)
     for n, r in rep["task03"]["grades"].items():
         print("task03", n, r)
     for n, r in rep["task04"]["grades"].items():

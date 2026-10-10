@@ -375,5 +375,168 @@
    }
   }
  },
+ "task02": {
+  "pass": true,
+  "matched": {
+   "static": "5/5"
+  },
+  "grades": {
+   "report_oracle.json": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "report_naive_fps.json": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "report_cheat_knn_torch.json": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "report_pcops.json": {
+    "static": {
+     "recorded": false,
+     "kit": false,
+     "match": true,
+     "violations": [
+      {
+       "rule": "forbidden_file",
+       "file": "csrc/cluster/cuda/fps_cuda.cu"
+      },
+      {
+       "rule": "forbidden_file",
+       "file": "csrc/cluster/cuda/fps_cuda.h"
+      },
+      {
+       "rule": "forbidden_file",
+       "file": "csrc/cluster/cuda/grid_cuda.cu"
+      },
+      {
+       "rule": "forbidden_file",
+       "file": "csrc/cluster/cuda/grid_cuda.h"
+      }
+     ]
+    }
+   },
+   "gptrun/out/report.json": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   }
+  }
+ },
+ "task01": {
+  "pass": true,
+  "matched": {
+   "static": "6/6"
+  },
+  "grades": {
+   "task01_prims_omp/base": {
+    "static": {
+     "recorded": false,
+     "kit": false,
+     "match": true,
+     "violations": [
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "nvcc"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "enable_language(CUDA"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "CMAKE_CUDA"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "CMAKE_CUDA"
+      }
+     ]
+    }
+   },
+   "task01_prims_omp/oracle": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "task01_prims_omp/fable-5.1-run1": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "task01v2_tessera_omp/base": {
+    "static": {
+     "recorded": false,
+     "kit": false,
+     "match": true,
+     "violations": [
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "nvcc"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "enable_language(CUDA"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "CMAKE_CUDA"
+      },
+      {
+       "rule": "cmake_cuda",
+       "file": "CMakeLists.txt",
+       "match": "CMAKE_CUDA"
+      }
+     ]
+    }
+   },
+   "task01v2_tessera_omp/oracle": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   },
+   "task01v2_tessera_omp/gpt-5.6-sol-run1": {
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "match": true,
+     "violations": []
+    }
+   }
+  }
+ },
  "pass": true
 }
