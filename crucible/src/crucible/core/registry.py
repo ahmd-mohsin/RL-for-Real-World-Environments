@@ -148,6 +148,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("ci_runner", "docker", "crucible.world.apps.ci:DockerCiRunner")
     r.register("app_template", "openenv/awm_service", "crucible.interop.openenv.awm:AwmServiceApp")
     r.register("app_template", "openenv/env", "crucible.interop.openenv.import_env:OpenEnvApp")
+    r.register("app_template", "harbor/terminal", "crucible.interop.harbor.inplace:TerminalApp")
     # World backends: core ships `local`; framework backends live in interop and load lazily.
     r.register("world_backend", "local", "crucible.world.backends.local:LocalBackend")
     r.register("world_backend", "harbor", "crucible.interop.harbor.world_backend:HarborBackend")

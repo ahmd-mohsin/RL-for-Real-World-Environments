@@ -30,7 +30,7 @@ from harbor.environments.docker.docker import DockerEnvironment
 class GpuDockerEnvironment(DockerEnvironment):
     def __init__(self, *args: Any, gpu_mode: str = "runtime", gpu_devices: str = "all", network_none: bool = False,
                  init: bool = True, shm_size: str | None = "8g", pids_limit: int | None = None, cap_add: list[str] | None = None,
-                 mem_limit: str | None = None, security_opt: list[str] | None = None, **kwargs: Any) -> None:
+                 mem_limit: str | None = None, security_opt: list[str] | None = None, logs_mounted: bool = True, **kwargs: Any) -> None:
         if gpu_mode not in ("runtime", "devices", "none"):
             raise ValueError(f"gpu_mode must be runtime|devices|none, got {gpu_mode!r}")
         self._gpu_mode = gpu_mode
@@ -42,6 +42,7 @@ class GpuDockerEnvironment(DockerEnvironment):
         self._cap_add = cap_add or []
         self._mem_limit = mem_limit
         self._security_opt = security_opt or []
+        self._logs_mounted = logs_mounted  # False on a remote daemon: Harbor then downloads /logs instead of reading the bind mount
         self._overlay_dir: tempfile.TemporaryDirectory[str] | None = None
         self._overlay_path: Path | None = None
         super().__init__(*args, **kwargs)  # capability validation runs in here: state above must exist first
@@ -49,6 +50,8 @@ class GpuDockerEnvironment(DockerEnvironment):
     @property
     def capabilities(self) -> EnvironmentCapabilities:
         update: dict[str, Any] = {"gpus": self._gpu_mode != "none"}
+        if not getattr(self, "_logs_mounted", True):
+            update["mounted"] = False
         if self._network_none:
             update["disable_internet"] = True
         return super().capabilities.model_copy(update=update)

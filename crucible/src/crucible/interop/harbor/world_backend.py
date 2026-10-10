@@ -14,6 +14,7 @@ Params:
   network_none      default: True when the world's network is "no-network"
   base_path         where relative App paths resolve in the container (default "/")
   user              default exec user; keep_containers; start_timeout_s
+  require_state_tools  probe for python3 + git (default True; False for in-place Harbor tasks on arbitrary images)
 """
 
 from __future__ import annotations
@@ -172,6 +173,14 @@ class HarborBackend(Backend):
         trial.mkdir()
         gpu_mode = self.params.get("gpu_mode", "runtime" if self._needs_gpu else "none")
         common = {"environment_dir": env_dir, "environment_name": name, "session_id": self.session_id, "trial_paths": trial, "task_env_config": cfg}
+        remote = bool(docker_host) or self.params.get("environment_type", "docker") != "docker"
+        if not remote:
+            # Harbor's Trial bind-mounts /logs/{verifier,agent,artifacts} from the trial dir (Trial._agent_env_mounts); without
+            # them every verifier / oracle redirect into /logs fails and Harbor tasks yield no reward (found by A-1)
+            from harbor.trial.trial import _harbor_log_bind_mount
+
+            common["mounts"] = [_harbor_log_bind_mount(source=d.resolve().absolute().as_posix(), target=t, os=cfg.os)
+                                for d, t in ((trial.verifier_dir, "/logs/verifier"), (trial.agent_dir, "/logs/agent"), (trial.artifacts_dir, "/logs/artifacts"))]
         iso = self.spec.isolation
         etype = self.params.get("environment_type", "docker")
         if etype != "docker":
@@ -185,21 +194,25 @@ class HarborBackend(Backend):
             self.env = EnvironmentFactory.create_environment(EnvironmentType(etype), **common, network_policy=policy, **self.params.get("environment_kwargs", {}))
             await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
             self._exec = HarborExec(self.env, default_user=self.params.get("user"))
-            probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=120)
-            if "ok" not in probe.stdout:
-                raise RuntimeError(f"sandbox image needs python3 and git for Crucible's state adapters ({etype})")
+            if self.params.get("require_state_tools", True):
+                probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=120)
+                if "ok" not in probe.stdout:
+                    raise RuntimeError(f"sandbox image needs python3 and git for Crucible's state adapters ({etype})")
             return
         # Local or remote Docker: our overlay subclass (GPUs via the nvidia runtime, no-network, init, the policy's caps).
         self.env = EnvironmentFactory.create_environment_from_import_path(
             GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(), pids_limit=iso.pids_limit,
             cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory,
             security_opt=self.params.get("security_opt", []),  # opt-in: the guard sets no_new_privs on the policy tree itself
-            keep_containers=bool(self.params.get("keep_containers")))
+            keep_containers=bool(self.params.get("keep_containers")), logs_mounted=not remote)
         await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
         self._exec = HarborExec(self.env, default_user=self.params.get("user"))
-        probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=60)
-        if "ok" not in probe.stdout:
-            raise RuntimeError("sandbox image needs python3 and git for Crucible's state adapters")
+        if remote:  # no host bind mounts on a remote daemon: the dirs live in the container and Harbor downloads them
+            await self._exec.run("mkdir -p /logs/verifier /logs/agent /logs/artifacts", timeout_s=60, user="root")
+        if self.params.get("require_state_tools", True):  # in-place Harbor tasks (process adapter) run on any image
+            probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=60)
+            if "ok" not in probe.stdout:
+                raise RuntimeError("sandbox image needs python3 and git for Crucible's state adapters")
 
     async def after_apps_started(self, world) -> None:
         """Isolation (Karotte-style), after Apps seeded their files as root (``crucible.world.guard.isolate``)."""

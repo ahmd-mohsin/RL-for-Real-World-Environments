@@ -1,0 +1,18 @@
+schema_version = "1.1"
+
+[task]
+name = "crucible-fixture/netphase"
+description = "In-place Harbor fixture: write 42 to /app/answer.txt"
+
+[verifier]
+timeout_sec = 60.0
+network_mode = "public"
+
+[agent]
+timeout_sec = 60.0
+
+[environment]
+workdir = "/app"
+cpus = 1
+memory_mb = 512
+network_mode = "no-network"

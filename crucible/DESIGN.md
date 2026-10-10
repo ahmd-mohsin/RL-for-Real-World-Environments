@@ -710,7 +710,23 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
 - **Every B.5 class has an injector** and a test showing it is masked, plus policy controls (agent broke the environment, step limit, context overflow, no change) showing they are scored.
 - **Retries reuse what is still valid.** A grade masked for infrastructure is retried as a re-grade of the stored patch, and an empty collection as a re-collect of the preserved tree; neither re-runs the agent, which would replace the measured solution with a new sample. `Runner.regrade` re-grades exhausted samples later from their artifacts. `PerfGuard` runs one perf grade per host and only on a quiet host (no foreign GPU memory, low utilization and load); a host that never quiets yields `node_contention` before anything runs.
 - **Trajectories join.** Every model call has a `call_id` and the ordered list of actions it produced. The ATIF trajectory (Harbor's models) carries `call_id`, `crucible_seq` (the trace event) and per-call `Metrics` with token ids and logprobs; a call that produced no action (a blank reply the policy nudged past) gets its own step. `steps.jsonl` rows get `atif_step_id` and `call_id` from the M5 steps' seqs. A proxy capture log can be cross-checked against the trajectory (`crucible:capture_incomplete` on mismatch).
-- **Harbor task directories run as they are.** `interop/harbor/verify_dir.HarborDirTask` grades a patch with the task's own `[verifier].command` in a fresh container of the pinned task image, with Harbor's layout (`/tests`, `/logs/artifacts`, `/logs/verifier`), declared network, limits and GPU, on any Docker host (the lab over `DOCKER_HOST=ssh://`). It can pin the task to a git ref, so a historical run is graded by the grader it was graded with. `ImportedHarness` turns a recorded run's patch into an attempt, so historical runs and dataset submissions pass through the same journal, classification and re-grading as live ones.
+- **Harbor task directories: two modes (corrected 2026-10-10, m13 audit G1).**
+  - **Patch mode** (`verify_dir.HarborDirTask`) is valid only for Crucible-authored tasks, whose verifier kit applies
+    `/logs/artifacts/model.patch`.
+  - Foreign Harbor tasks grade the container state the agent left. Through patch mode an oracle and a no-op got the
+    same grade, a silent wrong reward.
+  - **In-place mode** (`interop/harbor/inplace.HarborInPlaceTask`):
+    - the policy acts in the task container through `harbor/terminal` (`exec`, `read_file`, `write_file`);
+    - Harbor's own `OracleAgent` runs `solve.sh`;
+    - Harbor's own `Verifier` grades the same container under Harbor's phase network plan;
+    - `reward.json` resolves to `reward`, else the single key, else `reward_key`, else it masks as ambiguous;
+    - a missing reward, a timeout or an unapplicable network phase masks, never scores 0.
+  - **Fixed alongside:** `HarborBackend` now passes Harbor's `/logs` bind mounts (`Trial._agent_env_mounts`). Without
+    them every verifier redirect into `/logs` failed. On a remote daemon, `/logs` lives in the container and is
+    downloaded instead.
+  - **Tests** (`tests/unit/test_harbor_inplace.py`, local Docker): oracle 1.0, no-op 0.0, a scripted policy through
+    the tools 1.0, multi-key with and without `reward_key`, no reward → masked, verifier network → masked.
+- **Patch mode details.** `interop/harbor/verify_dir.HarborDirTask` grades a patch with the task's own `[verifier].command` in a fresh container of the pinned task image, with Harbor's layout (`/tests`, `/logs/artifacts`, `/logs/verifier`), declared network, limits and GPU, on any Docker host (the lab over `DOCKER_HOST=ssh://`). It can pin the task to a git ref, so a historical run is graded by the grader it was graded with. `ImportedHarness` turns a recorded run's patch into an attempt, so historical runs and dataset submissions pass through the same journal, classification and re-grading as live ones.
 - **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `train/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
 
 **As built, M11 part 1 (2026-10-10; research `docs/research/m11-m12/05`).**
