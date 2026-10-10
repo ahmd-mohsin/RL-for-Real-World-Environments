@@ -37,7 +37,7 @@ for ATTEMPT in $(seq 1 30); do
   echo "$(date -Is) running (attempt $ATTEMPT)" > status.txt
   docker run --rm --name crucible_labstack --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --network host --ipc host --init \
     -v $HOME/REMOTE/src:/crucible -v $HOME/REMOTE/deps:/deps -v $HOME/REMOTE/out:/work/out -v $HOME/HFCACHE:/root/.cache/huggingface \
-    --entrypoint bash IMAGE -c 'python3 -m venv --system-site-packages /work/venv && /work/venv/bin/pip install -q -e /deps/harbor -e "/crucible[mcp,llm,openenv-awm,dev]" -e /crucible/packs/_toy > /work/out/pip.log 2>&1 && /work/venv/bin/python -m crucible_pack_toy.labstack.run ARGS' \
+    --entrypoint bash IMAGE -c 'python3 -m pip freeze | grep -viE "^(mcp|crucible|harbor)|@|^-e" > /work/constraints.txt; python3 -m venv --system-site-packages /work/venv && /work/venv/bin/pip install -q -c /work/constraints.txt -e /deps/harbor -e "/crucible[mcp,llm,openenv-awm,dev]" -e /crucible/packs/_toy -e /crucible/packs/coding > /work/out/pip.log 2>&1 && /work/venv/bin/python -m crucible_pack_toy.labstack.run ARGS' \
     > out/console.log 2>&1
   RC=$?
   [ "$RC" != 75 ] && break
@@ -52,7 +52,8 @@ def lab(cmd: str) -> subprocess.CompletedProcess:
 
 def stage(args: str) -> None:
     lab(f"mkdir -p ~/{REMOTE}/src ~/{REMOTE}/deps/harbor ~/{REMOTE}/out")
-    ex = ["--exclude", ".venv", "--exclude", ".envs", "--exclude", "data", "--exclude", "__pycache__", "--exclude", ".git"]
+    # "/data" (the repo's top-level cache), never "data": that also dropped packs/_toy/data and packs/coding/data (first run)
+    ex = ["--exclude", ".venv", "--exclude", ".envs", "--exclude", "/data", "--exclude", "__pycache__", "--exclude", ".git"]
     subprocess.run(["rsync", "-a", "--delete", *ex, f"{CRUCIBLE}/", f"{HOST}:{REMOTE}/src/"], check=True)
     for part in ("src", "pyproject.toml", "README.md"):
         subprocess.run(["rsync", "-a", "--delete", *ex, str(HARBOR / part), f"{HOST}:{REMOTE}/deps/harbor/"], check=True)

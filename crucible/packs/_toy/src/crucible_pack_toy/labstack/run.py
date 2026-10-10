@@ -143,7 +143,15 @@ def main() -> None:
                                       OUT / "m12" / "m12_gpu_gate.json"))
         save()
     report["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    report["summary"] = {p["phase"]: ("ok" if p["rc"] == 0 else f"rc={p['rc']}") for p in report["phases"]}
+    def verdict(p: dict) -> str:  # a gate's own "pass" field wins over its exit code (the M12 gate exits 0 on a failed gate)
+        res = p.get("result")
+        if p["rc"] != 0:
+            return f"rc={p['rc']}"
+        if isinstance(res, dict) and res.get("pass") is False:
+            return "fail (gate pass=false)"
+        return "ok"
+
+    report["summary"] = {p["phase"]: verdict(p) for p in report["phases"]}
     save()
     print(json.dumps(report["summary"], indent=1))
 
