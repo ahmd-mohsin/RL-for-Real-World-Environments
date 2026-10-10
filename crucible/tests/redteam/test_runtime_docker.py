@@ -83,3 +83,64 @@ def test_self_matching_pkill_over_linux_channel(image):
         assert ok is None  # the [x]yz form cannot match itself
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+
+
+TEST_SH = """#!/bin/bash
+set -u
+mkdir -p /logs/verifier; W=$(mktemp -d); cd $W && git init -q
+if [ -s /logs/artifacts/model.patch ] && ! git apply /logs/artifacts/model.patch 2>/logs/verifier/apply.log; then echo 0 > /logs/verifier/reward.txt; exit 0; fi
+if [ "${MODE:-}" = silent ]; then exit 3; fi
+ok=false; [ "$(python3 fib.py 2>/dev/null | tr '\\n' ' ')" = "0 1 1 2 3 5 8 13 21 34 " ] && ok=true
+echo "{\\"gates\\": {\\"output\\": {\\"pass\\": $ok}}}" > /logs/verifier/report.json
+$ok && echo 1 > /logs/verifier/reward.txt || echo 0 > /logs/verifier/reward.txt
+"""
+
+
+def harbor_dir(tmp_path, command="bash /tests/test.sh") -> Path:
+    d = tmp_path / "htask"
+    (d / "tests").mkdir(parents=True)
+    (d / "tests" / "test.sh").write_text(TEST_SH)
+    (d / "instruction.md").write_text("write fib.py")
+    (d / "task.toml").write_text(f'schema_version = "1.3"\n[task]\nname = "t/fib"\n[verifier]\nnetwork_mode = "no-network"\ncommand = "{command}"\ntimeout_sec = 60\n')
+    return d
+
+
+FIB_PATCH = """diff --git a/fib.py b/fib.py
+new file mode 100644
+--- /dev/null
++++ b/fib.py
+@@ -0,0 +1,4 @@
++a, b = 0, 1
++for _ in range(10):
++    print(a)
++    a, b = b, a + b
+"""
+
+
+async def test_harbor_dir_task_grades_with_its_own_verifier(image, tmp_path):
+    from crucible.interop.harbor.verify_dir import HarborDirTask
+
+    t = HarborDirTask(harbor_dir(tmp_path), image=image, expected_image=image_id(image))
+    g = await t.grade_patch(FIB_PATCH, tmp_path / "g1")
+    assert g.reward == 1.0 and g.gates == {"output": "pass"} and g.infra["status"] == "ok"
+    g0 = await t.grade_patch("", tmp_path / "g0")
+    assert g0.reward == 0.0 and g0.gates == {"output": "fail"} and g0.infra["status"] == "ok"
+    silent = HarborDirTask(harbor_dir(tmp_path / "s", command="MODE=silent bash /tests/test.sh"), image=image)
+    gs = await silent.grade_patch(FIB_PATCH, tmp_path / "gs")
+    assert gs.infra["status"] == "masked" and classify_verifier(gs.infra).detail == "no_reward_json"  # no reward file is not a 0
+    stale = HarborDirTask(harbor_dir(tmp_path / "st"), image=image, expected_image="sha256:" + "1" * 64)
+    assert classify_verifier((await stale.grade_patch(FIB_PATCH, tmp_path / "gst")).infra).kind == "crucible:stale_image"
+
+
+async def test_imported_run_through_the_runner(image, tmp_path):
+    from crucible.interop.harbor.verify_dir import HarborDirTask
+    from crucible.runtime.harness.imported import ImportedHarness
+    from crucible.runtime.harness.native import PolicyRef
+    from crucible.runtime.run import Runner, RunSpec
+
+    (tmp_path / "p.patch").write_text(FIB_PATCH)
+    pol = PolicyRef(id="import:fib-run1", make=lambda a: {})
+    spec = RunSpec(run_id="imp", tasks=[HarborDirTask(harbor_dir(tmp_path), image=image)], policies=[pol],
+                   harnesses=[ImportedHarness({"import:fib-run1": tmp_path / "p.patch"})])
+    s = await Runner(tmp_path / "runs").run(spec)
+    assert (s.attempts, s.scored, s.mean_reward) == (1, 1, 1.0)

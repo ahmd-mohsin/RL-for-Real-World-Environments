@@ -75,6 +75,8 @@ class WorkspaceHarness(NativeHarness):
             with boundary("verification"):
                 rep = await attempt.task.grade_patch(c.patch, attempt.dir / "grade")
         t["verification"] = time.monotonic() - t0
+        (attempt.dir / "verifier").mkdir(exist_ok=True)
+        (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
         res.grade = {"reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
         if rep.infra.get("status") == "masked":
             raise StageFailure(classify_verifier(rep.infra))

@@ -32,6 +32,8 @@
 | `trajectories.py` | ATIF v1.8 per actor joined to model calls (`call_id`, `llm_call_count`, per-call `Metrics` with token ids/logprobs), `no_action` steps for blank calls, `FinalMetrics`; `align` sets `StepRow.atif_step_id`/`call_id`; `cross_check` against a proxy capture | Harbor ATIF models (DEPEND); OpenEnv proxy-vs-ATIF check |
 | `record.py` + `train/rollout.py` | `crucible.rollout/v1` per attempt (`rollout.json`): turns with token ids, behaviour logprobs, policy version, sampling, credit; `valid_for_training`; train mode masks incomplete token records as `crucible:capture_incomplete` | verl `TokenTrace` shape with per-span versions |
 | `Runner.regrade` + grade-only retries | A masked grade is retried by re-grading the stored patch (no agent re-run); exhausted samples are re-graded later from artifacts | Harbor regrade-from-artifacts |
+| `interop/harbor/verify_dir.py` | `HarborDirTask`: a Harbor task dir (optionally at a git ref) graded with its own verifier command in the pinned image on any Docker host; Harbor reward files; masked on no reward, timeout, stale image | Harbor task layout (DEPEND) |
+| `harness/imported.py` | A recorded run's patch as an attempt (R1, dataset submissions) | — |
 | `inject.py` | `FakeLLM` with scripted provider failures (blank usage, credits, context overflow), `FakeSpend`, `FlakyGradeTask`; toy pack `crashing_tool_world` | — |
 
 ## Exit gate
@@ -41,7 +43,7 @@
 | All 8 B.5 classes injected, each classified as infra and masked, never scored 0 | ✅ 8/8 classes:<br>• **empty patch:** `empty_collection`, then re-collect only;<br>• **blank usage:** masked, retried;<br>• **credits:** stop, resumable, resume finishes the run;<br>• **zombie PID 1:** `zombie_wait` preflight, container without `--init` vs with it;<br>• **stale image:** digest pin, masked before grading;<br>• **ABI / stale build:** `stale_build` from the verifier;<br>• **contention:** `node_contention` (time spread, and GPU OOM under foreign memory);<br>• **self-kill:** sentinel channel on macOS and over a Linux container.<br>Also masked: tool crash (environment bug), grader exception, verifier timeout. Controls scored: agent broke the environment, step limit, context overflow, no change (0) |
 | Masked ≠ 0 | ✅ with 1 of 4 samples masked, the mean is that of the 3 scored samples; the Harbor-style average (masked as 0) is shown to differ |
 | Resume | ✅ re-running a finished spec dispatches nothing; a different spec under the same run id is refused |
-| One historical frontier run reproduced end to end | ⏳ R1 re-grade of the task02 GPT-5.6-sol patch at commit `5e53057` (lab), R2 command replay, R3 live mini-swe-agent through Harbor (~$3–10) |
+| One historical frontier run reproduced end to end | ⏳ R1 running (`crucible_pack_coding.runtime.r1`: task02@5e53057, image digest pinned, lab over `DOCKER_HOST=ssh://`, waiting for an idle GPU); R2 command replay, R3 live mini-swe-agent through Harbor (~$3–10) |
 | Toy | ✅ scripted oracle 1.0 and no-op 0.0 over k samples; workspace `fib` task 1.0 / 0.0 |
 
 | Trajectories and rollout records | ✅ every call, World action, ATIF step and `steps.jsonl` row joins (`tests/unit/test_runtime_records.py`); Harbor's validator accepts the trajectories; train mode masks a rollout without token records, eval mode does not need them |

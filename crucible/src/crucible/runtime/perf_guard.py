@@ -3,7 +3,8 @@
 The grader's own ``LoadGuard`` and round-spread check (``verify/runtime/patterns/perf.py``) catch contamination
 *inside* a grade. This module keeps contaminated grades from starting at all:
 
-- **one perf grade per host at a time** (a per-host lock: two of our own grades on one GPU contaminate each other);
+- **one perf grade per host at a time** (a per-host lock in this process, and no other ``crucible*`` container running on
+  the host: two of our own grades on one GPU contaminate each other);
 - **a host check before the grade:** foreign GPU compute processes holding memory, GPU utilization, CPU load per
   core. A busy host is waited on; if it never quiets within ``wait_s`` the grade does not run and the attempt is
   ``crucible:node_contention`` (infra, masked; re-graded later from the stored artifacts, never re-run by the agent);
@@ -34,7 +35,7 @@ def local_probe(cmd: str) -> tuple[int, str]:
 
 
 def sample(probe: Probe) -> dict:
-    s: dict = {"gpu_util": None, "foreign": [], "foreign_mib": 0, "load_per_core": None}
+    s: dict = {"gpu_util": None, "foreign": [], "foreign_mib": 0, "load_per_core": None, "crucible_containers": 0}
     rc, out = probe("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null")
     vals = [int(x) for x in out.split() if x.strip().isdigit()] if rc == 0 else []
     s["gpu_util"] = max(vals) if vals else None
@@ -45,6 +46,8 @@ def sample(probe: Probe) -> dict:
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 s["foreign"].append({"pid": int(parts[0]), "mib": int(parts[1])})
         s["foreign_mib"] = sum(p["mib"] for p in s["foreign"])
+    rc, out = probe("docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^crucible' || true")
+    s["crucible_containers"] = int(out.strip() or 0) if out.strip().isdigit() else 0
     rc, out = probe("cat /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg; nproc 2>/dev/null || sysctl -n hw.ncpu")
     nums = [x for x in out.replace("{", " ").replace("}", " ").split()]
     try:
@@ -72,6 +75,8 @@ class PerfGuard:
             why.append(f"gpu {s['gpu_util']}%")
         if s["foreign_mib"] > self.max_foreign_mib:
             why.append(f"foreign GPU memory {s['foreign_mib']} MiB in {len(s['foreign'])} processes")
+        if s.get("crucible_containers"):
+            why.append(f"{s['crucible_containers']} other crucible grade/sandbox containers running")
         if s["load_per_core"] is not None and s["load_per_core"] > self.max_load_per_core:
             why.append(f"load/core {s['load_per_core']}")
         return why
