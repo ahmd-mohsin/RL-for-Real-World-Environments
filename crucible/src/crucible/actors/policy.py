@@ -57,6 +57,7 @@ SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "descri
                 "parameters": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}}
 
 
+CUT_OFF = "Your last reply was cut off at the output limit before you called a tool. Continue: make one tool call (keep any reasoning short)."
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
 class LLMToolPolicy(Policy):
     """A minimal function-calling harness. Parallel tool calls in one turn are executed in order and their results
@@ -117,7 +118,7 @@ class LLMToolPolicy(Policy):
             return self._queue.pop(0)
         try:
             r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
-                                        sample_key=self.sample_key)
+                                        sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
         except ContextOverflow as e:
             self.stop = "context_overflow"  # truncated, scored: a long-horizon failure is data, not an outage
             return Done(reason=f"context overflow: {e}")
@@ -131,6 +132,12 @@ class LLMToolPolicy(Policy):
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
+            return await self.act(Observation(actor=obs.actor, step=obs.step))
+        if not r.tool_calls and r.raw_finish == "length" and self._nudges < self.max_nudges:
+            # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error)
+            self._nudges += 1
+            self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(cut off)"})
+            self.messages.append({"role": "user", "content": CUT_OFF})
             return await self.act(Observation(actor=obs.actor, step=obs.step))
         if not r.tool_calls:
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})

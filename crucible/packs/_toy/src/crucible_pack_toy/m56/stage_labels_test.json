@@ -1,0 +1,122 @@
+{
+ "pack": "toy",
+ "split": "test",
+ "vocabulary": [
+  "intake",
+  "triage",
+  "respond",
+  "resolved"
+ ],
+ "labeled_by": "Claude, from the ticket text, before any toy milestone/stage/tracker code existed (2026-10-09); the builder also wrote the logs, so this is weaker than an independent labeller",
+ "guideline": "Stage of the ticket after the event. intake: opened, not routed. triage: routed (or re-routed to another team) and waiting for an answer from whoever owns it. respond: an answer or action is in progress/delivered but the ticket is not resolved (includes reopened, pending-customer, reversals). resolved: status resolved and not reopened since. Checks, CSAT and supervisor notes keep the current stage.",
+ "labels": {
+  "T1013": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "respond",
+   "respond",
+   "respond",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1014": [
+   "intake",
+   "triage",
+   "triage",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1015": [
+   "intake",
+   "triage",
+   "respond",
+   "respond",
+   "respond",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1016": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "respond",
+   "respond",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1017": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "resolved",
+   "resolved",
+   "resolved"
+  ],
+  "T1018": [
+   "intake",
+   "triage",
+   "triage",
+   "respond",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1019": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "respond",
+   "respond",
+   "triage"
+  ],
+  "T1020": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1021": [
+   "intake",
+   "triage",
+   "respond",
+   "respond",
+   "respond",
+   "respond",
+   "resolved",
+   "resolved"
+  ],
+  "T1022": [
+   "intake",
+   "triage",
+   "respond",
+   "respond",
+   "respond",
+   "resolved"
+  ],
+  "T1023": [
+   "intake",
+   "triage",
+   "respond",
+   "respond",
+   "respond",
+   "resolved"
+  ],
+  "T1024": [
+   "intake",
+   "triage",
+   "respond",
+   "resolved",
+   "resolved"
+  ]
+ }
+}

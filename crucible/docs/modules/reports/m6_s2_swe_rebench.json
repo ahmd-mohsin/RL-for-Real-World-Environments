@@ -1,0 +1,115 @@
+{
+ "rows": 913,
+ "usable": 865,
+ "quarantined_by_replay": 47,
+ "no_milestones": 1,
+ "fit_issues": 54,
+ "holdout_issues": 23,
+ "holdout_attempts": 200,
+ "holdout_resolved_rate": 0.58,
+ "type_weights": {
+  "added": 0.051,
+  "added_call": 0.0,
+  "created": 0.0,
+  "located": 0.0576,
+  "removed": 0.0383,
+  "removed_call": 0.0783
+ },
+ "type_auc_fit": {
+  "added": 0.5255,
+  "added_call": 0.4761,
+  "created": 0.5,
+  "located": 0.5288,
+  "removed": 0.5192,
+  "removed_call": 0.5392
+ },
+ "metrics": {
+  "phi_mid_validity_weighted": {
+   "name": "phi_mid_validity_weighted",
+   "auc": 0.5209,
+   "ci": [
+    0.4159,
+    0.6263
+   ],
+   "within_issue_auc": 0.5199,
+   "issues_with_mixed_outcomes": 22
+  },
+  "phi_mid_uniform": {
+   "name": "phi_mid_uniform",
+   "auc": 0.5168,
+   "ci": [
+    0.412,
+    0.6162
+   ],
+   "within_issue_auc": 0.5146,
+   "issues_with_mixed_outcomes": 22
+  },
+  "phi_end_validity_weighted": {
+   "name": "phi_end_validity_weighted",
+   "auc": 0.6848,
+   "ci": [
+    0.5483,
+    0.8082
+   ],
+   "within_issue_auc": 0.7741,
+   "issues_with_mixed_outcomes": 22
+  },
+  "phi_q1_validity_weighted": {
+   "name": "phi_q1_validity_weighted",
+   "auc": 0.5301,
+   "ci": [
+    0.4359,
+    0.6376
+   ],
+   "within_issue_auc": 0.5227,
+   "issues_with_mixed_outcomes": 22
+  },
+  "baseline_fewer_tool_calls": {
+   "name": "baseline_fewer_tool_calls",
+   "auc": 0.5212,
+   "ci": [
+    0.3727,
+    0.6575
+   ],
+   "within_issue_auc": 0.5003,
+   "issues_with_mixed_outcomes": 22
+  },
+  "baseline_any_milestone_by_mid": {
+   "name": "baseline_any_milestone_by_mid",
+   "auc": 0.5285,
+   "ci": [
+    0.4264,
+    0.6316
+   ],
+   "within_issue_auc": 0.51,
+   "issues_with_mixed_outcomes": 22
+  }
+ },
+ "judge": {
+  "attempts": 200,
+  "judge_auc": 0.7481527093596059,
+  "phi_auc_same_attempts": 0.520935960591133,
+  "judge_within_issue_auc": 0.6356060606060606,
+  "phi_minus_judge": {
+   "diff": -0.22721674876847286,
+   "lo": -0.3696996039795229,
+   "hi": -0.07044578976334626,
+   "p_not_better": 0.999
+  }
+ },
+ "judge_end": {
+  "attempts": 200,
+  "judge_auc": 0.7466646141215106,
+  "judge_within_issue_auc": 0.6744547750229568,
+  "phi_end_auc_same_attempts": 0.6851908866995073,
+  "phi_end_within_issue_auc": 0.7817099567099568,
+  "phi_end_minus_judge_end": {
+   "diff": -0.0614737274220033,
+   "lo": -0.26430417128091543,
+   "hi": 0.14277824978759557,
+   "p_not_better": 0.71
+  },
+  "combined_auc": 0.7784790640394089,
+  "combined_within_issue_auc": 0.8070936639118458
+ }
+}
