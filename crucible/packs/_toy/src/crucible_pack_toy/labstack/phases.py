@@ -52,6 +52,9 @@ async def m10() -> dict:
                      "pass_at_1": s.pass_at_1, "stopped": s.stopped, "by_failure": s.by_failure, "rollouts": len(rolls), "train_valid_rollouts": valid,
                      "seconds": round(time.monotonic() - t0, 1)}
     _ = FibTask
+    # rc=0 is not a pass: run 4 "passed" with every rollout masked (agent_run_error). Both modes must score, and train
+    # mode must yield token-complete rollouts.
+    out["pass"] = all(out[m]["scored"] > 0 for m in ("eval", "train")) and out["train"]["train_valid_rollouts"] > 0
     return out
 
 

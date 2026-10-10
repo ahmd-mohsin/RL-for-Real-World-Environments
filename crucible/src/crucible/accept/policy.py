@@ -26,6 +26,7 @@ class Policy(CrucibleModel):
     a4_reference_runs: int = 3
     a8_min_share: float = 0.8
     a10_min_runs: int = 2
+    a10_max_runs: int = 8  # sequential top-up cap: a point estimate outside the band whose interval still overlaps it samples more first
     a12_spearman: float = 0.8
     a12_timeout_margin: float = 0.8  # the slowest full grade must fit within this share of the verifier timeout
     infra_retries: int = 2

@@ -1038,6 +1038,36 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     `HFPolicy` now enables train mode with every dropout at zero (modules, config, attention). The forward stays
     deterministic and equal to eval mode. A test counts each layer running again in backward.
   - **Lab config:** carries the repo config's `[gpu_hosts]` tables, so the sandbox tests resolve `lab5090`.
+- **Run 5 findings (fixed):**
+  - **One malformed completion aborted a forge plan.** Qwen3-4B returned unparseable JSON to the LLM world-synthesis
+    Test writer, and the exception escaped `Orchestrator._run_node`. `complete_json` now raises `LLMOutputError` (a
+    content failure, `failure_kind="malformed_output"`, and it says when the output was cut off at `max_tokens`). The
+    orchestrator counts it, and a pydantic `ValidationError`, as a content attempt and passes the parse error to the
+    next attempt as feedback. After `max_attempts` the node fails closed (`rejected`) instead of crashing the plan.
+  - **The M9 accept gate hung for an hour: lost child exits.** The gate sat idle in `epoll_wait` with a zombie `mkdir`
+    child. `/proc` showed it still held the zombie's pidfd, but that pidfd was not in the loop's epoll set.
+    - **Cause:** Python 3.12 on Linux watches children with pidfds via `add_reader`. If any fd is closed while
+      registered with the loop, the selector keeps a stale key. A later pidfd that reuses the number then only
+      replaces the key's data (`selectors.modify` makes no syscall when the events are unchanged), so the exit is
+      never seen.
+    - **Reproduced** in the lab container: register a pipe, close it behind asyncio's back, run `LocalExec` — it hangs.
+    - **Fix:** the World exec path (`world/exec._run_subprocess`, used by local and CLI-based backends) no longer
+      depends on the child watcher. It runs a blocking `Popen.communicate` on a wide dedicated thread pool, where
+      `waitpid` cannot lose an exit. A cancelled await kills the command's session instead of orphaning it.
+    - **Tests:** the stale-registration scenario completes (it hung before, on Linux), and timeout and cancel kill the
+      session.
+  - **A10 rejected on noise.** Every task Qwen3-4B failed twice was rejected on n=2, although 0/2 has a Wilson
+    interval of [0, 0.66], which overlaps the train band [0.1, 0.7]. A10 is now sequential:
+    - a point estimate inside the band, or an interval clear of it, decides at once;
+    - otherwise the check tops up with more frontier runs, doubling, up to `Policy.a10_max_runs` (8), through
+      `calibrate(k=…)`, which resumes the same journaled run;
+    - a rejection at the cap says the interval still overlapped.
+  - **False passes in the campaign:**
+    - run 4's M10 phase exited 0 with every rollout masked; the phase now reports `pass` only when both modes score
+      and train mode yields token-complete rollouts;
+    - M9's verdict with a 4B model is expected to stay below 11/11: A10 asks whether the *frontier* model lands in
+      the band, and the small stand-in mostly does not. Every other check (A1–A9, A11–A13, power tests 13/13 proven)
+      passes on all 11 tasks.
   - **Tests:**
     - the CLI seed test skips when the seeds' Harbor side is not staged;
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held

@@ -101,6 +101,35 @@ async def test_infra_errors_are_not_content_attempts(tmp_path):
     assert r.nodes["x"].status == "done" and r.nodes["x"].attempts == 1
 
 
+class Garbled:
+    """A small model: the first completion is truncated JSON, the second is fine once told why."""
+
+    name, version = "garbled", "1"
+
+    def __init__(self):
+        self.n, self.seen = 0, []
+
+    async def run(self, staged, *, feedback, knobs):
+        from crucible.actors.llm import LLMOutputError
+
+        self.n += 1
+        self.seen.append(list(feedback))
+        if self.n == 1:
+            raise LLMOutputError('output is not valid JSON (cut off at max_tokens: shorten the output): {"checks": [')
+        if self.n == 2:
+            return Doc.model_validate({"note": ["not", "a", "string"]})  # pydantic ValidationError: also malformed output
+        return Doc(value="ok")
+
+
+async def test_malformed_output_is_a_content_attempt_with_feedback(tmp_path):
+    g = Garbled()
+    r = await orch(tmp_path, {"garbled": g}).run_plan(Plan("t", "g", [Node("x", "garbled", {})]))
+    assert r.nodes["x"].status == "done" and r.nodes["x"].attempts == 3
+    assert "cut off at max_tokens" in g.seen[1][0] and "could not be parsed" in g.seen[2][0]
+    r2 = await orch(tmp_path / "b", {"garbled": Garbled()}).run_plan(Plan("t", "g", [Node("x", "garbled", {}, max_attempts=1)]))
+    assert r2.state == "rejected" and r2.nodes["x"].status == "failed"  # fails closed, never crashes the plan
+
+
 class Spender:
     name, version = "spender", "1"
     spent = 0.0

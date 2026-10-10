@@ -139,3 +139,46 @@ async def test_full_contract_on_a_forged_toy_task(tmp_path):
     assert a6 and all(v["took_effect"] is False and v["reward"] == 0.0 for v in a6.values())
     assert rep.results["A3"].measured["mutation"]["killed"] > 0 and not rep.results["A3"].measured["mutation"]["survivors"]
     assert rep.results["A11"].status == Status.PASS
+
+
+class _Calib:
+    """A task whose frontier model passes ``rate`` of its runs; ``calibrate(k)`` resumes one journaled run (Runner)."""
+
+    split = "train"
+
+    def __init__(self, outcomes):
+        self.outcomes, self.calls = list(outcomes), []
+
+    def calibration_runs(self):
+        return []
+
+    async def calibrate(self, budget_usd, *, k=2):
+        self.calls.append(k)
+        return [{"policy": "llm:m", "reward": float(o), "failing": [] if o else ["outcome"]} for o in self.outcomes[:k]]
+
+
+async def _a10(task, *, paid=True):
+    from types import SimpleNamespace
+
+    from crucible.accept.checks.base import REGISTRY
+    from crucible.accept.model import Need
+    from crucible.accept.policy import Policy
+
+    ctx = SimpleNamespace(policy=Policy(), needs=frozenset({Need.PAID} if paid else set()), budget_usd=1.0)
+    return await REGISTRY["A10"].run(task, ctx)
+
+
+async def test_a10_samples_more_before_rejecting_on_thin_evidence():
+    # 0/2 overlaps the band ([0, 0.66]): top up 2 -> 4; 2/4 lands in the band, so the task is accepted
+    t = _Calib([0, 0, 1, 1, 0, 0, 0, 0])
+    out = await _a10(t)
+    assert str(out.status) == "pass" and t.calls == [2, 4] and out.measured["n"] == 4
+    # never passes: top up to the cap, then rejected with the reason saying so
+    t = _Calib([0] * 8)
+    out = await _a10(t)
+    assert str(out.status) == "fail" and t.calls == [2, 4, 8] and "sampling cap (n=8)" in out.reasons[0]
+    # inside the band on the first two: no extra spend
+    t = _Calib([1, 0])
+    assert str((await _a10(t)).status) == "pass" and t.calls == [2]
+    # no budget to sample: the first runs never happen, A10 is pending (unchanged)
+    assert str((await _a10(_Calib([0, 0]), paid=False)).status) == "pending"

@@ -14,6 +14,7 @@ Adapter capabilities used (all optional; a check whose capability is missing fai
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,10 +111,29 @@ async def a10_calibration(t: Any, ctx: AcceptContext) -> Out:
         reasons.append(f"failed runs without a failure taxonomy (failing gates): {untaxed}")
     split = getattr(t, "split", "train")
     band = Band(lo=0.0, hi=0.2) if split == "bench" else Band(lo=0.1, hi=0.7)
-    rate = estimate([r.get("reward", 0) == 1.0 for r in scored], model=",".join(sorted({r.get("policy", "?") for r in scored})), harness="mixed")
-    m.update({"split": split, "band": [band.lo, band.hi], "p": rate.p, "interval": [rate.lo, rate.hi], "n": rate.n})
+
+    def rate_of(rs: list[dict]):
+        return estimate([r.get("reward", 0) == 1.0 for r in rs], model=",".join(sorted({r.get("policy", "?") for r in rs})), harness="mixed")
+
+    # Sequential: a point estimate outside the band whose interval still overlaps it is not evidence (0/2 has a Wilson
+    # interval of [0, 0.66]); sample more, doubling, up to ``a10_max_runs``, when the task can (lab M9: every 0/2 task
+    # was rejected on two samples). Inside the band, or an interval clear of it, decides at once.
+    rate = rate_of(scored)
+    can_sample = callable(getattr(t, "calibrate", None)) and Need.PAID in ctx.needs and ctx.budget_usd > 0 \
+        and "k" in inspect.signature(t.calibrate).parameters
+    rounds = 0
+    while not band.lo <= rate.p <= band.hi and rate.hi >= band.lo and rate.lo <= band.hi and can_sample and len(scored) < ctx.policy.a10_max_runs:
+        target = min(ctx.policy.a10_max_runs, 2 * len(scored))
+        more = [r for r in await t.calibrate(ctx.budget_usd, k=target) if not r.get("masked")]
+        rounds += 1
+        if len(more) <= len(scored):  # no new evidence (budget gone, runs masked): decide on what there is
+            break
+        scored, rate = more, rate_of(more)
+    m.update({"split": split, "band": [band.lo, band.hi], "p": rate.p, "interval": [rate.lo, rate.hi], "n": rate.n, "topup_rounds": rounds})
     if not band.lo <= rate.p <= band.hi:
-        reasons.append(f"pass rate {rate.p:.2f} outside the {split} band [{band.lo}, {band.hi}]")
+        clear = rate.hi < band.lo or rate.lo > band.hi
+        how = "interval clear of the band" if clear else f"interval still overlaps it at the sampling cap (n={rate.n})"
+        reasons.append(f"pass rate {rate.p:.2f} outside the {split} band [{band.lo}, {band.hi}] ({how})")
     return Out.verdict(reasons, m)
 
 

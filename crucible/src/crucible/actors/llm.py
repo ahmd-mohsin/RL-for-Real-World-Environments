@@ -30,6 +30,13 @@ class LLMError(RuntimeError):
     failure_kind: str | None = "provider_unavailable"
 
 
+class LLMOutputError(LLMError):
+    """The model answered, but not in the requested form (empty, not JSON, truncated): a content failure the caller may
+    retry with feedback, not a provider outage."""
+
+    failure_kind = "malformed_output"
+
+
 class RequestRejected(LLMError):
     """A 4xx the provider will keep returning for this request (bad params, auth, model): never retried."""
 
@@ -263,7 +270,7 @@ class LLMClient:
         r = await self.complete(messages, **kw)
         text = r.text.strip()
         if not text:
-            raise LLMError(f"empty completion (finish={r.raw_finish})")
+            raise LLMOutputError(f"empty completion (finish={r.raw_finish})")
         if text.startswith("```"):
             text = text.strip("`").removeprefix("json").strip()
         try:
@@ -275,4 +282,5 @@ class LLMClient:
                     return json.loads(text[start : end + 1])
                 except json.JSONDecodeError:
                     pass
-            raise LLMError(f"output is not JSON: {text[:300]}") from None
+            cut = " (cut off at max_tokens: shorten the output)" if r.raw_finish == "length" else ""
+            raise LLMOutputError(f"output is not valid JSON{cut}: {text[:300]}") from None

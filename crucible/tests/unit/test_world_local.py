@@ -247,3 +247,46 @@ async def test_subprocesses_never_see_host_credentials(monkeypatch):
     out = (await LocalExec().run("env")).stdout
     assert "sk-or-secret" not in out and "hf_secret" not in out and "HARMLESS_SETTING=visible" in out
     assert "DATABASE_URL=postgres://x" in (await LocalExec().run("env", env={"DATABASE_URL": "postgres://x"})).stdout
+
+
+async def test_exec_survives_a_stale_loop_registration():
+    """An fd closed while registered with the loop leaves a stale selector key; on Linux (pidfd child watcher) a later
+    child whose pidfd reuses that number was never observed and the await hung forever (lab M9). Commands are now
+    waited on with waitpid in a thread: the exit is always seen."""
+    import asyncio
+    import os
+
+    from crucible.world.exec import LocalExec
+
+    loop = asyncio.get_running_loop()
+    for _ in range(3):
+        r, w = os.pipe()
+        loop.add_reader(r, lambda: None)
+        os.close(r)
+        os.close(w)  # behind asyncio's back
+        out = await asyncio.wait_for(LocalExec().run("echo ok"), 20)
+        assert out.rc == 0 and out.stdout.strip() == "ok"
+        loop.remove_reader(r)
+
+
+async def test_exec_timeout_and_cancel_kill_the_session(tmp_path):
+    import asyncio
+    import time
+
+    from crucible.world.exec import LocalExec
+
+    ex = LocalExec()
+    out = await ex.run("sleep 30", timeout_s=0.5)
+    assert out.timed_out and out.rc == -9 and out.duration_s < 10
+    marker = tmp_path / "survived"
+    task = asyncio.create_task(ex.run(f"sleep 1.5 && touch {marker}"))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    t0 = time.monotonic()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert time.monotonic() - t0 < 5
+    await asyncio.sleep(2.0)
+    assert not marker.exists()  # the cancelled command's session was killed, not orphaned

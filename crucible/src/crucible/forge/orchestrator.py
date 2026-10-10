@@ -10,7 +10,8 @@ retries that carry feedback, and asymmetric information enforced by what is stag
   an interrupted forge resumes where it stopped and re-running costs nothing (RTS ``publish.py`` pattern).
 - A role's output goes through deterministic **validators**. Their findings become **feedback** for the next attempt
   (at most ``max_attempts``, default 3). Infrastructure errors (``RoleInfraError``, an exhausted budget) never count as
-  content attempts.
+  content attempts. Malformed role output (``LLMOutputError``: not JSON, truncated; a pydantic ``ValidationError``)
+  counts as a content attempt whose feedback is the parse error: one bad completion never aborts the plan.
 - **Budgets**: a reserve/settle ledger per forge run (``budget.py``); a node that cannot reserve its estimate is
   ``abandoned(budget)``, never half-run.
 - **Canaries**: oracle material can be planted with a canary string; any later node whose output contains it fails
@@ -30,8 +31,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from crucible.actors.llm import LLMOutputError
 from crucible.core.store import Store
 from crucible.forge.budget import BudgetExhausted, Ledger
 
@@ -263,6 +265,12 @@ class Orchestrator:
                 continue
             except BudgetExhausted as ex:
                 return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts)
+            except (LLMOutputError, ValidationError) as ex:
+                self.ledger.settle(f"{plan.task_id}/{node.id}", self.ledger.observed() - spent0)
+                attempts += 1
+                feedback = [f"your previous output could not be parsed: {str(ex)[:500]}"]
+                self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "retry", "attempt": attempts, "findings": feedback})
+                continue
             cost = self.ledger.observed() - spent0
             self.ledger.settle(f"{plan.task_id}/{node.id}", cost)
             attempts += 1

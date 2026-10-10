@@ -18,8 +18,11 @@ import os
 import re
 import shlex
 import shutil
+import signal
+import subprocess
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -141,27 +144,46 @@ async def spawn_logged(*argv: str, log: Path | None, **kw: Any) -> asyncio.subpr
             os.close(fd)
 
 
+# Commands are waited on with a blocking ``Popen.communicate`` in this pool, never through asyncio's child watcher.
+# Python 3.12 on Linux watches children with pidfds registered via ``add_reader``; if any fd is ever closed while
+# registered with the loop, the selector keeps a stale key and a later pidfd that reuses the number is silently never
+# added to epoll, so the child's exit is lost and the await hangs forever (lab M9 accept gate: a zombie ``mkdir``,
+# the gate idle for an hour). ``waitpid`` in a thread cannot lose an exit. Threads only wait: the pool is wide.
+_WAITERS = ThreadPoolExecutor(max_workers=256, thread_name_prefix="crucible-exec")
+
+
+def _blocking_run(argv: list[str], cwd: str | None, env: dict[str, str], timeout_s: float | None, stdin: bytes | None,
+                  started: list[subprocess.Popen]) -> tuple[int, bytes, bytes, bool]:
+    p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, start_new_session=True)
+    started.append(p)
+    try:
+        out, err = p.communicate(stdin, timeout=timeout_s)
+        return p.returncode or 0, out, err, False
+    except subprocess.TimeoutExpired:
+        _killpg(p)
+        out, err = p.communicate()
+        return -9, out, err, True
+
+
+def _killpg(p: subprocess.Popen) -> None:
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None) -> ExecOut:
     t0 = time.monotonic()
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        cwd=cwd,
-        env=safe_environ(env),
-        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
+    started: list[subprocess.Popen] = []
+    fut = asyncio.get_running_loop().run_in_executor(_WAITERS, _blocking_run, argv, cwd, safe_environ(env), timeout_s, stdin, started)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout_s)
-    except TimeoutError:
-        try:
-            os.killpg(proc.pid, 9)
-        except ProcessLookupError:
-            pass
-        out, err = await proc.communicate()
-        return ExecOut(rc=-9, stdout=out.decode(errors="replace"), stderr=err.decode(errors="replace"), duration_s=time.monotonic() - t0, timed_out=True)
-    return ExecOut(rc=proc.returncode or 0, stdout=out.decode(errors="replace"), stderr=err.decode(errors="replace"), duration_s=time.monotonic() - t0)
+        rc, out, err, timed_out = await asyncio.shield(fut)
+    except asyncio.CancelledError:  # the caller gave up: kill the command's session (no orphan keeps running)
+        for p in started:
+            _killpg(p)
+        raise
+    return ExecOut(rc=rc, stdout=out.decode(errors="replace"), stderr=err.decode(errors="replace"), duration_s=time.monotonic() - t0, timed_out=timed_out)
 
 
 class LocalExec(Exec):
