@@ -46,6 +46,8 @@ class GenRequest:
     resume_completion: list[int] = field(default_factory=list)  # token-level resume: output kept from an aborted call
     resume_logprobs: list[float] = field(default_factory=list)
     resume_spans: list[tuple[int, int]] = field(default_factory=list)
+    top_p: float = 1.0  # nucleus sampling; < 1 makes the engine report each token's candidate set (checklist #37)
+    resume_candidates: list[list[int]] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +58,7 @@ class GenResult:
     finish: str  # stop | length | abort
     version_spans: list[tuple[int, int]] | None = None
     prompt_tokens: int = 0
+    candidates: list[list[int]] | None = None  # per completion token, the nucleus it was sampled from (top_p < 1)
     reprefill_tokens: int = 0
 
 
@@ -150,12 +153,18 @@ class TinyPolicy(torch.nn.Module):
         h, _ = self.rnn(self.emb(ids))
         return self.head(h)
 
-    def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0) -> torch.Tensor:
-        """log π(completion_t | prompt + completion_<t), with gradient."""
+    def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0, candidates: list[list[int]] | None = None) -> torch.Tensor:
+        """log π(completion_t | prompt + completion_<t), with gradient; renormalized over ``candidates`` (top-p) if given."""
         ids = torch.tensor([prompt + completion[:-1]]) if completion else torch.tensor([prompt])
         logits = self(ids)[0, len(prompt) - 1:] / temperature
         lp = torch.log_softmax(logits, -1)
-        return lp[torch.arange(len(completion)), torch.tensor(completion)] if completion else lp[:0, 0]
+        if not completion:
+            return lp[:0, 0]
+        if candidates is not None:
+            from crucible.train.sampling import renormalized
+
+            return renormalized(lp[: len(completion)], completion, candidates)
+        return lp[torch.arange(len(completion)), torch.tensor(completion)]
 
 
 def bf16_copy(model: torch.nn.Module) -> torch.nn.Module:
@@ -185,6 +194,7 @@ class TorchEngine:
         epoch = self._abort_epoch
         version, serve = self.version, self._serve  # pinned at call start: a publish never changes weights under a running call
         out, lps = list(req.resume_completion), list(req.resume_logprobs)
+        cands: list[list[int]] = list(req.resume_candidates)
         spans = list(req.resume_spans) or ([(0, version)] if not out else [])
         if out and (not spans or spans[-1][1] != version):
             spans.append((len(out), version))
@@ -200,17 +210,25 @@ class TorchEngine:
             logits_all = forward(ids)
             for _ in range(req.max_tokens - len(out)):
                 if self._abort_epoch != epoch:
-                    return GenResult(out, lps, version, "abort", spans if self.version_switch == "token" else None, len(req.prompt_ids))
+                    return GenResult(out, lps, version, "abort", spans if self.version_switch == "token" else None, len(req.prompt_ids), cands or None)
                 p = torch.softmax(logits_all / req.temperature, -1)
+                if req.top_p < 1.0:  # sample from the renormalized nucleus; report its logprob and the candidate set
+                    from crucible.train.sampling import nucleus
+
+                    c = nucleus(p, req.top_p)
+                    q = torch.zeros_like(p)
+                    q[c] = p[c] / p[c].sum()
+                    p = q
+                    cands.append(c)
                 tok = int(torch.multinomial(p, 1, generator=g))
                 out.append(tok)
                 lps.append(float(torch.log(p[tok])))
                 if tok in req.stop_ids:
-                    return GenResult(out, lps, version, "stop", spans if len(spans) > 1 else None, len(req.prompt_ids))
+                    return GenResult(out, lps, version, "stop", spans if len(spans) > 1 else None, len(req.prompt_ids), cands or None)
                 await asyncio.sleep(self.decode_delay_s)
                 ids = ids + [tok]
                 logits_all = forward(ids)
-            return GenResult(out, lps, version, "length", spans if len(spans) > 1 else None, len(req.prompt_ids))
+            return GenResult(out, lps, version, "length", spans if len(spans) > 1 else None, len(req.prompt_ids), cands or None)
         finally:
             self.inflight -= 1
 

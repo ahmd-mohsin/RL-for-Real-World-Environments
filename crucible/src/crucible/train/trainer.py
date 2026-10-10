@@ -58,6 +58,7 @@ class _Item:
     rollout_lp: list[float]
     adv: float
     prompt_index: int
+    candidates: list[list[int]] | None = None  # top-p nucleus per token: π_θ is renormalized over it (checklist #37)
 
 
 class TorchTrainer:
@@ -84,13 +85,18 @@ class TorchTrainer:
             for t in r.turns:
                 if not t.completion_token_ids:
                     continue
-                items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), a + self.cfg.turn_weight * (t.advantage or 0.0), pids[g]))
+                if not t.candidates_valid():
+                    raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
+                                     "renormalize π_θ (record candidates or sample with top_p=1)")
+                items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), a + self.cfg.turn_weight * (t.advantage or 0.0), pids[g],
+                                   t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None))
         return items
 
     def _logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
         if hasattr(self.model, "batch_token_logprobs"):  # one forward per micro batch (HF policies)
-            return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature)
-        return [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature) for i in idx]
+            return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,
+                                                   candidates=[items[i].candidates for i in idx])
+        return [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates) for i in idx]
 
     def _padded(self, items: list[_Item], idx: list[int], old: dict[int, torch.Tensor] | None):
         T = max(len(items[i].completion) for i in idx)

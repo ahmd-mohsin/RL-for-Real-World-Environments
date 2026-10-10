@@ -49,6 +49,7 @@ class RuntimeConfig:
     version_switch: str = "call"  # call | token
     max_turn_tokens: int = 8
     temperature: float = 1.0
+    top_p: float = 1.0  # checklist #37: default 1.0; < 1 records each token's nucleus for the trainer's renormalization
     stop_ids: tuple[int, ...] = ()
     poll_s: float = 0.002
     max_wall_s: float = 600.0
@@ -120,7 +121,7 @@ class Runtime:
     # ---- rollout plane --------------------------------------------------------------------------------------------
     async def _call(self, rid: str, call_id: str, prompt: list[int], max_tokens: int | None = None, temperature: float | None = None) -> GenResult:
         req = GenRequest(rid=rid, call_id=call_id, prompt_ids=list(prompt), max_tokens=max_tokens or self.cfg.max_turn_tokens,
-                         temperature=self.cfg.temperature if temperature is None else temperature, stop_ids=self.cfg.stop_ids)
+                         temperature=self.cfg.temperature if temperature is None else temperature, stop_ids=self.cfg.stop_ids, top_p=self.cfg.top_p)
         while True:
             res = await self.engines.generate(req)
             if res.finish != "abort":
@@ -128,12 +129,12 @@ class Runtime:
             self.report.aborted_calls += 1
             if self.cfg.version_switch == "token":  # keep the partial output; it continues on the next version
                 self.report.resumed_calls += 1
-                req.resume_completion, req.resume_logprobs = res.completion_ids, res.logprobs
+                req.resume_completion, req.resume_logprobs, req.resume_candidates = res.completion_ids, res.logprobs, list(res.candidates or [])
                 req.resume_spans = list(res.version_spans or [(0, res.version)])
                 self.report.reprefill_tokens += len(prompt) + len(res.completion_ids)
             else:  # discard the partial completion; the whole call is re-issued under the new version
                 self.report.reprefill_tokens += len(prompt)
-                req.resume_completion, req.resume_logprobs, req.resume_spans = [], [], []
+                req.resume_completion, req.resume_logprobs, req.resume_spans, req.resume_candidates = [], [], [], []
 
     async def _rollout_fn(self, rid: str, prompt: str, seed: int) -> None:
         tag = self.pool.tags[rid]
@@ -231,7 +232,8 @@ class Runtime:
                 delta = context[len(prev_full):] if prev_full is not None and context[: len(prev_full)] == prev_full else context
                 turns.append(Turn(call_id=f"{rid}:c{k}", actor="agent", prompt_is_delta=prev_full is not None, prompt_token_ids=list(delta),
                                   completion_token_ids=res.completion_ids, logprobs=res.logprobs, policy_version=res.version,
-                                  version_spans=res.version_spans, finish=res.finish, sampling={"temperature": self.cfg.temperature}))
+                                  version_spans=res.version_spans, finish=res.finish, candidates=res.candidates,
+                                  sampling={"temperature": self.cfg.temperature, "top_p": self.cfg.top_p}))
                 for _, v in (res.version_spans or [(0, res.version)]):
                     self.pool.call(rid, v, 0)
                 tag.length += len(res.completion_ids)

@@ -153,3 +153,17 @@ async def test_hf_policy_batched_logprobs_training_and_checkpoint_publish(tmp_pa
     v = await CheckpointPublisher(tr, sink, tmp_path).publish()
     sd = load_file(f"{sink.path}/model.safetensors")
     assert v == 1 and sink.version == 1 and set(sd) <= set(pol.state_dict()) and _t.equal(sd["model.norm.weight"], pol.state_dict()["model.norm.weight"])
+
+
+async def test_top_p_rollouts_carry_candidates_through_the_runtime():
+    model = TinyPolicy(32, 48, seed=1)
+    eng = EnginePool([TorchEngine(model, capacity=64, decode_delay_s=0.001, version_switch="token")])
+    tr = TorchTrainer(model, TrainerConfig(lr=1e-2))
+    rt = Runtime(RuntimeConfig(topology="colocated_partial", steps=4, max_turn_tokens=3, version_switch="token", top_p=0.8), SchedulerConfig(n=4, B=2, max_staleness=2),
+                 eng, tr, InprocPublisher(tr, eng), lambda: CopyTask(turns=2, symbols=8, latency_s=0.001), {"copy": [f"p{i}" for i in range(400)]})
+    rep = await rt.run()
+    assert len(rep.steps) == 4 and rep.trained_records
+    for r in rep.trained_records:
+        assert r.valid_for_training()[0]
+        for t in r.turns:
+            assert t.sampling["top_p"] == 0.8 and t.candidates and len(t.candidates) == len(t.completion_token_ids)  # resumed calls keep theirs

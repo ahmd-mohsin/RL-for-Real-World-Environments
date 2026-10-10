@@ -44,6 +44,8 @@ class VLLMServerEngine:
         return r
 
     async def generate(self, req: GenRequest) -> GenResult:
+        if req.top_p < 1.0:  # checklist #37: without the per-token nucleus the trainer would compare against the wrong distribution
+            raise NotImplementedError("VLLMServerEngine does not report top-p candidate sets yet; sample with top_p=1.0")
         await self._unpaused.wait()
         version = self.version
         rid = f"{req.call_id}-{uuid.uuid4().hex[:6]}"

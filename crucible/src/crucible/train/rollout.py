@@ -43,6 +43,7 @@ class Turn(CrucibleModel):
     sampling: dict[str, Any] = Field(default_factory=dict)  # temperature, top_p, max_tokens, seed
     finish: str | None = None
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
+    candidates: list[list[int]] | None = None  # per completion token, the top-p nucleus it was sampled from (checklist #37)
     advantage: float | None = None  # per-turn credit from steps.jsonl (M6), attached to this call's tokens
     atif_step_ids: list[int] = Field(default_factory=list)
 
@@ -61,6 +62,14 @@ class Turn(CrucibleModel):
         n = len(self.completion_token_ids or [])
         return starts[0] == 0 and all(a < b for a, b in pairwise(starts)) and all(a <= b for a, b in pairwise(vs)) \
             and starts[-1] < max(n, 1)
+
+    def candidates_valid(self) -> bool:
+        """Truncated sampling (top_p < 1) needs the candidate set of every completion token, containing that token: the
+        trainer renormalizes π_θ over it, else the behaviour logprob is compared with the wrong distribution."""
+        if float(self.sampling.get("top_p", 1.0)) >= 1.0:
+            return True
+        toks = self.completion_token_ids or []
+        return self.candidates is not None and len(self.candidates) == len(toks) and all(t in c for t, c in zip(toks, self.candidates, strict=True))
 
     def token_complete(self) -> bool:
         n = len(self.completion_token_ids or [])
@@ -112,7 +121,7 @@ class RolloutRecord(CrucibleModel):
             return False, f"masked ({self.failure_kind or 'no reward'})"
         if not self.turns:
             return False, "no model calls recorded"
-        bad = [t.call_id for t in self.turns if not t.token_complete() or t.prefix_break or not t.spans_valid()]
+        bad = [t.call_id for t in self.turns if not t.token_complete() or t.prefix_break or not t.spans_valid() or not t.candidates_valid()]
         if bad:
             return False, f"token record incomplete for {len(bad)}/{len(self.turns)} calls (first: {bad[0]})"
         return True, "ok"

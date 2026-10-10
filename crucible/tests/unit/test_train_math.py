@@ -225,3 +225,39 @@ def test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts():
     assert m["train/items"] == 4
     m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"))).step([rec(0, [1, 1]), rec(1, [1, 1])], ["g", "g"])
     assert m["train/items"] == 4  # single-version rollouts: the implicit recompute is valid
+
+
+def test_top_p_candidates_renormalize_training_logprobs_to_the_engine():
+    """Checklist #37: with top_p < 1 the engine's behaviour logprobs are of the renormalized nucleus; the trainer's
+    logprobs renormalized over the recorded candidates match them within 1e-5, and unrenormalized ones do not."""
+    import asyncio
+
+    import torch
+
+    from crucible.train.engine import GenRequest, TinyPolicy, TorchEngine
+    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.train.trainer import TorchTrainer, TrainerConfig
+
+    model = TinyPolicy(32, 16, seed=3)
+    eng = TorchEngine(model, capacity=2, numerics="fp32")
+    res = asyncio.run(eng.generate(GenRequest(rid="r", call_id="c", prompt_ids=[1, 5, 2], max_tokens=12, temperature=0.9, top_p=0.6, seed=7)))
+    assert res.candidates and len(res.candidates) == len(res.completion_ids) and all(t in c for t, c in zip(res.completion_ids, res.candidates, strict=True))
+    assert any(len(c) < 32 for c in res.candidates)  # the nucleus actually truncated
+    with torch.no_grad():
+        renorm = model.token_logprobs([1, 5, 2], res.completion_ids, 0.9, candidates=res.candidates)
+        plain = model.token_logprobs([1, 5, 2], res.completion_ids, 0.9)
+    eng_lp = torch.tensor(res.logprobs, dtype=renorm.dtype)
+    assert float((renorm - eng_lp).abs().max()) < 1e-5
+    assert float((plain - eng_lp).abs().max()) > 1e-3  # the bias renormalization removes
+
+    turn = {"call_id": "c", "actor": "agent", "prompt_token_ids": [1, 5, 2], "completion_token_ids": res.completion_ids, "logprobs": res.logprobs,
+            "policy_version": 0, "sampling": {"temperature": 0.9, "top_p": 0.6}}
+    ok = RolloutRecord(rollout_id="a", sample="a", task="t", harness="h", policy="p", reward=1.0, turns=[Turn(**turn, candidates=res.candidates)])
+    bad = RolloutRecord(rollout_id="b", sample="b", task="t", harness="h", policy="p", reward=0.0, turns=[Turn(**turn)])
+    assert ok.valid_for_training()[0] and not bad.valid_for_training()[0]
+    tr = TorchTrainer(model, TrainerConfig(temperature=0.9))
+    assert tr.step([ok, ok.model_copy(update={"rollout_id": "a2", "reward": 0.0})], ["g", "g"])["train/items"] == 2
+    import pytest
+
+    with pytest.raises(ValueError, match="no complete candidate sets"):
+        tr.step([bad, ok], ["g", "g"])

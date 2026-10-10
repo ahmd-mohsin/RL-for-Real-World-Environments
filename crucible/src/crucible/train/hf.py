@@ -54,10 +54,11 @@ class HFPolicy(torch.nn.Module):
         with torch.autocast(device_type=ids.device.type, enabled=False):  # BF16 input, FP32 output (the LM head itself in FP32)
             return torch.nn.functional.linear(h.float(), head.weight.float(), None if head.bias is None else head.bias.float())
 
-    def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0) -> torch.Tensor:
-        return self.batch_token_logprobs([(prompt, completion)], temperature)[0]
+    def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0, candidates: list[list[int]] | None = None) -> torch.Tensor:
+        return self.batch_token_logprobs([(prompt, completion)], temperature, candidates=[candidates])[0]
 
-    def batch_token_logprobs(self, pairs: Sequence[tuple[list[int], list[int]]], temperature: float = 1.0) -> list[torch.Tensor]:
+    def batch_token_logprobs(self, pairs: Sequence[tuple[list[int], list[int]]], temperature: float = 1.0,
+                             candidates: Sequence[list[list[int]] | None] | None = None) -> list[torch.Tensor]:
         seqs = [p + c[:-1] if c else p for p, c in pairs]
         L = max(len(s) for s in seqs)
         ids = torch.zeros(len(seqs), L, dtype=torch.long, device=self.device)
@@ -73,6 +74,11 @@ class HFPolicy(torch.nn.Module):
                 out.append(lp[i, :0, 0])
                 continue
             rows = lp[i, len(p) - 1: len(p) - 1 + len(c)]
+            if candidates is not None and candidates[i] is not None:  # top-p: renormalize over the engine's nucleus
+                from crucible.train.sampling import renormalized
+
+                out.append(renormalized(rows, c, candidates[i]))
+                continue
             out.append(rows[torch.arange(len(c), device=self.device), torch.tensor(c, device=self.device)])
         return out
 
