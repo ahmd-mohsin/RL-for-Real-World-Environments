@@ -72,6 +72,8 @@ class Selection:
     blocked: str | None = None  # need_more | wait_stale
     staleness: list[int] = field(default_factory=list)
     spans: list[int] = field(default_factory=list)
+    worst: list[int] = field(default_factory=list)  # per selected group: its stalest member (checklist #24 staleness_worst)
+    evicted_staleness: list[int] = field(default_factory=list)  # per group evicted for staleness at this barrier
 
 
 class Scheduler:
@@ -83,6 +85,7 @@ class Scheduler:
         self.steps = 0
         self.lengths_seen: list[int] = []
         self.counters = {"evicted_stale": 0, "evicted_zero_var": 0, "evicted_short": 0, "evicted_masked": 0, "refilled_members": 0}
+        self._ev_pending: list[int] = []
 
     # ---- admission ---------------------------------------------------------------------------------------------
     def _cap(self, source: str) -> int:
@@ -93,8 +96,10 @@ class Scheduler:
 
     def admit(self, version: int) -> list[Group]:
         out = []
+        self.cap_blocked = False  # the untrained cap (not the sources) stopped admission (checklist #24 admission_blocked_s)
         while True:
             if len(self.pool.untrained()) + self.cfg.n > self.cfg.max_inflight():
+                self.cap_blocked = any(s not in self.exhausted for s in self.sources)
                 break
             open_src = [s for s in self.sources if s not in self.exhausted and self.free_slots(s) >= self.cfg.n]
             if not open_src:
@@ -137,11 +142,14 @@ class Scheduler:
         c = self.cfg
         evicted: dict[str, str] = {}
         self._backfill(v_train, evicted)
+        ev_st = self._ev_pending  # evictions at blocked barriers count too: reported with the next delivered batch
         if c.staleness_strategy == "drop":
             for g in self.pool.terminal_groups():
-                if self.pool.group_staleness(g.gid, v_train) > c.max_staleness:
+                gs = self.pool.group_staleness(g.gid, v_train)
+                if gs > c.max_staleness:
                     self.pool.evict_group(g.gid)
                     evicted[g.gid] = "stale"
+                    ev_st.append(gs)
                     self.counters["evicted_stale"] += 1
         elif c.staleness_strategy == "wait" and any(t.staleness(v_train) >= c.max_staleness for t in self.pool.live()):
             return Selection([], evicted, blocked="wait_stale")
@@ -183,13 +191,18 @@ class Scheduler:
         if len(cands) < c.B:
             return Selection([], evicted, blocked="need_more")
         batch = cands[: c.B]
-        st, sp = [], []
+        st, sp, worst = [], [], []
         for g in batch:
+            gst = []
             for t in self.pool.members(g.gid, {"finished", "failure"}):
-                st.append(t.staleness(v_train))
+                gst.append(t.staleness(v_train))
                 sp.append(t.spans())
                 self.lengths_seen.append(t.length)
-        return Selection(batch, evicted, staleness=st, spans=sp)
+            st += gst
+            if gst:
+                worst.append(max(gst))
+        self._ev_pending = []
+        return Selection(batch, evicted, staleness=st, spans=sp, worst=worst, evicted_staleness=ev_st)
 
     def trained(self, sel: Selection) -> None:
         for g in sel.groups:

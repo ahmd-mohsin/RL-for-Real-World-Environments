@@ -96,7 +96,8 @@ class RunReport:
 class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
-                 rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None):
+                 rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None,
+                 on_alarm: Callable | None = None):
         """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
@@ -105,6 +106,9 @@ class Runtime:
         self.cfg, self.sched_cfg = cfg, sched_cfg
         self.engines, self.trainer, self.publisher, self.env_factory, self.harness = engines, trainer, publisher, env_factory, harness
         self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
+        self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
+        self._blocked_since: float | None = None
+        self.admission_blocked_s = 0.0
         self._queues = {s: list(ps) for s, ps in sources.items()}
         self.pool = DataPool()
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
@@ -277,6 +281,12 @@ class Runtime:
     # ---- control plane --------------------------------------------------------------------------------------------
     def _admit(self) -> None:
         self.sched.admit(self.version)
+        now = time.monotonic()
+        if self.sched.cap_blocked and self._blocked_since is None:
+            self._blocked_since = now
+        elif not self.sched.cap_blocked and self._blocked_since is not None:
+            self.admission_blocked_s += now - self._blocked_since
+            self._blocked_since = None
         self._launch_pending()
         self.report.max_untrained = max(self.report.max_untrained, self.sched.untrained_count())
 
@@ -294,7 +304,15 @@ class Runtime:
         else:
             m = self.trainer.step(recs, groups)
         self.report.trained_records += recs
-        return {**m, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs]}
+        lps = [lp for r in recs for t in r.turns for lp in (t.logprobs or [])]
+        by_group: dict[str, list[float]] = {}
+        for r, g in zip(recs, groups, strict=True):
+            by_group.setdefault(g, []).append(r.reward)
+        return {**m, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
+                "_truncated": [bool(r.truncated or any(t.finish == "length" for t in r.turns[-1:])) for r in recs],
+                "_group_rewards": list(by_group.values()),
+                "_entropy": (-sum(lps) / len(lps)) if lps else None,  # behaviour-policy estimate: E[−log π(a)] over sampled tokens
+                "_hacks": sum(1 for r in recs if (r.reward_components or {}).get("hack/confirmed", 0) > 0), "_records": recs}
 
     def _bubbles(self, mark: dict, train_s: float, publish_s: float) -> dict[str, float]:
         """Per-step bubbles (checklist #9) over the window since the previous step: engine idle (no call in flight anywhere:
@@ -360,9 +378,23 @@ class Runtime:
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):
                 await self.engines.resume()
             rewards, lengths = m.pop("_rewards"), m.pop("_lengths")
-            metrics = self.monitor.record(step, staleness=sel.staleness, spans=sel.spans, lengths=lengths, rewards=rewards,
+            batch = m.pop("_records")
+            n_alarms = len(self.monitor.alarms)
+            metrics = self.monitor.record(step, staleness=sel.staleness, spans=sel.spans, lengths=lengths, rewards=rewards, truncated=m.pop("_truncated"),
+                                          group_rewards=m.pop("_group_rewards"), entropy=m.pop("_entropy"), hacks=m.pop("_hacks"),
+                                          worst=sel.worst, evicted_staleness=sel.evicted_staleness,
                                           timing={"train_s": train_s, "publish_s": publish_s, "sample_wait_s": sample_wait},
                                           evicted={k: float(v) for k, v in self.sched.counters.items()})
+            if len(self.monitor.alarms) > n_alarms and self.on_alarm is not None:  # checklist #52: re-audit the batch at full tier
+                res = self.on_alarm(step, batch)
+                if asyncio.iscoroutine(res):
+                    await res
+                metrics["alarm/reaudit_records"] = float(len(batch))
+            now = time.monotonic()
+            blocked = self.admission_blocked_s + (now - self._blocked_since if self._blocked_since is not None else 0.0)
+            metrics.update({"weights/publish_s": publish_s, "rollout/reprefill_tokens": float(self.report.reprefill_tokens - mark.get("reprefill", 0)),
+                            "admission_blocked_s": blocked - mark.get("blocked", 0.0)})
+            mark["reprefill"], mark["blocked"] = self.report.reprefill_tokens, blocked
             metrics.update({k: v for k, v in m.items()})
             metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
             metrics.update(self._bubbles(mark, train_s, publish_s))

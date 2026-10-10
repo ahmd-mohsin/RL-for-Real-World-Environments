@@ -58,10 +58,15 @@ class StepMonitor:
 
     def record(self, step: int, *, staleness: Sequence[int] = (), spans: Sequence[int] = (), lengths: Sequence[int] = (), truncated: Sequence[bool] = (),
                rewards: Sequence[float] = (), group_rewards: Sequence[Sequence[float]] = (), entropy: float | None = None, hacks: int = 0,
-               mismatch: dict | None = None, timing: dict | None = None, evicted: dict | None = None) -> dict:
+               mismatch: dict | None = None, timing: dict | None = None, evicted: dict | None = None, worst: Sequence[int] = (),
+               evicted_staleness: Sequence[int] = ()) -> dict:
         m: dict[str, float] = {}
         if staleness:
             m.update({"staleness/mean": _mean(staleness), "staleness/max": max(staleness), "on_policy_share": sum(1 for s in staleness if s == 0) / len(staleness)})
+        if worst:
+            m.update({"staleness_worst/mean": _mean(worst), "staleness_worst/max": max(worst)})
+        if evicted_staleness:
+            m.update({"evicted_staleness/mean": _mean(evicted_staleness), "evicted_staleness/max": max(evicted_staleness)})
         if spans:
             m.update({"trajectory_spans/mean": _mean(spans), "trajectory_spans/max": max(spans)})
         if lengths:
