@@ -713,6 +713,19 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
 - **Harbor task directories run as they are.** `interop/harbor/verify_dir.HarborDirTask` grades a patch with the task's own `[verifier].command` in a fresh container of the pinned task image, with Harbor's layout (`/tests`, `/logs/artifacts`, `/logs/verifier`), declared network, limits and GPU, on any Docker host (the lab over `DOCKER_HOST=ssh://`). It can pin the task to a git ref, so a historical run is graded by the grader it was graded with. `ImportedHarness` turns a recorded run's patch into an attempt, so historical runs and dataset submissions pass through the same journal, classification and re-grading as live ones.
 - **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `train/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
 
+**As built, M11 part 1 (2026-10-10; research `docs/research/m11-m12/05`).**
+- `interop/canonical.py`: canonical JSON, derived `call_id`s, one tool naming across runtimes.
+- `interop/replay.py`: runtime-independent grades and dense channels.
+  - Every runtime's transcript (World trace, Harbor ATIF, NeMo-Gym Responses items, OpenEnv `CallToolAction`s, agentenv gateway events) is normalized to canonical actions.
+  - The actions are replayed in a fresh World and graded through the single reward producer.
+  - Progress is measured online over the task's subgoals or its plan's checks.
+- Exports:
+  - **NeMo-Gym resources server** (`interop/nemo_gym/server.py`): grades the live World session from its state. Masked grades go out as `mask_sample` in both NeMo-RL locations. Responses validate against NeMo-Gym's own pydantic models in its Python 3.13 env.
+  - **OpenEnv `Environment`** (`interop/openenv/export.py`): on OpenEnv's own base and MCP types. Per-step rewards Ψ-telescope to the final reward, with Ψ₋₁ = 0 because a plan's invariants can hold at the start. A masked grade yields reward None.
+  - **verifiers taskset** (`interop/verifiers/taskset.py`): subclasses verifiers' `HarborTask`/`HarborTaskset`. A masked grade raises a typed `TaskError`, which prime-rl drops; components are recorded as `crucible/` metrics.
+- **Framework environments:** `crucible/.envs/{openenv,verifiers,nemo}`. verifiers pins mcp 2, agentenv and OpenEnv mcp < 2, and NeMo-Gym Python ≥ 3.13.14. Each path runs in its own environment, and the gate compares the outputs.
+- **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, NeMo-Gym and OpenEnv, with the same final state fingerprint.
+
 ### 10.2 Two verifier tiers
 
 | Tier | Contents | When it runs |

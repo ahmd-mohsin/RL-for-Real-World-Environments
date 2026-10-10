@@ -5,3 +5,4 @@ __pycache__/
 *.egg-info/
 .crucible-cache/
 .playwright-mcp/
+.envs/

@@ -45,6 +45,10 @@ class HelpdeskTask:
     async def grade(self, world: World, workdir: Path) -> GradeReport:
         return await plan().arun(Context(Trusted(Path(workdir)), params={"view": world.verifier_view()}))
 
+    def plan_for_progress(self):
+        """The M7 plan whose checks are the dense-progress subgoals (``interop.replay.PlanSubgoals``)."""
+        return plan()
+
 
 def scripted(name: str, actions: list[ToolCall]) -> PolicyRef:
     return PolicyRef(id=f"scripted:{name}", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(actions))})
