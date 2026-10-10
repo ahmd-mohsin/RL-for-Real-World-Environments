@@ -10,7 +10,8 @@ candidate's ``PYTHONPATH`` and user site out of the grader, so this file puts th
 the unprivileged uid** in a tree it owns (a patch is untrusted input; applying it is the candidate's act). A patch that
 does not apply is the candidate's failure: reward 0, every gate unmeasured, infra ok.
 
-Whatever happens, ``reward.txt`` and ``reward.json`` are written; an exception masks the grade (``grader_exception``).
+Whatever happens, ``crucible_reward.json`` is written; ``reward.json``/``reward.txt`` only for a real grade. An exception
+masks the grade (``grader_exception``): no reward file, never a 0.
 """
 
 from __future__ import annotations

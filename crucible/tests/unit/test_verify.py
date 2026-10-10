@@ -59,18 +59,31 @@ async def test_async_checks_and_outcome_gates(tmp_path):
 
 
 def test_outputs_flat_and_full(tmp_path):
+    (tmp_path / "o").mkdir()
+    (tmp_path / "o" / "reward.txt").write_text("1\n")  # a stale / agent-written reward
     prewrite_zero(tmp_path / "o")
-    assert (tmp_path / "o" / "reward.txt").read_text().strip() == "0"
+    assert not (tmp_path / "o" / "reward.txt").exists() and not (tmp_path / "o" / "reward.json").exists()  # removed, no placeholder 0
     p = Plan("t", [Gate("a"), Gate("b")], [Check("a", "a", lambda c: True), Check("b", "b", lambda c: False)])
     rj = write_outputs(p.run(ctx(tmp_path)), tmp_path / "o")
     flat = json.loads((tmp_path / "o" / "reward.json").read_text())
-    assert flat == {"reward": 0.0, "outcome": 0.0, "gate/a": 1.0, "gate/b": 0.0, "infra/masked": 0.0}
+    assert flat == {"reward": 0.0, "outcome": 0.0, "gate/a": 1.0, "gate/b": 0.0}
     assert all(isinstance(v, float) for v in flat.values())  # Harbor rejects any non-numeric value
+    assert (tmp_path / "o" / "reward.txt").read_text().strip() == "0.0"
     full = RewardJson.model_validate({k: v for k, v in rj.items() if k in RewardJson.model_fields})
     assert full.gates == {"a": 1, "b": 0} and full.flat()["gate/b"] == 0.0
     crashed = write_outputs(None, tmp_path / "x", error="boom")
-    assert crashed["infra"]["status"] == "masked" and (tmp_path / "x" / "reward.txt").read_text().strip() == "0"
-    assert flat_reward(crashed)["infra/masked"] == 1.0
+    assert crashed["infra"]["status"] == "masked" and flat_reward(crashed) is None
+    x = tmp_path / "x"
+    assert not (x / "reward.json").exists() and not (x / "reward.txt").exists()  # masked: no reward file, so no runtime trains a 0
+    assert json.loads((x / "mask.json").read_text())["mask_sample"] is True
+    assert json.loads((x / "crucible_reward.json").read_text())["reward"] is None
+
+
+def test_reward_txt_is_exact(tmp_path):
+    from crucible.verify.runtime.plan import write_reward_files
+
+    write_reward_files(tmp_path, {"reward": 0.1234567891234, "gates": {}, "outcome": 0.0, "infra": {"status": "ok"}})
+    assert float((tmp_path / "reward.txt").read_text()) == 0.1234567891234  # :g would round to 6 digits
 
 
 def test_static_evasions(tmp_path):

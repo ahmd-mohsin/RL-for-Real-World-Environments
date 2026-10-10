@@ -5,7 +5,8 @@
 - composes the terminal reward with ``credit.compose``: ``R = G * [O (1 + a*rubric) + k (1 - O) Phi]``, so a failed
   attempt that reached milestones keeps bounded partial credit, and a masked grade is ``None`` for trainers;
   record-style plans (score gates) keep the plan's normalized score as the reward;
-- writes ``crucible_reward.json`` (full), ``reward.json`` (flat numeric, Harbor), ``reward.txt`` and ``report.json``;
+- writes the reward files through the single producer ``write_reward_files`` (``reward.json`` = the plan's gated reward, as in the
+  container; the composed training scalar with κ(1−O)Φ in ``crucible_reward.json["training_reward"]``; masked = no reward file);
 - writes ``steps.jsonl`` when the episode's per-step milestone values are given (the dense channel; M6).
 
 Inside verifier images the standard-library ``runtime/run.py`` does the terminal part; this module is the host path
@@ -22,9 +23,9 @@ from pathlib import Path
 from crucible.core.schema.milestone import Milestone
 from crucible.core.schema.reward import InfraStatus, RewardJson, StepRow
 from crucible.credit import steps as steps_io
-from crucible.credit.compose import compose
+from crucible.credit.compose import compose, scalar
 from crucible.credit.operators.potential import potential, trajectory
-from crucible.verify.runtime.plan import Context, GradeReport, Plan
+from crucible.verify.runtime.plan import Context, GradeReport, Plan, write_reward_files
 from crucible.workflow.steps import Step
 
 
@@ -65,9 +66,10 @@ async def grade_episode(plan: Plan, ctx: Context, *, out_dir: Path | None = None
 def write(out_dir: Path, report: GradeReport, rj: RewardJson, rows: Sequence[StepRow] = ()) -> None:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "crucible_reward.json").write_text(rj.model_dump_json(indent=1) + "\n")
-    (out_dir / "reward.json").write_text(json.dumps(rj.flat(), indent=1) + "\n")
-    (out_dir / "reward.txt").write_text(f"{rj.reward:g}\n")
-    (out_dir / "report.json").write_text(json.dumps(report.to_dict(), indent=1, default=str) + "\n")
+    # one producer (verify.runtime.plan.write_reward_files): reward.json is the plan's gated reward, as the in-container
+    # grader writes it; the composed training scalar (with κ(1−O)Φ partial credit) goes to crucible_reward.json only
+    plan_rj = report.reward_json()
+    write_reward_files(out_dir, plan_rj, report.to_dict(),
+                       extra={"training_reward": scalar(rj), "composed": json.loads(rj.model_dump_json())})
     if rows:
         steps_io.write(list(rows), out_dir / "steps.jsonl")

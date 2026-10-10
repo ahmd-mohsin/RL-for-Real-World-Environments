@@ -19,7 +19,7 @@ the reward is the policy's credit (full on a task constructed infeasible, 0 on a
 open problem); on an infeasible task, any claimed solution earns 0.
 
 ``Plan.run`` always produces a ``GradeReport``; ``write_outputs`` always writes ``reward.txt`` (never empty), a flat
-numeric ``reward.json`` (what Harbor accepts), ``crucible_reward.json`` (the full multi-key document) and ``report.json``. An exception anywhere outside a check (setup) yields reward 0 with
+numeric ``reward.json`` (what Harbor accepts; absent when masked), ``crucible_reward.json`` (the full multi-key document) and ``report.json``. An exception anywhere outside a check (setup) yields a masked grade with
 ``infra.status = masked`` and ``failure_kind = grader_exception`` (DESIGN §8.3 layer 7).
 
 Tiers (DESIGN §10.2): each check is ``fast`` or ``full``; ``Plan.run(tier="fast")`` runs only fast checks.
@@ -261,42 +261,68 @@ async def _run_check(c: Check, ctx: Context) -> CheckResult:
     return CheckResult(c.id, c.gate, st, detail, round(time.monotonic() - t0, 3), c.provenance, c.tier)
 
 
-def flat_reward(rj: dict) -> dict:
-    """Harbor's ``reward.json`` must be a flat dict of finite numbers (``harbor/verifier/verifier.py:104-121`` raises
-    on anything else): ``reward``, ``outcome``, ``gate/<g>``, ``infra/masked``, ``progress``."""
-    flat = {"reward": float(rj.get("reward", 0.0)), "outcome": float(rj.get("outcome", 0.0))}
-    flat.update({f"gate/{g}": float(v) for g, v in (rj.get("gates") or {}).items()})
-    flat.update({k: float(v) for k, v in (rj.get("components") or {}).items() if k.startswith("check/")})
-    flat["infra/masked"] = float((rj.get("infra") or {}).get("status") == "masked")
+REWARD_FILES = ("reward.json", "reward.txt", "mask.json", "crucible_reward.json", "report.json")
+
+
+def flat_reward(rj: dict) -> dict | None:
+    """The canonical ``reward.json`` (DESIGN §4.3; research m11-m12/05 §2): a flat dict of finite numbers — Harbor raises
+    on anything else (``harbor/verifier/verifier.py:104-121``) — with ``reward`` = the plan's gated reward, ``outcome``,
+    ``gate/<g>``, ``check/<c>`` and ``progress``. Timing is not in it (it lives in ``report.json``), so the file is
+    byte-identical whichever runtime graded. **A masked grade has no ``reward.json`` at all** (``None``): every surveyed
+    consumer reads only ``reward``, and a ``0.0`` there would be trained as a real 0; without a ``reward`` key verifiers
+    would even sum the remaining keys. The mask goes to ``mask.json`` and ``crucible_reward.json``."""
+    if (rj.get("infra") or {}).get("status") == "masked":
+        return None
+    flat = {"reward": float(rj["reward"]), "outcome": float(rj.get("outcome", 0.0))}
+    flat.update({f"gate/{g}": float(v) for g, v in sorted((rj.get("gates") or {}).items())})
+    flat.update({k: float(v) for k, v in sorted((rj.get("components") or {}).items()) if k.startswith("check/")})
     if rj.get("progress") is not None:
         flat["progress"] = float(rj["progress"])
     return flat
 
 
 def prewrite_zero(out_dir: Path) -> None:
-    """Before grading starts: an interrupted grader leaves reward 0, never a stale or agent-written reward."""
+    """Before grading starts: remove every reward file, so an interrupted grader leaves *no* reward (read as an
+    infrastructure failure by every runtime), never a stale, agent-written or placeholder-0 reward. (Name kept for
+    callers; it no longer writes a zero.)"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("reward.json", "crucible_reward.json", "report.json"):
+    for name in REWARD_FILES:
         (out_dir / name).unlink(missing_ok=True)
-    (out_dir / "reward.txt").write_text("0\n")
-    (out_dir / "reward.json").write_text(json.dumps({"reward": 0.0, "infra/masked": 1.0}) + "\n")
+
+
+def write_reward_files(out_dir: Path, rj: dict, full: dict | None = None, *, extra: dict | None = None) -> dict:
+    """The single producer of reward files, used by the in-container grader and the host grader alike:
+    ``crucible_reward.json`` (the full document; ``reward`` null when masked), ``reward.json`` + ``reward.txt`` (exact:
+    ``repr`` round-trips the float) only when not masked, ``mask.json`` when masked, ``report.json``."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    masked = (rj.get("infra") or {}).get("status") == "masked"
+    doc = {**rj, **(extra or {}), "reward": None if masked else float(rj["reward"])}
+    (out_dir / "crucible_reward.json").write_text(json.dumps(doc, indent=1, default=str, sort_keys=True) + "\n")
+    if full is not None:
+        (out_dir / "report.json").write_text(json.dumps(full, indent=1, default=str) + "\n")
+    if masked:
+        for name in ("reward.json", "reward.txt"):
+            (out_dir / name).unlink(missing_ok=True)
+        inf = rj.get("infra") or {}
+        (out_dir / "mask.json").write_text(json.dumps({"mask_sample": True, "failure_kind": inf.get("failure_kind"), "reason": inf.get("reason")},
+                                                      sort_keys=True) + "\n")
+    else:
+        (out_dir / "mask.json").unlink(missing_ok=True)
+        (out_dir / "reward.json").write_text(json.dumps(flat_reward(rj), indent=1, sort_keys=True) + "\n")
+        (out_dir / "reward.txt").write_text(repr(float(rj["reward"])) + "\n")
+    return doc
 
 
 def write_outputs(report: GradeReport | None, out_dir: Path, *, error: str | None = None) -> dict:
-    """Write ``reward.txt`` (never empty), a flat numeric ``reward.json`` (Harbor/NeMo-Gym readable), the full
-    ``crucible_reward.json`` (``core.schema.reward.RewardJson``) and ``report.json``. With no report (the grader
-    crashed before producing one) the reward is 0 and the grade is masked as ``grader_exception``."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """In-container grader outputs (``write_reward_files``). With no report (the grader crashed before producing one) the
+    grade is masked as ``grader_exception``: no reward file, never a 0."""
     if report is None:
         rj = {"reward": 0.0, "gates": {}, "outcome": 0.0, "infra": {"status": "masked", "failure_kind": "grader_exception", "reason": (error or "")[:500]}}
-        full = {"reward": 0.0, "error": error}
+        full = {"reward": None, "error": error}
     else:
         rj = report.reward_json()
         full = report.to_dict()
-    (out_dir / "crucible_reward.json").write_text(json.dumps(rj, indent=1, default=str) + "\n")
-    (out_dir / "report.json").write_text(json.dumps(full, indent=1, default=str) + "\n")
-    (out_dir / "reward.json").write_text(json.dumps(flat_reward(rj), indent=1) + "\n")
-    (out_dir / "reward.txt").write_text(f"{rj['reward']:g}\n")
+    write_reward_files(out_dir, rj, full)
     return rj

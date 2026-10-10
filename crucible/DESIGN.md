@@ -1191,3 +1191,13 @@ Registry check: A3, mutation score.
 |---|---|---|
 | An admission cap on in-flight rollouts only (S × B) lets finished rollouts accumulate in the buffer | with τ = 2 and `wait`, simulated rollouts trained at staleness 12, and synchronous mode leaked staleness 7 | the cap counts untrained rollouts (in flight + buffered); simulator tests for every topology; fixed |
 
+**B.17 Found by the M11 interop survey (2026-10-10; `docs/research/m11-m12/05-interop-diversity.md`).** All fixed in M7's
+reward writer.
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| Two `reward.json` writers disagreed: the in-container grader wrote the plan reward, the host grader the composed scalar with κ(1−O)Φ | a failed task with Φ = 0.5 scored 0 in the container and 0.1 on the host; foreign runtimes read the container's file, so rewards differed by runtime | one producer `write_reward_files`; `reward.json["reward"]` = the plan's gated reward everywhere; the composed training scalar lives in `crucible_reward.json["training_reward"]`; fixed |
+| A masked grade (and the pre-grading placeholder) wrote `"reward": 0.0` | Harbor, verifiers, NeMo-Gym, OpenEnv and TRL read only `reward`: every infrastructure failure would be trained as a real 0 | a masked grade writes **no** `reward.json` / `reward.txt` (a missing reward is an error in every runtime), plus `mask.json`; nothing is pre-written before grading; fixed |
+| Dropping only the `reward` key would be worse | verifiers sums every remaining key: `{"infra/masked": 1}` would score 1.0 | no reward file at all when masked; test asserts it; fixed |
+| `reward.txt` written with `:g` (6 significant digits); `time/*` seconds inside `reward.json` | files differ across runtimes; agentenv reads the text value | `repr()` (exact round trip); timing only in `report.json`; keys sorted; fixed |
+

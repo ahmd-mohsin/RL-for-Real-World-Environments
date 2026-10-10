@@ -132,6 +132,8 @@ def docker_grade(*, image: str, bundle_dir: Path, plan: str, out_dir: Path, moun
 def reward_json(g: Grade) -> RewardJson:
     r = dict(g.reward)
     r.setdefault("gates", {})
+    if r.get("reward") is None:  # masked: the file carries no reward; in-memory RewardJson keeps 0 and ``scalar()`` returns None
+        r["reward"] = 0.0
     return RewardJson.model_validate({k: v for k, v in r.items() if k in RewardJson.model_fields})
 
 

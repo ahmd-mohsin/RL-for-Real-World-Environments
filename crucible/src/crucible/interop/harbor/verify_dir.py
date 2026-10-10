@@ -119,6 +119,9 @@ class HarborDirTask:
         self.host.exec(f"rm -rf {self.host.workroot}/{key}")
         (gdir / "console.log").write_text((p.stdout + p.stderr)[-50000:])
         report = json.loads((local / "report.json").read_text()) if (local / "report.json").exists() else {}
+        if (local / "mask.json").exists():  # the grader itself masked the grade (Crucible kit): keep its failure kind
+            mk = json.loads((local / "mask.json").read_text())
+            return self._masked(mk.get("failure_kind") or "check_infra", mk.get("reason") or "masked by the grader", t0)
         reward = None
         if (local / "reward.json").exists():
             reward = float(json.loads((local / "reward.json").read_text()).get("reward"))

@@ -185,7 +185,7 @@ def test_honest_scores_one(kit, image, tmp_path):
     rj = reward_json(g)
     assert rj.infra.status == "ok" and all(rj.gates.values())
     assert g.report["trusted"] is True  # graded as root with the privilege drop
-    assert (tmp_path / "out" / "reward.txt").read_text().strip() == "1"
+    assert float((tmp_path / "out" / "reward.txt").read_text()) == 1.0
 
 
 @pytest.mark.parametrize("name", sorted(ATTACKS))
@@ -195,7 +195,7 @@ def test_attack_scores_zero(kit, image, tmp_path, name):
     assert g.reward["reward"] == 0.0, (name, g.reward)
     assert g.reward["infra"]["status"] == "ok", (name, g.reward["infra"])  # a cheat is scored 0, never masked
     assert gate in g.failing(), (name, g.failing(), json.dumps(g.report, default=str)[:3000])
-    assert (tmp_path / "out" / "reward.txt").read_text().strip() == "0"
+    assert float((tmp_path / "out" / "reward.txt").read_text()) == 0.0
 
 
 # Control (B.8: an attack test must show the attack works). Under the seed graders' habits -- exit-code verdicts, the
