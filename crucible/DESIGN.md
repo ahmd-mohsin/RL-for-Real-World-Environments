@@ -1120,6 +1120,23 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**Kit grader: OOM attributed to "node contention" was the candidate's own memory (fixed 2026-10-10).** In task04 golden
+re-grades, `astra_v3b` and `oob` had their `concurrency` gate masked as `node_contention` ("other processes held
+28 GB"). History records both gates as passing, and the only process on the GPU was the grade's own `kinfu_replay`.
+
+- **Cause:** `cand()` read the "foreign" GPU memory right after killing the candidate cohort. Device memory of a
+  process that just exited is released asynchronously, so the reading still counted the candidate's previous run. The
+  next run then OOMed on memory still being freed, and the OOM was masked as another user's job. The 2026-10-09
+  `astra_v3b` "contention" was probably the same race.
+- **Fix:**
+  - `gpu_memory_settled()` polls until the reading stops falling, both before a candidate run and after a failed one;
+  - `oom_under_contention(..., after_mib=...)` calls an OOM the node's fault only if the memory is *still* held once
+    the candidate's processes are dead; otherwise the candidate's own OOM is scored.
+- **Tests:** settling waits through a falling sequence, and an OOM whose memory disappears with the candidate is
+  scored, not masked.
+- **Pending:** re-grade `astra_v3b` and `oob` on the lab after the forge and task03 runners finish (one GPU job at a
+  time).
+
 **D-4 (2026-10-10): the launcher.** `train/launch.py` follows prime-rl's Ray-free process model.
 - **One command:** `run_job(spec)` (or `python -m crucible.train.launch job.toml`) starts engine-server processes behind
   a `GatewayPool`, env-server processes, rollout-worker processes and the controller (runtime plus `LeaseController`,

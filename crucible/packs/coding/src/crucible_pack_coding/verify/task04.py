@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 from crucible.verify.runtime.patterns import differential as D
-from crucible.verify.runtime.patterns.perf import CandidateError, LoadGuard, PerfBars, gpu_memory_used_mib, oom_under_contention
+from crucible.verify.runtime.patterns.perf import CandidateError, LoadGuard, PerfBars, gpu_memory_settled, oom_under_contention
 from crucible.verify.runtime.patterns.record import RecordSpec
 from crucible.verify.runtime.patterns.static import Rule, RuleSet, scan
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan, Verdict
@@ -187,10 +187,13 @@ class Task04:
         self.t.udir(out)
         env = {"LD_LIBRARY_PATH": f"{self.ctx.artifacts['install']}/lib", "OMP_NUM_THREADS": str(omp)}
         self.t.kill()
-        foreign = gpu_memory_used_mib()  # measured with no candidate process alive: everything in use belongs to someone else
+        foreign = gpu_memory_settled()  # no candidate process alive and its memory released: what is in use belongs to someone else
         rr = self.t.run([*(wrap or []), self.bins[tool], *args, "--out", out], cwd=self.data, env=env, timeout=timeout, candidate=True)
         if rr.rc != 0 and oom_under_contention(rr.log, foreign):
-            raise InfraError(f"node_contention: GPU out of memory while other processes held {foreign} MiB ({tool})")
+            self.t.kill()
+            after = gpu_memory_settled()  # still held once the candidate is dead? then it really was someone else's
+            if oom_under_contention(rr.log, foreign, after_mib=after):
+                raise InfraError(f"node_contention: GPU out of memory while other processes held {foreign} MiB before and {after} MiB after ({tool})")
         return rr
 
     def people_args(self, variants, extra=()):

@@ -1,10 +1,10 @@
 {
  "gate": "M7 golden, GPU part (task04 kit grader in the verifier image)",
- "graded": "7/8",
+ "graded": "8/8",
  "pass": false,
  "needs_regrade": [
-  "oob",
-  "sol_v3"
+  "astra_v3b",
+  "oob"
  ],
  "agree_where_measured": true,
  "grades": {
@@ -62,7 +62,59 @@
    "match": true
   },
   "astra_v3b": {
-   "pending": true
+   "recorded": {
+    "static": 1,
+    "build": 1,
+    "binary": 1,
+    "consumers": 1,
+    "kinfu": 1,
+    "people": 1,
+    "ncv": 1,
+    "concurrency": 1,
+    "fresh": 1,
+    "sanitizer": 1,
+    "perf": 0
+   },
+   "kit": {
+    "binary": 1,
+    "build": 1,
+    "concurrency": 0,
+    "consumers": 1,
+    "fresh": 1,
+    "kinfu": 1,
+    "ncv": 1,
+    "people": 1,
+    "perf": 0,
+    "sanitizer": 1,
+    "static": 1
+   },
+   "kit_status": {
+    "static": "pass",
+    "build": "pass",
+    "binary": "pass",
+    "consumers": "pass",
+    "kinfu": "pass",
+    "people": "pass",
+    "ncv": "pass",
+    "concurrency": "infra",
+    "fresh": "pass",
+    "sanitizer": "pass",
+    "perf": "skip"
+   },
+   "reward": null,
+   "infra": {
+    "failure_kind": "check_infra",
+    "reason": "concurrency: node_contention: GPU out of memory while other processes held 29057 MiB (kinfu_replay)",
+    "status": "masked"
+   },
+   "intended_gate": "perf",
+   "intended": true,
+   "profile_diffs": {},
+   "needs_regrade": [
+    "concurrency"
+   ],
+   "fresh_consistent": true,
+   "match": true
   },
   "sol_v3": {
    "recorded": {
@@ -79,17 +131,17 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "build": 1,
     "binary": 1,
+    "build": 1,
+    "concurrency": 1,
     "consumers": 1,
-    "kinfu": 1,
-    "people": 1,
-    "ncv": 0,
-    "concurrency": 0,
     "fresh": 0,
+    "kinfu": 1,
+    "ncv": 0,
+    "people": 1,
+    "perf": 0,
     "sanitizer": 1,
-    "perf": 0
+    "static": 1
    },
    "kit_status": {
     "static": "pass",
@@ -99,23 +151,21 @@
     "kinfu": "pass",
     "people": "pass",
     "ncv": "fail",
-    "concurrency": "infra",
+    "concurrency": "pass",
     "fresh": "fail",
     "sanitizer": "pass",
     "perf": "skip"
    },
    "reward": 0.0,
    "infra": {
-    "status": "masked",
-    "failure_kind": "check_infra",
-    "reason": "concurrency: node_contention: GPU out of memory while other processes held 27547 MiB (kinfu_replay)"
+    "failure_kind": null,
+    "reason": null,
+    "status": "ok"
    },
    "intended_gate": "ncv",
    "intended": true,
    "profile_diffs": {},
-   "needs_regrade": [
-    "concurrency"
-   ],
+   "needs_regrade": [],
    "fresh_consistent": true,
    "match": true
   },

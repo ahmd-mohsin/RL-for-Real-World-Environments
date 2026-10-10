@@ -352,6 +352,18 @@ def test_oom_under_contention_is_the_nodes():
     assert oom_under_contention(log, foreign_mib=14000)  # another user's job held the GPU (golden astra_v3b, 2026-10-09)
     assert not oom_under_contention(log, foreign_mib=300)  # an idle GPU: the candidate's own OOM is its failure
     assert not oom_under_contention("segfault", foreign_mib=14000)
+    assert oom_under_contention(log, foreign_mib=14000, after_mib=13900)  # still held by others after the candidate died
+    assert not oom_under_contention(log, foreign_mib=28000, after_mib=200)  # it was the candidate's own memory: scored
+
+
+def test_gpu_memory_settles_before_it_is_read():
+    from crucible.verify.runtime.patterns.perf import gpu_memory_settled
+
+    readings = iter([28000, 21000, 9000, 1900, 1890, 1890])
+    slept = []
+    got = gpu_memory_settled(read=lambda: next(readings), sleep=slept.append, interval_s=0.5)
+    assert got == 1890 and len(slept) == 4  # waited until the just-exited process had released its memory
+    assert gpu_memory_settled(read=lambda: None) is None
 
 
 def test_trusted_python_children_inherit_the_import_order(tmp_path):

@@ -178,7 +178,37 @@ def gpu_memory_used_mib() -> int | None:
         return None
 
 
-def oom_under_contention(log: str, foreign_mib: int | None, *, threshold_mib: int = 2048) -> bool:
+def gpu_memory_settled(*, max_wait_s: float = 20.0, interval_s: float = 0.5, tol_mib: int = 64, read=None, sleep=None) -> int | None:
+    """GPU memory in use once it has stopped falling: a process that just exited (or was killed) releases its device
+    memory asynchronously, so a reading taken right away still counts it. Polls until two consecutive readings are within
+    ``tol_mib`` and not decreasing (or ``max_wait_s``). Without this, a candidate's previous run was measured as "another
+    process" and the next run's OOM, caused by memory still being released, was masked as node contention (task04
+    golden astra_v3b / oob concurrency, 2026-10-10)."""
+    import time as _time
+
+    read = read or gpu_memory_used_mib
+    sleep = sleep or _time.sleep
+    prev = read()
+    if prev is None:
+        return None
+    waited = 0.0
+    while waited < max_wait_s:
+        sleep(interval_s)
+        waited += interval_s
+        cur = read()
+        if cur is None:
+            return prev
+        if prev - cur <= tol_mib:  # no longer falling
+            return cur
+        prev = cur
+    return prev
+
+
+def oom_under_contention(log: str, foreign_mib: int | None, *, threshold_mib: int = 2048, after_mib: int | None = -1) -> bool:
     """A candidate run that died of GPU OOM while other processes held more than ``threshold_mib`` is the node's failure
-    (Appendix B.12: another user's job), not the candidate's; an OOM on an idle GPU is the candidate's own."""
+    (Appendix B.12: another user's job), not the candidate's; an OOM on an idle GPU is the candidate's own. ``after_mib``
+    (settled memory once the candidate's processes are dead): when given, the memory must *still* be held by others,
+    otherwise it was the candidate's own and the OOM is scored."""
+    if after_mib != -1 and (after_mib is None or after_mib <= threshold_mib):  # gone once the candidate was dead: it was its own
+        return False
     return foreign_mib is not None and foreign_mib > threshold_mib and any(s.lower() in (log or "").lower() for s in OOM_SIGNS)
