@@ -74,6 +74,27 @@ class EnginePool:
     def __init__(self, engines: Sequence[Engine]):
         self.engines = list(engines)
         self.inflight = [0] * len(self.engines)
+        self.busy_s = 0.0  # wall time with ≥ 1 call in flight anywhere in the pool (bubble accounting, checklist #9)
+        self._active, self._busy_t0 = 0, 0.0
+
+    def busy_until_now(self) -> float:
+        import time
+
+        return self.busy_s + (time.monotonic() - self._busy_t0 if self._active else 0.0)
+
+    def _enter(self) -> None:
+        import time
+
+        if self._active == 0:
+            self._busy_t0 = time.monotonic()
+        self._active += 1
+
+    def _exit(self) -> None:
+        import time
+
+        self._active -= 1
+        if self._active == 0:
+            self.busy_s += time.monotonic() - self._busy_t0
 
     def route(self, rid: str) -> int:
         i = zlib.crc32(rid.encode()) % len(self.engines)
@@ -84,10 +105,12 @@ class EnginePool:
     async def generate(self, req: GenRequest) -> GenResult:
         i = self.route(req.rid)
         self.inflight[i] += 1
+        self._enter()
         try:
             return await self.engines[i].generate(req)
         finally:
             self.inflight[i] -= 1
+            self._exit()
 
     async def abort_all(self) -> int:
         return sum([await e.abort_all() for e in self.engines])

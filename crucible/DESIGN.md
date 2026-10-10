@@ -919,6 +919,19 @@ DP-rank unit from a simulation into processes:
 - **Placement fix (B.19):** micro batches and DP partitions count **forward** tokens (prompt + completion), while
   the loss normalizer stays trained tokens.
 
+**As built, part 6 (M12 env workers and bubbles, 2026-10-10; checklist #8, #9).**
+- **Env workers:** `RuntimeConfig.env_workers = N` runs environments on an `EnvWorkerPool` (N threads, each with its
+  own event loop, least-loaded placement). Token-env `reset`/`step` go to a worker; a whole World episode runs on a
+  worker, with its model calls bridged back to the engine pool on the main loop. A blocking environment therefore
+  stalls only its worker.
+- **Tests:** inline, a blocked environment froze every model call (0 completions during the block); on workers, other
+  rollouts' calls keep completing; blocking environments run in parallel (< ½ the inline wall time); an issued env
+  step finishes while the engine is paused.
+- **Per-step bubbles:** `idle/rollout_s` (no engine call in flight), `idle/train_s`, `idle/env_wait_s` (waiting for a
+  worker), `env/busy_s`, `engine/utilization`. Colocated engine idle ≥ train time; disaggregated utilization > colocated.
+- **Checklist audit (2026-10-10):** the earlier claim that the 52-item checklist was covered by tests was overstated.
+  The honest status table is in `docs/modules/M12-train.md` §9: 24 done, 23 partial, 5 missing.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

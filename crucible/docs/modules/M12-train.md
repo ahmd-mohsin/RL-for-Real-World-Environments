@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Contract tests ✅:** the 52-item requirements checklist (`docs/research/m11-m12/06-article-systems.md` §8) is implemented as tests where it applies.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 24 done, 23 partial, 5 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -141,3 +141,60 @@ Facts behind the table:
 - zero-copy hand-off of received weights to a separate vLLM process (CUDA IPC) and RDMA P2P reads (the bucketed NCCL/gloo broadcast itself is built, §6a);
 - a vLLM in-process engine (`AsyncLLM`) for colocated mode without HTTP;
 - R3 routing replay and top-p candidate capture (MoE policies).
+
+## 9. Checklist status (audit 2026-10-10, updated as items close)
+
+| # | item | status | missing |
+|---|---|---|---|
+| 1 | four plane interfaces + version | partial | StateStore (checkpoint + policy state + paused-call registry); WeightPublisher protocol |
+| 2 | publish +1, per-call version | partial | capture-proxy version stamping; 100-call mid-rollout test |
+| 3 | call-level version purity | done | |
+| 4 | version_spans gate | done | |
+| 5 | publish_s, reprefill per step | partial | per-step `weights/publish_s`, `rollout/reprefill_tokens` keys |
+| 6 | topologies, identical-loss golden | partial | cross-topology loss golden test |
+| 7 | offload knobs | missing | `train_state_on_rollout`, `kv_on_train` |
+| 8 | separate env worker pool | **done** | `EnvWorkerPool` (`env_workers`); tests: blocking envs parallel, engines serve during a block, env steps finish while paused, World episodes on workers |
+| 9 | per-phase bubbles | **done** | `idle/rollout_s`, `idle/train_s`, `idle/env_wait_s`, `env/busy_s`, `engine/utilization` per step |
+| 10 | colocated_sync on-policy | done | |
+| 11 | partial barrier semantics | partial | KV release; byte-identical World checkpoint test |
+| 12 | disaggregated never pauses | done | |
+| 13 | publish every K, optimizer reset | partial | tests for K > 1 and moment zeroing |
+| 14 | warmup batches | done | test |
+| 15 | per-source admission | done | lower-bound test |
+| 16 | terminal-only GRPO, critic no barrier | partial | critic mode (n = 1) |
+| 17 | group backfill | done | pad / drop_group tests |
+| 18 | loss_agg + DAPO golden | done | |
+| 19 | DP balancing | done | real DP: `DistributedTorchTrainer` |
+| 20 | drop ≤ τ, one refill per evict | partial | refill-exactly-one assertion |
+| 21 | wait, zero evictions | done | |
+| 22 | in-flight ≤ S × B | done | |
+| 23 | GLM example | done | |
+| 24 | staleness metric set | partial | staleness_worst, evicted_staleness, admission_blocked_s |
+| 25 | max_offpolicy_frac | done | |
+| 26 | windowed FIFO rule | done | |
+| 27 | Fig. 9 reproduction | partial | W = 1 ≡ FIFO, W = N ≡ greedy tests |
+| 28 | windowed lag ≤ 10 | done | |
+| 29 | length-bias monitor | partial | first-10-batch hard share; drop_early_short test |
+| 30 | source mix ± 10 % | partial | sim mix test |
+| 31 | mismatch metrics every step | done | |
+| 32 | nine corrections | done | |
+| 33 | correction goldens | done | |
+| 34 | π_θold refusal on multi-version | partial | trainer recomputes old without the span check |
+| 35 | FP32 LM head in the run record | partial | precision of both engines in the record |
+| 36 | routing confidence, R3 | missing | Σ_k metric, `routing_replay`, refusal |
+| 37 | top-p candidates renormalization | missing | `Turn.candidates`, renormalized logprobs |
+| 38 | post_update_transform / QDQ | partial | QDQ + bit-identical test |
+| 39 | tag/value split | partial | remote-value never-fetch test; harness tag |
+| 40 | async reward deadlines | missing | `deadline_s`, pending, `credit_fallback` |
+| 41 | blocked probe stays trainable | partial | train-path test |
+| 42 | infra mask vs agent_broke_env | done | |
+| 43 | harness per group | partial | per-group assignment, harness share |
+| 44 | compaction params recorded | partial | defaults, run-record entry |
+| 45 | summary calls carry advantage | done | direct assertion |
+| 46 | cross-segment GAE | partial | critic trainer; 3-segment golden |
+| 47 | skip-observation GAE | done | wired to a trainer |
+| 48 | critic knobs | partial | TTUR, freeze attention |
+| 49 | critical_steps, frozen sub-agents | partial | critical_steps; TorchTrainer frozen mask |
+| 50 | prefix sharing | missing | shared-prefix packing |
+| 51 | per-step monitor set | partial | runtime feeds truncation, entropy, zero-variance, hacks |
+| 52 | pass-rate alarm → re-audit | partial | re-audit hook |

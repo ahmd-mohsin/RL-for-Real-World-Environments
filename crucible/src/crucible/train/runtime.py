@@ -5,7 +5,8 @@ discrete-event simulator drives); this file only executes them with real concurr
 Planes and their synchronization points:
 
 - **rollout plane**: one asyncio task per rollout (dispatch unit = one rollout). Model calls go to the engine pool
-  (sticky routing); environment steps run on the event loop / env workers and **never wait for weights** (only model
+  (sticky routing); environment steps run on the event loop or, with ``env_workers=N``, on an ``EnvWorkerPool``
+  (a blocked environment never stalls the engines or the sample barrier) and **never wait for weights** (only model
   calls do). Every call is stamped with the version that served it; an aborted call is re-issued whole
   (``version_switch="call"``, the default: call-level version purity) or resumed with its partial output on the new
   version (``"token"``, recorded as ``version_spans``: AReaL).
@@ -51,6 +52,7 @@ class RuntimeConfig:
     stop_ids: tuple[int, ...] = ()
     poll_s: float = 0.002
     max_wall_s: float = 600.0
+    env_workers: int = 0  # 0: environments run inline on the event loop; N: an EnvWorkerPool of N threads (checklist #8)
 
 
 @dataclass
@@ -95,6 +97,15 @@ class Runtime:
         self.tasks: dict[str, asyncio.Task] = {}
         self.changed = asyncio.Event()
         self.version = 0
+        self.envs = None
+        if cfg.env_workers:
+            from crucible.train.envpool import EnvWorkerPool
+
+            self.envs = EnvWorkerPool(cfg.env_workers)
+
+    async def _env(self, fn, *args):
+        """An environment coroutine: on a worker loop when the pool is on, else inline."""
+        return await (self.envs.run(fn, *args) if self.envs is not None else fn(*args))
 
     # ---- rollout plane --------------------------------------------------------------------------------------------
     async def _call(self, rid: str, call_id: str, prompt: list[int], max_tokens: int | None = None, temperature: float | None = None) -> GenResult:
@@ -127,7 +138,11 @@ class Runtime:
             return res
 
         try:
-            rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)
+            if self.envs is not None:  # the whole episode on a worker loop; its model calls come back to this loop
+                rec = await self.envs.run_episode(self.rollout_fn, rid, prompt, seed, self.envs.bridge(gen), temperature=self.cfg.temperature,
+                                                  harness=self.harness)
+            else:
+                rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)
         except EnvInfraError:
             rec = None
         except Exception:  # noqa: BLE001 -- a crashing environment is infrastructure: mask, never score 0
@@ -146,7 +161,7 @@ class Runtime:
         env = self.env_factory()
         tag = self.pool.tags[rid]
         try:
-            obs = await env.reset(prompt, seed)
+            obs = await self._env(env.reset, prompt, seed)
             context: list[int] = list(obs)
             prev_full: list[int] | None = None
             turns: list[Turn] = []
@@ -163,7 +178,7 @@ class Runtime:
                     self.pool.call(rid, v, 0)
                 tag.length += len(res.completion_ids)
                 prev_full = context + res.completion_ids
-                step = await env.step(res.completion_ids)
+                step = await self._env(env.step, res.completion_ids)
                 context = prev_full + step.obs_ids
                 if step.done:
                     reward = step.reward
@@ -207,8 +222,29 @@ class Runtime:
         self.report.trained_records += recs
         return {**m, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs]}
 
+    def _bubbles(self, mark: dict, train_s: float, publish_s: float) -> dict[str, float]:
+        """Per-step bubbles (checklist #9) over the window since the previous step: engine idle (no call in flight anywhere:
+        paused for training, or starved), trainer idle (not training or publishing), and the time environments waited
+        for a worker."""
+        now = time.monotonic()
+        wall = now - mark["t"]
+        busy = self.engines.busy_until_now() - mark["busy"]
+        env_wait = (self.envs.wait_s if self.envs else 0.0) - mark["env_wait"]
+        env_busy = (self.envs.busy_s if self.envs else 0.0) - mark["env_busy"]
+        mark.update(t=now, busy=self.engines.busy_until_now(), env_wait=self.envs.wait_s if self.envs else 0.0, env_busy=self.envs.busy_s if self.envs else 0.0)
+        return {"idle/rollout_s": max(wall - busy, 0.0), "idle/train_s": max(wall - train_s - publish_s, 0.0), "idle/env_wait_s": env_wait,
+                "env/busy_s": env_busy, "step/wall_s": wall, "engine/utilization": busy / wall if wall > 0 else 0.0}
+
     async def run(self) -> RunReport:
+        try:
+            return await self._run()
+        finally:
+            if self.envs is not None:
+                self.envs.close()
+
+    async def _run(self) -> RunReport:
         t_start = time.monotonic()
+        mark = {"t": t_start, "busy": self.engines.busy_until_now(), "env_wait": 0.0, "env_busy": 0.0}
         step = 0
         self._admit()
         while step < self.cfg.steps and time.monotonic() - t_start < self.cfg.max_wall_s:
@@ -248,6 +284,7 @@ class Runtime:
                                           evicted={k: float(v) for k, v in self.sched.counters.items()})
             metrics.update({k: v for k, v in m.items()})
             metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
+            metrics.update(self._bubbles(mark, train_s, publish_s))
             self.report.steps.append(StepLog(step, self.version, metrics))
         for t in self.tasks.values():
             t.cancel()
