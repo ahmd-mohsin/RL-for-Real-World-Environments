@@ -318,3 +318,12 @@ def test_seed_kit_plans_build(tmp_path):
     t2 = task02.plan(ctx(tests=str(mt / "task02_pcops_triton" / "tests")))
     assert [g.id for g in t2.gates] == task02.GATES
     assert [g.id for g in task01.plan(ctx(version="v1")).gates] == ["static"]
+
+
+def test_oom_under_contention_is_the_nodes():
+    from crucible.verify.runtime.patterns.perf import oom_under_contention
+
+    log = "Error: out of memory\t.../device_memory.cpp:220:create"
+    assert oom_under_contention(log, foreign_mib=14000)  # another user's job held the GPU (golden astra_v3b, 2026-10-09)
+    assert not oom_under_contention(log, foreign_mib=300)  # an idle GPU: the candidate's own OOM is its failure
+    assert not oom_under_contention("segfault", foreign_mib=14000)

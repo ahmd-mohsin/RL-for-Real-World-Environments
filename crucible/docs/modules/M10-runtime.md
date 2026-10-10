@@ -1,0 +1,44 @@
+# M10 `runtime` — running policies reliably
+
+**Status: core built (2026-10-09); exit gate in progress.**
+- **B.5 injections ✅:** all 8 harness and infra classes are injected and masked (CPU in `tests/unit/test_runtime.py`, Linux-container classes in `tests/redteam/test_runtime_docker.py`).
+- **Policy controls ✅:** they are scored, not masked.
+- **Historical run reproduction ⏳:** R1 (re-grade), R2 (replay), R3 (live mini-swe-agent through Harbor) are pending.
+
+- **Code:** `src/crucible/runtime/`:
+  - `keys.py`, `infra.py`, `journal.py`, `budget.py`, `run.py`, `collect.py`, `remote.py`, `gpu.py`, `inject.py`;
+  - `harness/` (`base.py`, `native.py`, `workspace.py`);
+  - `verify/stage.py` (docker grading hygiene);
+  - toy pack `runtime.py` (`HelpdeskTask`, `FibTask`, scripted and LLM policies).
+- **Research:** `docs/research/m9-m10/02-runtime.md`.
+
+## What it is
+
+| Piece | What | Built on |
+|---|---|---|
+| `keys.py` | `SampleKey(task, world, policy, harness, sample_idx, seed, tier)`. Seeds are derived from the run seed and the key; attempt ids are `<sample>-a<N>`; the run identity is a hash of the spec minus cosmetic fields | FineEnvs identity |
+| `infra.py` | Failure normalization at every boundary (Harbor exception names, MiMo categories, provider errors) into kinds with a **blame**. `RetryRule` never retries policy blame; `LimitPolicy` turns limits into scored stops; masked-aware `mean_reward`, `coverage`, unbiased grouped `pass_at_k`; `Health` stop rules; `classify_verifier` | NeMo-Gym `failure_kinds`/`rollout_health`; verifiers errors and `RetryRule`; Karotte limits |
+| `journal.py` | `run.json` identity (a mismatch refuses to resume), fsynced `journal.jsonl`, `results.jsonl` (terminal), `failures.jsonl` (masked, never read by metrics), atomic `record.json` per attempt; aborted attempt dirs are kept as evidence | Repo2RLEnv `EventJournal`; NeMo-Gym sidecars, torn-tail repair |
+| `budget.py` | SQLite reserve/settle ledger with caps; reservations left by a crash become *uncertain* spend; uncertain spend has its own tolerance | Repo2RLEnv `campaigns/budget.py` |
+| `run.py` | `RunSpec` → plan → bounded-concurrency dispatch → reserve → harness → settle → record → retry. Credits exhausted → stop, resumable | agentenv `eval run --k` (shape) |
+| `harness/native.py` | A World episode with an in-process policy: masked episode → failure; `task.broken()` → `crucible:agent_broke_env` (policy); limits → truncated and scored; grading → `classify_verifier`; cleanup never overrides a result | — |
+| `harness/workspace.py` | Collects the agent's work as a patch (tolerant or legacy hook). An empty patch from a changed tree → `crucible:empty_collection`, workspace preserved; the retry re-collects only | our `run_agent.sh` collect fix |
+| `collect.py` | `collect`, `tree_changed`, `classify` | — |
+| `remote.py` | Sentinel control channel (`crucible:harness_self_kill`), pidfile kills, self-matching `pkill`/`pgrep` lint | B.5 row 8 |
+| `gpu.py` | `GpuHost` (`--runtime=nvidia`), `preflight` (PID 1 init check → `crucible:zombie_wait`; GPU arch) | B.5 row 4 |
+| `verify/stage.py` `docker_grade` | Pins the image digest (`expected_image` mismatch → masked `stale image` before grading); named, labelled container; timeout → `docker rm -f` + masked `verifier_timeout`; no reward file → masked `no_reward_json` | Harbor verifier behaviour |
+| `inject.py` | `FakeLLM` with scripted provider failures (blank usage, credits, context overflow), `FakeSpend`, `FlakyGradeTask`; toy pack `crashing_tool_world` | — |
+
+## Exit gate
+
+| Requirement (ARCHITECTURE M10) | Result |
+|---|---|
+| All 8 B.5 classes injected, each classified as infra and masked, never scored 0 | ✅ 8/8 classes:<br>• **empty patch:** `empty_collection`, then re-collect only;<br>• **blank usage:** masked, retried;<br>• **credits:** stop, resumable, resume finishes the run;<br>• **zombie PID 1:** `zombie_wait` preflight, container without `--init` vs with it;<br>• **stale image:** digest pin, masked before grading;<br>• **ABI / stale build:** `stale_build` from the verifier;<br>• **contention:** `node_contention` (time spread, and GPU OOM under foreign memory);<br>• **self-kill:** sentinel channel on macOS and over a Linux container.<br>Also masked: tool crash (environment bug), grader exception, verifier timeout. Controls scored: agent broke the environment, step limit, context overflow, no change (0) |
+| Masked ≠ 0 | ✅ with 1 of 4 samples masked, the mean is that of the 3 scored samples; the Harbor-style average (masked as 0) is shown to differ |
+| Resume | ✅ re-running a finished spec dispatches nothing; a different spec under the same run id is refused |
+| One historical frontier run reproduced end to end | ⏳ R1 re-grade of the task02 GPT-5.6-sol patch at commit `5e53057` (lab), R2 command replay, R3 live mini-swe-agent through Harbor (~$3–10) |
+| Toy | ✅ scripted oracle 1.0 and no-op 0.0 over k samples; workspace `fib` task 1.0 / 0.0 |
+
+## Remaining
+- `perf_guard.py` (host check, GPU semaphore, re-grade queue), `trajectories.py` (ATIF step ids aligned with `steps.jsonl`), `record.py` (`crucible.rollout/v1`), `harness/harbor.py`, `Runner.regrade`.
+- GPU injections on the lab (burner process for contention, stale build, stale image).

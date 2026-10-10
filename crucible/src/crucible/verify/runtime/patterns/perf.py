@@ -159,3 +159,26 @@ def rows_vs_clock(reported_ms: dict, wall_short_s: float, wall_long_s: float, ex
     claimed_ms = float(sum(reported_ms.values()))
     ok = measured_ms <= 0 or claimed_ms >= min_share * measured_ms
     return {"pass": ok, "claimed_ms_per_rep": round(claimed_ms, 3), "measured_ms_per_rep": round(measured_ms, 3), "min_share": min_share}
+
+
+OOM_SIGNS = ("out of memory", "cudaErrorMemoryAllocation", "CUDA_ERROR_OUT_OF_MEMORY", "CUBLAS_STATUS_ALLOC_FAILED", "RESOURCE_EXHAUSTED")
+
+
+def gpu_memory_used_mib() -> int | None:
+    """Total GPU memory in use right now (all processes; inside a container the PIDs of other users are hidden, the
+    total is not)."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=20,
+                             check=False).stdout
+        vals = [int(x) for x in out.split() if x.strip().isdigit()]
+        return max(vals) if vals else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def oom_under_contention(log: str, foreign_mib: int | None, *, threshold_mib: int = 2048) -> bool:
+    """A candidate run that died of GPU OOM while other processes held more than ``threshold_mib`` is the node's failure
+    (Appendix B.12: another user's job), not the candidate's; an OOM on an idle GPU is the candidate's own."""
+    return foreign_mib is not None and foreign_mib > threshold_mib and any(s.lower() in (log or "").lower() for s in OOM_SIGNS)

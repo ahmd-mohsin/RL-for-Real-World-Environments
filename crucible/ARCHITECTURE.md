@@ -608,10 +608,10 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - `perf_guard.py`;
   - `gpu.py` (lab 5090, Runpod, Modal);
   - `trajectories.py` (ATIF with step ids that line up with `steps.jsonl`).
-- **Takes:**
-  - DEPEND: Harbor Job / Trial / regrade; agentenv `eval run --k`, LocalRunner, Task DAG and step journal.
-  - PATTERN: NeMo-Gym `failure_kinds`, `rollout_health`; verl −999 masking; mimoagent `compaction/` for long horizons.
-  - PORT: our `run_agent.sh` fixes (collect hook, cost-tracking tolerance, `--init`).
+- **Takes** (revised after research m9-m10/02):
+  - DEPEND: Harbor Job / Trial / regrade and installed agents (through `harness/harbor.py`); verifiers interception proxy for tokens.
+  - PORT: Repo2RLEnv `campaigns/budget.py` (reserve/settle ledger) and `EventJournal`; verifiers `RetryRule` and error classes; FineEnvs `evaluate` identity; Karotte limit policy (limits stop, never score); our `run_agent.sh` fixes (collect hook, cost-tracking tolerance, `--init`).
+  - PATTERN: NeMo-Gym `failure_kinds`, `rollout_health`, failure sidecars; verl −999 masking; agentenv `eval run --k` and step journal (the shape of resume; agentenv's runner is not used, because it has no masking or blame); mimoagent `compaction/` for long horizons; OpenEnv capture for the endpoint harness.
 - **Coding:** frontier calibration runs across several Harbor harnesses.
 - **Toy:** a scripted policy plus one LLM policy.
 - **Exit gate:**

@@ -674,6 +674,15 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
   | `export openenv` | Environment with per-step `Observation.reward` from `steps.jsonl` and a rubric tree (Sequential/Gate/WeightedSum) | TRL, SkyRL, torchforge |
   | `export harbor` | identity | any Harbor runner, with `[[steps]]` for staged tasks |
 
+**As built (M10, 2026-10-09; `docs/modules/M10-runtime.md`).** `crucible.runtime` runs k samples per (task, policy, harness) with derived seeds (`SampleKey`), through a phase machine (seed → agent → collect → verification → cleanup), and records every attempt in a journal that a re-run resumes. Rules:
+- **Every failure has a blame** (`infra`, `harness`, `task`, `policy`, `unknown`). Only `policy` failures are scored (reward 0). All others are masked: reward `None`, excluded from mean, pass@k and coverage, never read as 0. A masked sample is retried (never a policy failure) up to `RetryRule`'s limit.
+- **Stop rules:** budget (SQLite reserve/settle ledger; a crashed reservation becomes *uncertain* spend), wall clock, masked share > 20%, unknown-blame share > 5%. Running out of credits stops the run as resumable, not as failed samples.
+- **Boundaries normalize foreign errors** (Harbor exception names, MiMo categories, provider failures) into the taxonomy. A verifier `infra` dict is classified into `node_contention`, `stale_image`, `stale_build` or `verifier_error`.
+- **Workspace harness:** the patch is collected with the tolerant hook. An empty patch from a changed tree is `crucible:empty_collection`; the workspace is preserved and the retry *re-collects only*, without re-running the agent.
+- **Docker grading** (`verify/stage.py`) pins the verifier image digest (mismatch → masked `stale image`, before anything runs), names and labels the container, and turns a timeout into `docker rm -f` plus masked `verifier_timeout`. `runtime/gpu.py` preflights PID 1 (no init → `crucible:zombie_wait`) and the GPU arch.
+- **Control channels** run with a sentinel; a signal death without it is `crucible:harness_self_kill`, and a lint rejects self-matching full-command-line `pkill`/`pgrep` patterns.
+- **Every B.5 class has an injector** and a test showing it is masked, plus policy controls (agent broke the environment, step limit, context overflow, no change) showing they are scored.
+
 ### 10.2 Two verifier tiers
 
 | Tier | Contents | When it runs |
@@ -1021,3 +1030,13 @@ Registry check: A3, mutation score.
 | A rule revealed by a recorded correction (a reversed refund on a used add-on) was not enforced by any check | the recorded wrong answer failed only the outcome, not the policy | G-hindsight compiles revealed rules into invariants, with the correction's signal as provenance |
 | A node skipped because its upstream failed was labelled "abandoned" | content failures reported as budget/infra exhaustion | `skipped` status; a plan with any failed or breached node is `rejected` |
 
+**B.14 Found while building M10 (2026-10-09).** Each was found by an injection test or a golden run, and fixed.
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| The in-process tool loader reported a `ZeroDivisionError` inside a tool as a domain `ToolError` (fault `tool`) | an environment bug became an observation the policy was "scored" on | Python bug exceptions (`ArithmeticError`, `TypeError`, `sqlite3.OperationalError`, …) → fault `infra`, masked as `tool_crashed`; injection test; fixed |
+| task04 golden `astra_v3b` hit GPU out-of-memory while another user's job held the GPU, and scored it as a candidate failure | a contaminated run became a verdict (B.12 repeated, through memory instead of time) | `oom_under_contention`: OOM with > 2 GiB foreign GPU memory → `node_contention`, masked and re-graded; fixed |
+| An ungraded result with no failure kind was recorded as a policy 0 | harness bugs that "forget" to classify are scored | unclassified → `unknown` blame, masked, and counted against the 5% stop rule; fixed |
+| BSD `pkill` excludes the caller's ancestors; Linux `pkill -f` does not | a self-kill test passed vacuously on macOS | the self-kill test also runs over a Linux container channel (`tests/redteam/test_runtime_docker.py`); fixed |
+| A crash injector with a `(*a, **k)` signature changed the tool's schema | the injection produced "invalid arguments", not a crash: the test measured the wrong class | injectors wrap with `functools.wraps`; every injection test asserts the intended failure kind; fixed |
+| Harbor's verifier writes no reward file on timeout or grader crash | an infra failure reads as a missing result (B.10 row "empty reward.txt") | no reward file → masked `no_reward_json`; timeout → masked `verifier_timeout`; fixed in `docker_grade` |
