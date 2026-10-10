@@ -876,6 +876,35 @@ Infra failures are masked and never trained.
 - verl: the `crucible_delta` estimator, registered through verl's own `register_adv_est`, computes A_t = (R − group mean) + c_t, with turn credit encoded in the token rewards; masked rollouts are excluded.
 - TRL: `make_rollout_func` runs World episodes concurrently over TRL's colocated vLLM.
 
+**As built, part 4 (M12 distributed weight plane, 2026-10-10; `train/weightsync.py`; research `m11-m12/04` §A).**
+The checkpoint-engine protocol as a PATTERN over any `torch.distributed` group (NCCL on GPUs, gloo on CPU):
+- **Bucket plan:** gathered once from every owner's shapes. 256-byte-aligned offsets; one owner per bucket (the
+  broadcast source); a tensor larger than the bucket is refused. The plan is portable (`to_json`/`from_json`, crc) for
+  elastic joins.
+- **Bucket size:** `all_reduce(MIN)` of free memory × 0.9; a third when the largest tensor fits (room for staging),
+  else half; capped by `max_bucket`, never below the largest tensor.
+- **Double-buffered pipeline:** bucket g is staged into half g mod 2 and broadcast while receivers reload bucket g−1 on
+  a worker thread. After every bucket the previous reload's status is `all_reduce(MAX)`-ed, carrying the failing
+  rank, so any failure aborts every rank with the same culprit named.
+- **What Crucible adds to checkpoint-engine:**
+  - a version + plan-crc header on every update (plan drift refused everywhere);
+  - an **atomic commit**: receivers stage, then `commit(version, state)` only after all buckets succeeded everywhere,
+    so a failed update leaves the old weights and version serving;
+  - streaming while serving (only the commit swaps, at a call boundary);
+  - subgroup updates (`ranks=[…]`) for a restarted engine catching up.
+- **Runtime contract:** `DistributedPublisher` (trainer rank: version + 1; local engines load directly; the collective
+  runs in a thread so rollouts keep going) and `EngineReceiver` (engine rank: receive, then `load_weights(state, version)`).
+- **Tests** (`tests/unit/test_weightsync.py`, real processes over gloo):
+  - plan layout, determinism and portability; the bucket-size rule;
+  - two versions bitwise across fp32/bf16/fp16/int64/bool/0-d through ≥ 3 buckets;
+  - a slow reload never corrupts the double buffer;
+  - sharded owners with colocated receivers;
+  - an injected reload failure aborts all ranks and nobody commits;
+  - a subgroup update plus an elastic plan;
+  - publisher → receiver serves exactly the trainer's v2 weights.
+- **Open:** zero-copy hand-off of the received bytes to a separate vLLM process (CUDA IPC, checkpoint-engine's
+  `VllmColocateWorkerExtension`) and RDMA P2P reads; receivers commit through their engine's `load_weights` today.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

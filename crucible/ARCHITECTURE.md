@@ -649,7 +649,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - **`curriculum.py`:** learnability-steered refresh of the task pool.
   - **`monitors.py`:** entropy, share of zero-variance groups, sampled hack audits, divergence between the fast and full verifier tiers.
   - **RL infrastructure (trainer side; designed 2026-10-09 from the 11-lab survey, `docs/research/2026-10-09-agentic-rl-infra-survey.md`, DESIGN §10.3):**
-    - **As built (2026-10-10):** `mismatch.py`, `objectives.py`, `batching.py`, `credit.py`, `pool.py`, `scheduler.py`, `sim.py`, `monitors.py`, `engine.py`, `envs.py`, `trainer.py`, `weights.py`, `runtime.py` (DESIGN §10.3 as-built parts 1–2; research `docs/research/m11-m12/`).
+    - **As built (2026-10-10):** `mismatch.py`, `objectives.py`, `batching.py`, `credit.py`, `pool.py`, `scheduler.py`, `sim.py`, `monitors.py`, `engine.py`, `envs.py`, `trainer.py`, `weights.py`, `weightsync.py` (bucketed distributed weight sync, checkpoint-engine pattern), `runtime.py` (DESIGN §10.3 as-built parts 1–4; research `docs/research/m11-m12/`).
     - **`rollout.py`, the rollout record contract `crucible.rollout/v1`:**
       - per turn: prompt and response token ids, **behaviour logprobs as sampled by the inference engine** (token-in-token-out, never detokenize→retokenize), the **policy version of every generated span** (so the oldest version w₀ is known), sampling parameters, and optional MoE routing ids and top-p candidate sets;
       - per rollout: harness@version, truncation flag, context-compaction segments, environment timings, infra status, World trace id.
