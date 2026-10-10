@@ -211,6 +211,9 @@ class Runner:
         prog = adir / "progress.jsonl"
         ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
                    progress=prog if prog.exists() else None, segments=hr.segments)
+        ro.flags = list(hr.flags)
+        if hr.flags:
+            ro.reward_components["hack/intercepted"] = float(sum(f["rule"].startswith("intercepted:") for f in hr.flags))
         if ro.failure_kind == "crucible:capture_incomplete" and not rec.mask_sample:
             rec.mark_failure(Failure(kind="crucible:capture_incomplete", stage="collect", reason=ro.stop or "token record incomplete"))
         (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))

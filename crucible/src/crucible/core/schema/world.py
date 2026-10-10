@@ -216,6 +216,10 @@ class WorldSpec(VersionedDocument):
     policies: list[PolicyDoc] = Field(default_factory=list)
     network: Literal["no-network", "public", "allowlist"] = "no-network"
     allowed_hosts: list[str] = Field(default_factory=list)  # network == "allowlist" (e.g. the model API)
+    # online interception rules active at World._call_tool (m13 C-4, ``world/intercept.py``): None = the defaults
+    # (remote_code_fetch, grader_paths); [] = off; a task whose job is to download (internet is the task) keeps only
+    # ["grader_paths"]
+    intercept: list[str] | None = None
     isolation: IsolationSpec = Field(default_factory=IsolationSpec)
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
     seed: int = 0

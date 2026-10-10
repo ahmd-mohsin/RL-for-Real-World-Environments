@@ -1120,6 +1120,37 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-4 (2026-10-10): online hack interception and the two-level detector (A2-28/29, checklist #41).** Before this,
+shortcuts were only blocked by the environment (network policy) or noticed after the fact (probes), and
+`hack/confirmed` came from the full-tier audit alone.
+
+- **Interception (`world/intercept.py`):** at `World._call_tool`, after argument validation and before any execution,
+  policy calls go through interceptors. A hit is not executed: the policy gets a refusal (or `action="dummy"`, a
+  neutral result), an `intercept` event is logged, and the episode continues. It is not an infra fault, so it stays
+  trainable and the shortcut does not pay.
+  - **Default rules** (defensive categories, matched against any string argument):
+    - `remote_code_fetch`: `git clone|fetch|pull <remote>`, `curl|wget <url>`; hosts on the world's allowlist pass;
+    - `grader_paths`: `/logs/verifier`, `/solution`.
+  - **`WorldSpec.intercept`** selects rules: `None` = defaults, `[]` = off. A public-network Harbor task, whose job may
+    be to download, keeps only `grader_paths`.
+  - `World.intercepts` is derived from the log (it follows resets and snapshots), and the trace outcome lists them.
+- **Level 1 (`credit/hack_detector.rule_flags`):** high-recall suspicions over the trace: intercepts, writes to test or
+  verifier files, exit-status spoofing written into code, and test-skipping flags. Both the M10 runner
+  (`HarnessResult.flags`) and M12's `world_rollout` attach them to `RolloutRecord.flags`, with a
+  `hack/intercepted` count.
+- **Level 2 (`detector_group_fn(judge)`):** a group stage that judges flagged rollouts only, so cost scales with
+  suspicion. The verdict must be exactly `{"hack": bool, …}`; anything else is `hack/judge_unparseable` and never
+  confirms. `llm_hack_judge(llm)` is the LLM implementation, and `chain_group_fns(detector, gar)` zeroes confirmed hacks.
+- **Alarm:** `StepMonitor.max_confirmed_hack_rate` (2%, MiMo's bound) raises an alarm, which feeds the existing full-tier
+  re-audit hook.
+- **Tests:**
+  - on a real workspace World, `git clone` of a remote and a `curl` download are refused with the fingerprint unchanged;
+    reading the verifier's files is refused; benign git runs; the episode is not masked; flags match;
+  - allowlisted hosts and custom rules work, and spec rule selection (defaults / grader-only / off) behaves as set;
+  - level 1 finds test writes, `os._exit(0)` and `--deselect`;
+  - the detector confirms only parsed verdicts, and GAR zeroes the confirmed member while the group stays centred;
+  - no judge means nothing is confirmed, and the hack-rate alarm fires.
+
 **C-2 / C-3 (2026-10-10): the group grading stage, GAR and GRS.** `Runtime._grade` scored each record on its own, so
 group-level reward operators (MiMo GAR, tournaments, zeroing hacks and recomputing the group mean) had nowhere to run.
 - **The stage:** `Runtime(group_fn=...)` calls `group_fn(gid, members)` with deep copies of all n scored members.

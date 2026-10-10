@@ -143,6 +143,8 @@ class HarborInPlaceTask:
         if gpus:
             app["resources"] = {"gpus": gpus}
         doc = {"world": self.world_id, "backend": "harbor", "backend_params": self.backend_params, "network": net, "apps": [app],
+               # internet is part of a public-network Harbor task: only the verifier-path rule applies (m13 C-4)
+               **({"intercept": ["grader_paths"]} if net == "public" else {}),
                "actors": [{"id": "agent", "kind": "policy", "tools": ["term.*"]}],
                "limits": {"tool_timeout_s": 3600}}
         if net == "allowlist":

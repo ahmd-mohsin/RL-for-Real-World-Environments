@@ -55,6 +55,7 @@ class StepMonitor:
     alarm: PassRateAlarm = field(default_factory=PassRateAlarm)
     lengths: deque = field(default_factory=lambda: deque(maxlen=4096))
     alarms: list = field(default_factory=list)
+    max_confirmed_hack_rate: float = 0.02
 
     def record(self, step: int, *, staleness: Sequence[int] = (), spans: Sequence[int] = (), lengths: Sequence[int] = (), truncated: Sequence[bool] = (),
                rewards: Sequence[float] = (), group_rewards: Sequence[Sequence[float]] = (), entropy: float | None = None, hacks: int = 0,
@@ -88,6 +89,9 @@ class StepMonitor:
             m["entropy"] = entropy
         if rewards:
             m["confirmed_hack_rate"] = hacks / len(rewards)
+            if m["confirmed_hack_rate"] > self.max_confirmed_hack_rate:  # m13 C-4: MiMo keeps confirmed hacks under 2%
+                self.alarms.append({"step": step, "kind": "confirmed_hack_rate", "value": m["confirmed_hack_rate"]})
+                m["alarm/confirmed_hack_rate"] = 1.0
         for k, v in (mismatch or {}).items():
             m[f"mismatch/{k}"] = v
         for k, v in (timing or {}).items():

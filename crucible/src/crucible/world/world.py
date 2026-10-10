@@ -136,8 +136,19 @@ class World:
         pack_root: Path | None = None,
         backend: str | None = None,
         backend_params: dict[str, Any] | None = None,
+        interceptors: list | None = None,
     ):
         self.spec = spec
+        if interceptors is None:  # m13 C-4: the spec's rules (default: remote code fetch, verifier paths); its allowlist passes
+            from crucible.world.intercept import DEFAULT_RULES, RuleInterceptor
+
+            names = [r.id for r in DEFAULT_RULES] if spec.intercept is None else list(spec.intercept)
+            unknown = sorted(set(names) - {r.id for r in DEFAULT_RULES})
+            if unknown:
+                raise WorldError(f"unknown intercept rules {unknown} (known: {[r.id for r in DEFAULT_RULES]})")
+            rules = tuple(r for r in DEFAULT_RULES if r.id in names)
+            interceptors = [RuleInterceptor(rules, allow_hosts=tuple(spec.allowed_hosts))] if rules else []
+        self.interceptors = list(interceptors)
         self.spec_hash = spec.content_hash()
         self.instructions = dict(instructions or {})
         self.store = store or get_store()
@@ -320,6 +331,14 @@ class World:
         problem = _argument_problem(call.arguments, spec.input_schema)
         if problem:
             return fail(qualified, f"Invalid arguments for {qualified}: {problem}. Resend the call with a JSON object matching the tool's schema.", "invalid_arguments")
+        if not system and self.interceptors:  # m13 C-4: an intercepted call is never executed; the episode continues
+            hit = next((h for ic in self.interceptors if (h := ic.check(actor, qualified, call.arguments)) is not None), None)
+            if hit is not None:
+                self._log("state", actor, "intercept", text=hit.message,
+                          data={"rule": hit.rule, "category": hit.category, "tool": qualified, "action": hit.action, "evidence": hit.evidence})
+                if hit.action == "dummy":
+                    return ToolResult(tool_call_id=call.tool_call_id, function_name=qualified, ok=True, content="(no output)")
+                return fail(qualified, hit.message, "intercepted")
         if not system and self.spec.limits.tool_quota:
             hit = [pat for pat in self.spec.limits.tool_quota if fnmatch.fnmatchcase(qualified, pat)]
             spent = [pat for pat in hit if self.tool_counts.get(pat, 0) >= self.spec.limits.tool_quota[pat]]
@@ -647,8 +666,13 @@ class World:
             source=TraceSource(connector="crucible.world", ref=f"world:{self.spec_hash[:16]}", privacy="internal"),
             actors=actors,
             events=events,
-            outcome=TraceOutcome(details={"probes": probes} if probes["attempted"] else {}),
+            outcome=TraceOutcome(details={**({"probes": probes} if probes["attempted"] else {}), **({"intercepts": self.intercepts} if self.intercepts else {})}),
         )
+
+    @property
+    def intercepts(self) -> list[dict[str, Any]]:
+        """This episode's intercepted calls (``intercept`` events in the log: they follow resets and snapshots)."""
+        return [{"seq": e.seq, "actor": e.actor, **e.data} for e in self.log if e.type == "intercept"]
 
     def actor_spec(self, actor: str) -> ActorSpec:
         return self.spec.actor(actor)

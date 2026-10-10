@@ -126,6 +126,9 @@ class RolloutRecord(CrucibleModel):
     # stage missed its deadline (or failed) and the raw advantages were used.
     advantage: float | None = None
     group_credit_fallback: bool = False
+    # level-1 hack suspicions (m13 C-4, ``credit.hack_detector.rule_flags``): intercepted calls and rule hits, with evidence;
+    # the level-2 judge in the group stage turns them into ``hack/confirmed`` (or not)
+    flags: list[dict[str, Any]] = Field(default_factory=list)
 
     def oldest_version(self) -> int | str | None:
         vs = [v for t in self.turns for v in (t.versions() or ([t.policy_version] if t.policy_version is not None else []))]

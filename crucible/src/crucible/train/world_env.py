@@ -99,7 +99,13 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
                             meta={"harness": harness, "stop": ep.stop_condition, "truncated": ep.truncated, "gates": rep.gate_bits()})
             ro = build(rec, calls=ep.model_calls, segments={"agent": list(pol.segments)} if pol.segments else None, sampling={"temperature": temperature})
             ro.group = None
-            probes = (world.to_trace().outcome.details or {}).get("probes") or {}
+            trace = world.to_trace()
+            from crucible.credit.hack_detector import rule_flags
+
+            ro.flags = rule_flags(trace)  # m13 C-4 level 1: judged (level 2) in the group stage
+            if world.intercepts:
+                ro.reward_components["hack/intercepted"] = float(len(world.intercepts))
+            probes = (trace.outcome.details or {}).get("probes") or {}
             attempted = sum(int(v) for v in (probes.get("attempted") or {}).values()) if isinstance(probes.get("attempted"), dict) else 0
             if attempted:  # blocked shortcut attempts: the episode stays trainable (an *exposure* already masked it)
                 ro.reward_components["probe/attempted"] = float(attempted)

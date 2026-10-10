@@ -124,6 +124,9 @@ class NativeHarness:
                     res.grade["progress"] = ep.observed[0]
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
+            from crucible.credit.hack_detector import rule_flags
+
+            res.flags = rule_flags(world.to_trace())  # m13 C-4 level 1 (intercepts, tampering rules)
             save_episode(attempt, ep, res, self.id, policies)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
