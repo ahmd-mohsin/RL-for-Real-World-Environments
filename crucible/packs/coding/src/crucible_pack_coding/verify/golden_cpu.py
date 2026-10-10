@@ -16,6 +16,7 @@ The GPU part (``golden_gpu.py``) re-runs the full kit grader in the verifier ima
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,7 +24,7 @@ from pathlib import Path
 from crucible.verify.runtime.patterns.perf import PerfBars
 from crucible.verify.runtime.patterns.static import scan
 from crucible_pack_coding import PACK_ROOT
-from crucible_pack_coding.verify import task04
+from crucible_pack_coding.verify import task03, task04
 
 CRUCIBLE = PACK_ROOT.parent.parent
 HIST = CRUCIBLE / "data" / "m7" / "history"
@@ -111,11 +112,45 @@ def task04_golden() -> dict:
     return {"pass": ok, "matched": {k: f"{counts[k]}/{totals[k]}" for k in counts}, "grades": rows}
 
 
+TASK03_BASE = CRUCIBLE.parent / "migration_tasks" / "task03_mdlite_pallas" / "repos" / "mdlite"
+TASK03_GRADES = {"grade_empty": "empty", "grade_sol": "solution", "gradeh_solution": "solution", "gradeh_gpt1": "gpt1", "gradeh_cheat_tamper": "cheat_tamper",
+                 "grade_neg_aserfc": "neg_aserfc", "grade_neg_floatgrid": "neg_floatgrid", "grade_neg_fp32pos": "neg_fp32pos",
+                 "grade_neg_jaxrandom": "neg_jaxrandom", "grade_neg_truncate": "neg_truncate"}
+
+
+def task03_golden() -> dict:
+    """Static verdicts of every recorded task03 grade, re-scored by the kit's static scan (pruned like the install)."""
+    rows, ok = {}, True
+    for grade, patch_name in TASK03_GRADES.items():
+        rep = HIST / "task03" / grade / "verifier" / "report.json"
+        patch = HIST / "task03" / f"{patch_name}.patch"
+        if not rep.exists() or not patch.exists():
+            rows[grade] = {"skipped": "missing report or patch"}
+            continue
+        recorded = json.loads(rep.read_text())["gates"]["static"]["pass"]
+        with tempfile.TemporaryDirectory() as d:
+            tree = Path(d) / "mdlite"
+            shutil.copytree(TASK03_BASE, tree, ignore=shutil.ignore_patterns(".git"))
+            if patch.stat().st_size:
+                subprocess.run(["git", "init", "-q"], cwd=tree, check=True)
+                r = subprocess.run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=tree, capture_output=True, text=True, check=False)
+                if r.returncode:
+                    rows[grade] = {"skipped": f"patch does not apply: {r.stderr[-200:]}"}
+                    continue
+            s = scan(tree, task03.RULES)
+        rows[grade] = {"static": {"recorded": recorded, "kit": s["pass"], "match": recorded == s["pass"], "violations": s["violations"][:5]}}
+        ok &= recorded == s["pass"]
+    n = sum(1 for r in rows.values() if "static" in r)
+    return {"pass": ok and n == len(TASK03_GRADES), "matched": {"static": f"{sum(1 for r in rows.values() if r.get('static', {}).get('match'))}/{n}"}, "grades": rows}
+
+
 def main() -> None:
-    rep = {"gate": "M7 golden, CPU part (recorded history re-scored by the kit)", "task04": task04_golden()}
-    rep["pass"] = rep["task04"]["pass"]
+    rep = {"gate": "M7 golden, CPU part (recorded history re-scored by the kit)", "task04": task04_golden(), "task03": task03_golden()}
+    rep["pass"] = rep["task04"]["pass"] and rep["task03"]["pass"]
     REPORT.write_text(json.dumps(rep, indent=1, default=str) + "\n")
-    print(json.dumps({"pass": rep["pass"], "task04": rep["task04"]["matched"]}, indent=1))
+    print(json.dumps({"pass": rep["pass"], "task04": rep["task04"]["matched"], "task03": rep["task03"]["matched"]}, indent=1))
+    for n, r in rep["task03"]["grades"].items():
+        print("task03", n, r)
     for n, r in rep["task04"]["grades"].items():
         print(n, {k: (v.get("recorded"), v.get("kit")) if isinstance(v, dict) and "kit" in v else v for k, v in r.items()})
 

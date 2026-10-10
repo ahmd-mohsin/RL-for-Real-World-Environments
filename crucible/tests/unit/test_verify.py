@@ -158,3 +158,101 @@ async def test_toy_golden():
 
     rep = await golden()
     assert rep["pass"], {k: v for k, v in rep["negatives"].items() if not v["as_designed"]}
+
+
+def test_record_scoring_and_abstention(tmp_path):
+    from crucible.verify.runtime.patterns.record import AbstainPolicy, RecordSpec, record
+
+    spec = RecordSpec(baseline=28, best_known=30)  # elliptic-curve rank: 28 was easy, 30 is the record
+    assert spec.reward(29) == 0.5 and spec.reward(30) == 1.0 and spec.reward(31) > 1.0 and spec.reward(27) == 0.0
+    assert RecordSpec(baseline=10.0, best_known=5.0, direction="min").reward(2.5) > 1.0  # a faster kernel than the best known
+    assert record(40, spec, valid=False).detail["normalized_reward"] == 0.0  # an unverifiable "record" scores nothing
+
+    def plan(score, abstain=None, gave_up=False):
+        return Plan("deep", [Gate("valid"), Gate("rank", "score")],
+                    [Check("valid", "valid", lambda c: True), Check("rank", "rank", lambda c: record(score, spec, valid=True))],
+                    abstain=abstain, abstained=(lambda c: gave_up) if abstain else None)
+
+    r31 = plan(31).run(ctx(tmp_path))
+    assert r31.reward > 1.0 and r31.meta["score"]["rank"]["new_record"]
+    assert plan(29).run(ctx(tmp_path)).reward == 0.5
+    rj = plan(29).run(ctx(tmp_path)).reward_json()
+    assert rj["gates"] == {"valid": 1} and rj["components"]["check/rank"] == 1.0
+    assert plan(29, AbstainPolicy("unknown"), gave_up=True).run(ctx(tmp_path)).reward == 0.05
+    infeasible = AbstainPolicy("infeasible")
+    assert plan(29, infeasible, gave_up=True).run(ctx(tmp_path)).reward == 1.0
+    assert plan(31, infeasible, gave_up=False).run(ctx(tmp_path)).reward == 0.0  # claiming a solution to an impossible task
+    assert plan(31, AbstainPolicy("feasible"), gave_up=True).run(ctx(tmp_path)).reward == 0.0
+    full = write_outputs(plan(29, infeasible, gave_up=True).run(ctx(tmp_path)), tmp_path / "o")
+    RewardJson.model_validate({k: v for k, v in full.items() if k in RewardJson.model_fields})  # consistent: skipped checks are not failed gates
+
+
+def test_calibrate_and_tiers():
+    from crucible.verify.calibrate import bifurcations, clopper_pearson_upper, flake_rate, perf_headroom, self_consistency, tolerance_tiers
+    from crucible.verify.tiers import agreement, audit_sample, spearman
+
+    f = flake_rate([True] * 80, [True] * 40)
+    assert f.ok and f.draws == 120 and abs(f.upper_95 - (1 - 0.05 ** (1 / 120))) < 1e-6
+    assert not flake_rate([True] * 39 + [False]).ok and 0.025 < clopper_pearson_upper(1, 40) < 0.13
+    nat = [0.001 * (i % 7) for i in range(80)]
+    ind = [0.02 + 0.001 * (i % 3) for i in range(40)]
+    t = tolerance_tiers(nat, ind, negatives=[0.5, 0.9])
+    assert t.ok and t.bimodal and t.strict < t.relaxed < 0.5
+    assert not tolerance_tiers(nat, ind, negatives=[0.025]).kills_negatives  # the relaxed tier would pass a negative
+    assert len(bifurcations([1, 1.1, 1.2, 9, 9.1])) == 2 and len(bifurcations([1, 2, 3, 4])) == 1
+    h = perf_headroom({"kinfu": 0.571, "people": 0.342}, {"kinfu": 0.65, "people": 0.42})
+    assert not h["ok"] and h["min"] == round(1 - 0.571 / 0.65, 4)  # task04 v3 KinFu: 12% headroom, below A1's 15%
+    assert self_consistency([{"a": 1}] * 3)["ok"] and not self_consistency([{"a": 1}, {"a": 1}, {"a": 2}])["ok"]
+    assert spearman([1, 2, 3, 4], [10, 20, 30, 40]) == 1.0 and spearman([1, 1], [1, 2]) is None
+    assert agreement([0, 1, 1, 0, 1], [0, 1, 1, 0, 1])["ok"]
+    rate = sum(audit_sample(f"r{i}") for i in range(4000)) / 4000
+    assert 0.03 < rate < 0.07 and audit_sample("r1") == audit_sample("r1")
+
+
+def test_leak_audit_and_collect(tmp_path):
+    import subprocess
+
+    from crucible.verify.collect import collect
+    from crucible.verify.leak_audit import audit_git, audit_tree, hidden_strings, oracle_added_lines
+
+    secret = "assert compute_tsdf_volume(frame, guard_band=1024) == expected_reference_digest"
+    strings = hidden_strings([secret, "import os", "x = 1"])
+    assert strings == [secret]
+    ws = tmp_path / "ws"
+    (ws / "src").mkdir(parents=True)
+    (ws / "src" / "a.py").write_text("print('hi')\n")
+    assert audit_tree(ws, canaries=["CANARY-7f3a"], strings=strings).ok
+    (ws / "notes.txt").write_text(f"found it: {secret}\nCANARY-7f3a\n")
+    (ws / "solution").mkdir()
+    (ws / "solution" / "solution.patch").write_text("x")
+    kinds = {f["kind"] for f in audit_tree(ws, canaries=["CANARY-7f3a"], strings=strings).findings}
+    assert kinds == {"hidden_string", "canary", "hidden_artifact"}
+    assert oracle_added_lines("+++ b/x\n+new line\n-old\n") == ["new line"]
+    g = lambda *a: subprocess.run(["git", "-C", str(ws), *a], capture_output=True, check=True)
+    g("init", "-q")
+    g("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "base")
+    base = g("rev-parse", "HEAD").stdout.decode().strip()
+    assert audit_git(ws, base=base)["ok"]
+    g("checkout", "-q", "-b", "fix")
+    g("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "the fix")
+    g("checkout", "-q", "-")
+    assert not audit_git(ws, base=base)["ok"]  # a branch holding the future fix (SWE-smith's leak)
+    (ws / "build").mkdir()
+    (ws / "build" / "big.o").write_bytes(b"\0" * 10)
+    (ws / "src" / "b.py").write_text("print('new')\n")
+    c = collect(ws, base=base)
+    assert "src/b.py" in c["patch"] and "big.o" not in c["patch"] and "build/" in c["excluded"]
+
+
+async def test_host_grader_composes(tmp_path):
+    from crucible.core.schema.milestone import Expectation, Milestone, MilestoneCheck
+    from crucible.core.schema.state import Query
+    from crucible.verify.grader import grade_episode
+    from crucible.verify.runtime.plan import Check, Gate, Plan
+
+    ms = [Milestone(id=f"m{i}", check=MilestoneCheck(app="x", query=Query(op="get", args={}), expect=Expectation())) for i in range(4)]
+    p = Plan("t", [Gate("policy"), Gate("done", "outcome")], [Check("policy", "policy", lambda c: True), Check("done", "done", lambda c: False)])
+    out = await grade_episode(p, ctx(tmp_path), out_dir=tmp_path / "o", milestones=ms, series=[{"m0": 0.0}, {"m0": 1.0, "m1": 1.0}])
+    assert out.reward.outcome == 0.0 and 0 < out.reward.reward <= 0.3  # failed but half the milestones: bounded partial credit
+    flat = json.loads((tmp_path / "o" / "reward.json").read_text())
+    assert flat["gate/policy"] == 1.0 and all(isinstance(v, float) for v in flat.values())

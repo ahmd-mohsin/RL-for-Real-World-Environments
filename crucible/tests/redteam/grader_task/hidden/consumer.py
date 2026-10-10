@@ -5,5 +5,7 @@ import sys
 import mylib
 
 inp, out = sys.argv[1], sys.argv[2]
-cases = json.load(open(inp))
-json.dump({k: mylib.fast_sum(v) for k, v in cases.items()}, open(out + "/result.json", "w"), sort_keys=True)
+with open(inp) as f:
+    cases = json.load(f)
+with open(out + "/result.json", "w") as f:
+    json.dump({k: mylib.fast_sum(v) for k, v in cases.items()}, f, sort_keys=True)

@@ -10,7 +10,13 @@ A **check** is a function ``fn(ctx) -> Verdict | bool | dict``. Its status is on
 - ``skip``: a gate it requires failed. A skipped check counts as not passed (reward 0), as in the seed graders.
 
 A **gate** passes iff every check in it passes. Gates have a ``kind``: ``gate`` (a hard constraint: a failure zeroes
-the reward) or ``outcome`` (task success). With no outcome gates, the outcome is "every gate passed" (coding tasks).
+the reward), ``outcome`` (task success) or ``score`` (record-style, ``patterns.record``: the reward is the mean
+normalized score, unbounded above 1 for a new record, instead of 1 for clearing a bar). With no outcome or score gates,
+the outcome is "every gate passed" (coding tasks).
+
+**Abstention** (``Plan.abstain`` + ``Plan.abstained``): when the agent gives up honestly, only hard gates are judged and
+the reward is the policy's credit (full on a task constructed infeasible, 0 on a feasible one, a small constant on an
+open problem); on an infeasible task, any claimed solution earns 0.
 
 ``Plan.run`` always produces a ``GradeReport``; ``write_outputs`` always writes ``reward.txt`` (never empty), a flat
 numeric ``reward.json`` (what Harbor accepts), ``crucible_reward.json`` (the full multi-key document) and ``report.json``. An exception anywhere outside a check (setup) yields reward 0 with
@@ -92,9 +98,14 @@ class GradeReport:
         return [g for g, s in self.gates.items() if s != "pass"]
 
     def reward_json(self) -> dict:
-        """``crucible.core.schema.reward.RewardJson``-compatible (and Harbor-readable: it uses ``reward``)."""
-        return {"reward": self.reward, "gates": self.gate_bits(), "outcome": self.outcome, "infra": self.infra,
-                "components": {f"time/{c.id}": round(c.seconds, 3) for c in self.checks if c.seconds}}
+        """``crucible.core.schema.reward.RewardJson``-compatible. ``gates`` holds the hard constraints only; outcome and
+        score gates go to ``components`` as ``check/<gate>`` (an abstention skips them without breaking a gate)."""
+        kinds = self.meta.get("kinds", {})
+        bits = self.gate_bits()
+        comps = {f"check/{g}": float(v) for g, v in bits.items() if kinds.get(g, "gate") != "gate"}
+        comps.update({f"time/{c.id}": round(c.seconds, 3) for c in self.checks if c.seconds})
+        return {"reward": self.reward, "gates": {g: v for g, v in bits.items() if kinds.get(g, "gate") == "gate"}, "outcome": self.outcome,
+                "infra": self.infra, "components": comps}
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -122,6 +133,8 @@ class Plan:
     gates: list[Gate]
     checks: list[Check]
     setup: Callable[[Context], None] | None = None  # root-only preparation (references, owned copies) before checks
+    abstain: Any = None  # patterns.record.AbstainPolicy: the task allows an honest give-up
+    abstained: Callable[[Context], bool] | None = None  # did the agent give up (an ABSTAIN artifact / tool call)?
 
     def __post_init__(self) -> None:
         ids = [g.id for g in self.gates]
@@ -157,7 +170,14 @@ class Plan:
                 if inspect.isawaitable(r0):
                     await r0
             gate_state: dict[str, list[str]] = {g.id: [] for g in self.gates}
+            gave_up = bool(self.abstain and self.abstained and self.abstained(ctx))
+            hard_ids = {g.id for g in self.gates if g.kind == "gate"}
             for c in self.subset(tier):
+                if gave_up and c.gate not in hard_ids:  # an abstention is judged on the hard constraints only
+                    r = CheckResult(c.id, c.gate, "skip", {"skipped": "the agent abstained"}, provenance=c.provenance, tier=c.tier)
+                    results.append(r)
+                    gate_state[c.gate].append(r.status)
+                    continue
                 failed_reqs = [g for g in c.requires if _gate_status(gate_state[g]) != "pass"]
                 if failed_reqs or (stop_on_fail and any(_gate_status(v) in ("fail", "infra", "skip") for v in gate_state.values() if v)):
                     r = CheckResult(c.id, c.gate, "skip", {"skipped": f"requires {failed_reqs}" if failed_reqs else "an earlier gate failed"},
@@ -178,16 +198,33 @@ class Plan:
             status = {g.id: status.get(g.id, "skip") for g in self.gates}
         hard = [g.id for g in self.gates if g.kind == "gate"]
         outs = [g.id for g in self.gates if g.kind == "outcome"]
+        scores = [g.id for g in self.gates if g.kind == "score"]
         if tier == "fast":  # gates with no fast check are not measured in the fast tier
             measured = {c.gate for c in self.subset("fast")}
-            hard, outs = [g for g in hard if g in measured], [g for g in outs if g in measured]
+            hard, outs, scores = [g for g in hard if g in measured], [g for g in outs if g in measured], [g for g in scores if g in measured]
             status = {g: s for g, s in status.items() if g in measured}
         all_hard = all(status.get(g) == "pass" for g in hard)
-        outcome = float(all(status.get(g) == "pass" for g in outs)) if outs else float(all_hard)
-        reward = 1.0 if infra["status"] == "ok" and all_hard and outcome == 1.0 else 0.0
+        gave_up = bool(self.abstain and self.abstained and self.abstained(ctx)) if infra["status"] == "ok" else False
+        meta: dict = {"revealed": ctx.revealed, "kinds": {g.id: g.kind for g in self.gates}}
+        if gave_up:
+            outcome = float(self.abstain.feasibility == "infeasible")
+            reward = self.abstain.credit() if all_hard else 0.0
+            meta["abstained"] = {"feasibility": self.abstain.feasibility, "credit": reward}
+        else:
+            outcome = float(all(status.get(g) == "pass" for g in outs + scores)) if outs or scores else float(all_hard)
+            if self.abstain and self.abstain.feasibility == "infeasible":
+                outcome = 0.0  # the task cannot be done: any claimed solution is wrong
+            term = 1.0
+            if scores:  # record-style: reward grows with the normalized score instead of clearing a bar
+                vals = [r.detail.get("normalized_reward", 0.0) for r in results if r.gate in scores and r.status == "pass"]
+                term = sum(vals) / len(scores) if vals else 0.0
+                meta["score"] = {r.id: {k: r.detail.get(k) for k in ("score", "normalized", "new_record")} for r in results if r.gate in scores}
+            reward = term if infra["status"] == "ok" and all_hard and (not outs or all(status.get(g) == "pass" for g in outs)) and outcome > 0 else 0.0
+            if not scores:
+                reward = 1.0 if reward and outcome == 1.0 else 0.0
         trusted = bool(getattr(ctx.trusted, "is_root", False))
         return GradeReport(self.task, tier, results, status, reward, outcome if infra["status"] == "ok" else 0.0, infra, trusted,
-                           round(time.time() - t0, 3), meta={"revealed": ctx.revealed})
+                           round(time.time() - t0, 3), meta=meta)
 
 
 def _gate_status(states: list[str]) -> str:
@@ -229,6 +266,7 @@ def flat_reward(rj: dict) -> dict:
     on anything else): ``reward``, ``outcome``, ``gate/<g>``, ``infra/masked``, ``progress``."""
     flat = {"reward": float(rj.get("reward", 0.0)), "outcome": float(rj.get("outcome", 0.0))}
     flat.update({f"gate/{g}": float(v) for g, v in (rj.get("gates") or {}).items()})
+    flat.update({k: float(v) for k, v in (rj.get("components") or {}).items() if k.startswith("check/")})
     flat["infra/masked"] = float((rj.get("infra") or {}).get("status") == "masked")
     if rj.get("progress") is not None:
         flat["progress"] = float(rj["progress"])
