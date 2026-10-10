@@ -1,0 +1,18 @@
+{
+ "gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090",
+ "model": "Qwen/Qwen3-0.6B",
+ "topology": "colocated_partial",
+ "steps": 0,
+ "wall_s": 600.2,
+ "aborted_calls": 0,
+ "reprefill_tokens": 0,
+ "publishes": 0,
+ "masked_rollouts": 228384,
+ "max_untrained": 32,
+ "per_step": [],
+ "gpu": "NVIDIA GeForce RTX 5090",
+ "peak_mem_gb": 2.22,
+ "reward_first3": 0.0,
+ "reward_last3": 0.0,
+ "pass": false
+}

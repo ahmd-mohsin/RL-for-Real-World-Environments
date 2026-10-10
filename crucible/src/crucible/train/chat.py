@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 TOOL_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
@@ -95,8 +96,17 @@ class HFChatCodec:
         self._dummy_ids = self._apply(self._dummy, None, gen=False)
 
     def _apply(self, messages, tools, *, gen: bool) -> list[int]:
-        ids = self.tok.apply_chat_template(messages, tools=tools, add_generation_prompt=gen, tokenize=True, **self.kw)
-        return list(ids["input_ids"] if isinstance(ids, dict) else ids)
+        ids = self.tok.apply_chat_template(messages, tools=tools, add_generation_prompt=gen, tokenize=True, return_dict=False, **self.kw)
+        # transformers 5 returns a BatchEncoding (a UserDict, not a dict) by default: a list of its *keys* was taken as the
+        # prompt token ids and every real-tokenizer rollout failed (found by the M12 GPU gate: 228k masked rollouts, 0 steps)
+        if isinstance(ids, Mapping) or hasattr(ids, "keys"):
+            ids = ids["input_ids"]
+        ids = list(ids)
+        if ids and isinstance(ids[0], list):  # batched form
+            ids = ids[0]
+        if not all(isinstance(i, int) for i in ids):
+            raise TypeError(f"chat template did not return token ids: {type(ids[0]).__name__ if ids else 'empty'}")
+        return ids
 
     def render(self, messages, tools) -> list[int]:
         return self._apply(messages, tools, gen=True)

@@ -131,7 +131,7 @@ Facts behind the table:
 | Distributed weight sync | ✅ real processes over gloo: bitwise across dtypes and buckets, slow-reload pipeline, sharded owners, all-rank abort with no commit, subgroup + elastic plan, publisher → receiver |
 | Truncated and agent-broke-env cases | ✅ (M10 records; masked never trained, agent failures scored) |
 | CPU end to end | ✅ a real tiny policy learns under sync (0.08 → 0.37), partial call-level (0.09 → 0.61, 906 aborts re-issued), partial token-level (0.09 → 0.57, resumed with spans), disaggregated (0.07 → 0.51) |
-| One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ⏳ `python -m crucible_pack_toy.m12.lab status` (staged; waiting for the shared GPU) |
+| One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ❌→⏳ first run (2026-10-10): 0 steps, 228k masked rollouts (transformers-5 chat-codec bug, swallowed silently); fixed + failure accounting + circuit breaker; re-staged |
 
 ## 8. Remaining
 

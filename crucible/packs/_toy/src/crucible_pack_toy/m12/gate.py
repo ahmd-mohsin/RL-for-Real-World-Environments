@@ -99,10 +99,11 @@ async def run(args) -> dict:
     out = {"gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090", "model": args.model, "topology": args.topology, "steps": len(rep.steps),
            "wall_s": round(time.time() - t0, 1), "aborted_calls": rep.aborted_calls, "reprefill_tokens": rep.reprefill_tokens, "publishes": rep.publishes,
            "masked_rollouts": rep.masked_rollouts, "max_untrained": rep.max_untrained, "per_step": [{"step": s.step, "version": s.version, **s.metrics} for s in rep.steps],
-           "gpu": torch.cuda.get_device_name(0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2)}
+           "gpu": torch.cuda.get_device_name(0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2),
+           "stop_reason": rep.stop_reason, "failures": rep.failures, "failure_examples": rep.failure_examples[:4]}
     r = [s.metrics.get("reward/mean", 0.0) for s in rep.steps]
     out["reward_first3"], out["reward_last3"] = (sum(r[:3]) / max(len(r[:3]), 1)), (sum(r[-3:]) / max(len(r[-3:]), 1))
-    out["pass"] = bool(len(rep.steps) == args.steps and rep.publishes == args.steps and all("staleness/max" in s.metrics and "mismatch/rollout_probs_diff" in s.metrics
+    out["pass"] = bool(rep.stop_reason == "steps" and len(rep.steps) == args.steps and rep.publishes == args.steps and all("staleness/max" in s.metrics and "mismatch/rollout_probs_diff" in s.metrics
                                                                                            for s in rep.steps) and max(s.metrics["staleness/max"] for s in rep.steps) <= args.tau)
     return out
 

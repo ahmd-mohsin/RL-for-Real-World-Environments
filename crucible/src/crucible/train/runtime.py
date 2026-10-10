@@ -54,6 +54,13 @@ class RuntimeConfig:
     poll_s: float = 0.002
     max_wall_s: float = 600.0
     env_workers: int = 0  # 0: environments run inline on the event loop; N: an EnvWorkerPool of N threads (checklist #8)
+    # circuit breaker (the M10 stop rules): over the last ``breaker_window`` finished rollouts (once ``breaker_min`` have
+    # finished), stop when the masked share exceeds ``max_masked_share`` or the harness-bug share exceeds
+    # ``max_harness_share`` -- a broken pipeline must stop with its reason, never spin masking everything
+    max_masked_share: float = 0.2
+    max_harness_share: float = 0.05
+    breaker_window: int = 200
+    breaker_min: int = 20
     # asynchronous reward (checklist #40): with a ``reward_fn`` the outcome is computed after generation, off the rollout;
     # past ``reward_deadline_s`` the rollout is *late* (counted, still pending: never trained as 0); past
     # ``reward_timeout_s`` it is masked (``reward_timeout``). ``aux_fn`` (turn credit / rubric) past ``aux_deadline_s``
@@ -88,9 +95,25 @@ class RunReport:
     reward_timeouts: int = 0
     credit_fallbacks: int = 0
     trained_records: list[RolloutRecord] = field(default_factory=list)
+    failures: dict[str, int] = field(default_factory=dict)  # "<blame>:<kind>" -> count (infra / harness), never silent
+    failure_examples: list[dict] = field(default_factory=list)  # first tracebacks per kind
+    stop_reason: str = "steps"  # steps | wall_clock | masked_share | harness_share
 
     def series(self, key: str) -> list[float]:
         return [s.metrics[key] for s in self.steps if key in s.metrics]
+
+
+def _blame(e: BaseException) -> str:
+    """Exceptions escaping a rollout: transport / OS / timeouts are infrastructure; anything else is a bug in our own
+    harness or record path (a TypeError, a validation error) -- masked either way, but counted separately."""
+    infra: tuple[type, ...] = (OSError, TimeoutError, ConnectionError, asyncio.TimeoutError)
+    try:
+        import httpx
+
+        infra += (httpx.HTTPError,)
+    except ImportError:
+        pass
+    return "infra" if isinstance(e, infra) else "harness"
 
 
 class Runtime:
@@ -108,6 +131,9 @@ class Runtime:
         self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
         self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
         self._blocked_since: float | None = None
+        from collections import deque
+
+        self._recent: deque[str] = deque(maxlen=cfg.breaker_window)  # ok | masked | infra | harness, per finished rollout
         self.admission_blocked_s = 0.0
         self._queues = {s: list(ps) for s, ps in sources.items()}
         self.pool = DataPool()
@@ -172,13 +198,36 @@ class Runtime:
                                                   harness=self.harness)
             else:
                 rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)
-        except EnvInfraError:
-            rec = None
-        except Exception:  # noqa: BLE001 -- a crashing environment is infrastructure: mask, never score 0
-            rec = None
+        except EnvInfraError as e:
+            self._failure("infra", e)
+            return await self._complete(rid, None, failed=True)
+        except Exception as e:  # noqa: BLE001 -- masked (never scored 0), but a bug in the harness / record path, recorded
+            self._failure(_blame(e), e)
+            return await self._complete(rid, None, failed=True)
         await self._complete(rid, rec)
 
-    async def _complete(self, rid: str, rec: RolloutRecord | None) -> None:
+    def _failure(self, blame: str, e: BaseException) -> None:
+        import traceback
+
+        key = f"{blame}:{type(e).__name__}"
+        self.report.failures[key] = self.report.failures.get(key, 0) + 1
+        self._recent.append(blame)
+        if self.report.failures[key] <= 2:
+            self.report.failure_examples.append({"kind": key, "message": str(e)[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]})
+
+    def _breaker(self) -> str | None:
+        n = len(self._recent)
+        if n < self.cfg.breaker_min:
+            return None
+        masked = sum(1 for b in self._recent if b != "ok")
+        harness = sum(1 for b in self._recent if b == "harness")
+        if harness / n > self.cfg.max_harness_share:
+            return "harness_share"
+        if masked / n > self.cfg.max_masked_share:
+            return "masked_share"
+        return None
+
+    async def _complete(self, rid: str, rec: RolloutRecord | None, *, failed: bool = False) -> None:
         """Deliver a finished rollout to the pool, grading it asynchronously first when a ``reward_fn`` is set."""
         if rec is not None and (self.reward_fn is not None or self.aux_fn is not None):
             self.pool.grading(rid)
@@ -187,7 +236,10 @@ class Runtime:
         if rec is None:
             self.pool.finish(rid, reward=None, status="masked", now=time.monotonic())
             self.report.masked_rollouts += 1
+            if not failed:  # masked without a recorded exception (grader returned None, reward timeout)
+                self._recent.append("masked")
         else:
+            self._recent.append("ok")
             rec.group = self.pool.tags[rid].group
             self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
         self.changed.set()
@@ -264,10 +316,11 @@ class Runtime:
             g = self.pool.groups[tag.group]
             rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=self.harness, policy="native", group=tag.group,
                                 turns=turns, reward=reward, stop="done")
-        except EnvInfraError:  # infrastructure: masked, never scored 0
+        except EnvInfraError as e:  # infrastructure: masked, never scored 0
+            self._failure("infra", e)
             rec = None
         try:
-            await self._complete(rid, rec)
+            await self._complete(rid, rec, failed=rec is None)
         finally:
             self.changed.set()
 
@@ -342,7 +395,14 @@ class Runtime:
         if offload != "none":
             self.trainer.offload(offload)  # rollouts come first: the engine gets the accelerator
         self._admit()
-        while step < self.cfg.steps and time.monotonic() - t_start < self.cfg.max_wall_s:
+        while step < self.cfg.steps:
+            if time.monotonic() - t_start >= self.cfg.max_wall_s:
+                self.report.stop_reason = "wall_clock"
+                break
+            tripped = self._breaker()
+            if tripped:
+                self.report.stop_reason = tripped
+                break
             self._admit()
             if step == 0 and self.cfg.topology != "colocated_sync" and self.cfg.warmup_batches:
                 ready = len(self.pool.terminal_groups())
