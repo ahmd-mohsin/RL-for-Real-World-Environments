@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 TERMINAL = {"finished", "failure", "masked"}
-LIVE = {"pending", "running"}
+LIVE = {"pending", "running", "grading"}  # grading: generation done, reward not yet in (checklist #40): untrained, not selectable
 
 
 @dataclass
@@ -100,6 +100,11 @@ class DataPool:
 
     def start(self, rid: str) -> None:
         self.tags[rid].status = "running"
+
+    def grading(self, rid: str) -> None:
+        """Generation finished; the reward is being computed asynchronously. The rollout still counts as untrained
+        (admission, staleness wait) and its group is not terminal until the reward arrives."""
+        self.tags[rid].status = "grading"
 
     def call(self, rid: str, version: int, tokens: int = 0) -> None:
         t = self.tags[rid]

@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 25 done, 22 partial, 5 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 26 done, 22 partial, 4 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -185,7 +185,7 @@ Facts behind the table:
 | 37 | top-p candidates renormalization | missing | `Turn.candidates`, renormalized logprobs |
 | 38 | post_update_transform / QDQ | partial | QDQ + bit-identical test |
 | 39 | tag/value split | partial | remote-value never-fetch test; harness tag |
-| 40 | async reward deadlines | missing | `deadline_s`, pending, `credit_fallback` |
+| 40 | async reward deadlines | **done** | `reward_fn`/`aux_fn` + `reward_deadline_s` (late = still pending), `reward_timeout_s` (masked `reward_timeout`), grader crash masked, `aux_deadline_s` → `credit_fallback`; `grading` status is untrained and not selectable; `test_train_reward_async.py` |
 | 41 | blocked probe stays trainable | partial | train-path test |
 | 42 | infra mask vs agent_broke_env | done | |
 | 43 | harness per group | partial | per-group assignment, harness share |

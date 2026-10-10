@@ -53,6 +53,13 @@ class RuntimeConfig:
     poll_s: float = 0.002
     max_wall_s: float = 600.0
     env_workers: int = 0  # 0: environments run inline on the event loop; N: an EnvWorkerPool of N threads (checklist #8)
+    # asynchronous reward (checklist #40): with a ``reward_fn`` the outcome is computed after generation, off the rollout;
+    # past ``reward_deadline_s`` the rollout is *late* (counted, still pending: never trained as 0); past
+    # ``reward_timeout_s`` it is masked (``reward_timeout``). ``aux_fn`` (turn credit / rubric) past ``aux_deadline_s``
+    # falls back to the outcome-only advantage and records ``credit_fallback``.
+    reward_deadline_s: float | None = None
+    reward_timeout_s: float = 600.0
+    aux_deadline_s: float | None = None
 
 
 @dataclass
@@ -71,6 +78,9 @@ class RunReport:
     publishes: int = 0
     max_untrained: int = 0
     masked_rollouts: int = 0
+    late_rewards: int = 0
+    reward_timeouts: int = 0
+    credit_fallbacks: int = 0
     trained_records: list[RolloutRecord] = field(default_factory=list)
 
     def series(self, key: str) -> list[float]:
@@ -80,7 +90,7 @@ class RunReport:
 class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
-                 rollout_fn: Callable | None = None):
+                 rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None):
         """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
@@ -88,7 +98,7 @@ class Runtime:
             sched_cfg = SchedulerConfig(**{**sched_cfg.__dict__, "admission_staleness": 1, "staleness_strategy": "none"})
         self.cfg, self.sched_cfg = cfg, sched_cfg
         self.engines, self.trainer, self.publisher, self.env_factory, self.harness = engines, trainer, publisher, env_factory, harness
-        self.rollout_fn = rollout_fn
+        self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
         self._queues = {s: list(ps) for s, ps in sources.items()}
         self.pool = DataPool()
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
@@ -147,13 +157,61 @@ class Runtime:
             rec = None
         except Exception:  # noqa: BLE001 -- a crashing environment is infrastructure: mask, never score 0
             rec = None
+        await self._complete(rid, rec)
+
+    async def _complete(self, rid: str, rec: RolloutRecord | None) -> None:
+        """Deliver a finished rollout to the pool, grading it asynchronously first when a ``reward_fn`` is set."""
+        if rec is not None and (self.reward_fn is not None or self.aux_fn is not None):
+            self.pool.grading(rid)
+            self.changed.set()
+            rec = await self._grade(rec)
         if rec is None:
             self.pool.finish(rid, reward=None, status="masked", now=time.monotonic())
             self.report.masked_rollouts += 1
         else:
-            rec.group = tag.group
+            rec.group = self.pool.tags[rid].group
             self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
         self.changed.set()
+
+    async def _grade(self, rec: RolloutRecord) -> RolloutRecord | None:
+        cfg = self.cfg
+        t0 = time.monotonic()
+        aux = asyncio.create_task(self.aux_fn(rec)) if self.aux_fn is not None else None
+        if self.reward_fn is not None:
+            task = asyncio.create_task(self.reward_fn(rec))
+            try:
+                if cfg.reward_deadline_s is not None:
+                    done, _ = await asyncio.wait({task}, timeout=cfg.reward_deadline_s)
+                    if not done:
+                        self.report.late_rewards += 1  # late: still pending, never a 0
+                reward = await asyncio.wait_for(task, timeout=max(cfg.reward_timeout_s - (time.monotonic() - t0), 0.0))
+            except TimeoutError:
+                self.report.reward_timeouts += 1
+                rec.failure_kind, rec.mask_sample = "reward_timeout", True
+                if aux is not None:
+                    aux.cancel()
+                return None
+            except Exception:  # noqa: BLE001 -- a crashing grader is infrastructure: masked, never scored 0
+                rec.failure_kind, rec.mask_sample = "grader_exception", True
+                if aux is not None:
+                    aux.cancel()
+                return None
+            if reward is None:
+                return None
+            rec.reward = float(reward)
+        if aux is not None:
+            try:
+                left = None if cfg.aux_deadline_s is None else max(cfg.aux_deadline_s - (time.monotonic() - t0), 0.0)
+                credit = await asyncio.wait_for(aux, timeout=left)
+                for t in rec.turns:
+                    t.advantage = (credit or {}).get(t.call_id, t.advantage)
+            except (TimeoutError, Exception):  # noqa: BLE001 -- a late or failing auxiliary channel never blocks the outcome
+                aux.cancel()
+                rec.credit_fallback = True
+                self.report.credit_fallbacks += 1
+                for t in rec.turns:
+                    t.advantage = None
+        return rec
 
     async def _rollout(self, rid: str, prompt: str, seed: int) -> None:
         if self.rollout_fn is not None:
@@ -186,10 +244,10 @@ class Runtime:
             g = self.pool.groups[tag.group]
             rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=self.harness, policy="native", group=tag.group,
                                 turns=turns, reward=reward, stop="done")
-            self.pool.finish(rid, reward=reward, value=rec, now=time.monotonic())
         except EnvInfraError:  # infrastructure: masked, never scored 0
-            self.pool.finish(rid, reward=None, status="masked", value=None, now=time.monotonic())
-            self.report.masked_rollouts += 1
+            rec = None
+        try:
+            await self._complete(rid, rec)
         finally:
             self.changed.set()
 

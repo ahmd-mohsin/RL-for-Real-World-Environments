@@ -101,6 +101,7 @@ class RolloutRecord(CrucibleModel):
     tier: str = "fast"
     trajectory_tokens: int | None = None  # every token that entered the policy's context over the episode, before compaction
     progress: dict[str, Any] = Field(default_factory=dict)  # dense progress summary (phi0, phi_final, sum_delta, drift)
+    credit_fallback: bool = False  # the auxiliary credit channel missed its deadline: outcome-only advantage (checklist #40)
 
     def oldest_version(self) -> int | str | None:
         vs = [v for t in self.turns for v in (t.versions() or ([t.policy_version] if t.policy_version is not None else []))]
