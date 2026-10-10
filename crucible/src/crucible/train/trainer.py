@@ -7,8 +7,10 @@ own math so every knob is testable end to end:
 
 1. advantages: group-relative (``objectives.group_advantages``; masked rollouts excluded) + optional M6 turn credit;
 2. per-call training items: full prompt (reconstructed from delta storage) + completion tokens + behaviour logprobs;
-3. placement: DP balancing and token-budget micro batches (``batching``); with ``token_mean_global`` each micro batch
-   is scaled by its share of the global token count, so the gradient equals the full-batch gradient;
+3. placement: DP balancing and token-budget micro batches (``batching``) over **forward** tokens (prompt + completion:
+   memory and compute), while the loss normalizer is **trained** tokens (completions); with ``token_mean_global`` each
+   micro batch is scaled by its share of the global trained-token count, so the gradient equals the full-batch
+   gradient; ``DistributedTorchTrainer`` runs one partition per DP rank and all-reduces the gradients;
 4. π_θold: recomputed with the pre-update weights only when the correction needs it;
 5. the correction (``mismatch.correct``) gives per-token objectives; the loss is −aggregate; gradient clipping; one or
    more updates per batch; optional optimizer reset at publish (GLM).
@@ -110,24 +112,35 @@ class TorchTrainer:
                 old_t[k, :n] = old[i].to(dev)
         return torch.stack(lp_rows), roll, adv, mask, (old_t if old is not None else None)
 
+    # ---- data parallelism hooks (single process: every partition runs here; ``DistributedTorchTrainer``: one each) ----
+    def _local_parts(self, parts: list[list[int]]) -> list[list[int]]:
+        return parts
+
+    def _reduce_grads(self) -> None:
+        """Sum gradients across DP ranks (each rank's loss is already its share of the global token mean)."""
+
+    def _reduce_scalars(self, vals: list[float]) -> list[float]:
+        return vals
+
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
         items = self._items(records, groups)
         if not items:
             return {"train/items": 0.0}
-        lengths = [len(it.completion) for it in items]
+        lengths = [len(it.completion) for it in items]  # trained tokens: the loss normalizer
+        seq_lens = [len(it.prompt) + len(it.completion) for it in items]  # forward tokens: memory and compute, for placement
         g_tokens = sum(lengths)
+        single = self.cfg.loss_agg != "token_mean_global"
+        parts = balance_partitions(seq_lens, self.cfg.dp) if not single else [list(range(len(items)))]
+        mine = sorted(i for p in self._local_parts(parts) for i in p)
         old = None
         if self.cfg.correction.name in NEEDS_OLD and self.cfg.correction.old_logprob_source is None:
-            with torch.no_grad():
-                idx_all = list(range(len(items)))
-                old = {i: r.double() for i, r in zip(idx_all, self._logprobs(items, idx_all), strict=True)}
+            with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
+                old = {i: r.double() for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
         metrics: dict[str, float] = {}
-        single = self.cfg.loss_agg != "token_mean_global"
         for _ in range(self.cfg.updates_per_batch):
             self.opt.zero_grad()
             total_loss = 0.0
-            parts = balance_partitions(lengths, self.cfg.dp)
-            mbs = [mb.indices for p in parts for mb in micro_batches(lengths, p, self.cfg.token_budget)] if not single else [list(range(len(items)))]
+            mbs = [mb.indices for p in self._local_parts(parts) for mb in micro_batches(seq_lens, p, self.cfg.token_budget)] if not single else [mine]
             agg_metrics: list[dict] = []
             for idx in mbs:
                 lp, roll, adv, mask, old_t = self._padded(items, idx, old)
@@ -140,10 +153,70 @@ class TorchTrainer:
                 loss.backward()
                 total_loss += float(loss.detach())
                 agg_metrics.append(terms.metrics)
+            if not mbs:  # an empty DP rank still joins the collective with zero gradients
+                for p in self.model.parameters():
+                    if p.grad is None:
+                        p.grad = torch.zeros_like(p)
+            self._reduce_grads()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip)
             self.opt.step()
             self.updates += 1
-            metrics = {"train/loss": total_loss, "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/micro_batches": float(len(mbs))}
-            for k in agg_metrics[0]:
-                metrics[f"mismatch/{k}"] = sum(m.get(k, 0.0) for m in agg_metrics) / len(agg_metrics)
+            keys = sorted({k for m in agg_metrics for k in m})
+            sums = self._reduce_scalars([total_loss, float(len(mbs))] + [sum(m.get(k, 0.0) for m in agg_metrics) for k in keys])
+            n_mb = sums[1]
+            metrics = {"train/loss": sums[0], "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),
+                       "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts)}
+            for k, v in zip(keys, sums[2:], strict=True):
+                metrics[f"mismatch/{k}"] = v / max(n_mb, 1.0)
         return metrics
+
+
+def _imbalance(seq_lens: list[int], parts: list[list[int]]) -> float:
+    loads = [sum(seq_lens[i] for i in p) for p in parts]
+    return max(loads) / (sum(loads) / len(loads)) if loads and sum(loads) else 1.0
+
+
+class DistributedTorchTrainer(TorchTrainer):
+    """Real data parallelism over a ``torch.distributed`` group: every rank holds the full model (DDP-style replicas)
+    and the same global batch (``broadcast_batch``: rank ``src`` sends it), computes the same advantages, then trains
+    only its token-balanced partition in token-budget micro batches; each micro batch's loss is its share of the
+    **global** token mean, so after ``all_reduce(SUM)`` of the gradients every rank holds exactly the full-batch
+    gradient and takes the identical optimizer step. ``cfg.dp`` must equal the group size."""
+
+    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, group: Any = None, broadcast_batch: bool = False, src: int = 0):
+        import torch.distributed as dist
+
+        super().__init__(model, cfg)
+        self.dist, self.group, self.broadcast_batch, self.src = dist, group, broadcast_batch, src
+        self.rank, self.world = dist.get_rank(group), dist.get_world_size(group)
+        if self.cfg.dp != self.world:
+            raise ValueError(f"TrainerConfig.dp={self.cfg.dp} but the group has {self.world} ranks")
+        if self.cfg.loss_agg != "token_mean_global":  # only a global-token-mean loss decomposes into per-rank shares that sum
+            raise ValueError(f"DistributedTorchTrainer needs loss_agg='token_mean_global' (got {self.cfg.loss_agg!r}): other aggregations do not split across ranks")
+        with torch.no_grad():  # replicas start identical
+            for p in self.model.parameters():
+                dist.broadcast(p.data, src=self.src, group=group)
+
+    def _local_parts(self, parts: list[list[int]]) -> list[list[int]]:
+        return [parts[self.rank]] if len(parts) == self.world else parts
+
+    def _reduce_grads(self) -> None:
+        from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+
+        grads = [p.grad for p in self.model.parameters() if p.grad is not None]
+        flat = _flatten_dense_tensors(grads)  # one bucket: one collective per update
+        self.dist.all_reduce(flat, op=self.dist.ReduceOp.SUM, group=self.group)
+        for g, r in zip(grads, _unflatten_dense_tensors(flat, grads), strict=True):
+            g.copy_(r)
+
+    def _reduce_scalars(self, vals: list[float]) -> list[float]:
+        t = torch.tensor(vals, dtype=torch.float64)
+        self.dist.all_reduce(t, op=self.dist.ReduceOp.SUM, group=self.group)
+        return t.tolist()
+
+    def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
+        if self.broadcast_batch:
+            box = [list(records), list(groups)] if self.rank == self.src else [None, None]
+            self.dist.broadcast_object_list(box, src=self.src, group=self.group)
+            records, groups = box
+        return super().step(records, groups)

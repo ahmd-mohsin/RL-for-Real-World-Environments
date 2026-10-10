@@ -905,6 +905,20 @@ The checkpoint-engine protocol as a PATTERN over any `torch.distributed` group (
 - **Open:** zero-copy hand-off of the received bytes to a separate vLLM process (CUDA IPC, checkpoint-engine's
   `VllmColocateWorkerExtension`) and RDMA P2P reads; receivers commit through their engine's `load_weights` today.
 
+**As built, part 5 (M12 real data parallelism, 2026-10-10; `train/trainer.py`).** `DistributedTorchTrainer` turns the
+DP-rank unit from a simulation into processes:
+- **Setup:** replicas are broadcast identical at start. Every rank holds the same global batch (`broadcast_batch`:
+  rank 0 sends it) and computes the same group advantages.
+- **Per rank:** it trains only its token-balanced partition in token-budget micro batches, with π_θold computed for its
+  own items only.
+- **Exactness:** each micro batch's loss is its share of the **global** trained-token mean, so one flattened
+  `all_reduce(SUM)` of gradients gives every rank the full-batch gradient and the identical optimizer step.
+- **Refused aggregations:** seq-mean and prompt-mean do not split into summable shares, so they are refused.
+- **Test** (2 gloo processes, `dis` and `ppo`, 10 micro batches): replicas bitwise identical; equal to the single-process
+  full-batch update within 6e-7.
+- **Placement fix (B.19):** micro batches and DP partitions count **forward** tokens (prompt + completion), while
+  the loss normalizer stays trained tokens.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
@@ -1307,4 +1321,11 @@ reward writer.
 |---|---|---|
 | A World ended only on the policy's `Done`; Gym/OpenEnv environments end themselves (a final answer, a step budget) | after PortSim's `submit_plan` the policy could keep calling tools; the exported environment then raised "already declared done" on `crucible__finish` | `ToolResult.ends_episode` marks the actor done; the export grades on the terminating step; tests for both; fixed |
 | An imported environment has no snapshot of its own | restore would silently produce a fresh environment, not the episode's state | replay-journal state with per-step digest verification; a non-deterministic environment raises `SnapshotMismatch`; fixed |
+
+**B.19 Found while building real data parallelism (2026-10-10).**
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| Micro batches and DP partitions were packed by **completion** length; the forward pass runs over prompt + completion | multi-turn agent calls (30k-token prompt, 300-token completion): the token budget undercounted memory ~100× (OOM on GPU), and DP balance ignored most of the compute | placement over forward tokens, loss normalizer over trained tokens; `test_micro_batch_budget_counts_forward_tokens_not_just_completions`; fixed |
+| A non-global loss aggregation under DP would sum full per-rank losses | seq-mean / prompt-mean gradients `world`× too large | `DistributedTorchTrainer` refuses them; tested; fixed |
 

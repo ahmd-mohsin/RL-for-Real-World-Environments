@@ -137,6 +137,42 @@ def main() -> None:
             return {"versions": vs, "engine_version": eng.version, "d": digest(eng._serve.state_dict())}
 
         res.update(asyncio.run(go()))
+    elif scenario in ("dp_exact", "dp_broadcast"):  # DistributedTorchTrainer: DP=world equals the single-process full batch
+        import copy
+
+        from crucible.train.engine import TinyPolicy
+        from crucible.train.mismatch import Correction
+        from crucible.train.rollout import RolloutRecord, Turn
+        from crucible.train.trainer import DistributedTorchTrainer, TorchTrainer, TrainerConfig
+
+        g = torch.Generator().manual_seed(0)
+        base = TinyPolicy(48, 16, seed=0)
+        recs, groups = [], []
+        for i in range(12):  # long prompts, short completions: placement must count forward tokens
+            prompt = torch.randint(0, 48, (int(torch.randint(3, 40, (1,), generator=g)),), generator=g).tolist()
+            comp = torch.randint(0, 48, (int(torch.randint(1, 9, (1,), generator=g)),), generator=g).tolist()
+            with torch.no_grad():
+                lp = (base.token_logprobs(prompt, comp) + 0.05 * torch.randn(len(comp), generator=g)).tolist()  # behaviour ≠ current
+            recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(torch.rand(1, generator=g) > 0.5),
+                                      turns=[Turn(call_id=f"r{i}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=lp, policy_version=0)]))
+            groups.append(f"g{i // 4}")
+        out_res = {}
+        for corr in ("dis", "ppo"):
+            cfg = {"lr": 1e-2, "correction": Correction(corr), "token_budget": 40}
+            ref = TorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=1))
+            ref.step(recs, groups)
+            tr = DistributedTorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=dist.get_world_size()), broadcast_batch=scenario == "dp_broadcast")
+            give = (recs, groups) if (scenario == "dp_exact" or rank == 0) else ([], [])
+            m = tr.step(*give)
+            err = max(float((a - b).abs().max()) for a, b in zip(tr.model.state_dict().values(), ref.model.state_dict().values(), strict=True))
+            out_res[corr] = {"max_abs_diff_vs_full_batch": err, "d": digest(tr.model.state_dict()), "micro_batches": m["train/micro_batches"],
+                             "imbalance": m["train/dp_imbalance"], "loss": m["train/loss"], "changed": digest(tr.model.state_dict()) != digest(base.state_dict())}
+        try:
+            DistributedTorchTrainer(copy.deepcopy(base), TrainerConfig(dp=dist.get_world_size(), loss_agg="seq_mean"))
+            out_res["refused_seq_mean"] = False
+        except ValueError:
+            out_res["refused_seq_mean"] = True
+        res.update(out_res)
     else:
         raise SystemExit(f"unknown scenario {scenario}")
     (out / f"r{rank}.json").write_text(json.dumps(res, sort_keys=True))

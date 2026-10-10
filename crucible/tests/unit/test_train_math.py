@@ -183,3 +183,21 @@ def test_version_spans_validation():
     assert ro.valid_for_training()[0] and ro.oldest_version() == 3
     ro.turns = [bad]
     assert not ro.valid_for_training()[0]
+
+
+def test_micro_batch_budget_counts_forward_tokens_not_just_completions():
+    """A multi-turn call's forward pass is prompt + completion: two 35-token prompts with 2-token completions do not fit
+    one 40-token micro batch (placement by completion length alone said they did: 4 tokens)."""
+    import torch
+
+    from crucible.train.engine import TinyPolicy
+    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.train.trainer import TorchTrainer, TrainerConfig
+
+    recs = [RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i),
+                          turns=[Turn(call_id=f"r{i}:c", actor="agent", prompt_token_ids=list(range(35)), completion_token_ids=[1, 2], logprobs=[-1.0, -1.0],
+                                      policy_version=0)]) for i in range(2)]
+    tr = TorchTrainer(TinyPolicy(48, 8, seed=0), TrainerConfig(token_budget=40))
+    m = tr.step(recs, ["g", "g"])
+    assert m["train/micro_batches"] == 2 and m["train/tokens"] == 4 and m["train/forward_tokens"] == 74
+    assert torch.isfinite(torch.tensor(m["train/loss"]))

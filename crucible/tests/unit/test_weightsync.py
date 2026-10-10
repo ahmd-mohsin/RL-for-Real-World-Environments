@@ -112,3 +112,16 @@ def test_distributed_publisher_and_engine_receiver(tmp_path):
     rs = run("publisher", tmp_path, world=2)
     assert rs[0]["versions"] == [1, 2] == rs[1]["versions"] and rs[1]["engine_version"] == 2
     assert rs[1]["d"] == rs[0]["d"]  # the engine serves exactly the trainer's weights at version 2
+
+
+@pytest.mark.parametrize("scenario", ["dp_exact", "dp_broadcast"])
+def test_data_parallel_trainer_equals_the_full_batch_step(tmp_path, scenario):
+    """DistributedTorchTrainer (DP=2, token-budget micro batches, π_θold per rank for ppo): after one step both replicas
+    are identical and equal the single-process full-batch update; ``dp_broadcast``: rank 1 receives the batch."""
+    rs = run(scenario, tmp_path, world=2)
+    for corr in ("dis", "ppo"):
+        a, b = rs[0][corr], rs[1][corr]
+        assert a["d"] == b["d"] and a["changed"]  # replicas bitwise identical after the step, and the step did something
+        assert a["max_abs_diff_vs_full_batch"] < 1e-6, a
+        assert a["micro_batches"] > 2 and a["imbalance"] < 1.2  # placement over forward tokens, balanced
+    assert rs[0]["refused_seq_mean"]

@@ -38,8 +38,8 @@
 | **segment** | a context-compaction segment: one causal training sequence; credit crosses segments by (γλ)^{N>s} | `Turn.segment`, `bridges.common.flatten`, `objectives.gae` |
 | **global batch** | the groups one optimizer step consumes (B groups × n) | `SchedulerConfig.B` |
 | **mini batch** | `updates_per_batch` slices of a global batch (default 1 update) | `TrainerConfig.updates_per_batch` |
-| **micro batch** | one forward/backward on one device, bounded by a **token budget**; gradients accumulate, each scaled by its share of the global token count (exactly the full-batch gradient) | `batching.micro_batches`, `loss_scale` |
-| **DP rank** | a data-parallel replica; the global batch is partitioned so summed tokens balance (largest-first; imbalance ≤ 1.1 tested) | `batching.balance_partitions` |
+| **micro batch** | one forward/backward on one device, bounded by a **token budget over forward tokens** (prompt + completion: what memory holds); gradients accumulate, each scaled by its share of the global **trained**-token count (exactly the full-batch gradient) | `batching.micro_batches`, `loss_scale` |
+| **DP rank** | a data-parallel replica (a process: `DistributedTorchTrainer`); the global batch is partitioned so summed **forward** tokens (prompt + completion) balance (largest-first; imbalance ≤ 1.1 tested); gradients all-reduced in one flattened bucket; equals the full-batch step | `batching.balance_partitions`, `trainer.DistributedTorchTrainer` |
 | **engine slot** | one continuous-batching sequence; `capacity` per engine | `Engine.capacity` |
 | **env worker** | environment steps run off the GPU pool (CPU / sandboxes); an env step holds no engine slot | the World backends (M1), `CopyTask.latency` in tests |
 
@@ -127,6 +127,7 @@ Facts behind the table:
 | Masking when a token record is missing | ✅ `valid_for_training`; train mode masks `capture_incomplete` (M10) |
 | Staleness drop rule and windowed-FIFO bounds | ✅ GLM worked example, `wait` never drops and bounds τ, `drop` never trains over τ, windowed-FIFO lag ≤ 10 |
 | Mismatch corrections on synthetic distributions | ✅ golden tests for every correction |
+| Real data parallelism | ✅ DP = 2 gloo processes, 10 micro batches, `dis` and `ppo`: replicas bitwise identical, equal to the single-process full-batch update within 6e-7 |
 | Distributed weight sync | ✅ real processes over gloo: bitwise across dtypes and buckets, slow-reload pipeline, sharded owners, all-rank abort with no commit, subgroup + elastic plan, publisher → receiver |
 | Truncated and agent-broke-env cases | ✅ (M10 records; masked never trained, agent failures scored) |
 | CPU end to end | ✅ a real tiny policy learns under sync (0.08 → 0.37), partial call-level (0.09 → 0.61, 906 aborts re-issued), partial token-level (0.09 → 0.57, resumed with spans), disaggregated (0.07 → 0.51) |
