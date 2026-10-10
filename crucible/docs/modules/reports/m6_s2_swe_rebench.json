@@ -8,58 +8,58 @@
  "holdout_attempts": 200,
  "holdout_resolved_rate": 0.58,
  "type_weights": {
-  "added": 0.051,
+  "added": 0.0148,
   "added_call": 0.0,
   "created": 0.0,
-  "located": 0.0576,
+  "located": 0.0312,
   "removed": 0.0383,
   "removed_call": 0.0783
  },
  "type_auc_fit": {
-  "added": 0.5255,
-  "added_call": 0.4761,
+  "added": 0.5074,
+  "added_call": 0.4675,
   "created": 0.5,
-  "located": 0.5288,
+  "located": 0.5156,
   "removed": 0.5192,
   "removed_call": 0.5392
  },
  "metrics": {
   "phi_mid_validity_weighted": {
    "name": "phi_mid_validity_weighted",
-   "auc": 0.5209,
+   "auc": 0.4986,
    "ci": [
-    0.4159,
-    0.6263
+    0.4194,
+    0.5831
    ],
-   "within_issue_auc": 0.5199,
+   "within_issue_auc": 0.5186,
    "issues_with_mixed_outcomes": 22
   },
   "phi_mid_uniform": {
    "name": "phi_mid_uniform",
-   "auc": 0.5168,
+   "auc": 0.4899,
    "ci": [
-    0.412,
-    0.6162
+    0.4099,
+    0.5734
    ],
-   "within_issue_auc": 0.5146,
+   "within_issue_auc": 0.5133,
    "issues_with_mixed_outcomes": 22
   },
   "phi_end_validity_weighted": {
    "name": "phi_end_validity_weighted",
-   "auc": 0.6848,
+   "auc": 0.6624,
    "ci": [
-    0.5483,
-    0.8082
+    0.531,
+    0.7963
    ],
-   "within_issue_auc": 0.7741,
+   "within_issue_auc": 0.7142,
    "issues_with_mixed_outcomes": 22
   },
   "phi_q1_validity_weighted": {
    "name": "phi_q1_validity_weighted",
-   "auc": 0.5301,
+   "auc": 0.5043,
    "ci": [
-    0.4359,
-    0.6376
+    0.5,
+    0.5163
    ],
    "within_issue_auc": 0.5227,
    "issues_with_mixed_outcomes": 22
@@ -76,40 +76,40 @@
   },
   "baseline_any_milestone_by_mid": {
    "name": "baseline_any_milestone_by_mid",
-   "auc": 0.5285,
+   "auc": 0.492,
    "ci": [
-    0.4264,
-    0.6316
+    0.4146,
+    0.5766
    ],
-   "within_issue_auc": 0.51,
+   "within_issue_auc": 0.5078,
    "issues_with_mixed_outcomes": 22
   }
  },
  "judge": {
   "attempts": 200,
   "judge_auc": 0.7481527093596059,
-  "phi_auc_same_attempts": 0.520935960591133,
+  "phi_auc_same_attempts": 0.4985632183908046,
   "judge_within_issue_auc": 0.6356060606060606,
   "phi_minus_judge": {
-   "diff": -0.22721674876847286,
-   "lo": -0.3696996039795229,
-   "hi": -0.07044578976334626,
-   "p_not_better": 0.999
+   "diff": -0.2495894909688013,
+   "lo": -0.38273913043478264,
+   "hi": -0.09677241074389298,
+   "p_not_better": 1.0
   }
  },
  "judge_end": {
   "attempts": 200,
   "judge_auc": 0.7466646141215106,
   "judge_within_issue_auc": 0.6744547750229568,
-  "phi_end_auc_same_attempts": 0.6851908866995073,
-  "phi_end_within_issue_auc": 0.7817099567099568,
+  "phi_end_auc_same_attempts": 0.6642036124794746,
+  "phi_end_within_issue_auc": 0.7218073593073593,
   "phi_end_minus_judge_end": {
-   "diff": -0.0614737274220033,
-   "lo": -0.26430417128091543,
-   "hi": 0.14277824978759557,
-   "p_not_better": 0.71
+   "diff": -0.08246100164203607,
+   "lo": -0.2723949872360176,
+   "hi": 0.12174449932644815,
+   "p_not_better": 0.788
   },
-  "combined_auc": 0.7784790640394089,
-  "combined_within_issue_auc": 0.8070936639118458
+  "combined_auc": 0.7718082922824302,
+  "combined_within_issue_auc": 0.7718122786304604
  }
 }

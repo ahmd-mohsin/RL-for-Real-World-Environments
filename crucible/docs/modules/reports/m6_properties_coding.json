@@ -1,0 +1,424 @@
+{
+ "gate": "M6 R1-R6 (coding, recorded outcomes)",
+ "pass": true,
+ "tasks": {
+  "task01_prims_omp": {
+   "task": "task01_prims_omp",
+   "candidates": 138,
+   "dropped_by_filters": {
+    "true_at_base": 0,
+    "not_reached_by_oracle": 1,
+    "unmeasurable": 0
+   },
+   "milestones": 137,
+   "milestone_kinds": [
+    "added",
+    "added_call",
+    "created",
+    "deleted",
+    "located",
+    "removed",
+    "removed_call"
+   ],
+   "phi": {
+    "oracle": 1.0,
+    "base": 0.0
+   },
+   "runs": {
+    "fable-5.1-run1": {
+     "outcome": 1.0,
+     "phi": 0.4917,
+     "reward": 1.0
+    }
+   },
+   "ok": true,
+   "properties": {
+    "R1": {
+     "ok": true,
+     "reward": 1.0,
+     "outcome": 1.0,
+     "gates": {}
+    },
+    "R2": {
+     "ok": true,
+     "reward": 0.0,
+     "outcome": 0.0,
+     "progress": 0.0
+    },
+    "R4": {
+     "ok": true,
+     "sum_delta": [
+      1.0,
+      1.0
+     ],
+     "sum_shaping": [
+      0.0,
+      0.0
+     ],
+     "same_end": true
+    },
+    "R5": {
+     "ok": true,
+     "phi_with_stubs": 0.0125,
+     "phi_without": 0.0125,
+     "stubbed": []
+    },
+    "R6": {
+     "ok": true,
+     "rewards": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "negatives_tested": 0
+  },
+  "task01v2_tessera_omp": {
+   "task": "task01v2_tessera_omp",
+   "candidates": 297,
+   "dropped_by_filters": {
+    "true_at_base": 0,
+    "not_reached_by_oracle": 6,
+    "unmeasurable": 0
+   },
+   "milestones": 291,
+   "milestone_kinds": [
+    "added",
+    "added_call",
+    "created",
+    "deleted",
+    "located",
+    "removed",
+    "removed_call"
+   ],
+   "phi": {
+    "oracle": 1.0,
+    "base": 0.0
+   },
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.6135,
+     "reward": 0.1227
+    }
+   },
+   "ok": true,
+   "properties": {
+    "R1": {
+     "ok": true,
+     "reward": 1.0,
+     "outcome": 1.0,
+     "gates": {}
+    },
+    "R2": {
+     "ok": true,
+     "reward": 0.0,
+     "outcome": 0.0,
+     "progress": 0.0
+    },
+    "R3": {
+     "ok": true,
+     "negatives": {
+      "run:gpt-5.6-sol-run1": {
+       "reward": 0.12270168855534709,
+       "outcome": 0.0
+      }
+     },
+     "violations": {}
+    },
+    "R4": {
+     "ok": true,
+     "sum_delta": [
+      1.0,
+      1.0
+     ],
+     "sum_shaping": [
+      0.0,
+      0.0
+     ],
+     "same_end": true
+    },
+    "R5": {
+     "ok": true,
+     "phi_with_stubs": 0.0075046904315197,
+     "phi_without": 0.0075046904315197,
+     "stubbed": []
+    },
+    "R6": {
+     "ok": true,
+     "rewards": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "negatives_tested": 1
+  },
+  "task02_pcops_triton": {
+   "task": "task02_pcops_triton",
+   "candidates": 48,
+   "dropped_by_filters": {
+    "true_at_base": 0,
+    "not_reached_by_oracle": 0,
+    "unmeasurable": 0
+   },
+   "milestones": 48,
+   "milestone_kinds": [
+    "added",
+    "added_call",
+    "created",
+    "deleted",
+    "removed"
+   ],
+   "phi": {
+    "oracle": 1.0,
+    "base": 0.0
+   },
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.4203,
+     "reward": 0.0841
+    }
+   },
+   "ok": true,
+   "properties": {
+    "R1": {
+     "ok": true,
+     "reward": 1.0,
+     "outcome": 1.0,
+     "gates": {}
+    },
+    "R2": {
+     "ok": true,
+     "reward": 0.0,
+     "outcome": 0.0,
+     "progress": 0.0
+    },
+    "R3": {
+     "ok": true,
+     "negatives": {
+      "run:gpt-5.6-sol-run1": {
+       "reward": 0.08405797101449275,
+       "outcome": 0.0
+      }
+     },
+     "violations": {}
+    },
+    "R4": {
+     "ok": true,
+     "sum_delta": [
+      1.0,
+      1.0
+     ],
+     "sum_shaping": [
+      0.0,
+      0.0
+     ],
+     "same_end": true
+    },
+    "R5": {
+     "ok": true,
+     "phi_with_stubs": 0.043478260869565216,
+     "phi_without": 0.043478260869565216,
+     "stubbed": []
+    },
+    "R6": {
+     "ok": true,
+     "rewards": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "negatives_tested": 1
+  },
+  "task03_mdlite_pallas": {
+   "task": "task03_mdlite_pallas",
+   "candidates": 108,
+   "dropped_by_filters": {
+    "true_at_base": 0,
+    "not_reached_by_oracle": 1,
+    "unmeasurable": 0
+   },
+   "milestones": 107,
+   "milestone_kinds": [
+    "added",
+    "added_call",
+    "created",
+    "deleted",
+    "located",
+    "removed_call"
+   ],
+   "phi": {
+    "oracle": 1.0,
+    "base": 0.0
+   },
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.2742,
+     "reward": 0.0548
+    }
+   },
+   "ok": true,
+   "properties": {
+    "R1": {
+     "ok": true,
+     "reward": 1.0,
+     "outcome": 1.0,
+     "gates": {}
+    },
+    "R2": {
+     "ok": true,
+     "reward": 0.0,
+     "outcome": 0.0,
+     "progress": 0.0
+    },
+    "R3": {
+     "ok": true,
+     "negatives": {
+      "run:gpt-5.6-sol-run1": {
+       "reward": 0.054838709677419356,
+       "outcome": 0.0
+      }
+     },
+     "violations": {}
+    },
+    "R4": {
+     "ok": true,
+     "sum_delta": [
+      1.0,
+      1.0
+     ],
+     "sum_shaping": [
+      0.0,
+      0.0
+     ],
+     "same_end": true
+    },
+    "R5": {
+     "ok": true,
+     "phi_with_stubs": 0.010752688172043012,
+     "phi_without": 0.010752688172043012,
+     "stubbed": []
+    },
+    "R6": {
+     "ok": true,
+     "rewards": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "negatives_tested": 1
+  },
+  "task04_pcl_gpu_cuda12": {
+   "task": "task04_pcl_gpu_cuda12",
+   "candidates": 435,
+   "dropped_by_filters": {
+    "true_at_base": 0,
+    "not_reached_by_oracle": 49,
+    "unmeasurable": 0
+   },
+   "milestones": 386,
+   "milestone_kinds": [
+    "added",
+    "added_call",
+    "located",
+    "removed",
+    "removed_call"
+   ],
+   "phi": {
+    "oracle": 1.0,
+    "base": 0.0
+   },
+   "runs": {
+    "gpt-5.6-sol-v2-run1": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-6-astra-v2-run1": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-6-astra-v3-aborted": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-5.6-sol-run1": {
+     "outcome": 1.0,
+     "phi": 0.3161,
+     "reward": 1.0
+    },
+    "gpt-5.6-sol-v3-run1": {
+     "outcome": 0.0,
+     "phi": 0.3187,
+     "reward": 0.0637
+    },
+    "gpt-6-astra-run1": {
+     "outcome": 1.0,
+     "phi": 0.329,
+     "reward": 1.0
+    },
+    "gpt-6-astra-v3-run2": {
+     "outcome": 0.0,
+     "phi": 0.5544,
+     "reward": 0.1109
+    }
+   },
+   "ok": true,
+   "properties": {
+    "R1": {
+     "ok": true,
+     "reward": 1.0,
+     "outcome": 1.0,
+     "gates": {}
+    },
+    "R2": {
+     "ok": true,
+     "reward": 0.0,
+     "outcome": 0.0,
+     "progress": 0.0
+    },
+    "R3": {
+     "ok": true,
+     "negatives": {
+      "run:gpt-5.6-sol-v3-run1": {
+       "reward": 0.06373056994818653,
+       "outcome": 0.0
+      },
+      "run:gpt-6-astra-v3-run2": {
+       "reward": 0.11088082901554404,
+       "outcome": 0.0
+      }
+     },
+     "violations": {}
+    },
+    "R4": {
+     "ok": true,
+     "sum_delta": [
+      1.0,
+      1.0
+     ],
+     "sum_shaping": [
+      0.0,
+      0.0
+     ],
+     "same_end": true
+    },
+    "R5": {
+     "ok": true,
+     "phi_with_stubs": 0.0051813471502590676,
+     "phi_without": 0.0051813471502590676,
+     "stubbed": []
+    },
+    "R6": {
+     "ok": true,
+     "rewards": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "negatives_tested": 2
+  }
+ }
+}

@@ -1,0 +1,368 @@
+{
+ "family": "toy/helpdesk_ticket",
+ "replay": {
+  "traces": 24,
+  "replayed": 24,
+  "rate": 1.0,
+  "checks": 31,
+  "failed": []
+ },
+ "milestones": {
+  "candidates": [
+   "log/assignee",
+   "log/resolution",
+   "log/status=resolved"
+  ],
+  "kept": [
+   "log/assignee",
+   "log/resolution",
+   "log/status=resolved"
+  ]
+ },
+ "graph": {
+  "schema_version": "crucible.workflow/v1",
+  "family": "toy/helpdesk_ticket",
+  "milestones": [
+   {
+    "id": "log/assignee",
+    "check": {
+     "app": "tickets",
+     "query": {
+      "op": "exists",
+      "args": {
+       "object": "ticket:{case}.assignee"
+      },
+      "timeout_s": null
+     },
+     "expect": {
+      "kind": "truthy",
+      "value": null,
+      "lo": null,
+      "hi": null
+     }
+    },
+    "requires": [],
+    "weight": 1.0,
+    "cost": "cheap",
+    "gate": false,
+    "provenance": [
+     {
+      "signal": null,
+      "source": "good_trace_end_states",
+      "note": "8/8 good dev tickets"
+     }
+    ]
+   },
+   {
+    "id": "log/resolution",
+    "check": {
+     "app": "tickets",
+     "query": {
+      "op": "exists",
+      "args": {
+       "object": "ticket:{case}.resolution"
+      },
+      "timeout_s": null
+     },
+     "expect": {
+      "kind": "truthy",
+      "value": null,
+      "lo": null,
+      "hi": null
+     }
+    },
+    "requires": [],
+    "weight": 1.0,
+    "cost": "cheap",
+    "gate": false,
+    "provenance": [
+     {
+      "signal": null,
+      "source": "good_trace_end_states",
+      "note": "8/8 good dev tickets"
+     }
+    ]
+   },
+   {
+    "id": "log/status=resolved",
+    "check": {
+     "app": "tickets",
+     "query": {
+      "op": "match",
+      "args": {
+       "object": "ticket:{case}.status",
+       "pattern": "^resolved$"
+      },
+      "timeout_s": null
+     },
+     "expect": {
+      "kind": "equals",
+      "value": {
+       "exists": true,
+       "matches": true
+      },
+      "lo": null,
+      "hi": null
+     }
+    },
+    "requires": [],
+    "weight": 1.0,
+    "cost": "cheap",
+    "gate": false,
+    "provenance": [
+     {
+      "signal": null,
+      "source": "good_trace_end_states",
+      "note": "8/8 good dev tickets"
+     }
+    ]
+   }
+  ],
+  "stages": [
+   {
+    "index": 0,
+    "name": "assignee",
+    "milestones": [
+     "log/assignee"
+    ],
+    "median_time": 0.16666666666666666
+   },
+   {
+    "index": 1,
+    "name": "resolution",
+    "milestones": [
+     "log/resolution"
+    ],
+    "median_time": 0.3666666666666667
+   },
+   {
+    "index": 2,
+    "name": "status=resolved",
+    "milestones": [
+     "log/status=resolved"
+    ],
+    "median_time": 0.8166666666666667
+   }
+  ],
+  "edges": [
+   {
+    "a": "log/assignee",
+    "b": "log/resolution",
+    "support": 1.0,
+    "n": 8
+   },
+   {
+    "a": "log/assignee",
+    "b": "log/status=resolved",
+    "support": 1.0,
+    "n": 8
+   },
+   {
+    "a": "log/resolution",
+    "b": "log/status=resolved",
+    "support": 1.0,
+    "n": 8
+   }
+  ],
+  "verdicts": {
+   "log/assignee": {
+    "kept": true,
+    "reason": "executable, non-trivial, monotone",
+    "executable": 1.0,
+    "base_phi": 0.0,
+    "end_phi": 1.0,
+    "monotone": 1.0,
+    "good_traces_reaching": 8
+   },
+   "log/resolution": {
+    "kept": true,
+    "reason": "executable, non-trivial, monotone",
+    "executable": 1.0,
+    "base_phi": 0.0,
+    "end_phi": 1.0,
+    "monotone": 1.0,
+    "good_traces_reaching": 8
+   },
+   "log/status=resolved": {
+    "kept": true,
+    "reason": "executable, non-trivial, monotone",
+    "executable": 1.0,
+    "base_phi": 0.0,
+    "end_phi": 1.0,
+    "monotone": 0.875,
+    "good_traces_reaching": 8
+   }
+  },
+  "sources": [
+   "toy/helpdesk_ticket:T1001",
+   "toy/helpdesk_ticket:T1004",
+   "toy/helpdesk_ticket:T1005",
+   "toy/helpdesk_ticket:T1006",
+   "toy/helpdesk_ticket:T1007",
+   "toy/helpdesk_ticket:T1008",
+   "toy/helpdesk_ticket:T1009",
+   "toy/helpdesk_ticket:T1010"
+  ],
+  "stats": {
+   "dev_tickets": 12,
+   "good_dev_tickets": 8,
+   "candidates": 3
+  }
+ },
+ "tracker": {
+  "test_events": 84,
+  "kappa": 0.8685,
+  "agreement": 0.9048,
+  "confusion": {
+   "respond->resolved": 3,
+   "respond->triage": 4,
+   "triage->respond": 1
+  }
+ },
+ "s2": {
+  "test_tickets_with_outcome": 11,
+  "phi_mid_auc": 0.5833333333333334,
+  "phi_end_auc": 0.6666666666666666,
+  "rows": [
+   [
+    "T1014",
+    1,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1015",
+    1,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1016",
+    1,
+    1.0,
+    1.0
+   ],
+   [
+    "T1017",
+    1,
+    1.0,
+    1.0
+   ],
+   [
+    "T1018",
+    0,
+    0.3333333333333333,
+    1.0
+   ],
+   [
+    "T1019",
+    0,
+    1.0,
+    0.6666666666666666
+   ],
+   [
+    "T1020",
+    1,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1021",
+    0,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1022",
+    1,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1023",
+    1,
+    0.6666666666666666,
+    1.0
+   ],
+   [
+    "T1024",
+    1,
+    0.6666666666666666,
+    1.0
+   ]
+  ]
+ },
+ "properties": {
+  "ok": true,
+  "properties": {
+   "R1": {
+    "ok": true,
+    "reward": 1.0,
+    "outcome": 1.0,
+    "gates": {
+     "refund_policy": 1,
+     "retention_policy": 1
+    }
+   },
+   "R2": {
+    "ok": true,
+    "reward": 0.0,
+    "outcome": 0.0,
+    "progress": 0.0
+   },
+   "R3": {
+    "ok": true,
+    "negatives": {
+     "refund_over_50_unapproved": {
+      "reward": 0.0,
+      "outcome": 1.0
+     },
+     "refund_reversed": {
+      "reward": 0.2,
+      "outcome": 0.0
+     },
+     "resolved_without_answer": {
+      "reward": 0.13333333333333333,
+      "outcome": 0.0
+     },
+     "reopened": {
+      "reward": 0.13333333333333333,
+      "outcome": 0.0
+     }
+    },
+    "violations": {}
+   },
+   "R4": {
+    "ok": true,
+    "sum_delta": [
+     1.0,
+     1.0
+    ],
+    "sum_shaping": [
+     0.0,
+     0.0
+    ],
+    "same_end": true
+   },
+   "R5": {
+    "ok": true,
+    "phi_with_stubs": 0.3333333333333333,
+    "phi_without": 0.3333333333333333,
+    "stubbed": []
+   },
+   "R6": {
+    "ok": true,
+    "rewards": [
+     1.0,
+     1.0
+    ]
+   }
+  }
+ },
+ "gates": {
+  "M5.replay>=0.9": true,
+  "M5.tracker_kappa>=0.7": true,
+  "M6.R1-R6": true,
+  "M6.S2_phi_mid_auc>=0.75": false
+ }
+}

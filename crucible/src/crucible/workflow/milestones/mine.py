@@ -40,6 +40,7 @@ COMMON = frozenset(keyword.kwlist) | {
     "test", "assert", "assertEqual", "pytest", "import", "from", "def", "class", "const", "auto", "void", "char", "bool", "size_t",
     "std", "include", "define", "endif", "ifdef", "ifndef", "struct", "static", "inline", "unsigned", "double", "template",
     "typename", "public", "private", "protected", "this", "nullptr", "NULL", "true", "false", "else", "elif", "while", "for",
+    "other", "with", "that", "when", "then", "into", "only", "also", "some", "each", "used", "uses", "using", "have", "will",
 }
 
 
@@ -84,6 +85,8 @@ def _enclosing_anchors(base_text: str, hunks: list) -> list[tuple[str, str]]:
         target_ind = None
         for i in range(min(line_no, len(lines) - 1), -1, -1):
             ln = lines[i]
+            if ln.lstrip().startswith(("*", "//", "/*", "#", "--")):
+                continue  # comments ("Software License Agreement (BSD License)") and preprocessor lines are not blocks
             m = DEF.match(ln)
             if not m:
                 continue
@@ -100,8 +103,12 @@ def _enclosing_anchors(base_text: str, hunks: list) -> list[tuple[str, str]]:
     return out
 
 
+def _pattern(token: str) -> str:
+    return re.escape(token[:-1]) + r"\s*\(" if token.endswith("(") else r"\b" + re.escape(token) + r"\b"
+
+
 def _grep_milestone(app: str, path: str, token: str, kind: str, weight: float, prov: Provenance) -> Milestone:
-    pat = re.escape(token[:-1]) + r"\s*\(" if token.endswith("(") else r"\b" + re.escape(token) + r"\b"
+    pat = _pattern(token)
     exp = Expectation(kind="count_eq", value=0) if kind == "removed" else Expectation(kind="count_ge", value=1)
     return Milestone(id=f"diff/{kind}{'_call' if token.endswith('(') else ''}/{path.rsplit('/', 1)[-1]}:{token.rstrip('(')}#{_mid(path, token, kind)}",
                      check=MilestoneCheck(app=app, query=Query(op="grep", args={"pattern": pat, "paths": [path]}), expect=exp),
@@ -130,7 +137,8 @@ def from_diff(patch: str, base: Callable[[str], str | None], *, app: str = "repo
                                                                 expect=Expectation(kind="equals", value={"exists": False, "is_file": False, "is_dir": False}))),
                                  "diff", {"path": path, "change": "deleted"}))
             continue
-        for anchor in _enclosing_anchors(before_text or "", fp.hunks):
+        code_file = not re.search(r"(CMakeLists\.txt|\.cmake|\.txt|\.md|\.rst|\.ya?ml|\.json|\.toml|\.cfg|\.ini)$", path)
+        for anchor in (_enclosing_anchors(before_text or "", fp.hunks) if code_file else []):
             out.append(Candidate(Milestone(id=f"diff/located/{path.rsplit('/', 1)[-1]}:{anchor[1][:40]}#{_mid(path, anchor[0])}", weight=1.0, cost="cheap",
                                            provenance=[prov], check=MilestoneCheck(app=app, query=Query(op="block_changed", args={"path": path, "anchor": anchor[0]}),
                                                                                    expect=Expectation(kind="equals", value={"changed": True, "found": True}))),
@@ -139,8 +147,11 @@ def from_diff(patch: str, base: Callable[[str], str | None], *, app: str = "repo
         added = [ln[1:] for h in fp.hunks for ln in h.lines if ln.startswith("+")]
         before_tokens = _tokens((before_text or "").split("\n"))
         after_tokens = _tokens((after_text or "").split("\n"))
-        gone = sorted(t for t in _tokens(removed) if t not in after_tokens and t in before_tokens)
-        new = sorted(t for t in _tokens(added) if t not in before_tokens and t in after_tokens)
+        def occurs(tok: str, text: str | None) -> bool:
+            return bool(text) and re.search(_pattern(tok), text or "", re.MULTILINE) is not None
+
+        gone = sorted(t for t in _tokens(removed) if t in before_tokens and occurs(t, before_text) and not occurs(t, after_text))
+        new = sorted(t for t in _tokens(added) if t in after_tokens and occurs(t, after_text) and not occurs(t, before_text))
         # a call token makes its bare name redundant (`helper(` implies `helper`)
         gone = [t for t in gone if t.endswith("(") or t + "(" not in gone]
         new = [t for t in new if t.endswith("(") or t + "(" not in new]

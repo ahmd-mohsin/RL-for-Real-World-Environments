@@ -281,5 +281,16 @@ async def run() -> dict[str, Any]:
             "properties": props}
 
 
+REPORT = PACK_ROOT.parent.parent / "docs" / "modules" / "reports" / "m56_toy.json"
+
+
+def main() -> None:
+    out = asyncio.run(run())
+    out["gates"] = {"M5.replay>=0.9": out["replay"]["rate"] >= 0.9, "M5.tracker_kappa>=0.7": out["tracker"]["kappa"] >= 0.7,
+                    "M6.R1-R6": out["properties"]["ok"], "M6.S2_phi_mid_auc>=0.75": (out["s2"]["phi_mid_auc"] or 0) >= 0.75}
+    REPORT.write_text(json.dumps(out, indent=1, default=str) + "\n")
+    print(json.dumps(out["gates"], indent=1))
+
+
 if __name__ == "__main__":
-    print(json.dumps(asyncio.run(run()), indent=1, default=str))
+    main()

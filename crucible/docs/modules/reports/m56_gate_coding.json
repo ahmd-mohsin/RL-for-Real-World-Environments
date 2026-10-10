@@ -1,0 +1,250 @@
+{
+ "gate": "M5+M6 coding",
+ "gates": {
+  "M5.S1_replay>=0.9_on>=30": true,
+  "M5.rediscovery_all_families": false,
+  "M5.tracker_kappa>=0.7(toy)": true,
+  "M6.S2_phi_mid_auc>=0.75_and>judge": false,
+  "M6.R1-R6_coding": true,
+  "M6.corr_C3_dPhi_task04_reported": false
+ },
+ "replay": {
+  "traces": 913,
+  "agent_state_replayed": 866,
+  "strict_replayed": 832,
+  "agent_state_rate": 0.9485,
+  "strict_rate": 0.9113
+ },
+ "s2": {
+  "rows": 913,
+  "usable": 865,
+  "quarantined_by_replay": 47,
+  "no_milestones": 1,
+  "fit_issues": 54,
+  "holdout_issues": 23,
+  "holdout_attempts": 200,
+  "holdout_resolved_rate": 0.58,
+  "type_weights": {
+   "added": 0.0148,
+   "added_call": 0.0,
+   "created": 0.0,
+   "located": 0.0312,
+   "removed": 0.0383,
+   "removed_call": 0.0783
+  },
+  "type_auc_fit": {
+   "added": 0.5074,
+   "added_call": 0.4675,
+   "created": 0.5,
+   "located": 0.5156,
+   "removed": 0.5192,
+   "removed_call": 0.5392
+  },
+  "metrics": {
+   "phi_mid_validity_weighted": {
+    "name": "phi_mid_validity_weighted",
+    "auc": 0.4986,
+    "ci": [
+     0.4194,
+     0.5831
+    ],
+    "within_issue_auc": 0.5186,
+    "issues_with_mixed_outcomes": 22
+   },
+   "phi_mid_uniform": {
+    "name": "phi_mid_uniform",
+    "auc": 0.4899,
+    "ci": [
+     0.4099,
+     0.5734
+    ],
+    "within_issue_auc": 0.5133,
+    "issues_with_mixed_outcomes": 22
+   },
+   "phi_end_validity_weighted": {
+    "name": "phi_end_validity_weighted",
+    "auc": 0.6624,
+    "ci": [
+     0.531,
+     0.7963
+    ],
+    "within_issue_auc": 0.7142,
+    "issues_with_mixed_outcomes": 22
+   },
+   "phi_q1_validity_weighted": {
+    "name": "phi_q1_validity_weighted",
+    "auc": 0.5043,
+    "ci": [
+     0.5,
+     0.5163
+    ],
+    "within_issue_auc": 0.5227,
+    "issues_with_mixed_outcomes": 22
+   },
+   "baseline_fewer_tool_calls": {
+    "name": "baseline_fewer_tool_calls",
+    "auc": 0.5212,
+    "ci": [
+     0.3727,
+     0.6575
+    ],
+    "within_issue_auc": 0.5003,
+    "issues_with_mixed_outcomes": 22
+   },
+   "baseline_any_milestone_by_mid": {
+    "name": "baseline_any_milestone_by_mid",
+    "auc": 0.492,
+    "ci": [
+     0.4146,
+     0.5766
+    ],
+    "within_issue_auc": 0.5078,
+    "issues_with_mixed_outcomes": 22
+   }
+  },
+  "judge": {
+   "attempts": 200,
+   "judge_auc": 0.7481527093596059,
+   "phi_auc_same_attempts": 0.4985632183908046,
+   "judge_within_issue_auc": 0.6356060606060606,
+   "phi_minus_judge": {
+    "diff": -0.2495894909688013,
+    "lo": -0.38273913043478264,
+    "hi": -0.09677241074389298,
+    "p_not_better": 1.0
+   }
+  },
+  "judge_end": {
+   "attempts": 200,
+   "judge_auc": 0.7466646141215106,
+   "judge_within_issue_auc": 0.6744547750229568,
+   "phi_end_auc_same_attempts": 0.6642036124794746,
+   "phi_end_within_issue_auc": 0.7218073593073593,
+   "phi_end_minus_judge_end": {
+    "diff": -0.08246100164203607,
+    "lo": -0.2723949872360176,
+    "hi": 0.12174449932644815,
+    "p_not_better": 0.788
+   },
+   "combined_auc": 0.7718082922824302,
+   "combined_within_issue_auc": 0.7718122786304604
+  }
+ },
+ "rediscovery": {
+  "pass": false,
+  "families": {
+   "build": true,
+   "api_removal": true,
+   "edge_semantics": true,
+   "concurrency": true,
+   "perf": true,
+   "bit_exactness": false
+  },
+  "audit": {
+   "bit_exactness": {
+    "genuine": [],
+    "rejected": [
+     "epsilon_/getEpsilon/off_surface_epsilon_ (#5722, #4629, #2736): numeric tolerance parameters, not bit-exactness",
+     "review #6199 (sigma2 -> 0, Welsch decay range): division-by-zero / NaN guard = edge semantics"
+    ],
+    "verdict": "not rediscovered from upstream PRs; in tasks 01-04 it comes from reference-differential checks (DESIGN \u00a77.1)"
+   },
+   "perf": {
+    "genuine": [
+     "review #6430: benchmark table comparing inlined vs encapsulated implementations",
+     "review #6438: benchmark with one query point is not representative",
+     "diff #5535: removed test_gpu_octree_performance (a perf test target)"
+    ],
+    "rejected": [
+     "review #6400 (error-message wording)",
+     "review #6413 (API design)"
+    ],
+    "verdict": "rediscovered from review signals (2 PRs), not from code"
+   }
+  }
+ },
+ "properties": {
+  "task01_prims_omp": {
+   "ok": true,
+   "milestones": 137,
+   "runs": {
+    "fable-5.1-run1": {
+     "outcome": 1.0,
+     "phi": 0.4917,
+     "reward": 1.0
+    }
+   }
+  },
+  "task01v2_tessera_omp": {
+   "ok": true,
+   "milestones": 291,
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.6135,
+     "reward": 0.1227
+    }
+   }
+  },
+  "task02_pcops_triton": {
+   "ok": true,
+   "milestones": 48,
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.4203,
+     "reward": 0.0841
+    }
+   }
+  },
+  "task03_mdlite_pallas": {
+   "ok": true,
+   "milestones": 107,
+   "runs": {
+    "gpt-5.6-sol-run1": {
+     "outcome": 0.0,
+     "phi": 0.2742,
+     "reward": 0.0548
+    }
+   }
+  },
+  "task04_pcl_gpu_cuda12": {
+   "ok": true,
+   "milestones": 386,
+   "runs": {
+    "gpt-5.6-sol-v2-run1": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-6-astra-v2-run1": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-6-astra-v3-aborted": {
+     "skipped": "no recorded outcome"
+    },
+    "gpt-5.6-sol-run1": {
+     "outcome": 1.0,
+     "phi": 0.3161,
+     "reward": 1.0
+    },
+    "gpt-5.6-sol-v3-run1": {
+     "outcome": 0.0,
+     "phi": 0.3187,
+     "reward": 0.0637
+    },
+    "gpt-6-astra-run1": {
+     "outcome": 1.0,
+     "phi": 0.329,
+     "reward": 1.0
+    },
+    "gpt-6-astra-v3-run2": {
+     "outcome": 0.0,
+     "phi": 0.5544,
+     "reward": 0.1109
+    }
+   }
+  }
+ },
+ "pending": {
+  "M6.corr_C3_dPhi_task04": "needs K continuations per branch point of 3 task04 trajectories on the lab RTX 5090 with a paid model (~$130 estimated); harness and operator are built and tested"
+ }
+}
