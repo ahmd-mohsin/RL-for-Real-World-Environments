@@ -223,3 +223,45 @@ async def test_agentenv_plugin_world_and_verify_through_the_gateway(tmp_path):
     from importlib.metadata import entry_points
 
     assert {e.name for e in entry_points(group="agent_env.task_steps")} >= {"crucible_world", "crucible_verify"}
+
+
+MIMO_ENV = Path(__file__).resolve().parents[3] / "RL-Environments" / "01-lab-releases" / "xiaomi-mimo-v2.6-rl-oss" / "general" / "envs" / "s3k_0000_accounting_audit_tax_en_t1_rl_008"
+
+
+async def test_mimo_import_run_grade_and_byte_identical_export(tmp_path):
+    """One MiMo env imported, run (an episode on a bundle copy), graded by MiMo's own verify() (judge items without a
+    judge mask, never 0), and re-exported byte-identical to the source (M11 gate)."""
+    import os
+
+    import pytest
+
+    if not MIMO_ENV.is_dir():
+        pytest.skip("MiMo release not present")
+    from crucible.core.schema.actions import ToolCall
+    from crucible.core.store import Store
+    from crucible.interop.mimo.export import export
+    from crucible.interop.mimo.importer import import_mimo_env, tree_hashes
+    from crucible.interop.mimo.verify import grade
+    from crucible.world.world import World
+
+    env = import_mimo_env(MIMO_ENV)
+    before = tree_hashes(MIMO_ENV)
+    w = World(env.world, instructions={"agent": env.instruction}, store=Store(tmp_path / "s"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        await w.reset()
+        await w.step("agent", ToolCall(tool_call_id="a1", function_name="workspace.list_docs", arguments={}))
+        await w.step("agent", ToolCall(tool_call_id="a2", function_name="workspace.write_doc", arguments={"path": "answer.md", "content": "# Answer\nNo findings."}))
+        run_root = next(p for p in (tmp_path / "w").rglob("mimo") if (p / "system").is_dir())
+        judge = None
+        if os.environ.get("CRUCIBLE_MIMO_JUDGE") == "1" and os.environ.get("OPENROUTER_API_KEY"):
+            judge = {"key": os.environ["OPENROUTER_API_KEY"], "model": "openai/gpt-6-luna", "url": "https://openrouter.ai/api/v1", "api": "chat"}
+        rj = grade(MIMO_ENV, run_root, agent_output="No findings.", judge=judge)
+    finally:
+        await w.close()
+    if judge is None:
+        assert rj["infra"]["status"] in ("masked", "ok")
+        if rj["infra"]["status"] == "masked":
+            assert rj["infra"]["failure_kind"] in ("judge_failed", "verifier_error")  # MiMo's contract: no judge -> mask, never 0
+    rep = export(env, tmp_path / "export")
+    assert rep["identical"] and tree_hashes(tmp_path / "export") == before == env.files  # byte-identical; the run never touched the source

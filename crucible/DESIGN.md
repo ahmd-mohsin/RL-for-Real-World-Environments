@@ -729,6 +729,13 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
   - a `crucible_world` step: the World behind a real agentenv gateway, published as a `DeployedGatewayEnv`, so stock agentenv steps work unchanged;
   - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows and raises;
   - a `crucible_ref` artifact type.
+- **MiMo round trip** (`interop/mimo/{verify,export}.py`):
+  - The import records a sha256 manifest of the source env.
+  - Each env's own `verify()` grades a World run in a fresh grading root: the source's verifier files plus the run's `system/*.db` and `workspace/`.
+  - A crash or an unavailable judge is masked (MiMo's own contract), never 0. Items map to `check/<id>` channels.
+  - MiMo's verifier output is captured and scrubbed: it prints a judge-key prefix.
+  - The export emits the original bytes and checks them against the manifest.
+  - **Gate ✅:** one env imported, run, graded (masked without a judge; 0.5 with a cheap judge for a placeholder answer) and re-exported byte-identical.
 - **Canonical episode key** `"<task id>|<episode>"`: derived `call_id`s agree across runtimes.
 - **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, agentenv (real gateway REST transport), NeMo-Gym and OpenEnv, with the same final state fingerprint. verifiers keeps the reward and raises a typed error on a mask.
 

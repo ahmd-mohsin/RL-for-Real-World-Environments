@@ -35,6 +35,7 @@ class MimoEnv:
     manifest: dict[str, Any]
     meta: dict[str, Any]
     tool_files: list[str]
+    files: dict[str, str] | None = None  # relpath -> sha256 of the source env at import (byte-identical export + provenance)
 
 
 def mimo_tool_stems(env: Path) -> list[str]:
@@ -93,7 +94,15 @@ def import_mimo_env(env: str | Path, *, transport: str = "inprocess") -> MimoEnv
         "apps": apps,
         "actors": [{"id": "agent", "kind": "policy", "tools": ["*"]}],
     })
-    return MimoEnv(path=env, world=spec, instruction=(env / "instruction.md").read_text(), manifest=manifest, meta=meta, tool_files=stems)
+    return MimoEnv(path=env, world=spec, instruction=(env / "instruction.md").read_text(), manifest=manifest, meta=meta, tool_files=stems,
+                   files=tree_hashes(env))
+
+
+def tree_hashes(root: Path) -> dict[str, str]:
+    import hashlib
+
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(root).rglob("*"))
+            if p.is_file() and "__pycache__" not in p.parts and ".cache" not in p.parts}
 
 
 def list_mimo_envs(root: str | Path) -> list[Path]:
