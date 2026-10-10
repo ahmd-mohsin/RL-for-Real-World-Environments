@@ -276,6 +276,44 @@ def engine_app(engine: Engine):
     return app
 
 
+def generate_app(pool: Any, *, model: str, max_model_len: int = 32768, session_header: str = "x-session-id", max_aborts: int = 64):
+    """The vLLM ``/inference/v1/generate`` protocol (token ids in, token ids + logprobs out) served from any Crucible engine
+    pool (m13 E: verifiers ``TrainClient`` / prime-rl ``renderers.client.generate``). The client renders and parses
+    itself, so its traces carry exact token records; Crucible supplies the engines (sticky on the client's session
+    header), re-issues aborts, and stamps every completion with the engine's policy version."""
+    import uuid
+
+    from fastapi import FastAPI, Header
+
+    app = FastAPI()
+
+    @app.get("/v1/models")
+    async def models() -> dict:
+        return {"object": "list", "data": [{"id": model, "object": "model", "max_model_len": max_model_len}]}
+
+    # (annotations are postponed in this module: only builtins in signatures, FastAPI resolves them from globals)
+    @app.post("/inference/v1/generate")
+    async def generate(body: dict, session: str | None = Header(default=None, alias=session_header)) -> dict:
+        sp = body.get("sampling_params") or {}
+        rid = session or f"gen-{uuid.uuid4().hex[:12]}"
+        g = GenRequest(rid=rid, call_id=f"{rid}:{uuid.uuid4().hex[:6]}", prompt_ids=list(body["token_ids"]), max_tokens=int(sp.get("max_tokens") or 512),
+                       temperature=float(sp.get("temperature", 1.0)), stop_ids=tuple(sp.get("stop_token_ids") or ()), seed=sp.get("seed"),
+                       top_p=float(sp.get("top_p", 1.0)))
+        for _ in range(max_aborts):
+            res = await pool.generate(g)
+            if res.finish != "abort":
+                break
+            g.resume_completion, g.resume_logprobs, g.resume_spans = [], [], []  # re-issued whole under the new version
+        ids, lps = list(res.completion_ids), list(res.logprobs)
+        finish = "stop" if (res.finish == "stop" or (ids and ids[-1] in g.stop_ids)) else "length"
+        return {"request_id": g.call_id, "prompt_token_ids": list(g.prompt_ids),
+                "choices": [{"index": 0, "token_ids": ids, "finish_reason": finish, "policy_version": res.version,
+                             "logprobs": {"content": [{"token": f"token_id:{t}", "logprob": float(lp)} for t, lp in zip(ids, lps, strict=True)]}}],
+                "usage": {"prompt_tokens": len(g.prompt_ids), "completion_tokens": len(ids), "total_tokens": len(g.prompt_ids) + len(ids)}}
+
+    return app
+
+
 class HTTPEngine:
     def __init__(self, url: str, *, capacity: int = 64, timeout_s: float = 600.0):
         import httpx

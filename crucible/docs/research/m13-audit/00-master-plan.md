@@ -67,7 +67,7 @@ Already closed in this session:
 The corpus audit's ten picks:
 - terminal-bench 2.1 / science; MiMo Harbor code + cyber; SmolDataEnvs; HF_ML_Tasksmith (all via A-1);
 - EnterpriseOps-Gym (new `interop/eog`);
-- verifiers v1 import (tau2/tau3, BrowseComp-Plus) and v0 import;
+- ✅ verifiers v1 import (any v1 env runs its own episode on Crucible engines; tau2/tau3 need the upstream repo + a user-sim model, BrowseComp-Plus its corpus); v0 import open;
 - ✅ NeMo-Gym import (workplace_assistant, ruler/mrcr; math needs a judge server);
 - OpenEnv two-player games as multi-agent;
 - geoguesser (vision); browsergym (GUI);

@@ -1120,6 +1120,34 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**E: verifiers v1 import (2026-10-10; audit 03 G6, pick 6).** Rather than port each v1 environment's internals,
+Crucible lets verifiers run its own episode (harness, toolsets, user simulator, `@reward` rubric) unchanged in its own
+Python (`crucible/.envs/verifiers`), and supplies only the model.
+
+- **Token exactness:** verifiers' `TrainClient` renders prompts to token ids and calls the vLLM
+  `/inference/v1/generate` protocol, so its traces carry exact token records. Crucible serves that protocol from its
+  engines (`gateway.generate_app`: sticky on verifiers' session header, aborts re-issued, versions stamped).
+- **`interop/verifiers/v1_import.py`:**
+  - `trace_to_record`: a v1 trace is a token graph (nodes: `token_ids`, trainable `mask`, `logprobs`; a prompt is the
+    concatenation of its ancestors). Each sampled node becomes a `Turn` (the prompt delta since the previous
+    completion, the masked span as the completion). The reward is the weighted rubric, and trace errors mask the record.
+  - `RolloutGenerateServer` routes `/r/<key>/inference/v1/generate` to one rollout's `gen` (`Runtime._call`), so
+    versions, barrier aborts and staleness are the runtime's own.
+  - `vf_rollout(env_id, model)` is the runtime's `rollout_fn`: the prompt is a task index, run with `vf-eval
+    --select.include.idx`.
+  - `run_vf_eval` evaluates a verifiers env against any engine pool.
+- **Found while testing:**
+  - `generate_app` declared `req: Request` with `Request` imported inside the function. With postponed annotations,
+    FastAPI read it as a query parameter (422). Signatures now use builtins only.
+  - Runtime rollout ids (`glossary:0@0/2`) contain `/`, which broke the per-rollout route (404, every rollout masked).
+    Routes now use a hash key.
+- **Tests (real verifiers `glossary` env, local tool server, Qwen3 renderer, scripted Qwen3-token model):**
+  - `vf-eval` on Crucible engines scores 5/5 on verifiers' own rubric;
+  - the records are train-valid, and the reconstructed last prompt equals verifiers' token graph exactly;
+  - the M12 runtime trains 2 steps on the verifiers env (8 records, 0 masked, versions stamped).
+- **Not done:** tau2/tau3 need the upstream `sierra-research/tau2-bench` repo and a user-simulator model;
+  BrowseComp-Plus needs its search corpus; a v0 (`load_environment`) import is still open.
+
 **E: NeMo-Gym import (2026-10-10; audit 03 G5, pick 7).** NeMo-Gym's resources servers become Crucible Worlds
 (`interop/nemo_gym/import_server.py`). The pattern is verifiers' `v1/tasksets/nemo_gym`: seed with the row, verify with
 a rebuilt Responses object.
