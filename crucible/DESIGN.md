@@ -743,6 +743,35 @@ Task 04's full grade takes 30–60 minutes of GPU time, so RL needs the fast tie
 
 ---
 
+**As built, part 1 (M12, 2026-10-10; research `docs/research/m11-m12/`).** The trainer math and the control plane are
+engine-independent and tested on CPU:
+
+- `train/mismatch.py`: every correction as a pure torch function returning per-token objectives: ppo (clip-higher,
+  dual clip), tis, icepop, kpop, dis, mimo4, mispo, hispo, cispo, gspo. Golden tests reproduce the article's numbers
+  (KPop binary KL 4.05e−5 / 0.4534, IcePop gate, MIS-PO trajectory filter, HisPO dual clip, CISPO stop-gradient).
+  Corrections that need π_θold refuse to run without it unless told where it comes from. The default is
+  `dis(0.8, 3.0)`, valid under multi-version async with call-level versions.
+- `train/objectives.py`: loss aggregation (token-mean global by default; seq-mean, prompt-mean, HisPO constant),
+  group advantages (mean, RLOO, optional std; masked rollouts excluded), token-level GAE with skip-observation,
+  cross-segment discounting (γλ)^{N_{>s}} with a shared terminal, truncation bootstrap, length-adaptive λ, DAPO
+  overlong shaping.
+- `train/batching.py`: global, mini and micro batch definitions; largest-first DP balancing (imbalance ≤ 1.1);
+  first-fit-decreasing token-budget micro batches; exact global token-mean loss scaling.
+- `train/pool.py` + `train/scheduler.py`: a data pool with tags kept separate from values, and a deterministic
+  scheduler. Dispatch is per rollout. Groups are admitted whole, gated per source and globally, with deficit-based
+  source mix. Staleness is handled by `wait` (default) or `drop`. Group backfill is pad, refill_member or drop_group.
+  Dynamic sampling, buffer policies (oldest-first, greedy, windowed FIFO), off-policy share cap, early-short drop.
+- `train/sim.py`: a discrete-event simulator of the three topologies (colocated sync, colocated partial rollout with
+  abort and re-prefill, disaggregated streaming with call-boundary publishes). It drives the real scheduler; the
+  checklist items are tests.
+- `train/monitors.py`: staleness, spans, length-bias KS, pass rate with a jump alarm, zero-variance groups, mismatch
+  and timing metrics.
+
+**Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
+can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
+admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
+rollout is trained within about S steps, and S = 1 is exactly synchronous.
+
 ### 10.4 Long horizons: million-token trajectories with dense, honest reward (built 2026-10-09)
 
 The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M context, SWE RL at 130 turns) and that rewards got sparse (one binary outcome after hundreds of steps). Crucible's environments must therefore produce, survive and credit such episodes natively, not only in the trainer. Evidence and per-framework mechanisms: `docs/research/long-horizon/01-frameworks.md`. Module doc: `docs/modules/long-horizon.md`.
@@ -1117,4 +1146,10 @@ Registry check: A3, mutation score.
 |---|---|---|
 | A refund recorded with the supervisor's name but never requested scored 1.0 (state-only approval check) | the approver's name is hidden, but the world is constant across episodes: a policy learns it once and forges approvals from then on | `event` check `approval_grounded` (the approval must appear in the episode); A13 `forged_approval`; fixed |
 | With no in-transit orders the supervisor's rejection rule became `(?:)` and rejected every request; the hindsight oracle refunded anyway | the oracle violated the policy it was meant to model, and state-only checks passed it | rule added only when the list is non-empty; caught by `approval_grounded`; fixed |
+
+**B.16 Found while building M12 (2026-10-10).**
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| An admission cap on in-flight rollouts only (S × B) lets finished rollouts accumulate in the buffer | with τ = 2 and `wait`, simulated rollouts trained at staleness 12, and synchronous mode leaked staleness 7 | the cap counts untrained rollouts (in flight + buffered); simulator tests for every topology; fixed |
 
