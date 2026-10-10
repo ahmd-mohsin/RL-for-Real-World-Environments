@@ -820,6 +820,13 @@ Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M1
 
 ## Appendix A — What we take from each surveyed framework
 
+*Industry evidence (2026-10-09):* a survey of 11 labs' 2025–2026 agentic-RL infrastructure reports (`docs/research/2026-10-09-agentic-rl-infra-survey.md`) finds environment and grader engineering to be the binding constraint (DeepSeek-V4.1: higher marginal return than algorithmic innovation; MiMo: grader compute is its own scaling axis). It adds eight requirements to the roadmap (survey notes §6), of which the most immediate are:
+- truncated episodes are masked or Φ-bootstrapped, never scored as failures;
+- environment crashes the agent caused are failures, never masked;
+- group advantage redistribution among passing solutions (MiMo GAR, mass-conserving);
+- soft-hack negatives;
+- rollout records with token ids, behaviour logprobs and policy version per span.
+
 All paths are under `../RL-Environments/06-frameworks-and-env-code/` unless they say otherwise.
 
 | Need | Take | From |
