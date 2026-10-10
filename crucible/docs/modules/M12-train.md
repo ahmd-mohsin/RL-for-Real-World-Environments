@@ -146,7 +146,7 @@ Facts behind the table:
 
 | # | item | status | missing |
 |---|---|---|---|
-| 1 | four plane interfaces + version | partial | StateStore (checkpoint + policy state + paused-call registry); WeightPublisher protocol |
+| 1 | four plane interfaces + version | partial | state plane built (`train/state.py`: barrier checkpoints, atomic + hashed, bitwise resume in sync mode incl. critic; in-flight rollouts restart); open: a formal `WeightPublisher` protocol class and mid-episode rollout resume (M10 World checkpoints) |
 | 2 | publish +1, per-call version | partial | capture-proxy version stamping; 100-call mid-rollout test |
 | 3 | call-level version purity | done | |
 | 4 | version_spans gate | done | |

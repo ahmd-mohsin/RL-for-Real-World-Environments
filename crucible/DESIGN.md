@@ -945,6 +945,16 @@ DP-rank unit from a simulation into processes:
   learns (reward 0.04 → 0.21, explained variance 0 → 0.80).
 - **Under DP:** the critic trains on the full batch on every rank.
 
+**As built, part 8 (M12 state plane, 2026-10-10; `train/state.py`; checklist #1).**
+- **Checkpoint:** taken at the sample barrier (`checkpoint_every`). It captures trainer and critic weights with their
+  optimizer moments, the published version, scheduler state, source queues, the rollout seed counter, every pool tag and
+  group, the records of finished-untrained rollouts, and the monitor and report counters.
+- **Writes:** atomic (temp dir, then rename) with a sha256 manifest; a corrupt file is refused.
+- **Resume:** `Runtime.resume()` restores everything and re-publishes the restored weights at the restored version
+  (`publisher.restore`: no new version, no optimizer reset). In-flight rollouts restart and are counted.
+- **Tests:** synchronous mode resumes **bit for bit** (4 uninterrupted steps = 2 + checkpoint + resume + 2, with and
+  without the critic); partial rollout continues the version sequence and never draws a prompt twice.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

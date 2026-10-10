@@ -57,6 +57,9 @@ class RuntimeConfig:
     # circuit breaker (the M10 stop rules): over the last ``breaker_window`` finished rollouts (once ``breaker_min`` have
     # finished), stop when the masked share exceeds ``max_masked_share`` or the harness-bug share exceeds
     # ``max_harness_share`` -- a broken pipeline must stop with its reason, never spin masking everything
+    # state plane (checklist #1): a run checkpoint every ``checkpoint_every`` steps at the sample barrier (``train.state``)
+    checkpoint_every: int = 0
+    checkpoint_dir: str | None = None
     max_masked_share: float = 0.2
     max_harness_share: float = 0.05
     breaker_window: int = 200
@@ -98,6 +101,8 @@ class RunReport:
     failures: dict[str, int] = field(default_factory=dict)  # "<blame>:<kind>" -> count (infra / harness), never silent
     failure_examples: list[dict] = field(default_factory=list)  # first tracebacks per kind
     stop_reason: str = "steps"  # steps | wall_clock | masked_share | harness_share
+    restarted_rollouts: int = 0  # in flight at a checkpoint, restarted from scratch on resume
+    checkpoints: list[str] = field(default_factory=list)
 
     def series(self, key: str) -> list[float]:
         return [s.metrics[key] for s in self.steps if key in s.metrics]
@@ -131,6 +136,8 @@ class Runtime:
         self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
         self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
         self._blocked_since: float | None = None
+        self._seeds = 0  # rollout seed counter (part of the run state: a resumed run continues the sequence)
+        self.start_step = 0
         from collections import deque
 
         self._recent: deque[str] = deque(maxlen=cfg.breaker_window)  # ok | masked | infra | harness, per finished rollout
@@ -329,7 +336,8 @@ class Runtime:
             if t.status == "pending" and rid not in self.tasks:
                 self.pool.start(rid)
                 g = self.pool.groups[t.group]
-                self.tasks[rid] = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=len(self.tasks)))
+                self.tasks[rid] = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=self._seeds))
+                self._seeds += 1
 
     # ---- control plane --------------------------------------------------------------------------------------------
     def _admit(self) -> None:
@@ -380,6 +388,18 @@ class Runtime:
         return {"idle/rollout_s": max(wall - busy, 0.0), "idle/train_s": max(wall - train_s - publish_s, 0.0), "idle/env_wait_s": env_wait,
                 "env/busy_s": env_busy, "step/wall_s": wall, "engine/utilization": busy / wall if wall > 0 else 0.0}
 
+    async def resume(self, path: str | None = None) -> int:
+        """Load a run checkpoint (``path``, or the latest under ``cfg.checkpoint_dir``) into this freshly built runtime and
+        re-publish the restored weights to the engines at the restored version. Returns the step the run continues after."""
+        from crucible.train import state
+
+        ck = path or (state.latest(self.cfg.checkpoint_dir) if self.cfg.checkpoint_dir else None)
+        if ck is None:
+            raise FileNotFoundError("no run checkpoint to resume from")
+        self.start_step = state.restore(self, state.load(ck))
+        await self.publisher.restore(self.version)
+        return self.start_step
+
     async def run(self) -> RunReport:
         try:
             return await self._run()
@@ -390,7 +410,7 @@ class Runtime:
     async def _run(self) -> RunReport:
         t_start = time.monotonic()
         mark = {"t": t_start, "busy": self.engines.busy_until_now(), "env_wait": 0.0, "env_busy": 0.0}
-        step = 0
+        step = self.start_step
         offload = self.cfg.train_state_on_rollout
         if offload != "none":
             self.trainer.offload(offload)  # rollouts come first: the engine gets the accelerator
@@ -404,7 +424,7 @@ class Runtime:
                 self.report.stop_reason = tripped
                 break
             self._admit()
-            if step == 0 and self.cfg.topology != "colocated_sync" and self.cfg.warmup_batches:
+            if step == 0 and self.start_step == 0 and self.cfg.topology != "colocated_sync" and self.cfg.warmup_batches:
                 ready = len(self.pool.terminal_groups())
                 if ready < self.sched_cfg.B * (1 + self.cfg.warmup_batches) and any(not t.done() for t in self.tasks.values()):
                     await self._wait()
@@ -433,6 +453,10 @@ class Runtime:
                 self.version = await self.publisher.publish()
                 publish_s = time.monotonic() - t1
                 self.report.publishes += 1
+            if self.cfg.checkpoint_every and step % self.cfg.checkpoint_every == 0 and self.cfg.checkpoint_dir:
+                from crucible.train import state
+
+                self.report.checkpoints.append(str(state.save(state.capture(self, step), self.cfg.checkpoint_dir)))
             if offload != "none":
                 self.trainer.offload(offload)  # after the publish (which read the weights): free the accelerator for rollouts
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):

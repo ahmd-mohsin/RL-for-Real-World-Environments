@@ -40,6 +40,15 @@ class InprocPublisher:
         return self.version
 
 
+    async def restore(self, version: int) -> None:
+        """Resume (state plane): serve the restored weights at the restored ``version`` (no new version, no optimizer reset)."""
+        state = self.trainer.state_dict()
+        if self.transform is not None:
+            state = self.transform(state)
+        self.version = version
+        await self.engines.load_weights(state, version)
+
+
 class CheckpointPublisher(InprocPublisher):
     def __init__(self, trainer: Any, engines: Any, root: Path, **kw: Any):
         super().__init__(trainer, engines, **kw)
@@ -61,3 +70,15 @@ class CheckpointPublisher(InprocPublisher):
             self.trainer.reset_optimizer()
         self.latencies.append(time.monotonic() - t0)
         return self.version
+
+    async def restore(self, version: int) -> None:
+        from safetensors.torch import save_file
+
+        state = self.trainer.state_dict()
+        if self.transform is not None:
+            state = self.transform(state)
+        self.version = version
+        d = self.root / f"v{version}"
+        d.mkdir(parents=True, exist_ok=True)
+        save_file({k: v.contiguous() for k, v in state.items()}, str(d / "model.safetensors"))
+        await self.engines.load_weights(str(d), version)

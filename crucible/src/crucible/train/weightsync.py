@@ -329,6 +329,19 @@ class DistributedPublisher:
         self.latencies.append(time.monotonic() - t0)
         return self.version
 
+    async def restore(self, version: int) -> None:
+        import asyncio
+
+        state = self.trainer.state_dict()
+        if self.transform is not None:
+            state = self.transform(state)
+        self.version = version
+        if self.sync.plan_ is None:
+            await asyncio.to_thread(self.sync.plan, state)
+        await asyncio.to_thread(self._send, version, state)
+        if self.engines is not None:
+            await self.engines.load_weights(state, version)
+
     def _send(self, version: int, state: dict) -> None:
         with self._lock:
             self.sync.update(version, state)
