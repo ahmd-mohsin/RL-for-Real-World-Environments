@@ -91,6 +91,7 @@ class RuntimeConfig:
     # pool, off the training critical path; past ``teacher_deadline_s`` or on error: ``teacher_on_miss`` = "fallback"
     # (RL signal only, ``opd_fallback``) or "mask"; ``student_vocab_id`` is checked against every teacher at start
     teacher_deadline_s: float = 120.0
+    per_source_metrics: bool = False  # reward / length / active-time metrics per source even with one source (always with several)
     teacher_on_miss: str = "fallback"
     student_vocab_id: str | None = None
     reward_deadline_s: float | None = None
@@ -143,13 +144,24 @@ def _blame(e: BaseException) -> str:
     return "infra" if isinstance(e, infra) else "harness"
 
 
+def _per_source(x: Any, source: str | None) -> Any:
+    """A per-source map (m13 C-6: ``{"code": fn_a, "math": fn_b, "*": default}``) or one value for every source."""
+    if isinstance(x, dict):
+        return x[source] if source in x else x.get("*")
+    return x
+
+
 class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
                  rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None,
                  on_alarm: Callable | None = None, audit_fn: Callable | None = None, group_fn: Callable | None = None,
                  teacher_pool: Any = None):
-        """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
+        """``env_factory``, ``harness``, ``rollout_fn``, ``reward_fn`` and ``aux_fn`` may each be a per-source map (``{source:
+        value, "*": default}``, m13 C-6): one run mixes token envs, World tasks and judge-graded sources, each record
+        tagged with its source.
+
+        ``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
         if cfg.topology == "colocated_sync":
@@ -167,6 +179,7 @@ class Runtime:
             if cfg.student_vocab_id is not None:
                 teacher_pool.check_vocab(cfg.student_vocab_id)  # A2-12: refused before any rollout
         self._teach_stats = {"scored": 0, "fallback": 0, "seconds": 0.0}
+        self._started: dict[str, float] = {}
         self._group_stage: dict[str, tuple[float, asyncio.Task]] = {}
         self._audit_tasks: set[asyncio.Task] = set()
         self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
@@ -228,6 +241,7 @@ class Runtime:
 
     async def _rollout_fn(self, rid: str, prompt: str, seed: int) -> None:
         tag = self.pool.tags[rid]
+        fn, harness = _per_source(self.rollout_fn, tag.source), _per_source(self.harness, tag.source)
         k = [0]
 
         async def gen(ids: list[int], max_tokens: int, temperature: float) -> GenResult:
@@ -240,10 +254,9 @@ class Runtime:
 
         try:
             if self.envs is not None:  # the whole episode on a worker loop; its model calls come back to this loop
-                rec = await self.envs.run_episode(self.rollout_fn, rid, prompt, seed, self.envs.bridge(gen), temperature=self.cfg.temperature,
-                                                  harness=self.harness)
+                rec = await self.envs.run_episode(fn, rid, prompt, seed, self.envs.bridge(gen), temperature=self.cfg.temperature, harness=harness)
             else:
-                rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)
+                rec = await fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=harness)
         except EnvInfraError as e:
             self._failure("infra", e)
             return await self._complete(rid, None, failed=True)
@@ -280,12 +293,18 @@ class Runtime:
 
     async def _complete(self, rid: str, rec: RolloutRecord | None, *, failed: bool = False) -> None:
         """Deliver a finished rollout to the pool, grading it asynchronously first when a ``reward_fn`` is set."""
-        if rec is not None and (self.reward_fn is not None or self.aux_fn is not None):
+        src = self.pool.tags[rid].source
+        if rec is not None:
+            rec.source = src
+            t0 = self._started.pop(rid, None)
+            if t0 is not None:
+                rec.timings["active_s"] = time.monotonic() - t0  # rollout wall time (per-source active time, A2-55)
+        else:
+            self._started.pop(rid, None)
+        if rec is not None and (_per_source(self.reward_fn, src) is not None or _per_source(self.aux_fn, src) is not None):
             self.pool.grading(rid)
             self.changed.set()
             rec = await self._grade(rec)
-        if rec is not None:
-            rec.source = self.pool.tags[rid].source
         if rec is not None and self.teacher_pool is not None and not rec.mask_sample:
             self.pool.grading(rid)
             self.changed.set()
@@ -370,9 +389,10 @@ class Runtime:
     async def _grade(self, rec: RolloutRecord) -> RolloutRecord | None:
         cfg = self.cfg
         t0 = time.monotonic()
-        aux = asyncio.create_task(self.aux_fn(rec)) if self.aux_fn is not None else None
-        if self.reward_fn is not None:
-            task = asyncio.create_task(self.reward_fn(rec))
+        aux_fn, reward_fn = _per_source(self.aux_fn, rec.source), _per_source(self.reward_fn, rec.source)
+        aux = asyncio.create_task(aux_fn(rec)) if aux_fn is not None else None
+        if reward_fn is not None:
+            task = asyncio.create_task(reward_fn(rec))
             try:
                 if cfg.reward_deadline_s is not None:
                     done, _ = await asyncio.wait({task}, timeout=cfg.reward_deadline_s)
@@ -408,10 +428,14 @@ class Runtime:
         return rec
 
     async def _rollout(self, rid: str, prompt: str, seed: int) -> None:
-        if self.rollout_fn is not None:
-            return await self._rollout_fn(rid, prompt, seed)
-        env = self.env_factory()
         tag = self.pool.tags[rid]
+        self._started[rid] = time.monotonic()
+        if _per_source(self.rollout_fn, tag.source) is not None:
+            return await self._rollout_fn(rid, prompt, seed)
+        factory = _per_source(self.env_factory, tag.source)
+        if factory is None:
+            raise ValueError(f"source {tag.source!r} has neither a rollout_fn nor an env_factory")
+        env = factory()
         try:
             obs = await self._env(env.reset, prompt, seed)
             context: list[int] = list(obs)
@@ -437,7 +461,7 @@ class Runtime:
                     reward = step.reward
                     break
             g = self.pool.groups[tag.group]
-            rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=self.harness, policy="native", group=tag.group,
+            rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=_per_source(self.harness, tag.source), policy="native", group=tag.group,
                                 turns=turns, reward=reward, stop="done")
         except EnvInfraError as e:  # infrastructure: masked, never scored 0
             self._failure("infra", e)
@@ -519,6 +543,16 @@ class Runtime:
         by_group: dict[str, list[float]] = {}
         for r, g in zip(recs, groups, strict=True):
             by_group.setdefault(g, []).append(r.reward)
+        by_src: dict[str, list[RolloutRecord]] = {}
+        for r in recs:
+            by_src.setdefault(r.source or "?", []).append(r)
+        if len(by_src) > 1 or self.cfg.per_source_metrics:  # m13 C-6 (A2-55): MiMo saw 90× length / 66× time spreads across sources
+            for src_, rs in by_src.items():
+                lens = sorted(sum(len(t.completion_token_ids or []) for t in r.turns) for r in rs)
+                act = sorted(float(r.timings.get("active_s", 0.0)) for r in rs)
+                gm = {**gm, f"reward/mean/{src_}": sum(float(r.reward or 0.0) for r in rs) / len(rs), f"len/mean/{src_}": sum(lens) / len(lens),
+                      f"len/p99/{src_}": float(lens[min(len(lens) - 1, int(0.99 * len(lens)))]), f"active_s/mean/{src_}": sum(act) / len(act),
+                      f"active_s/p99/{src_}": act[min(len(act) - 1, int(0.99 * len(act)))], f"records/{src_}": float(len(rs))}
         if self.teacher_pool is not None:
             gm = {**gm, "teacher/scored": float(self._teach_stats["scored"]), "teacher/fallback": float(self._teach_stats["fallback"]),
                   "teacher/seconds": self._teach_stats["seconds"]}

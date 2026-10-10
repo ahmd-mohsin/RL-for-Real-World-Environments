@@ -115,3 +115,12 @@ def test_monitors_alarm_and_length_bias():
     m = mon.record(8, rewards=[1.0, 1.0, 1.0, 1.0], lengths=[100, 120, 90, 110], staleness=[0, 1, 2, 0], spans=[1, 2, 3, 1])
     assert m["alarm/pass_rate_jump"] == 1.0 and mon.alarms[-1]["action"].startswith("full-tier")  # item 52
     assert m["length/ks_vs_steady"] == 1.0 and m["on_policy_share"] == 0.5 and m["staleness/max"] == 2  # items 24, 29
+
+
+def test_per_source_tau():
+    """m13 C-6 (A2-54): a τ = 1 source never trains staleness > 1 next to a τ = 4 source, under both strategies."""
+    for strategy in ("drop", "wait"):
+        r = run("colocated_partial", max_staleness=4, max_staleness_by_source={"a": 1}, staleness_strategy=strategy, admission_staleness=4)
+        assert r.steps == 15 and max(r.staleness_by_source["a"]) <= 1 and max(r.staleness_by_source.get("b", [0])) <= 4
+    r = run("colocated_partial", max_staleness=4, staleness_strategy="drop", admission_staleness=4)
+    assert max(r.staleness_by_source["a"]) > 1  # without the per-source limit, source a does go staler

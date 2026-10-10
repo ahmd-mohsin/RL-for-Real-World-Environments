@@ -45,6 +45,7 @@ class SchedulerConfig:
     n: int = 8  # group size (1 = critic mode, no groups)
     B: int = 4  # groups per optimizer step
     max_staleness: int = 4  # τ (MiMo's published value)
+    max_staleness_by_source: dict[str, int] = field(default_factory=dict)  # per-source τ (m13 C-6, A2-54); default max_staleness
     staleness_strategy: str = "wait"  # wait | drop | none
     admission_staleness: int | None = None  # S for max_inflight = S·B·n (default τ)
     inflight_cap: dict[str, int] = field(default_factory=dict)  # per source, in rollouts
@@ -56,6 +57,9 @@ class SchedulerConfig:
     max_offpolicy_frac: float | None = None
     drop_early_short: float | None = None  # length quantile in (0, 1)
     early_steps: int = 0
+
+    def tau(self, source: str) -> int:
+        return int(self.max_staleness_by_source.get(source, self.max_staleness))
 
     def max_inflight(self) -> int:
         s = self.admission_staleness if self.admission_staleness is not None else self.max_staleness
@@ -74,6 +78,7 @@ class Selection:
     spans: list[int] = field(default_factory=list)
     worst: list[int] = field(default_factory=list)  # per selected group: its stalest member (checklist #24 staleness_worst)
     evicted_staleness: list[int] = field(default_factory=list)  # per group evicted for staleness at this barrier
+    staleness_by_source: dict[str, list[int]] = field(default_factory=dict)
 
 
 class Scheduler:
@@ -146,12 +151,12 @@ class Scheduler:
         if c.staleness_strategy == "drop":
             for g in self.pool.terminal_groups():
                 gs = self.pool.group_staleness(g.gid, v_train)
-                if gs > c.max_staleness:
+                if gs > c.tau(g.source):
                     self.pool.evict_group(g.gid)
                     evicted[g.gid] = "stale"
                     ev_st.append(gs)
                     self.counters["evicted_stale"] += 1
-        elif c.staleness_strategy == "wait" and any(t.staleness(v_train) >= c.max_staleness for t in self.pool.live()):
+        elif c.staleness_strategy == "wait" and any(t.staleness(v_train) >= c.tau(t.source) for t in self.pool.live()):
             return Selection([], evicted, blocked="wait_stale")
         if c.filter_zero_variance and c.n > 1:
             for g in self.pool.terminal_groups():
@@ -188,21 +193,31 @@ class Scheduler:
             off = [g for g in cands if self.pool.group_staleness(g.gid, v_train) > 0][:limit]
             keep = {g.gid for g in on + off}
             cands = [g for g in cands if g.gid in keep]
+        if c.max_staleness_by_source:  # per-source τ: finished groups keep aging in the buffer, which "wait" alone does not see
+            over = [g for g in cands if self.pool.group_staleness(g.gid, v_train) > c.tau(g.source)]
+            for g in over:  # could not be trained within its bound: dropped as stale, never trained over it
+                self.pool.evict_group(g.gid)
+                evicted[g.gid] = "stale"
+                ev_st.append(self.pool.group_staleness(g.gid, v_train))
+                self.counters["evicted_stale"] += 1
+            cands = [g for g in cands if g.gid not in evicted]
+            cands.sort(key=lambda g: self.pool.group_staleness(g.gid, v_train) < c.tau(g.source))  # groups at their bound first (stable)
         if len(cands) < c.B:
             return Selection([], evicted, blocked="need_more")
         batch = cands[: c.B]
-        st, sp, worst = [], [], []
+        st, sp, worst, by_src = [], [], [], {}
         for g in batch:
             gst = []
             for t in self.pool.members(g.gid, {"finished", "failure"}):
                 gst.append(t.staleness(v_train))
+                by_src.setdefault(g.source, []).append(gst[-1])
                 sp.append(t.spans())
                 self.lengths_seen.append(t.length)
             st += gst
             if gst:
                 worst.append(max(gst))
         self._ev_pending = []
-        return Selection(batch, evicted, staleness=st, spans=sp, worst=worst, evicted_staleness=ev_st)
+        return Selection(batch, evicted, staleness=st, spans=sp, worst=worst, evicted_staleness=ev_st, staleness_by_source=by_src)
 
     def trained(self, sel: Selection) -> None:
         for g in sel.groups:

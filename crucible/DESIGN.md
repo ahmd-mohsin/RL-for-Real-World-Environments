@@ -1120,6 +1120,26 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-6 (2026-10-10): multi-domain runtime (A2-53..55).**
+- **Per-source maps:** `Runtime` used to take one `rollout_fn`, one `reward_fn` and one harness. Now `env_factory`,
+  `harness`, `rollout_fn`, `reward_fn` and `aux_fn` each accept `{source: value, "*": default}`, resolved by the
+  rollout's scheduler source, so token envs, World tasks and judge-graded sources share one run. Every record carries
+  `source` and `timings["active_s"]` (rollout wall time).
+- **Per-source staleness (`SchedulerConfig.max_staleness_by_source`):**
+  - `drop` evicts against the group's own τ.
+  - `wait` needed more: it blocks only on *live* rollouts, while a finished, untrained group of a tight-τ source kept
+    aging in the buffer (simulator: τ = 1 source trained at staleness 4). With a per-source map, groups at their
+    bound go first in the batch, and a group already past its bound is evicted as stale, never trained over it.
+  - Without a map, behaviour is unchanged. Selection and the simulator now report staleness per source.
+- **Per-source metrics:** `reward/mean/<src>`, `len/{mean,p99}/<src>`, `active_s/{mean,p99}/<src>` and `records/<src>`,
+  whenever a batch has several sources (or `per_source_metrics`). MiMo saw 90× length and 66× time spreads across
+  sources.
+- **Tests:**
+  - a τ = 1 source never trains staleness > 1 next to a τ = 4 source, under `drop` and `wait`, and does exceed 1
+    without the map;
+  - one runtime with a token-env source, a `rollout_fn` source and a judge-graded source: every record is tagged with
+    its source and its own harness, the judge runs only for its source, and the per-source metrics are present.
+
 **C-5 (2026-10-10): teacher pool, on-policy distillation and the KL reference (route ④; A2-9..A2-12, A2-14).**
 - **Teacher pool (`train/teachers.py`):** a teacher scores `(prompt, completion)` token ids.
   - **Implementations:** `TorchTeacher` (a local model under `no_grad`, in a thread) and `VLLMTeacher`

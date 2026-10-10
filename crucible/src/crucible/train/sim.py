@@ -83,6 +83,7 @@ class SimResult:
     steps: int
     time: float
     staleness: list[list[int]] = field(default_factory=list)
+    staleness_by_source: dict[str, list[int]] = field(default_factory=dict)
     spans: list[list[int]] = field(default_factory=list)
     batch_lengths: list[list[int]] = field(default_factory=list)
     batch_sources: list[list[str]] = field(default_factory=list)
@@ -206,6 +207,8 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             admit()
             return
         res.staleness.append(sel.staleness)
+        for src, xs in sel.staleness_by_source.items():
+            res.staleness_by_source.setdefault(src, []).extend(xs)
         res.spans.append(sel.spans)
         res.batch_lengths.append([t.length for g in sel.groups for t in pool.members(g.gid, {"finished", "failure"})])
         res.batch_sources.append([g.source for g in sel.groups])
