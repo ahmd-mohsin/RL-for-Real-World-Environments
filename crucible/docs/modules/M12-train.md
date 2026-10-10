@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 38 done, 14 partial, 0 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 41 done, 11 partial, 0 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -161,7 +161,7 @@ Facts behind the table:
 | 13 | publish every K, optimizer reset | **done** | K = 2 versions; moments zeroed at publish |
 | 14 | warmup batches | done | tested: first step waits for B × 2 terminal groups |
 | 15 | per-source admission | done | lower-bound test |
-| 16 | terminal-only GRPO, critic no barrier | partial | critic mode (n = 1) |
+| 16 | terminal-only GRPO, critic no barrier | **done** | critic mode (`TorchTrainer(critic=)`): n = 1 groups are selectable on finish; GRPO at n = 1 has zero advantage (tested), the critic learns (reward 0.04 → 0.21, EV 0 → 0.80) |
 | 17 | group backfill | done | pad / drop_group / refill tested |
 | 18 | loss_agg + DAPO golden | done | |
 | 19 | DP balancing | done | real DP: `DistributedTorchTrainer` |
@@ -191,9 +191,9 @@ Facts behind the table:
 | 43 | harness per group | partial | per-group assignment, harness share |
 | 44 | compaction params recorded | partial | defaults, run-record entry |
 | 45 | summary calls carry advantage | done | direct assertion |
-| 46 | cross-segment GAE | partial | critic trainer; 3-segment golden |
-| 47 | skip-observation GAE | done | wired to a trainer |
-| 48 | critic knobs | partial | TTUR, freeze attention |
+| 46 | cross-segment GAE | **done** | wired into critic mode; trainer advantages equal direct GAE with segments |
+| 47 | skip-observation GAE | done | wired: the critic chain holds completion tokens only |
+| 48 | critic knobs | **done** | TTUR (`updates_per_policy_update`), `HFValue(freeze_attention=True)`, λ_policy length-adaptive (α = 1.5), λ_critic = 1, truncation bootstrap; explained variance logged |
 | 49 | critical_steps, frozen sub-agents | partial | critical_steps; TorchTrainer frozen mask |
 | 50 | prefix sharing | **done** | `TrainerConfig.prefix_sharing`: items with one full prompt in a micro batch encode it once (`TinyPolicy`: GRU state; `HFPolicy`: Forge-style packing, positions restart per completion, 4D *float* mask, since a bool mask is ignored by eager attention); loss and gradients equal the unpacked step within 1e-6; `train/prefix_tokens_saved`. Open: keeping a group in one micro batch when packing |
 | 51 | per-step monitor set | **done** | runtime feeds truncation, zero-variance groups, entropy (behaviour estimate), confirmed hacks |

@@ -62,9 +62,8 @@ def test_truncation_bootstraps_from_the_final_value():
 
 
 def test_ttur_and_frozen_attention_on_a_transformer_critic():
-    from tests.unit.test_train_runtime import _tiny_qwen
-
     from crucible.train.hf import HFPolicy
+    from tests.unit.test_train_runtime import _tiny_qwen
 
     qwen = _tiny_qwen()
     critic = HFValue(copy.deepcopy(qwen), freeze_attention=True)

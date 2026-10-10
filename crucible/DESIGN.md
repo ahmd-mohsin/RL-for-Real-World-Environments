@@ -932,6 +932,19 @@ DP-rank unit from a simulation into processes:
 - **Checklist audit (2026-10-10):** the earlier claim that the 52-item checklist was covered by tests was overstated.
   The honest status table is in `docs/modules/M12-train.md` §9: 24 done, 23 partial, 5 missing (updated as items close). #34 then closed: a π_θold correction with no source refuses rollouts that span several versions. #40 closed: asynchronous reward. A `grading` pool status (untrained, not selectable). A late outcome is counted but stays pending; a hard timeout or a crashing grader masks the rollout; a late auxiliary credit channel falls back to outcome-only advantage with `credit_fallback`. #37 closed: top-p sampling records each token's nucleus (`Turn.candidates`), and the trainer renormalizes π_θ over it; a record sampled with top_p < 1 but without candidates is invalid for training; the vLLM HTTP engine refuses top_p < 1 until it can report candidates. #36 closed: MoE routing replay (R3). A CPU MoE policy whose full-bf16 engine copy flips about 11% of router choices; engines record the experts per token; `routing_replay="r3"` replays them (refusing incomplete coverage) and more than halves the logprob gap on flipped tokens; routing confidence Σ_k is logged. New engine numerics `bf16_full` (bf16 weights and activations), the realistic inference gap. #50 closed: prefix sharing. A GRPO group's prompt is encoded once (GRU state, or packing with restarted positions and a 4D float mask for transformers); loss and gradients equal the unpacked step within 1e-6. #7 closed: offload. Trainer state goes to CPU or NVMe during rollouts and comes back with Adam moments intact (bitwise on CPU); on MPS at most 5% of the training peak stays resident; KV modes are validated per engine. No checklist item is missing now. Then the monitor and test gaps closed (#5, #6, #13, #20, #24, #27, #51, #52), leaving 38 done and 14 partial. One bug was found on the way: evictions made at a barrier that then blocked were never reported.
 
+**As built, part 7 (M12 critic mode, 2026-10-10; `train/critic.py`; checklist #16, #46–#48).**
+- **Value models:** `TinyValue` and `HFValue` (an HF backbone plus a zero-initialized scalar head; `freeze_attention`
+  trains only the MLP/MoE projections, as in SAO).
+- **Advantages:** `TorchTrainer(critic=...)` replaces group-relative advantages with token-level GAE per rollout:
+  - the chain holds completion tokens only (skip-observation);
+  - compaction segments share the outcome, scaled by (γλ)^{N>s};
+  - truncated rollouts bootstrap from V(s_T);
+  - λ_policy = 1 − 1/(1.5·l), λ_critic = 1.
+- **Critic training:** TTUR, K critic steps per policy step; explained variance logged.
+- **Result:** with n = 1, group-relative advantages are identically zero (GRPO cannot move, tested), while critic mode
+  learns (reward 0.04 → 0.21, explained variance 0 → 0.80).
+- **Under DP:** the critic trains on the full batch on every rank.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
