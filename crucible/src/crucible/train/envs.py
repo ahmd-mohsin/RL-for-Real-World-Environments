@@ -32,8 +32,10 @@ class Step:
 class CopyTask:
     VOCAB, BOS, SEP, STOP = 32, 1, 2, 3  # tokens 4..31 are symbols
 
-    def __init__(self, *, turns: int = 3, symbols: int = 8, latency_s: float = 0.0, long_tail: float = 0.0, tail_mult: float = 10.0, infra_fail: float = 0.0):
+    def __init__(self, *, turns: int = 3, symbols: int = 8, latency_s: float = 0.0, long_tail: float = 0.0, tail_mult: float = 10.0, infra_fail: float = 0.0,
+                 cpu_s: float = 0.0):
         self.turns, self.symbols, self.latency_s, self.long_tail, self.tail_mult, self.infra_fail = turns, symbols, latency_s, long_tail, tail_mult, infra_fail
+        self.cpu_s = cpu_s  # a CPU-bound step (busy loop holding the process), for worker-scaling tests (m13 D-2)
         self.rng = random.Random(0)
         self.targets: list[int] = []
         self.k = 0
@@ -54,6 +56,12 @@ class CopyTask:
 
     async def step(self, completion: list[int]) -> Step:
         await self._wait()
+        if self.cpu_s:
+            import time
+
+            end = time.perf_counter() + self.cpu_s
+            while time.perf_counter() < end:
+                pass
         if self.infra_fail and self.rng.random() < self.infra_fail:
             raise EnvInfraError("sandbox lost")
         self.correct += int(bool(completion) and completion[0] == self.targets[self.k])  # the first answer token must be the target

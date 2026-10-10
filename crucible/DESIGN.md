@@ -1120,6 +1120,38 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**D-2 (2026-10-10): remote rollout workers (Ray-free, leased).** `train/workers.py`, following the slime leased queue,
+verifiers EnvServer and prime-rl's process model.
+
+- **Controller (`LeaseController`):** an HTTP app in the runtime's event loop. `Runtime(rollout_fn=lc.rollout_fn())`
+  turns each rollout into a job.
+  - **Endpoints:** workers `/lease` jobs, renew them with `/heartbeat` and post `/result`. Model calls come back via
+    `/gen`, which goes through `Runtime._call`, so versions, sample-barrier aborts, pause, staleness and
+    partial-rollout accounting are the in-process ones.
+  - **Expiry:** an expired lease is re-leased first in line as a new attempt. `lc.attach(runtime)` resets the pool tag
+    so the dead attempt's versions don't count toward staleness. After `max_attempts` the job is masked, never scored 0.
+  - **No double training:** every request carries `(rid, attempt)`. `/gen` from a superseded attempt gets 409, its
+    `/result` is ignored, and a heartbeat for it revokes the lease, so the zombie cancels its task.
+- **Worker (`RolloutWorker`, `python -m crucible.train.workers`):**
+  - leases small batches (`prefetch`) as capacity frees;
+  - heartbeats from its own thread;
+  - retries only requests that were never sent (connect errors), so a `/gen` is never generated twice;
+  - reports environment exceptions as masked results.
+
+  `env_rollout(env_factory)` is the runtime's token-env loop as a rollout function.
+- **Found while testing:**
+  - **Greedy leasing** (a worker took `concurrency` jobs at once) left two of four workers idle: 1.9× scaling.
+    Small-batch pulls fixed it, to 3.7×.
+  - **Heartbeats on the event loop** were starved by CPU-bound episodes, and connects timed out under load.
+    Heartbeats moved to their own thread, with longer connect timeouts.
+- **Tests:**
+  - lease semantics: expiry, re-attempt, a revoked zombie, a stale result never applied, masking at
+    `max_attempts`;
+  - throughput 1 → 4 worker processes with a CPU-bound env step (`CopyTask(cpu_s=...)`): 3.3–3.8× over three runs,
+    against the audit target of 3.2×;
+  - a real runtime with two worker processes, one SIGKILLed after step 2: all 8 steps finish, leases expire and are
+    re-leased, no rollout id is trained twice, every trained record is scored.
+
 **D-1 (2026-10-10): the model gateway.** `EnginePool` had no health checks or eviction. Its crc32 routing spilled to
 the least-loaded engine as soon as the pinned one reached `capacity`, which broke KV affinity under load, and one
 stuck engine pinned the pool's version (audit 05 H4).
