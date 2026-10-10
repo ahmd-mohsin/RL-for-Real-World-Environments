@@ -691,6 +691,17 @@ Task 04's full grade takes 30–60 minutes of GPU time, so RL needs the fast tie
   - **Successful policy rollouts**, rejection-sampled by the full verifier (SWE-smith `train/traj_mgr`).
 - **Curriculum:** the learnability-steered generator (§7.4) refreshes the training pool each round. Policy entropy and the share of zero-variance groups are tracked as collapse warnings (thesis, Stratego lessons).
 
+**RL infrastructure, trainer side (designed 2026-10-09; evidence: 11 labs' 2025–2026 reports, `docs/research/2026-10-09-agentic-rl-infra-survey.md`).** The labs agree that the hard part is keeping trainer GPUs busy while trajectories are long and long-tailed, without letting off-policy drift, engine mismatch or reward hacking corrupt the gradient. Crucible's trainer bridge (M12) therefore fixes these contracts before any training run:
+
+1. **The rollout record is the interface** (`crucible.rollout/v1`). It holds token ids and behaviour logprobs exactly as sampled (token-in-token-out) and the policy version of every generated span. Every correction below needs both; a rollout missing them is masked.
+2. **Topology:** colocated and asynchronous with partial rollout to start (one shared GPU), environments always off the GPU pool. Disaggregated later.
+3. **Staleness is bounded explicitly:** a version cap (drop when the oldest span is more than τ versions old), per-sample scheduling, optional windowed FIFO, and length-bias control (short rollouts finish first and would otherwise dominate early batches).
+4. **Train–inference mismatch is measured and corrected:** `rollout_probs_diff` is always logged; the correction is selectable (TIS, two-sided masking, binary-KL masking, DIS, MIS-PO); an FP32 LM head is a switch; routing replay applies only to MoE policies with low routing confidence.
+5. **The objective is a menu, not a bet:** GRPO with DAPO defaults, Dr.GRPO, GSPO, CISPO, and a critic mode. **The critic mode matters for enterprise workflows:** one real case gives one trajectory and one outcome, so group-relative baselines do not exist. That is the single-rollout setting where a value baseline is required; Φ and C3 branch values are extra baselines Crucible can supply.
+6. **Credit enters at the right granularity:** M6 turn advantages attach to their model call's tokens, and tool outputs are masked from the loss. Truncation is not failure (mask or Φ-bootstrap). Environments the agent broke are failures. Optional group redistribution among passing solutions (MiMo GAR, mass-conserving).
+7. **Long horizons:** context compaction is a recorded segment structure, and credit crosses segments. Harnesses vary across groups.
+8. **Monitors that catch silent failure:** staleness, mismatch, clipped-token share, truncation and length drift, confirmed-hack rate, and a pass-rate-jump alarm (a sudden jump in training pass rate is the classic signature of a hack) that triggers a full-tier re-audit.
+
 ---
 
 ## 11. Layer 6: benchmarks

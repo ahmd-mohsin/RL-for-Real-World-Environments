@@ -644,6 +644,34 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - **`sft/`:** expert traces lifted into tool-call trajectories and checked by replay; rejection-sampled rollouts; ShareGPT / HF export.
   - **`curriculum.py`:** learnability-steered refresh of the task pool.
   - **`monitors.py`:** entropy, share of zero-variance groups, sampled hack audits, divergence between the fast and full verifier tiers.
+  - **RL infrastructure (trainer side; designed 2026-10-09 from the 11-lab survey, `docs/research/2026-10-09-agentic-rl-infra-survey.md`, DESIGN §10.3):**
+    - **`rollout.py`, the rollout record contract `crucible.rollout/v1`:**
+      - per turn: prompt and response token ids, **behaviour logprobs as sampled by the inference engine** (token-in-token-out, never detokenize→retokenize), the **policy version of every generated span** (so the oldest version w₀ is known), sampling parameters, and optional MoE routing ids and top-p candidate sets;
+      - per rollout: harness@version, truncation flag, context-compaction segments, environment timings, infra status, World trace id.
+      - A rollout missing any token record is masked, never guessed.
+    - **`topology.py`:** colocated + async partial rollout first (one shared lab GPU), with environments always off the GPU pool (Worlds in CPU sandboxes). Disaggregated later, through a data pool between generation and training.
+    - **`staleness.py`:**
+      - partial rollout with a version cap S (default 4); drop when w′ − w₀ > τ;
+      - per-sample scheduling (a prompt's group starts when enough slots free up);
+      - optional windowed FIFO (W = 0.3·N);
+      - length-bias control: per-dataset concurrency caps; early short returns held until the length mix is steady.
+    - **`mismatch.py`:**
+      - token-level corrections, selectable: TIS (truncate π_train/π_rollout), IcePop-style two-sided masking, KPop binary-KL masking, DIS (π_rollout as the denominator when π_old is unavailable), MIS-PO (token + geometric-mean trajectory filter);
+      - an FP32 LM-head switch;
+      - `rollout_probs_diff` logged;
+      - routing replay only when routing confidence is low (MoE policies).
+    - **`objectives.py`:**
+      - GRPO family with DAPO defaults: clip-higher 0.2/0.28, token-level loss, overlong filtering, dynamic sampling, which keeps all-fail groups that carry κ(1−O)Φ;
+      - Dr.GRPO (no std); GSPO (sequence ratio); CISPO (clipped IS weight, every token keeps its gradient);
+      - a **critic mode for single-feedback workflows** (group size 1, the normal case for one real enterprise case per prompt): value baseline, skip-observation GAE, critic updated about 2× per policy step, value pretraining; Φ is offered as an extra baseline.
+    - **`credit.py` (M6 → tokens):**
+      - turn advantages attach to their `call_id` spans; observation and tool-output tokens are masked from the loss;
+      - truncated rollouts are masked or Φ-bootstrapped, never scored 0;
+      - environment failures the agent caused are scored 0, never masked;
+      - optional GAR redistribution among passing solutions (mass-conserving; confirmed hacks zeroed and group statistics recomputed).
+    - **`compaction.py`:** context compaction recorded as segments; credit crosses segments (token-level normalization, cross-segment discounting); the harness and context mechanism vary across groups so the policy does not overfit one.
+    - **`monitors.py` additions:** staleness histogram, `rollout_probs_diff`, share of clipped/masked tokens, truncation rate, length drift, confirmed-hack rate, and a **pass-rate-jump alarm** that triggers a full-tier re-audit.
+    - **Hacks during training:** a blocked shortcut gets a policy-facing refusal and the rollout continues; an exposure masks (P27); a hack confirmed by the full tier or the group grader zeroes the reward and the group is re-normalized.
 - **Takes:**
   - PORT/DEPEND: verl `signed_rebalance.py`.
   - DEPEND: verl `recipes/general` (agent loop, TokenTrace, `chat_delta`, MCP proxy, env actor, `filter_groups`); verifiers `graph.py` and interception; prime-rl; Harbor trace export, `RolloutDetail`, Tinker backend.
@@ -652,7 +680,14 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - **MVP:**
     - unit tests: signed-span preserves the advantage mass of each sign; shaping advantages have zero group mean;
     - one GRPO step per advantage mode on the toy pack and on one coding task, on both prime-rl and verl;
-    - a small sparse-vs-dense run on tasks 01–04 plus their span tasks.
+    - a small sparse-vs-dense run on tasks 01–04 plus their span tasks;
+    - RL-infrastructure contract tests:
+      - a token-in-token-out round trip (rollout token ids and logprobs reproduce the trainer's input exactly);
+      - masking when a token record is missing;
+      - the staleness drop rule and windowed FIFO bounds;
+      - each mismatch correction on synthetic ratio distributions;
+      - truncated and agent-broke-env cases mapped as specified;
+    - one colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` monitors recorded.
   - **P4:** S5.
 - **Depends on:** M6, M10, M11. **Size:** L.
 
