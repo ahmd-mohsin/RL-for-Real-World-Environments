@@ -43,6 +43,8 @@ class VLLMServerEngine:
         r.raise_for_status()
         return r
 
+    kv_modes = ("discard",)  # vLLM sleep discards the KV cache; keeping it in a host pool needs a KV-offload connector
+
     async def generate(self, req: GenRequest) -> GenResult:
         if req.top_p < 1.0:  # checklist #37: without the per-token nucleus the trainer would compare against the wrong distribution
             raise NotImplementedError("VLLMServerEngine does not report top-p candidate sets yet; sample with top_p=1.0")

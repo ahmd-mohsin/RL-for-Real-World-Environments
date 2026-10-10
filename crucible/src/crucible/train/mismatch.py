@@ -69,7 +69,7 @@ def _quantiles(x: torch.Tensor, m: torch.Tensor, qs=(0.01, 0.5, 0.99)) -> dict[s
     v = x[m.bool()]
     if v.numel() == 0:
         return {}
-    q = torch.quantile(v.float(), torch.tensor(qs, dtype=torch.float32))
+    q = torch.quantile(v.float(), torch.tensor(qs, dtype=torch.float32, device=v.device))  # on the data's device (CUDA / MPS trainers)
     return {f"r_dis/p{round(a * 100)}": float(b) for a, b in zip(qs, q, strict=True)}
 
 

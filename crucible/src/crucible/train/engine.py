@@ -157,7 +157,8 @@ class TinyPolicy(torch.nn.Module):
 
     def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0, candidates: list[list[int]] | None = None) -> torch.Tensor:
         """log π(completion_t | prompt + completion_<t), with gradient; renormalized over ``candidates`` (top-p) if given."""
-        ids = torch.tensor([prompt + completion[:-1]]) if completion else torch.tensor([prompt])
+        dev = self.emb.weight.device
+        ids = torch.tensor([prompt + completion[:-1]] if completion else [prompt], device=dev)
         logits = self(ids)[0, len(prompt) - 1:] / temperature
         lp = torch.log_softmax(logits, -1)
         if not completion:
@@ -166,12 +167,13 @@ class TinyPolicy(torch.nn.Module):
             from crucible.train.sampling import renormalized
 
             return renormalized(lp[: len(completion)], completion, candidates)
-        return lp[torch.arange(len(completion)), torch.tensor(completion)]
+        return lp[torch.arange(len(completion), device=dev), torch.tensor(completion, device=dev)]
 
     def shared_prefix_logprobs(self, prompt: list[int], completions: list[list[int]], temperature: float = 1.0) -> list[torch.Tensor]:
         """Prefix sharing (checklist #50): the prompt runs once; every completion continues from its final GRU state. The
         gradient through the shared prompt is the sum over the group, exactly as in separate passes."""
-        h_prompt, state = self.rnn(self.emb(torch.tensor([prompt])))
+        dev = self.emb.weight.device
+        h_prompt, state = self.rnn(self.emb(torch.tensor([prompt], device=dev)))
         first = torch.log_softmax(self.head(h_prompt[0, -1]) / temperature, -1)  # every completion's first-token distribution
         out = []
         for c in completions:
@@ -180,9 +182,9 @@ class TinyPolicy(torch.nn.Module):
                 continue
             lps = [first[c[0]]]
             if len(c) > 1:
-                hc, _ = self.rnn(self.emb(torch.tensor([c[:-1]])), state)
+                hc, _ = self.rnn(self.emb(torch.tensor([c[:-1]], device=dev)), state)
                 rows = torch.log_softmax(self.head(hc[0]) / temperature, -1)
-                lps.extend(rows[torch.arange(len(c) - 1), torch.tensor(c[1:])])
+                lps.extend(rows[torch.arange(len(c) - 1, device=dev), torch.tensor(c[1:], device=dev)])
             out.append(torch.stack(lps))
         return out
 

@@ -58,6 +58,11 @@ class RuntimeConfig:
     # past ``reward_deadline_s`` the rollout is *late* (counted, still pending: never trained as 0); past
     # ``reward_timeout_s`` it is masked (``reward_timeout``). ``aux_fn`` (turn credit / rubric) past ``aux_deadline_s``
     # falls back to the outcome-only advantage and records ``credit_fallback``.
+    # offload (checklist #7, colocated topologies): the trainer's state leaves the accelerator while rollouts run
+    # (``cpu`` | ``nvme``; onloaded before each step); ``kv_on_train``: what engines do with their KV cache while the
+    # trainer holds the GPU (``discard``: vLLM sleep; ``cpu_pool``: keep it in host memory, where the engine supports it)
+    train_state_on_rollout: str = "none"
+    kv_on_train: str = "discard"
     reward_deadline_s: float | None = None
     reward_timeout_s: float = 600.0
     aux_deadline_s: float | None = None
@@ -108,6 +113,14 @@ class Runtime:
         self.tasks: dict[str, asyncio.Task] = {}
         self.changed = asyncio.Event()
         self.version = 0
+        if cfg.train_state_on_rollout not in ("none", "cpu", "nvme"):
+            raise ValueError("train_state_on_rollout: none | cpu | nvme")
+        if cfg.train_state_on_rollout != "none" and cfg.topology == "disaggregated_stream":
+            raise ValueError("disaggregated_stream keeps the trainer resident (it trains while engines generate): no offload")
+        for e in engines.engines:
+            modes = getattr(e, "kv_modes", ("discard",))
+            if cfg.kv_on_train not in modes:
+                raise ValueError(f"{type(e).__name__} supports kv_on_train in {tuple(modes)}, not {cfg.kv_on_train!r}")
         self.envs = None
         if cfg.env_workers:
             from crucible.train.envpool import EnvWorkerPool
@@ -307,6 +320,9 @@ class Runtime:
         t_start = time.monotonic()
         mark = {"t": t_start, "busy": self.engines.busy_until_now(), "env_wait": 0.0, "env_busy": 0.0}
         step = 0
+        offload = self.cfg.train_state_on_rollout
+        if offload != "none":
+            self.trainer.offload(offload)  # rollouts come first: the engine gets the accelerator
         self._admit()
         while step < self.cfg.steps and time.monotonic() - t_start < self.cfg.max_wall_s:
             self._admit()
@@ -327,6 +343,8 @@ class Runtime:
                 aborted = await self.engines.abort_all()  # S1: hand the GPU to the trainer; Worlds keep their state
                 await self.engines.pause()
             t0 = time.monotonic()
+            if offload != "none":
+                self.trainer.onload()
             m = await self._train(sel)
             train_s = time.monotonic() - t0
             self.sched.trained(sel)
@@ -337,6 +355,8 @@ class Runtime:
                 self.version = await self.publisher.publish()
                 publish_s = time.monotonic() - t1
                 self.report.publishes += 1
+            if offload != "none":
+                self.trainer.offload(offload)  # after the publish (which read the weights): free the accelerator for rollouts
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):
                 await self.engines.resume()
             rewards, lengths = m.pop("_rewards"), m.pop("_lengths")

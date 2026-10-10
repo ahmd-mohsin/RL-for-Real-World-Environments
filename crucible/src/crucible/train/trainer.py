@@ -73,6 +73,71 @@ class TorchTrainer:
     def reset_optimizer(self) -> None:
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
 
+    # ---- offload (checklist #7): free the accelerator for the engine while rollouts run ---------------------------
+    def offload(self, mode: str = "cpu", *, path: str | None = None) -> None:
+        """``cpu``: parameters and optimizer moments to host memory, gradients dropped (they are zeroed at the next step
+        anyway). ``nvme``: parameters and moments written to ``path`` and released (host RAM too). ``onload()``
+        restores them, bit for bit, to the device they came from."""
+        if mode == "none" or getattr(self, "_offloaded", None):
+            return
+        if mode not in ("cpu", "nvme"):
+            raise ValueError("offload mode: none | cpu | nvme")
+        params = list(self.model.parameters())
+        self._home = params[0].device
+        for prm in params:
+            prm.grad = None
+        state = self.opt.state
+        if mode == "cpu":
+            for prm in params:
+                prm.data = prm.data.to("cpu")
+            for st in state.values():
+                for k, v in st.items():
+                    if torch.is_tensor(v):
+                        st[k] = v.to("cpu")
+        else:
+            import tempfile
+
+            self._nvme = path or tempfile.mkstemp(prefix="crucible-offload-", suffix=".pt")[1]
+            torch.save({"params": [prm.data.to("cpu") for prm in params],
+                        "opt": {i: {k: (v.to("cpu") if torch.is_tensor(v) else v) for k, v in state[prm].items()} for i, prm in enumerate(params) if prm in state}},
+                       self._nvme)
+            for prm in params:
+                prm.data = torch.empty(0, dtype=prm.dtype)
+            for prm in params:
+                if prm in state:
+                    state[prm] = {}
+        self._offloaded = mode
+        import gc
+
+        gc.collect()  # the last step's graph leaves reference cycles that pin device tensors (measured: a parameter-sized residue)
+        if self._home.type == "cuda":
+            torch.cuda.empty_cache()
+        elif self._home.type == "mps":
+            torch.mps.empty_cache()
+
+    def onload(self) -> None:
+        mode = getattr(self, "_offloaded", None)
+        if not mode:
+            return
+        params = list(self.model.parameters())
+        if mode == "cpu":
+            for prm in params:
+                prm.data = prm.data.to(self._home)
+            for st in self.opt.state.values():
+                for k, v in st.items():
+                    if torch.is_tensor(v) and k != "step":
+                        st[k] = v.to(self._home)
+        else:
+            blob = torch.load(self._nvme, weights_only=True)
+            for prm, data in zip(params, blob["params"], strict=True):
+                prm.data = data.to(self._home)
+            for i, st in blob["opt"].items():
+                self.opt.state[params[int(i)]] = {k: (v.to(self._home) if torch.is_tensor(v) and k != "step" else v) for k, v in st.items()}
+            import os
+
+            os.unlink(self._nvme)
+        self._offloaded = None
+
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
@@ -139,16 +204,17 @@ class TorchTrainer:
         T = max(len(items[i].completion) for i in idx)
         rows = self._logprobs(items, idx)
         dev = rows[0].device
-        roll = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
-        adv = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
+        fdt = _loss_dtype(dev)
+        roll = torch.zeros(len(idx), T, dtype=fdt, device=dev)
+        adv = torch.zeros(len(idx), T, dtype=fdt, device=dev)
         mask = torch.zeros(len(idx), T, device=dev)
-        old_t = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
+        old_t = torch.zeros(len(idx), T, dtype=fdt, device=dev)
         lp_rows = []
         for k, i in enumerate(idx):
             it = items[i]
             n = len(it.completion)
-            lp_rows.append(torch.nn.functional.pad(rows[k].double(), (0, T - n)))
-            roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=torch.float64, device=dev)
+            lp_rows.append(torch.nn.functional.pad(rows[k].to(fdt), (0, T - n)))
+            roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=fdt, device=dev)
             adv[k, :n] = it.adv
             mask[k, :n] = 1
             if old is not None:
@@ -188,7 +254,7 @@ class TorchTrainer:
                                  "set old_logprob_source='recompute_current' (recompute with the current weights) or 'rollout'")
         if self.cfg.correction.name in NEEDS_OLD and src in (None, "recompute_current"):
             with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
-                old = {i: r.double() for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
+                old = {i: r.to(_loss_dtype(r.device)) for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
         metrics: dict[str, float] = {}
         for _ in range(self.cfg.updates_per_batch):
             self.opt.zero_grad()
@@ -226,6 +292,11 @@ class TorchTrainer:
             if self._confidence:  # MoE routing confidence Σ_k (mean top-k router mass), checklist #36
                 metrics["moe/routing_confidence"] = sum(self._confidence) / len(self._confidence)
         return metrics
+
+
+def _loss_dtype(dev: torch.device) -> torch.dtype:
+    """Per-token loss terms in float64 (ratios of near-equal probabilities); MPS has no float64, so float32 there."""
+    return torch.float32 if dev.type == "mps" else torch.float64
 
 
 def _imbalance(seq_lens: list[int], parts: list[list[int]]) -> float:

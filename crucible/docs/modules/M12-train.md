@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 29 done, 22 partial, 1 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 30 done, 22 partial, 0 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -152,7 +152,7 @@ Facts behind the table:
 | 4 | version_spans gate | done | |
 | 5 | publish_s, reprefill per step | partial | per-step `weights/publish_s`, `rollout/reprefill_tokens` keys |
 | 6 | topologies, identical-loss golden | partial | cross-topology loss golden test |
-| 7 | offload knobs | missing | `train_state_on_rollout`, `kv_on_train` |
+| 7 | offload knobs | **done** | `TorchTrainer.offload(cpu\|nvme)`/`onload()` (moments preserved; CPU round trip bitwise); runtime offloads after each publish and onloads before each step (colocated; disaggregated refuses); measured on MPS: ≤ 5 % of the training peak stays resident; `kv_on_train` validated per engine (`VLLMServerEngine`: discard only) |
 | 8 | separate env worker pool | **done** | `EnvWorkerPool` (`env_workers`); tests: blocking envs parallel, engines serve during a block, env steps finish while paused, World episodes on workers |
 | 9 | per-phase bubbles | **done** | `idle/rollout_s`, `idle/train_s`, `idle/env_wait_s`, `env/busy_s`, `engine/utilization` per step |
 | 10 | colocated_sync on-policy | done | |
