@@ -293,3 +293,28 @@ def test_task04_record_mode_scoring():
     slow = record_score({"kinfu_frame_ms": {"ratio": 0.70}, "people_ms": {"ratio": 0.30}}, bars, BEST_KNOWN)
     assert slow["score"] == 0.0 and slow["below_bar"] == ["kinfu_frame_ms"]  # every bar still holds by default
     assert record_score({"kinfu_frame_ms": {"ratio": 0.70}, "people_ms": {"ratio": 0.30}}, bars, BEST_KNOWN, floor="none")["score"] > 0
+
+
+def test_seed_kit_plans_build(tmp_path):
+    """Every seed task's kit plan constructs (gates, checks, prerequisites) without its verifier image."""
+    import sys
+    import types
+
+    sys.modules.setdefault("numpy", types.ModuleType("numpy"))
+    mt = Path(__file__).resolve().parents[3] / "migration_tasks"
+    from crucible_pack_coding.verify import task01, task02, task03, task04
+
+    def ctx(**p):
+        return Context(Trusted(tmp_path / f"w{len(p)}{sorted(p)}".replace("'", "")), params=p)
+
+    t4 = task04.plan(ctx(tests=str(mt / "task04_pcl_gpu_cuda12" / "tests")))
+    assert [g.id for g in t4.gates][-1] == "perf" and len(t4.checks) == 11
+    rec = task04.plan(ctx(tests=str(mt / "task04_pcl_gpu_cuda12" / "tests"), perf_mode="record"))
+    assert next(g for g in rec.gates if g.id == "perf").kind == "score"
+    assert [g.id for g in task04.plan(ctx(tests=str(mt / "task04_pcl_gpu_cuda12" / "tests"), scope="ncv")).gates] == [
+        "static", "build", "binary", "consumers", "ncv", "fresh", "sanitizer"]
+    t3 = task03.plan(ctx(tests=str(mt / "task03_mdlite_pallas" / "tests")))
+    assert [g.id for g in t3.gates] == task03.GATES and next(c for c in t3.checks if c.id == "perf").requires[-1] == "fresh"
+    t2 = task02.plan(ctx(tests=str(mt / "task02_pcops_triton" / "tests")))
+    assert [g.id for g in t2.gates] == task02.GATES
+    assert [g.id for g in task01.plan(ctx(version="v1")).gates] == ["static"]
