@@ -1120,6 +1120,20 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**Kit grader: child interpreters lost the import order (2026-10-10, task03 lab golden).** Every task03 grade failed the
+`api` gate where history passed:
+- `test_pallas_kernels_are_used` traced no Pallas kernels;
+- `test_cli_matches_api` differed by 4e-8.
+
+`Trusted.python` applies the B.10 import order (grader code first, the candidate after the stdlib) with `python -I`
+plus a bootstrap. That reaches the parent interpreter only: children spawned by the tests (`sys.executable -c PROBE`,
+`python -m mdlite.cli`) got the default path and imported the image's own `mdlite` 1.3.0. The old runner had put the
+candidate on `PYTHONPATH`, which children inherit, which is why history passed.
+
+`Trusted.python` now also gives children a grader-owned, root-owned, read-only `sitecustomize` on `PYTHONPATH` that
+applies the same order. The candidate stays after the stdlib in children too, and a test checks both properties. All
+task03 grades and the task04 re-grades are re-staged with the fixed bundle.
+
 **A-4 (2026-10-10): vLLM colocated wake order and the engine's first tests.** `VLLMServerEngine.load_weights` used to wake
 the KV cache inside the publish, so the GPU held the full trainer and the full engine at once, defeating sleep mode.
 - **Fix:** sleep state is explicit (`asleep ⊆ {weights, kv_cache}`):

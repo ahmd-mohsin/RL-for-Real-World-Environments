@@ -1,0 +1,341 @@
+{
+ "gate": "M7 golden, GPU part (task03 kit grader in the verifier image)",
+ "graded": "9/9",
+ "pass": false,
+ "grades": {
+  "solution": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 1,
+    "dynamics": 1,
+    "physics": 1,
+    "app": 1,
+    "fresh": 1,
+    "perf": 1
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 1,
+    "dynamics": 1,
+    "physics": 1,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": false,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ],
+    "perf": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "empty": {
+   "recorded": {
+    "static": 0,
+    "install": 0,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 0,
+    "perf": 0
+   },
+   "kit": {
+    "static": 0,
+    "install": 0,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 0,
+    "fresh": 0,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {},
+   "match": true
+  },
+  "neg_aserfc": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "neg_floatgrid": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "neg_fp32pos": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 0,
+    "dynamics": 1,
+    "physics": 0,
+    "app": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 1,
+    "physics": 0,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "neg_jaxrandom": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 1,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 1,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "fresh": 0,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "neg_truncate": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 1,
+    "app": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 0,
+    "dynamics": 0,
+    "physics": 1,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  },
+  "gpt1": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 1,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 1,
+    "dynamics": 0,
+    "physics": 0,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": true,
+   "profile_diffs": {},
+   "match": true
+  },
+  "cheat_tamper": {
+   "recorded": {
+    "static": 1,
+    "install": 1,
+    "api": 1,
+    "forces": 1,
+    "dynamics": 1,
+    "physics": 1,
+    "app": 1,
+    "fresh": 1,
+    "perf": 1
+   },
+   "kit": {
+    "static": 1,
+    "install": 1,
+    "api": 0,
+    "forces": 1,
+    "dynamics": 1,
+    "physics": 1,
+    "app": 1,
+    "fresh": 1,
+    "perf": 0
+   },
+   "reward": 0.0,
+   "infra": {
+    "status": "ok",
+    "failure_kind": null,
+    "reason": null
+   },
+   "intended": false,
+   "profile_diffs": {
+    "api": [
+     1,
+     0
+    ],
+    "perf": [
+     1,
+     0
+    ]
+   },
+   "match": false
+  }
+ }
+}

@@ -352,3 +352,36 @@ def test_oom_under_contention_is_the_nodes():
     assert oom_under_contention(log, foreign_mib=14000)  # another user's job held the GPU (golden astra_v3b, 2026-10-09)
     assert not oom_under_contention(log, foreign_mib=300)  # an idle GPU: the candidate's own OOM is its failure
     assert not oom_under_contention("segfault", foreign_mib=14000)
+
+
+def test_trusted_python_children_inherit_the_import_order(tmp_path):
+    """A test that spawns ``sys.executable`` (a CLI run, a probe) must import the candidate's package too, with the
+    candidate still after the stdlib (task03 lab golden: children imported the image's own mdlite instead)."""
+    import os
+    import tempfile
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        tmp_path = Path(tempfile.mkdtemp(prefix="crucible-trusted-", dir="/tmp"))
+        os.chmod(tmp_path, 0o755)
+    cand = tmp_path / "cand"
+    (cand / "mdpkg").mkdir(parents=True)
+    (cand / "mdpkg" / "__init__.py").write_text("WHO = 'candidate'\n")
+    (cand / "json.py").write_text("raise SystemExit('candidate shadowed the stdlib')\n")
+    os.chmod(cand, 0o755)
+    for f in cand.rglob("*"):
+        os.chmod(f, 0o755 if f.is_dir() else 0o644)
+    grader = tmp_path / "grader"
+    grader.mkdir()
+    (grader / "probe.py").write_text(
+        "import json, subprocess, sys\n"
+        "import mdpkg\n"
+        "child = subprocess.run([sys.executable, '-c', 'import json, mdpkg; print(mdpkg.WHO, json.dumps(1))'], capture_output=True, text=True)\n"
+        "print(mdpkg.WHO, child.stdout.strip(), child.returncode, child.stderr[-300:])\n")
+    os.chmod(grader, 0o755)
+    os.chmod(grader / "probe.py", 0o644)
+    t = Trusted(tmp_path / "w")
+    import sys
+
+    r = t.python(script=grader / "probe.py", first=[grader], last=[cand], python=sys.executable, candidate=True)
+    assert r.rc == 0, r.log
+    assert r.stdout.split()[:4] == ["candidate", "candidate", "1", "0"], r.stdout

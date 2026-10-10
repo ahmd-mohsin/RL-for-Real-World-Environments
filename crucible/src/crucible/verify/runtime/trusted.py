@@ -25,6 +25,8 @@ following Karotte ``subprocess.py`` ``_demote`` and ``process_utils``).
 from __future__ import annotations
 
 import grp
+import hashlib
+import json
 import os
 import pwd
 import select
@@ -374,8 +376,33 @@ class Trusted:
         boot = ("import sys, runpy; sys.path[:0] = {first!r}; sys.path += {last!r}; sys.argv = {argv!r}; "
                 + ("runpy.run_module({mod!r}, run_name='__main__', alter_sys=True)" if module else "runpy.run_path({script!r}, run_name='__main__')"))
         argv = [str(script or module), *[str(a) for a in (args or [])]]
-        code = boot.format(first=[str(x) for x in (first or [])], last=[str(x) for x in (last or [])], argv=argv, mod=module, script=str(script))
-        return self.run([python, "-I", "-c", code], **kw)
+        fs, ls = [str(x) for x in (first or [])], [str(x) for x in (last or [])]
+        code = boot.format(first=fs, last=ls, argv=argv, mod=module, script=str(script))
+        # child interpreters (a test's ``subprocess.run([sys.executable, ...])``) must see the same import order, or they
+        # silently import whatever the image has installed (task03 lab golden: the hidden tests' probe and CLI runs
+        # imported the image's mdlite, not the candidate's port). ``-I`` makes the parent ignore PYTHONPATH; children
+        # read it and run a grader-owned sitecustomize that applies the order (candidate still after the stdlib).
+        env = {**(kw.pop("env", None) or {}), "PYTHONPATH": str(self._child_boot(fs, ls))}
+        return self.run([python, "-I", "-c", code], env=env, **kw)
+
+    def _child_boot(self, first: list[str], last: list[str]) -> Path:
+        key = hashlib.sha256(json.dumps([first, last]).encode()).hexdigest()[:16]
+        d = self.work / "_pyboot" / key
+        if not (d / "sitecustomize.py").exists():
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "sitecustomize.py").write_text(
+                "import sys\n"
+                f"_boot, _first, _last = {str(d)!r}, {first!r}, {last!r}\n"
+                "sys.path[:] = [p for p in sys.path if p != _boot and p not in _first and p not in _last]\n"
+                "sys.path[:0] = _first\n"
+                "sys.path += _last\n")
+            if self.is_root:  # root-owned and read-only for the candidate: it cannot rewrite the order its children get
+                for x in (d.parent, d, d / "sitecustomize.py"):
+                    os.lchown(x, 0, 0)
+                os.chmod(d.parent, 0o755)
+                os.chmod(d, 0o755)
+                os.chmod(d / "sitecustomize.py", 0o644)
+        return d
 
     @staticmethod
     def _drain(p, t0: float, deadline: float, on_exit=None):
