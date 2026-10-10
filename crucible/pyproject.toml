@@ -26,6 +26,8 @@ agentenv = ["agentenv-framework", "agentenv-framework-protocol[agent]", "mcp>=1.
 openenv-awm = ["fastapi>=0.110", "sqlalchemy>=2.0", "fastapi-mcp>=0.3", "huggingface-hub>=0.24", "mcp>=1.10,<2", "uvicorn>=0.30"]
 # LLM-backed actors (OpenAI-compatible endpoints: OpenRouter, vLLM, SGLang).
 llm = ["openai>=1.60"]
+# Evaluating workflow models and credit on public trajectory corpora (parquet), M5/M6 gates.
+analysis = ["pyarrow>=15"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
 verifiers = ["verifiers"]
 dev = [

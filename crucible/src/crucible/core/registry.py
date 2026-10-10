@@ -165,6 +165,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("connector", "sql_audit_log", "crucible.connectors.sql_audit_log:SqlAuditLogConnector")
     r.register("connector", "otel_import", "crucible.connectors.otel_import:OtelConnector")
     r.register("connector", "capture_proxy", "crucible.connectors.capture_proxy:CaptureLogConnector")
+    r.register("connector", "chat_messages", "crucible.connectors.chat_messages:ChatMessagesConnector")
     r.register("connector", "atif", "crucible.interop.harbor.atif_import:AtifConnector")
     # Transports for human / peer actors
     r.register("transport", "file_queue", "crucible.actors.transports:FileQueueTransport")
