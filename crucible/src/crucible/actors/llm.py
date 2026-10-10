@@ -85,6 +85,7 @@ class LLMResponse:
     raw_message: dict[str, Any] = field(default_factory=dict)  # provider fields (reasoning, signatures) to replay verbatim
     latency_s: float = 0.0
     response_id: str | None = None
+    tokens: dict[str, Any] | None = None  # token-in-token-out record when the endpoint returns it (prompt/completion ids, logprobs, policy_version)
 
 
 @dataclass
@@ -94,6 +95,8 @@ class Spend:
     cached_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    uncertain_usd: float = 0.0  # calls whose cost could not be read (blank usage in tolerant mode): an upper-bound estimate
+    blank_usage_calls: int = 0
 
 
 def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
@@ -106,6 +109,25 @@ def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
         return min(float(headers.get("retry-after")), cap)
     except (TypeError, ValueError):
         return min(min(1.5 * 2**attempt, cap) * (0.5 + random.random()), cap)
+
+
+def _approx_tokens(messages: list[dict[str, Any]]) -> int:
+    return sum(len(json.dumps(m, default=str)) for m in messages) // 4
+
+
+def token_record(resp: Any, choice: Any, policy_version: int | str | None) -> dict[str, Any] | None:
+    """The token-in-token-out record of one call, as the engine sampled it (vLLM/SGLang ``return_token_ids`` and
+    ``logprobs``); ``None`` when the endpoint returns neither (hosted APIs). Never re-tokenized here."""
+    extra = getattr(choice, "model_extra", None) or {}
+    rextra = getattr(resp, "model_extra", None) or {}
+    lp = getattr(choice, "logprobs", None)
+    content = getattr(lp, "content", None) or []
+    logprobs = [c.logprob for c in content] or None
+    completion_ids = extra.get("token_ids")
+    prompt_ids = rextra.get("prompt_token_ids") or extra.get("prompt_token_ids")
+    if logprobs is None and completion_ids is None:
+        return None
+    return {"prompt_token_ids": prompt_ids, "completion_token_ids": completion_ids, "logprobs": logprobs, "policy_version": policy_version}
 
 
 class _NoChoices(RuntimeError):
@@ -124,7 +146,8 @@ class LLMClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
         self.max_retries = max_retries
-        self.require_usage = require_usage  # False only for endpoints known to omit usage (and then set prices)
+        self.require_usage = require_usage  # False: tolerate blank usage, booking an upper-bound estimate as uncertain spend
+        self.policy_version: int | str | None = None  # set by the trainer bridge on every weight update; stamped on each call's token record
         self.spend = Spend()
         self._client = None
 
@@ -200,6 +223,11 @@ class LLMClient:
         if u is None and self.require_usage:
             raise UsageBlank(f"{self.model} returned no usage (finish={choice.finish_reason}); spend cannot be accounted")
         usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0, "completion_tokens": getattr(u, "completion_tokens", 0) or 0} if u else {}
+        if u is None:  # tolerant mode (B.5 row 2): the call happened and cost something; book the worst case as uncertain
+            self.spend.blank_usage_calls += 1
+            p = self.config.prices.get(self.model)
+            self.spend.uncertain_usd += (max_tokens / 1e6 * p[1] + _approx_tokens(messages) / 1e6 * p[0]) if p else 0.0
+            usage = {"blank": 1}
         cost = getattr(u, "cost", None) if u else None
         if cost is None and u is not None:
             extra_u = getattr(u, "model_extra", None) or {}
@@ -216,7 +244,8 @@ class LLMClient:
         if pdetails is not None and getattr(pdetails, "cached_tokens", None):
             usage["cached_tokens"] = pdetails.cached_tokens
         out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=choice.finish_reason,
-                          raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None))
+                          raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None),
+                          tokens=token_record(resp, choice, self.policy_version))
         if self.cache_mode == "record":
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,

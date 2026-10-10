@@ -6,7 +6,8 @@
 - **Historical run reproduction ⏳:** R1 (re-grade), R2 (replay), R3 (live mini-swe-agent through Harbor) are pending.
 
 - **Code:** `src/crucible/runtime/`:
-  - `keys.py`, `infra.py`, `journal.py`, `budget.py`, `run.py`, `collect.py`, `remote.py`, `gpu.py`, `inject.py`;
+  - `keys.py`, `infra.py`, `journal.py`, `budget.py`, `run.py`, `collect.py`, `remote.py`, `gpu.py`, `perf_guard.py`, `trajectories.py`, `record.py`, `inject.py`;
+  - `train/rollout.py` (the `crucible.rollout/v1` schema, owned by M12);
   - `harness/` (`base.py`, `native.py`, `workspace.py`);
   - `verify/stage.py` (docker grading hygiene);
   - toy pack `runtime.py` (`HelpdeskTask`, `FibTask`, scripted and LLM policies).
@@ -27,6 +28,10 @@
 | `remote.py` | Sentinel control channel (`crucible:harness_self_kill`), pidfile kills, self-matching `pkill`/`pgrep` lint | B.5 row 8 |
 | `gpu.py` | `GpuHost` (`--runtime=nvidia`), `preflight` (PID 1 init check → `crucible:zombie_wait`; GPU arch) | B.5 row 4 |
 | `verify/stage.py` `docker_grade` | Pins the image digest (`expected_image` mismatch → masked `stale image` before grading); named, labelled container; timeout → `docker rm -f` + masked `verifier_timeout`; no reward file → masked `no_reward_json` | Harbor verifier behaviour |
+| `perf_guard.py` | One perf grade per host (lock); host check before the grade (foreign GPU compute memory, GPU utilization, load per core); waits, then `node_contention` (masked) if never quiet | grader-side `LoadGuard`; Harbor regrade |
+| `trajectories.py` | ATIF v1.8 per actor joined to model calls (`call_id`, `llm_call_count`, per-call `Metrics` with token ids/logprobs), `no_action` steps for blank calls, `FinalMetrics`; `align` sets `StepRow.atif_step_id`/`call_id`; `cross_check` against a proxy capture | Harbor ATIF models (DEPEND); OpenEnv proxy-vs-ATIF check |
+| `record.py` + `train/rollout.py` | `crucible.rollout/v1` per attempt (`rollout.json`): turns with token ids, behaviour logprobs, policy version, sampling, credit; `valid_for_training`; train mode masks incomplete token records as `crucible:capture_incomplete` | verl `TokenTrace` shape with per-span versions |
+| `Runner.regrade` + grade-only retries | A masked grade is retried by re-grading the stored patch (no agent re-run); exhausted samples are re-graded later from artifacts | Harbor regrade-from-artifacts |
 | `inject.py` | `FakeLLM` with scripted provider failures (blank usage, credits, context overflow), `FakeSpend`, `FlakyGradeTask`; toy pack `crashing_tool_world` | — |
 
 ## Exit gate
@@ -39,6 +44,8 @@
 | One historical frontier run reproduced end to end | ⏳ R1 re-grade of the task02 GPT-5.6-sol patch at commit `5e53057` (lab), R2 command replay, R3 live mini-swe-agent through Harbor (~$3–10) |
 | Toy | ✅ scripted oracle 1.0 and no-op 0.0 over k samples; workspace `fib` task 1.0 / 0.0 |
 
+| Trajectories and rollout records | ✅ every call, World action, ATIF step and `steps.jsonl` row joins (`tests/unit/test_runtime_records.py`); Harbor's validator accepts the trajectories; train mode masks a rollout without token records, eval mode does not need them |
+
 ## Remaining
-- `perf_guard.py` (host check, GPU semaphore, re-grade queue), `trajectories.py` (ATIF step ids aligned with `steps.jsonl`), `record.py` (`crucible.rollout/v1`), `harness/harbor.py`, `Runner.regrade`.
-- GPU injections on the lab (burner process for contention, stale build, stale image).
+- `harness/harbor.py` (installed agents through Harbor `Trial`, with the capture proxy as the model endpoint).
+- GPU injections on the lab (burner process for contention, stale build, stale image); R1–R3.

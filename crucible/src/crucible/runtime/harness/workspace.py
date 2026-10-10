@@ -6,7 +6,11 @@ a changed tree is ``crucible:empty_collection``) -> verification (``task.grade_p
 
 A collection failure preserves the workspace in the attempt directory. The next attempt of the same sample then
 **re-collects only** (tolerant hook, preserved tree) instead of re-running the agent: the agent's work was fine, the
-harness lost it (research m9-m10/02 §3.3 row 1).
+harness lost it (research m9-m10/02 §3.3 row 1). Likewise a grade masked for infrastructure (contention, stale image,
+verifier timeout) is retried as a **re-grade of the stored patch** (``regrade``; Harbor's regrade-from-artifacts):
+re-running the agent would sample a different solution and silently replace the one being measured.
+
+Tasks that declare ``perf = True`` grade inside a ``PerfGuard`` slot (one perf grade per host, quiet host first).
 """
 
 from __future__ import annotations
@@ -19,22 +23,42 @@ from crucible.actors.policy import run_episode
 from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect
 from crucible.runtime.harness.base import Attempt, HarnessResult
-from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness
+from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, save_episode
 from crucible.runtime.infra import StageFailure, boundary, classify_verifier, failure
 
 
 class WorkspaceHarness(NativeHarness):
-    def __init__(self, name: str = "native:workspace", version: str = "1", *, collect_mode: str = "tolerant", **kw):
+    def __init__(self, name: str = "native:workspace", version: str = "1", *, collect_mode: str = "tolerant", perf_guard=None, host: str = "local", **kw):
         super().__init__(name, version, **kw)
-        self.collect_mode = collect_mode
+        self.collect_mode, self.perf_guard, self.host = collect_mode, perf_guard, host
 
-    def _preserved(self, attempt: Attempt):
+    def _prior(self, attempt: Attempt) -> tuple[str, object] | None:
+        """What the previous attempt of this sample left that a retry can reuse instead of re-running the agent."""
         prev = attempt.dir.parent / f"a{attempt.n - 1}"
         rec = prev / "record.json"
-        if attempt.n > 1 and (prev / "preserved_ws").exists() and rec.exists() and \
-                (json.loads(rec.read_text()).get("failure") or {}).get("kind") == "crucible:empty_collection":
-            return prev / "preserved_ws"
+        if attempt.n <= 1 or not rec.exists():
+            return None
+        r = json.loads(rec.read_text())
+        f = r.get("failure") or {}
+        if f.get("kind") == "crucible:empty_collection" and (prev / "preserved_ws").exists():
+            return "recollect", prev / "preserved_ws"
+        if r.get("mask_sample") and f.get("stage") == "verification" and (prev / "artifacts" / "model.patch").exists():
+            return "regrade", prev
         return None
+
+    async def regrade(self, attempt: Attempt, prior) -> HarnessResult:
+        """Grade the patch stored by an earlier attempt (no agent, no spend)."""
+        res = HarnessResult(stop="regraded")
+        t: dict[str, float] = {}
+        meta = json.loads((prior / "record.json").read_text()).get("meta") or {} if (prior / "record.json").exists() else {}
+        patch = (prior / "artifacts" / "model.patch").read_text()
+        try:
+            await self._grade(attempt, Collected(patch=patch, mode="stored", tree_changed=bool(meta.get("tree_changed", True))), res, t)
+        except StageFailure as sf:
+            res.failure = sf.failure
+        res.artifacts["regraded_from"] = prior.name
+        res.timings = {k: round(v, 3) for k, v in t.items()}
+        return res
 
     async def _grade(self, attempt: Attempt, c: Collected, res: HarnessResult, t: dict) -> None:
         (attempt.dir / "artifacts").mkdir(exist_ok=True)
@@ -42,8 +66,14 @@ class WorkspaceHarness(NativeHarness):
         res.artifacts["patch"] = "artifacts/model.patch"
         res.tree_changed = c.tree_changed
         t0 = time.monotonic()
-        with boundary("verification"):
-            rep = await attempt.task.grade_patch(c.patch, attempt.dir / "grade")
+        if self.perf_guard is not None and getattr(attempt.task, "perf", False):
+            async with self.perf_guard.slot(self.host) as g:
+                (attempt.dir / "perf_guard.json").write_text(json.dumps(g, default=str))
+                with boundary("verification"):
+                    rep = await attempt.task.grade_patch(c.patch, attempt.dir / "grade")
+        else:
+            with boundary("verification"):
+                rep = await attempt.task.grade_patch(c.patch, attempt.dir / "grade")
         t["verification"] = time.monotonic() - t0
         res.grade = {"reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
         if rep.infra.get("status") == "masked":
@@ -55,10 +85,12 @@ class WorkspaceHarness(NativeHarness):
         res = HarnessResult()
         world = None
         spend0 = attempt.policy.spend()
+        prior = self._prior(attempt)
+        if prior is not None and prior[0] == "regrade":
+            return await self.regrade(attempt, prior[1])
         try:
-            preserved = self._preserved(attempt)
-            if preserved is not None:  # re-collect only: never re-run an agent whose work the harness lost
-                c = collect(preserved, base="base", mode="tolerant")
+            if prior is not None:  # re-collect only: never re-run an agent whose work the harness lost
+                c = collect(prior[1], base="base", mode="tolerant")
                 res.stop = "recollected"
                 f = classify(c)
                 if f:
@@ -78,7 +110,7 @@ class WorkspaceHarness(NativeHarness):
                 ep = await run_episode(world, policies, limits=self.limits)
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
-            (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
+            save_episode(attempt, ep, res, self.id)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))

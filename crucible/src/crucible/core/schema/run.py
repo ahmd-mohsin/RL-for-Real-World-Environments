@@ -52,7 +52,7 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
 # Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
 POLICY_OUTCOME_KINDS = frozenset({"agent_timeout", "agent_command_not_allowed", "crucible:policy_misbehavior", "crucible:agent_broke_env"})
-FailureStage = Literal["admission", "seed", "agent", "verification", "cleanup"]
+FailureStage = Literal["admission", "seed", "agent", "collect", "verification", "cleanup"]
 Blame = Literal["infra", "harness", "task", "policy", "unknown"]
 # The blame a kind carries by default (M10 taxonomy; research m9-m10/02 §3.3). policy => scored; everything else => masked.
 DEFAULT_BLAME: dict[str, str] = {

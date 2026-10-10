@@ -126,8 +126,10 @@ class LLMToolPolicy(Policy):
             self.failure_kind = getattr(e, "failure_kind", None) or "provider_unavailable"
             self.error = f"{self.failure_kind}: {e}"
             return Done(reason=f"policy error: {e}")
-        self.model_calls.append({"model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                 "cached": r.cached, "response_id": r.response_id, "tool_calls": len(r.tool_calls)})
+        call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
+                "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
+                "tool_calls": len(r.tool_calls), "actions": [], "tokens": r.tokens}
+        self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
@@ -142,6 +144,7 @@ class LLMToolPolicy(Policy):
         if not r.tool_calls:
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})
             self.stop = "agent_done"
+            call["actions"] = ["done"]
             return Done(reason=r.text[:2000])
         calls = []
         actions: list[Action] = []
@@ -156,6 +159,7 @@ class LLMToolPolicy(Policy):
                 actions.append(ToolCall(tool_call_id=cid, function_name=qualified, arguments=tc["arguments"]))
         # provider fields (reasoning, reasoning_details, thinking signatures) replay verbatim: reasoning models degrade without them
         self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "", "tool_calls": calls})
+        call["actions"] = ["message" if isinstance(a, Message) else f"tool:{c['id']}" for a, c in zip(actions, calls, strict=True)]
         for a, c in zip(actions, calls, strict=True):
             if isinstance(a, Message):  # every tool call id needs a tool reply; send_message is acknowledged here
                 self.messages.append({"role": "tool", "tool_call_id": c["id"], "content": f"message sent to {a.to}"})

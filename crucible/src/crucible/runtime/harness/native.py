@@ -32,6 +32,25 @@ from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify
 LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
 
 
+def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str) -> None:
+    """The episode's evidence in the attempt dir: the World trace, the model calls, and one joined ATIF trajectory per
+    policy actor (``runtime.trajectories``)."""
+    from crucible.runtime.trajectories import to_atif
+
+    (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
+    res.artifacts["trace"] = "trace.json"
+    res.calls = {a: list(cs) for a, cs in (ep.model_calls or {}).items()}
+    if any(res.calls.values()):
+        (attempt.dir / "calls.json").write_text(json.dumps(res.calls, default=str))
+        res.artifacts["calls"] = "calls.json"
+    for actor, cs in res.calls.items():
+        model = next((c.get("model") for c in cs if c.get("model")), None)
+        traj = to_atif(ep.trace, actor, calls=cs, instruction=getattr(attempt.task, "instruction", None), harness=harness_id,
+                       model_name=model, session_id=attempt.id)
+        (attempt.dir / f"trajectory.{actor}.json").write_text(traj.model_dump_json(exclude_none=True))
+        res.artifacts[f"trajectory.{actor}"] = f"trajectory.{actor}.json"
+
+
 @dataclass
 class PolicyRef:
     id: str
@@ -65,8 +84,7 @@ class NativeHarness:
                 ep = await run_episode(world, policies, limits=self.limits)
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
-            (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
-            res.artifacts["trace"] = "trace.json"
+            save_episode(attempt, ep, res, self.id)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))

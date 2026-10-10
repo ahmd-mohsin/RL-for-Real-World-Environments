@@ -44,6 +44,7 @@ class HarnessResult(CrucibleModel):
     artifacts: dict[str, str] = Field(default_factory=dict)
     timings: dict[str, float] = Field(default_factory=dict)
     grade: dict[str, Any] = Field(default_factory=dict)
+    calls: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> the policy's model calls (call ids, usage, token records)
 
 
 class Harness(Protocol):

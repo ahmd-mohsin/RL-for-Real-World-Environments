@@ -127,8 +127,9 @@ class BashLoopPolicy(Policy):
                 self.failure_kind = getattr(e, "failure_kind", None) or ("crucible:credits_exhausted" if isinstance(e, BudgetExceeded) else "provider_unavailable")
                 self.error = f"{self.failure_kind}: {e}"
                 return Done(reason=f"policy error: {e}")
-            self.model_calls.append({"model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "cached": r.cached,
-                                     "harness": self.harness_id})
+            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "step": obs.step, "model": r.model, "finish": r.raw_finish,
+                    "usage": r.usage, "cost_usd": r.cost_usd, "cached": r.cached, "harness": self.harness_id, "actions": [], "tokens": r.tokens}
+            self.model_calls.append(call)  # a format-error call keeps ``actions`` empty: its own ATIF step (runtime.trajectories)
             text = r.text or ""
             blocks = BLOCK.findall(text)
             if r.tool_calls and not blocks:  # a model that answers with a tool call instead of a block
@@ -139,6 +140,7 @@ class BashLoopPolicy(Policy):
                 self.format_errors = 0
                 cmd = blocks[0].strip()
                 self._last_call = f"bash-{uuid.uuid4().hex[:10]}"
+                call["actions"] = [f"tool:{self._last_call}"]
                 args: dict[str, Any] = {"command": cmd}
                 if self.timeout_s:
                     args["timeout_s"] = self.timeout_s
@@ -146,5 +148,6 @@ class BashLoopPolicy(Policy):
             self.format_errors += 1
             if self.format_errors >= self.max_format_errors:
                 self.stop = "format_error"
+                call["actions"] = ["done"]
                 return Done(reason=f"{self.format_errors} consecutive format errors")
             self.messages.append({"role": "user", "content": CUT_OFF if r.raw_finish == "length" else FORMAT_ERROR.format(n=len(blocks))})

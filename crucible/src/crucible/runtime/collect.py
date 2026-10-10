@@ -51,6 +51,6 @@ def classify(c: Collected) -> Failure | None:
     if c.patch.strip():
         return None
     if c.tree_changed or c.errors:
-        return Failure(kind="crucible:empty_collection", stage="verification", reason=f"empty patch from a changed tree ({c.mode}): {'; '.join(c.errors)[:300]}",
+        return Failure(kind="crucible:empty_collection", stage="collect", reason=f"empty patch from a changed tree ({c.mode}): {'; '.join(c.errors)[:300]}",
                        retryable=True)
     return None

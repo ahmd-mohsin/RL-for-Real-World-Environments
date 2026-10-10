@@ -16,6 +16,7 @@ wall clock, mask fraction > 0.2 after 20 terminal samples (the environment is br
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -46,10 +47,13 @@ class RunSpec:
     max_mask_fraction: float = 0.2
     max_unknown_fraction: float = 0.05
     min_terminal_for_health: int = 20
+    rollout_mode: str = "eval"  # "train": a rollout without complete token records is masked as crucible:capture_incomplete
+    sampling: dict = field(default_factory=dict)  # recorded on every rollout turn (temperature, top_p, max_tokens)
 
     def identity_doc(self) -> dict:
         return {"run_id": self.run_id, "tasks": [t.id for t in self.tasks], "policies": [p.id for p in self.policies],
-                "harnesses": [h.id for h in self.harnesses], "k": self.k, "run_seed": self.run_seed, "tier": self.tier}
+                "harnesses": [h.id for h in self.harnesses], "k": self.k, "run_seed": self.run_seed, "tier": self.tier,
+                **({"rollout_mode": self.rollout_mode} if self.rollout_mode != "eval" else {})}
 
 
 @dataclass
@@ -135,6 +139,7 @@ class Runner:
                     hr: HarnessResult = await harness.run(attempt)
                     ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
                     rec = self._record(spec, sk, aid, task, policy, harness, hr)
+                    self._rollout(spec, sk, rec, hr, adir)
                     retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
                     if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                         state["stopped"] = "budget: provider credits exhausted"
@@ -159,6 +164,54 @@ class Runner:
                           by_failure=health.by_kind)
         journal.event("summary", **{k: v for k, v in summ.__dict__.items() if k != "spend"})
         return summ
+
+    async def regrade(self, spec: RunSpec, select=None, *, max_regrades: int = 2) -> RunSummary:
+        """Re-grade terminal samples from their stored artifacts (Harbor's regrade pattern), e.g. after the node that
+        contaminated their perf grades is quiet again. Default selection: masked at verification. Only harnesses with a
+        ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is."""
+        journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
+        ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
+        select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
+        plan = {sk.id(): (sk, t, p, h) for sk, t, p, h in self.plan(spec)}
+        n_done = 0
+        for sid, r in journal.terminal().items():
+            if sid not in plan or not select(r):
+                continue
+            sk, task, policy, harness = plan[sid]
+            sdir = journal.dir / "samples" / sid
+            prior = [d for d in sdir.iterdir() if d.is_dir() and (d / "artifacts" / "model.patch").exists()] if sdir.exists() else []
+            regraded = sum(1 for d in sdir.glob("a*/record.json") if (json.loads(d.read_text()).get("meta") or {}).get("stop") == "regraded")
+            if not hasattr(harness, "regrade") or not prior or regraded >= max_regrades:
+                continue
+            src = max(prior, key=lambda d: int(d.name[1:]) if d.name[1:].isdigit() else -1)
+            n = journal.next_attempt(sid)
+            aid = attempt_id(sid, n)
+            adir = journal.attempt_dir(sid, n)
+            adir.mkdir(parents=True, exist_ok=True)
+            journal.event("regrade", attempt=aid, source=src.name)
+            hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
+            rec = self._record(spec, sk, aid, task, policy, harness, hr)
+            journal.finish(rec, terminal=True)  # the newest terminal row of a sample wins
+            n_done += 1
+        recs = journal.records()
+        plan_n = len(plan)
+        return RunSummary(run_id=spec.run_id, planned=plan_n, terminal=len(recs), scored=sum(1 for r in recs if r.scored_reward() is not None),
+                          masked_terminal=sum(1 for r in recs if r.mask_sample), mean_reward=mean_reward(recs), pass_at_1=pass_at_k(recs, 1),
+                          coverage=round(coverage(recs, plan_n), 4), stopped=None, attempts=n_done, spend=ledger.summary(), by_failure={})
+
+    @staticmethod
+    def _rollout(spec: RunSpec, sk: SampleKey, rec: RunRecord, hr: HarnessResult, adir: Path) -> None:
+        """Write ``rollout.json`` (crucible.rollout/v1). In train mode an incomplete token record masks the attempt."""
+        from harbor.models.trajectories import Trajectory
+
+        from crucible.runtime.record import build
+
+        trajs = {a: Trajectory.model_validate_json((adir / f).read_text()) for k, f in hr.artifacts.items()
+                 if k.startswith("trajectory.") and (a := k.split(".", 1)[1]) and (adir / f).exists()}
+        ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode)
+        if ro.failure_kind == "crucible:capture_incomplete" and not rec.mask_sample:
+            rec.mark_failure(Failure(kind="crucible:capture_incomplete", stage="collect", reason=ro.stop or "token record incomplete"))
+        (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))
 
     @staticmethod
     def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult) -> RunRecord:

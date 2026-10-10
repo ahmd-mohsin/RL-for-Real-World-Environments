@@ -655,6 +655,30 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
 
 **Defect registry.** Every defect found in any task, by any audit, model run or reviewer, becomes a new automated check that A1–A12 run on *all* tasks from then on. The registry starts with the 14 defects in Appendix B.
 
+**Imported tasks are not trusted on the publisher's word (research m9-m10/03, 2026-10-09).** A survey of 32 Hugging Face `rl-environment` datasets found that "verified" means anything from "a model once solved it" to two gold passes with per-row logs, and that about half the Harbor task volume ships no oracle. Defects found by reading and partly reproducing them include:
+- oracles that apply nothing (heredoc indentation; 450 of 500 tasks in one set);
+- base images on an unresolvable registry;
+- a reference solution, with its decryption password, reachable from the agent;
+- "private" answer keys downloadable without auth;
+- a visible reference implementation that aliasing passes;
+- host credentials forwarded into an internet-enabled agent sandbox;
+- empty ground truth that gives a do-nothing policy 13%;
+- flaky rows kept on purpose;
+- failures that appear only at production concurrency.
+
+M9 therefore runs on imports exactly as on forged tasks, plus the import checks I0–I10, which map onto A1–A13:
+- an oracle-is-a-no-op check;
+- constant-answer and empty-action floors, reported as a dataset floor rate;
+- a reference-alias probe;
+- gold reruns at two concurrency levels;
+- grading with the verifier network off;
+- credentials in the agent environment;
+- public answer keys (training only, never benchmark);
+- stdout-marker spoofing;
+- an `import_report.json` diffed against the publisher's own exclusion list where one exists.
+
+The external test bed is the paired Terminal-Lego sets, whose re-validation labels serve as ground truth for M9 recall and precision; R2E-Gym-Subset-Verified; HF_ML_Tasksmith with its degenerate equivalence-tests sibling as a negative control; terminal-bench-2.1; and NeMo workplace_assistant.
+
 ---
 
 ## 10. Layer 5: runtime, adapters, training
@@ -682,6 +706,9 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
 - **Docker grading** (`verify/stage.py`) pins the verifier image digest (mismatch → masked `stale image`, before anything runs), names and labels the container, and turns a timeout into `docker rm -f` plus masked `verifier_timeout`. `runtime/gpu.py` preflights PID 1 (no init → `crucible:zombie_wait`) and the GPU arch.
 - **Control channels** run with a sentinel; a signal death without it is `crucible:harness_self_kill`, and a lint rejects self-matching full-command-line `pkill`/`pgrep` patterns.
 - **Every B.5 class has an injector** and a test showing it is masked, plus policy controls (agent broke the environment, step limit, context overflow, no change) showing they are scored.
+- **Retries reuse what is still valid.** A grade masked for infrastructure is retried as a re-grade of the stored patch, and an empty collection as a re-collect of the preserved tree; neither re-runs the agent, which would replace the measured solution with a new sample. `Runner.regrade` re-grades exhausted samples later from their artifacts. `PerfGuard` runs one perf grade per host and only on a quiet host (no foreign GPU memory, low utilization and load); a host that never quiets yields `node_contention` before anything runs.
+- **Trajectories join.** Every model call has a `call_id` and the ordered list of actions it produced. The ATIF trajectory (Harbor's models) carries `call_id`, `crucible_seq` (the trace event) and per-call `Metrics` with token ids and logprobs; a call that produced no action (a blank reply the policy nudged past) gets its own step. `steps.jsonl` rows get `atif_step_id` and `call_id` from the M5 steps' seqs. A proxy capture log can be cross-checked against the trajectory (`crucible:capture_incomplete` on mismatch).
+- **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `train/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
 
 ### 10.2 Two verifier tiers
 
@@ -1040,3 +1067,6 @@ Registry check: A3, mutation score.
 | BSD `pkill` excludes the caller's ancestors; Linux `pkill -f` does not | a self-kill test passed vacuously on macOS | the self-kill test also runs over a Linux container channel (`tests/redteam/test_runtime_docker.py`); fixed |
 | A crash injector with a `(*a, **k)` signature changed the tool's schema | the injection produced "invalid arguments", not a crash: the test measured the wrong class | injectors wrap with `functools.wraps`; every injection test asserts the intended failure kind; fixed |
 | Harbor's verifier writes no reward file on timeout or grader crash | an infra failure reads as a missing result (B.10 row "empty reward.txt") | no reward file → masked `no_reward_json`; timeout → masked `verifier_timeout`; fixed in `docker_grade` |
+| A retry of a masked grade re-ran the agent | the retry measured a different sample than the one the contaminated grade was measuring; the original solution's score was never known | grade-only retry from the stored patch; `Runner.regrade`; fixed |
+| Model calls that produced no action (blank or cut-off replies) had no ATIF step; `StepRow.atif_step_id` was never set | per-turn credit could not be placed on the tokens that earned it; ATIF, World steps and calls could not be joined (research H8) | `call_id` + ordered actions per call, `no_action` steps, `align`; fixed |
+| Blank-usage responses in tolerant mode were priced at $0 | the budget never sees those calls | worst-case estimate booked as uncertain spend; fixed |

@@ -186,3 +186,66 @@ async def test_control_step_limit_and_overflow_scored(tmp_path):
 async def test_control_no_change_scored_zero(tmp_path):
     _s, fails, res = await _one(tmp_path, FibTask(), scripted("idle", []), WorkspaceHarness())
     assert not fails and res[0]["reward"] == 0.0 and res[0]["meta"]["tree_changed"] is False
+
+
+def counting(ref: PolicyRef) -> tuple[PolicyRef, list]:
+    made: list = []
+
+    def make(a):
+        made.append(a.id)
+        return ref.make(a)
+
+    return PolicyRef(id=ref.id, make=make), made
+
+
+async def test_masked_grade_retried_as_regrade_of_stored_patch(tmp_path):
+    pol, made = counting(scripted("fib", fib_actions()))
+    task = FlakyGradeTask(FibTask(), "perf rounds contaminated (spread 0.9)")
+    _s, fails, res = await _one(tmp_path, task, pol, WorkspaceHarness())
+    assert fails[0]["failure"]["kind"] == "crucible:node_contention" and fails[0]["reward"] is None
+    assert res[0]["attempt"].endswith("-a2") and res[0]["reward"] == 1.0 and res[0]["meta"]["stop"] == "regraded"
+    assert len(made) == 1  # the agent ran once: the retry graded the stored patch, it did not sample a new solution
+
+
+async def test_operator_regrade_after_retries_exhausted(tmp_path):
+    from crucible.runtime.infra import RetryRule
+
+    pol, made = counting(scripted("fib", fib_actions()))
+    flaky = FlakyGradeTask(FibTask(), "node never quiet for perf grading", on_attempts=("a1", "a2", "a3"))
+    spec = RunSpec(run_id="rg", tasks=[flaky], policies=[pol], harnesses=[WorkspaceHarness()], k=1, retry=RetryRule(max_attempts=2))
+    s = await Runner(tmp_path).run(spec)
+    assert s.masked_terminal == 1 and s.mean_reward is None  # nothing scored, nothing read as 0
+    flaky.on = ()  # the node is quiet again
+    s2 = await Runner(tmp_path).regrade(spec)
+    assert s2.attempts == 1 and s2.scored == 1 and s2.mean_reward == 1.0 and len(made) == 1
+    s3 = await Runner(tmp_path).regrade(spec)
+    assert s3.attempts == 0  # nothing masked is left to re-grade
+
+
+async def test_perf_guard_waits_then_masks():
+    from crucible.runtime.infra import StageFailure
+    from crucible.runtime.perf_guard import PerfGuard
+
+    state = {"busy": 2}
+
+    def probe(cmd: str):
+        if "compute-apps" in cmd:
+            return 0, ("4242, 27446\n" if state["busy"] > 0 else "")
+        if "utilization" in cmd:
+            state["busy"] -= 1
+            return 0, "97\n" if state["busy"] >= 0 else "0\n"
+        return 0, "0.10 0.1 0.1 1/100 1\n8\n"
+
+    async def no_sleep(_s):
+        return None
+
+    g = PerfGuard(probe=probe, wait_s=3600, poll_s=0, sleep=no_sleep)
+    async with g.slot("lab") as info:
+        assert len(info["samples"]) == 3 and info["samples"][-1]["foreign_mib"] == 0  # waited for the foreign job to leave
+    state["busy"] = 10**6
+    g2 = PerfGuard(probe=probe, wait_s=0, poll_s=0, sleep=no_sleep)
+    with pytest.raises(StageFailure) as ei:
+        async with g2.slot("lab"):
+            pass
+    f = ei.value.failure
+    assert f.kind == "crucible:node_contention" and f.masks and "27446 MiB" in f.reason

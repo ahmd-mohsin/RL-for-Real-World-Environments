@@ -591,6 +591,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - DEPEND: Harbor quality checker rubric and analyzer (A7, A3 cheat attempts); OpenEnv validation (RFC 008); agentenv `review` (manual sign-off for H4+).
   - PATTERN: `vf-validate`; NeMo-Gym `verifier_fixture`, `environment/validation.py`, `harness_capabilities`.
 - **We build:** the contract runner, the mutation-score harness, flake measurement, and a registry seeded from DESIGN Appendix B.
+- **Imports:** `imports/` runs I0–I10 (research m9-m10/03 §5) on Harbor directories, verifiers row tasksets and NeMo JSONL before A1–A13, and writes `import_report.json`. Test bed: Terminal-Lego (paired, labelled), R2E-Gym-Subset-Verified, HF_ML_Tasksmith (+ equivalence-tests as negatives), terminal-bench-2.1, NeMo workplace_assistant; negative fixtures from BeyondSWE, RetroEnv and SmolDataEnvs.
 - **Exit gate (DESIGN P0 gate):**
   - tasks 01–04 pass automatically;
   - re-injecting ≥ 3 historical defects (Haar nondeterminism, the weak NCV negative, a stale verifier image) is caught;
