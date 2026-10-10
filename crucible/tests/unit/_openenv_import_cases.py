@@ -303,7 +303,57 @@ async def mcp_image_clock_seed(d: Path) -> None:
         await w.close()
 
 
-CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime, mcp_image_clock_seed)}
+OPENENV_ENVS = Path(__file__).resolve().parents[3] / "RL-Environments" / "06-frameworks-and-env-code" / "meta-pytorch-openenv" / "envs"
+CATALOG = {
+    "grid_world": ("grid_world_env.server.grid_world_environment:GridWorldEnvironment", "grid_world_env.models:GridWorldAction",
+                   [{"action": a} for a in ["RIGHT"] * 4 + ["DOWN"] * 4]),
+    "connect4": ("connect4_env.server.connect4_environment:Connect4Environment", "connect4_env.models:Connect4Action",
+                 [{"column": c} for c in [0, 1, 0, 1, 0, 1, 0]]),
+    "maze": ("maze_env.server.maze_env_environment:MazeEnvironment", "maze_env.models:MazeAction", [{"action": a} for a in [1, 1, 3, 3, 1, 1, 3, 3]]),
+    "wildfire": ("wildfire_env.server.wildfire_environment:WildfireEnvironment", "wildfire_env.models:WildfireAction",
+                 [{"action": "water", "x": 5, "y": 5}, {"action": "break", "x": 4, "y": 4}, {"action": "wait"}] * 3),
+}
+
+
+async def openenv_catalog(d: Path) -> None:
+    """OpenEnv's own environments (games, a maze, a stochastic fire simulation) through the generic importer: the same
+    actions give the native rewards and termination; environments with a bare ``reset()`` work (signature-aware calls);
+    a mid-episode restore of the simulation replays deterministically."""
+    from crucible.interop.openenv.import_env import load
+
+    sys.path.insert(0, str(OPENENV_ENVS))
+    for name, (fac, act, acts) in CATALOG.items():
+        env = load(fac)()
+        env.reset()
+        native, done = [], False
+        for a in acts:
+            o = env.step(load(act).model_validate(a))
+            native.append(float(o.reward or 0.0))
+            if o.done:
+                done = True
+                break
+        t = OpenEnvTask(f"openenv/{name}/t@1", fac, action_cls=act, reward_mode="sum", reward_range=(-20.0, 20.0))
+        w = await t.open(d / name)
+        try:
+            for i, a in enumerate(acts[:3]):
+                await w.step("agent", tc(i, "step", a))
+            if name == "wildfire":
+                ref = await w.snapshot()
+                await w.step("agent", tc(99, "step", acts[3]))
+                await w.restore(ref)  # replay + digest check of a stochastic simulation
+                assert len(w.apps["env"].journal["steps"]) == 3
+            for i, a in enumerate(acts[3:], start=3):
+                if w.apps["env"].journal["done"]:
+                    break
+                await w.step("agent", tc(i, "step", a))
+            j = w.apps["env"].journal
+            assert j["done"] == done and [round(r or 0.0, 9) for r in j["rewards"]] == [round(r, 9) for r in native], (name, j["rewards"], native)
+        finally:
+            await w.close()
+
+
+CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime, mcp_image_clock_seed,
+                                 openenv_catalog)}
 
 if __name__ == "__main__":
     asyncio.run(CASES[sys.argv[1]](Path(sys.argv[2])))

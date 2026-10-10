@@ -100,6 +100,37 @@ def result_images(result: Any) -> list[tuple[bytes, str]]:
     return out
 
 
+def _accepted(fn: Any, kw: dict) -> dict:
+    """The keyword arguments ``fn``'s own signature accepts (many OpenEnv environments declare a bare ``reset()``)."""
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return kw
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return kw
+    return {k: v for k, v in kw.items() if k in params}
+
+
+async def _call(env: Any, name: str, *args: Any, **kw: Any) -> Any:
+    """``reset`` / ``step`` on an OpenEnv Environment. The base class's ``*_async`` forwards ``seed`` / ``episode_id`` /
+    ``timeout_s`` to the sync method, which breaks every environment whose ``reset()`` / ``step(action)`` declares fewer
+    parameters (grid_world, connect4, wildfire); so the async method is used only when the class overrides it, and only
+    the keyword arguments the target's signature accepts are passed."""
+    try:
+        from openenv.core.env_server.interfaces import Environment
+
+        base_async = getattr(Environment, f"{name}_async", None)
+    except ImportError:
+        base_async = None
+    a = getattr(type(env), f"{name}_async", None)
+    if a is not None and a is not base_async:
+        return await getattr(env, f"{name}_async")(*args, **_accepted(getattr(env, f"{name}_async"), kw))
+    fn = getattr(env, name)
+    return fn(*args, **_accepted(fn, kw))
+
+
 def _is_error(result: Any) -> bool:
     return bool(getattr(result, "is_error", False) or getattr(result, "isError", False) or (isinstance(result, dict) and result.get("isError")))
 
@@ -148,8 +179,7 @@ class OpenEnvApp(App):
         from openenv.core.env_server.mcp_environment import MCPEnvironment
 
         self.mcp = isinstance(self.env, MCPEnvironment)
-        kw = self._reset_kwargs()
-        obs = await self.env.reset_async(**kw) if hasattr(self.env, "reset_async") else self.env.reset(**kw)
+        obs = await _call(self.env, "reset", **self._reset_kwargs())
         self.reset_observation = obs
         return obs
 
@@ -187,7 +217,7 @@ class OpenEnvApp(App):
         return [t for t in tools if not allow or any(fnmatch.fnmatchcase(t.name, pat) for pat in allow)]
 
     async def _step(self, action: Any) -> Any:
-        return await self.env.step_async(action) if hasattr(self.env, "step_async") else self.env.step(action)
+        return await _call(self.env, "step", action)
 
     async def _write(self) -> None:
         path = self.state_params["path"]

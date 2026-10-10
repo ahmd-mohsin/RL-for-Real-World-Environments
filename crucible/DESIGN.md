@@ -801,6 +801,13 @@ Crucible World with snapshot/restore, the single reward producer, the dense chan
   - native = import = canonical replay = OpenEnv re-export, with step rewards telescoping to 1.0;
   - PortSim trains through the M12 runtime (scripted engine → exact-TITO tokens → rubric → `rollout/v1`).
 - `runtime/record.py` imports Harbor only for type checking, so in-process rollouts run without Harbor installed.
+- **OpenEnv's own environments (2026-10-10):** grid_world, connect4, maze and wildfire (a stochastic fire simulation) run
+  through the generic importer with native rewards and termination. A mid-episode restore of the simulation replays
+  deterministically.
+  - **Bug found on the way:** OpenEnv's base `reset_async` / `step_async` forward `seed` / `episode_id` / `timeout_s` to
+    the sync method, which crashed every environment declaring a bare `reset()`.
+  - **Fix:** the importer calls an async method only when the class overrides it, and passes only the keyword
+    arguments the target's signature accepts.
 - **World capabilities the catalogue needs** (M1; `docs/modules/M01-world.md` "Added for environment diversity"):
   - per-tool call budgets (`LimitsSpec.tool_quota`; counts in `WorldRef`, spec hash unchanged without quotas);
   - a `sim` clock driven by Apps (an imported environment's sim time via `clock_from`), so World events fire on

@@ -86,3 +86,9 @@ def test_mcp_images_sim_clock_world_seed_and_events(tmp_path):
     """An imported MCP environment: ImageContent → ToolResult.images (stored, in the replay digest); its sim time
     drives the World's sim clock so a World event fires on simulation time; reset seed = the App's derived seed."""
     _case("mcp_image_clock_seed", tmp_path)
+
+
+def test_openenv_catalog_native_equals_imported(tmp_path):
+    """OpenEnv's grid_world, connect4, maze and wildfire through the importer: native rewards and termination, bare
+    ``reset()`` signatures handled, a stochastic simulation restored mid-episode by replay."""
+    _case("openenv_catalog", tmp_path)
