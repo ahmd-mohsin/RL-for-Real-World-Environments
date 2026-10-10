@@ -1120,6 +1120,39 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-2 / C-3 (2026-10-10): the group grading stage, GAR and GRS.** `Runtime._grade` scored each record on its own, so
+group-level reward operators (MiMo GAR, tournaments, zeroing hacks and recomputing the group mean) had nowhere to run.
+- **The stage:** `Runtime(group_fn=...)` calls `group_fn(gid, members)` with deep copies of all n scored members.
+  - **When:** it starts the moment a group turns terminal (`_complete`), so it overlaps the remaining rollouts.
+  - **At the barrier:** it gets what is left of `RuntimeConfig.group_deadline_s`. A late stage is cancelled and a
+    raising one is counted as a harness failure (outside the breaker window); either way the members train on raw
+    advantages with `group_credit_fallback=True`.
+  - **Results:** a stage returns its members in order. It may rewrite `reward` (the raw value is kept as
+    `reward_components["raw"]`) and set `RolloutRecord.advantage`.
+  - **Training:** the trainer uses those advantages for a group only when every scored member has one; otherwise it
+    uses the group statistic.
+  - **Lifecycle:** evicted groups cancel their stage, and groups restored from a checkpoint (stage tasks are not
+    checkpointed) get theirs launched at the barrier.
+  - **Metrics:** `group/graded`, `group/fallback`, `group/barrier_wait_s`.
+- **GAR (`credit/gar.py`):**
+  1. zero confirmed hacks and recompute the mean;
+  2. in a mixed group, redistribute the passing members' positive mass M by quality factors f ∈ (0, 1]:
+     `A' = A + λ(M·f/Σf − A)`. Mass is conserved exactly for any λ, and λ ∈ [0, 1] caps how far quality moves an
+     advantage;
+  3. leave failures unchanged and all-pass / all-fail groups untouched, so the group stays centred.
+
+  `gar_group_fn(quality, hack=...)` adapts it as a stage. `quality` is the groupwise grader (sync or async), and the
+  default hack verdict is `reward_components["hack/confirmed"]`, which the A2-29 detector will produce.
+- **GRS:** `grs(R_test, S_sol, S_beh)` is multiplicative, so failures stay 0. `check_rubric_grounding` rejects rubric
+  items that cite a rollout.
+- **Tests:**
+  - the hand-computed golden case, λ capping, and hack zeroing with a recomputed mean;
+  - 500 random groups: passing mass conserved to 1e-9, failures unchanged, centred, masked stays masked;
+  - through the runtime: every trained group graded and centred;
+  - the trainer honours full overrides only;
+  - a late stage falls back on all 8 groups, and a crashing stage falls back with 6 harness failures while the run
+    completes.
+
 **C-1 (2026-10-10): metric and record sinks.** `train/sinks.py` ports verl / SkyRL `Tracking` (one object fanning out
 to backends) with two changes for long agentic runs:
 - **Failure isolation:** a backend that raises is disabled (one warning, listed as `sinks_failed` in the summary) and

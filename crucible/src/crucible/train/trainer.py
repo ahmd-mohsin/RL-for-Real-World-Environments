@@ -250,6 +250,15 @@ class TorchTrainer:
             per_token = None
             advs = group_advantages([r.reward if not r.mask_sample else None for r in records], groups, std_normalize=self.cfg.std_normalize,
                                 estimator=self.cfg.estimator)
+            # a group stage (m13 C-2) that set every scored member's advantage replaces the group statistic for that group
+            scored: dict[str, list[int]] = {}
+            for i, (r, g) in enumerate(zip(records, groups, strict=True)):
+                if not r.mask_sample and r.reward is not None:
+                    scored.setdefault(g, []).append(i)
+            for idx in scored.values():
+                if all(records[i].advantage is not None for i in idx):
+                    for i in idx:
+                        advs[i] = float(records[i].advantage)
         pids = {g: i for i, g in enumerate(dict.fromkeys(groups))}
         items = []
         for r, a, g in zip(records, advs, groups, strict=True):

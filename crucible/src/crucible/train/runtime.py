@@ -82,6 +82,11 @@ class RuntimeConfig:
     # examples and the final summary; a failing sink is disabled, never fatal
     sinks: list = field(default_factory=list)
     record_rollouts: bool = True
+    # group grading stage (m13 C-2, A2-15): ``group_fn(gid, members) -> members`` runs once a group is terminal (all n
+    # scored records at once) and before advantages; it may rewrite rewards and set ``RolloutRecord.advantage`` (GAR,
+    # tournaments, hack zeroing). It starts as soon as the group is terminal (overlapping other rollouts); at the training
+    # barrier it gets what is left of ``group_deadline_s``, then the raw advantages are used (``group_credit_fallback``).
+    group_deadline_s: float = 30.0
     reward_deadline_s: float | None = None
     reward_timeout_s: float = 600.0
     aux_deadline_s: float | None = None
@@ -136,7 +141,7 @@ class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
                  rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None,
-                 on_alarm: Callable | None = None, audit_fn: Callable | None = None):
+                 on_alarm: Callable | None = None, audit_fn: Callable | None = None, group_fn: Callable | None = None):
         """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
@@ -147,6 +152,8 @@ class Runtime:
         self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
         self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
         self.audit_fn = audit_fn
+        self.group_fn = group_fn  # m13 C-2: the group grading stage (see RuntimeConfig.group_deadline_s)
+        self._group_stage: dict[str, tuple[float, asyncio.Task]] = {}
         self._audit_tasks: set[asyncio.Task] = set()
         self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
         self._blocked_since: float | None = None
@@ -272,7 +279,55 @@ class Runtime:
             self._recent.append("ok")
             rec.group = self.pool.tags[rid].group
             self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
+        if self.group_fn is not None:
+            gid = self.pool.tags[rid].group
+            g = self.pool.groups.get(gid)
+            if g is not None and g.status == "terminal" and gid not in self._group_stage:
+                self._group_stage[gid] = (time.monotonic(), asyncio.create_task(self._run_group_fn(gid)))
         self.changed.set()
+
+    async def _run_group_fn(self, gid: str) -> list[RolloutRecord]:
+        members = [self.pool.values[t.rid] for t in self.pool.members(gid, {"finished"}) if t.rid in self.pool.values]
+        res = self.group_fn(gid, [m.model_copy(deep=True) for m in members])
+        if asyncio.iscoroutine(res):
+            res = await res
+        out = list(res)
+        if len(out) != len(members) or [r.rollout_id for r in out] != [m.rollout_id for m in members]:
+            raise ValueError(f"group_fn for {gid} must return its members in order (got {len(out)} of {len(members)})")
+        return out
+
+    async def _apply_group_stage(self, gids: list[str]) -> dict[str, float]:
+        """At the barrier: install each selected group's stage result, or fall back to the raw advantages when it is late
+        or failed (the records are flagged; a late stage is cancelled, never applied to a later step)."""
+        done = fell = 0
+        waited = 0.0
+        for gid in gids:
+            ent = self._group_stage.pop(gid, None)
+            if ent is None:  # never launched (a group restored from a checkpoint): run it now, under the same deadline
+                ent = (time.monotonic(), asyncio.create_task(self._run_group_fn(gid)))
+            t0, task = ent
+            left = self.cfg.group_deadline_s - (time.monotonic() - t0)
+            w0 = time.monotonic()
+            try:
+                out = await asyncio.wait_for(asyncio.shield(task), timeout=max(left, 0.0)) if not task.done() else task.result()
+            except TimeoutError:
+                task.cancel()
+                out = None
+            except Exception as e:  # noqa: BLE001 -- a broken group operator falls back; it never kills the run
+                self._failure("harness", e, rollout=False)
+                out = None
+            waited += time.monotonic() - w0
+            if out is None:
+                fell += 1
+                for t in self.pool.members(gid, {"finished"}):
+                    if t.rid in self.pool.values:
+                        self.pool.values[t.rid].group_credit_fallback = True
+                continue
+            done += 1
+            for r in out:
+                r.reward_components.setdefault("raw", float(self.pool.values[r.rollout_id].reward or 0.0))
+                self.pool.values[r.rollout_id] = r
+        return {"group/graded": float(done), "group/fallback": float(fell), "group/barrier_wait_s": waited}
 
     async def _grade(self, rec: RolloutRecord) -> RolloutRecord | None:
         cfg = self.cfg
@@ -403,6 +458,7 @@ class Runtime:
                 t.add_done_callback(self._audit_tasks.discard)
 
     async def _train(self, sel) -> dict[str, float]:
+        gm = await self._apply_group_stage([g.gid for g in sel.groups]) if self.group_fn is not None else {}
         recs, groups = [], []
         for g in sel.groups:
             for t in self.pool.members(g.gid, {"finished", "failure", "masked"}):
@@ -425,7 +481,7 @@ class Runtime:
         by_group: dict[str, list[float]] = {}
         for r, g in zip(recs, groups, strict=True):
             by_group.setdefault(g, []).append(r.reward)
-        return {**m, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
+        return {**m, **gm, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
                 "_truncated": [bool(r.truncated or any(t.finish == "length" for t in r.turns[-1:])) for r in recs],
                 "_group_rewards": list(by_group.values()),
                 "_entropy": (-sum(lps) / len(lps)) if lps else None,  # behaviour-policy estimate: E[−log π(a)] over sampled tokens
@@ -514,6 +570,9 @@ class Runtime:
             self.sched.trained(sel)
             for g in list(sel.groups) + [self.pool.groups[x] for x in sel.evicted if x in self.pool.groups]:
                 self.pool.release(g.gid)  # trained / evicted work leaves the pool: memory stays bounded over a long run
+                ent = self._group_stage.pop(g.gid, None)
+                if ent is not None:  # evicted while its group stage ran: the result would have nothing to apply to
+                    ent[1].cancel()
             for gid in [x for x, gr in self.pool.groups.items() if gr.status == "evicted"]:
                 self.pool.release(gid)  # evicted earlier with a straggler still running
             step += 1
@@ -560,6 +619,8 @@ class Runtime:
             self.report.steps.append(StepLog(step, self.version, metrics))
             self._step_now = step
             self.tracking.log(metrics, step)
+        for _t0, task in self._group_stage.values():  # stages of groups never trained this run
+            task.cancel()
         if self._audit_tasks:  # audits already started finish (their verdicts belong to this run)
             await asyncio.gather(*list(self._audit_tasks), return_exceptions=True)
         for t in self.tasks.values():
