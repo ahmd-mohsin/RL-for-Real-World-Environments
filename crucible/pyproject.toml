@@ -44,9 +44,6 @@ dev = [
 crucible = "crucible.cli.main:cli"
 
 # agentenv plugin (research m11-m12/05 §4): agentenv loads these only when it is installed
-[project.entry-points."agent_env.sandbox_providers"]
-gpu_docker = "crucible.interop.agentenv.plugin.gpu_docker:GpuDockerSandboxProvider"
-
 [project.entry-points."agent_env.task_steps"]
 crucible_world = "crucible.interop.agentenv.plugin.steps:CrucibleWorldStep"
 crucible_verify = "crucible.interop.agentenv.plugin.steps:CrucibleVerifyStep"

@@ -44,13 +44,29 @@ class CrucibleWorldStep(TaskStep):
         self.env_id, self.task, self.task_kwargs = env_id, task, dict(task_kwargs or {})
 
     async def execute(self, context):
+        import datetime
+
+        import httpx
+        from agent_env.env.env import _mcp_url
+        from agent_env.env.gateway.constants import WELL_KNOWN_PATH
+
         task = _load(self.task)(**{"backend": "agentenv", **self.task_kwargs})
         d = Path(tempfile.mkdtemp(prefix="ae-crucible-"))
         world = await task.open(d / "work")
-        WORLDS[self.env_id] = {"task": task, "world": world, "dir": d}
-        context.deployed_envs.append(DeployedGatewayEnv(env_id=self.env_id, env_version=0, gateway_url=world.backend.gateway_url, gateway_mode="consistent",
-                                                        sandbox_id=f"crucible-local:{self.env_id}", sandbox_type="crucible_world"))
-        context.metadata.setdefault("crucible", {})[self.env_id] = {"task": self.task, "world": getattr(task, "world_id", "")}
+        gw = world.backend.gateway_url
+        async with httpx.AsyncClient(timeout=60) as c:
+            card = (await c.get(f"{gw}{WELL_KNOWN_PATH}")).raise_for_status().json()
+            offset = len((await c.get(f"{gw}/trajectory")).content)  # this episode's events start here (C3: reused Worlds)
+        WORLDS[self.env_id] = {"task": task, "world": world, "dir": d, "traj_offset": offset}
+        # the full record (m13 audit 02, C2): stock steps (deploy_agent, sync_env_clock, modify_env_tool_access,
+        # register_env_triggers, collect_artifacts) read the card and the MCP URL from it
+        context.deployed_envs.append(DeployedGatewayEnv(
+            env_id=self.env_id, env_version=0, gateway_url=gw, gateway_mode="consistent", sandbox_id=f"crucible-local:{self.env_id}",
+            sandbox_type="crucible_world", environment_card_url=f"{gw}{WELL_KNOWN_PATH}", environment_card=card,
+            environment_card_read_at_utc=datetime.datetime.now(datetime.UTC).isoformat(), mcp_url=_mcp_url(gw, card),
+            mcp_server_name=card.get("name")))
+        context.metadata.setdefault("crucible", {})[self.env_id] = {"task": self.task, "task_kwargs": self.task_kwargs, "env_id": self.env_id,
+                                                                     "world": getattr(task, "world_id", "")}
         return context
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,19 +97,25 @@ class CrucibleVerifyStep(TaskStep):
         doc = write_reward_files(d / "verify", rj, rep.to_dict())
         masked = (rj.get("infra") or {}).get("status") == "masked"
         async with httpx.AsyncClient(timeout=60) as c:
-            traj = (await c.get(f"{world.backend.gateway_url}/trajectory")).text
-        events = [json.loads(x) for x in traj.splitlines() if x.strip()]
+            raw = (await c.get(f"{world.backend.gateway_url}/trajectory")).content
+        start = int(s.get("traj_offset", 0))
+        s["traj_offset"] = len(raw)  # the next episode on this World replays only its own events (C3)
+        events = [json.loads(x) for x in raw[start:].decode().splitlines() if x.strip()]
         known = [t.qualified for t in world.tools_for("agent")]
         steps_dir = d / "steps"
-        local_task = type(task)(**{k: v for k, v in getattr(task, "__dict__", {}).items() if k == "instruction"})  # replay on the local backend
-        await replay(local_task, from_gateway_jsonl(events, known=known), steps_dir, episode_key=f"{getattr(task, 'id', self.env_id)}|{self.episode_key}",
+        step_cfg = next((st for st in context.metadata.get("crucible", {}).values() if isinstance(st, dict) and st.get("env_id") == self.env_id), None)
+        kwargs = dict((step_cfg or {}).get("task_kwargs") or {})
+        local_task = _load(step_cfg["task"])(**{**kwargs, "backend": "local"}) if step_cfg else type(task)()  # replay on the local backend, same task
+        actions = from_gateway_jsonl(events, known=known)
+        await replay(local_task, actions, steps_dir, episode_key=f"{getattr(task, 'id', self.env_id)}|{self.episode_key}",
                      harness="agentenv@1")
         rows = [json.loads(x) for x in (steps_dir / "steps.jsonl").read_text().splitlines() if x.strip()]
         gates = rj.get("gates") or {}
-        results = [{"id": f"gate/{g}", "score": float(v), "result": "pass" if v else "fail", "weight": 1.0, **({"skipped": True} if masked else {})}
+        # agentenv's aggregators test ``result is True`` (C3: string results made every gate count as failed)
+        results = [{"id": f"gate/{g}", "score": float(v), "result": bool(v), "weight": 1.0, **({"skipped": True} if masked else {})}
                    for g, v in sorted(gates.items())]
         context.metadata.setdefault("verifications", {})[self.verifier_id] = {
-            "results": results, "score": None if masked else float(rj["reward"]),
+            "results": results, "score": None if masked else float(rj["reward"]), "actions_replayed": len(actions),
             "crucible": {"reward_json": doc, "masked": masked, "failure_kind": (rj.get("infra") or {}).get("failure_kind"), "steps": rows,
                          "out_dir": str(d / "verify")}}
         if masked:

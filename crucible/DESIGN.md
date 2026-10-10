@@ -741,9 +741,16 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
   - **verifiers taskset** (`interop/verifiers/taskset.py`): subclasses verifiers' `HarborTask`/`HarborTaskset`. A masked grade raises a typed `TaskError`, which prime-rl drops; components are recorded as `crucible/` metrics.
 - **Framework environments:** `crucible/.envs/{openenv,verifiers,nemo}`. verifiers pins mcp 2, agentenv and OpenEnv mcp < 2, and NeMo-Gym Python ≥ 3.13.14. Each path runs in its own environment, and the gate compares the outputs.
 - **agentenv plugin** (`interop/agentenv/plugin/`, registered by entry points):
-  - a `gpu_docker` sandbox provider (`--runtime=nvidia --init`);
-  - a `crucible_world` step: the World behind a real agentenv gateway, published as a `DeployedGatewayEnv`, so stock agentenv steps work unchanged;
-  - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows and raises;
+  - GPU flags (`--runtime=nvidia --init`) as an opt-in on agentenv's builtin local provider (`gpu_docker.local_gpu`). **Corrected 2026-10-10 (m13 audit C1):**
+    - the first version registered a `gpu_docker` provider whose sandboxes agentenv's type guard always destroyed (they
+      reported `type="local"`);
+    - a distinct type would break agentenv's `sandbox_type == "local"` URL externalization and CA trust;
+  - a `crucible_world` step: the World behind a real agentenv gateway, published as a `DeployedGatewayEnv` with its env
+    card and MCP URL. **Corrected (C2):**
+    - the first version omitted both, so stock steps such as `modify_env_tool_access` and `deploy_agent` failed;
+    - a stock `modify_env_tool_access` step is now tested against it;
+    - the gateway bind host is `gateway_bind`;
+  - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows and raises; **Fixed (C3):** boolean gate results (agentenv aggregators test `is True`), replay of only this episode's slice of the gateway trajectory, the router's signed `__actor` argument stripped, the replay task rebuilt with its kwargs.
   - a `crucible_ref` artifact type.
 - **MiMo round trip** (`interop/mimo/{verify,export}.py`):
   - The import records a sha256 manifest of the source env.

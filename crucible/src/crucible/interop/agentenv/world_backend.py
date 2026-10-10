@@ -168,7 +168,8 @@ class AgentEnvBackend(Backend):
 
     @property
     def gateway_url(self) -> str:
-        return f"http://127.0.0.1:{self.gateway_port}"
+        host = self.params.get("gateway_bind", "127.0.0.1")
+        return f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{self.gateway_port}"
 
     @property
     def mcp_url(self) -> str:
@@ -207,7 +208,9 @@ class AgentEnvBackend(Backend):
         env = {
             **safe_environ(),
             "INTERNAL_MCP_SERVERS": ",".join(f"{n}={s.url}" for n, s in self.servers.items()),
-            "MCP_HOST": "127.0.0.1",
+            # loopback by default: the gateway serves every tool to any role header. Agent containers on a Linux daemon reach
+            # the host through the docker0 bridge, so set gateway_bind (e.g. 172.17.0.1) there (m13 audit 02, C2)
+            "MCP_HOST": self.params.get("gateway_bind", "127.0.0.1"),
             "MCP_PORT": str(self.gateway_port),
             "MCP_SERVER_NAME": f"crucible-{self.spec.world.replace('/', '-')}"[:60],
             "GATEWAY_MODE": self.params.get("gateway_mode", "consistent"),

@@ -164,5 +164,7 @@ def from_gateway_jsonl(events: Sequence[dict], *, known: Iterable[str] = ()) -> 
         if e.get("event_type") != "tool_call":
             continue
         tc = e.get("tool_call") or e
-        out.append(Action(canonical_tool(tc.get("function_name") or tc.get("tool_name") or "", known=known), canonical_args(tc.get("arguments"))))
+        args = canonical_args(tc.get("arguments"))
+        args.pop("__actor", None)  # agentenv world_backend.ACTOR_ARG: the World router's signed actor id rides inside the arguments: never a tool argument (C3)
+        out.append(Action(canonical_tool(tc.get("function_name") or tc.get("tool_name") or "", known=known), args))
     return out
