@@ -207,3 +207,42 @@ class TorchEngine:
         new.load_state_dict(state)
         self._serve = bf16_copy(new) if self.numerics == "bf16" else new
         self.version = version
+
+
+class ScriptedEngine:
+    """An engine that emits scripted completions (``script(rid, call_index, prompt_ids) -> token ids``) with fixed
+    logprobs, honouring versions, pause and abort: the pipeline test double for real chat models."""
+
+    def __init__(self, script, *, capacity: int = 64, logprob: float = -0.1, delay_s: float = 0.0, stop_ids: Sequence[int] = ()):
+        self.script, self.capacity, self.logprob, self.delay_s, self.stop_ids = script, capacity, logprob, delay_s, tuple(stop_ids)
+        self.version = 0
+        self._unpaused = asyncio.Event()
+        self._unpaused.set()
+        self._abort_epoch = 0
+        self.calls: dict[str, int] = {}
+
+    async def generate(self, req: GenRequest) -> GenResult:
+        await self._unpaused.wait()
+        epoch, version = self._abort_epoch, self.version
+        k = self.calls.get(req.rid, 0)
+        await asyncio.sleep(self.delay_s)
+        if self._abort_epoch != epoch:
+            return GenResult([], [], version, "abort")
+        self.calls[req.rid] = k + 1
+        out = list(self.script(req.rid, k, req.prompt_ids))[: req.max_tokens]
+        fin = "stop" if out and out[-1] in self.stop_ids else "length"
+        return GenResult(out, [self.logprob] * len(out), version, fin, None, len(req.prompt_ids))
+
+    async def abort_all(self) -> int:
+        self._abort_epoch += 1
+        return 0
+
+    async def pause(self) -> None:
+        self._unpaused.clear()
+
+    async def resume(self) -> None:
+        self._unpaused.set()
+
+    async def load_weights(self, state: Any, version: int) -> None:
+        self.version = version
+

@@ -524,9 +524,11 @@ openenv-awm = [
     { name = "uvicorn" },
 ]
 train = [
+    { name = "httpx" },
     { name = "numpy" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "transformers" },
 ]
 verifiers = [
     { name = "verifiers" },
@@ -547,6 +549,7 @@ requires-dist = [
     { name = "fastapi-mcp", marker = "extra == 'openenv-awm'", specifier = ">=0.3" },
     { name = "harbor", marker = "extra == 'harbor'", editable = "../RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'train'", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'openenv-awm'", specifier = ">=0.24" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.1" },
@@ -568,6 +571,7 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'mcp'", specifier = ">=0.40" },
     { name = "tomli-w", specifier = ">=1.0" },
     { name = "torch", marker = "extra == 'train'", specifier = ">=2.5" },
+    { name = "transformers", marker = "extra == 'train'", specifier = ">=4.56" },
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'openenv-awm'", specifier = ">=0.30" },
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },

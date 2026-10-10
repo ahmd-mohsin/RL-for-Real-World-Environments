@@ -77,11 +77,16 @@ class RunReport:
 
 class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
-                 env_factory: Callable[[], Any], sources: dict[str, list[str]], *, harness: str = "native:token@1"):
+                 env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
+                 rollout_fn: Callable | None = None):
+        """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
+        (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
+        the engine call with the runtime's abort / version semantics. ``None`` = masked."""
         if cfg.topology == "colocated_sync":
             sched_cfg = SchedulerConfig(**{**sched_cfg.__dict__, "admission_staleness": 1, "staleness_strategy": "none"})
         self.cfg, self.sched_cfg = cfg, sched_cfg
         self.engines, self.trainer, self.publisher, self.env_factory, self.harness = engines, trainer, publisher, env_factory, harness
+        self.rollout_fn = rollout_fn
         self._queues = {s: list(ps) for s, ps in sources.items()}
         self.pool = DataPool()
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
@@ -92,9 +97,9 @@ class Runtime:
         self.version = 0
 
     # ---- rollout plane --------------------------------------------------------------------------------------------
-    async def _call(self, rid: str, call_id: str, prompt: list[int]) -> GenResult:
-        req = GenRequest(rid=rid, call_id=call_id, prompt_ids=list(prompt), max_tokens=self.cfg.max_turn_tokens, temperature=self.cfg.temperature,
-                         stop_ids=self.cfg.stop_ids)
+    async def _call(self, rid: str, call_id: str, prompt: list[int], max_tokens: int | None = None, temperature: float | None = None) -> GenResult:
+        req = GenRequest(rid=rid, call_id=call_id, prompt_ids=list(prompt), max_tokens=max_tokens or self.cfg.max_turn_tokens,
+                         temperature=self.cfg.temperature if temperature is None else temperature, stop_ids=self.cfg.stop_ids)
         while True:
             res = await self.engines.generate(req)
             if res.finish != "abort":
@@ -109,7 +114,35 @@ class Runtime:
                 self.report.reprefill_tokens += len(prompt)
                 req.resume_completion, req.resume_logprobs, req.resume_spans = [], [], []
 
+    async def _rollout_fn(self, rid: str, prompt: str, seed: int) -> None:
+        tag = self.pool.tags[rid]
+        k = [0]
+
+        async def gen(ids: list[int], max_tokens: int, temperature: float) -> GenResult:
+            k[0] += 1
+            res = await self._call(rid, f"{rid}:c{k[0]}", ids, max_tokens, temperature)
+            for _, v in (res.version_spans or [(0, res.version)]):
+                self.pool.call(rid, v, 0)
+            tag.length += len(res.completion_ids)
+            return res
+
+        try:
+            rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)
+        except EnvInfraError:
+            rec = None
+        except Exception:  # noqa: BLE001 -- a crashing environment is infrastructure: mask, never score 0
+            rec = None
+        if rec is None:
+            self.pool.finish(rid, reward=None, status="masked", now=time.monotonic())
+            self.report.masked_rollouts += 1
+        else:
+            rec.group = tag.group
+            self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
+        self.changed.set()
+
     async def _rollout(self, rid: str, prompt: str, seed: int) -> None:
+        if self.rollout_fn is not None:
+            return await self._rollout_fn(rid, prompt, seed)
         env = self.env_factory()
         tag = self.pool.tags[rid]
         try:

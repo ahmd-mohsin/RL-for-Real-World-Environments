@@ -27,7 +27,7 @@ openenv-awm = ["fastapi>=0.110", "sqlalchemy>=2.0", "fastapi-mcp>=0.3", "hugging
 # LLM-backed actors (OpenAI-compatible endpoints: OpenRouter, vLLM, SGLang).
 llm = ["openai>=1.60"]
 # M12 trainer side: losses, corrections, advantages, the reference trainer (CPU wheels locally; CUDA images on GPU hosts)
-train = ["torch>=2.5", "numpy>=1.26", "safetensors>=0.4"]
+train = ["torch>=2.5", "numpy>=1.26", "safetensors>=0.4", "transformers>=4.56", "httpx>=0.27"]
 # Evaluating workflow models and credit on public trajectory corpora (parquet), M5/M6 gates.
 analysis = ["pyarrow>=15"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.

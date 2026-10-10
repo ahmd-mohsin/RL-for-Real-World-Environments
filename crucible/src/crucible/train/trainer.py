@@ -85,23 +85,30 @@ class TorchTrainer:
                 items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), a + self.cfg.turn_weight * (t.advantage or 0.0), pids[g]))
         return items
 
+    def _logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
+        if hasattr(self.model, "batch_token_logprobs"):  # one forward per micro batch (HF policies)
+            return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature)
+        return [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature) for i in idx]
+
     def _padded(self, items: list[_Item], idx: list[int], old: dict[int, torch.Tensor] | None):
         T = max(len(items[i].completion) for i in idx)
-        lp = torch.zeros(len(idx), T, dtype=torch.float64)
-        lp_rows, roll, adv, mask, old_t = [], torch.zeros(len(idx), T, dtype=torch.float64), torch.zeros(len(idx), T, dtype=torch.float64), \
-            torch.zeros(len(idx), T), torch.zeros(len(idx), T, dtype=torch.float64)
+        rows = self._logprobs(items, idx)
+        dev = rows[0].device
+        roll = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
+        adv = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
+        mask = torch.zeros(len(idx), T, device=dev)
+        old_t = torch.zeros(len(idx), T, dtype=torch.float64, device=dev)
+        lp_rows = []
         for k, i in enumerate(idx):
             it = items[i]
             n = len(it.completion)
-            row = self.model.token_logprobs(it.prompt, it.completion, self.cfg.temperature).double()
-            lp_rows.append(torch.nn.functional.pad(row, (0, T - n)))
-            roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=torch.float64)
+            lp_rows.append(torch.nn.functional.pad(rows[k].double(), (0, T - n)))
+            roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=torch.float64, device=dev)
             adv[k, :n] = it.adv
             mask[k, :n] = 1
             if old is not None:
-                old_t[k, :n] = old[i]
-        lp = torch.stack(lp_rows)
-        return lp, roll, adv, mask, (old_t if old is not None else None)
+                old_t[k, :n] = old[i].to(dev)
+        return torch.stack(lp_rows), roll, adv, mask, (old_t if old is not None else None)
 
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
         items = self._items(records, groups)
@@ -112,7 +119,8 @@ class TorchTrainer:
         old = None
         if self.cfg.correction.name in NEEDS_OLD and self.cfg.correction.old_logprob_source is None:
             with torch.no_grad():
-                old = {i: self.model.token_logprobs(it.prompt, it.completion, self.cfg.temperature).double() for i, it in enumerate(items)}
+                idx_all = list(range(len(items)))
+                old = {i: r.double() for i, r in zip(idx_all, self._logprobs(items, idx_all), strict=True)}
         metrics: dict[str, float] = {}
         single = self.cfg.loss_agg != "token_mean_global"
         for _ in range(self.cfg.updates_per_batch):

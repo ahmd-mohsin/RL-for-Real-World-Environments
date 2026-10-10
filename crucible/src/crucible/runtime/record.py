@@ -75,6 +75,7 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
             turns.append(Turn(call_id=c["call_id"], actor=actor, kind=c.get("kind") or "turn", segment=seg, world_step=c.get("step"),
                               prompt_is_delta=is_delta, prefix_break=brk, prompt_token_ids=delta,
                               completion_token_ids=tok.get("completion_token_ids"), logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"),
+                              version_spans=[tuple(x) for x in tok["version_spans"]] if tok.get("version_spans") else None,
                               sampling=dict(sampling or {}), finish=c.get("finish"), advantage=adv.get(c["call_id"]),
                               atif_step_ids=steps_of.get(c["call_id"], [])))
     segs = [Segment(index=sg["index"], summary_call=sg.get("summary_call"), context_before=sg.get("context_before"), context_after=sg.get("context_after"))

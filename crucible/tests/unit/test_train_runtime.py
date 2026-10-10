@@ -66,3 +66,90 @@ async def test_corrections_run_in_the_loop():
     for c in ("tis", "icepop", "mimo4", "cispo"):
         _, rep = await run("colocated_partial", steps=6, correction=c)
         assert len(rep.steps) == 6 and "mismatch/masked_token_share" in rep.steps[-1].metrics
+
+
+async def test_world_episodes_through_the_runtime_with_exact_tito():
+    """A Crucible World (toy helpdesk) trained through the M12 runtime: the scripted engine emits the oracle's tool calls
+    as tokens; LLMToolPolicy → EngineLLM (byte codec) → engine → World → M7 grader → crucible.rollout/v1."""
+    import json as _json
+
+    from crucible_pack_toy.runtime import HelpdeskTask
+    from crucible_pack_toy.verify import GOLD
+
+    from crucible.core.schema.actions import openai_name
+    from crucible.train.chat import ByteChatCodec
+    from crucible.train.engine import ScriptedEngine
+    from crucible.train.rollout import full_prompts
+    from crucible.train.world_env import world_rollout
+
+    codec = ByteChatCodec()
+
+    def script(rid, k, prompt):
+        if k < len(GOLD):
+            a = GOLD[k]
+            body = _json.dumps({"name": openai_name(a.function_name), "arguments": a.arguments})
+            return list(f"<tool_call>{body}</tool_call>".encode()) + [codec.EOS]
+        return list(b"All tickets handled.") + [codec.EOS]
+
+    eng = EnginePool([ScriptedEngine(script, stop_ids=[codec.EOS], delay_s=0.001)])
+    tr = TorchTrainer(TinyPolicy(codec.vocab, 16, seed=0), TrainerConfig(lr=1e-3))
+    rt = Runtime(RuntimeConfig(topology="colocated_partial", steps=2, max_turn_tokens=2048, warmup_batches=0), SchedulerConfig(n=2, B=2, max_staleness=2),
+                 eng, tr, InprocPublisher(tr, eng), None, {"helpdesk": [f"h{i}" for i in range(50)]},
+                 rollout_fn=world_rollout(lambda p: HelpdeskTask(), codec, max_steps=len(GOLD) + 3, max_tokens=2048))
+    rep = await rt.run()
+    assert len(rep.steps) == 2 and rep.masked_rollouts == 0
+    assert all(r.reward == 1.0 for r in rep.trained_records)  # the oracle's tool calls, through tokens, solve the task
+    for r in rep.trained_records:
+        prompts = full_prompts(r)
+        assert len(r.turns) == len(GOLD) + 1 and all(t.policy_version is not None for t in r.turns)
+        assert all(t.prompt_is_delta for t in r.turns[1:]) and not any(t.prefix_break for t in r.turns)  # exact TITO: never re-rendered
+        for a, b in zip(r.turns, r.turns[1:], strict=False):  # each prompt extends the previous prompt + its completion
+            assert prompts[b.call_id][: len(prompts[a.call_id]) + len(a.completion_token_ids)] == prompts[a.call_id] + a.completion_token_ids
+
+
+def _tiny_qwen():
+    from transformers import Qwen3Config, Qwen3ForCausalLM
+
+    cfg = Qwen3Config(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+                      head_dim=8, max_position_embeddings=128, tie_word_embeddings=True)
+    import torch as _t
+
+    _t.manual_seed(0)
+    return Qwen3ForCausalLM(cfg)
+
+
+async def test_hf_policy_batched_logprobs_training_and_checkpoint_publish(tmp_path):
+    import torch as _t
+    from safetensors.torch import load_file
+
+    from crucible.train.hf import HFPolicy
+    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.train.weights import CheckpointPublisher
+
+    pol = HFPolicy(_tiny_qwen(), lm_head_fp32=True)
+    pairs = [([1, 2, 3], [4, 5]), ([7, 8], [9, 10, 11])]
+    batched = pol.batch_token_logprobs(pairs)
+    single = [pol.token_logprobs(p, c) for p, c in pairs]
+    assert all(_t.allclose(a, b, atol=1e-5) for a, b in zip(batched, single, strict=True))  # padding/masking does not change logprobs
+    recs = []
+    for i, r in enumerate([1.0, 0.0, 1.0, 0.0]):
+        with _t.no_grad():
+            lp = pol.token_logprobs([1, 2, 3], [4 + i, 5]).tolist()
+        recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=r,
+                                  turns=[Turn(call_id=f"r{i}:c1", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=[4 + i, 5], logprobs=lp,
+                                              policy_version=0)]))
+    tr = TorchTrainer(pol, TrainerConfig(lr=1e-2, correction=Correction("dis")))
+    before = {k: v.clone() for k, v in pol.state_dict().items()}
+    m = tr.step(recs, ["g"] * 4)
+    assert m["train/items"] == 4 and any(not _t.equal(before[k], v) for k, v in pol.state_dict().items())
+
+    class Sink:
+        version = 0
+
+        async def load_weights(self, path, version):
+            self.path, self.version = path, version
+
+    sink = Sink()
+    v = await CheckpointPublisher(tr, sink, tmp_path).publish()
+    sd = load_file(f"{sink.path}/model.safetensors")
+    assert v == 1 and sink.version == 1 and set(sd) <= set(pol.state_dict()) and _t.equal(sd["model.norm.weight"], pol.state_dict()["model.norm.weight"])
