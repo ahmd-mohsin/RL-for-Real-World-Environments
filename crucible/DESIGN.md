@@ -1120,6 +1120,30 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**D-3 (2026-10-10): remote environments over the NeMo-Gym resources protocol.**
+- **Server (`interop/nemo_gym/server.py`):** previously unbounded, leaking abandoned sessions, and crashing with a
+  `KeyError` on an unknown one. The admission and reaper patterns follow NeMo-Gym's `base_environment_server.py` and
+  OpenEnv's `http_server.py`.
+  - **Admission:** `max_concurrent_episodes` slots. A `seed_session` that waits past `queue_timeout_s` gets
+    `503 {"admission": "queue_timeout"}`, a non-terminal failure.
+  - **Reaper:** a lifespan task closes sessions idle past `idle_timeout_s`, so an abandoned client cannot leak Worlds.
+  - **Unknown sessions** return 404. `/health` reports sessions, capacity and counters.
+  - **CLI:** `python -m crucible.interop.nemo_gym.server --tasks module:factory --port P`.
+- **Client (`interop/nemo_gym/client.py`):**
+  - `remote_episode(urls, task_id, policy, rid=...)` drives any Crucible `Policy`: seed, tool calls as
+    `POST /<app>__<tool>`, verify (graded from the World's state on the server), close. It reuses `LLMToolPolicy` as is,
+    so context management, compaction and token capture are the in-process ones.
+  - **Affinity:** session by `crc32(rid)`. A 503 masks the episode as `env_admission_timeout`, a lost server as
+    `env_unreachable`, a reaped session as `env_session_lost`; never a 0.
+  - `remote_world_rollout(urls, task_for, codec)` is the M12 `rollout_fn` over remote Worlds, with `EngineLLM` exact
+    TITO, recorded as `crucible.rollout/v1`.
+- **Tests (localhost, multi-process):**
+  - two env-server processes give rewards identical to the in-process World on 30 seeds of scripted episodes, with
+    sessions on both servers;
+  - a server with one slot masks the second episode, reaps the abandoned slot, then serves again;
+  - the M12 runtime trains two steps on remote Worlds, with train-valid records (byte codec, scripted engine emitting
+    real tool calls).
+
 **D-2 (2026-10-10): remote rollout workers (Ray-free, leased).** `train/workers.py`, following the slime leased queue,
 verifiers EnvServer and prime-rl's process model.
 

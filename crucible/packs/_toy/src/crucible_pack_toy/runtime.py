@@ -145,3 +145,8 @@ def crashing_tool_world(pack_root: Path, *, tool: str = "get_ticket", on_attempt
         return w
 
     return factory
+
+
+def nemo_tasks() -> dict:
+    """Env-server task factory (``python -m crucible.interop.nemo_gym.server --tasks crucible_pack_toy.runtime:nemo_tasks``)."""
+    return {"toy/helpdesk": HelpdeskTask()}
