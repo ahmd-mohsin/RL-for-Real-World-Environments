@@ -191,7 +191,13 @@ class LLMClient:
             kwargs["tools"] = tools
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        kwargs.update(extra)
+        defaults = dict(self.provider.request_defaults or {})  # provider-level defaults (token capture on vLLM / SGLang)
+        body = {**(defaults.pop("extra_body", None) or {}), **(extra.get("extra_body") or {})}  # call-level keys win
+        for k, v in defaults.items():
+            kwargs.setdefault(k, v)
+        kwargs.update({k: v for k, v in extra.items() if k != "extra_body"})
+        if body:
+            kwargs["extra_body"] = body
         last: Exception | None = None
         t0 = time.monotonic()
         for attempt in range(self.max_retries):

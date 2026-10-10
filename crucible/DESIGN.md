@@ -971,6 +971,25 @@ DP-rank unit from a simulation into processes:
 - **Tests:** synchronous mode resumes **bit for bit** (4 uninterrupted steps = 2 + checkpoint + resume + 2, with and
   without the critic); partial rollout continues the version sequence and never draws a prompt twice.
 
+**Lab full-stack campaign (2026-10-10; `crucible_pack_toy.labstack`).** Every built module (M1–M12) runs on the lab
+RTX 5090 with a small locally served model, on the same environments as the CPU gates.
+- **Setup:** vLLM serves Qwen3-4B-Instruct with tool calling. A lab-only config maps every model alias (policy,
+  simulator, judge, smoke) to it, with `request_defaults` asking vLLM for logprobs and token ids on every call.
+- **Phases:**
+  - the M1–M9 smoke;
+  - the M2 actor gate;
+  - the M7 golden check;
+  - M8 calibration and world synthesis;
+  - the M9 accept gate;
+  - M10: `Runner` samples in eval and train mode (train mode needs complete token records);
+  - M11: the native cross-runtime gate, plus replay identity of an LLM-produced trajectory;
+  - the long-horizon gate;
+  - the full unit suite on Linux + CUDA;
+  - the M12 GRPO gate.
+- **Report:** one JSON report.
+- **Gap it exposed:** a provider had no way to request token capture from a self-hosted engine. Fixed with
+  `LLMProvider.request_defaults`, merged into every request with call-level `extra_body` keys winning.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

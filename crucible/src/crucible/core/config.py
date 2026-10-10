@@ -25,6 +25,9 @@ class LLMProvider(CrucibleModel):
     base_url: str
     api_key: str = ""  # "env:NAME"
     headers: dict[str, str] = Field(default_factory=dict)
+    # merged into every chat request to this provider: self-hosted engines (vLLM / SGLang) need e.g.
+    # {"logprobs": true, "extra_body": {"return_token_ids": true}} for token-in-token-out capture (train mode)
+    request_defaults: dict[str, Any] = Field(default_factory=dict)
 
 
 class GpuHost(CrucibleModel):
