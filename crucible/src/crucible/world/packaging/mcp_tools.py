@@ -13,6 +13,14 @@ Two transports with identical semantics:
 
 from __future__ import annotations
 
+import sqlite3 as _sqlite3
+
+# Exceptions that mean the tool module itself is broken (found by M10 fault injection, 2026-10-09): masked as
+# crucible:tool_crashed. Domain errors (ValueError, KeyError, LookupError, PermissionError, RuntimeError raised on
+# purpose) stay tool faults the policy sees and is scored on.
+BUG_EXCEPTIONS = (ArithmeticError, TypeError, AttributeError, NameError, ImportError, AssertionError, NotImplementedError, SyntaxError,
+                  RecursionError, MemoryError, _sqlite3.OperationalError, _sqlite3.ProgrammingError)
+
 import json
 import sys
 import time
@@ -97,6 +105,10 @@ class InProcessToolModule:
         try:
             result = await tool.run(args, convert_result=True)
         except Exception as e:  # noqa: BLE001 - FastMCP surfaces tool exceptions as isError text; mirror that exactly
+            orig = e.__cause__ or e
+            if isinstance(orig, BUG_EXCEPTIONS):  # a programming bug in the environment, not a domain answer: mask, don't score
+                return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=f"internal error in {self.app}.{name}",
+                                  error="internal_error", fault="infra", duration_s=time.monotonic() - t0)
             return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=str(e), error=type(e).__name__,
                               fault="tool", duration_s=time.monotonic() - t0)
         unstructured = result[0] if isinstance(result, tuple) else result
