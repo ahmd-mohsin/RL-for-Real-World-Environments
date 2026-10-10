@@ -97,6 +97,8 @@ async def test_runtime_survives_a_killed_worker_without_double_training():
     async def killer():
         while len(rt.report.steps) < 2:
             await asyncio.sleep(0.05)
+        while not any(j.worker == "w0" for j in lc.jobs.values()):  # kill it while it provably holds leases
+            await asyncio.sleep(0.005)
         os.killpg(procs[0].pid, signal.SIGKILL)
 
     k = asyncio.create_task(killer())

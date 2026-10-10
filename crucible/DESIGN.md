@@ -1120,6 +1120,29 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**D-4 (2026-10-10): the launcher.** `train/launch.py` follows prime-rl's Ray-free process model.
+- **One command:** `run_job(spec)` (or `python -m crucible.train.launch job.toml`) starts engine-server processes behind
+  a `GatewayPool`, env-server processes, rollout-worker processes and the controller (runtime plus `LeaseController`,
+  with a JSONL sink) in the launching process.
+- **Supervision:** a dead engine server, worker or env server is restarted on its port, up to `max_restarts`. The rest
+  of the system absorbs each outage:
+  - the gateway turns the dead engine's calls into re-issued aborts and revives the restarted engine after replaying
+    the current weights;
+  - leases of a dead worker expire and are re-leased;
+  - a dead env server's episodes are masked.
+
+  Every child's process group is killed when the job ends, however it ends.
+- **Found while testing:** the controller hung on shutdown. Workers' in-flight `/gen` handlers sat inside
+  `Runtime._call`, re-issuing aborts forever once the engines were gone, and uvicorn waited on them. `/gen` handlers
+  are now tracked per rollout and cancelled when their rollout ends or the controller stops, with a 2 s graceful
+  timeout. The D-2 kill test also now kills a worker while it provably holds leases (with small-batch pulls it
+  sometimes held none).
+- **Test:** a 30-step job with 2 engines, 2 workers and 1 env server. Worker 0, engine 0 and env 0 are SIGKILLed after
+  step 2.
+  - All three are restarted, and the gateway evicts engine 0 and revives it through weight catch-up.
+  - All 30 steps and publishes finish, with 0 masked rollouts, nothing trained twice, and 30 metric lines on disk.
+- **Not built:** the Ray launcher (audit item G).
+
 **D-3 (2026-10-10): remote environments over the NeMo-Gym resources protocol.**
 - **Server (`interop/nemo_gym/server.py`):** previously unbounded, leaking abandoned sessions, and crashing with a
   `KeyError` on an unknown one. The admission and reaper patterns follow NeMo-Gym's `base_environment_server.py` and

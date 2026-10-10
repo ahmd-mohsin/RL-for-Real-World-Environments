@@ -87,6 +87,7 @@ class LeaseController:
         self.workers: dict[str, float] = {}  # worker id -> last heartbeat
         self._server = None
         self._tasks: list[asyncio.Task] = []
+        self._gens: dict[str, set[asyncio.Task]] = {}  # rid -> in-flight /gen handlers (cancelled with their rollout)
         self.url: str | None = None
 
     # ---- runtime side ---------------------------------------------------------------------------------------------------
@@ -99,6 +100,8 @@ class LeaseController:
                 return await fut
             finally:
                 self.jobs.pop(rid, None)
+                for t in self._gens.pop(rid, set()):  # the rollout ended (or the run did): its model calls must not keep re-issuing
+                    t.cancel()
 
         return remote
 
@@ -192,7 +195,14 @@ class LeaseController:
             if j is None:
                 self.stats["stale_gen"] += 1
                 raise HTTPException(status_code=409, detail="lease not held")
-            res = await j.gen(list(body["ids"]), body.get("max_tokens"), float(body.get("temperature", j.temperature)))
+            me = asyncio.current_task()
+            self._gens.setdefault(j.rid, set()).add(me)
+            try:
+                res = await j.gen(list(body["ids"]), body.get("max_tokens"), float(body.get("temperature", j.temperature)))
+            except asyncio.CancelledError:
+                raise HTTPException(status_code=409, detail="rollout ended") from None
+            finally:
+                self._gens.get(j.rid, set()).discard(me)
             return dataclasses.asdict(res)
 
         @app.post("/result")
@@ -214,7 +224,8 @@ class LeaseController:
             with socket.socket() as s:
                 s.bind((host, 0))
                 port = s.getsockname()[1]
-        self._server = uvicorn.Server(uvicorn.Config(self.app(), host=host, port=port, log_level="warning", loop="asyncio", lifespan="off"))
+        self._server = uvicorn.Server(uvicorn.Config(self.app(), host=host, port=port, log_level="warning", loop="asyncio", lifespan="off",
+                                                     timeout_graceful_shutdown=2))
         self._tasks.append(asyncio.create_task(self._server.serve()))
 
         async def reaper() -> None:
@@ -229,6 +240,10 @@ class LeaseController:
         return self.url
 
     async def stop(self) -> None:
+        for ts in self._gens.values():  # in-flight model calls of a finished run: cancel, do not wait on them
+            for t in ts:
+                t.cancel()
+        self._gens.clear()
         if self._server is not None:
             self._server.should_exit = True
         for t in self._tasks[1:]:
