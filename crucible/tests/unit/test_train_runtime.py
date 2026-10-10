@@ -182,3 +182,37 @@ async def test_moe_rollouts_record_routing_and_train_with_r3():
     for r in rep.trained_records:
         for t in r.turns:
             assert t.routing and len(t.routing) == len(t.completion_token_ids) and all(len(x) == 2 for x in t.routing)  # k = 2, kept across resumes
+
+
+@pytest.mark.parametrize("kind", ["tiny", "hf"])
+def test_prefix_sharing_equals_the_unpacked_step(kind):
+    """Checklist #50: a GRPO group's completions share one prompt; with prefix_sharing the prompt is encoded once (GRU
+    state / Forge-style packing with a 4D mask) and the loss and the updated weights equal the unpacked step to 1e-6."""
+    import copy
+
+    import torch as _t
+
+    from crucible.train.hf import HFPolicy
+    from crucible.train.rollout import RolloutRecord, Turn
+
+    base = TinyPolicy(64, 16, seed=4) if kind == "tiny" else HFPolicy(_tiny_qwen(), lm_head_fp32=True)
+    g = _t.Generator().manual_seed(0)
+    recs, groups = [], []
+    for gi in range(3):
+        prompt = _t.randint(4, 60, (12,), generator=g).tolist()
+        for k in range(4):
+            comp = _t.randint(4, 60, (int(_t.randint(1, 7, (1,), generator=g)),), generator=g).tolist()
+            recs.append(RolloutRecord(rollout_id=f"r{gi}{k}", sample="s", task="t", harness="h", policy="p", reward=float(k % 2),
+                                      turns=[Turn(call_id=f"r{gi}{k}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp,
+                                                  logprobs=[-2.0] * len(comp), policy_version=0)]))
+            groups.append(f"g{gi}")
+    out = {}
+    for share in (False, True):
+        m = copy.deepcopy(base)
+        tr = TorchTrainer(m, TrainerConfig(lr=1e-2, prefix_sharing=share, token_budget=1 << 20, correction=Correction("ppo")))
+        met = tr.step(recs, groups)
+        out[share] = (met, {n: p.grad.detach().clone() for n, p in m.named_parameters() if p.grad is not None})  # the step's (clipped) gradient
+    (m0, g0), (m1, g1) = out[False], out[True]
+    assert abs(m0["train/loss"] - m1["train/loss"]) < 1e-6
+    assert g0.keys() == g1.keys() and max(float((g0[k] - g1[k]).abs().max()) for k in g0) < 1e-6  # (Adam's 1/√v would amplify float noise in weights)
+    assert m1["train/prefix_tokens_saved"] > 0

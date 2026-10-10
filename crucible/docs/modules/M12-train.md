@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 28 done, 22 partial, 2 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 29 done, 22 partial, 1 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -195,6 +195,6 @@ Facts behind the table:
 | 47 | skip-observation GAE | done | wired to a trainer |
 | 48 | critic knobs | partial | TTUR, freeze attention |
 | 49 | critical_steps, frozen sub-agents | partial | critical_steps; TorchTrainer frozen mask |
-| 50 | prefix sharing | missing | shared-prefix packing |
+| 50 | prefix sharing | **done** | `TrainerConfig.prefix_sharing`: items with one full prompt in a micro batch encode it once (`TinyPolicy`: GRU state; `HFPolicy`: Forge-style packing, positions restart per completion, 4D *float* mask, since a bool mask is ignored by eager attention); loss and gradients equal the unpacked step within 1e-6; `train/prefix_tokens_saved`. Open: keeping a group in one micro batch when packing |
 | 51 | per-step monitor set | partial | runtime feeds truncation, entropy, zero-variance, hacks |
 | 52 | pass-rate alarm → re-audit | partial | re-audit hook |

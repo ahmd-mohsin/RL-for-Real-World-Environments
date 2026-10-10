@@ -50,6 +50,7 @@ class TrainerConfig:
     updates_per_batch: int = 1
     temperature: float = 1.0
     routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
+    prefix_sharing: bool = False  # items with the same full prompt in a micro batch encode it once (checklist #50)
 
 
 @dataclass
@@ -106,6 +107,26 @@ class TorchTrainer:
                                                      routing=items[i].routing))
                 self._confidence.append(float(getattr(self.model, "last_confidence", 1.0)))
             return out
+        share = getattr(self.model, "shared_prefix_logprobs", None) if self.cfg.prefix_sharing else None
+        if share is not None:  # group by identical full prompt; truncated-sampling items keep the plain path
+            by: dict[tuple, list[int]] = {}
+            for i in idx:
+                if items[i].candidates is None:
+                    by.setdefault(tuple(items[i].prompt), []).append(i)
+            res: dict[int, torch.Tensor] = {}
+            for prompt, members in by.items():
+                if len(members) > 1:
+                    for i, lp in zip(members, share(list(prompt), [items[j].completion for j in members], self.cfg.temperature), strict=True):
+                        res[i] = lp
+                    self._saved_tokens += (len(members) - 1) * len(prompt)
+            rest = [i for i in idx if i not in res]
+            if rest:
+                plain = TorchTrainer._plain_logprobs(self, items, rest)
+                res.update(zip(rest, plain, strict=True))
+            return [res[i] for i in idx]
+        return self._plain_logprobs(items, idx)
+
+    def _plain_logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
         if hasattr(self.model, "batch_token_logprobs"):  # one forward per micro batch (HF policies)
             return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,
                                                    candidates=[items[i].candidates for i in idx])
@@ -148,6 +169,7 @@ class TorchTrainer:
         if self.cfg.routing_replay not in ("none", "r3"):
             raise ValueError(f"routing_replay: none | r3 (got {self.cfg.routing_replay!r})")
         self._confidence: list[float] = []
+        self._saved_tokens = 0
         items = self._items(records, groups)
         if not items:
             return {"train/items": 0.0}
@@ -199,6 +221,8 @@ class TorchTrainer:
                        "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts)}
             for k, v in zip(keys, sums[2:], strict=True):
                 metrics[f"mismatch/{k}"] = v / max(n_mb, 1.0)
+            if self.cfg.prefix_sharing:
+                metrics["train/prefix_tokens_saved"] = float(self._saved_tokens)
             if self._confidence:  # MoE routing confidence Σ_k (mean top-k router mass), checklist #36
                 metrics["moe/routing_confidence"] = sum(self._confidence) / len(self._confidence)
         return metrics

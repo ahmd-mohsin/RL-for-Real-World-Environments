@@ -39,16 +39,17 @@ class HFPolicy(torch.nn.Module):
     def device(self) -> torch.device:
         return next(self.model.parameters()).device
 
-    def _logits(self, ids: torch.Tensor, attn: torch.Tensor | None = None) -> torch.Tensor:
+    def _logits(self, ids: torch.Tensor, attn: torch.Tensor | None = None, position_ids: torch.Tensor | None = None) -> torch.Tensor:
         if self.autocast_dtype is not None:
             with torch.autocast(device_type=ids.device.type, dtype=self.autocast_dtype):
-                return self._logits_inner(ids, attn)
-        return self._logits_inner(ids, attn)
+                return self._logits_inner(ids, attn, position_ids)
+        return self._logits_inner(ids, attn, position_ids)
 
-    def _logits_inner(self, ids: torch.Tensor, attn: torch.Tensor | None = None) -> torch.Tensor:
+    def _logits_inner(self, ids: torch.Tensor, attn: torch.Tensor | None = None, position_ids: torch.Tensor | None = None) -> torch.Tensor:
+        kw = {"position_ids": position_ids} if position_ids is not None else {}
         if not self.lm_head_fp32:
-            return self.model(input_ids=ids, attention_mask=attn).logits.float()
-        out = self.model(input_ids=ids, attention_mask=attn, output_hidden_states=True)
+            return self.model(input_ids=ids, attention_mask=attn, **kw).logits.float()
+        out = self.model(input_ids=ids, attention_mask=attn, output_hidden_states=True, **kw)
         h = out.hidden_states[-1]
         head = self.model.get_output_embeddings()
         with torch.autocast(device_type=ids.device.type, enabled=False):  # BF16 input, FP32 output (the LM head itself in FP32)
@@ -80,6 +81,34 @@ class HFPolicy(torch.nn.Module):
                 out.append(renormalized(rows, c, candidates[i]))
                 continue
             out.append(rows[torch.arange(len(c), device=self.device), torch.tensor(c, device=self.device)])
+        return out
+
+    def shared_prefix_logprobs(self, prompt: list[int], completions: list[list[int]], temperature: float = 1.0) -> list[torch.Tensor]:
+        """Prefix sharing (checklist #50; MiniMax Forge packing): one sequence ``prompt + c₁[:-1] + c₂[:-1] + …`` with position
+        ids restarting after the prompt for every completion and a 4D additive mask (each completion sees the prompt and its
+        own earlier tokens only). The prompt is encoded once; logprobs equal separate passes (a float mask: a boolean 4D
+        mask is silently ignored by eager attention)."""
+        P = len(prompt)
+        seq, pos, seg, starts = list(prompt), list(range(P)), [-1] * P, []
+        for i, c in enumerate(completions):
+            starts.append(len(seq))
+            body = c[:-1]
+            seq += body
+            pos += list(range(P, P + len(body)))
+            seg += [i] * len(body)
+        L, dev = len(seq), self.device
+        segt = torch.tensor(seg, device=dev)
+        q = torch.arange(L, device=dev)
+        allow = (q[None, :] <= q[:, None]) & ((segt[None, :] == -1) | (segt[None, :] == segt[:, None]))
+        mask = torch.zeros(1, 1, L, L, device=dev).masked_fill(~allow, torch.finfo(torch.float32).min)
+        lp = torch.log_softmax(self._logits(torch.tensor([seq], device=dev), mask, torch.tensor([pos], device=dev))[0] / temperature, -1)
+        out = []
+        for i, c in enumerate(completions):
+            if not c:
+                out.append(lp[:0, 0])
+                continue
+            rows = torch.cat([lp[P - 1: P], lp[starts[i]: starts[i] + len(c) - 1]])
+            out.append(rows[torch.arange(len(c), device=dev), torch.tensor(c, device=dev)])
         return out
 
     def state_dict(self, *a, **kw):  # HF names (what vLLM load_weights expects), without the wrapper prefix

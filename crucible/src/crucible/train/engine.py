@@ -168,6 +168,24 @@ class TinyPolicy(torch.nn.Module):
             return renormalized(lp[: len(completion)], completion, candidates)
         return lp[torch.arange(len(completion)), torch.tensor(completion)]
 
+    def shared_prefix_logprobs(self, prompt: list[int], completions: list[list[int]], temperature: float = 1.0) -> list[torch.Tensor]:
+        """Prefix sharing (checklist #50): the prompt runs once; every completion continues from its final GRU state. The
+        gradient through the shared prompt is the sum over the group, exactly as in separate passes."""
+        h_prompt, state = self.rnn(self.emb(torch.tensor([prompt])))
+        first = torch.log_softmax(self.head(h_prompt[0, -1]) / temperature, -1)  # every completion's first-token distribution
+        out = []
+        for c in completions:
+            if not c:
+                out.append(first[:0])
+                continue
+            lps = [first[c[0]]]
+            if len(c) > 1:
+                hc, _ = self.rnn(self.emb(torch.tensor([c[:-1]])), state)
+                rows = torch.log_softmax(self.head(hc[0]) / temperature, -1)
+                lps.extend(rows[torch.arange(len(c) - 1), torch.tensor(c[1:])])
+            out.append(torch.stack(lps))
+        return out
+
 
 class TinyMoEPolicy(TinyPolicy):
     """``TinyPolicy`` + one top-k mixture-of-experts layer after the GRU (checklist #36): the CPU stand-in for MoE
@@ -178,6 +196,8 @@ class TinyMoEPolicy(TinyPolicy):
     *choice* is replayed, the gate weights are the trainer's softmax over the replayed experts, so they get gradient).
     After every forward ``last_routes`` holds the experts used per position and ``last_confidence`` the routing
     confidence Σ_k (mean over positions of the top-k router probability mass)."""
+
+    shared_prefix_logprobs = None  # the GRU-state shortcut does not hold through the MoE layer: the trainer falls back
 
     def __init__(self, vocab: int = 32, dim: int = 32, seed: int = 0, experts: int = 4, k: int = 1, router_scale: float = 0.05):
         super().__init__(vocab, dim, seed)
