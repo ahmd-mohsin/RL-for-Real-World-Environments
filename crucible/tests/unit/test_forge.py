@@ -143,6 +143,8 @@ def test_learnability_and_bands():
     assert advise(estimate([True] * 16, model="m", harness="h"), BANDS["train"])[0].direction == "harder"
     assert advise(estimate([False] * 16, model="m", harness="h"), BANDS["train"])[0].direction == "easier"
     assert advise(estimate([True, False] * 8, model="m", harness="h"), BANDS["train"]) == []
+    early = advise(estimate([False] * 4, model="m", harness="h"), BANDS["train"], final=False)
+    assert early[0].direction == "sample_more"  # 0/4: the interval [0, 0.49] still overlaps the band
     bench = advise(estimate([True, False, False, False] * 4, model="frontier", harness="h"), BANDS["bench"])
     assert bench and bench[0].direction == "harder"  # pass@1 0.25 is above the benchmark ceiling 0.2
 

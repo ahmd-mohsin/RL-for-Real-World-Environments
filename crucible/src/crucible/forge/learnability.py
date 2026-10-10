@@ -79,7 +79,11 @@ async def measure(run: Callable[[int], Awaitable[list[bool]]], band: Band, *, st
     return rate
 
 
-def advise(rate: PassRate, band: Band) -> list[KnobMove]:
+def advise(rate: PassRate, band: Band, *, final: bool = True) -> list[KnobMove]:
+    """``final=False`` (more samples are possible): while the interval does not decide the band, the advice is to
+    sample more, never to move a knob on noise. ``final=True``: the sampling budget is spent; act on the point estimate."""
+    if not final and not decided(rate, band):
+        return [KnobMove("sample_more", f"p = {rate.p:.2f}, interval [{rate.lo:.2f}, {rate.hi:.2f}] does not decide the band yet", ())]
     if band.on == "hi":
         return [KnobMove("harder", f"frontier pass@1 upper bound {rate.hi:.2f} > {band.hi}")] if rate.hi > (band.hi or 1.0) else []
     if band.hi is not None and rate.p > band.hi:

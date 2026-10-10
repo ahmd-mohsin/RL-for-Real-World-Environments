@@ -1,0 +1,260 @@
+{
+ "model": "smoke-cheap",
+ "harness": "crucible.LLMToolPolicy@1",
+ "k": 4,
+ "band": "train p in [0.1, 0.7]",
+ "tasks": {
+  "t1_duplicate": {
+   "p": 0.0,
+   "ci": [
+    0.0,
+    0.4899
+   ],
+   "n": 4,
+   "learnability": 0.0,
+   "advice": [
+    {
+     "direction": "sample_more",
+     "reason": "p = 0.00, interval [0.00, 0.49] does not decide the band yet",
+     "knobs": []
+    }
+   ],
+   "attempts": [
+    {
+     "steps": 4,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 2,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 9,
+     "stop": "agent_done",
+     "failing": [
+      "policy"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 4,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    }
+   ]
+  },
+  "t2_approval": {
+   "p": 0.0,
+   "ci": [
+    0.0,
+    0.4899
+   ],
+   "n": 4,
+   "learnability": 0.0,
+   "advice": [
+    {
+     "direction": "sample_more",
+     "reason": "p = 0.00, interval [0.00, 0.49] does not decide the band yet",
+     "knobs": []
+    }
+   ],
+   "attempts": [
+    {
+     "steps": 9,
+     "stop": "agent_done",
+     "failing": [
+      "policy",
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 2,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 5,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 5,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    }
+   ]
+  },
+  "t3_in_transit": {
+   "p": 0.25,
+   "ci": [
+    0.0456,
+    0.6994
+   ],
+   "n": 4,
+   "learnability": 0.75,
+   "advice": [
+    {
+     "direction": "sample_more",
+     "reason": "p = 0.25, interval [0.05, 0.70] does not decide the band yet",
+     "knobs": []
+    }
+   ],
+   "attempts": [
+    {
+     "steps": 19,
+     "stop": "agent_done",
+     "failing": [],
+     "masked": false
+    },
+    {
+     "steps": 5,
+     "stop": "agent_done",
+     "failing": [
+      "policy",
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 3,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 5,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    }
+   ]
+  },
+  "t4_decoy": {
+   "p": 0.0,
+   "ci": [
+    0.0,
+    0.4899
+   ],
+   "n": 4,
+   "learnability": 0.0,
+   "advice": [
+    {
+     "direction": "sample_more",
+     "reason": "p = 0.00, interval [0.00, 0.49] does not decide the band yet",
+     "knobs": []
+    }
+   ],
+   "attempts": [
+    {
+     "steps": 3,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 7,
+     "stop": "agent_done",
+     "failing": [
+      "policy"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 4,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 5,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    }
+   ]
+  },
+  "t5_compose": {
+   "p": 0.0,
+   "ci": [
+    0.0,
+    0.4899
+   ],
+   "n": 4,
+   "learnability": 0.0,
+   "advice": [
+    {
+     "direction": "sample_more",
+     "reason": "p = 0.00, interval [0.00, 0.49] does not decide the band yet",
+     "knobs": []
+    }
+   ],
+   "attempts": [
+    {
+     "steps": 3,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 24,
+     "stop": "max_steps",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 10,
+     "stop": "agent_done",
+     "failing": [
+      "outcome"
+     ],
+     "masked": false
+    },
+    {
+     "steps": 10,
+     "stop": "agent_done",
+     "failing": [
+      "policy"
+     ],
+     "masked": false
+    }
+   ]
+  }
+ },
+ "spend_usd": 0.002746,
+ "note": "k=4 of the 4 -> 8 -> 16 schedule: knobs move only when the interval decides the band or the schedule is spent"
+}
