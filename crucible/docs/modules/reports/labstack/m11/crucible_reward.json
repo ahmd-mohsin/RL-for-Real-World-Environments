@@ -1,0 +1,23 @@
+{
+ "components": {
+  "check/t1": 1.0,
+  "check/t2": 1.0,
+  "check/t3": 1.0,
+  "time/approvals/invariants": 0.001,
+  "time/refund_policy/invariants": 0.002,
+  "time/t1/predicates": 0.002,
+  "time/t2/predicates": 0.002,
+  "time/t3/predicates": 0.002
+ },
+ "gates": {
+  "approvals": 1,
+  "refund_policy": 1
+ },
+ "infra": {
+  "failure_kind": null,
+  "reason": null,
+  "status": "ok"
+ },
+ "outcome": 1.0,
+ "reward": 1.0
+}

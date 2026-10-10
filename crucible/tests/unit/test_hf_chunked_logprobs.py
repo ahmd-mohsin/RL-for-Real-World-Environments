@@ -74,3 +74,26 @@ def test_chunked_logprobs_hold_far_less_memory_for_backward():
     # the attention activations (L² in this tiny-hidden model) are the same in both paths; the chunked path saves at least
     # the full logits (the reference also keeps the log-softmax copy)
     assert full_held - chunk_held >= logits_bytes, (chunk_held, full_held, logits_bytes)
+
+
+def test_gradient_checkpointing_engages_and_stays_deterministic():
+    """``from_pretrained`` returns eval mode, where HF never recomputes layers: checkpointing was silently off (lab M12
+    OOM). With ``gradient_checkpointing=True`` each decoder layer runs again during backward, dropout is zero, and the
+    log-probs equal the eval-mode model's."""
+    from crucible.train.hf import HFPolicy
+
+    base = _qwen(256)
+    base.config.attention_dropout = 0.3  # would make a train-mode forward stochastic
+    base.eval()
+    ref_m = copy.deepcopy(base)
+    pol = HFPolicy(copy.deepcopy(base), gradient_checkpointing=True)
+    assert pol.model.training and pol.model.config.attention_dropout == 0.0
+    calls = [0]
+    for layer in pol.model.model.layers:
+        layer.register_forward_pre_hook(lambda *_: calls.__setitem__(0, calls[0] + 1))
+    pairs = [(list(range(10)), [3, 4, 5, 6])]
+    lp = pol.batch_token_logprobs(pairs)[0]
+    fwd = calls[0]
+    lp.sum().backward()
+    assert fwd == len(pol.model.model.layers) and calls[0] == 2 * fwd  # recomputed in backward
+    torch.testing.assert_close(lp.detach(), _reference(ref_m, pairs)[0].detach(), atol=1e-5, rtol=1e-5)

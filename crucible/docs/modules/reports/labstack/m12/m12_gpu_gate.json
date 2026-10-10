@@ -1,0 +1,34 @@
+{
+ "gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090",
+ "model": "Qwen/Qwen3-0.6B",
+ "topology": "colocated_partial",
+ "steps": 0,
+ "wall_s": 7.6,
+ "aborted_calls": 11,
+ "reprefill_tokens": 13772,
+ "publishes": 0,
+ "masked_rollouts": 18,
+ "max_untrained": 32,
+ "per_step": [],
+ "gpu": "NVIDIA GeForce RTX 5090",
+ "peak_mem_gb": 2.22,
+ "stop_reason": "harness_share",
+ "failures": {
+  "harness:ValueError": 18
+ },
+ "failure_examples": [
+  {
+   "kind": "harness:ValueError",
+   "message": "chat template is not prefix-preserving for appended messages; use a training-safe template",
+   "traceback": "Traceback (most recent call last):\n  File \"/crucible/src/crucible/train/runtime.py\", line 217, in _rollout_fn\n    rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 82, in rollout\n    ep = await run_episode(world, {\"agent\": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 392, in run_episode\n    await asyncio.wait_for(loop(), timeout=limits.timeout_s)\n  File \"/usr/lib/python3.12/asyncio/tasks.py\", line 520, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 51, in complete\n    prompt = self._prompt(messages, tools)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 44, in _prompt\n    return self._prev_ids + self.codec.suffix(messages[len(s) + 1:], tools)\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/chat.py\", line 117, in suffix\n    raise ValueError(\"chat template is not prefix-preserving for appended messages; use a training-safe template\")\nValueError: chat template is not prefix-preserving for appended messages; use a training-safe template\n"
+  },
+  {
+   "kind": "harness:ValueError",
+   "message": "chat template is not prefix-preserving for appended messages; use a training-safe template",
+   "traceback": "Traceback (most recent call last):\n  File \"/crucible/src/crucible/train/runtime.py\", line 217, in _rollout_fn\n    rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 82, in rollout\n    ep = await run_episode(world, {\"agent\": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 392, in run_episode\n    await asyncio.wait_for(loop(), timeout=limits.timeout_s)\n  File \"/usr/lib/python3.12/asyncio/tasks.py\", line 520, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 51, in complete\n    prompt = self._prompt(messages, tools)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 44, in _prompt\n    return self._prev_ids + self.codec.suffix(messages[len(s) + 1:], tools)\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/chat.py\", line 117, in suffix\n    raise ValueError(\"chat template is not prefix-preserving for appended messages; use a training-safe template\")\nValueError: chat template is not prefix-preserving for appended messages; use a training-safe template\n"
+  }
+ ],
+ "reward_first3": 0.0,
+ "reward_last3": 0.0,
+ "pass": false
+}

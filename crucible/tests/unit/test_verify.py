@@ -161,7 +161,7 @@ def test_trusted_unprivileged_mode(tmp_path):
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:  # as root the candidate is demoted: pytest's root temp dir is 0700
         with pytest.raises(InfraError, match="cannot reach the work dir"):
-            Trusted(tmp_path / "unreachable")
+            Trusted(tmp_path / "unreachable").run(["true"], candidate=True)
         tmp_path = Path(tempfile.mkdtemp(prefix="crucible-trusted-", dir="/tmp"))
         os.chmod(tmp_path, 0o755)
     t = Trusted(tmp_path / "w")

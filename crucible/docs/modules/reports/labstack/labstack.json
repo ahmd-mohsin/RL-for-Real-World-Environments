@@ -1,0 +1,419 @@
+{
+ "model": "Qwen/Qwen3-4B-Instruct-2507",
+ "started": "2026-10-10T13:44:25",
+ "phases": [
+  {
+   "phase": "probe",
+   "rc": 0,
+   "seconds": 0.8,
+   "result": {
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "tool_call": true,
+    "tool_calls": [
+     {
+      "id": "chatcmpl-tool-9e94913b11841cde",
+      "name": "get_ticket",
+      "arguments": {
+       "id": 2
+      }
+     }
+    ],
+    "text": "",
+    "token_record": true,
+    "latency_s": 0.61
+   },
+   "tail": "{\"model\": \"Qwen/Qwen3-4B-Instruct-2507\", \"tool_call\": true, \"tool_calls\": [{\"id\": \"chatcmpl-tool-9e94913b11841cde\", \"name\": \"get_ticket\", \"arguments\": {\"id\": 2}}], \"text\": \"\", \"token_record\": true, \"latency_s\": 0.61}\n\n"
+  },
+  {
+   "phase": "m3_toy_ingest",
+   "rc": 0,
+   "seconds": 0.3,
+   "result": {
+    "refs": 24,
+    "traces": 24,
+    "toy_traces": 24,
+    "idempotent": true,
+    "pass": true
+   },
+   "tail": "{\"refs\": 24, \"traces\": 24, \"toy_traces\": 24, \"idempotent\": true, \"pass\": true}\n\n"
+  },
+  {
+   "phase": "smoke_m1_m9",
+   "rc": 0,
+   "seconds": 7.1,
+   "result": {
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "M1_world": {
+     "ok": true,
+     "seconds": 0.38,
+     "audit_ok": true,
+     "checks": {
+      "runtime.reset_stable": "pass",
+      "runtime.state_contract": "pass",
+      "tool_declaration_accuracy": "pass",
+      "tool_smoke": "pass",
+      "network.answer_sources": "pass",
+      "no_solution_leakage.static": "pass",
+      "runtime.episode_isolation": "skip",
+      "episode_determinism": "skip",
+      "no_solution_leakage.dynamic": "skip",
+      "oracle_passes": "skip",
+      "floor_gap.nop_fails": "skip",
+      "runtime.host_containment": "skip"
+     }
+    },
+    "M2_actors_llm_episode": {
+     "ok": true,
+     "seconds": 3.46,
+     "steps": 9,
+     "stop": "agent_done",
+     "masked": false,
+     "tool_calls": [
+      "tickets.get_ticket",
+      "kb.search_docs",
+      "kb.list_docs",
+      "kb.search_docs",
+      "tickets.add_note",
+      "tickets.issue_refund",
+      "tickets.set_status"
+     ],
+     "events": 20
+    },
+    "M3_connectors_ingest": {
+     "ok": true,
+     "seconds": 0.02,
+     "stored": true,
+     "events": 20
+    },
+    "M4_signals": {
+     "ok": true,
+     "seconds": 0.0,
+     "skipped": "no stored PR traces (data/m4)"
+    },
+    "M5_workflow": {
+     "ok": true,
+     "seconds": 0.0,
+     "steps": 5,
+     "kinds": [
+      "act",
+      "investigate",
+      "message"
+     ],
+     "phis": {
+      "sql/ticket2_note": 1.0,
+      "sql/ticket2_refund": 1.0,
+      "sql/ticket2_resolved": 1.0
+     },
+     "phi": 1.0
+    },
+    "M6_credit": {
+     "ok": true,
+     "seconds": 0.82,
+     "reward": 1.0,
+     "gates": {
+      "refund_policy": 1
+     },
+     "outcome": 1.0,
+     "progress": 1.0,
+     "judge_p_success": 0.4,
+     "judge_error": null
+    },
+    "M7_verify": {
+     "ok": false,
+     "seconds": 0.01,
+     "error": "InfraError: candidate uid cannot reach the work dir: /tmp/tmpfmxeniy9 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error",
+     "traceback": "Traceback (most recent call last):\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/smoke.py\", line 67, in step\n    out = await fn()\n          ^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/smoke.py\", line 153, in m7\n    out = await grade_episode(toy_plan(), Context(Trusted(d / \"grade\"), params={\"view\": w.verifier_view()}), out_dir=d / \"verifier\",\n                                                  ^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/tmpfmxeniy9 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+    },
+    "harness_bash_loop": {
+     "ok": true,
+     "seconds": 1.95,
+     "steps": 3,
+     "stop": "agent_done",
+     "format_errors": 0,
+     "fib_output": "0 1 1 2 3 5 8 13 21 34",
+     "correct": true
+    },
+    "M8_forge": {
+     "ok": false,
+     "seconds": 0.16,
+     "error": "InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-14ds8ysw is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error",
+     "traceback": "ge(seed=11, llm_model=None, out=d / \"forge\")\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py\", line 167, in forge\n    r = await accept(task, resolve=lambda s: s in known)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/accept/contract.py\", line 216, in accept\n    out.append(await a1_oracle(t))\n               ^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/accept/contract.py\", line 82, in a1_oracle\n    rep, fp = await t.grade(t.oracle, run=k)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py\", line 122, in grade\n    return await self._run(list(solution))\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py\", line 114, in _run\n    rep = await self.plan.arun(Context(Trusted(d / \"grade\"), params={\"view\": v, \"events\": list(w.log)}), tier=tier)\n                                       ^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-14ds8ysw is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+    },
+    "spend_usd": 0.0,
+    "calls": 13,
+    "all_layers_ran": false
+   },
+   "tail": "{\n \"model\": \"Qwen/Qwen3-4B-Instruct-2507\",\n \"M1_world\": {\n  \"ok\": true,\n  \"seconds\": 0.38,\n  \"audit_ok\": true\n },\n \"M2_actors_llm_episode\": {\n  \"ok\": true,\n  \"seconds\": 3.46,\n  \"steps\": 9,\n  \"stop\": \"agent_done\",\n  \"masked\": false,\n  \"tool_calls\": [\n   \"tickets.get_ticket\",\n   \"kb.search_docs\",\n   \"kb.list_docs\",\n   \"kb.search_docs\",\n   \"tickets.add_note\",\n   \"tickets.issue_refund\",\n   \"tickets.set_status\"\n  ],\n  \"events\": 20\n },\n \"M3_connectors_ingest\": {\n  \"ok\": true,\n  \"seconds\": 0.02,\n  \"stored\": true,\n  \"events\": 20\n },\n \"M4_signals\": {\n  \"ok\": true,\n  \"seconds\": 0.0,\n  \"skipped\": \"no stored PR traces (data/m4)\"\n },\n \"M5_workflow\": {\n  \"ok\": true,\n  \"seconds\": 0.0,\n  \"steps\": 5,\n  \"kinds\": [\n   \"act\",\n   \"investigate\",\n   \"message\"\n  ],\n  \"phis\": {\n   \"sql/ticket2_note\": 1.0,\n   \"sql/ticket2_refund\": 1.0,\n   \"sql/ticket2_resolved\": 1.0\n  },\n  \"phi\": 1.0\n },\n \"M6_credit\": {\n  \"ok\": true,\n  \"seconds\": 0.82,\n  \"reward\": 1.0,\n  \"gates\": {\n   \"refund_policy\": 1\n  },\n  \"outcome\": 1.0,\n  \"progress\": 1.0,\n  \"judge_p_success\": 0.4,\n  \"judge_error\": null\n },\n \"M7_verify\": {\n  \"ok\": false,\n  \"seconds\": 0.01,\n  \"error\": \"InfraError: candidate uid cannot reach the work dir: /tmp/tmpfmxeniy9 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\"\n },\n \"harness_bash_loop\": {\n  \"ok\": true,\n  \"seconds\": 1.95,\n  \"steps\": 3,\n  \"stop\": \"agent_done\",\n  \"format_errors\": 0,\n  \"fib_output\": \"0 1 1 2 3 5 8 13 21 34\",\n  \"correct\": true\n },\n \"M8_forge\": {\n  \"ok\": false,\n  \"seconds\": 0.16,\n  \"error\": \"InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-14ds8ysw is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\"\n },\n \"spend_usd\": 0.0,\n \"calls\": 13,\n \"all_layers_ran\": false\n}\n\n"
+  },
+  {
+   "phase": "m2_actors",
+   "rc": 0,
+   "seconds": 7.1,
+   "result": {
+    "grounded_customers": {
+     "replies": 200,
+     "no_record": 57,
+     "unanswerable_correct_no_record": 32,
+     "unanswerable": 40,
+     "answerable_answered": 135,
+     "uncited_non_no_record_replies": 0,
+     "factual_sentences": 34,
+     "unsupported_or_judge_rejected": 0,
+     "fabrication_rate": 0.0,
+     "judged": 0,
+     "judge_spend_usd": 0.0,
+     "examples": []
+    },
+    "scenario_episodes": {
+     "episodes": [
+      {
+       "episode": 0,
+       "steps": 6,
+       "done": true,
+       "masked": false,
+       "failures": [],
+       "agent_actions": [
+        "tickets.get_ticket",
+        "message->customer_lee",
+        "tickets.issue_refund",
+        "tickets.add_note",
+        "tickets.set_status",
+        "done"
+       ],
+       "dialog": [
+        "agent: Hi Lee, I noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.",
+        "customer_lee: Hi, yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I\u2019d like one of them refunded."
+       ],
+       "customer_messages": 1,
+       "ticket2_refund": [
+        [
+         "O-5002",
+         {
+          "f": "0x1.3c00000000000p+5"
+         }
+        ]
+       ],
+       "ticket2_status": "resolved",
+       "consistency": {
+        "judged_replies": 1,
+        "inconsistent": 0,
+        "inconsistency_rate": 0.0
+       }
+      },
+      {
+       "episode": 1,
+       "steps": 6,
+       "done": true,
+       "masked": false,
+       "failures": [],
+       "agent_actions": [
+        "tickets.get_ticket",
+        "message->customer_lee",
+        "tickets.issue_refund",
+        "tickets.add_note",
+        "tickets.set_status",
+        "done"
+       ],
+       "dialog": [
+        "agent: Hi Lee, I've noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.",
+        "customer_lee: Yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I\u2019d like one of them refunded."
+       ],
+       "customer_messages": 1,
+       "ticket2_refund": [
+        [
+         "O-5002",
+         {
+          "f": "0x1.3c00000000000p+5"
+         }
+        ]
+       ],
+       "ticket2_status": "resolved",
+       "consistency": {
+        "judged_replies": 1,
+        "inconsistent": 0,
+        "inconsistency_rate": 0.0
+       }
+      }
+     ],
+     "spend_usd": {
+      "agent": 0.0,
+      "sim": 0.0,
+      "judge": 0.0
+     },
+     "models": {
+      "agent": "Qwen/Qwen3-4B-Instruct-2507",
+      "sim": "Qwen/Qwen3-4B-Instruct-2507",
+      "judge": "Qwen/Qwen3-4B-Instruct-2507"
+     }
+    }
+   },
+   "tail": "{\n \"grounded_customers\": {\n  \"replies\": 200,\n  \"no_record\": 57,\n  \"unanswerable_correct_no_record\": 32,\n  \"unanswerable\": 40,\n  \"answerable_answered\": 135,\n  \"uncited_non_no_record_replies\": 0,\n  \"factual_sentences\": 34,\n  \"unsupported_or_judge_rejected\": 0,\n  \"fabrication_rate\": 0.0,\n  \"judged\": 0,\n  \"judge_spend_usd\": 0.0,\n  \"examples\": []\n },\n \"scenario_episodes\": {\n  \"episodes\": [\n   {\n    \"episode\": 0,\n    \"steps\": 6,\n    \"done\": true,\n    \"masked\": false,\n    \"failures\": [],\n    \"agent_actions\": [\n     \"tickets.get_ticket\",\n     \"message->customer_lee\",\n     \"tickets.issue_refund\",\n     \"tickets.add_note\",\n     \"tickets.set_status\",\n     \"done\"\n    ],\n    \"dialog\": [\n     \"agent: Hi Lee, I noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.\",\n     \"customer_lee: Hi, yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I\u2019d like one of them refunded.\"\n    ],\n    \"customer_messages\": 1,\n    \"ticket2_refund\": [\n     [\n      \"O-5002\",\n      {\n       \"f\": \"0x1.3c00000000000p+5\"\n      }\n     ]\n    ],\n    \"ticket2_status\": \"resolved\",\n    \"consistency\": {\n     \"judged_replies\": 1,\n     \"inconsistent\": 0,\n     \"inconsistency_rate\": 0.0\n    }\n   },\n   {\n    \"episode\": 1,\n    \"steps\": 6,\n    \"done\": true,\n    \"masked\": false,\n    \"failures\": [],\n    \"agent_actions\": [\n     \"tickets.get_ticket\",\n     \"message->customer_lee\",\n     \"tickets.issue_refund\",\n     \"tickets.add_note\",\n     \"tickets.set_status\",\n     \"done\"\n    ],\n    \"dialog\": [\n     \"agent: Hi Lee, I've noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.\",\n     \"customer_lee: Yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I\u2019d like one of them refunded.\"\n    ],\n    \"customer_messages\": 1,\n    \"ticket2_refund\": [\n     [\n      \"O-5002\",\n      {\n       \"f\": \"0x1.3c00000000000p+5\"\n      }\n     ]\n    ],\n    \"ticket2_status\": \"resolved\",\n    \"consistency\": {\n     \"judged_replies\": 1,\n     \"inconsistent\": 0,\n     \"inconsistency_rate\": 0.0\n    }\n   }\n  ],\n  \"spend_usd\": {\n   \"agent\": 0.0,\n   \"sim\": 0.0,\n   \"judge\": 0.0\n  },\n  \"models\": {\n   \"agent\": \"Qwen/Qwen3-4B-Instruct-2507\",\n   \"sim\": \"Qwen/Qwen3-4B-Instruct-2507\",\n   \"judge\": \"Qwen/Qwen3-4B-Instruct-2507\"\n  }\n }\n}\n\n"
+  },
+  {
+   "phase": "m7_verify_golden",
+   "rc": 1,
+   "seconds": 0.5,
+   "result": null,
+   "tail": "\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/verify.py\", line 157, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/verify.py\", line 150, in main\n    rep = asyncio.run(golden())\n          ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/verify.py\", line 138, in golden\n    res = {\"oracle\": await grade_actions(GOLD), \"noop\": await grade_actions([])}\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/verify.py\", line 127, in grade_actions\n    ctx = Context(Trusted(Path(d) / \"grade\"), params={\"view\": w.verifier_view()})\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/tmplxhnznyc is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+  },
+  {
+   "phase": "m8_world_synth",
+   "rc": 1,
+   "seconds": 0.5,
+   "result": null,
+   "tail": "\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py\", line 194, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py\", line 186, in main\n    rep = asyncio.run(forge(a.seed, llm_model=a.llm, budget=a.budget, out=a.out))\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py\", line 167, in forge\n    r = await accept(task, resolve=lambda s: s in known)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/accept/contract.py\", line 216, in accept\n    out.append(await a1_oracle(t))\n               ^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/accept/contract.py\", line 82, in a1_oracle\n    rep, fp = await t.grade(t.oracle, run=k)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py\", line 122, in grade\n    return await self._run(list(solution))\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py\", line 114, in _run\n    rep = await self.plan.arun(Context(Trusted(d / \"grade\"), params={\"view\": v, \"events\": list(w.log)}), tier=tier)\n                                       ^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-l9d7n0vt is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+  },
+  {
+   "phase": "m8_world_synth_llm",
+   "rc": 0,
+   "seconds": 104.7,
+   "result": null,
+   "tail": "{\n \"pass\": null,\n \"state\": \"rejected\",\n \"audit\": null,\n \"summary\": null,\n \"nodes\": {\n  \"architect\": [\n   \"done\",\n   1\n  ],\n  \"env\": [\n   \"done\",\n   1\n  ],\n  \"checks\": [\n   \"failed\",\n   3\n  ],\n  \"oracle\": [\n   \"done\",\n   1\n  ],\n  \"negatives\": [\n   \"skipped\",\n   0\n  ],\n  \"audit\": [\n   \"skipped\",\n   0\n  ]\n },\n \"spend_usd\": 0.0\n}\n\n"
+  },
+  {
+   "phase": "m8_forge_calibrate",
+   "rc": 1,
+   "seconds": 2.6,
+   "result": null,
+   "tail": "\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py\", line 87, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py\", line 79, in main\n    rep = asyncio.run(calibrate(a.forge_dir, a.model, a.k, a.budget))\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py\", line 62, in calibrate\n    ok, info = await attempt(task, llm, k, i)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py\", line 41, in attempt\n    rep = await task.plan.arun(Context(Trusted(d / \"grade\"), params={\"view\": w.verifier_view()}))\n                                       ^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/calib-9sabhs98 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+  },
+  {
+   "phase": "m9_accept",
+   "rc": 0,
+   "seconds": 3.1,
+   "result": null,
+   "tail": "{\n \"pass\": false,\n \"accepted\": \"0/11\",\n \"power_tests\": {\n  \"proven\": 13,\n  \"per_kit\": 10,\n  \"not_proven\": []\n },\n \"blocking\": {\n  \"toy/helpdesk_v2/t1_duplicate\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_v2/t2_approval\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_v2/t3_in_transit\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_v2/t4_decoy\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_v2/t5_compose\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1001\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1003\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1013\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1015\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1018\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  },\n  \"toy/helpdesk_hindsight/t1021\": {\n   \"A1\": \"error\",\n   \"A2\": \"error\",\n   \"A3\": \"pending\",\n   \"A4\": \"pending\",\n   \"A6\": \"pending\",\n   \"A9\": \"error\",\n   \"A10\": \"pending\",\n   \"A11\": \"pending\",\n   \"A12\": \"pending\",\n   \"A13\": \"pending\"\n  }\n }\n}\n\n"
+  },
+  {
+   "phase": "m10_runtime",
+   "rc": 0,
+   "seconds": 42.1,
+   "result": {
+    "eval": {
+     "planned": 4,
+     "terminal": 4,
+     "scored": 0,
+     "masked": 4,
+     "mean_reward": null,
+     "pass_at_1": null,
+     "stopped": null,
+     "by_failure": {
+      "agent_run_error": 4
+     },
+     "rollouts": 4,
+     "train_valid_rollouts": 0,
+     "seconds": 15.1
+    },
+    "train": {
+     "planned": 4,
+     "terminal": 4,
+     "scored": 0,
+     "masked": 4,
+     "mean_reward": null,
+     "pass_at_1": null,
+     "stopped": null,
+     "by_failure": {
+      "agent_run_error": 4
+     },
+     "rollouts": 4,
+     "train_valid_rollouts": 0,
+     "seconds": 26.7
+    }
+   },
+   "tail": "{\"eval\": {\"planned\": 4, \"terminal\": 4, \"scored\": 0, \"masked\": 4, \"mean_reward\": null, \"pass_at_1\": null, \"stopped\": null, \"by_failure\": {\"agent_run_error\": 4}, \"rollouts\": 4, \"train_valid_rollouts\": 0, \"seconds\": 15.1}, \"train\": {\"planned\": 4, \"terminal\": 4, \"scored\": 0, \"masked\": 4, \"mean_reward\": null, \"pass_at_1\": null, \"stopped\": null, \"by_failure\": {\"agent_run_error\": 4}, \"rollouts\": 4, \"train_valid_rollouts\": 0, \"seconds\": 26.7}}\n\n"
+  },
+  {
+   "phase": "m11_interop_native",
+   "rc": 1,
+   "seconds": 0.4,
+   "result": null,
+   "tail": "\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m11/gate.py\", line 66, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m11/gate.py\", line 58, in main\n    res = asyncio.run(native(out)) if path == \"native\" else openenv(out) if path == \"openenv\" else None\n          ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m11/gate.py\", line 28, in native\n    return await replay(HelpdeskTask(), acts, out, episode_key=KEY)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/interop/replay.py\", line 88, in replay\n    ep = await run_episode(world, {\"agent\": ScriptedPolicy(\"agent\", script)}, limits=EpisodeLimits(max_steps=max_steps, max_tool_errors=None),\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 341, in run_episode\n    await o.on_start(world)\n  File \"/crucible/src/crucible/verify/progress.py\", line 110, in on_start\n    self.state = await self.sset.evaluate(world, list(self.weight))\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/interop/replay.py\", line 48, in evaluate\n    ctx = Context(Trusted(self.workdir), params={\"view\": world.verifier_view(), \"events\": list(world.log)})\n                  ^^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/replay-tjnf9jrp is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+  },
+  {
+   "phase": "m11_llm_replay",
+   "rc": 1,
+   "seconds": 1.1,
+   "result": {
+    "actions": 0,
+    "live_reward": 0.0,
+    "replay_reward": 0.0,
+    "fingerprint_equal": true,
+    "steps_rows": 1,
+    "pass": true
+   },
+   "tail": "\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/labstack/phases.py\", line 113, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/labstack/phases.py\", line 107, in main\n    res = asyncio.run({\"probe\": probe, \"m10\": m10, \"m11\": m11, \"m3\": m3_toy_ingest}[which]())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/labstack/phases.py\", line 72, in m11\n    live = await task.grade(w, d / \"g\")\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/runtime.py\", line 48, in grade\n    return await plan().arun(Context(Trusted(Path(workdir)), params={\"view\": world.verifier_view()}))\n                                     ^^^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 7, in __init__\n  File \"/crucible/src/crucible/verify/runtime/trusted.py\", line 210, in __post_init__\n    raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\ncrucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/labstack-m11-rjjabs3s is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n"
+  },
+  {
+   "phase": "longhorizon",
+   "rc": 0,
+   "seconds": 1.6,
+   "result": null,
+   "tail": "{\n \"gate\": \"long-horizon xl: >1M-token trajectory, compaction, checkpoint + resume, dense progress\",\n \"tickets\": 40,\n \"context_budget_tokens\": 32000,\n \"wall_s\": 1.5,\n \"reward\": 1.0,\n \"attempts\": 2,\n \"attempt1\": {\n  \"failure\": \"transport_unreachable\",\n  \"steps\": 0\n },\n \"resumed_from\": null,\n \"steps_total\": 229,\n \"model_calls\": 230,\n \"compactions\": 1,\n \"segments\": 1,\n \"max_context_before_compaction\": 25631,\n \"trajectory_tokens_attempt2\": 31761,\n \"progress\": {\n  \"phi0\": 0.0,\n  \"phi_final\": 1.0,\n  \"sum_delta\": 1.0,\n  \"rows\": 229,\n  \"drift\": [],\n  \"satisfied\": 40,\n  \"subgoals\": 40\n },\n \"credit_sum\": 1.0,\n \"trace_events\": 463,\n \"trajectory_tokens_episode\": 31761,\n \"pass\": false\n}\n\n"
+  },
+  {
+   "phase": "unit_suite",
+   "rc": 1,
+   "seconds": 72.2,
+   "result": null,
+   "tail": "                 ^^^^^^^^^^^^^^^^^^\n<string>:7: in __init__\n    ???\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = Trusted(work=PosixPath('/tmp/pytest-of-root/pytest-0/test_host_grader_composes0/w'), uid=61000, require_root=False, path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', is_root=True, _homes=0)\n\n    def __post_init__(self) -> None:\n        self.work = Path(self.work)\n        self.work.mkdir(parents=True, exist_ok=True)\n        self.is_root = hasattr(os, \"geteuid\") and os.geteuid() == 0\n        if self.require_root and not self.is_root:\n            raise InfraError(\"this grader must run as root: it drops privileges for candidate code\")\n        if self.is_root:\n            os.chmod(self.work, 0o755)\n            if self.uid is None:\n                self.uid = fresh_uid()\n            import stat\n    \n            for d in self.work.resolve().parents:  # the demoted candidate must be able to traverse to its HOME / outputs\n                if not os.stat(d).st_mode & stat.S_IXOTH:\n>                   raise InfraError(f\"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); \"\n                                     \"every candidate write would fail as a spurious policy error\")\nE                   crucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/pytest-of-root/pytest-0/test_host_grader_composes0 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error\n\nsrc/crucible/verify/runtime/trusted.py:210: InfraError\n=============================== warnings summary ===============================\ntests/unit/test_train_math.py::test_icepop_gate_and_calibration\n  /crucible/tests/unit/test_train_math.py:34: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.\n  Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:822.)\n    assert float(t.objective[0, 0]) == 0.0 and abs(float(t.objective[0, 1]) - 0.7) < 1e-9  # r_stale = 1 here\n\ntests/unit/test_train_offload.py::test_offload_round_trip_is_exact[cpu]\ntests/unit/test_train_offload.py::test_offload_round_trip_is_exact[nvme]\n  /usr/local/lib/python3.12/dist-packages/torch/nn/modules/rnn.py:1440: UserWarning: RNN module weights are not part of single contiguous chunk of memory. This means they need to be compacted at every call, possibly greatly increasing memory usage. To compact weights again call flatten_parameters(). (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/native/cudnn/RNN.cpp:1479.)\n    result = _VF.gru(\n\ntests/unit/test_verify.py::test_trusted_unprivileged_mode\n  /crucible/src/crucible/verify/runtime/trusted.py:129: DeprecationWarning: This process (pid=1385) is multi-threaded, use of fork() may lead to deadlocks in the child.\n    pid = os.fork()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/unit/test_accept.py::test_full_contract_on_a_forged_toy_task - A...\nFAILED tests/unit/test_cli.py::test_cli_registry_seeds_and_task_show - Assert...\nFAILED tests/unit/test_interop_gate.py::test_toy_same_reward_and_steps_across_runtimes\nFAILED tests/unit/test_interop_gate.py::test_masked_grade_travels_as_mask_never_zero\nFAILED tests/unit/test_interop_gate.py::test_openenv_export_identical_and_telescoping\nFAILED tests/unit/test_runtime.py::test_run_resume_and_scoring - assert (4, 0...\nFAILED tests/unit/test_runtime.py::test_inject_blank_usage_masked_and_retried\nFAILED tests/unit/test_runtime.py::test_inject_tool_crash_masked_and_retried\nFAILED tests/unit/test_runtime.py::test_inject_verifier_infra_classes[perf rounds contaminated: candidate/kinfu-crucible:node_contention]\nFAILED tests/unit/test_runtime.py::test_inject_verifier_infra_classes[stale build: consumers compiled against old headers-crucible:stale_build]\nFAILED tests/unit/test_runtime.py::test_inject_verifier_infra_classes[stale image: verifier digest differs from the pinned one-crucible:stale_image]\nFAILED tests/unit/test_runtime.py::test_inject_grader_exception - AssertionEr...\nFAILED tests/unit/test_runtime.py::test_inject_empty_collection_then_recollect\nFAILED tests/unit/test_runtime.py::test_control_step_limit_and_overflow_scored\nFAILED tests/unit/test_runtime.py::test_control_no_change_scored_zero - Asser...\nFAILED tests/unit/test_runtime.py::test_masked_grade_retried_as_regrade_of_stored_patch\nFAILED tests/unit/test_runtime.py::test_operator_regrade_after_retries_exhausted\nFAILED tests/unit/test_runtime_records.py::test_trajectory_joins_calls_actions_and_steps\nFAILED tests/unit/test_runtime_records.py::test_cross_check_and_train_mode_masking\nFAILED tests/unit/test_sandboxes.py::test_docker_sandbox_flags_for_the_lab_gpu_host\nFAILED tests/unit/test_train_bridges.py::test_trl_rollout_func_runs_world_episodes\nFAILED tests/unit/test_train_envpool.py::test_world_episodes_on_env_workers\nFAILED tests/unit/test_train_offload.py::test_offload_frees_the_accelerator[cpu]\nFAILED tests/unit/test_train_offload.py::test_offload_frees_the_accelerator[nvme]\nFAILED tests/unit/test_train_runtime.py::test_world_episodes_through_the_runtime_with_exact_tito\nFAILED tests/unit/test_verify.py::test_plan_semantics - crucible.verify.runti...\nFAILED tests/unit/test_verify.py::test_async_checks_and_outcome_gates - cruci...\nFAILED tests/unit/test_verify.py::test_outputs_flat_and_full - crucible.verif...\nFAILED tests/unit/test_verify.py::test_trusted_unprivileged_mode - AssertionE...\nFAILED tests/unit/test_verify.py::test_toy_golden - crucible.verify.runtime.t...\nFAILED tests/unit/test_verify.py::test_record_scoring_and_abstention - crucib...\nFAILED tests/unit/test_verify.py::test_host_grader_composes - crucible.verify...\n32 failed, 296 passed, 29 skipped, 4 warnings in 70.80s (0:01:10)\n\n"
+  },
+  {
+   "phase": "m12_grpo",
+   "rc": 1,
+   "seconds": 53.9,
+   "result": {
+    "gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090",
+    "model": "Qwen/Qwen3-0.6B",
+    "topology": "colocated_partial",
+    "steps": 0,
+    "wall_s": 7.6,
+    "aborted_calls": 11,
+    "reprefill_tokens": 13772,
+    "publishes": 0,
+    "masked_rollouts": 18,
+    "max_untrained": 32,
+    "per_step": [],
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "peak_mem_gb": 2.22,
+    "stop_reason": "harness_share",
+    "failures": {
+     "harness:ValueError": 18
+    },
+    "failure_examples": [
+     {
+      "kind": "harness:ValueError",
+      "message": "chat template is not prefix-preserving for appended messages; use a training-safe template",
+      "traceback": "Traceback (most recent call last):\n  File \"/crucible/src/crucible/train/runtime.py\", line 217, in _rollout_fn\n    rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 82, in rollout\n    ep = await run_episode(world, {\"agent\": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 392, in run_episode\n    await asyncio.wait_for(loop(), timeout=limits.timeout_s)\n  File \"/usr/lib/python3.12/asyncio/tasks.py\", line 520, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 51, in complete\n    prompt = self._prompt(messages, tools)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 44, in _prompt\n    return self._prev_ids + self.codec.suffix(messages[len(s) + 1:], tools)\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/chat.py\", line 117, in suffix\n    raise ValueError(\"chat template is not prefix-preserving for appended messages; use a training-safe template\")\nValueError: chat template is not prefix-preserving for appended messages; use a training-safe template\n"
+     },
+     {
+      "kind": "harness:ValueError",
+      "message": "chat template is not prefix-preserving for appended messages; use a training-safe template",
+      "traceback": "Traceback (most recent call last):\n  File \"/crucible/src/crucible/train/runtime.py\", line 217, in _rollout_fn\n    rec = await self.rollout_fn(rid, prompt, seed, gen, temperature=self.cfg.temperature, harness=self.harness)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 82, in rollout\n    ep = await run_episode(world, {\"agent\": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 392, in run_episode\n    await asyncio.wait_for(loop(), timeout=limits.timeout_s)\n  File \"/usr/lib/python3.12/asyncio/tasks.py\", line 520, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 51, in complete\n    prompt = self._prompt(messages, tools)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 44, in _prompt\n    return self._prev_ids + self.codec.suffix(messages[len(s) + 1:], tools)\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/chat.py\", line 117, in suffix\n    raise ValueError(\"chat template is not prefix-preserving for appended messages; use a training-safe template\")\nValueError: chat template is not prefix-preserving for appended messages; use a training-safe template\n"
+     }
+    ],
+    "reward_first3": 0.0,
+    "reward_last3": 0.0,
+    "pass": false
+   },
+   "tail": "gAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 71303168 bytes (free: 86245376, total: 33636024320).\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py\", line 148, in <module>\n    main()\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py\", line 135, in main\n    rep = asyncio.run(run(a))\n          ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py\", line 98, in run\n    rep = await rt.run()\n          ^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 450, in run\n    return await self._run()\n           ^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 491, in _run\n    m = await self._train(sel)\n        ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 407, in _train\n    m = self.trainer.step(recs, groups)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/trainer.py\", line 376, in step\n    lp, roll, adv, mask, old_t = self._padded(items, idx, old)\n                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/trainer.py\", line 316, in _padded\n    rows = self._logprobs(items, idx)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/trainer.py\", line 303, in _logprobs\n    return self._plain_logprobs(items, idx)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/trainer.py\", line 307, in _plain_logprobs\n    return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/hf.py\", line 110, in batch_token_logprobs\n    h = self._hidden(ids, attn)\n        ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/hf.py\", line 74, in _hidden\n    return run()\n           ^^^^^\n  File \"/crucible/src/crucible/train/hf.py\", line 69, in run\n    return base(input_ids=ids, attention_mask=attn, **kw).last_hidden_state\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1778, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1789, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py\", line 1068, in wrapper\n    output = func(self, *args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/utils/output_capturing.py\", line 286, in wrapper\n    outputs = func(self, *args, **kwargs)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py\", line 413, in forward\n    hidden_states = decoder_layer(\n                    ^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/modeling_layers.py\", line 109, in __call__\n    return super().__call__(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1778, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1789, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py\", line 307, in forward\n    hidden_states, _ = self.self_attn(\n                       ^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1778, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py\", line 1789, in _call_impl\n    return forward_call(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py\", line 257, in forward\n    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)\n                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py\", line 168, in apply_rotary_pos_emb\n    q_embed = (q * cos) + (rotate_half(q) * sin)\n                           ~~~~~~~~~~~~~~~^~~~~\ntorch.OutOfMemoryError: CUDA out of memory. Tried to allocate 68.00 MiB. GPU 0 has a total capacity of 31.33 GiB of which 82.25 MiB is free. Process 422691 has 1.09 GiB memory in use. Including non-PyTorch memory, this process has 30.01 GiB memory in use. Of the allocated memory 27.42 GiB is allocated by PyTorch, and 1.98 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)\n"
+  }
+ ],
+ "finished": "2026-10-10T13:51:19",
+ "summary": {
+  "probe": "ok",
+  "m3_toy_ingest": "ok",
+  "smoke_m1_m9": "ok",
+  "m2_actors": "ok",
+  "m7_verify_golden": "rc=1",
+  "m8_world_synth": "rc=1",
+  "m8_world_synth_llm": "ok",
+  "m8_forge_calibrate": "rc=1",
+  "m9_accept": "ok",
+  "m10_runtime": "ok",
+  "m11_interop_native": "rc=1",
+  "m11_llm_replay": "rc=1",
+  "longhorizon": "ok",
+  "unit_suite": "rc=1",
+  "m12_grpo": "rc=1"
+ }
+}

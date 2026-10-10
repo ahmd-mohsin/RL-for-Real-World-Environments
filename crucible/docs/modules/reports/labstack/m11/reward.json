@@ -1,0 +1,9 @@
+{
+ "check/t1": 1.0,
+ "check/t2": 1.0,
+ "check/t3": 1.0,
+ "gate/approvals": 1.0,
+ "gate/refund_policy": 1.0,
+ "outcome": 1.0,
+ "reward": 1.0
+}

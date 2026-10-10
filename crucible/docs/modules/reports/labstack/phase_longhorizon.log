@@ -1,0 +1,33 @@
+{
+ "gate": "long-horizon xl: >1M-token trajectory, compaction, checkpoint + resume, dense progress",
+ "tickets": 40,
+ "context_budget_tokens": 32000,
+ "wall_s": 1.5,
+ "reward": 1.0,
+ "attempts": 2,
+ "attempt1": {
+  "failure": "transport_unreachable",
+  "steps": 0
+ },
+ "resumed_from": null,
+ "steps_total": 229,
+ "model_calls": 230,
+ "compactions": 1,
+ "segments": 1,
+ "max_context_before_compaction": 25631,
+ "trajectory_tokens_attempt2": 31761,
+ "progress": {
+  "phi0": 0.0,
+  "phi_final": 1.0,
+  "sum_delta": 1.0,
+  "rows": 229,
+  "drift": [],
+  "satisfied": 40,
+  "subgoals": 40
+ },
+ "credit_sum": 1.0,
+ "trace_events": 463,
+ "trajectory_tokens_episode": 31761,
+ "pass": false
+}
+

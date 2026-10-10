@@ -29,6 +29,20 @@ class HFPolicy(torch.nn.Module):
         self.logit_chunk = logit_chunk  # LM-head rows per checkpointed chunk (m13 B-2)
         if gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
             model.gradient_checkpointing_enable()
+            # HF recomputes layers only when ``self.training`` (``from_pretrained`` returns eval mode, so checkpointing was
+            # silently off and an 8k-token segment OOMed a 32 GB GPU on a 0.6B model). Train mode with every dropout at 0:
+            # the forward stays deterministic and equal to the engine's.
+            for m in model.modules():
+                if isinstance(m, torch.nn.Dropout):
+                    m.p = 0.0
+            cfg = getattr(model, "config", None)
+            for k in [k for k in vars(cfg) if k.endswith("dropout")] if cfg is not None else []:
+                if isinstance(getattr(cfg, k), float):
+                    setattr(cfg, k, 0.0)
+            for m in model.modules():
+                if hasattr(m, "attention_dropout") and isinstance(m.attention_dropout, float):
+                    m.attention_dropout = 0.0
+            model.train()
 
     @classmethod
     def from_pretrained(cls, name: str, *, dtype: torch.dtype = torch.bfloat16, device: str = "cpu", **kw) -> HFPolicy:

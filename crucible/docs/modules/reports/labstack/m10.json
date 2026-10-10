@@ -1,0 +1,32 @@
+{
+ "eval": {
+  "planned": 4,
+  "terminal": 4,
+  "scored": 0,
+  "masked": 4,
+  "mean_reward": null,
+  "pass_at_1": null,
+  "stopped": null,
+  "by_failure": {
+   "agent_run_error": 4
+  },
+  "rollouts": 4,
+  "train_valid_rollouts": 0,
+  "seconds": 15.1
+ },
+ "train": {
+  "planned": 4,
+  "terminal": 4,
+  "scored": 0,
+  "masked": 4,
+  "mean_reward": null,
+  "pass_at_1": null,
+  "stopped": null,
+  "by_failure": {
+   "agent_run_error": 4
+  },
+  "rollouts": 4,
+  "train_valid_rollouts": 0,
+  "seconds": 26.7
+ }
+}

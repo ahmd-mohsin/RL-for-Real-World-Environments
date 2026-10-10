@@ -203,14 +203,19 @@ class Trusted:
             os.chmod(self.work, 0o755)
             if self.uid is None:
                 self.uid = fresh_uid()
-            import stat
-
-            for d in self.work.resolve().parents:  # the demoted candidate must be able to traverse to its HOME / outputs
-                if not os.stat(d).st_mode & stat.S_IXOTH:
-                    raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); "
-                                     "every candidate write would fail as a spurious policy error")
         else:
             self.uid = os.getuid() if hasattr(os, "getuid") else None
+
+    def _reachable(self) -> None:
+        """The demoted candidate must traverse to its HOME and outputs: a 0700 ancestor (``mkdtemp``, pytest's root temp)
+        would turn every candidate write into a spurious policy failure, so it is refused as infra, never widened here."""
+        import stat
+
+        for d in self.work.resolve().parents:
+            mode = os.stat(d).st_mode
+            if not mode & stat.S_IXOTH:
+                raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(mode & 0o777)} (needs o+x); "
+                                 "every candidate write would fail as a spurious policy error")
 
     # ------------------------------------------------------------------ directories
     def udir(self, path: Path) -> Path:
@@ -313,6 +318,8 @@ class Trusted:
         if pythonpath:
             e["PYTHONPATH"] = ":".join(str(p) for p in pythonpath)
         e.update({k: str(v) for k, v in (env or {}).items()})
+        if candidate and self.is_root:
+            self._reachable()
         preexec = self._demote() if candidate and self.is_root else (os.setsid if candidate else None)
         t0 = time.monotonic()
         try:

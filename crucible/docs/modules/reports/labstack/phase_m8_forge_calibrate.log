@@ -1,0 +1,28 @@
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py", line 87, in <module>
+    main()
+  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py", line 79, in main
+    rep = asyncio.run(calibrate(a.forge_dir, a.model, a.k, a.budget))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py", line 62, in calibrate
+    ok, info = await attempt(task, llm, k, i)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/calibrate.py", line 41, in attempt
+    rep = await task.plan.arun(Context(Trusted(d / "grade"), params={"view": w.verifier_view()}))
+                                       ^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 7, in __init__
+  File "/crucible/src/crucible/verify/runtime/trusted.py", line 210, in __post_init__
+    raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); "
+crucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/calib-9sabhs98 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error

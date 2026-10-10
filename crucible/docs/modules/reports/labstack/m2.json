@@ -1,0 +1,98 @@
+{
+ "grounded_customers": {
+  "replies": 200,
+  "no_record": 57,
+  "unanswerable_correct_no_record": 32,
+  "unanswerable": 40,
+  "answerable_answered": 135,
+  "uncited_non_no_record_replies": 0,
+  "factual_sentences": 34,
+  "unsupported_or_judge_rejected": 0,
+  "fabrication_rate": 0.0,
+  "judged": 0,
+  "judge_spend_usd": 0.0,
+  "examples": []
+ },
+ "scenario_episodes": {
+  "episodes": [
+   {
+    "episode": 0,
+    "steps": 6,
+    "done": true,
+    "masked": false,
+    "failures": [],
+    "agent_actions": [
+     "tickets.get_ticket",
+     "message->customer_lee",
+     "tickets.issue_refund",
+     "tickets.add_note",
+     "tickets.set_status",
+     "done"
+    ],
+    "dialog": [
+     "agent: Hi Lee, I noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.",
+     "customer_lee: Hi, yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I’d like one of them refunded."
+    ],
+    "customer_messages": 1,
+    "ticket2_refund": [
+     [
+      "O-5002",
+      {
+       "f": "0x1.3c00000000000p+5"
+      }
+     ]
+    ],
+    "ticket2_status": "resolved",
+    "consistency": {
+     "judged_replies": 1,
+     "inconsistent": 0,
+     "inconsistency_rate": 0.0
+    }
+   },
+   {
+    "episode": 1,
+    "steps": 6,
+    "done": true,
+    "masked": false,
+    "failures": [],
+    "agent_actions": [
+     "tickets.get_ticket",
+     "message->customer_lee",
+     "tickets.issue_refund",
+     "tickets.add_note",
+     "tickets.set_status",
+     "done"
+    ],
+    "dialog": [
+     "agent: Hi Lee, I've noticed your order O-5002 was charged twice. Could you please confirm if this is correct? If so, I'll proceed with a refund for the duplicate charge.",
+     "customer_lee: Yes, that's correct. I placed the order once, and two charges of $39.50 appeared on my card statement on the same day. I’d like one of them refunded."
+    ],
+    "customer_messages": 1,
+    "ticket2_refund": [
+     [
+      "O-5002",
+      {
+       "f": "0x1.3c00000000000p+5"
+      }
+     ]
+    ],
+    "ticket2_status": "resolved",
+    "consistency": {
+     "judged_replies": 1,
+     "inconsistent": 0,
+     "inconsistency_rate": 0.0
+    }
+   }
+  ],
+  "spend_usd": {
+   "agent": 0.0,
+   "sim": 0.0,
+   "judge": 0.0
+  },
+  "models": {
+   "agent": "Qwen/Qwen3-4B-Instruct-2507",
+   "sim": "Qwen/Qwen3-4B-Instruct-2507",
+   "judge": "Qwen/Qwen3-4B-Instruct-2507"
+  }
+ }
+}

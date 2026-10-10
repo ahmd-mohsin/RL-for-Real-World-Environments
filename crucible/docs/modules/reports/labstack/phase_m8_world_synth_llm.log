@@ -1,0 +1,34 @@
+{
+ "pass": null,
+ "state": "rejected",
+ "audit": null,
+ "summary": null,
+ "nodes": {
+  "architect": [
+   "done",
+   1
+  ],
+  "env": [
+   "done",
+   1
+  ],
+  "checks": [
+   "failed",
+   3
+  ],
+  "oracle": [
+   "done",
+   1
+  ],
+  "negatives": [
+   "skipped",
+   0
+  ],
+  "audit": [
+   "skipped",
+   0
+  ]
+ },
+ "spend_usd": 0.0
+}
+

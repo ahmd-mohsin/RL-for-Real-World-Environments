@@ -1,0 +1,87 @@
+{
+ "model": "Qwen/Qwen3-4B-Instruct-2507",
+ "M1_world": {
+  "ok": true,
+  "seconds": 0.38,
+  "audit_ok": true
+ },
+ "M2_actors_llm_episode": {
+  "ok": true,
+  "seconds": 3.46,
+  "steps": 9,
+  "stop": "agent_done",
+  "masked": false,
+  "tool_calls": [
+   "tickets.get_ticket",
+   "kb.search_docs",
+   "kb.list_docs",
+   "kb.search_docs",
+   "tickets.add_note",
+   "tickets.issue_refund",
+   "tickets.set_status"
+  ],
+  "events": 20
+ },
+ "M3_connectors_ingest": {
+  "ok": true,
+  "seconds": 0.02,
+  "stored": true,
+  "events": 20
+ },
+ "M4_signals": {
+  "ok": true,
+  "seconds": 0.0,
+  "skipped": "no stored PR traces (data/m4)"
+ },
+ "M5_workflow": {
+  "ok": true,
+  "seconds": 0.0,
+  "steps": 5,
+  "kinds": [
+   "act",
+   "investigate",
+   "message"
+  ],
+  "phis": {
+   "sql/ticket2_note": 1.0,
+   "sql/ticket2_refund": 1.0,
+   "sql/ticket2_resolved": 1.0
+  },
+  "phi": 1.0
+ },
+ "M6_credit": {
+  "ok": true,
+  "seconds": 0.82,
+  "reward": 1.0,
+  "gates": {
+   "refund_policy": 1
+  },
+  "outcome": 1.0,
+  "progress": 1.0,
+  "judge_p_success": 0.4,
+  "judge_error": null
+ },
+ "M7_verify": {
+  "ok": false,
+  "seconds": 0.01,
+  "error": "InfraError: candidate uid cannot reach the work dir: /tmp/tmpfmxeniy9 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error"
+ },
+ "harness_bash_loop": {
+  "ok": true,
+  "seconds": 1.95,
+  "steps": 3,
+  "stop": "agent_done",
+  "format_errors": 0,
+  "fib_output": "0 1 1 2 3 5 8 13 21 34",
+  "correct": true
+ },
+ "M8_forge": {
+  "ok": false,
+  "seconds": 0.16,
+  "error": "InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-14ds8ysw is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error"
+ },
+ "spend_usd": 0.0,
+ "calls": 13,
+ "all_layers_ran": false
+}
+

@@ -1027,8 +1027,21 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
   - **Unit suite in the container:** docker-marked tests skip when no daemon is reachable (`tests/conftest.py`);
     data-dependent tests skip when their data isn't staged; git is installed in the container.
   - **Trusted as root:** the demoted candidate uid could not traverse pytest's 0700 temp root, so every candidate write
-    failed and looked like a policy error. `Trusted` now refuses (InfraError) a work dir whose parents lack o+x,
-    instead of producing spurious agent failures.
+    failed and looked like a policy error. `Trusted.run(candidate=True)` now refuses (InfraError) a work dir whose
+    ancestors lack o+x, instead of producing spurious agent failures. The check runs only when a candidate actually
+    executes demoted: run 4 had it in the constructor and broke every grader that never runs a candidate under a
+    `mkdtemp` dir.
+- **Run 4 findings (fixed):**
+  - **Gradient checkpointing was silently off.** `from_pretrained` returns eval mode and HF recomputes layers only in
+    train mode, so `HFPolicy(gradient_checkpointing=True)` kept every layer's activations. Once exact TITO let real
+    multi-turn segments through, the first 8k-token step of Qwen3-0.6B OOMed the 32 GB card (27 GB allocated).
+    `HFPolicy` now enables train mode with every dropout at zero (modules, config, attention). The forward stays
+    deterministic and equal to eval mode. A test counts each layer running again in backward.
+  - **Lab config:** carries the repo config's `[gpu_hosts]` tables, so the sandbox tests resolve `lab5090`.
+  - **Tests:**
+    - the CLI seed test skips when the seeds' Harbor side is not staged;
+    - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
+      the gradients and cuBLAS's workspace.
 
 **A-4 (2026-10-10): vLLM colocated wake order and the engine's first tests.** `VLLMServerEngine.load_weights` used to wake
 the KV cache inside the publish, so the GPU held the full trainer and the full engine at once, defeating sleep mode.

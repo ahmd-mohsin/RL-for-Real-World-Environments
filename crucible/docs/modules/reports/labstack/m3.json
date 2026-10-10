@@ -1,0 +1,7 @@
+{
+ "refs": 24,
+ "traces": 24,
+ "toy_traces": 24,
+ "idempotent": true,
+ "pass": true
+}

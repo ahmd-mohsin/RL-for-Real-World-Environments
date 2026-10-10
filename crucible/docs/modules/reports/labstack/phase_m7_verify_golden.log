@@ -1,0 +1,28 @@
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/crucible/packs/_toy/src/crucible_pack_toy/verify.py", line 157, in <module>
+    main()
+  File "/crucible/packs/_toy/src/crucible_pack_toy/verify.py", line 150, in main
+    rep = asyncio.run(golden())
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/crucible/packs/_toy/src/crucible_pack_toy/verify.py", line 138, in golden
+    res = {"oracle": await grade_actions(GOLD), "noop": await grade_actions([])}
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/crucible/packs/_toy/src/crucible_pack_toy/verify.py", line 127, in grade_actions
+    ctx = Context(Trusted(Path(d) / "grade"), params={"view": w.verifier_view()})
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 7, in __init__
+  File "/crucible/src/crucible/verify/runtime/trusted.py", line 210, in __post_init__
+    raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); "
+crucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/tmplxhnznyc is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error

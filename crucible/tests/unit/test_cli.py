@@ -9,8 +9,12 @@ from crucible.cli.main import cli
 def test_cli_registry_seeds_and_task_show():
     import pytest
 
+    from crucible.interop.harbor.task_io import load_crucible_task
+
     try:
         dirs = seed_dirs()
+        for d in dirs:  # the overlays ship with the pack; their Harbor side (../migration_tasks) may not be staged
+            load_crucible_task(d)
     except (FileNotFoundError, OSError):
         dirs = []
     if len(dirs) < 5:

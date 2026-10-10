@@ -73,7 +73,12 @@ def test_offload_frees_the_accelerator(mode, tmp_path):
     held = _alloc(dev)
     assert held <= 0.05 * peak, (held, peak)
     tr.onload()
-    assert _alloc(dev) >= 0.5 * peak and tr.step(recs, groups)["train/items"] == len(recs)
+    # parameters + Adam moments back on the device (``peak`` also held gradients and, on CUDA, the cuBLAS workspace that
+    # offload frees and the next matmul re-creates, so it is not the onload target)
+    state = sum(p.numel() * p.element_size() for p in tr.model.parameters())
+    state += sum(t.numel() * t.element_size() for st in tr.opt.state.values() for t in st.values() if torch.is_tensor(t) and t.device.type == dev)
+    assert _alloc(dev) >= 0.95 * state and all(p.device.type == dev for p in tr.model.parameters())
+    assert tr.step(recs, groups)["train/items"] == len(recs)
 
 
 async def test_runtime_offloads_after_publish_and_onloads_before_training():

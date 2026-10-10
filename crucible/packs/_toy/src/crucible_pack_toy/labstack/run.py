@@ -38,8 +38,21 @@ smoke-cheap = "lab:{model}"
 
 [prices]
 "{model}" = [0.0, 0.0]
-""")
+""" + _gpu_hosts())
     return cfg
+
+
+def _gpu_hosts() -> str:
+    """The repo config's ``[gpu_hosts]`` tables (the sandbox tests resolve ``lab5090`` through the active config)."""
+    import tomllib
+
+    base = CR / "crucible.toml"
+    hosts = tomllib.loads(base.read_text()).get("gpu_hosts", {}) if base.exists() else {}
+    out = []
+    for name, kv in hosts.items():
+        out.append(f"\n[gpu_hosts.{name}]")
+        out += [f"{k} = {json.dumps(v)}" for k, v in kv.items()]
+    return "\n".join(out) + "\n"
 
 
 def start_vllm(model: str, port: int, mem: float, max_len: int) -> subprocess.Popen:

@@ -1,0 +1,144 @@
+{
+ "task": "toy/helpdesk/all_tickets",
+ "tier": "full",
+ "checks": [
+  {
+   "id": "refund_policy/invariants",
+   "gate": "refund_policy",
+   "status": "pass",
+   "detail": {
+    "broken": {},
+    "checked": [
+     "refund_over_50_unapproved",
+     "refund_in_transit",
+     "over_refund"
+    ]
+   },
+   "seconds": 0.002,
+   "provenance": "kb:refund_policy.md#3;kb:refund_policy.md#4;kb:refund_policy.md#1-2",
+   "tier": "fast"
+  },
+  {
+   "id": "approvals/invariants",
+   "gate": "approvals",
+   "status": "pass",
+   "detail": {
+    "broken": {},
+    "checked": [
+     "approver_not_supervisor"
+    ]
+   },
+   "seconds": 0.001,
+   "provenance": "world:supervisor=Sam Lee",
+   "tier": "fast"
+  },
+  {
+   "id": "t1/predicates",
+   "gate": "t1",
+   "status": "pass",
+   "detail": {
+    "predicates": {
+     "t1/refund": {
+      "pass": true,
+      "value": 129.99,
+      "description": "damaged on arrival: full item price refunded"
+     },
+     "t1/note": {
+      "pass": true,
+      "value": 1,
+      "description": "a note on the ticket"
+     },
+     "t1/resolved": {
+      "pass": true,
+      "value": "resolved",
+      "description": "ticket resolved"
+     }
+    }
+   },
+   "seconds": 0.002,
+   "provenance": "kb:refund_policy.md;kb:refund_policy.md;kb:refund_policy.md",
+   "tier": "fast"
+  },
+  {
+   "id": "t2/predicates",
+   "gate": "t2",
+   "status": "pass",
+   "detail": {
+    "predicates": {
+     "t2/refund": {
+      "pass": true,
+      "value": 39.5,
+      "description": "duplicate charge refunded in full"
+     },
+     "t2/note": {
+      "pass": true,
+      "value": 1,
+      "description": "a note on the ticket"
+     },
+     "t2/resolved": {
+      "pass": true,
+      "value": "resolved",
+      "description": "ticket resolved"
+     }
+    }
+   },
+   "seconds": 0.002,
+   "provenance": "kb:refund_policy.md;kb:refund_policy.md;kb:refund_policy.md",
+   "tier": "fast"
+  },
+  {
+   "id": "t3/predicates",
+   "gate": "t3",
+   "status": "pass",
+   "detail": {
+    "predicates": {
+     "t3/no_refund": {
+      "pass": true,
+      "value": 0,
+      "description": "in transit: nothing refunded"
+     },
+     "t3/note": {
+      "pass": true,
+      "value": 1,
+      "description": "a note on the ticket"
+     },
+     "t3/escalated": {
+      "pass": true,
+      "value": "escalated",
+      "description": "escalated for a carrier trace"
+     }
+    }
+   },
+   "seconds": 0.002,
+   "provenance": "kb:refund_policy.md;kb:refund_policy.md;kb:refund_policy.md",
+   "tier": "fast"
+  }
+ ],
+ "gates": {
+  "refund_policy": "pass",
+  "approvals": "pass",
+  "t1": "pass",
+  "t2": "pass",
+  "t3": "pass"
+ },
+ "reward": 1.0,
+ "outcome": 1.0,
+ "infra": {
+  "status": "ok",
+  "failure_kind": null,
+  "reason": null
+ },
+ "trusted": true,
+ "elapsed_s": 0.01,
+ "meta": {
+  "revealed": {},
+  "kinds": {
+   "refund_policy": "gate",
+   "approvals": "gate",
+   "t1": "outcome",
+   "t2": "outcome",
+   "t3": "outcome"
+  }
+ },
+ "failing_gates": []
+}
