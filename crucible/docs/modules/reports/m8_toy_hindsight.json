@@ -1,0 +1,111 @@
+{
+ "gate": "M8 G-hindsight (toy): recorded ticket cases -> tasks graded on what held up",
+ "summary": {
+  "accepted": 6,
+  "total": 6,
+  "failing": {}
+ },
+ "cases": {
+  "T1001": {
+   "accepted": true,
+   "failing": [],
+   "trap": null,
+   "provenance": [
+    "trace:toy/support_ticket:T1001"
+   ],
+   "negatives": 8,
+   "oracle": [
+    "tickets.issue_refund",
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  },
+  "T1003": {
+   "accepted": true,
+   "failing": [],
+   "trap": "the recorded first response to this request was later corrected (violation, revert, correction)",
+   "provenance": [
+    "sig_62a4da715b814529",
+    "sig_3642ec02372a7238",
+    "sig_36e0482415fcffd4",
+    "trace:toy/support_ticket:T1003"
+   ],
+   "negatives": 9,
+   "oracle": [
+    "message:supervisor",
+    "tickets.issue_refund",
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  },
+  "T1013": {
+   "accepted": true,
+   "failing": [],
+   "trap": "the recorded first response to this request was later corrected (rework)",
+   "provenance": [
+    "sig_c23c55a27a6c6be3",
+    "trace:toy/support_ticket:T1013"
+   ],
+   "negatives": 8,
+   "oracle": [
+    "tickets.issue_refund",
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  },
+  "T1015": {
+   "accepted": true,
+   "failing": [],
+   "trap": "the recorded first response to this request was later corrected (violation)",
+   "provenance": [
+    "sig_e278b8398e28f751",
+    "trace:toy/support_ticket:T1015"
+   ],
+   "negatives": 9,
+   "oracle": [
+    "message:supervisor",
+    "tickets.issue_refund",
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  },
+  "T1018": {
+   "accepted": true,
+   "failing": [],
+   "trap": null,
+   "provenance": [
+    "sig_b59b6ef774d0c2b5",
+    "trace:toy/support_ticket:T1018"
+   ],
+   "negatives": 7,
+   "oracle": [
+    "tickets.issue_refund",
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  },
+  "T1021": {
+   "accepted": true,
+   "failing": [],
+   "trap": "the recorded first response to this request was later corrected (revert, correction)",
+   "provenance": [
+    "sig_b66a0ee6b3e3fd93",
+    "sig_3f72706e8ec5809b",
+    "trace:toy/support_ticket:T1021"
+   ],
+   "negatives": 7,
+   "oracle": [
+    "tickets.add_note",
+    "tickets.set_status"
+   ],
+   "reasons": {}
+  }
+ },
+ "pass": true,
+ "note": "T1003's fee rule is inferred from a single supervisor correction (240.00 -> 230.00)"
+}

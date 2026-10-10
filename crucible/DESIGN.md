@@ -542,7 +542,7 @@ Each role is an LLM agent with a narrow toolset and a typed output. The orchestr
 
 These follow Frontier Learning's procedural-generator idea: each generator's parameters form a search space.
 
-- **G-hindsight:** replay a finished trace. Inputs as at the start, the answer hidden, graded against what really happened and held up (thesis principle 4).
+- **G-hindsight:** replay a finished trace. Inputs as at the start, the answer hidden, graded against what really happened and held up (thesis principle 4). *Built for the toy ticket logs (M8):* the net outcome after corrections is the answer; the expert's corrected first response is a trap negative citing its signal; rules a correction revealed become invariants.
 - **G-span:** take a sub-span (i, j) of a trace, as in §7.3. Difficulty grows with the span length and the number of traps inside it.
 - **G-trap:** inject a review-derived trap into the task's surface. Example: the task's consumer exercises the boundary condition a reviewer caught.
 - **G-transplant:** apply the family's migration pattern to a *different* repo that has the same legacy construct, found by static search. The oracle is built and verified by the oracle builder against the original. This is the main source of **OOD** tasks.
@@ -998,5 +998,6 @@ Registry check: A3, mutation score.
 | Frontier run traces held gate events no mapper read | the seeds' best trap sources were unusable | `coding/agent_run` signal mapper |
 | The seed instruction's base-commit SHA matches the leak scrubber's pattern | every derived instruction failed A5 | derived instructions drop the base commit |
 | A cheap LLM Test writer wrote parameterized SQL despite feedback | weak or broken checks | deterministic validators; the node fails closed and the plan is rejected |
+| A rule revealed by a recorded correction (a reversed refund on a used add-on) was not enforced by any check | the recorded wrong answer failed only the outcome, not the policy | G-hindsight compiles revealed rules into invariants, with the correction's signal as provenance |
 | A node skipped because its upstream failed was labelled "abandoned" | content failures reported as budget/infra exhaustion | `skipped` status; a plan with any failed or breached node is `rejected` |
 

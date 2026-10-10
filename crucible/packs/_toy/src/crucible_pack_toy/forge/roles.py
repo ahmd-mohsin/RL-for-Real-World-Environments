@@ -99,12 +99,13 @@ def _q(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def compile_checks(t: TaskSpec, sc: dict[str, Any], signals: dict[str, str]) -> CheckSet:
+def compile_checks(t: TaskSpec, sc: dict[str, Any], signals: dict[str, str], extra_invariants: list[tuple[str, str, str]] = ()) -> CheckSet:
+    """``extra_invariants``: policy rules a world adds (e.g. rules revealed by recorded corrections), (id, sql, provenance)."""
     out: list[CheckSpec] = []
     for p in t.properties:
         a = p.args
         if p.kind == "policy":
-            for cid, sql, prov in POLICY_INVARIANTS:
+            for cid, sql, prov in [*POLICY_INVARIANTS, *extra_invariants]:
                 out.append(CheckSpec(id=f"policy/{cid}", gate="policy", gate_kind="gate", kind="invariant", app="tickets", sql=sql, states=[p.id],
                                      provenance=signals.get("approval") if cid == "over_50_unapproved" else prov))
             out.append(CheckSpec(id="policy/approver_is_supervisor", gate="policy", gate_kind="gate", kind="invariant", app="tickets",
@@ -274,10 +275,11 @@ def negatives_for(t: TaskSpec, oracle: list[dict], sc: dict[str, Any], signals: 
     for p in t.properties:
         if p.kind == "no_refund":
             o = next(o for o in sc["orders"].values() if o["id"] == p.args["order"])
-            negs.append(N(f"refund_in_transit_{o['id']}", "trap_reversion",
+            negs.append(N(f"refund_forbidden_{o['id']}", "trap_reversion",
                           [M("supervisor", f"Please approve a refund of {o['amount']:.2f} USD for ticket {p.args['ticket']}, order {o['id']}."),
                            T(80, "tickets.issue_refund", ticket_id=p.args["ticket"], order_id=o["id"], amount_usd=o["amount"], approved_by=sup), *oracle],
-                          "policy", provenance="kb:refund_policy.md#4", description="refund an order that has not arrived"))
+                          "policy", provenance=signals.get(f"forbidden:{o['status']}", "kb:refund_policy.md#4"),
+                          description=f"refund an order the policy does not allow refunding ({o['status'].replace('_', ' ')})"))
     # defect mutants (procedural, SWE-smith style, applied to the oracle)
     for i, a in enumerate(oracle):
         if a.get("function_name") == "tickets.issue_refund":
@@ -316,7 +318,7 @@ def negatives_for(t: TaskSpec, oracle: list[dict], sc: dict[str, Any], signals: 
 
 
 class ScriptedAdversary:
-    name, version = "adversary", "toy-2"
+    name, version = "adversary", "toy-3"
 
     async def run(self, staged: dict[str, Any], *, feedback: list[str], knobs: dict[str, Any]) -> NegativeSet:
         arch = Architecture.model_validate(staged["architecture"])

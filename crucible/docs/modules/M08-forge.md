@@ -36,6 +36,7 @@
 | The toy variant world and its tasks pass M9 | ✅ `toy/helpdesk_v2` (seed 7; 5 customers, 19 orders with 7 distractors, an archived-policy decoy, a month-end freeze event). **5/5 tasks accepted:** A1 (3/3 fresh grades = 1.0, identical end states), A2, A3 (6–10 negatives per task, mutation score 1.0, valid alternatives pass), A4-lite, A5, A7, A8 (100% provenance). 0 paid calls; replayed from the journal at no cost |
 | Every derived span task passes M9 | **CPU ✅, behavioural ⏳.** 4 spans from task04 v3: people (H2, 8 files), NCV (H2, 3 files), KinFu (H3, 20 files), KinFu-LS (H3, 21 files). Each passes the CPU subset: static gate (oracle passes, start and unported mutants fail), A5 (clean instruction, no oracle lines in the start, sibling overlap ≤ 20%), A7, A8. 25 behavioural grades are queued in the verifier image (scoped kit grader, `--pre-patch`) |
 | ≥ 1 trap task per seed, citing its signal | **4 of 5 seeds.** Each trap's C2 checks pass the oracle and kill the frontier's version, and each cites a resolvable M4 signal:<br>• task04: sol v3 failed `correctness/ncv` → NCV area, 27 separating checks;<br>• task03: sol failed `api` → 51;<br>• task02: sol failed `ops` → 25;<br>• task01v2: sol failed `tests_gpu` → 264.<br>**task01: none.** Its only frontier run (Fable 5.1) passed, so no failure signal exists. A construction-transcript mapper (M4) would be the source |
+| G-hindsight on recorded workflow data (toy) | ✅ **6/6 tasks accepted** (`m8_toy_hindsight.json`). The recorded refund cases T1001, T1003, T1013, T1015, T1018 and T1021 become World tasks graded on the outcome that **held up** after corrections. Four cases carry the expert's real first response as a trap negative, each citing its M4 signal (violation, revert or rework). A rule that a correction revealed ("used add-ons are not refundable", from T1021's revert) is compiled into a policy invariant with that signal as provenance. T1003's fee rule rests on one supervisor correction (240.00 → 230.00); the report says so |
 | The LLM-role path | The cheapest model (`mistral-nemo`) as Test writer wrote parameterized SQL three times despite the feedback. The node **failed closed** and the plan was rejected, never accepted with weak checks. The LLM Architect narrative passed its validators (literals and graded sentences verbatim) |
 
 ## Findings
@@ -47,12 +48,13 @@
 3. **Span acceptance is behavioural by nature.** The CPU tier (texture-reference ban, C2 static checks) cannot kill a naive port. Following M6's finding that gold-token milestones are brittle, mined milestones are Φ only and never gates. A1/A2/A3 for coding spans therefore run in the verifier image.
 4. **Frontier failures are trap sources the seeds already have.** The M3 run traces kept each grade's gate events, but no M4 mapper read them. The new `coding/agent_run` mapper makes each failed hidden gate a signal that traps cite (A8).
 5. **The seed instruction trips the leak scrubber.** "upstream commit `c47198828`" matches Repo2RLEnv's commit-SHA pattern. Derived tasks drop it; the seed keeps it, because the base commit is not a fix.
-6. **Weak models fail the Test-writer role.** Deterministic validators plus fail-closed rejection keep that from becoming weak tasks. The role needs a stronger model in practice; this is recorded as a knob (`--llm`).
+6. **Corrections reveal policy.** In G-hindsight, a case whose first refund was reversed ("the add-on was used 40 times") teaches a rule the written policy never stated. The contract caught that the checks did not enforce it: refunding the used add-on failed only the outcome. The rule is now an invariant grounded on the correction's signal. This is the mechanism for grounding tasks on an organization's own records: the workflow data supplies both the answer and the traps.
+7. **Weak models fail the Test-writer role.** Deterministic validators plus fail-closed rejection keep that from becoming weak tasks. The role needs a stronger model in practice; this is recorded as a knob (`--llm`).
 
 ## Not done
 
 - Behavioural acceptance of the coding spans (queued on the lab GPU).
-- G-hindsight, G-transplant (OOD tasks on unseen repos), G-compose, G-tighten.
+- G-transplant (OOD tasks on unseen repos), G-compose, G-tighten. G-hindsight exists for the toy logs only; for coding it needs per-step expert states (M5 replay).
 - The Calibrator (frontier pass rates per harness) and the Curator (splits, ladder).
 - Harbor-run sandboxed builder roles (`role_runner.py`) and the agentenv human-review step.
 - A task01 trap, via a construction-transcript signal mapper (M4).

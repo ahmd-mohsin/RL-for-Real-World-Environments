@@ -56,6 +56,38 @@ echo "$(date -Is) done" > status.txt
 """
 
 
+# task03: chained after the task04 golden and the forge span runner (one GPU job at a time on the shared lab)
+T3 = {"remote": "rlenv/crucible_golden_t3", "image": "task03-mdlite-pallas:v1", "plan": "crucible_pack_coding.verify.task03",
+      "plan_file": "task03.py", "tests": "$HOME/rlenv/task03/t3/tests", "patches": "$HOME/rlenv/task03", "base": "/opt/originals/mdlite",
+      "python": "/opt/venv/bin/python", "after": ["$HOME/rlenv/crucible_golden/runner.pid", "$HOME/rlenv/crucible_forge/runner.pid"],
+      "grades": {"solution": None, "empty": "static", "neg_aserfc": "forces", "neg_floatgrid": "forces", "neg_fp32pos": "forces", "neg_jaxrandom": "dynamics",
+                 "neg_truncate": "forces", "gpt1": "api", "cheat_tamper": None},
+      "history": {"solution": "gradeh_solution", "empty": "grade_empty", "neg_aserfc": "grade_neg_aserfc", "neg_floatgrid": "grade_neg_floatgrid",
+                  "neg_fp32pos": "grade_neg_fp32pos", "neg_jaxrandom": "grade_neg_jaxrandom", "neg_truncate": "grade_neg_truncate", "gpt1": "gradeh_gpt1",
+                  "cheat_tamper": "gradeh_cheat_tamper"}}
+RUNNER_T3 = r"""#!/bin/bash
+cd ~/REMOTE
+echo $$ > runner.pid
+for P in AFTER; do while kill -0 $(cat $P 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for $P" > status.txt; sleep 300; done; done
+for N in NAMES; do
+  [ -f out/$N/crucible_reward.json ] && continue
+  while true; do
+    read U M <<< $(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits | head -1 | tr -d ',')
+    L=$(cut -d' ' -f1 /proc/loadavg)
+    if [ "$U" -le 10 ] && [ "$M" -le 3000 ] && [ "$(echo "$L < 8" | bc)" = 1 ]; then break; fi
+    echo "$(date -Is) waiting: gpu ${U}% ${M}MiB load $L" > status.txt; sleep 120
+  done
+  echo "$(date -Is) grading $N" > status.txt
+  mkdir -p out/$N art/$N && cp PATCHES/$N.patch art/$N/model.patch
+  docker run --rm --name crucible_golden_t3_$N --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --network none --init --shm-size 8g \
+    -v $HOME/REMOTE/bundle:/crucible_verify:ro -v TESTS:/tests:ro -v $HOME/REMOTE/art/$N:/logs/artifacts:ro -v $HOME/REMOTE/out/$N:/logs/verifier \
+    --entrypoint PYTHON IMAGE -I /crucible_verify/crucible/verify/runtime/run.py --plan PLAN --out /logs/verifier --require-root \
+    --base BASE --patch /logs/artifacts/model.patch --param tests=/tests > out/$N.console 2>&1
+done
+echo "$(date -Is) done" > status.txt
+"""
+
+
 def lab(cmd: str, **kw) -> subprocess.CompletedProcess:
     return subprocess.run([*LAB, cmd], capture_output=True, text=True, check=False, timeout=kw.pop("timeout", 600), **kw)
 
@@ -108,5 +140,55 @@ def collect() -> dict:
     return rep
 
 
+def stage_t3() -> None:
+    c = T3
+    with tempfile.TemporaryDirectory() as d:
+        bundle(Path(d) / "bundle", {c["plan"]: PACK_ROOT / "src" / "crucible_pack_coding" / "verify" / c["plan_file"]})
+        script = RUNNER_T3
+        for k, v in {"REMOTE": c["remote"], "AFTER": " ".join(c["after"]), "NAMES": " ".join(c["grades"]), "PATCHES": c["patches"], "TESTS": c["tests"],
+                     "PYTHON": c["python"], "IMAGE": c["image"], "PLAN": c["plan"], "BASE": c["base"]}.items():
+            script = script.replace(k, v)
+        (Path(d) / "run.sh").write_text(script)
+        tar = subprocess.run(["tar", "-czf", "-", "--no-xattrs", "-C", d, "bundle", "run.sh"], capture_output=True, check=True).stdout
+        unpack = f"mkdir -p ~/{c['remote']} && cd ~/{c['remote']} && rm -rf bundle && tar xzf - && chmod +x run.sh && ls"
+        r = subprocess.run([*LAB, unpack], input=tar, capture_output=True, check=False, timeout=300)
+        if r.returncode:
+            raise SystemExit(r.stderr.decode()[-500:])
+    start = (f"cd ~/{c['remote']} && (kill -0 $(cat runner.pid 2>/dev/null) 2>/dev/null || setsid nohup ./run.sh > runner.log 2>&1 < /dev/null &); "
+             "sleep 3; cat status.txt 2>/dev/null")
+    try:
+        print(subprocess.run([*LAB, start], capture_output=True, text=True, check=False, timeout=30).stdout)
+    except subprocess.TimeoutExpired:
+        print("started (ssh held open by the detached runner)")
+
+
+def collect_t3() -> dict:
+    c = T3
+    tar = subprocess.run([*LAB, f"cd ~/{c['remote']} && tar czf - out 2>/dev/null"], capture_output=True, check=False, timeout=600).stdout
+    dest = CRUCIBLE / "data" / "m7" / "golden_gpu_t3"
+    dest.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["tar", "xzf", "-", "-C", str(dest)], input=tar, check=False)
+    rows = {}
+    for name, gate in c["grades"].items():
+        f = dest / "out" / name / "crucible_reward.json"
+        if not f.exists():
+            rows[name] = {"pending": True}
+            continue
+        got = json.loads(f.read_text())
+        rec = json.loads((CRUCIBLE / "data" / "m7" / "history" / "task03" / c["history"][name] / "verifier" / "report.json").read_text())
+        want = {g: int(bool(v.get("pass"))) for g, v in rec["gates"].items() if isinstance(v, dict)}
+        gates = got.get("gates", {})
+        diffs = {g: (want.get(g), gates.get(g)) for g in set(want) | set(gates) if g in want and want.get(g) != gates.get(g) and g != "fresh"}
+        intended = (got.get("reward") == 1.0) if gate is None else gates.get(gate) == 0
+        rows[name] = {"recorded": want, "kit": gates, "reward": got.get("reward"), "infra": got.get("infra"), "intended": intended, "profile_diffs": diffs,
+                      "match": intended and not diffs}
+    done = [r for r in rows.values() if "match" in r]
+    rep = {"gate": "M7 golden, GPU part (task03 kit grader in the verifier image)", "graded": f"{len(done)}/{len(rows)}",
+           "pass": len(done) == len(rows) and all(r["match"] for r in done), "grades": rows}
+    (CRUCIBLE / "docs" / "modules" / "reports" / "m7_golden_gpu_t3.json").write_text(json.dumps(rep, indent=1, default=str) + "\n")
+    print(json.dumps({k: (v.get("match"), v.get("reward")) if "match" in v else "pending" for k, v in rows.items()}, indent=1))
+    return rep
+
+
 if __name__ == "__main__":
-    {"stage": stage, "status": status, "collect": collect}[sys.argv[1] if len(sys.argv) > 1 else "status"]()
+    {"stage": stage, "status": status, "collect": collect, "stage_t3": stage_t3, "collect_t3": collect_t3}[sys.argv[1] if len(sys.argv) > 1 else "status"]()
