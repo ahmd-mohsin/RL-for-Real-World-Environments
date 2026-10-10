@@ -1,0 +1,16 @@
+id: HF.D8-reference-alias
+incident:
+  date: '2026-10-09'
+  task: FineEnvs/repo2rlenv-equivalence-tests
+  found_by: M9 dataset survey
+  summary: the reference implementation is in the agent workspace; aliasing it scores 1
+  provenance:
+  - docs/research/m9-m10/03-hf-rl-env-datasets.md D8
+detector:
+  check: A13.reference_alias
+fix:
+  kind: none
+  ref: 'import check I2: reference-alias probe'
+reinjection:
+  fixture: crucible.accept.registry.fixtures:reference_alias
+status: fixed

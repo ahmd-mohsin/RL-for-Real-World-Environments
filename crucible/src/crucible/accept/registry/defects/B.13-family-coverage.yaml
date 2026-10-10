@@ -1,0 +1,16 @@
+id: B.13-family-coverage
+incident:
+  date: '2026-10-09'
+  task: toy/helpdesk_v2 T1
+  found_by: M8 forge
+  summary: no negative for the policy gate family
+  provenance:
+  - DESIGN.md Appendix B.13
+detector:
+  check: A3.family_coverage
+fix:
+  kind: forge
+  ref: per-gate-family coverage + generic double-refund mutant
+reinjection:
+  fixture: crucible.accept.registry.fixtures:family_coverage
+status: fixed

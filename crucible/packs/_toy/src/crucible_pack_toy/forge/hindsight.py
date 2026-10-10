@@ -156,7 +156,7 @@ def env_files(b: dict[str, Any]) -> dict[str, str]:
             "worlds/helpdesk_hindsight.yaml": yaml.safe_dump(world, sort_keys=False)}
 
 
-async def forge_hindsight(out: Path | None = None) -> dict[str, Any]:
+async def forge_hindsight(out: Path | None = None, collect: list | None = None) -> dict[str, Any]:
     b = build()
     out = Path(out or CRUCIBLE / "data" / "forge" / "toy_hindsight")
     from crucible.forge.schema import EnvBuild
@@ -184,6 +184,9 @@ async def forge_hindsight(out: Path | None = None) -> dict[str, Any]:
             negs.append(NegativeSpec(id=f"{case.lower()}/recorded_first_response", task_id=t.task_id, kind="trap_reversion", actions=acts, expected_gate=gate,
                                      provenance=sig, description=f"the expert's recorded first response on {case}, later corrected"))
         task = ToyForgedTask(t, checks, oracle, negs, pack_root=out, world_file="worlds/helpdesk_hindsight.yaml", scenario=sc)
+        if collect is not None:  # M9: the constructed tasks themselves, for the full contract
+            collect.append((task, lambda s: s in b["known"]))
+            continue
         r = await accept(task, resolve=lambda s: s in b["known"])
         reports.append(r)
         rows[case] = {"accepted": r.ok, "failing": [c.id for c in r.checks if c.status == "fail"], "trap": t.trap, "provenance": t.provenance,

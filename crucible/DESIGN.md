@@ -655,6 +655,8 @@ A task enters the pool only if every check passes. The `crucible accept <task>` 
 
 **Defect registry.** Every defect found in any task, by any audit, model run or reviewer, becomes a new automated check that A1–A12 run on *all* tasks from then on. The registry starts with the 14 defects in Appendix B.
 
+**As built (M9, 2026-10-09; `docs/modules/M09-accept.md`).** `crucible.accept.run.accept_task` plans the required checks by dependency and cost, reuses evidence-bound cached results for the same acceptance key, and derives `accepted` from the results on every read. N/A comes only from a closed vocabulary of task facts; a missing adapter capability fails; an unavailable need is pending; a crash is an error. Grades are stored by grading environment and solution content, so changing one negative re-grades only that negative. The defect registry (`accept/registry/defects/*.yaml`, 23 entries) admits a detector only with a power test (13 re-injection fixtures, all proven) or a named per-kit test (10). Its version is part of every key, and backfill quarantines tasks a new detector fails. On the toy tasks A13 found two real defects (B.15).
+
 **Imported tasks are not trusted on the publisher's word (research m9-m10/03, 2026-10-09).** A survey of 32 Hugging Face `rl-environment` datasets found that "verified" means anything from "a model once solved it" to two gold passes with per-row logs, and that about half the Harbor task volume ships no oracle. Defects found by reading and partly reproducing them include:
 - oracles that apply nothing (heredoc indentation; 450 of 500 tasks in one set);
 - base images on an unresolvable registry;
@@ -1071,3 +1073,11 @@ Registry check: A3, mutation score.
 | A retry of a masked grade re-ran the agent | the retry measured a different sample than the one the contaminated grade was measuring; the original solution's score was never known | grade-only retry from the stored patch; `Runner.regrade`; fixed |
 | Model calls that produced no action (blank or cut-off replies) had no ATIF step; `StepRow.atif_step_id` was never set | per-turn credit could not be placed on the tokens that earned it; ATIF, World steps and calls could not be joined (research H8) | `call_id` + ordered actions per call, `no_action` steps, `align`; fixed |
 | Blank-usage responses in tolerant mode were priced at $0 | the budget never sees those calls | worst-case estimate booked as uncertain spend; fixed |
+
+**B.15 Found while building M9 (2026-10-09).** Both found by the A13 attack suite on the toy tasks; both fixed.
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| A refund recorded with the supervisor's name but never requested scored 1.0 (state-only approval check) | the approver's name is hidden, but the world is constant across episodes: a policy learns it once and forges approvals from then on | `event` check `approval_grounded` (the approval must appear in the episode); A13 `forged_approval`; fixed |
+| With no in-transit orders the supervisor's rejection rule became `(?:)` and rejected every request; the hindsight oracle refunded anyway | the oracle violated the policy it was meant to model, and state-only checks passed it | rule added only when the list is non-empty; caught by `approval_grounded`; fixed |
+

@@ -1,0 +1,16 @@
+id: B.10-fake-stdout-rows
+incident:
+  date: '2026-10-09'
+  task: task01_prims_omp
+  found_by: seed audit
+  summary: probe and perf rows parsed from candidate stdout
+  provenance:
+  - DESIGN.md Appendix B.10
+detector:
+  check: A13.stdout
+  scope: per_kit
+  test: tests/redteam/test_grader_attacks.py::test_attack_scores_zero[fake_stdout]
+fix:
+  kind: kit
+  ref: grader-side files and timing
+status: fixed

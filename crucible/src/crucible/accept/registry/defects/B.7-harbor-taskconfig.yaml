@@ -1,0 +1,16 @@
+id: B.7-harbor-taskconfig
+incident:
+  date: '2026-10-09'
+  task: seed tasks
+  found_by: M0-M2 import
+  summary: authors=["..."] invalid in Harbor; semantics-changing keys silently dropped
+  provenance:
+  - DESIGN.md Appendix B.7
+detector:
+  check: A9.lint
+fix:
+  kind: task
+  ref: validate with Harbor TaskConfig at import
+reinjection:
+  fixture: crucible.accept.registry.fixtures:harbor_taskconfig
+status: fixed

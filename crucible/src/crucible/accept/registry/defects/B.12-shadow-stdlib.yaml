@@ -1,0 +1,16 @@
+id: B.12-shadow-stdlib
+incident:
+  date: '2026-10-09'
+  task: kit
+  found_by: M7 red team
+  summary: 'PYTHONPATH entries precede the standard library: a candidate json.py shadows the grader''s imports'
+  provenance:
+  - DESIGN.md Appendix B.12
+detector:
+  check: A13.shadow
+  scope: per_kit
+  test: tests/redteam/test_grader_attacks.py::test_attack_scores_zero[shadow_stdlib_json]
+fix:
+  kind: kit
+  ref: Trusted.python bootstrap
+status: fixed

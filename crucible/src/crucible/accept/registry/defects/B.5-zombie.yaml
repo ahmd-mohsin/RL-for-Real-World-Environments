@@ -1,0 +1,16 @@
+id: B.5-zombie
+incident:
+  date: '2026-10-06'
+  task: task03_mdlite_pallas
+  found_by: frontier run
+  summary: 'sleep infinity as PID 1: zombie wait loops'
+  provenance:
+  - DESIGN.md Appendix B.5
+detector:
+  check: A11.zombie
+  scope: per_kit
+  test: tests/redteam/test_runtime_docker.py::test_zombie_pid1_preflight
+fix:
+  kind: runtime
+  ref: --init + preflight
+status: fixed

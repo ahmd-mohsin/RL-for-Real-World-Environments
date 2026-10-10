@@ -120,7 +120,8 @@ def assemble(out_root: Path, arch: Architecture, env: EnvBuild, oracles: OracleS
     return dirs
 
 
-async def forge(seed: int = 7, *, llm_model: str | None = None, budget: float = 0.05, out: Path | None = None, world_id: str = "toy/helpdesk_v2") -> dict:
+async def forge(seed: int = 7, *, llm_model: str | None = None, budget: float = 0.05, out: Path | None = None, world_id: str = "toy/helpdesk_v2",
+                collect: list | None = None) -> dict:
     signals, known = mine_signals()
     out = Path(out or CRUCIBLE / "data" / "forge" / f"{world_id.replace('/', '_')}_s{seed}{'_llm' if llm_model else ''}")
     out.mkdir(parents=True, exist_ok=True)
@@ -160,6 +161,9 @@ async def forge(seed: int = 7, *, llm_model: str | None = None, budget: float = 
         mine = [NegativeSpec.model_validate(n.model_dump()) for n in negs.negatives if n.task_id == t.task_id]
         task = ToyForgedTask(t, by_c[t.task_id], by_o[t.task_id].actions, mine, pack_root=out, world_file=world_file, scenario=arch.scenario,
                              canary=o["oracle"].get("_canary"))
+        if collect is not None:  # M9: the constructed tasks themselves, for the full contract
+            collect.append((task, lambda s: s in known))
+            continue
         r = await accept(task, resolve=lambda s: s in known)
         reports.append(r)
         state = "accepted" if r.ok and aud.sound else "rejected"

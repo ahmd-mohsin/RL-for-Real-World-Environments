@@ -586,7 +586,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
 
 ### M9 `accept` — Acceptance Contract and defect registry
 - **Purpose:** a task enters the pool only if A1–A12 (DESIGN §9) all pass.
-- **Contents:** `contract.py`, `checks/a01_oracle.py … a12_cost.py`, `registry/` (each defect = an incident, a detector check, the fix, provenance), `report.py` (`calibration.json`, task-card updates).
+- **Contents (as built):** `model.py`, `policy.py`, `key.py`, `cache.py`, `plan.py`, `run.py` (the runner), `checks/{base,core,extended}.py` (A1–A13, S1), `mutation/` (operators per solution kind), `registry/` (defect YAMLs, power-test fixtures, backfill), `contract.py` (the M8 subset). Still to build: `report.py` card updates, `cli.py`, patch mutation operators, seed adapters.
 - **Takes:**
   - DEPEND: Harbor quality checker rubric and analyzer (A7, A3 cheat attempts); OpenEnv validation (RFC 008); agentenv `review` (manual sign-off for H4+).
   - PATTERN: `vf-validate`; NeMo-Gym `verifier_fixture`, `environment/validation.py`, `harness_capabilities`.

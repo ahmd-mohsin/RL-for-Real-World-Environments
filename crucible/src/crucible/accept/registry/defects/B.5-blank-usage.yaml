@@ -1,0 +1,16 @@
+id: B.5-blank-usage
+incident:
+  date: '2026-10-06'
+  task: frontier runs
+  found_by: frontier run
+  summary: a blank-usage API response aborted the run
+  provenance:
+  - DESIGN.md Appendix B.5
+detector:
+  check: A11.blank_usage
+  scope: per_kit
+  test: tests/unit/test_runtime.py::test_inject_blank_usage_masked_and_retried
+fix:
+  kind: runtime
+  ref: masked usage_blank; tolerant mode books uncertain spend
+status: fixed

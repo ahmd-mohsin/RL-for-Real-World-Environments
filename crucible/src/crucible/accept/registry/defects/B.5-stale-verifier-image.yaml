@@ -1,0 +1,19 @@
+id: B.5-stale-verifier-image
+incident:
+  date: '2026-10-07'
+  task: task04_pcl_gpu_cuda12
+  found_by: frontier grading
+  summary: a grade ran in a verifier image built before the reference changed
+  provenance:
+  - DESIGN.md Appendix B.5
+detector:
+  check: A9.images
+  applies_to:
+    has:
+    - images
+fix:
+  kind: runtime
+  ref: digest pin before grading (verify.stage expected_image)
+reinjection:
+  fixture: crucible.accept.registry.fixtures:stale_image
+status: fixed

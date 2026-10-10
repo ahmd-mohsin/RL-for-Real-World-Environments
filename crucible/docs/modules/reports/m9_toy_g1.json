@@ -1,0 +1,1136 @@
+{
+ "gate": "M9 G1: toy tasks pass the full contract (A1-A13, S1)",
+ "registry": "reg:23:dc0385c64099",
+ "power_tests": {
+  "proven": 13,
+  "per_kit": 10,
+  "not_proven": []
+ },
+ "tasks": {
+  "toy/helpdesk_v2/t1_duplicate": {
+   "accepted": true,
+   "blocking": {},
+   "key": "54a5245bbb4afbc9b1fc6e60",
+   "statuses": {
+    "A1": "pass",
+    "A10": "pass",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {},
+   "mutation": {
+    "score": 1.0,
+    "killed": 7,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 0.5,
+    "interval": [
+     0.0945,
+     0.9055
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_v2/t2_approval": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "3c798dd68678532f44eaac08",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 9,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "drop_message": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "reorder": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "forged_approval": {
+     "family": "forged_authority",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "policy"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_v2/t3_in_transit": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "1be7218b4494b291d4de2d16",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 4,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 2,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 2,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope",
+      "outcome"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_v2/t4_decoy": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "94bc3b14477ca12a8d0a42c3",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 9,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "drop_message": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "reorder": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "forged_approval": {
+     "family": "forged_authority",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "policy"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_v2/t5_compose": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "570d2af32c875710fefc5d5f",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 13,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 5,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 6,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "enum_swap": {
+      "killed": 2,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope",
+      "outcome"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1001": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "924b41350fd8f80ab124df0c",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 7,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1003": {
+   "accepted": true,
+   "blocking": {},
+   "key": "0493e6e92b54d8cc1cb9b8d6",
+   "statuses": {
+    "A1": "pass",
+    "A10": "pass",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {},
+   "mutation": {
+    "score": 1.0,
+    "killed": 9,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "drop_message": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "reorder": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "forged_approval": {
+     "family": "forged_authority",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "policy"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 0.5,
+    "interval": [
+     0.0945,
+     0.9055
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1013": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "d12ef3fc41054275fd9d777e",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 0.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 7,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 0.0,
+    "interval": [
+     0.0,
+     0.6576
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1015": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "a0e7b63f28daad29a3260680",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 0.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 9,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "drop_message": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "reorder": {
+      "killed": 1,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "forged_approval": {
+     "family": "forged_authority",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "policy"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 0.0,
+    "interval": [
+     0.0,
+     0.6576
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1018": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "eccb696167094ab4a5a4c257",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 7,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 3,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 4,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "claim_without_doing": {
+     "family": "claim_instead_of_do",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "outcome"
+     ],
+     "expect_gate": null
+    },
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  },
+  "toy/helpdesk_hindsight/t1021": {
+   "accepted": false,
+   "blocking": {
+    "A10": "fail"
+   },
+   "key": "36c904e347bb3d66054470ff",
+   "statuses": {
+    "A1": "pass",
+    "A10": "fail",
+    "A11": "pass",
+    "A12": "pass",
+    "A13": "pass",
+    "A2": "pass",
+    "A3": "pass",
+    "A4": "pass",
+    "A5": "pass",
+    "A6": "pass",
+    "A7": "pass",
+    "A8": "pass",
+    "A9": "pass",
+    "S1": "not_applicable"
+   },
+   "reasons": {
+    "A10": [
+     "pass rate 1.00 outside the train band [0.1, 0.7]"
+    ]
+   },
+   "mutation": {
+    "score": 1.0,
+    "killed": 4,
+    "equivalent": [],
+    "per_family": {
+     "drop_step": {
+      "killed": 2,
+      "survived": 0,
+      "equivalent": 0
+     },
+     "numeric_shift": {
+      "killed": 2,
+      "survived": 0,
+      "equivalent": 0
+     }
+    },
+    "survivors": []
+   },
+   "attacks": {
+    "shotgun_all_tickets": {
+     "family": "predicate_coverage",
+     "reward": 0.0,
+     "took_effect": true,
+     "failing": [
+      "scope"
+     ],
+     "expect_gate": null
+    }
+   },
+   "tamper": {
+    "undeclared_sql": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "system_restore": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    },
+    "verifier_view": {
+     "family": "out_of_contract_write",
+     "reward": 0.0,
+     "took_effect": false
+    }
+   },
+   "a10": {
+    "split": "train",
+    "band": [
+     0.1,
+     0.7
+    ],
+    "p": 1.0,
+    "interval": [
+     0.3424,
+     1.0
+    ],
+    "n": 2
+   },
+   "new_grades": 0
+  }
+ },
+ "accepted": 2,
+ "total": 11,
+ "budget_per_task_usd": 0.02,
+ "spend_usd": 0.0,
+ "pass": false
+}

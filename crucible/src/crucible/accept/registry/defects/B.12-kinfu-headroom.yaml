@@ -1,0 +1,19 @@
+id: B.12-kinfu-headroom
+incident:
+  date: '2026-10-09'
+  task: task04_pcl_gpu_cuda12@v3
+  found_by: M7 calibrate.perf_headroom
+  summary: 'oracle KinFu ratio 0.571 vs bar 0.65: 12% headroom'
+  provenance:
+  - DESIGN.md Appendix B.12
+detector:
+  check: A1.perf_headroom
+  applies_to:
+    has:
+    - perf_bars
+status: open
+fix:
+  kind: task
+  ref: bar or oracle at re-versioning
+reinjection:
+  fixture: crucible.accept.registry.fixtures:kinfu_headroom

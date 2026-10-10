@@ -1,0 +1,20 @@
+id: B.10-fresh-cases-crash
+incident:
+  date: '2026-10-09'
+  task: task03_mdlite_pallas
+  found_by: seed audit
+  summary: fresh_cases.py draws boxes smaller than 2x cutoff on ~18% of seeds; the grader crashes
+  provenance:
+  - DESIGN.md Appendix B.10
+  - docs/reviews/2026-10-09-articles-crosscheck.md
+detector:
+  check: A1.fresh_no_crash
+  applies_to:
+    has:
+    - fresh_gates
+status: open
+fix:
+  kind: kit
+  ref: reference runs first, redraw
+reinjection:
+  fixture: crucible.accept.registry.fixtures:fresh_cases_crash

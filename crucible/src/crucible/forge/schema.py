@@ -75,7 +75,8 @@ class CheckSpec(CrucibleModel):
     id: str
     gate: str
     gate_kind: Literal["gate", "outcome", "score"] = "outcome"
-    kind: Literal["predicate", "invariant", "static", "milestone", "suite"] = "predicate"  # suite: a behavioural gate the kit grader runs (coding)
+    kind: Literal["predicate", "invariant", "static", "milestone", "suite", "event"] = "predicate"  # suite: a behavioural gate the kit grader runs (coding)
+    # event: a rule over the episode's events (e.g. an approval recorded in state must have been given in the episode)
     app: str | None = None
     sql: str | None = None  # predicate: one scalar; invariant: violating rows
     expect: dict[str, Any] = Field(default_factory=dict)  # Expectation fields for predicates

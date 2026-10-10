@@ -1,0 +1,16 @@
+id: B.14-gpu-oom-contention
+incident:
+  date: '2026-10-09'
+  task: task04_pcl_gpu_cuda12@v3
+  found_by: M7 GPU golden
+  summary: GPU OOM while another user's job held the GPU was scored as a candidate failure
+  provenance:
+  - DESIGN.md Appendix B.14
+detector:
+  check: A11.contention
+  scope: per_kit
+  test: tests/unit/test_verify.py::test_oom_under_contention_is_the_nodes
+fix:
+  kind: kit
+  ref: oom_under_contention -> node_contention
+status: fixed

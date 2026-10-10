@@ -1,0 +1,16 @@
+id: B.5-empty-patch
+incident:
+  date: '2026-10-05'
+  task: task02_pcops_triton
+  found_by: frontier run
+  summary: 'a gitignored build/ made git add fail inside an && chain: empty patch'
+  provenance:
+  - DESIGN.md Appendix B.5
+detector:
+  check: A11.empty_collection
+  scope: per_kit
+  test: tests/unit/test_runtime.py::test_inject_empty_collection_then_recollect
+fix:
+  kind: runtime
+  ref: tolerant collect + re-collect only
+status: fixed

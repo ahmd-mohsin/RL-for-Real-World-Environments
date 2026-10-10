@@ -1,0 +1,19 @@
+id: B.2-kinfu-bifurcation
+incident:
+  date: '2026-10-06'
+  task: task04_pcl_gpu_cuda12@v2
+  found_by: v2 validation
+  summary: a KinFu-LS fresh draw bifurcated ~5% of the time and failed correct solutions
+  provenance:
+  - DESIGN.md Appendix B.2
+detector:
+  check: A4.flake
+  applies_to:
+    has:
+    - fresh_gates
+fix:
+  kind: task
+  ref: two-tier compare calibrated on 120 runs
+reinjection:
+  fixture: crucible.accept.registry.fixtures:kinfu_bifurcation
+status: fixed

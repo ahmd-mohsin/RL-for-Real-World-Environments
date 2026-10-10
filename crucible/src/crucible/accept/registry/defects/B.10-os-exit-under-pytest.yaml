@@ -1,0 +1,16 @@
+id: B.10-os-exit-under-pytest
+incident:
+  date: '2026-10-09'
+  task: task03_mdlite_pallas
+  found_by: seed audit
+  summary: pytest gates pass on rc==0; os._exit(0) under pytest passes
+  provenance:
+  - DESIGN.md Appendix B.10
+detector:
+  check: A13.exit0
+  scope: per_kit
+  test: tests/redteam/test_grader_attacks.py::test_attack_scores_zero[exit0_under_pytest]
+fix:
+  kind: kit
+  ref: trusted runner reads junit, not rc
+status: fixed

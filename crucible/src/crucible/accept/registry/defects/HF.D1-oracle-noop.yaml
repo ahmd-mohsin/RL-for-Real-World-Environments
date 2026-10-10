@@ -1,0 +1,16 @@
+id: HF.D1-oracle-noop
+incident:
+  date: '2026-10-09'
+  task: AweAI-Team/BeyondSWE-harbor
+  found_by: M9 dataset survey
+  summary: 450/500 solve.sh heredocs never terminate; the oracle exits 0 without applying the patch
+  provenance:
+  - docs/research/m9-m10/03-hf-rl-env-datasets.md D1
+detector:
+  check: A1.gold_check
+fix:
+  kind: none
+  ref: 'import check I1: reject'
+reinjection:
+  fixture: crucible.accept.registry.fixtures:oracle_noop
+status: fixed

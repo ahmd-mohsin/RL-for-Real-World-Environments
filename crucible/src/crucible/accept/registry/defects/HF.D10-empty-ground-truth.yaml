@@ -1,0 +1,16 @@
+id: HF.D10-empty-ground-truth
+incident:
+  date: '2026-10-09'
+  task: nvidia/Nemotron-RL-agent-workplace_assistant
+  found_by: M9 dataset survey
+  summary: '~13% of rows have an empty ground truth: a do-nothing policy scores 1'
+  provenance:
+  - docs/research/m9-m10/03-hf-rl-env-datasets.md D10
+detector:
+  check: A2.floors
+fix:
+  kind: none
+  ref: 'import check I2: dataset floor rate'
+reinjection:
+  fixture: crucible.accept.registry.fixtures:empty_ground_truth_floor
+status: fixed

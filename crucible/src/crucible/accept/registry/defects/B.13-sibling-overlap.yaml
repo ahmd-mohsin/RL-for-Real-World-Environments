@@ -1,0 +1,19 @@
+id: B.13-sibling-overlap
+incident:
+  date: '2026-10-09'
+  task: task04 KinFu span
+  found_by: M8 derive
+  summary: the span start held the expert's port of a sibling fork (67-70% visible)
+  provenance:
+  - DESIGN.md Appendix B.13
+detector:
+  check: A5.sibling_overlap
+  applies_to:
+    has:
+    - sibling_overlap
+fix:
+  kind: forge
+  ref: sibling forks excluded
+reinjection:
+  fixture: crucible.accept.registry.fixtures:sibling_overlap
+status: fixed

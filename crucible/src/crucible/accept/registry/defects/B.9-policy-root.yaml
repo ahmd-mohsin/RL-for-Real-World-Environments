@@ -1,0 +1,16 @@
+id: B.9-policy-root
+incident:
+  date: '2026-10-09'
+  task: world
+  found_by: framework survey
+  summary: git_diff(ref) pasted into a root shell; tool shells ran as root
+  provenance:
+  - DESIGN.md Appendix B.9
+detector:
+  check: A6.containment
+  scope: per_kit
+  test: tests/redteam/test_attacks.py::test_reward_hacks_are_defeated
+fix:
+  kind: world
+  ref: policy_exec, refs quoted
+status: fixed

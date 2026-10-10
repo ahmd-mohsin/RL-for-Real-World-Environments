@@ -1,0 +1,16 @@
+id: B.4-weak-negatives
+incident:
+  date: '2026-10-07'
+  task: task04_pcl_gpu_cuda12@v1
+  found_by: adversarial negatives
+  summary: the NCV out-of-bounds, bicubic clamp and shared-counter negatives passed the first suites
+  provenance:
+  - DESIGN.md Appendix B.4
+detector:
+  check: A3.negative_killed
+fix:
+  kind: task
+  ref: guard bands, offset ROIs, lockstep stress
+reinjection:
+  fixture: crucible.accept.registry.fixtures:weak_negative
+status: fixed

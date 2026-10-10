@@ -1,0 +1,18 @@
+id: B.12-racecheck-first-summary
+incident:
+  date: '2026-10-09'
+  task: task04_pcl_gpu_cuda12
+  found_by: M7 kit port
+  summary: the sanitizer gate read the first RACECHECK SUMMARY of a log the candidate also writes
+  provenance:
+  - DESIGN.md Appendix B.12
+detector:
+  check: A13.sanitizer
+  scope: per_kit
+  test: crucible_pack_coding.verify.task04.sanitizer_clean
+fix:
+  kind: kit
+  ref: every summary line must report 0
+reinjection:
+  fixture: crucible_pack_coding.accept_fixtures:racecheck_first_summary
+status: fixed

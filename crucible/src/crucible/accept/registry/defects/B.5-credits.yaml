@@ -1,0 +1,16 @@
+id: B.5-credits
+incident:
+  date: '2026-10-06'
+  task: frontier runs
+  found_by: frontier run
+  summary: out of API credits mid-run
+  provenance:
+  - DESIGN.md Appendix B.5
+detector:
+  check: A11.credits
+  scope: per_kit
+  test: tests/unit/test_runtime.py::test_inject_credits_stop_rule_and_resume
+fix:
+  kind: runtime
+  ref: budget stop, resumable
+status: fixed

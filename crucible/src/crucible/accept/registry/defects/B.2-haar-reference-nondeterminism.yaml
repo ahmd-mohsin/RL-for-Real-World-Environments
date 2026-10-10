@@ -1,0 +1,20 @@
+id: B.2-haar-reference-nondeterminism
+incident:
+  date: '2026-10-06'
+  task: task04_pcl_gpu_cuda12@v2
+  found_by: v2 validation
+  summary: atomic compaction truncated at 16384 rects; the original's own output differed run to run
+  provenance:
+  - migration_tasks/task04_pcl_gpu_cuda12/MIGRATION_LOG.md
+  - DESIGN.md Appendix B.2
+detector:
+  check: A4.reference_self_consistency
+  applies_to:
+    has:
+    - reference_build
+fix:
+  kind: task
+  ref: 'task04 v2: capacity 2^19'
+reinjection:
+  fixture: crucible.accept.registry.fixtures:haar_reference_nondeterminism
+status: fixed

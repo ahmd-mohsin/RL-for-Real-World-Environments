@@ -1,0 +1,16 @@
+id: B.8-verifier-staging
+incident:
+  date: '2026-10-09'
+  task: world
+  found_by: M1 red team
+  summary: verifier snippets and snapshots staged in world-writable /tmp
+  provenance:
+  - DESIGN.md Appendix B.8
+detector:
+  check: A6.containment
+  scope: per_kit
+  test: tests/redteam/test_attacks.py::test_audit_of_the_hardened_world
+fix:
+  kind: world
+  ref: root-only staging
+status: fixed
