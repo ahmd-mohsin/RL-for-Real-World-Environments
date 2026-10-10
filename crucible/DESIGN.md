@@ -1120,6 +1120,13 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**Critic mode: advantages collided across rollouts (fixed 2026-10-10).** `TorchTrainer._gae_advantages` keyed per-token
+advantages by `call_id`. World episodes all number their calls `agent:c1`, `agent:c2`…, so in a batch of World
+rollouts each record overwrote the previous one's GAE: every rollout trained on the last record's advantages. The
+critic tests passed because the toy task's call ids are unique per rollout. Advantages are now keyed by
+`(rollout_id, call_id)` in GAE, per-call items and segment items. A regression test gives two records with identical
+call ids and different rewards, and checks that they keep distinct advantages.
+
 **C-4 (2026-10-10): online hack interception and the two-level detector (A2-28/29, checklist #41).** Before this,
 shortcuts were only blocked by the environment (network policy) or noticed after the fact (probes), and
 `hack/confirmed` came from the full-tier audit alone.

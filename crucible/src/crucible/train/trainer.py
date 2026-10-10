@@ -156,14 +156,15 @@ class TorchTrainer:
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
-    def _gae_advantages(self, records: Sequence[RolloutRecord]) -> dict[str, list[float]]:
-        """Critic mode: per call id, the per-token GAE advantages; also fills ``self._critic_data`` with (prompt, completion,
+    def _gae_advantages(self, records: Sequence[RolloutRecord]) -> dict[tuple[str, str], list[float]]:
+        """Critic mode: per (rollout id, call id), the per-token GAE advantages (call ids repeat across rollouts: World
+        episodes all have ``agent:c1``...); also fills ``self._critic_data`` with (prompt, completion,
         returns) for the critic regression. The chain holds only completion tokens (skip-observation), in call order."""
         from crucible.train.critic import explained_variance
         from crucible.train.objectives import gae, length_adaptive_lambda
 
         cc = self.critic_cfg
-        out: dict[str, list[float]] = {}
+        out: dict[tuple[str, str], list[float]] = {}
         self._critic_data: list[tuple[list[int], list[int], torch.Tensor]] = []
         all_ret, all_val = [], []
         for r in records:
@@ -191,7 +192,7 @@ class TorchTrainer:
             _, ret = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic, **kw, **trunc)
             k = 0
             for t, n in zip(calls, lens, strict=True):
-                out[t.call_id] = adv[k:k + n].tolist()
+                out[(r.rollout_id, t.call_id)] = adv[k:k + n].tolist()
                 self._critic_data.append((prompts[t.call_id], list(t.completion_token_ids), ret[k:k + n].float()))
                 k += n
             all_ret.append(ret.float())
@@ -235,7 +236,7 @@ class TorchTrainer:
             if per_token is not None:  # critic GAE: per-token advantages on each call's own span (+ turn credit)
                 credit = {t.call_id: self.cfg.turn_weight * (t.advantage or 0.0) for t in r.turns}
                 for cid, s0, s1 in seq.call_spans:
-                    vals = per_token.get(cid)
+                    vals = per_token.get((r.rollout_id, cid))
                     if vals is not None:
                         adv[s0:s1] = [x + credit.get(cid, 0.0) for x in vals[: s1 - s0]]
             if sum(seq.response_mask):
@@ -278,7 +279,7 @@ class TorchTrainer:
                     raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
                 credit = self.cfg.turn_weight * (t.advantage or 0.0)
-                adv = [x + credit for x in per_token[t.call_id]] if per_token is not None else a + credit
+                adv = [x + credit for x in per_token[(r.rollout_id, t.call_id)]] if per_token is not None else a + credit
                 items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
                                    t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
                                    t.routing if self.cfg.routing_replay == "r3" else None))

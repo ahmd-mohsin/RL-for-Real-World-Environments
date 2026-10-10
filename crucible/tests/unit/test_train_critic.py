@@ -102,3 +102,18 @@ async def test_single_rollout_learning_needs_the_critic():
     ev = crit.series("critic/explained_variance")
     assert sum(r[-10:]) / 10 > sum(r[:5]) / 5 + 0.08, (r[:5], r[-10:])
     assert max(ev[-10:]) > ev[0]  # the critic learns to explain returns
+
+
+def test_critic_advantages_do_not_collide_across_rollouts_with_the_same_call_ids():
+    """World episodes all have call ids agent:c1, agent:c2...: per-token advantages are keyed by (rollout, call), so one
+    record's GAE never overwrites another's."""
+    tr = TorchTrainer(TinyPolicy(32, 8, seed=0), TrainerConfig(item_unit="call"), critic=TinyValue(32, 8, seed=1), critic_cfg=CriticConfig())
+    a, b = _rec(reward=1.0), _rec(reward=0.0)
+    b = b.model_copy(update={"rollout_id": "r2", "sample": "r2"})
+    assert [t.call_id for t in a.turns] == [t.call_id for t in b.turns]
+    adv = tr._gae_advantages([a, b])
+    assert len(adv) == 2 * len(a.turns)
+    items = tr._items([a, b], ["g1", "g2"])
+    first = [x for it in items[: len(a.turns)] for x in it.adv]
+    second = [x for it in items[len(a.turns):] for x in it.adv]
+    assert first != second and first[-1] > second[-1]  # the rewarded rollout keeps its own, larger advantage
