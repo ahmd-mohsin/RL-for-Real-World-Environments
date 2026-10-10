@@ -98,6 +98,7 @@ extend-exclude = [".playwright-mcp", "data/cache"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-rfE"  # always name failing / erroring tests in the summary (a one-off flake must be identifiable)
 asyncio_default_fixture_loop_scope = "function"
 markers = [
   "docker: needs a local Docker daemon",
