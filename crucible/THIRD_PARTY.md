@@ -29,6 +29,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `world/guard/guard.py` (`git_scrub`) | Repo2RLEnv `pipelines/_env_guard.py` git-history scrub | 5555443 | Apache-2.0 | the scrub sequence (checkout base, drop remotes, delete refs, expire reflog, gc/prune). Crucible adds the verification Repo2RLEnv lacks: `rev-list --all` ⊆ ancestry of base, `fsck --unreachable` empty, forbidden SHAs absent |
 
 | `actors/llm.py` (`CONTEXT_OVERFLOW_MARKERS`, `is_context_overflow`) | Prime Intellect verifiers v1 `harnesses/utils/compaction.py` | ae819de | MIT | the provider wordings of a context overflow, verbatim; backoff curve with full jitter from `utils/retries.py` |
+| `actors/harness.py` (`BashLoopPolicy`, `format_observation`, prompts) | SWE-agent mini-swe-agent v2, `minisweagent/agents/default.py`, `config/mini.yaml` | 04d809c (2026-09-03) | MIT | the loop protocol: one bash block per turn, the submit sentinel, the format-error and observation templates with head/tail truncation; re-written over World shell tools |
 | `packs/coding/.../connectors/ci_logs.py` (`parse_ctest`, `parse_gtest`, `parse_pytest`) | SWE-bench SWE-smith `swesmith/profiles/cpp.py` (`parse_log_ctest`, `parse_log_gtest`, `parse_log_pytest`) | 9b74ac0 (2026-03-22) | MIT (`LICENSES/MIT-swe-smith.txt`) | the line patterns; changed: no synthetic test names from summary lines (counts kept apart), first failure message kept, CTest "Not Run" is a skip |
 
 ## Frameworks we call (DEPEND), added in the hardening pass
@@ -65,6 +66,12 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | error envelopes `{"error": {"code": ...}}`; virtual time for generated tool code (the problem, measured) | MiMo v2.6 release tool modules | `world/packaging/mcp_tools.py`, `virtual_env.py` |
 | refusing infeasible requests = leaving apps unchanged | EnterpriseOps-Gym refusal subset, MiMo `verifier_meta.act` | `VerifierView.unchanged` |
 | recording proxy: per-session capability keys, one server for many sessions, request digest for retries | verifiers v1 `interception/server.py` | `connectors/capture_proxy.py` (retries recorded and collapsed to the last attempt instead of dropped) |
+| milestone DAG matched to states monotonically along prerequisites | NeMo-Gym ToolSandbox `tool_sandbox/common/evaluation.py` | `workflow/milestones/match.py` |
+| rubric items with tier, method and `pass_anchor`; strict binary evidence judge | MiMo v2.6 `verifier_meta.json`, `verify.py` | `credit/operators/rubric_item.py` |
+| zero-net-mass turn-level advantage shaping; masked rows excluded from group statistics | XiaomiMiMo verl fork `signed_rebalance.py`, `core_algos.py` | `credit/compose.py` |
+| PR-mirror negative mutants (reverse a diff); F2P per step | SWE-smith `bug_gen`, `harness/grading.py` | `credit/operators/defect_to_check.py`, `workflow/milestones/mine.py` |
+| judge passes averaged with spread; fail-closed anchored parsing | GitSwarm (arXiv 2610.04862) judging protocol; prime-environments `torch_ao`, `nextjs` judges | `credit/judge.py` |
+| segmentation: one model call per step, reasoning not a break | NeMo-Gym pivot-dataset references | `workflow/steps.py` |
 | Anthropic Messages SSE event sequence (`message_start`, `content_block_*`, `input_json_delta`, `thinking_delta`, `message_delta`) | NeMo-Gym `nemo_gym/anthropic_converter.py` | `connectors/capture_proxy.py` (`assemble_anthropic`) |
 | GenAI span conventions (`gen_ai.operation.name`, `gen_ai.tool.*`, `gen_ai.usage.*`) | OpenTelemetry GenAI semantic conventions | `connectors/otel_import.py` |
 | flaky tests are dropped from FAIL_TO_PASS / PASS_TO_PASS | SWE-smith `harness/repair.py` | `ci_logs.flaky` (listed for M4 instead of dropped) |
@@ -78,3 +85,4 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | Public review comments | GitHub `PointCloudLibrary/pcl`, `NVIDIA/cccl` (via the REST API + raw.githubusercontent.com) → `crucible/data/cache/github` (gitignored) | public repositories | M2 reviewer-fidelity and grounding gates |
 | PCL git history and policy documents (CONTRIBUTING, style guide, `.clang-format`, `.clang-tidy`) | `git clone --filter=blob:none` of `PointCloudLibrary/pcl` → `crucible/data/cache/git` (gitignored) | BSD-3-Clause | M3 gate (55 PR traces from git, policy rules) |
 | Our Claude Code construction transcript (tasks 01–04) | `~/.claude/projects/...` frozen to `crucible/data/cache/sessions` (gitignored, unredacted) | private | M3 gate; only redacted traces are stored |
+| SWE-rebench OpenHands trajectories (67,074) and SWE-rebench instances | HF `nebius/SWE-rebench-openhands-trajectories`, `nebius/SWE-rebench` → `crucible/data/cache/hf/swe-rebench` (gitignored); base files from raw.githubusercontent.com | CC-BY-4.0 | M5 replay test, M6 S2 gate (held-out evaluation only; never training or benchmark splits) |

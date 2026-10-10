@@ -67,7 +67,7 @@ These are the MVP gates. Each one is a measurement, not a judgement.
 | ID | Criterion | Threshold |
 |---|---|---|
 | S1 | Replay fidelity: replaying the expert's actions in the environment reproduces the expert's end state and CI outcomes | ≥ 90% of sampled traces |
-| S2 | Validity of the dense reward: the progress potential at step t predicts the episode's outcome (AUC on held-out traces), and beats an LLM-judge baseline | AUC ≥ 0.75 and > the judge's AUC |
+| S2 | Validity of the dense reward: the progress potential at step t predicts the episode's outcome (AUC on held-out traces), and beats an LLM-judge baseline | AUC ≥ 0.75 and > the judge's AUC. **Measured 2026-10-09 (M6): fails at the midpoint** (Φ 0.50 vs judge 0.75 on 200 held-out SWE-rebench attempts: most attempts have not changed state by then); at the end Φ is better *within* a task (0.72 vs 0.67) and the two combine to 0.77. **Proposed revision (pending a decision):** measure Φ where state has started changing (75% or the midpoint of the state-changing phase) and report within-task AUC, the quantity group-relative advantages use |
 | S3 | Every shipped task passes the Acceptance Contract | 100% |
 | S4 | Frontier calibration: best frontier pass@1 on the benchmark split | ≤ 20% |
 | S5 | Dense reward beats sparse on the RL run: success after N steps, at equal compute | statistically significant (bootstrap 95% CI) |
@@ -356,6 +356,16 @@ Segment traces into steps and stages, then mine the family-level Workflow Graph.
 
    It uses cheap milestones every step, medium milestones at checkpoints (on build/test tool calls, or every k steps), and expensive ones only at the end. The tracker is what lets a long-horizon agent's output be *located* in the workflow, and it is also the labeling engine that turns existing enterprise agent logs into step-credited data.
 
+**As built (M5, 2026-10-09; `docs/modules/M05-workflow.md`).**
+- **Segmentation** classifies each call (investigate, edit, build, test, run, communicate, act, submit) with quote-aware shell parsing.
+- **State reconstruction** for agent sessions replays editor calls (OpenHands, Claude Code, World tools) and the file effects of shell commands from their text, with a strict diff applier.
+- **Replay outcomes:** what cannot be replayed is quarantined. Files no action names are execution byproducts, reported separately. On 913 public OpenHands runs, 94.9% reproduce their recorded final state (91.1% strictly).
+- **Event-log state** (tickets, ERP rows) is rebuilt from `writes` and replays every recorded check.
+- **Milestones** are mined from diffs (constructs removed or added, the expert's block changed, files created or deleted), from CI (fail-to-pass per step) and from signals, then filtered and matched to steps along prerequisites (ToolSandbox's DAG-matcher pattern).
+- **Stages** are layers of a ≥ 90% precedence graph.
+- **The tracker** reports stage, Φ, milestones gained and lost, the next expected milestones and deviations; κ = 0.87 against manual stage labels (toy).
+- **Rediscovery**, on 55 PCL GPU PRs, audited: build, API removal, edge semantics and concurrency come from code; perf only from review comments; **bit-exactness is not rediscovered**. It comes from reference-differential checks (§7.1), a source upstream history does not contain, so that source is required for any family whose tasks grade exactness.
+
 ---
 
 ## 6. Layer 2: credit assignment (the core)
@@ -425,8 +435,18 @@ Per-turn advantage for multi-turn GRPO. Let A^GRPO be the usual group-normalized
 
   A_t = A^GRPO + η · ( Σ_{u≥t} r_u^sh − mean_group ) / std_group
 
-This adds a normalized shaping-return-to-go. It can be injected through:
-- verl's post-GRPO advantage operator: the fork's `verl/trainer/ppo/arvo_penalties.py` already rewrites turn-level advantages from `llm_turn_spans`;
+**Correction (M6, 2026-10-09).** With Φ(terminal) := 0 and γ = 1 the shaping return-to-go telescopes to −Φ(s_{t−1}). It is a state *baseline*: it lowers variance but carries no information about the action at t, and even lowers the advantage of turns taken from good states. Local credit uses the one-step term instead:
+
+  A_t = A^GRPO + η · (ΔΦ_t − c) · σ_R / σ_ΔΦ
+
+- c centres ΔΦ to zero net mass across the group, weighted by the turns' tokens. A net negative shift flattens the policy and lengthens outputs (verl fork).
+- σ_R / σ_ΔΦ scales the term in outcome units (Dr.GRPO: no std normalization).
+- Masked episodes are excluded from every group statistic.
+- This term is a process reward (biased, P13 type 2), so η stays small. The gated scalar R must still carry κ(1−O)Φ, or dynamic-sampling filters evict all-fail groups.
+- `credit/compose.py` implements both the baseline and the delta mode.
+
+Injection points:
+- verl: after `compute_advantage_for_multi_trajectories` (`trainer_base.py`), fed by `llm_turn_spans`. Contrary to an earlier version of this document, the fork's `arvo_penalties.py` does *not* rewrite turn-level advantages (it marks spans and has a call bug); Crucible ships the operator itself;
 - verifiers v1 `MessageNode.advantages` / `loss_weights` (`verifiers/v1/graph.py`);
 - OpenEnv `TrajectoryRubric.compute_step_rewards()`.
 
@@ -455,6 +475,14 @@ A rubric item or milestone becomes reward-bearing only if it predicts recorded o
 2. **Score.** Score each item on each trace's states. Measure (a) the AUC of the item's value at the final state for the trace label, and (b) for milestones, the AUC of Φ at the *midpoint* state, which tests whether the item is early-warning.
 3. **Keep or drop.** Keep an item if AUC ≥ 0.6 on a *time-split* holdout, with the same sign on each repo subset. Item weight = max(0, 2·(AUC − 0.5)).
 4. **Record.** The validity report is part of the task card. A competitor without the customer's outcome history cannot run this test, which is the moat the thesis names.
+
+**Measured (M6, 2026-10-09; `docs/modules/M06-credit.md`).**
+- **Coding** (SWE-rebench, time-split by issue date, 200 held-out attempts):
+  - gold-derived milestone *types* reach a final-state AUC of only 0.43–0.72 per type;
+  - "located" (the expert's block changed) is the most predictive type;
+  - token milestones are brittle across implementations: correct alternative solutions score low Φ.
+- **Fix:** behavioural (fail-to-pass) milestones, and validation within tasks.
+- **The LLM judge used as the S2 baseline is a strong process-level predictor early in an attempt.** Credit for exploration therefore comes from C3 values or a judge-trained C5 PRM, never from Φ (P12).
 
 ---
 
@@ -898,3 +926,16 @@ Registry check: A3, mutation score.
 | No record of answer-key probes in traces | a contaminated pass counts as a solve | P27, `agent_events.py`, `crucible:answer_exposed`; fixed (no exposure in any of the 11 frontier runs) |
 | World traces recorded no `writes` | M4 cannot credit the agent (or peer) that made an edit | `writes` per edit call; fixed |
 | Docker Hub and RunPod key formats were not redacted; human actor ids were not pseudonymized | real credentials and identities in stored traces | M3 redaction; fixed |
+
+**B.11 Found while building M5/M6 (2026-10-09).** Each is fixed, or recorded as a design limit, and covered by a test or a gate report.
+
+| Defect / finding | Where it bites | Check |
+|---|---|---|
+| The editor classifier read JSON-string arguments as empty, so a `view` counted as an edit | segmentation over-counts edits | `test_workflow.py` |
+| A keyword family table matched substrings ("round" in "stereo_ground", "stream" in "PointStream") | rediscovery reported 6/6 families that were not there | construct-only matching plus a hand audit (`m5_rediscovery.json`) |
+| Blocks in brace languages were cut at the anchor line; comment lines anchored blocks; token novelty ignored comments that grep counts | "located" milestones never fired on C/C++; the oracle's own Φ was 0.69 | R1–R6 on the real tasks (`m6_properties_coding.json`) |
+| Agents edit through `rm`/`mv`/here-docs/`git checkout <file>`; harnesses write files themselves | replay reproduced 21/100 traces | shell-effect replay plus byproduct accounting (99/100 agent state) |
+| `LLMToolPolicy` treated a cut-off reply as done and pinned seed 0 when sampling | long-horizon episodes end early; C3 branches near-identical | cut-off nudge, `seed=None` when temperature > 0 |
+| Reasoning models return empty text under small token caps | the judge baseline parsed nothing | judge cap 2,500 tokens |
+| DESIGN's shaping return-to-go is a state baseline | no per-turn credit for the action | delta mode in `credit/compose.py` (§6.4) |
+| Φ is blind before the first state change | S2 at the midpoint fails on exploration-heavy harnesses | S2 revision proposed (§2.3) |

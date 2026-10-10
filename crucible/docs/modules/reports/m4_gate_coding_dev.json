@@ -1,0 +1,65 @@
+{
+ "pack": "coding",
+ "type_accuracy": 1.0,
+ "attribution_precision": 1.0,
+ "attribution_recall": 1.0,
+ "outcome_agreement": 1.0,
+ "n_events": 50,
+ "n_attributed": 31,
+ "n_outcomes": 14,
+ "errors": [],
+ "confusion": {
+  "correction": {
+   "correction": 16
+  },
+  "suggestion_accepted": {
+   "suggestion_accepted": 6
+  },
+  "none": {
+   "none": 15
+  },
+  "check_result": {
+   "check_result": 6
+  },
+  "rejection": {
+   "rejection": 6
+  },
+  "approval": {
+   "approval": 1
+  }
+ },
+ "passed": true,
+ "thresholds": {
+  "type_accuracy": 0.9,
+  "attribution_precision": 0.9,
+  "outcome_agreement": 0.95
+ },
+ "split": "dev",
+ "reliability": {
+  "approval": {
+   "confirmed": 19,
+   "contradicted": 0,
+   "mean": 0.952
+  },
+  "check_result": {
+   "confirmed": 110,
+   "contradicted": 33,
+   "mean": 0.766
+  },
+  "correction": {
+   "confirmed": 72,
+   "contradicted": 0,
+   "mean": 0.987
+  },
+  "rejection": {
+   "confirmed": 0,
+   "contradicted": 21,
+   "mean": 0.043
+  },
+  "suggestion_accepted": {
+   "confirmed": 25,
+   "contradicted": 0,
+   "mean": 0.967
+  }
+ }
+}
