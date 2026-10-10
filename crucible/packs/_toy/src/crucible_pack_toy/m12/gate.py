@@ -25,19 +25,28 @@ from pathlib import Path
 
 import httpx
 
+TEMPFAIL = 75  # EX_TEMPFAIL: the shared GPU was taken between the idle check and vLLM's memory profile; the runner re-waits
+GPU_BUSY = ("free memory on device", "less than desired GPU memory", "CUDA out of memory", "out of memory", "cudaErrorMemoryAllocation")
+LOG = Path(os.environ.get("CRUCIBLE_VLLM_LOG", "/work/out/vllm.log"))
+
 
 def start_server(model: str, port: int, mem: float, ext_dir: str, max_len: int) -> subprocess.Popen:
     env = {**os.environ, "VLLM_SERVER_DEV_MODE": "1", "PYTHONPATH": f"{ext_dir}:{os.environ.get('PYTHONPATH', '')}"}
     cmd = ["vllm", "serve", model, "--port", str(port), "--gpu-memory-utilization", str(mem), "--enable-sleep-mode", "--max-model-len", str(max_len),
            "--worker-extension-cls", "crucible_vllm_ext.CrucibleWorkerExtension", "--logprobs-mode", "processed_logprobs", "--dtype", "bfloat16"]
-    return subprocess.Popen(cmd, env=env, stdout=open("/tmp/vllm.log", "w"), stderr=subprocess.STDOUT)
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    return subprocess.Popen(cmd, env=env, stdout=open(LOG, "w"), stderr=subprocess.STDOUT)  # full log kept in the out dir
 
 
 def wait_health(base: str, proc: subprocess.Popen, timeout: float = 900) -> None:
     t0 = time.time()
     while time.time() - t0 < timeout:
         if proc.poll() is not None:
-            raise RuntimeError("vLLM exited: " + Path("/tmp/vllm.log").read_text()[-3000:])
+            log = LOG.read_text(errors="replace")
+            if any(k in log for k in GPU_BUSY):
+                print(f"vLLM could not get its memory (shared GPU busy): exit {TEMPFAIL} so the runner waits again", flush=True)
+                sys.exit(TEMPFAIL)
+            raise RuntimeError("vLLM exited (full log: vllm.log): " + log[-3000:])
         try:
             if httpx.get(base + "/health", timeout=5).status_code == 200:
                 return
