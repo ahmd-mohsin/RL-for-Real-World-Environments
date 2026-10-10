@@ -1,0 +1,104 @@
+{
+ "note": "task04 perf in record mode (P29), re-scored from recorded measurements; bar = 0, v3 oracle = 1, faster than the oracle > 1 (log tail)",
+ "grades": {
+  "oracle3": {
+   "bar_mode_perf": true,
+   "record_all_bars": 1.0,
+   "record_no_floor": 1.0,
+   "below_bar": [],
+   "new_records": [],
+   "per_metric": {
+    "kinfu_frame_ms": 1.0,
+    "marching_cubes_ms": 1.0,
+    "cloud_ms": 1.0,
+    "kinfuls_frame_ms": 1.0,
+    "people_ms": 1.0,
+    "kinfu_concurrent_wall_ms": 1.0
+   }
+  },
+  "astra_v3b": {
+   "bar_mode_perf": false,
+   "record_all_bars": 0.0,
+   "record_no_floor": 0.4552,
+   "below_bar": [
+    "kinfu_frame_ms",
+    "kinfuls_frame_ms",
+    "kinfu_concurrent_wall_ms"
+   ],
+   "new_records": [
+    "marching_cubes_ms",
+    "people_ms"
+   ],
+   "per_metric": {
+    "kinfu_frame_ms": -0.7595,
+    "marching_cubes_ms": 1.4836,
+    "cloud_ms": 0.2868,
+    "kinfuls_frame_ms": -0.5385,
+    "people_ms": 1.0513,
+    "kinfu_concurrent_wall_ms": -0.1818
+   }
+  },
+  "oracle2": {
+   "bar_mode_perf": true,
+   "record_all_bars": 0.0,
+   "record_no_floor": 0.8358,
+   "below_bar": [
+    "kinfu_concurrent_wall_ms"
+   ],
+   "new_records": [
+    "kinfu_frame_ms",
+    "cloud_ms",
+    "people_ms"
+   ],
+   "per_metric": {
+    "kinfu_frame_ms": 1.0253,
+    "marching_cubes_ms": 0.9754,
+    "cloud_ms": 1.0147,
+    "kinfuls_frame_ms": 0.9744,
+    "people_ms": 1.0256
+   }
+  },
+  "astra2": {
+   "bar_mode_perf": true,
+   "record_all_bars": 0.0,
+   "record_no_floor": 0.0,
+   "below_bar": [
+    "kinfu_frame_ms",
+    "marching_cubes_ms",
+    "cloud_ms",
+    "kinfuls_frame_ms",
+    "people_ms",
+    "kinfu_concurrent_wall_ms"
+   ],
+   "new_records": [],
+   "per_metric": {
+    "kinfu_frame_ms": -4.4304,
+    "marching_cubes_ms": -3.6066,
+    "cloud_ms": -0.7721,
+    "kinfuls_frame_ms": -4.3462,
+    "people_ms": -7.9487
+   }
+  },
+  "sol2": {
+   "bar_mode_perf": true,
+   "record_all_bars": 0.0,
+   "record_no_floor": 0.0,
+   "below_bar": [
+    "kinfu_frame_ms",
+    "marching_cubes_ms",
+    "cloud_ms",
+    "kinfuls_frame_ms",
+    "people_ms",
+    "kinfu_concurrent_wall_ms"
+   ],
+   "new_records": [],
+   "per_metric": {
+    "kinfu_frame_ms": -4.443,
+    "marching_cubes_ms": -3.7623,
+    "cloud_ms": -1.9706,
+    "kinfuls_frame_ms": -4.359,
+    "people_ms": -7.2564
+   }
+  }
+ }
+}

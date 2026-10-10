@@ -51,6 +51,12 @@ Two layers:
 5. **task04 v3's oracle has 12% headroom on the KinFu bar**, below A1's 15%. This is recorded for re-versioning.
 6. **M5 `phi` could not measure float-valued SQL milestones** (the adapter's exact float encoding). Found by the toy golden; fixed in `evaluate.decode`.
 
+7. **Record mode shows what a bar hides (P29).** task04's perf gate can run as a score gate (`perf_mode=record`). Each bar is the baseline (0), the v3 oracle's recorded ratio is the best known (1.0), and a faster port scores above 1. Re-scored from the recorded measurements (`reports/m7_record_mode_task04.json`):
+   - **Astra v3 beats our oracle** on marching cubes and the people detector (new records), while failing three KinFu bars;
+   - **oracle v2 beats oracle v3** on per-frame KinFu, cloud extraction and people, because v3 traded single-tracker speed for concurrency.
+
+   The bar collapses all of that to 0 or 1. With the default all-bars floor Astra still scores 0; without it, 0.46.
+
 ## Corrections to ARCHITECTURE's "Takes" (from research 01)
 
 - MiMo has no `/verify` endpoint. It is a `run_verify.py` command with the rule "no parseable reward → masked", which the kit follows.

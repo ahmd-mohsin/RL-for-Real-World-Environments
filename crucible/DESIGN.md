@@ -557,6 +557,8 @@ The forge prefers depth to breadth. A task is deep when more effort keeps paying
 
 **Abstention.** Tasks the forge cannot prove feasible, and tasks constructed infeasible (EnterpriseOps-Gym's impossible requests; a refund on an in-transit order), declare an `AbstainPolicy`. An abstention is judged only on the hard constraints (did the agent do damage on the way out?) and earns the policy's credit: 1 on an infeasible task, 0 on a feasible one, a small constant on an open problem, chosen below the learnability band's floor (p ≥ 0.1, §7.4) so giving up never beats a genuine attempt in expectation. A claimed solution to an infeasible task earns 0.
 
+*Example (M7, task04 record mode):* re-scored from recorded measurements, GPT 6 Astra's v3 port beats our oracle on marching cubes and the people detector, while failing three KinFu bars; oracle v2 beats oracle v3 on three single-tracker metrics, because v3 bought concurrency with them. A bar reports all of this as 0 or 1; the score gate keeps the signal.
+
 **Learnability for deep tasks.** 4p(1−p) is defined on a binary outcome; for score gates, M8 steers on the share of rollouts that beat the baseline (p) and separately tracks the record frontier (the best normalized score per round), which is the benchmark's non-saturating axis (§11.3).
 
 ---

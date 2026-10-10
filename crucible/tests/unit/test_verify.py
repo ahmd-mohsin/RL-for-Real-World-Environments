@@ -280,3 +280,16 @@ def test_static_frozen_skipped_dirs(tmp_path):
     (cand / "third_party" / "lib" / "hidden.cu.cpp").write_text("__global__ void k() {}\n")  # banned code hidden in an unscanned dir
     r = scan(cand, rs)
     assert not r["pass"] and r["violations"][0]["rule"] == "frozen_dir_changed"
+
+
+def test_task04_record_mode_scoring():
+    from crucible_pack_coding.verify.task04 import BEST_KNOWN, record_score
+
+    bars = {"kinfu_frame_ms": 0.65, "people_ms": 0.42}
+    oracle = record_score({"kinfu_frame_ms": {"ratio": BEST_KNOWN["kinfu_frame_ms"]}, "people_ms": {"ratio": BEST_KNOWN["people_ms"]}}, bars, BEST_KNOWN)
+    assert oracle["score"] == 1.0 and oracle["valid"]
+    faster = record_score({"kinfu_frame_ms": {"ratio": 0.40}, "people_ms": {"ratio": 0.30}}, bars, BEST_KNOWN)
+    assert faster["score"] > 1.0 and set(faster["new_records"]) == {"kinfu_frame_ms", "people_ms"}  # no ceiling
+    slow = record_score({"kinfu_frame_ms": {"ratio": 0.70}, "people_ms": {"ratio": 0.30}}, bars, BEST_KNOWN)
+    assert slow["score"] == 0.0 and slow["below_bar"] == ["kinfu_frame_ms"]  # every bar still holds by default
+    assert record_score({"kinfu_frame_ms": {"ratio": 0.70}, "people_ms": {"ratio": 0.30}}, bars, BEST_KNOWN, floor="none")["score"] > 0

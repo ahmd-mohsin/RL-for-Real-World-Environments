@@ -37,6 +37,7 @@ from pathlib import Path
 
 from crucible.verify.runtime.patterns import differential as D
 from crucible.verify.runtime.patterns.perf import CandidateError, LoadGuard, PerfBars
+from crucible.verify.runtime.patterns.record import RecordSpec
 from crucible.verify.runtime.patterns.static import Rule, RuleSet, scan
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan, Verdict
 from crucible.verify.runtime.trusted import InfraError
@@ -99,6 +100,28 @@ def scan_scoped(root: Path, roots: tuple) -> dict:
     r = scan(root, scoped_rules(roots))
     keep = [v for v in r["violations"] if any(v["file"].startswith(x) for x in roots)]
     return {**r, "violations": keep, "count": len(keep), "pass": not keep}
+
+
+# Record mode (P29): best-known ratios = the v3 oracle's recorded ratios on the lab RTX 5090 (glogs/oracle3, 2026-10-08).
+BEST_KNOWN = {"kinfu_frame_ms": 0.571, "marching_cubes_ms": 0.428, "cloud_ms": 0.614, "kinfuls_frame_ms": 0.582, "people_ms": 0.342, "kinfu_concurrent_wall_ms": 0.376}
+
+
+def record_score(metrics: dict, bars: dict, best: dict, *, floor: str = "all_bars") -> dict:
+    """Per metric: normalized = (bar - ratio) / (bar - best_known): 0 at the bar, 1 at the best known, above 1 for a
+    faster-than-known port (log tail). ``floor="all_bars"`` keeps the seed's requirement that every bar is met."""
+    per, below = {}, []
+    for m, bar in bars.items():
+        ratio = metrics.get(m, {}).get("ratio")
+        if ratio is None:
+            below.append(m)
+            continue
+        spec = RecordSpec(baseline=bar, best_known=min(best.get(m, bar * 0.9), bar * 0.999), direction="min")
+        per[m] = {"ratio": ratio, "bar": bar, "best_known": spec.best_known, "normalized": round(spec.normalize(ratio), 4), "reward": round(spec.reward(ratio), 4)}
+        if ratio > bar:
+            below.append(m)
+    valid = not below if floor == "all_bars" else True
+    score = sum(v["reward"] for v in per.values()) / len(bars) if per and valid else 0.0
+    return {"score": round(score, 4), "valid": valid, "below_bar": below, "metrics": per, "new_records": [m for m, v in per.items() if v["normalized"] > 1]}
 
 
 def tail(text, n=40):
@@ -451,6 +474,18 @@ class Task04:
         guard = None if p.get("no_load_guard") else LoadGuard(max_load_per_core=float(p.get("max_load_per_core", 0.5)),
                                                                  max_gpu_util=int(p.get("max_gpu_util", 20)), wait_s=float(p.get("load_wait_s", 1800)))
         metrics = {m for tag in self.scope["perf"] for m in PERF_METRICS[tag]}
+        if p.get("perf_mode") == "record":  # deep variant: no ceiling, the oracle is the best known, faster pays more
+            from crucible.verify.runtime.patterns.record import record as record_verdict
+
+            measured = PerfBars({m: 10.0 for m in metrics}, self.perf_round, rounds=int(p.get("perf_rounds", 3)), remeasure=0,
+                                spread_max=p.get("spread_max", 0.25), guard=guard)(ctx)
+            if measured.infra:
+                return measured
+            bars = {m: b for m, b in self.thresholds["max_ratio"].items() if m in metrics}
+            rs = record_score(measured.detail.get("metrics", {}), bars, {**BEST_KNOWN, **(p.get("best_known") or {})}, floor=p.get("record_floor", "all_bars"))
+            v = record_verdict(rs["score"], RecordSpec(baseline=0.0, best_known=1.0), valid=rs["valid"], detail=rs)
+            v.detail["normalized_reward"] = rs["score"] if rs["valid"] else 0.0
+            return v
         bars = PerfBars({m: b for m, b in self.thresholds["max_ratio"].items() if m in metrics}, self.perf_round, rounds=int(p.get("perf_rounds", 3)), remeasure=1,
                         spread_max=p.get("spread_max", 0.25), wall_ratio_max=p.get("wall_ratio_max", 1.0), guard=guard)
         return bars(ctx)
@@ -482,4 +517,6 @@ def plan(ctx: Context) -> Plan:
         Check("sanitizer", "sanitizer", g.sanitizer, requires=("consumers",), provenance="incident:B.4 memcheck exact allocation", cost="expensive"),
         Check("perf", "perf", g.perf, requires=correctness, provenance="calibration:B.1 v3 speedup bars", cost="expensive"),
     ]
-    return Plan(TASK if g.scope_name == "full" else f"{TASK}:{g.scope_name}", [Gate(x) for x in gates], [c for c in checks if c.gate in gates], setup=g.setup)
+    kinds = {"perf": "score"} if ctx.params.get("perf_mode") == "record" else {}
+    return Plan(TASK if g.scope_name == "full" else f"{TASK}:{g.scope_name}", [Gate(x, kinds.get(x, "gate")) for x in gates], [c for c in checks if c.gate in gates],
+                setup=g.setup)
