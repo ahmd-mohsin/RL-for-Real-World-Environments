@@ -27,7 +27,7 @@ Already closed in this session:
 |---|---|---|---|
 | A-1 ✅ | In-place Harbor task: the agent acts in the task container, then the verifier runs there; oracle mode (`solution/solve.sh`); network read from `allow_internet` / `[environment].network_mode`; multi-key `reward.json` | G1–G4 | oracle → native reward, no-op → native floor, offline network → masked, multi-key → no crash (local Docker on a Harbor-format fixture) |
 | A-2 ✅ | agentenv: `gpu_docker` sandbox type; full `crucible_world` record (card, MCP URL, bind host); `crucible_verify` booleans, episode window, actor strip, task kwargs | C1–C3 | the provider returns its own type; stock `Task.run()` chain completes; two episodes on one World give disjoint step lists |
-| A-3 | Allowlist worlds run on Docker (egress policy passed through) | 04 | an allowlisted host is reachable, every other host blocked, on local Docker |
+| A-3 ✅ | Allowlist worlds run on Docker (egress policy passed through) | 04 | an allowlisted host is reachable, every other host blocked, on local Docker |
 | A-4 ✅ | vLLM colocated wake order (trainer offload before KV wake) + `VLLMServerEngine` tests against a fake server | 04 | call-order test; abort / pause / sleep / load sequence tested without a GPU |
 | A-5 ✅ | Pool hot path: indexed untrained count (O(1) admission), trained groups freed (values and tasks) | 05 | admission cost flat in N (10⁵ groups); memory stays bounded over a long run |
 | A-6 ✅ | Hack metric written (`hack/confirmed` from probes and the detector); audit sample wired into the runtime | 01 A2-29/31 | an exposed-answer rollout raises `confirmed_hack_rate` |

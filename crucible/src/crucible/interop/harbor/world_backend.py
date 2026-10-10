@@ -200,11 +200,25 @@ class HarborBackend(Backend):
                     raise RuntimeError(f"sandbox image needs python3 and git for Crucible's state adapters ({etype})")
             return
         # Local or remote Docker: our overlay subclass (GPUs via the nvidia runtime, no-network, init, the policy's caps).
+        # Allowlist worlds and phase network changes need Harbor's egress-control sidecar, which only starts when the policy
+        # is passed (m13 audit A-3: it never was, so allowlist worlds could not run on Docker). The overlay's blanket
+        # network_mode=none then steps aside: the sidecar enforces the policy.
+        from harbor.models.task.config import NetworkMode, NetworkPolicy
+
+        phases = [NetworkPolicy.model_validate(x) for x in self.params.get("phase_network_policies", [])]
+        egress = self.spec.network == "allowlist" or bool(phases)
+        if egress:
+            mode = {"no-network": NetworkMode.NO_NETWORK, "allowlist": NetworkMode.ALLOWLIST}.get(self.spec.network, NetworkMode.PUBLIC)
+            common["network_policy"] = NetworkPolicy(network_mode=mode, allowed_hosts=list(self.spec.allowed_hosts) if mode == NetworkMode.ALLOWLIST else [])
+            common["phase_network_policies"] = phases
         self.env = EnvironmentFactory.create_environment_from_import_path(
-            GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none(), pids_limit=iso.pids_limit,
+            GPU_IMPORT_PATH, **common, gpu_mode=gpu_mode, network_none=self._network_none() and not egress, pids_limit=iso.pids_limit,
             cap_add=["SYS_RESOURCE"] if iso.policy_user else [], mem_limit=iso.memory,
             security_opt=self.params.get("security_opt", []),  # opt-in: the guard sets no_new_privs on the policy tree itself
             keep_containers=bool(self.params.get("keep_containers")), logs_mounted=not remote)
+        if egress and not getattr(self.env, "_enable_egress_control", False):  # fail closed: never run an unenforced allowlist
+            raise RuntimeError(f"network {self.spec.network!r} needs Harbor's egress control, which this Docker daemon's kernel does not support "
+                               "(nftables fib inet)")
         await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
         self._exec = HarborExec(self.env, default_user=self.params.get("user"))
         if remote:  # no host bind mounts on a remote daemon: the dirs live in the container and Harbor downloads them

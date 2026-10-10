@@ -725,7 +725,15 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
     them every verifier redirect into `/logs` failed. On a remote daemon, `/logs` lives in the container and is
     downloaded instead.
   - **Tests** (`tests/unit/test_harbor_inplace.py`, local Docker): oracle 1.0, no-op 0.0, a scripted policy through
-    the tools 1.0, multi-key with and without `reward_key`, no reward → masked, verifier network → masked.
+    the tools 1.0, multi-key with and without `reward_key`, no reward → masked.
+  - **A-3:**
+    - `HarborBackend` passes the World's network policy and any phase policies to Harbor's `DockerEnvironment` when
+      egress control is needed. Before, allowlist worlds could not run on Docker.
+    - The overlay's blanket `network_mode: none` steps aside in that case, and the backend fails closed if the daemon
+      cannot enforce the policy.
+    - In-place tasks declare their agent and verifier phase policies, so a verifier network phase is applied
+      dynamically (the fixture grades 1.0) instead of masking.
+    - Allowlist test: `pypi.org` reachable, `example.com` blocked.
 - **Patch mode details.** `interop/harbor/verify_dir.HarborDirTask` grades a patch with the task's own `[verifier].command` in a fresh container of the pinned task image, with Harbor's layout (`/tests`, `/logs/artifacts`, `/logs/verifier`), declared network, limits and GPU, on any Docker host (the lab over `DOCKER_HOST=ssh://`). It can pin the task to a git ref, so a historical run is graded by the grader it was graded with. `ImportedHarness` turns a recorded run's patch into an attempt, so historical runs and dataset submissions pass through the same journal, classification and re-grading as live ones.
 - **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `train/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
 

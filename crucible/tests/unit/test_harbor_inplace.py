@@ -64,7 +64,30 @@ async def test_multi_key_missing_reward_and_network_phase(tmp_path):
     rep = await _grade(HarborInPlaceTask(F / "noreward"), tmp_path / "c", oracle=True)
     assert rep.infra["status"] == "masked" and rep.infra["failure_kind"] == "RewardFileNotFoundError"
     rep = await _grade(HarborInPlaceTask(F / "netphase"), tmp_path / "d", oracle=True)
-    assert rep.infra["status"] == "masked" and rep.infra["failure_kind"] == "check_infra"  # never a silent 0 offline
+    # the verifier's network phase differs from the agent's: Harbor's egress control applies it (A-3); a daemon that cannot
+    # would mask (check_infra), never score a silent 0 offline
+    assert (rep.reward == 1.0 and rep.infra["status"] == "ok") or rep.infra["failure_kind"] == "check_infra"
+
+
+def _online() -> bool:
+    import urllib.request
+
+    try:
+        urllib.request.urlopen("https://pypi.org/simple/", timeout=5)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def test_allowlist_world_is_enforced_on_docker(tmp_path):
+    """A-3: allowlist worlds run on Docker through Harbor's egress-control sidecar: the allowed host is reachable, any
+    other host is not (fails closed where the daemon's kernel cannot enforce it)."""
+    from crucible.interop.harbor.inplace import HarborInPlaceTask
+
+    if not _online():
+        pytest.skip("no internet on this host")
+    rep = await _grade(HarborInPlaceTask(F / "allowlist"), tmp_path, oracle=True)
+    assert rep.reward == 1.0, rep.infra  # "open closed": pypi.org reachable, example.com blocked
 
 
 def test_scalar_reward_rules():

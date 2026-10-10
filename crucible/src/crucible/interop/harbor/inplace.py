@@ -115,6 +115,9 @@ class HarborInPlaceTask:
         if user:
             self.backend_params["user"] = user
         self.plan = self._network_plan()
+        phases = [x for x in (self.plan.agent_phase, self.plan.verifier_phase) if x != self.plan.agent_env_baseline]
+        if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
+            self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
 
     def _network_plan(self):
         from harbor.models.task.verifier_mode import resolve_task_verifier_mode
