@@ -133,7 +133,13 @@ class TorchTrainer:
         parts = balance_partitions(seq_lens, self.cfg.dp) if not single else [list(range(len(items)))]
         mine = sorted(i for p in self._local_parts(parts) for i in p)
         old = None
-        if self.cfg.correction.name in NEEDS_OLD and self.cfg.correction.old_logprob_source is None:
+        src = self.cfg.correction.old_logprob_source
+        if self.cfg.correction.name in NEEDS_OLD and src is None:  # checklist #34: implicit recompute only for single-version rollouts
+            multi = [r.rollout_id for r in records if not r.mask_sample and len({v for t in r.turns for v in (t.versions() or [t.policy_version])}) > 1]
+            if multi:
+                raise ValueError(f"correction {self.cfg.correction.name!r} needs π_θold but rollouts {multi[:3]} span several policy versions; "
+                                 "set old_logprob_source='recompute_current' (recompute with the current weights) or 'rollout'")
+        if self.cfg.correction.name in NEEDS_OLD and src in (None, "recompute_current"):
             with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
                 old = {i: r.double() for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
         metrics: dict[str, float] = {}

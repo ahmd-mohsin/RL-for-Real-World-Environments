@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 24 done, 23 partial, 5 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 25 done, 22 partial, 5 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -179,7 +179,7 @@ Facts behind the table:
 | 31 | mismatch metrics every step | done | |
 | 32 | nine corrections | done | |
 | 33 | correction goldens | done | |
-| 34 | π_θold refusal on multi-version | partial | trainer recomputes old without the span check |
+| 34 | π_θold refusal on multi-version | **done** | `TorchTrainer` refuses an implicit π_θold for rollouts spanning versions; explicit `recompute_current` / `rollout` allowed; `test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts` |
 | 35 | FP32 LM head in the run record | partial | precision of both engines in the record |
 | 36 | routing confidence, R3 | missing | Σ_k metric, `routing_replay`, refusal |
 | 37 | top-p candidates renormalization | missing | `Turn.candidates`, renormalized logprobs |

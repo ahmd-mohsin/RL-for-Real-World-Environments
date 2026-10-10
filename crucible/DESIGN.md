@@ -930,7 +930,7 @@ DP-rank unit from a simulation into processes:
 - **Per-step bubbles:** `idle/rollout_s` (no engine call in flight), `idle/train_s`, `idle/env_wait_s` (waiting for a
   worker), `env/busy_s`, `engine/utilization`. Colocated engine idle ≥ train time; disaggregated utilization > colocated.
 - **Checklist audit (2026-10-10):** the earlier claim that the 52-item checklist was covered by tests was overstated.
-  The honest status table is in `docs/modules/M12-train.md` §9: 24 done, 23 partial, 5 missing.
+  The honest status table is in `docs/modules/M12-train.md` §9: 24 done, 23 partial, 5 missing (updated as items close). #34 then closed: a π_θold correction with no source refuses rollouts that span several versions.
 
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The

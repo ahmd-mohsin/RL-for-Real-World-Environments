@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -18,22 +17,16 @@ from crucible.train.weightsync import ALIGN, BucketPlan, choose_bucket_bytes, pl
 WORKER = Path(__file__).with_name("_weightsync_worker.py")
 
 
-def _port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def run(scenario: str, tmp_path: Path, world: int = 3) -> list[dict]:
     if not torch.distributed.is_available():
         pytest.skip("torch.distributed not available")
-    env = {**os.environ, "MASTER_ADDR": "127.0.0.1", "MASTER_PORT": str(_port()), "WORLD_SIZE": str(world), "GLOO_SOCKET_IFNAME": os.environ.get("GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo")}
+    env = {**os.environ, "WORLD_SIZE": str(world), "GLOO_SOCKET_IFNAME": os.environ.get("GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo")}
     procs = [subprocess.Popen([sys.executable, str(WORKER), scenario, str(tmp_path)], env={**env, "RANK": str(r)}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
              for r in range(world)]
     errs = []
     for p in procs:
         try:
-            _, err = p.communicate(timeout=180)
+            _, err = p.communicate(timeout=120)
         except subprocess.TimeoutExpired:
             p.kill()
             _, err = p.communicate()

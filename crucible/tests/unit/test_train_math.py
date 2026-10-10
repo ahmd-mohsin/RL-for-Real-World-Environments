@@ -201,3 +201,27 @@ def test_micro_batch_budget_counts_forward_tokens_not_just_completions():
     m = tr.step(recs, ["g", "g"])
     assert m["train/micro_batches"] == 2 and m["train/tokens"] == 4 and m["train/forward_tokens"] == 74
     assert torch.isfinite(torch.tensor(m["train/loss"]))
+
+
+def test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts():
+    """Checklist #34: a π_θold correction with no source recomputes only for single-version rollouts; a rollout that
+    spans versions needs an explicit old_logprob_source."""
+    import pytest
+
+    from crucible.train.engine import TinyPolicy
+    from crucible.train.mismatch import Correction
+    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.train.trainer import TorchTrainer, TrainerConfig
+
+    def rec(i, versions):
+        turns = [Turn(call_id=f"r{i}:c{k}", actor="agent", prompt_token_ids=[1, 2, 3] if k == 0 else [4], prompt_is_delta=k > 0, completion_token_ids=[5, 6],
+                      logprobs=[-1.0, -1.0], policy_version=v) for k, v in enumerate(versions)]
+        return RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i % 2), turns=turns)
+
+    multi = [rec(0, [0, 1]), rec(1, [1, 1])]
+    with pytest.raises(ValueError, match="span several policy versions"):
+        TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"))).step(multi, ["g", "g"])
+    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo", old_logprob_source="recompute_current"))).step(multi, ["g", "g"])
+    assert m["train/items"] == 4
+    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"))).step([rec(0, [1, 1]), rec(1, [1, 1])], ["g", "g"])
+    assert m["train/items"] == 4  # single-version rollouts: the implicit recompute is valid

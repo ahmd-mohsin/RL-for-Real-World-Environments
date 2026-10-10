@@ -1,5 +1,5 @@
 """One rank of a weight-sync scenario (``test_weightsync.py`` launches WORLD_SIZE of these over gloo):
-``python _weightsync_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE / MASTER_ADDR / MASTER_PORT set."""
+``python _weightsync_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>)."""
 
 from __future__ import annotations
 
@@ -35,7 +35,11 @@ BUCKET = 13 * 1024  # forces many buckets (the largest tensor, layers.0.mlp.up, 
 
 def main() -> None:
     scenario, out = sys.argv[1], Path(sys.argv[2])
-    dist.init_process_group("gloo")
+    from datetime import timedelta
+
+    # rendezvous through a file store (no TCP port to race for); a 60 s collective timeout turns a hang into an error
+    dist.init_process_group("gloo", init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
+                            timeout=timedelta(seconds=60))
     rank = dist.get_rank()
     res: dict = {"rank": rank}
     sync = BroadcastWeightSync(bucket_bytes=BUCKET)
@@ -177,7 +181,6 @@ def main() -> None:
         raise SystemExit(f"unknown scenario {scenario}")
     (out / f"r{rank}.json").write_text(json.dumps(res, sort_keys=True))
     dist.destroy_process_group()
-    _ = os
 
 
 if __name__ == "__main__":
