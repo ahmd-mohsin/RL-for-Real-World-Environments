@@ -1120,6 +1120,32 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**D-1 (2026-10-10): the model gateway.** `EnginePool` had no health checks or eviction. Its crc32 routing spilled to
+the least-loaded engine as soon as the pinned one reached `capacity`, which broke KV affinity under load, and one
+stuck engine pinned the pool's version (audit 05 H4).
+
+- **`train/gateway.GatewayPool`** is a drop-in `EnginePool`, following the rLLM `StickyLeastLoaded` + health-loop
+  pattern and verl's per-server cache clearing.
+  - **Routing:** a rollout stays on its engine while that engine has fewer than `spill_factor × capacity` calls in
+    flight, so it queues rather than spills. New sessions go to the least-loaded live engine.
+  - **Failures:** a call that raises comes back as `abort`, which `Runtime._call` already re-issues (with the partial
+    output under token-level switching). The engine is evicted after `failure_threshold` failures, or at once on a
+    connection error.
+  - **Eviction** drops only that engine's sessions. rLLM clears every session on any worker change.
+  - **Health loop:** evicts failing engines and revives recovered ones only after replaying the last
+    `load_weights`, so a stale engine never serves.
+  - **Version:** the minimum over *live* engines. `affinity()` audits the share of calls served by their session's
+    first engine.
+- **Remote engines:** `engine_app(engine)` serves any engine (FastAPI: generate / abort / pause / resume /
+  load_weights from a checkpoint directory / health), `HTTPEngine` is its client, and
+  `python -m crucible.train.gateway engine` starts a TinyPolicy engine server.
+- **Acceptance (localhost, multi-process):** three engine-server processes sit behind the gateway, with a real trainer
+  publishing through `CheckpointPublisher`. One engine is SIGKILLed after step 3, with calls in flight.
+  - The run finishes all 10 steps and 10 publishes, with 0 masked rollouts and no recorded failures.
+  - Exactly one eviction, and affinity on the surviving engines ≥ 99%. Stable over 5 repeats, about 3 s each.
+- **Unit tests:** queue-then-spill, eviction scoped to the dead engine's sessions, a failed call as an abort, a dead
+  engine not pinning the version, and revival with weight catch-up.
+
 **C-8 (2026-10-10): shaping (A2-19, A2-21, A2-24..26).**
 - **Incomplete trajectories:** `LimitPolicy` takes `"penalty:<c>"` for a limit stop (steps, timeout, context window);
   the reward becomes c in the M10 harness and in M12's `world_rollout(limit_policy=...)`.

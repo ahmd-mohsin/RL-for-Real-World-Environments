@@ -57,7 +57,7 @@ Already closed in this session:
 
 | ID | Item | Acceptance (localhost, multi-process) |
 |---|---|---|
-| D-1 | Model gateway: engine health checks, sticky routing that queues instead of spilling, version stamping | a killed engine is drained and its sessions moved, with no masked spike |
+| D-1 ✅ | Model gateway: engine health checks, sticky routing that queues instead of spilling, version stamping | a killed engine is drained and its sessions moved, with no masked spike |
 | D-2 | Remote rollout workers: leased, with heartbeats; a lost worker's rollouts are re-leased | killing a worker mid-run leaves no rollout lost or double-trained |
 | D-3 | Remote environment client (NeMo-Gym / OpenEnv HTTP protocols) with session affinity | 4 env-server processes × 64 sessions; rewards equal to in-process |
 | D-4 | Launcher (Ray-free default, Ray optional) | one command starts a controller, gateway, workers and env servers |
