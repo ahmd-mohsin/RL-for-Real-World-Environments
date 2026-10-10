@@ -81,3 +81,46 @@ class FlakyGradeTask:
 
     async def grade_patch(self, patch: str, d: Path):
         return await self._flaky(d) if self._hit(Path(d)) else await self.task.grade_patch(patch, d)
+
+
+class ReplayLLM:
+    """A *stateless* tool-calling LLM that replays an action list (dicts with ``function_name``/``arguments`` or ``to``/``text``)
+    through ``LLMToolPolicy``: the next action is found from the last assistant tool-call id still in the context
+    (``rp<k>``), so it survives compaction (kept recent turns) and resume (restored context) exactly like a real model
+    conditioned on its context would. A compaction request is answered with a summary; ``crash_at=(call, exc)`` raises.
+    ``usage`` mirrors the context size, so accounting and budgets behave as with a real endpoint."""
+
+    def __init__(self, actions: list[dict], *, crash_at: tuple[int, Exception] | None = None, model: str = "replay"):
+        from crucible.core.schema.actions import openai_name
+
+        self.actions, self.crash_at, self.model = actions, crash_at, model
+        self.name = lambda q: openai_name(q)
+        self.spend = FakeSpend()
+
+    def _pos(self, messages: list[dict]) -> int:
+        for m in reversed(messages):
+            for tc in reversed(m.get("tool_calls") or []):
+                if str(tc.get("id", "")).startswith("rp"):
+                    return int(tc["id"][2:]) + 1
+        return 0
+
+    async def complete(self, messages, **kw):
+        from crucible.actors.policy import COMPACT, approx_tokens
+
+        i = self.spend.calls
+        self.spend.calls += 1
+        if self.crash_at and i == self.crash_at[0]:
+            raise self.crash_at[1]
+        usage = {"prompt_tokens": approx_tokens(messages), "completion_tokens": 40}
+        if messages and messages[-1].get("content") == COMPACT:
+            k = self._pos(messages)
+            return LLMResponse(text=f"Summary: actions 0..{k - 1} of the plan are done; continue from action {k}.", usage=usage, model=self.model)
+        k = self._pos(messages)
+        if k >= len(self.actions):
+            return LLMResponse(text="DONE", usage=usage, model=self.model)
+        a = self.actions[k]
+        if a.get("function_name"):
+            tc = {"id": f"rp{k}", "name": self.name(a["function_name"]), "arguments": a.get("arguments") or {}}
+        else:
+            tc = {"id": f"rp{k}", "name": "send_message", "arguments": {"to": a["to"], "text": a.get("text", "")}}
+        return LLMResponse(text="", tool_calls=[tc], usage=usage, model=self.model)

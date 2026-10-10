@@ -21,14 +21,23 @@ from crucible.workflow.steps import segment
 TOK = {"prompt_token_ids": [1, 2, 3], "completion_token_ids": [7, 8], "logprobs": [-0.1, -0.2], "policy_version": 3}
 
 
+def toks(n: int) -> list[dict]:
+    """Engine-style records: each prompt extends the previous prompt + completion (token-in-token-out)."""
+    out, prompt = [], [1, 2, 3]
+    for i in range(n):
+        out.append({**TOK, "prompt_token_ids": list(prompt)})
+        prompt = prompt + TOK["completion_token_ids"] + [100 + i]
+    return out
+
+
 def script(tokens: bool):
-    t = TOK if tokens else None
+    t = toks(4) if tokens else [None] * 4
     u = {"prompt_tokens": 100, "completion_tokens": 2}
-    return [LLMResponse(text="", tool_calls=[{"id": "x1", "name": "tickets__list_tickets", "arguments": {"status": "open"}}], usage=u, tokens=t),
-            LLMResponse(text="", usage=u, tokens=t),  # blank: the policy nudges past it, no action
+    return [LLMResponse(text="", tool_calls=[{"id": "x1", "name": "tickets__list_tickets", "arguments": {"status": "open"}}], usage=u, tokens=t[0]),
+            LLMResponse(text="", usage=u, tokens=t[1]),  # blank: the policy nudges past it, no action
             LLMResponse(text="", tool_calls=[{"id": "x2", "name": "tickets__get_ticket", "arguments": {"ticket_id": 1}},
-                                             {"id": "x3", "name": "tickets__get_ticket", "arguments": {"ticket_id": 2}}], usage=u, tokens=t),
-            LLMResponse(text="All reviewed.", usage=u, tokens=t)]
+                                             {"id": "x3", "name": "tickets__get_ticket", "arguments": {"ticket_id": 2}}], usage=u, tokens=t[2]),
+            LLMResponse(text="All reviewed.", usage=u, tokens=t[3])]
 
 
 def ref(tokens: bool) -> PolicyRef:
@@ -57,6 +66,8 @@ async def test_trajectory_joins_calls_actions_and_steps(tmp_path):
     ro = RolloutRecord.model_validate_json((a / "rollout.json").read_text())
     assert ro.reward is not None and len(ro.turns) == 4 and ro.turns[2].atif_step_ids == [s["step_id"] for s in agent[2:4]]
     assert ro.valid_for_training() == (True, "ok") and ro.oldest_version() == 3
+    assert ro.turns[0].prompt_token_ids == [1, 2, 3] and not ro.turns[0].prompt_is_delta  # the first call of a segment: the whole prompt
+    assert ro.turns[1].prompt_is_delta and ro.turns[1].prompt_token_ids == [100]  # later calls: only what they add (linear storage)
 
 
 async def test_steps_jsonl_rows_align_to_atif(tmp_path):

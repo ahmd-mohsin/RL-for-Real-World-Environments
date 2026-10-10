@@ -608,7 +608,9 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - `budget.py` (API cost, credit exhaustion, stop rules);
   - `perf_guard.py`;
   - `gpu.py` (lab 5090, Runpod, Modal);
-  - `trajectories.py` (ATIF with step ids that line up with `steps.jsonl`).
+  - `trajectories.py` (ATIF with step ids that line up with `steps.jsonl`);
+  - `checkpoint.py` (mid-episode checkpoints; a masked attempt resumes from the last one, DESIGN §10.4), `perf_guard.py`, `record.py`, `harness/imported.py`.
+- **Long horizons (DESIGN §10.4):** `verify/progress.py` (online dense progress over the grader's subgoals, telescoping), `actors/policy.ContextConfig` (policy-written compaction, segments), `World.stream_trace`, linear token storage in `train/rollout.py`; toy `longhorizon/` (backlog world, `xl` > 1M tokens, gate).
 - **Takes** (revised after research m9-m10/02):
   - DEPEND: Harbor Job / Trial / regrade and installed agents (through `harness/harbor.py`); verifiers interception proxy for tokens.
   - PORT: Repo2RLEnv `campaigns/budget.py` (reserve/settle ledger) and `EventJournal`; verifiers `RetryRule` and error classes; FineEnvs `evaluate` identity; Karotte limit policy (limits stop, never score); our `run_agent.sh` fixes (collect hook, cost-tracking tolerance, `--init`).

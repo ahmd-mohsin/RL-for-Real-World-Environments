@@ -77,7 +77,7 @@ class WorkspaceHarness(NativeHarness):
         t["verification"] = time.monotonic() - t0
         (attempt.dir / "verifier").mkdir(exist_ok=True)
         (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
-        res.grade = {"reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
+        res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
         if rep.infra.get("status") == "masked":
             raise StageFailure(classify_verifier(rep.infra))
         res.reward, res.gates = rep.reward, rep.gate_bits()
@@ -112,7 +112,7 @@ class WorkspaceHarness(NativeHarness):
                 ep = await run_episode(world, policies, limits=self.limits)
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
-            save_episode(attempt, ep, res, self.id)
+            save_episode(attempt, ep, res, self.id, policies)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))

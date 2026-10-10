@@ -743,6 +743,43 @@ Task 04's full grade takes 30–60 minutes of GPU time, so RL needs the fast tie
 
 ---
 
+### 10.4 Long horizons: million-token trajectories with dense, honest reward (built 2026-10-09)
+
+The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M context, SWE RL at 130 turns) and that rewards got sparse (one binary outcome after hundreds of steps). Crucible's environments must therefore produce, survive and credit such episodes natively, not only in the trainer. Evidence and per-framework mechanisms: `docs/research/long-horizon/01-frameworks.md`. Module doc: `docs/modules/long-horizon.md`.
+
+1. **Long-horizon worlds.** `toy/helpdesk_backlog` is a support shift of N tickets.
+   - **Long-range dependencies:** tickets that must wait hours for a customer reply; a policy amendment mid-shift; repeat claims on orders an earlier ticket refunded. Plus bulk context (customer threads, filler documents).
+   - **Scale:** the `xl` preset (1,200 tickets) is a 7,600-step episode with a 1.1M-token trajectory.
+   - Forging long-horizon variants is a forge knob (horizon), not a separate code path.
+2. **Dense reward that cannot be farmed** (`verify/progress.py`). A task declares its grade as subgoals, i.e. the per-entity predicates the final grade is made of.
+   - Φ(s) is the weighted share of subgoals that hold. The shaping rewards Φ(sₜ₊₁) − Φ(sₜ) telescope exactly to the final reward: Φ₀ = 0, γ = 1, potential-based (Ng et al. 1999). Undo-and-redo nets zero, and no proxy is rewarded.
+   - Evaluated online and incrementally: after each step only the subgoals whose entity keys the step touched (arguments, fired events). A full re-check every K steps and at the end reports any **drift**, a missing key dependency, instead of hiding it.
+   - Streamed to `progress.jsonl`. Per-call credit is the ΔΦ of the actions each call produced (`record.credit_from_progress`).
+   - No framework surveyed implements telescoping shaping; this is Crucible's own.
+3. **Context compaction inside the episode** (`actors/policy.ContextConfig`).
+   - At 80% of the context budget **the policy writes the summary itself**, as a recorded model call (CompactionRL, verifiers, MiMo). The new context is system + the task verbatim + the summary + the last k complete turns; no fabricated turns.
+   - Each compaction opens a segment, recorded in the rollout record. The summary call is trained with the episode's advantage. Group statistics stay on whole rollouts.
+   - Cross-segment GAE for the critic mode is M12 work (no framework has it).
+4. **Linear token storage** (`train/rollout.Turn`). Within a segment a call stores only the prompt tokens it adds. The first call of a segment stores its compacted prompt. A prompt that does not extend the previous one is a `prefix_break`, which masks the rollout for training. Full prompt ids per call would be quadratic (2×10⁸ ints for 1,000 calls at 200k context).
+5. **Checkpoint and resume** (`runtime/checkpoint.py`).
+   - Every K steps: the WorldRef, the trace length, each policy's `state_dict()` (its current segment's context, queued actions, calls, segments, token counter) and the progress state, written atomically.
+   - A masked attempt's retry restores the World in the previous attempt's work dir, carries the trace and progress streams over to the checkpoint, and continues. It re-prefills one segment, never the trajectory.
+6. **Streaming storage.** The World streams every trace event to `trace.jsonl` as it happens (`World.stream_trace`). The progress stream is append-only. The checkpoint is the only rewritten file.
+
+**Gate (`crucible_pack_toy.longhorizon.gate`, `reports/longhorizon_xl.json`):**
+- The real `LLMToolPolicy` (driven API-free by `ReplayLLM`) works the `xl` shift with a 128k-token context: 7,623 steps, 7,627 calls, 1.11M trajectory tokens, 4 policy-written compactions (largest context 103k).
+- Crashed on attempt 1, it resumed from the step-3000 checkpoint.
+- Reward 1.0; dense progress sums to 1.0 with no drift; per-call credit sums to 1.0. 66 s wall.
+
+**Remaining:**
+- observation offloading (large outputs to a file plus a pointer, full blob in the trace) and a memory app that Φ never credits;
+- compaction mode varied per GRPO group;
+- `calls.jsonl` streaming for model calls;
+- per-segment ATIF export;
+- staged checkpoint milestones and a fast-tier feedback loop (`continue_until_timeout`, declared to A13);
+- a real-model run;
+- cross-segment GAE (M12).
+
 ## 11. Layer 6: benchmarks
 
 ### 11.1 Step-level metrics

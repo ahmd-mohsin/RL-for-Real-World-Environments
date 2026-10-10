@@ -22,6 +22,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from crucible.actors.policy import EpisodeLimits, run_episode
@@ -32,7 +33,7 @@ from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify
 LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
 
 
-def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str) -> None:
+def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str, policies: dict[str, Any] | None = None) -> None:
     """The episode's evidence in the attempt dir: the World trace, the model calls, and one joined ATIF trajectory per
     policy actor (``runtime.trajectories``)."""
     from crucible.runtime.trajectories import to_atif
@@ -40,6 +41,8 @@ def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str)
     (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
     res.artifacts["trace"] = "trace.json"
     res.calls = {a: list(cs) for a, cs in (ep.model_calls or {}).items()}
+    res.segments = {a: list(getattr(p, "segments", [])) for a, p in (policies or {}).items() if getattr(p, "segments", None)}
+    res.trajectory_tokens = {a: int(getattr(p, "trajectory_tokens", 0)) for a, p in (policies or {}).items() if getattr(p, "trajectory_tokens", 0)}
     if any(res.calls.values()):
         (attempt.dir / "calls.json").write_text(json.dumps(res.calls, default=str))
         res.artifacts["calls"] = "calls.json"
@@ -60,20 +63,44 @@ class PolicyRef:
 
 
 class NativeHarness:
-    def __init__(self, name: str = "native:llm-tool", version: str = "1", *, limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None):
+    """``checkpoint_every`` > 0: a mid-episode checkpoint every N steps, and a masked attempt's retry resumes from the
+    previous attempt's last checkpoint (``runtime.checkpoint``). A task with ``subgoals`` gets a dense progress stream
+    (``progress.jsonl``, ``verify.progress``); the trace always streams to ``trace.jsonl``."""
+
+    def __init__(self, name: str = "native:llm-tool", version: str = "1", *, limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None,
+                 checkpoint_every: int = 0, progress_full_every: int = 250):
         self.id = f"{name}@{version}"
         self.limits = limits or EpisodeLimits(max_steps=30)
         self.limit_policy = limit_policy or LimitPolicy()
+        self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
+
+    def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
+        from crucible.runtime import checkpoint
+
+        if not self.checkpoint_every or attempt.n <= 1:
+            return None
+        prev = attempt.dir.parent / f"a{attempt.n - 1}"
+        rec = prev / "record.json"
+        ck = checkpoint.load(prev)
+        if ck is None or not rec.exists():
+            return None
+        r = json.loads(rec.read_text())
+        return (prev, ck) if r.get("mask_sample") and (r.get("failure") or {}).get("stage") == "agent" else None
 
     async def run(self, attempt: Attempt) -> HarnessResult:
+        from crucible.runtime import checkpoint
+
         t: dict[str, float] = {}
         world = None
         spend0 = attempt.policy.spend()
         res = HarnessResult()
         try:
             t0 = time.monotonic()
+            resume = self._resumable(attempt)
             with boundary("seed"):
-                world = await attempt.task.open(attempt.dir / "work")
+                # a resumed episode reopens the previous attempt's work dir: the checkpoint's snapshot blobs live in its store
+                world = await attempt.task.open((resume[0] if resume else attempt.dir) / "work")
+                world.stream_trace(attempt.dir / "trace.jsonl")
             t["seed"] = time.monotonic() - t0
             t0 = time.monotonic()
             with boundary("agent"):
@@ -81,10 +108,23 @@ class NativeHarness:
                 for p in policies.values():
                     if hasattr(p, "begin_episode"):
                         p.begin_episode(attempt.id)  # per-attempt cache key: k samples never replay one completion
-                ep = await run_episode(world, policies, limits=self.limits)
+                observers = []
+                if getattr(attempt.task, "subgoals", None) is not None:
+                    from crucible.verify.progress import ProgressTracker
+
+                    observers.append(ProgressTracker(attempt.task.subgoals, out=attempt.dir / "progress.jsonl", full_every=self.progress_full_every))
+                start = 0
+                if resume:
+                    start = await checkpoint.resume(world, policies, observers, resume[1], prev_dir=resume[0], new_dir=attempt.dir)
+                    res.artifacts["resumed_from"] = f"{resume[0].name}@step{start}"
+                ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every) if self.checkpoint_every else None
+                ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
+                                       after_step=ckpt)
+                if observers:
+                    res.grade["progress"] = ep.observed[0]
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
-            save_episode(attempt, ep, res, self.id)
+            save_episode(attempt, ep, res, self.id, policies)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))
@@ -99,7 +139,7 @@ class NativeHarness:
             t["verification"] = time.monotonic() - t0
             (attempt.dir / "verifier").mkdir(exist_ok=True)
             (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
-            res.grade = {"reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
+            res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
             if rep.infra.get("status") == "masked":
                 raise StageFailure(classify_verifier(rep.infra))
             res.reward, res.gates = rep.reward, rep.gate_bits()

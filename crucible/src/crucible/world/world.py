@@ -158,6 +158,7 @@ class World:
         self.done: set[str] = set()
         self.step_index = 0
         self.log: list[TraceEvent] = []
+        self.trace_sink: Path | None = None  # stream every trace event here as it happens (long episodes: a crash loses nothing)
         self.episode_id = new_id("ep")
         self.initial: WorldRef | None = None
         self._tools: dict[str, list[ToolSpec]] = {}
@@ -370,6 +371,8 @@ class World:
                 self.clock.reset()
             await self.backend.on_reset(self)
         self.log = []
+        if self.trace_sink is not None:
+            self.trace_sink.write_text("")
         self.failures = []
         self.finished = {}
         self.episode_id = new_id("ep")
@@ -521,7 +524,26 @@ class World:
         return self.clock.now_iso() if self.spec.clock else None
 
     def _log(self, kind: str, actor: str | None, typ: str, *, text: str | None = None, data: dict[str, Any] | None = None) -> None:
-        self.log.append(TraceEvent(seq=len(self.log), time=self._now(), kind=kind, actor=actor, type=typ, text=text, data=data or {}))
+        ev = TraceEvent(seq=len(self.log), time=self._now(), kind=kind, actor=actor, type=typ, text=text, data=data or {})
+        self.log.append(ev)
+        if self.trace_sink is not None:
+            with self.trace_sink.open("a") as f:
+                f.write(ev.model_dump_json(exclude_none=True) + "\n")
+
+    def stream_trace(self, path: Path, *, prefix: list[TraceEvent] | None = None) -> None:
+        """Stream trace events to ``path`` (JSONL). ``prefix``: the events of an episode resumed from a checkpoint, which
+        become this World's log (and the head of the stream) so the trace and every event-reading check stay whole."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if prefix is not None:
+            self.log = list(prefix)
+        path.write_text("".join(e.model_dump_json(exclude_none=True) + "\n" for e in self.log))
+        self.trace_sink = path
+
+    @staticmethod
+    def read_trace(path: Path, upto: int | None = None) -> list[TraceEvent]:
+        evs = [TraceEvent.model_validate_json(x) for x in Path(path).read_text().splitlines() if x.strip()]
+        return evs[:upto] if upto is not None else evs
 
     # ------------------------------------------------------------------ state
     async def quiesce(self) -> dict | None:

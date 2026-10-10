@@ -45,6 +45,8 @@ class HarnessResult(CrucibleModel):
     timings: dict[str, float] = Field(default_factory=dict)
     grade: dict[str, Any] = Field(default_factory=dict)
     calls: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> the policy's model calls (call ids, usage, token records)
+    segments: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> context-compaction segments
+    trajectory_tokens: dict[str, int] = Field(default_factory=dict)  # actor -> tokens that entered its context, before compaction
 
 
 class Harness(Protocol):

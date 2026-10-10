@@ -208,7 +208,9 @@ class Runner:
 
         trajs = {a: Trajectory.model_validate_json((adir / f).read_text()) for k, f in hr.artifacts.items()
                  if k.startswith("trajectory.") and (a := k.split(".", 1)[1]) and (adir / f).exists()}
-        ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode)
+        prog = adir / "progress.jsonl"
+        ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
+                   progress=prog if prog.exists() else None, segments=hr.segments)
         if ro.failure_kind == "crucible:capture_incomplete" and not rec.mask_sample:
             rec.mark_failure(Failure(kind="crucible:capture_incomplete", stage="collect", reason=ro.stop or "token record incomplete"))
         (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))
@@ -220,7 +222,9 @@ class Runner:
                         ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd,
                         sample=sk.model_dump(mode="json"), attempt=aid,
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates, "timings": hr.timings,
-                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts})
+                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
+                              **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
+                              **({"trajectory_tokens": hr.trajectory_tokens} if hr.trajectory_tokens else {})})
         if hr.failure is not None:
             rec.mark_failure(hr.failure)
         elif hr.reward is None:  # nothing graded and nothing classified: unknown, masked, counted by the stop rule

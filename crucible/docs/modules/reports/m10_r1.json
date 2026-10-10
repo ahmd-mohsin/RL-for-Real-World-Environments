@@ -1,0 +1,61 @@
+{
+ "run": {
+  "run_id": "m10-r1-task02-sol",
+  "planned": 1,
+  "terminal": 1,
+  "scored": 1,
+  "masked_terminal": 0,
+  "mean_reward": 0.0,
+  "pass_at_1": 0.0,
+  "coverage": 1.0,
+  "stopped": null,
+  "attempts": 1,
+  "spend": {
+   "spent_run": 0.0,
+   "uncertain_run": 0,
+   "caps": {}
+  },
+  "by_failure": {}
+ },
+ "record": {
+  "attempt": "873b90fbb807d0a4-a1",
+  "reward": 0.0,
+  "mask_sample": false,
+  "failure": null
+ },
+ "gates": {
+  "static": "pass",
+  "install": "pass",
+  "ops": "fail",
+  "hard": "fail",
+  "app": "pass",
+  "perf": "fail"
+ },
+ "recorded_gates": {
+  "static": "pass",
+  "install": "pass",
+  "ops": "fail",
+  "hard": "fail",
+  "app": "pass",
+  "perf": "fail"
+ },
+ "ops_failed": [
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-max]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-mean]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-min]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-max]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-mean]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-min]"
+ ],
+ "recorded_ops_failed": [
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-max]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-mean]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype4-min]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-max]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-mean]",
+  "test_hidden_ops.py::test_scatter_dtypes[dtype5-min]"
+ ],
+ "reward": 0.0,
+ "recorded_reward": 0.0,
+ "pass": true
+}

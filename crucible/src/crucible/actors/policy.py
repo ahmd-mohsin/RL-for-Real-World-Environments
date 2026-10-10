@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,6 +48,12 @@ class ScriptedPolicy(Policy):
         self._i += 1
         return a
 
+    def state_dict(self) -> dict:
+        return {"i": self._i}
+
+    def load_state_dict(self, d: dict) -> None:
+        self._i = d["i"]
+
 
 SYSTEM = """You are an agent working inside a simulated workplace. Use the tools to complete your instruction.
 Messages from other people arrive as user messages starting with [from <name>]. To message someone, call the tool
@@ -55,6 +61,36 @@ Messages from other people arrive as user messages starting with [from <name>]. 
 
 SEND_MESSAGE = {"type": "function", "function": {"name": "send_message", "description": "Send a message to another person (actor) in the world.",
                 "parameters": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}}
+
+
+COMPACT = ("Your context is nearly full. Write a summary of your work so far that lets you continue without the earlier history: "
+           "what is done, what is pending and why (including anything you are waiting for), every rule or announcement that changes how "
+           "you must act, and the exact ids and amounts you still need. Reply with the summary only, no tool call.")
+
+
+@dataclass
+class ContextConfig:
+    """Context management for long horizons (DESIGN §10.4). ``budget_tokens``: the context the policy may use;
+    at ``trigger`` × budget the policy compacts: it writes the summary itself (a recorded model call, trained with the
+    episode's advantage), and the new context is system + the task verbatim + the summary + the last
+    ``keep_recent_turns`` complete turns. Each compaction starts a new segment."""
+
+    budget_tokens: int = 128_000
+    trigger: float = 0.8
+    keep_recent_turns: int = 3
+    summary_max_tokens: int = 2_000
+    mode: str = "compact"  # "compact" | "none" (overflow ends the episode as context_overflow, scored)
+
+
+def approx_tokens(messages: list[dict[str, Any]]) -> int:
+    """A provider-independent estimate (4 characters per token) used for the compaction trigger and the accounting."""
+    n = 0
+    for m in messages:
+        c = m.get("content")
+        n += len(c) if isinstance(c, str) else len(json.dumps(c, default=str)) if c else 0
+        if m.get("tool_calls"):
+            n += len(json.dumps(m["tool_calls"], default=str))
+    return n // 4 + 4 * len(messages)
 
 
 CUT_OFF = "Your last reply was cut off at the output limit before you called a tool. Continue: make one tool call (keep any reasoning short)."
@@ -65,7 +101,7 @@ class LLMToolPolicy(Policy):
     provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
 
     def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
-                 max_nudges: int = 2, temperature: float = 0.0):
+                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None):
         self.actor_id, self.llm, self.system = actor_id, llm, system
         self.max_tokens, self.max_tool_output, self.temperature = max_tokens, max_tool_output, temperature
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
@@ -80,9 +116,67 @@ class LLMToolPolicy(Policy):
         self.sample_key: str | None = None
         self.model_calls: list[dict[str, Any]] = []
         self._nudges, self.max_nudges = 0, max_nudges
+        self.context = context
+        self.segment = 0
+        self.segments: list[dict[str, Any]] = []  # one per compaction: the boundary and what was kept
+        self.trajectory_tokens = 0  # every token that entered the context, before any compaction (instruction, observations, replies)
+        self._seen = 0  # messages already counted
 
     def begin_episode(self, episode_id: str) -> None:
         self.sample_key = episode_id
+
+    # ---- long horizons: accounting, compaction, checkpoint state ------------------------------------------------------
+    def _count_new(self) -> None:
+        """Inputs that entered the context (instruction, observations, messages) by estimate; the policy's own replies are
+        counted from the provider's completion tokens (they include reasoning that never appears in the content)."""
+        if self._seen < len(self.messages):
+            self.trajectory_tokens += approx_tokens([m for m in self.messages[self._seen:] if m.get("role") != "assistant"])
+            self._seen = len(self.messages)
+
+    def _count_reply(self, usage: dict[str, Any], fallback: list[dict[str, Any]]) -> None:
+        self.trajectory_tokens += int(usage.get("completion_tokens") or approx_tokens(fallback))
+
+    async def _maybe_compact(self) -> None:
+        cfg = self.context
+        if cfg is None or cfg.mode != "compact" or self._queue or self._pending:
+            return
+        if approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
+            return
+        r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
+                                    temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+        before = approx_tokens(self.messages)
+        self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
+        self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
+                                 "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                                 "cached": r.cached, "actions": [], "tokens": r.tokens, "context_tokens": before})
+        task = next((m for m in self.messages if m["role"] == "user"), None)  # the instruction, kept verbatim
+        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+        cut = starts[-cfg.keep_recent_turns] if len(starts) >= cfg.keep_recent_turns else (starts[0] if starts else len(self.messages))
+        recent = self.messages[cut:]
+        self.messages = [self.messages[0], *([task] if task else []),
+                         {"role": "user", "content": f"[Summary of your earlier work in this episode; the full history was compacted]\n{r.text}"}, *recent]
+        self._seen = len(self.messages)
+        self.segments.append({"index": self.segment + 1, "summary_call": self.model_calls[-1]["call_id"], "context_before": before,
+                              "context_after": approx_tokens(self.messages), "kept_turns": min(cfg.keep_recent_turns, len(starts))})
+        self.segment += 1
+
+    def state_dict(self) -> dict[str, Any]:
+        """Everything needed to continue this policy mid-episode (``runtime.checkpoint``): its context, tools, queued actions,
+        bookkeeping and segment structure. Resuming re-prefills one segment, never the whole trajectory."""
+        return {"messages": self.messages, "tools": self.tools, "names": self._names, "queue": [a.model_dump(mode="json") for a in self._queue],
+                "pending": sorted(self._pending), "held": self._held, "stop": self.stop, "nudges": self._nudges, "model_calls": self.model_calls,
+                "segment": self.segment, "segments": self.segments, "trajectory_tokens": self.trajectory_tokens, "seen": self._seen,
+                "sample_key": self.sample_key, "error": self.error, "failure_kind": self.failure_kind}
+
+    def load_state_dict(self, d: dict[str, Any]) -> None:
+        from pydantic import TypeAdapter
+
+        self.messages, self.tools, self._names = d["messages"], d["tools"], d["names"]
+        self._queue = [TypeAdapter(Action).validate_python(a) for a in d["queue"]]
+        self._pending, self._held = set(d["pending"]), d["held"]
+        self.stop, self._nudges, self.model_calls = d["stop"], d["nudges"], d["model_calls"]
+        self.segment, self.segments, self.trajectory_tokens, self._seen = d["segment"], d["segments"], d["trajectory_tokens"], d["seen"]
+        self.sample_key, self.error, self.failure_kind = d.get("sample_key"), d.get("error"), d.get("failure_kind")
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -114,8 +208,10 @@ class LLMToolPolicy(Policy):
 
     async def act(self, obs: Observation) -> Action:
         self._ingest(obs)
+        self._count_new()
         if self._queue:
             return self._queue.pop(0)
+        await self._maybe_compact()
         try:
             r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
@@ -126,10 +222,12 @@ class LLMToolPolicy(Policy):
             self.failure_kind = getattr(e, "failure_kind", None) or "provider_unavailable"
             self.error = f"{self.failure_kind}: {e}"
             return Done(reason=f"policy error: {e}")
-        call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
+        call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
+                "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
                 "tool_calls": len(r.tool_calls), "actions": [], "tokens": r.tokens}
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
+        self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
         if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
@@ -193,12 +291,19 @@ class EpisodeResult:
     snapshots: list[tuple[int, WorldRef]] = field(default_factory=list)  # (step, ref) when limits.snapshot_every > 0
     truncated: bool = False
     model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    observed: list[dict[str, Any]] = field(default_factory=list)  # each observer's on_end summary (e.g. dense progress)
 
 
 async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
-                      limits: EpisodeLimits | None = None) -> EpisodeResult:
+                      limits: EpisodeLimits | None = None, observers: Sequence[Any] = (), start_steps: int = 0,
+                      after_step: Any = None) -> EpisodeResult:
+    """``observers``: objects with ``on_start(world)``, ``on_step(world, step, actor, action, result)`` and ``on_end(world)``
+    (``verify.progress.ProgressTracker``). ``start_steps``/``reset=False`` continue an episode restored from a checkpoint;
+    ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``)."""
     limits = limits or EpisodeLimits(max_steps=max_steps)
     obs = await world.reset() if reset else {a: Observation(actor=a, step=world.step_index) for a in policies}
+    for o in observers:
+        await o.on_start(world)
     for p in policies.values():
         if hasattr(p, "begin_episode"):
             p.begin_episode(world.episode_id)
@@ -207,7 +312,7 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     if limits.snapshot_every:
         series_start = await world.snapshot()
     current = {a: obs.get(a) or Observation(actor=a, step=0) for a in order}
-    state = {"steps": 0, "done": False, "stop": "running", "errors": 0}
+    state = {"steps": start_steps, "done": False, "stop": "running", "errors": 0}
     series: list[tuple[int, WorldRef]] = [(0, series_start)] if limits.snapshot_every else []
 
     async def capture() -> None:
@@ -227,6 +332,10 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 log.setdefault(a, []).append(res.observation)
                 state["steps"] += 1
                 progressed = True
+                for o in observers:
+                    await o.on_step(world, state["steps"], a, action, res)
+                if after_step is not None:
+                    await after_step(state["steps"])
                 if limits.snapshot_every and state["steps"] % limits.snapshot_every == 0:
                     await capture()
                 state["done"] = res.done
@@ -248,6 +357,7 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         await asyncio.wait_for(loop(), timeout=limits.timeout_s)
     except TimeoutError:
         state["stop"] = "timeout"
+    observed = [await o.on_end(world) for o in observers]
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
     failures += [{"kind": p.failure_kind, "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
     failures += [f.model_dump() for f in world.failures]  # infra faults at the World's choke point (tool crashed, transport)
@@ -276,7 +386,7 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     return EpisodeResult(steps=state["steps"], done=state["done"], trace=trace, final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
                          truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls,
-                         snapshots=series)
+                         snapshots=series, observed=observed)
 
 
 def _masks(f: dict[str, Any]) -> bool:
