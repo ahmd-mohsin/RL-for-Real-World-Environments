@@ -14,15 +14,13 @@
    ],
    [
     [
-     "policy",
-     "outcome"
+     "policy"
     ],
     [
      "policy"
     ],
     [
-     "policy",
-     "outcome"
+     "policy"
     ],
     [
      "policy"
@@ -41,19 +39,16 @@
    ],
    [
     [
-     "policy",
-     "outcome"
+     "policy"
     ],
     [
      "policy"
     ],
     [
-     "policy",
-     "outcome"
+     "policy"
     ],
     [
-     "policy",
-     "outcome"
+     "policy"
     ]
    ]
   ],
@@ -78,8 +73,7 @@
      "policy"
     ],
     [
-     "policy",
-     "outcome"
+     "policy"
     ]
    ]
   ],
@@ -99,15 +93,14 @@
      "outcome"
     ],
     [
+     "policy",
+     "outcome"
+    ],
+    [
      "policy"
     ],
     [
-     "policy",
-     "outcome"
-    ],
-    [
-     "policy",
-     "outcome"
+     "policy"
     ]
    ]
   ],
@@ -143,3 +136,4 @@
  }
 }
 
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.

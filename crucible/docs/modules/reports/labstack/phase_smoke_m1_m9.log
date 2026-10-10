@@ -2,12 +2,12 @@
  "model": "Qwen/Qwen3-4B-Instruct-2507",
  "M1_world": {
   "ok": true,
-  "seconds": 0.37,
+  "seconds": 0.25,
   "audit_ok": true
  },
  "M2_actors_llm_episode": {
   "ok": true,
-  "seconds": 3.47,
+  "seconds": 3.42,
   "steps": 9,
   "stop": "agent_done",
   "masked": false,
@@ -24,7 +24,7 @@
  },
  "M3_connectors_ingest": {
   "ok": true,
-  "seconds": 0.02,
+  "seconds": 0.01,
   "stored": true,
   "events": 20
  },
@@ -51,7 +51,7 @@
  },
  "M6_credit": {
   "ok": true,
-  "seconds": 0.82,
+  "seconds": 0.81,
   "reward": 1.0,
   "gates": {
    "refund_policy": 1
@@ -78,7 +78,7 @@
  },
  "harness_bash_loop": {
   "ok": true,
-  "seconds": 1.95,
+  "seconds": 1.94,
   "steps": 3,
   "stop": "agent_done",
   "format_errors": 0,
@@ -87,7 +87,7 @@
  },
  "M8_forge": {
   "ok": true,
-  "seconds": 10.7,
+  "seconds": 6.43,
   "state": "constructed",
   "accepted": 5,
   "tasks": 5,

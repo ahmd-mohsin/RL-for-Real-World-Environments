@@ -1,0 +1,3 @@
+{"rollouts": 1, "calls": 15, "breaks": 0, "first_break": null, "pass": true}
+
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.

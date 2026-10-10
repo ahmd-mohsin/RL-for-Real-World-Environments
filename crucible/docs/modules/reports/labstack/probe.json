@@ -3,7 +3,7 @@
  "tool_call": true,
  "tool_calls": [
   {
-   "id": "chatcmpl-tool-bb5268d846af09ae",
+   "id": "call_30a3e8fe",
    "name": "get_ticket",
    "arguments": {
     "id": 2
@@ -12,5 +12,5 @@
  ],
  "text": "",
  "token_record": true,
- "latency_s": 0.62
+ "latency_s": 2.68
 }

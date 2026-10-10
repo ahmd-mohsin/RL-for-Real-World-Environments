@@ -233,7 +233,7 @@ class Runtime:
         if rollout:
             self._recent.append(blame)
         if self.report.failures[key] <= 2:
-            self.report.failure_examples.append({"kind": key, "message": str(e)[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]})
+            self.report.failure_examples.append({"kind": key, "message": (str(e) or repr(e))[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]})
 
     def _breaker(self) -> str | None:
         n = len(self._recent)

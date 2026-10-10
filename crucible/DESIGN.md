@@ -1100,6 +1100,15 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     history re-rendered chat-style does not, which reproduces the lab bug on Qwen3's template.
   - **Limit:** local tool-call parsing is the hermes `<tool_call>` format (the Qwen family); other formats need
     their parser in the codec.
+- **Run 8: every phase passes its own verdict.**
+  - **Capture:** `tito_drift` shows 0 breaks in 15 calls; M10 eval and train each score 4/4 with 4/4 train-valid
+    rollouts.
+  - **M11:** LLM replay identity holds.
+  - **M12 GRPO:** 20/20 steps, 13.2 GB peak; 2 transient `infra:ReadError`s from vLLM were masked, not scored.
+    Runtime failure examples now fall back to `repr` (httpx errors stringify to "").
+  - **Unit suite:** 333 passed / 32 skipped on Linux + CUDA as root.
+  - **M9:** 5/11 accepted. All other checks pass on all 11 tasks; A10 rejects the 6 tasks Qwen3-4B (the frontier
+    stand-in) solves too rarely, after sequential top-ups.
 - **False passes in the campaign:**
     - run 4's M10 phase exited 0 with every rollout masked; the phase now reports `pass` only when both modes score
       and train mode yields token-complete rollouts;

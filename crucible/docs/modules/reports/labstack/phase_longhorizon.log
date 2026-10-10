@@ -2,7 +2,7 @@
  "gate": "long-horizon xl: >1M-token trajectory, compaction, checkpoint + resume, dense progress",
  "tickets": 40,
  "context_budget_tokens": 32000,
- "wall_s": 0.8,
+ "wall_s": 1.5,
  "reward": 1.0,
  "attempts": 2,
  "attempt1": {

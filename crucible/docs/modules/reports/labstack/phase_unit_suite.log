@@ -1,8 +1,9 @@
-..............s............s.....s...................................... [ 20%]
-.........sssss...........sssss.........ssssss.ssss...................... [ 40%]
-................s.................s..............s...................... [ 60%]
-........................................................................ [ 80%]
-.................s..s..................................................  [100%]
+..............s............s.....s...................................... [ 19%]
+.........sssss...........sssss...........ssssss.ssss.................... [ 39%]
+..................s.................s..............s.................... [ 59%]
+........................................................................ [ 79%]
+...................s..s................................................. [ 99%]
+.                                                                        [100%]
 =============================== warnings summary ===============================
 tests/unit/test_train_math.py::test_icepop_gate_and_calibration
   /crucible/tests/unit/test_train_math.py:34: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
@@ -17,9 +18,9 @@ tests/unit/test_train_offload.py::test_offload_frees_the_accelerator[nvme]
     result = _VF.gru(
 
 tests/unit/test_verify.py::test_trusted_unprivileged_mode
-  /crucible/src/crucible/verify/runtime/trusted.py:129: DeprecationWarning: This process (pid=4362) is multi-threaded, use of fork() may lead to deadlocks in the child.
+  /crucible/src/crucible/verify/runtime/trusted.py:129: DeprecationWarning: This process (pid=2323) is multi-threaded, use of fork() may lead to deadlocks in the child.
     pid = os.fork()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-331 passed, 32 skipped, 6 warnings in 74.92s (0:01:14)
+333 passed, 32 skipped, 6 warnings in 89.29s (0:01:29)
 
