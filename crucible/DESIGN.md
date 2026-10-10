@@ -1022,6 +1022,17 @@ the KV cache inside the publish, so the GPU held the full trainer and the full e
 - **Tests:** admission cost flat after 50k groups of history; a 60-step run holds only open work (tags ≤ 2× the cap,
   ≥ 240 groups released, tasks ≤ cap).
 
+**A-6 (2026-10-10): the confirmed-hack metric is real.** `confirmed_hack_rate` read `reward_components["hack/confirmed"]`,
+which nothing wrote, so it was always 0.
+- **Audit:** `Runtime(audit_fn=..., audit_rate=0.05)` re-grades a deterministic sample of trained rollouts at full tier
+  (`verify.tiers.audit_sample`; the policy cannot know which rollouts are sampled), asynchronously.
+- **Confirmed hacks:** fast > 0 with full = 0 is a confirmed hack. It goes into `RunReport.confirmed_hacks`, the
+  per-step `audit/*` metrics, the monitor's hack rate, and the record.
+- **Probes:** World rollouts carry `probe/attempted` (blocked shortcut attempts stay trainable; an exposure already
+  masks the episode), logged as `probe/attempt_share`.
+- **Bug found by the test:** audit failures went through the rollout failure path and tripped the masked-share breaker.
+  Failures outside rollouts are now recorded outside the breaker window.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

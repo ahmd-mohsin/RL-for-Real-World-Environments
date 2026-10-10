@@ -74,6 +74,10 @@ class RuntimeConfig:
     # trainer holds the GPU (``discard``: vLLM sleep; ``cpu_pool``: keep it in host memory, where the engine supports it)
     train_state_on_rollout: str = "none"
     kv_on_train: str = "discard"
+    # full-tier audit (DESIGN §10.2, A12; m13 A-6): a deterministic ``audit_rate`` sample of trained rollouts is re-graded
+    # by ``audit_fn`` (full tier); fast > 0 and full == 0 is a confirmed hack (or tier divergence) and feeds
+    # ``confirmed_hack_rate`` and ``audit/*`` metrics
+    audit_rate: float = 0.05
     reward_deadline_s: float | None = None
     reward_timeout_s: float = 600.0
     aux_deadline_s: float | None = None
@@ -103,6 +107,8 @@ class RunReport:
     failure_examples: list[dict] = field(default_factory=list)  # first tracebacks per kind
     stop_reason: str = "steps"  # steps | wall_clock | masked_share | harness_share
     restarted_rollouts: int = 0  # in flight at a checkpoint, restarted from scratch on resume
+    audits: int = 0
+    confirmed_hacks: int = 0  # full-tier audit rejected what the fast tier paid
     checkpoints: list[str] = field(default_factory=list)
 
     def series(self, key: str) -> list[float]:
@@ -126,7 +132,7 @@ class Runtime:
     def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
                  env_factory: Callable[[], Any] | None, sources: dict[str, list[str]], *, harness: str = "native:token@1",
                  rollout_fn: Callable | None = None, reward_fn: Callable | None = None, aux_fn: Callable | None = None,
-                 on_alarm: Callable | None = None):
+                 on_alarm: Callable | None = None, audit_fn: Callable | None = None):
         """``rollout_fn(rid, prompt, seed, gen, temperature=...) -> RolloutRecord | None`` replaces the token-env loop
         (e.g. ``world_env.world_rollout``: a Crucible World episode); ``gen(prompt_ids, max_tokens, temperature)`` is
         the engine call with the runtime's abort / version semantics. ``None`` = masked."""
@@ -136,6 +142,9 @@ class Runtime:
         self.engines, self.trainer, self.publisher, self.env_factory, self.harness = engines, trainer, publisher, env_factory, harness
         self.rollout_fn, self.reward_fn, self.aux_fn = rollout_fn, reward_fn, aux_fn
         self.on_alarm = on_alarm  # checklist #52: a pass-rate jump hands the batch's records to a full-tier re-audit
+        self.audit_fn = audit_fn
+        self._audit_tasks: set[asyncio.Task] = set()
+        self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
         self._blocked_since: float | None = None
         self._seeds = 0  # rollout seed counter (part of the run state: a resumed run continues the sequence)
         self.start_step = 0
@@ -214,12 +223,15 @@ class Runtime:
             return await self._complete(rid, None, failed=True)
         await self._complete(rid, rec)
 
-    def _failure(self, blame: str, e: BaseException) -> None:
+    def _failure(self, blame: str, e: BaseException, *, rollout: bool = True) -> None:
+        """``rollout=False``: a failure outside any rollout (an audit, a monitor hook): recorded, but not in the breaker's
+        window of finished rollouts (it masked nothing)."""
         import traceback
 
         key = f"{blame}:{type(e).__name__}"
         self.report.failures[key] = self.report.failures.get(key, 0) + 1
-        self._recent.append(blame)
+        if rollout:
+            self._recent.append(blame)
         if self.report.failures[key] <= 2:
             self.report.failure_examples.append({"kind": key, "message": str(e)[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]})
 
@@ -354,6 +366,32 @@ class Runtime:
         self._launch_pending()
         self.report.max_untrained = max(self.report.max_untrained, self.sched.untrained_count())
 
+    async def _audit(self, rec: RolloutRecord) -> None:
+        try:
+            full = self.audit_fn(rec)
+            if asyncio.iscoroutine(full):
+                full = await full
+        except Exception as e:  # noqa: BLE001 -- an audit failure is recorded, never a verdict
+            self._failure("infra", e, rollout=False)
+            return
+        self.report.audits += 1
+        self._step_audit["runs"] += 1
+        if full is not None and (rec.reward or 0.0) > 0 and float(full) == 0.0:
+            self.report.confirmed_hacks += 1
+            self._step_audit["fast_pass_full_fail"] += 1
+            rec.reward_components["hack/confirmed"] = 1.0
+
+    def _schedule_audits(self, recs: list[RolloutRecord]) -> None:
+        if self.audit_fn is None or self.cfg.audit_rate <= 0:
+            return
+        from crucible.verify.tiers import audit_sample
+
+        for r in recs:
+            if audit_sample(r.rollout_id, rate=self.cfg.audit_rate):
+                t = asyncio.create_task(self._audit(r))
+                self._audit_tasks.add(t)
+                t.add_done_callback(self._audit_tasks.discard)
+
     async def _train(self, sel) -> dict[str, float]:
         recs, groups = [], []
         for g in sel.groups:
@@ -368,6 +406,7 @@ class Runtime:
         else:
             m = self.trainer.step(recs, groups)
         self.report.trained_records += recs
+        self._schedule_audits(recs)
         if self.cfg.keep_records is not None and len(self.report.trained_records) > self.cfg.keep_records:
             del self.report.trained_records[: len(self.report.trained_records) - self.cfg.keep_records]
         lps = [lp for r in recs for t in r.turns for lp in (t.logprobs or [])]
@@ -378,7 +417,8 @@ class Runtime:
                 "_truncated": [bool(r.truncated or any(t.finish == "length" for t in r.turns[-1:])) for r in recs],
                 "_group_rewards": list(by_group.values()),
                 "_entropy": (-sum(lps) / len(lps)) if lps else None,  # behaviour-policy estimate: E[−log π(a)] over sampled tokens
-                "_hacks": sum(1 for r in recs if (r.reward_components or {}).get("hack/confirmed", 0) > 0), "_records": recs}
+                "_hacks": sum(1 for r in recs if (r.reward_components or {}).get("hack/confirmed", 0) > 0), "_records": recs,
+                "_probes": sum(1 for r in recs if (r.reward_components or {}).get("probe/attempted", 0) > 0)}
 
     def _bubbles(self, mark: dict, train_s: float, publish_s: float) -> dict[str, float]:
         """Per-step bubbles (checklist #9) over the window since the previous step: engine idle (no call in flight anywhere:
@@ -472,9 +512,11 @@ class Runtime:
                 await self.engines.resume()
             rewards, lengths = m.pop("_rewards"), m.pop("_lengths")
             batch = m.pop("_records")
+            probes = m.pop("_probes")
+            audit_hacks = self._step_audit["fast_pass_full_fail"]
             n_alarms = len(self.monitor.alarms)
             metrics = self.monitor.record(step, staleness=sel.staleness, spans=sel.spans, lengths=lengths, rewards=rewards, truncated=m.pop("_truncated"),
-                                          group_rewards=m.pop("_group_rewards"), entropy=m.pop("_entropy"), hacks=m.pop("_hacks"),
+                                          group_rewards=m.pop("_group_rewards"), entropy=m.pop("_entropy"), hacks=m.pop("_hacks") + audit_hacks,
                                           worst=sel.worst, evicted_staleness=sel.evicted_staleness,
                                           timing={"train_s": train_s, "publish_s": publish_s, "sample_wait_s": sample_wait},
                                           evicted={k: float(v) for k, v in self.sched.counters.items()})
@@ -488,10 +530,15 @@ class Runtime:
             metrics.update({"weights/publish_s": publish_s, "rollout/reprefill_tokens": float(self.report.reprefill_tokens - mark.get("reprefill", 0)),
                             "admission_blocked_s": blocked - mark.get("blocked", 0.0)})
             mark["reprefill"], mark["blocked"] = self.report.reprefill_tokens, blocked
+            metrics.update({"audit/runs": float(self._step_audit["runs"]), "audit/fast_pass_full_fail": float(audit_hacks),
+                            "probe/attempt_share": probes / max(len(rewards), 1)})
+            self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
             metrics.update({k: v for k, v in m.items()})
             metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
             metrics.update(self._bubbles(mark, train_s, publish_s))
             self.report.steps.append(StepLog(step, self.version, metrics))
+        if self._audit_tasks:  # audits already started finish (their verdicts belong to this run)
+            await asyncio.gather(*list(self._audit_tasks), return_exceptions=True)
         for t in self.tasks.values():
             t.cancel()
         await asyncio.gather(*self.tasks.values(), return_exceptions=True)
