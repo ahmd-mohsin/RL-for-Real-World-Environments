@@ -1079,6 +1079,27 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the empty-collection injection relies on `chmod 000`, which root reads anyway, so it skips as root.
   - **M12 GRPO on the lab passes:** 20 steps, 20 publishes, 0 masked, `stop_reason=steps`, 13.2 GB peak (OOM at 27 GB
     before the checkpointing fix), Qwen3-0.6B on the long-horizon backlog worlds.
+- **Run 7 finding (structural, fixed): chat-API capture is not training-grade.** With the version stamp in place,
+  M10's train rollouts still failed, now named precisely: `prefix_break` from the second call on. A new lab phase,
+  `tito_drift`, decodes the first divergence:
+  - Qwen3-4B sampled `open.\n\n<tool_call>`, where `.\n\n` is one token;
+  - vLLM's hermes parser kept `\n\n` in `content`, and the chat template adds its own `\n` before `<tool_call>`;
+  - so every re-rendered prompt read `open.\n\n\n<tool_call>`: 23 of 24 calls broke.
+
+  The parser + template round trip is lossy by construction, and patching one whitespace case would only move the
+  drift. The fix applies M12's design to every LLM consumer:
+  - **`LLMProvider.tito`:** `LLMClient` routes through `train.world_env.EngineLLM` over the engine's token-id
+    completions endpoint (`VLLMServerEngine.generate`). It renders with the model's own template
+    (`template_kwargs`), extends each served conversation token for token (`prev prompt + completion + suffix(new)`),
+    parses tool calls locally, and stamps the provider's `policy_version`.
+  - **`EngineLLM`** keeps a bounded table of served conversations, so one client serves many concurrent episodes
+    (Runner `concurrency`, k samples).
+  - **Lab config:** only the policy alias uses `tito` (it produces training data); simulators, judges and forge roles
+    keep the chat API with JSON mode.
+  - **Tests** (`test_llm_tito.py`): two interleaved conversations through one client extend exactly, and the same
+    history re-rendered chat-style does not, which reproduces the lab bug on Qwen3's template.
+  - **Limit:** local tool-call parsing is the hermes `<tool_call>` format (the Qwen family); other formats need
+    their parser in the codec.
 - **False passes in the campaign:**
     - run 4's M10 phase exited 0 with every rollout masked; the phase now reports `pass` only when both modes score
       and train mode yields token-complete rollouts;

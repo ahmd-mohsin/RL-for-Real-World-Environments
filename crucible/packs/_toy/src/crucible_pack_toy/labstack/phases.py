@@ -109,9 +109,49 @@ async def m3_toy_ingest() -> dict:
     return {"refs": len(refs), "traces": len(set(keys)), "toy_traces": len(toy), "idempotent": sorted(keys) == sorted(again), "pass": bool(toy) and sorted(keys) == sorted(again)}
 
 
+async def tito() -> dict:
+    """Token-in-token-out drift through the chat API, on M10's own path (Runner + NativeHarness + the pack's LLM
+    policy, eval mode so nothing is masked): for each call after the first, does the engine's prompt extend the previous
+    prompt + completion? On the first break, decode both sides around the divergence (what the server's chat template
+    re-rendered vs what the model sampled)."""
+    from transformers import AutoTokenizer
+
+    from crucible.actors.llm import LLMClient
+    from crucible.runtime.harness.native import NativeHarness
+    from crucible.runtime.run import Runner, RunSpec
+    from crucible.train.rollout import RolloutRecord
+    from crucible_pack_toy.runtime import HelpdeskTask, llm_policy
+
+    root = Path(tempfile.mkdtemp(prefix="labstack-tito-"))
+    llm = LLMClient("policy-default", cache_mode="off")
+    await Runner(root).run(RunSpec(run_id="lab-tito", tasks=[HelpdeskTask()], policies=[llm_policy(llm, temperature=0.7)], harnesses=[NativeHarness()],
+                                   k=1, concurrency=1, rollout_mode="eval", sampling={"temperature": 0.7}))
+    tok = AutoTokenizer.from_pretrained(llm.model)
+    out = {"rollouts": 0, "calls": 0, "breaks": 0, "first_break": None}
+    for f in root.rglob("rollout.json"):
+        ro = RolloutRecord.model_validate_json(f.read_text())
+        out["rollouts"] += 1
+        prev: dict = {}
+        for t in ro.turns:
+            out["calls"] += 1
+            key = (t.actor, t.segment)
+            full = (prev[key] + list(t.prompt_token_ids or [])) if (t.prompt_is_delta and key in prev) else list(t.prompt_token_ids or [])
+            if t.prefix_break and key in prev:
+                out["breaks"] += 1
+                if out["first_break"] is None:
+                    pv = prev[key]
+                    k = next((j for j in range(min(len(pv), len(full))) if pv[j] != full[j]), min(len(pv), len(full)))
+                    out["first_break"] = {"call": t.call_id, "diverge_token": k, "prev_len": len(pv), "next_len": len(full),
+                                          "sampled_side": tok.decode(pv[max(0, k - 40): k + 40]), "rerendered_side": tok.decode(full[max(0, k - 40): k + 40]),
+                                          "sampled_ids": pv[k: k + 8], "rerendered_ids": full[k: k + 8]}
+            prev[key] = full + list(t.completion_token_ids or [])
+    out["pass"] = out["calls"] > 1 and out["breaks"] == 0
+    return out
+
+
 def main() -> None:
     which, out = sys.argv[1], Path(sys.argv[2])
-    res = asyncio.run({"probe": probe, "m10": m10, "m11": m11, "m3": m3_toy_ingest}[which]())
+    res = asyncio.run({"probe": probe, "m10": m10, "m11": m11, "m3": m3_toy_ingest, "tito": tito}[which]())
     out.write_text(json.dumps(res, indent=1, default=str))
     print(json.dumps(res, default=str)[:2000])
 

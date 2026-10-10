@@ -9,8 +9,14 @@
   "stopped": null,
   "by_failure": {},
   "rollouts": 4,
-  "train_valid_rollouts": 4,
-  "seconds": 13.4
+  "train_valid_rollouts": 0,
+  "not_train_valid": {
+   "token record incomplete for 19/20 calls (first: agent:c2: prefix_break)": 1,
+   "token record incomplete for 10/16 calls (first: agent:c2: prefix_break)": 1,
+   "token record incomplete for 20/21 calls (first: agent:c2: prefix_break)": 1,
+   "token record incomplete for 9/15 calls (first: agent:c2: prefix_break)": 1
+  },
+  "seconds": 16.7
  },
  "train": {
   "planned": 4,
@@ -25,7 +31,10 @@
   },
   "rollouts": 12,
   "train_valid_rollouts": 0,
-  "seconds": 41.8
+  "not_train_valid": {
+   "masked (crucible:capture_incomplete)": 12
+  },
+  "seconds": 43.2
  },
  "pass": false
 }

@@ -1,42 +1,8 @@
 ..............s............s.....s...................................... [ 20%]
 .........sssss...........sssss.........ssssss.ssss...................... [ 40%]
-................F................s..............s....................... [ 60%]
+................s.................s..............s...................... [ 60%]
 ........................................................................ [ 80%]
-.......F........s..s..................................................   [100%]
-=================================== FAILURES ===================================
-_________________ test_inject_empty_collection_then_recollect __________________
-
-tmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_inject_empty_collection_t0')
-
-    async def test_inject_empty_collection_then_recollect(tmp_path):
-        acts = fib_actions(extra=[ToolCall(tool_call_id="x", function_name="ws.shell", arguments={"command": "echo s > secret.txt && chmod 000 secret.txt"})])
-        _s, fails, res = await _one(tmp_path, FibTask(), scripted("fib-locked", acts), WorkspaceHarness(collect_mode="legacy"))
->       assert fails[0]["failure"]["kind"] == "crucible:empty_collection" and fails[0]["failure"]["blame"] is None and fails[0]["reward"] is None
-               ^^^^^^^^
-E       IndexError: list index out of range
-
-tests/unit/test_runtime.py:146: IndexError
-________________________ test_trusted_unprivileged_mode ________________________
-
-tmp_path = PosixPath('/tmp/crucible-trusted-5uug4ezl')
-
-    def test_trusted_unprivileged_mode(tmp_path):
-        import os
-        import tempfile
-    
-        if hasattr(os, "geteuid") and os.geteuid() == 0:  # as root the candidate is demoted: pytest's root temp dir is 0700
-            with pytest.raises(InfraError, match="cannot reach the work dir"):
-                Trusted(tmp_path / "unreachable").run(["true"], candidate=True)
-            tmp_path = Path(tempfile.mkdtemp(prefix="crucible-trusted-", dir="/tmp"))
-            os.chmod(tmp_path, 0o755)
-        t = Trusted(tmp_path / "w")
-        r = t.run(["sh", "-c", "echo $HOME; echo x > $HOME/f"], candidate=True)
->       assert r.rc == 0 and not r.trusted and r.wall_s >= 0
-E       AssertionError: assert (0 == 0 and not True)
-E        +  where 0 = RunResult(rc=0, stdout='/tmp/crucible-trusted-5uug4ezl/w/homes/h0001\n', stderr='', wall_s=0.083208, cpu_s=0.045106, timed_out=False, candidate=True, trusted=True, home='/tmp/crucible-trusted-5uug4ezl/w/homes/h0001').rc
-E        +  and   True = RunResult(rc=0, stdout='/tmp/crucible-trusted-5uug4ezl/w/homes/h0001\n', stderr='', wall_s=0.083208, cpu_s=0.045106, timed_out=False, candidate=True, trusted=True, home='/tmp/crucible-trusted-5uug4ezl/w/homes/h0001').trusted
-
-tests/unit/test_verify.py:169: AssertionError
+.................s..s..................................................  [100%]
 =============================== warnings summary ===============================
 tests/unit/test_train_math.py::test_icepop_gate_and_calibration
   /crucible/tests/unit/test_train_math.py:34: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
@@ -51,12 +17,9 @@ tests/unit/test_train_offload.py::test_offload_frees_the_accelerator[nvme]
     result = _VF.gru(
 
 tests/unit/test_verify.py::test_trusted_unprivileged_mode
-  /crucible/src/crucible/verify/runtime/trusted.py:129: DeprecationWarning: This process (pid=3208) is multi-threaded, use of fork() may lead to deadlocks in the child.
+  /crucible/src/crucible/verify/runtime/trusted.py:129: DeprecationWarning: This process (pid=4362) is multi-threaded, use of fork() may lead to deadlocks in the child.
     pid = os.fork()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=========================== short test summary info ============================
-FAILED tests/unit/test_runtime.py::test_inject_empty_collection_then_recollect
-FAILED tests/unit/test_verify.py::test_trusted_unprivileged_mode - AssertionE...
-2 failed, 329 passed, 31 skipped, 6 warnings in 85.03s (0:01:25)
+331 passed, 32 skipped, 6 warnings in 74.92s (0:01:14)
 

@@ -31,10 +31,18 @@ api_key = "EMPTY"
 request_defaults = {{ logprobs = true, extra_body = {{ return_token_ids = true }} }}
 policy_version = 0
 
+# the policy is captured token-in-token-out (training data); simulators / judges / forge roles keep the chat API + JSON mode
+[llm_providers.labtito]
+base_url = "http://127.0.0.1:{port}/v1"
+api_key = "EMPTY"
+tito = true
+policy_version = 0
+template_kwargs = {{ enable_thinking = false }}
+
 [models]
 sim-default = "lab:{model}"
 judge-default = "lab:{model}"
-policy-default = "lab:{model}"
+policy-default = "labtito:{model}"
 smoke-cheap = "lab:{model}"
 
 [prices]
@@ -130,6 +138,7 @@ def main() -> None:
         ("m8_world_synth_llm", [PY, "-m", "crucible_pack_toy.forge.world_synth", "--seed", "7", "--llm", "policy-default", "--budget", "100"], 3600, None),
         ("m8_forge_calibrate", [PY, "-m", "crucible_pack_toy.forge.calibrate", "--model", "policy-default", "--k", "4", "--budget", "100"], 3600, None),
         ("m9_accept", [PY, "-m", "crucible_pack_toy.accept_gate", "--budget", "100"], 3600, None),
+        ("tito_drift", [PY, "-m", "crucible_pack_toy.labstack.phases", "tito", str(OUT / "tito.json")], 1800, OUT / "tito.json"),
         ("m10_runtime", [PY, "-m", "crucible_pack_toy.labstack.phases", "m10", str(OUT / "m10.json")], 3600, OUT / "m10.json"),
         ("m11_interop_native", [PY, "-m", "crucible_pack_toy.m11.gate", "native", str(OUT / "m11")], 1800, None),
         ("m11_llm_replay", [PY, "-m", "crucible_pack_toy.labstack.phases", "m11", str(OUT / "m11_llm.json")], 1800, OUT / "m11_llm.json"),

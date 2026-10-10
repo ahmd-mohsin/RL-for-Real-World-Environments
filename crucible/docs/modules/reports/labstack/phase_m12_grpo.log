@@ -3,24 +3,37 @@
  "model": "Qwen/Qwen3-0.6B",
  "topology": "colocated_partial",
  "steps": 20,
- "wall_s": 136.9,
- "aborted_calls": 386,
- "reprefill_tokens": 680606,
+ "wall_s": 141.9,
+ "aborted_calls": 373,
+ "reprefill_tokens": 663359,
  "publishes": 20,
- "masked_rollouts": 0,
+ "masked_rollouts": 2,
  "max_untrained": 32,
  "gpu": "NVIDIA GeForce RTX 5090",
  "peak_mem_gb": 13.18,
  "stop_reason": "steps",
- "failures": {},
- "failure_examples": [],
+ "failures": {
+  "infra:ReadError": 2
+ },
+ "failure_examples": [
+  {
+   "kind": "infra:ReadError",
+   "message": "",
+   "traceback": "\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 53, in complete\n    res = await self.gen(prompt, max_tokens, temperature)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 206, in gen\n    res = await self._call(rid, f\"{rid}:c{k[0]}\", ids, max_tokens, temperature)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 186, in _call\n    res = await self.engines.generate(req)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/engine.py\", line 127, in generate\n    return await self.engines[i].generate(req)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/vllm_http.py\", line 63, in generate\n    r = await task\n        ^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1859, in post\n    return await self.request(\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1540, in request\n    return await self.send(request, auth=auth, follow_redirects=follow_redirects)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1629, in send\n    response = await self._send_handling_auth(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1657, in _send_handling_auth\n    response = await self._send_handling_redirects(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1694, in _send_handling_redirects\n    response = await self._send_single_request(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1730, in _send_single_request\n    response = await transport.handle_async_request(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_transports/default.py\", line 393, in handle_async_request\n    with map_httpcore_exceptions():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_transports/default.py\", line 118, in map_httpcore_exceptions\n    raise mapped_exc(message) from exc\nhttpx.ReadError\n"
+  },
+  {
+   "kind": "infra:ReadError",
+   "message": "",
+   "traceback": "\n           ^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 364, in loop\n    action = await policies[a].act(current[a])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/actors/policy.py\", line 251, in act\n    r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/world_env.py\", line 53, in complete\n    res = await self.gen(prompt, max_tokens, temperature)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 206, in gen\n    res = await self._call(rid, f\"{rid}:c{k[0]}\", ids, max_tokens, temperature)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/runtime.py\", line 186, in _call\n    res = await self.engines.generate(req)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/engine.py\", line 127, in generate\n    return await self.engines[i].generate(req)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible/src/crucible/train/vllm_http.py\", line 63, in generate\n    r = await task\n        ^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1859, in post\n    return await self.request(\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1540, in request\n    return await self.send(request, auth=auth, follow_redirects=follow_redirects)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1629, in send\n    response = await self._send_handling_auth(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1657, in _send_handling_auth\n    response = await self._send_handling_redirects(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1694, in _send_handling_redirects\n    response = await self._send_single_request(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_client.py\", line 1730, in _send_single_request\n    response = await transport.handle_async_request(request)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_transports/default.py\", line 393, in handle_async_request\n    with map_httpcore_exceptions():\n  File \"/usr/lib/python3.12/contextlib.py\", line 158, in __exit__\n    self.gen.throw(value)\n  File \"/usr/local/lib/python3.12/dist-packages/httpx/_transports/default.py\", line 118, in map_httpcore_exceptions\n    raise mapped_exc(message) from exc\nhttpx.ReadError\n"
+  }
+ ],
  "reward_first3": 0.0,
- "reward_last3": 0.010416666666666666,
+ "reward_last3": 0.0,
  "pass": true
 }
 
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
 
 Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]
-Loading weights: 100%|██████████| 311/311 [00:00<00:00, 4914.93it/s]
+Loading weights: 100%|██████████| 311/311 [00:00<00:00, 4426.76it/s]
 [transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.

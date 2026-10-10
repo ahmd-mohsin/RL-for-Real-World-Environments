@@ -7,7 +7,7 @@
  },
  "M2_actors_llm_episode": {
   "ok": true,
-  "seconds": 3.46,
+  "seconds": 3.47,
   "steps": 9,
   "stop": "agent_done",
   "masked": false,
@@ -87,7 +87,7 @@
  },
  "M8_forge": {
   "ok": true,
-  "seconds": 9.49,
+  "seconds": 10.7,
   "state": "constructed",
   "accepted": 5,
   "tasks": 5,

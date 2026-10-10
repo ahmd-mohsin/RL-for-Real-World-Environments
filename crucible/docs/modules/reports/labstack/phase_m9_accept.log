@@ -1,6 +1,6 @@
 {
  "pass": false,
- "accepted": "3/11",
+ "accepted": "5/11",
  "power_tests": {
   "proven": 13,
   "per_kit": 10,
@@ -8,28 +8,22 @@
  },
  "blocking": {
   "toy/helpdesk_v2/t1_duplicate": {
-   "A10": "error"
+   "A10": "fail"
   },
   "toy/helpdesk_v2/t2_approval": {
-   "A10": "error"
+   "A10": "fail"
   },
   "toy/helpdesk_v2/t4_decoy": {
-   "A10": "error"
+   "A10": "fail"
   },
   "toy/helpdesk_v2/t5_compose": {
-   "A10": "error"
-  },
-  "toy/helpdesk_hindsight/t1001": {
-   "A10": "error"
+   "A10": "fail"
   },
   "toy/helpdesk_hindsight/t1003": {
-   "A10": "error"
+   "A10": "fail"
   },
   "toy/helpdesk_hindsight/t1015": {
-   "A10": "error"
-  },
-  "toy/helpdesk_hindsight/t1021": {
-   "A10": "error"
+   "A10": "fail"
   }
  }
 }

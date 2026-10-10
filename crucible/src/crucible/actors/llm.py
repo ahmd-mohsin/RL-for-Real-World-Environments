@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from crucible.core.config import Config, get_config, resolve_secret
 from crucible.core.ids import sha256_text
 
@@ -192,6 +194,8 @@ class LLMClient:
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
         if self.spend.usd >= self.budget_usd:
             raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent)")
+        if self.provider.tito:
+            return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed)
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
         if seed is not None:
             kwargs["seed"] = seed
@@ -265,6 +269,44 @@ class LLMClient:
             path.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
                                         "raw_message": raw_message}, ensure_ascii=False, default=str))
         return out
+
+    async def _tito_complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, temperature: float, max_tokens: int,
+                             seed: int | None) -> LLMResponse:
+        """``LLMProvider.tito``: ``train.world_env.EngineLLM`` over the engine's token-id completions endpoint. Prompts
+        extend the served conversation token for token; the record is exactly what the engine sampled."""
+        if getattr(self, "_tito", None) is None:
+            from transformers import AutoTokenizer
+
+            from crucible.train.chat import HFChatCodec
+            from crucible.train.engine import GenRequest
+            from crucible.train.vllm_http import VLLMServerEngine
+            from crucible.train.world_env import EngineLLM
+
+            codec = HFChatCodec(AutoTokenizer.from_pretrained(self.model), template_kwargs=self.provider.template_kwargs)
+            eng = VLLMServerEngine(self.provider.base_url.rstrip("/").removesuffix("/v1"), self.model, timeout_s=self.timeout_s)
+            calls = [0]
+
+            async def gen(prompt: list[int], n: int, temp: float):
+                calls[0] += 1
+                return await eng.generate(GenRequest(rid="llm", call_id=f"c{calls[0]}", prompt_ids=prompt, max_tokens=n, temperature=temp,
+                                                     stop_ids=codec.eos_ids, seed=seed))
+
+            self._tito = EngineLLM(codec, gen, model=self.model)
+        t0 = time.monotonic()
+        try:
+            r = await self._tito.complete(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400 and "maximum context length" in e.response.text.lower():
+                raise ContextOverflow(f"{self.model}: {e.response.text[:300]}") from e
+            raise LLMError(f"{self.model} (tito) failed: {e}") from e
+        except httpx.HTTPError as e:
+            raise LLMError(f"{self.model} (tito) failed: {e}") from e
+        r.tokens["policy_version"] = self.policy_version  # the served checkpoint's stamp (provider config / trainer bridge)
+        self.spend.calls += 1
+        self.spend.prompt_tokens += r.usage.get("prompt_tokens", 0)
+        self.spend.completion_tokens += r.usage.get("completion_tokens", 0)
+        r.latency_s = time.monotonic() - t0
+        return r
 
     async def complete_json(self, messages: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:
         kw.setdefault("json_mode", True)

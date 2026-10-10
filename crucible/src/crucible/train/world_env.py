@@ -2,10 +2,13 @@
 engines with exact token-in-token-out (``chat``), graded by the task's own grader (M7), recorded as
 ``crucible.rollout/v1`` by M10's record builder (linear delta tokens, versions, spans, segments, per-call credit).
 
-``EngineLLM`` is a drop-in for ``actors.llm.LLMClient`` (the ``complete`` surface ``LLMToolPolicy`` uses). Per episode it
-tracks the conversation it has served: when the policy's next message list *extends* it (the assistant turn it produced
-+ new messages), the prompt is ``prev_prompt + completion (+EOS) + codec.suffix(new)``; otherwise (compaction rebuilt
-the context, or a harness rewrote history) it renders the whole list and a new segment begins.
+``EngineLLM`` is a drop-in for ``actors.llm.LLMClient`` (the ``complete`` surface ``LLMToolPolicy`` uses). It tracks
+the conversations it has served (a bounded table, so one instance can serve many concurrent episodes): when a message
+list *extends* a served one (the assistant turn it produced + new messages), the prompt is ``prev_prompt + completion
+(+EOS) + codec.suffix(new)``; otherwise (a new conversation, compaction rebuilt the context, a harness rewrote history)
+it renders the whole list and a new segment begins. ``LLMProvider.tito`` routes ``LLMClient`` through it, because a
+chat API re-renders history through its tool parser and template, which is lossy (lab: Qwen3 + hermes re-rendered
+``open.\n\n<tool_call>`` as ``open.\n\n\n<tool_call>``, a prefix break on 23 of 24 calls).
 
 ``world_rollout(...)`` returns the runtime's ``rollout_fn``: open the task's World, run the episode, grade it; a masked
 episode or masked grade returns ``None`` (the runtime masks the rollout, never scores it 0); an agent-caused failure is
@@ -31,19 +34,25 @@ class _Spend:
 
 
 class EngineLLM:
-    def __init__(self, codec: ChatCodec, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, model: str = "policy"):
+    def __init__(self, codec: ChatCodec, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, model: str = "policy",
+                 max_conversations: int = 4096):
         self.codec, self.gen, self.model = codec, gen, model
         self.spend = _Spend()
-        self._served: list[dict[str, Any]] | None = None  # the message list of the last call (without its assistant reply)
-        self._prev_ids: list[int] | None = None  # last prompt + completion (+EOS)
+        # served conversations: (message list of a call without its reply, that call's prompt + completion (+EOS))
+        self._convs: list[tuple[list[dict[str, Any]], list[int]]] = []
+        self.max_conversations = max_conversations
         self.prefix_breaks = 0
 
     def _prompt(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
-        s = self._served
-        if s is not None and self._prev_ids is not None and len(messages) > len(s) and messages[: len(s)] == s and messages[len(s)].get("role") == "assistant":
-            return self._prev_ids + self.codec.suffix(messages[len(s) + 1:], tools)
-        if s is not None:
-            self.prefix_breaks += 1  # rebuilt context (compaction): a new segment, rendered whole
+        best = None
+        for i, (s, _ids) in enumerate(self._convs):
+            if len(messages) > len(s) and messages[len(s)].get("role") == "assistant" and messages[: len(s)] == s and (best is None or len(s) > len(self._convs[best][0])):
+                best = i
+        if best is not None:
+            s, ids = self._convs.pop(best)  # the conversation moves on: its next entry replaces this one
+            return ids + self.codec.suffix(messages[len(s) + 1:], tools)
+        if any(m.get("role") == "assistant" for m in messages):
+            self.prefix_breaks += 1  # mid-conversation but extends nothing served (compaction rewrote it): a new segment, rendered whole
         return self.codec.render(messages, tools)
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 1.0,
@@ -54,8 +63,8 @@ class EngineLLM:
         self.spend.calls += 1
         comp = list(res.completion_ids)
         tail = comp if (comp and comp[-1] in self.codec.eos_ids) else comp + list(self.codec.eos_ids[:1])
-        self._served = [dict(m) for m in messages]
-        self._prev_ids = prompt + tail
+        self._convs.append(([dict(m) for m in messages], prompt + tail))
+        del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         text, calls = self.codec.parse(comp)
         finish = "stop" if res.finish == "stop" else ("length" if res.finish == "length" else res.finish)
         return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp)}, model=self.model,

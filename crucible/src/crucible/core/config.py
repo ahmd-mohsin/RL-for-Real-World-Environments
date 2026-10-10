@@ -31,6 +31,11 @@ class LLMProvider(CrucibleModel):
     # the version stamp of the fixed checkpoint this provider serves (train-mode token records need one; a trainer
     # bridge overrides it on every weight update). None: hosted APIs, whose records are never train-valid anyway.
     policy_version: int | str | None = None
+    # token-in-token-out (self-hosted vLLM): render with the model's own chat template here, send token ids to the
+    # engine's completions endpoint, parse tool calls here. Exact capture for training; a chat API's parser + template
+    # round trip re-renders history lossily (prefix breaks). ``template_kwargs`` go to apply_chat_template.
+    tito: bool = False
+    template_kwargs: dict[str, Any] = Field(default_factory=dict)
 
 
 class GpuHost(CrucibleModel):
