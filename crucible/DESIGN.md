@@ -1010,6 +1010,18 @@ the KV cache inside the publish, so the GPU held the full trainer and the full e
   - split placement never sleeps;
   - the runtime order is publish → offload → resume.
 
+**A-5 (2026-10-10): pool hot path and bounded memory.**
+- **Admission:** `DataPool` keeps per-source indexes of untrained and live rollouts, maintained by one status setter (the
+  scheduler's direct eviction goes through it too). Admission is O(1) per group: before, it scanned every tag ever
+  created, O(N²) over a run.
+- **Release:** trained and evicted groups are released with their tags and values; a group with a running straggler
+  waits until it finishes.
+- **Runtime:** finished asyncio tasks are pruned, and `RunReport.trained_records` keeps the newest `keep_records`.
+- **Bug found on the way:** group ids used `len(pool.groups)`. Once groups are released, ids, rollout ids and engine
+  sampling seeds collided and learning stopped. Ids now use the monotonic submit index.
+- **Tests:** admission cost flat after 50k groups of history; a 60-step run holds only open work (tags ≤ 2× the cap,
+  ≥ 240 groups released, tasks ≤ cap).
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

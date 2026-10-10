@@ -59,6 +59,7 @@ class RuntimeConfig:
     # ``max_harness_share`` -- a broken pipeline must stop with its reason, never spin masking everything
     # state plane (checklist #1): a run checkpoint every ``checkpoint_every`` steps at the sample barrier (``train.state``)
     checkpoint_every: int = 0
+    keep_records: int | None = 4096  # RunReport.trained_records keeps the newest N (a long run must not hold every record)
     checkpoint_dir: str | None = None
     max_masked_share: float = 0.2
     max_harness_share: float = 0.05
@@ -336,7 +337,9 @@ class Runtime:
             if t.status == "pending" and rid not in self.tasks:
                 self.pool.start(rid)
                 g = self.pool.groups[t.group]
-                self.tasks[rid] = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=self._seeds))
+                task = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=self._seeds))
+                task.add_done_callback(lambda _t, rid=rid: self.tasks.pop(rid, None))  # finished tasks are not kept for the run's life
+                self.tasks[rid] = task
                 self._seeds += 1
 
     # ---- control plane --------------------------------------------------------------------------------------------
@@ -365,6 +368,8 @@ class Runtime:
         else:
             m = self.trainer.step(recs, groups)
         self.report.trained_records += recs
+        if self.cfg.keep_records is not None and len(self.report.trained_records) > self.cfg.keep_records:
+            del self.report.trained_records[: len(self.report.trained_records) - self.cfg.keep_records]
         lps = [lp for r in recs for t in r.turns for lp in (t.logprobs or [])]
         by_group: dict[str, list[float]] = {}
         for r, g in zip(recs, groups, strict=True):
@@ -446,6 +451,10 @@ class Runtime:
             m = await self._train(sel)
             train_s = time.monotonic() - t0
             self.sched.trained(sel)
+            for g in list(sel.groups) + [self.pool.groups[x] for x in sel.evicted if x in self.pool.groups]:
+                self.pool.release(g.gid)  # trained / evicted work leaves the pool: memory stays bounded over a long run
+            for gid in [x for x, gr in self.pool.groups.items() if gr.status == "evicted"]:
+                self.pool.release(gid)  # evicted earlier with a straggler still running
             step += 1
             publish_s = 0.0
             if step % self.cfg.publish_every == 0:  # S2

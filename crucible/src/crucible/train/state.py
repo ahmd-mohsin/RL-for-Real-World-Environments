@@ -124,6 +124,7 @@ def restore(rt: Any, blob: dict) -> int:
     for g in pool.groups.values():
         if g.status == "terminal" and any(pool.tags[r].status == "pending" for r in g.members):
             g.status = "open"
+    pool.reindex()
     rt.monitor = blob["monitor"]
     for k, v in blob["report"].items():
         setattr(rt.report, k, v)

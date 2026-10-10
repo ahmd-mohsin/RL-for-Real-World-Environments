@@ -92,13 +92,13 @@ class Scheduler:
         return self.cfg.inflight_cap.get(source, self.cfg.max_inflight())
 
     def free_slots(self, source: str) -> int:
-        return self._cap(source) - len(self.pool.untrained(source))
+        return self._cap(source) - self.pool.untrained_count(source)
 
     def admit(self, version: int) -> list[Group]:
         out = []
         self.cap_blocked = False  # the untrained cap (not the sources) stopped admission (checklist #24 admission_blocked_s)
         while True:
-            if len(self.pool.untrained()) + self.cfg.n > self.cfg.max_inflight():
+            if self.pool.untrained_count() + self.cfg.n > self.cfg.max_inflight():
                 self.cap_blocked = any(s not in self.exhausted for s in self.sources)
                 break
             open_src = [s for s in self.sources if s not in self.exhausted and self.free_slots(s) >= self.cfg.n]
@@ -112,7 +112,7 @@ class Scheduler:
             if pid is None:
                 self.exhausted.add(src)
                 continue
-            gid = f"{src}:{pid}@{len(self.pool.groups)}"
+            gid = f"{src}:{pid}@{self.pool._next_index}"  # monotonic: released groups never let an id repeat
             out.append(self.pool.submit_group(gid, src, self.cfg.n, version, backfill=self.cfg.group_backfill, meta={"prompt": pid}))
             self.admitted[src] += 1
         return out
@@ -134,7 +134,7 @@ class Scheduler:
                 self.counters["evicted_masked"] += 1
             elif g.backfill == "refill_member":
                 for t in masked:
-                    t.status = "evicted"
+                    self.pool._set_status(t.rid, "evicted")
                     self.pool.refill_member(g.gid, version)
                     self.counters["refilled_members"] += 1
 
@@ -213,4 +213,4 @@ class Scheduler:
         return sum(1 for t in self.pool.tags.values() if t.status in LIVE)
 
     def untrained_count(self) -> int:
-        return len(self.pool.untrained())
+        return self.pool.untrained_count()

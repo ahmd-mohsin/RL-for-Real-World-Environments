@@ -75,6 +75,41 @@ class DataPool:
         self.values: dict[str, Any] = {}
         self._next_index = 0
         self._rid = 0
+        # indexes over tag status (m13 audit 05: admission scanned every tag ever created, O(N²) over a run)
+        self._untrained: dict[str, set[str]] = {}  # source -> rids in flight or finished-untrained
+        self._live: dict[str, set[str]] = {}  # source -> rids pending / running / grading
+        self.released_groups = 0
+
+    def _set_status(self, rid: str, status: str) -> None:
+        """The one place a tag's status changes: keeps the untrained / live indexes exact."""
+        t = self.tags[rid]
+        t.status = status
+        un, lv = self._untrained.setdefault(t.source, set()), self._live.setdefault(t.source, set())
+        (un.add if (status in LIVE or status in TERMINAL) else un.discard)(rid)
+        (lv.add if status in LIVE else lv.discard)(rid)
+
+    def reindex(self) -> None:
+        """Rebuild the indexes from the tags (after a state-plane restore rewrote them)."""
+        self._untrained, self._live = {}, {}
+        for rid, t in self.tags.items():
+            self._set_status(rid, t.status)
+
+    def release(self, gid: str) -> None:
+        """Forget a trained or evicted group: its tags and values (the trainer already consumed the values), so a long run's
+        pool holds only open work."""
+        g = self.groups.get(gid)
+        if g is None or g.status not in ("trained", "evicted"):
+            return
+        if any(self.tags[r].status in LIVE for r in g.members if r in self.tags):
+            return  # a member still runs (an evicted group's straggler): released later, when it finishes
+        for r in g.members:
+            t = self.tags.pop(r, None)
+            if t is not None:
+                self._untrained.get(t.source, set()).discard(r)
+                self._live.get(t.source, set()).discard(r)
+            self.values.pop(r, None)
+        del self.groups[gid]
+        self.released_groups += 1
 
     # ---- writes -------------------------------------------------------------------------------------------------
     def submit_group(self, gid: str, source: str, n: int, version: int, *, harness: str = "", backfill: str = "pad", meta: dict | None = None) -> Group:
@@ -89,6 +124,7 @@ class DataPool:
         self._rid += 1
         t = Tag(rid=f"{g.gid}/{self._rid}", group=g.gid, source=g.source, submit_index=g.submit_index, submit_version=version, harness=harness)
         self.tags[t.rid] = t
+        self._set_status(t.rid, t.status)
         g.members.append(t.rid)
         return t
 
@@ -99,12 +135,12 @@ class DataPool:
         return self._add_member(g, version, self.tags[g.members[0]].harness if g.members else "")
 
     def start(self, rid: str) -> None:
-        self.tags[rid].status = "running"
+        self._set_status(rid, "running")
 
     def grading(self, rid: str) -> None:
         """Generation finished; the reward is being computed asynchronously. The rollout still counts as untrained
         (admission, staleness wait) and its group is not terminal until the reward arrives."""
-        self.tags[rid].status = "grading"
+        self._set_status(rid, "grading")
 
     def call(self, rid: str, version: int, tokens: int = 0) -> None:
         t = self.tags[rid]
@@ -116,7 +152,8 @@ class DataPool:
         if status not in TERMINAL:
             raise ValueError(status)
         t = self.tags[rid]
-        t.status, t.reward, t.done_at = status, (None if status == "masked" else reward), now
+        self._set_status(rid, status)
+        t.reward, t.done_at = (None if status == "masked" else reward), now
         if value is not None:
             self.values[rid] = value
         self._update_group(t.group)
@@ -137,7 +174,7 @@ class DataPool:
         for r in g.members:
             t = self.tags[r]
             if t.status != "trained":
-                t.status = "evicted"
+                self._set_status(r, "evicted")
                 out.append(r)
         return out
 
@@ -146,16 +183,26 @@ class DataPool:
         g.status = "trained"
         for r in g.members:
             if self.tags[r].status in TERMINAL:
-                self.tags[r].status = "trained"
+                self._set_status(r, "trained")
 
     # ---- reads (tags only) --------------------------------------------------------------------------------------
+    def _rids(self, index: dict[str, set[str]], source: str | None) -> list[str]:
+        if source is not None:
+            return sorted(index.get(source, ()))
+        return sorted(r for rs in index.values() for r in rs)
+
     def live(self, source: str | None = None) -> list[Tag]:
-        return [t for t in self.tags.values() if t.status in LIVE and (source is None or t.source == source)]
+        return [self.tags[r] for r in self._rids(self._live, source)]
 
     def untrained(self, source: str | None = None) -> list[Tag]:
         """In flight or finished-but-not-yet-trained: what the admission cap must count for the staleness bound to hold
         (the buffer ages too)."""
-        return [t for t in self.tags.values() if (t.status in LIVE or t.status in TERMINAL) and (source is None or t.source == source)]
+        return [self.tags[r] for r in self._rids(self._untrained, source)]
+
+    def untrained_count(self, source: str | None = None) -> int:
+        if source is not None:
+            return len(self._untrained.get(source, ()))
+        return sum(len(rs) for rs in self._untrained.values())
 
     def terminal_groups(self) -> list[Group]:
         return [g for g in self.groups.values() if g.status == "terminal"]
