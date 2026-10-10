@@ -58,17 +58,26 @@ class _Item:
     prompt: list[int]
     completion: list[int]
     rollout_lp: list[float]
-    adv: float
+    adv: float | list[float]  # one value broadcast over the call's tokens, or per token (critic GAE)
     prompt_index: int
     candidates: list[list[int]] | None = None  # top-p nucleus per token: π_θ is renormalized over it (checklist #37)
     routing: list[list[int]] | None = None  # MoE experts per token, replayed under routing_replay="r3"
 
 
 class TorchTrainer:
-    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None):
+    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, critic: torch.nn.Module | None = None, critic_cfg=None):
+        """``critic``: a value model (``critic.TinyValue`` / ``HFValue``): critic mode — token-level GAE advantages instead of
+        group-relative ones (works with n = 1), and ``critic_cfg.updates_per_policy_update`` critic steps per policy step."""
         self.model, self.cfg = model, cfg or TrainerConfig()
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
         self.updates = 0
+        self.critic = critic
+        if critic is not None:
+            from crucible.train.critic import CriticConfig
+
+            self.critic_cfg = critic_cfg or CriticConfig()
+            self.critic_opt = torch.optim.AdamW([q for q in critic.parameters() if q.requires_grad], lr=self.critic_cfg.lr)
+            self.critic_updates = 0
 
     def reset_optimizer(self) -> None:
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
@@ -141,8 +150,77 @@ class TorchTrainer:
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
+    def _gae_advantages(self, records: Sequence[RolloutRecord]) -> dict[str, list[float]]:
+        """Critic mode: per call id, the per-token GAE advantages; also fills ``self._critic_data`` with (prompt, completion,
+        returns) for the critic regression. The chain holds only completion tokens (skip-observation), in call order."""
+        from crucible.train.critic import explained_variance
+        from crucible.train.objectives import gae, length_adaptive_lambda
+
+        cc = self.critic_cfg
+        out: dict[str, list[float]] = {}
+        self._critic_data: list[tuple[list[int], list[int], torch.Tensor]] = []
+        all_ret, all_val = [], []
+        for r in records:
+            if r.mask_sample or r.reward is None:
+                continue
+            prompts = full_prompts(r)
+            calls = [t for t in r.turns if t.completion_token_ids]
+            if not calls:
+                continue
+            with torch.no_grad():
+                vals = [self.critic.token_values(prompts[t.call_id], list(t.completion_token_ids)).detach().double().cpu() for t in calls]
+            lens = [len(t.completion_token_ids) for t in calls]
+            v = torch.cat(vals)
+            T = int(v.shape[0])
+            rewards = torch.zeros(T, dtype=torch.float64)
+            rewards[-1] = float(r.reward)
+            seg = torch.tensor([t.segment for t, n in zip(calls, lens, strict=True) for _ in range(n)])
+            multi = len(set(seg.tolist())) > 1
+            kw = {"segments": seg, "shared_terminal": float(r.reward)} if multi else {}
+            if multi:
+                rewards[-1] = 0.0  # the shared terminal carries the outcome to every segment's end
+            lam_p = length_adaptive_lambda(T, cc.alpha) if cc.lam_policy == "adaptive" else float(cc.lam_policy)
+            trunc = {"truncated": bool(r.truncated), "bootstrap_value": float(v[-1])}
+            adv, _ = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=lam_p, **kw, **trunc)
+            _, ret = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic, **kw, **trunc)
+            k = 0
+            for t, n in zip(calls, lens, strict=True):
+                out[t.call_id] = adv[k:k + n].tolist()
+                self._critic_data.append((prompts[t.call_id], list(t.completion_token_ids), ret[k:k + n].float()))
+                k += n
+            all_ret.append(ret.float())
+            all_val.append(v.float())
+        self._ev = explained_variance(torch.cat(all_ret), torch.cat(all_val)) if all_ret else 0.0
+        return out
+
+    def _critic_step(self) -> dict[str, float]:
+        """TTUR: K critic regressions (MSE to the λ_critic returns, global token mean) per policy update."""
+        cc, data = self.critic_cfg, self._critic_data
+        if not data:
+            return {}
+        n_tok = sum(len(c) for _, c, _ in data)
+        loss_v = 0.0
+        for _ in range(cc.updates_per_policy_update):
+            self.critic_opt.zero_grad()
+            total = 0.0
+            for prompt, comp, ret in data:
+                v = self.critic.token_values(prompt, comp)
+                loss = ((v - ret.to(v.device)) ** 2).sum() / n_tok
+                loss.backward()
+                total += float(loss.detach())
+            torch.nn.utils.clip_grad_norm_([q for q in self.critic.parameters() if q.requires_grad], cc.grad_clip)
+            self.critic_opt.step()
+            self.critic_updates += 1
+            loss_v = total
+        return {"critic/loss": loss_v, "critic/explained_variance": self._ev, "critic/updates": float(self.critic_updates)}
+
     def _items(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[_Item]:
-        advs = group_advantages([r.reward if not r.mask_sample else None for r in records], groups, std_normalize=self.cfg.std_normalize,
+        if self.critic is not None:
+            per_token = self._gae_advantages(records)
+            advs = [0.0] * len(records)
+        else:
+            per_token = None
+            advs = group_advantages([r.reward if not r.mask_sample else None for r in records], groups, std_normalize=self.cfg.std_normalize,
                                 estimator=self.cfg.estimator)
         pids = {g: i for i, g in enumerate(dict.fromkeys(groups))}
         items = []
@@ -159,7 +237,9 @@ class TorchTrainer:
                 if self.cfg.routing_replay == "r3" and (t.routing is None or len(t.routing) != len(t.completion_token_ids)):
                     raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
-                items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), a + self.cfg.turn_weight * (t.advantage or 0.0), pids[g],
+                credit = self.cfg.turn_weight * (t.advantage or 0.0)
+                adv = [x + credit for x in per_token[t.call_id]] if per_token is not None else a + credit
+                items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
                                    t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
                                    t.routing if self.cfg.routing_replay == "r3" else None))
         return items
@@ -215,7 +295,7 @@ class TorchTrainer:
             n = len(it.completion)
             lp_rows.append(torch.nn.functional.pad(rows[k].to(fdt), (0, T - n)))
             roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=fdt, device=dev)
-            adv[k, :n] = it.adv
+            adv[k, :n] = torch.tensor(it.adv[:n], dtype=fdt, device=dev) if isinstance(it.adv, list) else it.adv
             mask[k, :n] = 1
             if old is not None:
                 old_t[k, :n] = old[i].to(dev)
@@ -291,6 +371,8 @@ class TorchTrainer:
                 metrics["train/prefix_tokens_saved"] = float(self._saved_tokens)
             if self._confidence:  # MoE routing confidence Σ_k (mean top-k router mass), checklist #36
                 metrics["moe/routing_confidence"] = sum(self._confidence) / len(self._confidence)
+        if self.critic is not None:
+            metrics.update(self._critic_step())
         return metrics
 
 
