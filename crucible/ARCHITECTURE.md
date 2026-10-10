@@ -631,6 +631,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - **verl:** Worlds exported in MiMo format for `recipes/general` (`DatasetEnvActor`); coding tasks as `recipes/code` datasets (the `instance_json` schema in `code.parquet`).
   - **nemo_gym:** a resources server plus `manifest.yaml`.
   - **openenv:** an `Environment` plus rubric tree plus `openenv.yaml`, with per-step `Observation.reward` taken from `steps.jsonl`.
+    - **Import (as built 2026-10-10):** any OpenEnv `Environment` as a World App (`openenv/env`): MCP tools or the Action schema as a `step` tool, replay-journal state with digest-verified restore, environment-terminated episodes, the environment's own reward as a score gate; catalogue starts with FineEnvs PortSimEnv (DESIGN M11 part 4).
   - **mimo:** import and export of the MiMo format.
   - **eog:** an external-benchmark importer.
 - **Exit gate (cross-runtime consistency):** the same task and the same patch or trajectory give **identical** `reward.json` and `steps.jsonl` through Harbor, agentenv, verifiers, NeMo-Gym and OpenEnv, on task02 and one toy task. One MiMo env is imported, run and re-exported byte-identical.

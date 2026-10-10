@@ -85,6 +85,9 @@ class ToolResult(CrucibleModel):
     # infrastructure (transport down, App crashed, timeout of a hung service) -- infra faults mask the episode.
     fault: Literal["policy", "tool", "infra"] | None = None
     content_ref: str | None = None  # store key of the full output when ``content`` was bounded
+    # the environment ended the episode with this call (an OpenEnv / Gym ``done``: a final answer, a step budget); the
+    # World marks the calling actor done, exactly as if it had sent ``Done``
+    ends_episode: bool = False
 
 
 class Inbound(CrucibleModel):

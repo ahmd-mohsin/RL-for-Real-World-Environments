@@ -11,13 +11,14 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
-
-from harbor.models.trajectories import Trajectory
+from typing import TYPE_CHECKING, Any
 
 from crucible.core.schema.reward import StepRow
 from crucible.core.schema.run import RunRecord
 from crucible.train.rollout import RolloutRecord, Segment, Turn
+
+if TYPE_CHECKING:  # annotation only: in-process rollouts (M12) must not require Harbor installed
+    from harbor.models.trajectories import Trajectory
 
 
 def credit_from_progress(calls: Sequence[dict[str, Any]], rows: Sequence[dict[str, Any]], actor: str) -> tuple[dict[str, float], float]:

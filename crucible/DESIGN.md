@@ -739,6 +739,36 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
 - **Canonical episode key** `"<task id>|<episode>"`: derived `call_id`s agree across runtimes.
 - **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, agentenv (real gateway REST transport), NeMo-Gym and OpenEnv, with the same final state fingerprint. verifiers keeps the reward and raises a typed error on a mask.
 
+**As built, M11 part 4: OpenEnv import (2026-10-10; research `docs/research/m11-m12/05` §3.5, §4).** The reverse of the
+export, so any environment in the OpenEnv / FineEnvs catalogue (simulations, games, planners, MCP services) runs as a
+Crucible World with snapshot/restore, the single reward producer, the dense channel, the M10 runtime and the M12 trainer.
+- **App `openenv/env`** (`interop/openenv/import_env.py`, DEPENDs on OpenEnv's `Environment` and MCP types):
+  - the environment comes from `factory` (`module:attr`) + `reset` kwargs; `episode_id` is pinned so observations stay
+    deterministic;
+  - MCP environments expose their tools (`ListToolsAction`, narrowed by `allow_tools`); other environments get one
+    `step` tool whose schema is the Action class's JSON schema;
+  - `CallToolObservation.error` maps to blame: invalid args / unknown tool → policy, execution error → tool,
+    transport / timeout → infra. An exception inside `step` reaches the World's choke point and masks the episode.
+- **State = a replay journal** (`json_doc`): reset kwargs, each call's arguments, result digest (+ capped text),
+  reward, `done`. Restore = rebuild + reset + re-issue the journal with **every result digest verified**; a
+  non-deterministic environment raises `SnapshotMismatch` instead of silently restoring a different state.
+- **Environment-terminated episodes** (`ToolResult.ends_episode`, new): an observation with `done` marks the actor done
+  in the World (logged `environment_terminal`); the OpenEnv export grades on that same step.
+- **Reward** (`OpenEnvTask`): one score gate = the environment's own reward (last step or sum) normalized by
+  `reward_range`. No terminal step = 0, scored (N4: "no submission" is a policy outcome, never a mask). Dense
+  subgoals over the journal: `terminated`, `positive_reward`, plus environment-specific ones.
+- **Catalogue** (`interop/openenv/catalog.py`): `portsim(split, index)` = PortSimEnv v1 (FineEnvs; data CC BY-SA 4.0),
+  1,050 train / 50 eval berth-planning tasks graded against a CP-SAT optimum. Progress subgoals
+  `feasible_plan_checked`, `submitted_feasible`.
+- **Gate ✅** (`tests/unit/test_openenv_import.py`, in `.envs/openenv`):
+  - rewards equal the native environment's (oracle 1.0; serial baseline ≤ 0.2; no submission 0, not masked);
+  - mid-episode restore reproduces the environment's own counters (`checks_used`);
+  - a generic non-MCP environment works in last and sum modes;
+  - a noisy environment refuses to restore;
+  - native = import = canonical replay = OpenEnv re-export, with step rewards telescoping to 1.0;
+  - PortSim trains through the M12 runtime (scripted engine → exact-TITO tokens → rubric → `rollout/v1`).
+- `runtime/record.py` imports Harbor only for type checking, so in-process rollouts run without Harbor installed.
+
 ### 10.2 Two verifier tiers
 
 | Tier | Contents | When it runs |
@@ -1232,4 +1262,11 @@ reward writer.
 | A masked grade (and the pre-grading placeholder) wrote `"reward": 0.0` | Harbor, verifiers, NeMo-Gym, OpenEnv and TRL read only `reward`: every infrastructure failure would be trained as a real 0 | a masked grade writes **no** `reward.json` / `reward.txt` (a missing reward is an error in every runtime), plus `mask.json`; nothing is pre-written before grading; fixed |
 | Dropping only the `reward` key would be worse | verifiers sums every remaining key: `{"infra/masked": 1}` would score 1.0 | no reward file at all when masked; test asserts it; fixed |
 | `reward.txt` written with `:g` (6 significant digits); `time/*` seconds inside `reward.json` | files differ across runtimes; agentenv reads the text value | `repr()` (exact round trip); timing only in `report.json`; keys sorted; fixed |
+
+**B.18 Found while importing OpenEnv environments (2026-10-10).**
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| A World ended only on the policy's `Done`; Gym/OpenEnv environments end themselves (a final answer, a step budget) | after PortSim's `submit_plan` the policy could keep calling tools; the exported environment then raised "already declared done" on `crucible__finish` | `ToolResult.ends_episode` marks the actor done; the export grades on the terminating step; tests for both; fixed |
+| An imported environment has no snapshot of its own | restore would silently produce a fresh environment, not the episode's state | replay-journal state with per-step digest verification; a non-deterministic environment raises `SnapshotMismatch`; fixed |
 

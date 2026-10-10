@@ -3,7 +3,8 @@ and MCP action/observation types (``openenv.core.env_server``); runs in an envir
 (``crucible/.envs/openenv``), so this module imports OpenEnv lazily via ``make_environment``.
 
 - ``ListToolsAction`` → the World's policy tools as MCP tools (``<app>__<tool>``), plus ``crucible__finish``;
-- ``CallToolAction(tool_name, arguments)`` → ``World.step``; ``crucible__finish`` ends the episode and grades it;
+- ``CallToolAction(tool_name, arguments)`` → ``World.step``; ``crucible__finish`` ends the episode and grades it; a call
+  after which the World is done (an environment-terminated episode: ``ToolResult.ends_episode``) grades on that step;
 - **per-step reward = Ψ-telescoping**: Ψ_t = Φ_t (dense progress over the task's subgoals or its plan's checks) for
   t < T, Ψ_T = the final reward; ``Observation.reward_t = Ψ_t − Ψ_{t−1}``. A consumer that sums step rewards
   (verifiers' OpenEnv bridge) and one that reads the last value get the same total: the final reward;
@@ -95,24 +96,30 @@ def make_environment(task_factory, *, episode_prefix: str = "openenv"):
             cid = call_id(self._episode, self._ordinal)
             self._ordinal += 1
             if action.tool_name == FINISH:
-                res = await self._world.step("agent", Done(reason="finish"))
-                await self._tracker.on_step(self._world, self._state.step_count, "agent", Done(reason="finish"), res)
-                rep = await self._task.grade(self._world, self._dir / "grade")
-                rj = rep.reward_json()
-                doc = write_reward_files(self._dir / "out", rj, rep.to_dict())
-                masked = (rj.get("infra") or {}).get("status") == "masked"
-                reward = None if masked else float(rj["reward"]) - self._psi
-                return CallToolObservation(tool_name=FINISH, result="graded", done=True, reward=reward,
-                                           metadata={"masked": masked, "crucible_reward": doc, "crucible": {"call_id": cid, "psi_final": None if masked else float(rj["reward"])}})
+                if "agent" not in self._world.done:
+                    res = await self._world.step("agent", Done(reason="finish"))
+                    await self._tracker.on_step(self._world, self._state.step_count, "agent", Done(reason="finish"), res)
+                return await self._final(FINISH, "graded", cid)
             known = [t.qualified for t in self._world.tools_for("agent")]
             act = ToolCall(tool_call_id=f"oe{self._ordinal}", function_name=canonical_tool(action.tool_name, known=known), arguments=dict(action.arguments))
             res = await self._world.step("agent", act)
             row = await self._tracker.on_step(self._world, self._state.step_count, "agent", act, res)
             tr = res.observation.tool_results[0] if res.observation.tool_results else None
+            if res.done:  # the World's environment ended the episode with this call (an imported OpenEnv env's final answer)
+                return await self._final(action.tool_name, tr.content if tr else "", cid)
             delta = row.phi - self._psi
             self._psi = row.phi
             return CallToolObservation(tool_name=action.tool_name, result=tr.content if tr else "", done=False, reward=delta,
                                        metadata={"crucible": {"phi": row.phi, "delta_phi": delta, "gained": row.gained, "call_id": cid, "ok": tr.ok if tr else False}})
+
+        async def _final(self, tool_name: str, result: str, cid: str) -> Observation:
+            rep = await self._task.grade(self._world, self._dir / "grade")
+            rj = rep.reward_json()
+            doc = write_reward_files(self._dir / "out", rj, rep.to_dict())
+            masked = (rj.get("infra") or {}).get("status") == "masked"
+            reward = None if masked else float(rj["reward"]) - self._psi
+            return CallToolObservation(tool_name=tool_name, result=result, done=True, reward=reward,
+                                       metadata={"masked": masked, "crucible_reward": doc, "crucible": {"call_id": cid, "psi_final": None if masked else float(rj["reward"])}})
 
         def step(self, action, timeout_s=None, **kw) -> Observation:
             return self._loop.run(self._step(action))
