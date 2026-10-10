@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 27 done, 22 partial, 3 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 28 done, 22 partial, 2 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -181,7 +181,7 @@ Facts behind the table:
 | 33 | correction goldens | done | |
 | 34 | π_θold refusal on multi-version | **done** | `TorchTrainer` refuses an implicit π_θold for rollouts spanning versions; explicit `recompute_current` / `rollout` allowed; `test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts` |
 | 35 | FP32 LM head in the run record | partial | precision of both engines in the record |
-| 36 | routing confidence, R3 | missing | Σ_k metric, `routing_replay`, refusal |
+| 36 | routing confidence, R3 | **done** | `TinyMoEPolicy` (top-k router; `forward(routing=)` replays the choice, gates keep gradient); engines record per-token experts (kept across resumes); `TrainerConfig.routing_replay="r3"` replays them and refuses < 100 % coverage; `moe/routing_confidence` logged; a full-bf16 engine flips ~11 % of routes and R3 more than halves the logprob gap on flipped tokens. `VLLMServerEngine` routing capture is open (vLLM's routed-experts output) |
 | 37 | top-p candidates renormalization | **done** | `train/sampling.py` (one nucleus definition); engine records `GenResult.candidates`, kept across token-level resumes; `Turn.candidates` + `candidates_valid`; trainer renormalizes (TinyPolicy, HFPolicy); matches the engine within 1e-5; `VLLMServerEngine` refuses top_p < 1 until it reports candidates |
 | 38 | post_update_transform / QDQ | partial | QDQ + bit-identical test |
 | 39 | tag/value split | partial | remote-value never-fetch test; harness tag |

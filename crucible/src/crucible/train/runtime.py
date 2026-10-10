@@ -130,11 +130,12 @@ class Runtime:
             if self.cfg.version_switch == "token":  # keep the partial output; it continues on the next version
                 self.report.resumed_calls += 1
                 req.resume_completion, req.resume_logprobs, req.resume_candidates = res.completion_ids, res.logprobs, list(res.candidates or [])
+                req.resume_routing = list(res.routing or [])
                 req.resume_spans = list(res.version_spans or [(0, res.version)])
                 self.report.reprefill_tokens += len(prompt) + len(res.completion_ids)
             else:  # discard the partial completion; the whole call is re-issued under the new version
                 self.report.reprefill_tokens += len(prompt)
-                req.resume_completion, req.resume_logprobs, req.resume_spans, req.resume_candidates = [], [], [], []
+                req.resume_completion, req.resume_logprobs, req.resume_spans, req.resume_candidates, req.resume_routing = [], [], [], [], []
 
     async def _rollout_fn(self, rid: str, prompt: str, seed: int) -> None:
         tag = self.pool.tags[rid]
@@ -232,7 +233,7 @@ class Runtime:
                 delta = context[len(prev_full):] if prev_full is not None and context[: len(prev_full)] == prev_full else context
                 turns.append(Turn(call_id=f"{rid}:c{k}", actor="agent", prompt_is_delta=prev_full is not None, prompt_token_ids=list(delta),
                                   completion_token_ids=res.completion_ids, logprobs=res.logprobs, policy_version=res.version,
-                                  version_spans=res.version_spans, finish=res.finish, candidates=res.candidates,
+                                  version_spans=res.version_spans, finish=res.finish, candidates=res.candidates, routing=res.routing,
                                   sampling={"temperature": self.cfg.temperature, "top_p": self.cfg.top_p}))
                 for _, v in (res.version_spans or [(0, res.version)]):
                     self.pool.call(rid, v, 0)

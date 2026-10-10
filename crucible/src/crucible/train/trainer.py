@@ -49,6 +49,7 @@ class TrainerConfig:
     grad_clip: float = 1.0
     updates_per_batch: int = 1
     temperature: float = 1.0
+    routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
 
 
 @dataclass
@@ -59,6 +60,7 @@ class _Item:
     adv: float
     prompt_index: int
     candidates: list[list[int]] | None = None  # top-p nucleus per token: π_θ is renormalized over it (checklist #37)
+    routing: list[list[int]] | None = None  # MoE experts per token, replayed under routing_replay="r3"
 
 
 class TorchTrainer:
@@ -88,15 +90,29 @@ class TorchTrainer:
                 if not t.candidates_valid():
                     raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
                                      "renormalize π_θ (record candidates or sample with top_p=1)")
+                if self.cfg.routing_replay == "r3" and (t.routing is None or len(t.routing) != len(t.completion_token_ids)):
+                    raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
+                                     f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
                 items.append(_Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), a + self.cfg.turn_weight * (t.advantage or 0.0), pids[g],
-                                   t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None))
+                                   t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
+                                   t.routing if self.cfg.routing_replay == "r3" else None))
         return items
 
     def _logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
+        if self.cfg.routing_replay == "r3":  # per item: the replayed expert path
+            out = []
+            for i in idx:
+                out.append(self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates,
+                                                     routing=items[i].routing))
+                self._confidence.append(float(getattr(self.model, "last_confidence", 1.0)))
+            return out
         if hasattr(self.model, "batch_token_logprobs"):  # one forward per micro batch (HF policies)
             return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,
                                                    candidates=[items[i].candidates for i in idx])
-        return [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates) for i in idx]
+        out = [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates) for i in idx]
+        if hasattr(self.model, "last_confidence"):
+            self._confidence.append(float(self.model.last_confidence))
+        return out
 
     def _padded(self, items: list[_Item], idx: list[int], old: dict[int, torch.Tensor] | None):
         T = max(len(items[i].completion) for i in idx)
@@ -129,6 +145,9 @@ class TorchTrainer:
         return vals
 
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
+        if self.cfg.routing_replay not in ("none", "r3"):
+            raise ValueError(f"routing_replay: none | r3 (got {self.cfg.routing_replay!r})")
+        self._confidence: list[float] = []
         items = self._items(records, groups)
         if not items:
             return {"train/items": 0.0}
@@ -180,6 +199,8 @@ class TorchTrainer:
                        "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts)}
             for k, v in zip(keys, sums[2:], strict=True):
                 metrics[f"mismatch/{k}"] = v / max(n_mb, 1.0)
+            if self._confidence:  # MoE routing confidence Σ_k (mean top-k router mass), checklist #36
+                metrics["moe/routing_confidence"] = sum(self._confidence) / len(self._confidence)
         return metrics
 
 

@@ -261,3 +261,46 @@ def test_top_p_candidates_renormalize_training_logprobs_to_the_engine():
 
     with pytest.raises(ValueError, match="no complete candidate sets"):
         tr.step([bad, ok], ["g", "g"])
+
+
+def test_r3_routing_replay_removes_the_moe_routing_mismatch():
+    """Checklist #36: a full-bf16 engine flips some router choices of a tiny MoE policy; without replay the trainer evaluates
+    a different expert path on those tokens; with routing_replay='r3' it replays the engine's experts and the logprob gap
+    shrinks to plain numerics. R3 refuses records missing routing; routing confidence is logged."""
+    import asyncio
+
+    import pytest
+    import torch
+
+    from crucible.train.engine import GenRequest, TinyMoEPolicy, TorchEngine
+    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.train.trainer import TorchTrainer, TrainerConfig
+
+    model = TinyMoEPolicy(32, 16, seed=2, experts=4, k=1, router_scale=0.02)
+    eng = TorchEngine(model, capacity=4, numerics="bf16_full")  # bf16 weights and activations: router choices flip
+    gap_plain, gap_r3, flips, recs = [], [], 0, []
+    for i in range(12):
+        prompt = [1, 4 + i % 20, 2]
+        res = asyncio.run(eng.generate(GenRequest(rid=f"r{i}", call_id=f"c{i}", prompt_ids=prompt, max_tokens=10, temperature=1.0, seed=i)))
+        assert res.routing and len(res.routing) == len(res.completion_ids)
+        with torch.no_grad():
+            plain = model.token_logprobs(prompt, res.completion_ids)
+            own = [model.last_routes[len(prompt) - 1 + t] for t in range(len(res.completion_ids))]
+            r3 = model.token_logprobs(prompt, res.completion_ids, routing=res.routing)
+        eng_lp = torch.tensor(res.logprobs, dtype=plain.dtype)
+        for t, (a, b) in enumerate(zip(own, res.routing, strict=True)):
+            if a != b:
+                flips += 1
+                gap_plain.append(abs(float(plain[t] - eng_lp[t])))
+                gap_r3.append(abs(float(r3[t] - eng_lp[t])))
+        recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i % 2),
+                                  turns=[Turn(call_id=f"c{i}", actor="agent", prompt_token_ids=prompt, completion_token_ids=res.completion_ids, logprobs=res.logprobs,
+                                              policy_version=0, routing=res.routing)]))
+    assert flips >= 3, flips  # the engine's numerics really changed expert choices
+    assert sum(gap_r3) / len(gap_r3) < 0.5 * sum(gap_plain) / len(gap_plain), (sum(gap_r3), sum(gap_plain))
+    m = TorchTrainer(model, TrainerConfig(routing_replay="r3")).step(recs, ["g"] * len(recs))
+    assert m["train/items"] == len(recs) and 0.25 <= m["moe/routing_confidence"] <= 1.0
+    stripped = [r.model_copy(update={"turns": [t.model_copy(update={"routing": None}) for t in r.turns]}) for r in recs]
+    with pytest.raises(ValueError, match="needs Turn.routing for 100%"):
+        TorchTrainer(model, TrainerConfig(routing_replay="r3")).step(stripped, ["g"] * len(recs))
+    assert TorchTrainer(model, TrainerConfig()).step(stripped, ["g"] * len(recs))["train/items"] == len(recs)  # without R3 nothing is required

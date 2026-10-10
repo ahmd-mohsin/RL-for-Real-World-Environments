@@ -167,3 +167,18 @@ async def test_top_p_rollouts_carry_candidates_through_the_runtime():
         assert r.valid_for_training()[0]
         for t in r.turns:
             assert t.sampling["top_p"] == 0.8 and t.candidates and len(t.candidates) == len(t.completion_token_ids)  # resumed calls keep theirs
+
+
+async def test_moe_rollouts_record_routing_and_train_with_r3():
+    from crucible.train.engine import TinyMoEPolicy
+
+    model = TinyMoEPolicy(32, 32, seed=1, experts=4, k=2)
+    eng = EnginePool([TorchEngine(model, capacity=64, decode_delay_s=0.001, numerics="bf16_full", version_switch="token")])
+    tr = TorchTrainer(model, TrainerConfig(lr=1e-2, routing_replay="r3"))
+    rt = Runtime(RuntimeConfig(topology="colocated_partial", steps=4, max_turn_tokens=3, version_switch="token"), SchedulerConfig(n=4, B=2, max_staleness=2),
+                 eng, tr, InprocPublisher(tr, eng), lambda: CopyTask(turns=2, symbols=8, latency_s=0.001), {"copy": [f"p{i}" for i in range(400)]})
+    rep = await rt.run()
+    assert len(rep.steps) == 4 and all("moe/routing_confidence" in s.metrics for s in rep.steps)
+    for r in rep.trained_records:
+        for t in r.turns:
+            assert t.routing and len(t.routing) == len(t.completion_token_ids) and all(len(x) == 2 for x in t.routing)  # k = 2, kept across resumes
