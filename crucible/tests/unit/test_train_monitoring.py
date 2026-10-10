@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from crucible.train.engine import EnginePool, TinyPolicy, TorchEngine
 from crucible.train.envs import CopyTask
 from crucible.train.pool import DataPool
@@ -127,7 +129,7 @@ async def test_same_records_give_the_same_loss_under_every_topology():
 
 
 class CountingCopy(CopyTask):
-    steps: dict = {}
+    steps: ClassVar[dict] = {}
 
     async def reset(self, prompt, seed):
         self.key = (prompt, seed)
@@ -170,7 +172,7 @@ def test_pad_and_drop_group_backfill():
     for mode, expect in (("pad", "trained"), ("drop_group", "evicted")):
         pool = DataPool()
         q = [f"p{i}" for i in range(10)]
-        s = Scheduler(SchedulerConfig(n=2, B=1, group_backfill=mode, staleness_strategy="none"), pool, {"x": lambda: q.pop(0) if q else None})
+        s = Scheduler(SchedulerConfig(n=2, B=1, group_backfill=mode, staleness_strategy="none"), pool, {"x": lambda q=q: q.pop(0) if q else None})
         g = s.admit(0)[0]
         pool.finish(g.members[0], reward=1.0)
         pool.finish(g.members[1], reward=None, status="masked")

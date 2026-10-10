@@ -2,7 +2,7 @@
 
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
-- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 30 done, 22 partial, 0 missing; the gaps are being closed in order.
+- **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 38 done, 14 partial, 0 missing; the gaps are being closed in order.
 - **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
 
 - **Research** (`docs/research/m11-m12/`):
@@ -150,29 +150,29 @@ Facts behind the table:
 | 2 | publish +1, per-call version | partial | capture-proxy version stamping; 100-call mid-rollout test |
 | 3 | call-level version purity | done | |
 | 4 | version_spans gate | done | |
-| 5 | publish_s, reprefill per step | partial | per-step `weights/publish_s`, `rollout/reprefill_tokens` keys |
-| 6 | topologies, identical-loss golden | partial | cross-topology loss golden test |
+| 5 | publish_s, reprefill per step | **done** | `weights/publish_s`, `rollout/reprefill_tokens` (per-step delta) |
+| 6 | topologies, identical-loss golden | **done** | one batch through each topology's `_train`: identical loss |
 | 7 | offload knobs | **done** | `TorchTrainer.offload(cpu\|nvme)`/`onload()` (moments preserved; CPU round trip bitwise); runtime offloads after each publish and onloads before each step (colocated; disaggregated refuses); measured on MPS: ≤ 5 % of the training peak stays resident; `kv_on_train` validated per engine (`VLLMServerEngine`: discard only) |
 | 8 | separate env worker pool | **done** | `EnvWorkerPool` (`env_workers`); tests: blocking envs parallel, engines serve during a block, env steps finish while paused, World episodes on workers |
 | 9 | per-phase bubbles | **done** | `idle/rollout_s`, `idle/train_s`, `idle/env_wait_s`, `env/busy_s`, `engine/utilization` per step |
 | 10 | colocated_sync on-policy | done | |
-| 11 | partial barrier semantics | partial | KV release; byte-identical World checkpoint test |
+| 11 | partial barrier semantics | partial | tested: aborts never replay environment actions; KV release is the engine's sleep (vLLM) |
 | 12 | disaggregated never pauses | done | |
-| 13 | publish every K, optimizer reset | partial | tests for K > 1 and moment zeroing |
-| 14 | warmup batches | done | test |
+| 13 | publish every K, optimizer reset | **done** | K = 2 versions; moments zeroed at publish |
+| 14 | warmup batches | done | tested: first step waits for B × 2 terminal groups |
 | 15 | per-source admission | done | lower-bound test |
 | 16 | terminal-only GRPO, critic no barrier | partial | critic mode (n = 1) |
-| 17 | group backfill | done | pad / drop_group tests |
+| 17 | group backfill | done | pad / drop_group / refill tested |
 | 18 | loss_agg + DAPO golden | done | |
 | 19 | DP balancing | done | real DP: `DistributedTorchTrainer` |
-| 20 | drop ≤ τ, one refill per evict | partial | refill-exactly-one assertion |
+| 20 | drop ≤ τ, one refill per evict | **done** | tested: one admitted group per evicted group |
 | 21 | wait, zero evictions | done | |
 | 22 | in-flight ≤ S × B | done | |
 | 23 | GLM example | done | |
-| 24 | staleness metric set | partial | staleness_worst, evicted_staleness, admission_blocked_s |
+| 24 | staleness metric set | **done** | `staleness_worst/*`, `evicted_staleness/*` (incl. evictions at blocked barriers — a bug found), `admission_blocked_s` |
 | 25 | max_offpolicy_frac | done | |
 | 26 | windowed FIFO rule | done | |
-| 27 | Fig. 9 reproduction | partial | W = 1 ≡ FIFO, W = N ≡ greedy tests |
+| 27 | Fig. 9 reproduction | **done** | W = 1 ≡ strict FIFO, W = N ≡ greedy tested |
 | 28 | windowed lag ≤ 10 | done | |
 | 29 | length-bias monitor | partial | first-10-batch hard share; drop_early_short test |
 | 30 | source mix ± 10 % | partial | sim mix test |
@@ -196,5 +196,5 @@ Facts behind the table:
 | 48 | critic knobs | partial | TTUR, freeze attention |
 | 49 | critical_steps, frozen sub-agents | partial | critical_steps; TorchTrainer frozen mask |
 | 50 | prefix sharing | **done** | `TrainerConfig.prefix_sharing`: items with one full prompt in a micro batch encode it once (`TinyPolicy`: GRU state; `HFPolicy`: Forge-style packing, positions restart per completion, 4D *float* mask, since a bool mask is ignored by eager attention); loss and gradients equal the unpacked step within 1e-6; `train/prefix_tokens_saved`. Open: keeping a group in one micro batch when packing |
-| 51 | per-step monitor set | partial | runtime feeds truncation, entropy, zero-variance, hacks |
-| 52 | pass-rate alarm → re-audit | partial | re-audit hook |
+| 51 | per-step monitor set | **done** | runtime feeds truncation, zero-variance groups, entropy (behaviour estimate), confirmed hacks |
+| 52 | pass-rate alarm → re-audit | **done** | `Runtime(on_alarm=)` gets the batch's records; tested with a sudden pass-rate jump |
