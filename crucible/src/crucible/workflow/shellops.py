@@ -194,6 +194,18 @@ def apply_shell(fs: FileState, command: str, *, cwd: str, path_of: Callable[[str
                     fs.write(r, "")
                     eff.applied.append(r)
             continue
+        if prog == "git" and rest[:1] == ["checkout"] and "--" not in rest:
+            # `git checkout <file>...` (optionally after HEAD): a restore when the arguments are files, a branch
+            # switch otherwise (not replayable)
+            cand = [x for x in rest[1:] if not x.startswith("-")]
+            if cand[:1] == ["HEAD"]:
+                cand = cand[1:]
+            files = [x for x in cand if (r := repo(x)) is not None and (fs.read(r) is not None or (fs.base and fs.base(r) is not None))]
+            if cand and len(files) == len(cand):
+                rest = ["checkout", "--", *files]
+            elif cand:
+                eff.unreplayable.append("git checkout <ref>")
+                continue
         if prog == "git" and rest[:1] in (["checkout"], ["restore"]) and ("--" in rest or rest[:1] == ["restore"]):
             paths = rest[rest.index("--") + 1:] if "--" in rest else [x for x in rest[1:] if not x.startswith("-")]
             base = fs.base or (lambda p: None)

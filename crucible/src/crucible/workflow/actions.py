@@ -134,6 +134,12 @@ def classify(tool: str, arguments: Any = None) -> ActionKind:
         return "submit"
     if tool in EDIT_TOOLS or base in EDIT_TOOLS:
         args = arguments if isinstance(arguments, dict) else {}
+        if isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments)
+                args = parsed if isinstance(parsed, dict) else {}
+            except ValueError:
+                args = {"command": "view"} if re.search(r'"command"\s*:\s*"view"', arguments) else {}
         if base in ("str_replace_editor", "str_replace_based_edit_tool") and args.get("command") == "view":
             return "investigate"
         return "edit"

@@ -161,13 +161,22 @@ class EditReplayer:
             got = final.files.get(p) if p in final.files else self.base(p)
             checks.append(ReplayCheck(what=f"final:{p}", recorded=None if rec is None else len(rec), replayed=None if got is None else len(got),
                                       match=_norm(rec, self.compare) == _norm(got, self.compare), tolerance=self.compare))
+        # A file no recorded call ever names (not in any argument, not a redirect target) was produced by running
+        # something (test logs, caches): an execution byproduct. Strict replay counts it; agent-state replay does not.
+        mentioned = " ".join(str(e.data.get("arguments") or "") for e in trace.events if e.type == "tool_call")
+        for c in checks:
+            if not c.match:
+                path = c.what.split(":", 1)[1]
+                c.tolerance = (c.tolerance or "") + ("; byproduct" if path.rsplit("/", 1)[-1] not in mentioned else "")
         bad = [c.what for c in checks if not c.match]
+        authored_bad = [c.what for c in checks if not c.match and "byproduct" not in (c.tolerance or "")]
         ok = not bad
         reason = None if ok else f"{len(bad)} file(s) differ from the recorded final state: {bad[:5]}"
         if not ok and problems:
             reason += f"; {len(problems)} call(s) not replayable (first: {problems[0]['problem']} at seq {problems[0]['seq']})"
         return ReplayResult(trace_id=trace.trace_id, replayer=self.name, ok=ok, quarantined=not ok, reason=reason, steps_replayed=len(states),
-                            checks=checks, meta={"unreplayable": problems[:20], "n_unreplayable": len(problems),
+                            checks=checks, meta={"ok_agent_state": not authored_bad, "byproducts": [c for c in bad if c not in authored_bad][:20],
+                                                 "unreplayable": problems[:20], "n_unreplayable": len(problems),
                                                  "files_in_final_patch": len(parse_patch(self.final_patch))})
 
 

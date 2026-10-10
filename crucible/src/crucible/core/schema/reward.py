@@ -55,6 +55,8 @@ class RewardJson(CrucibleModel):
 class StepRow(CrucibleModel):
     step: int
     atif_step_id: str | None = None
+    call_id: str | None = None  # the model call (capture-proxy node / ATIF step) whose sampled tokens this step's credit attaches to
+    harness: str | None = None  # harness@version: credit is conditioned on it (one harness per GRPO group)
     actor: str | None = None
     phi: float
     delta_phi: float
