@@ -1120,6 +1120,34 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**E: NeMo-Gym import (2026-10-10; audit 03 G5, pick 7).** NeMo-Gym's resources servers become Crucible Worlds
+(`interop/nemo_gym/import_server.py`). The pattern is verifiers' `v1/tasksets/nemo_gym`: seed with the row, verify with
+a rebuilt Responses object.
+
+- **Server:** `NemoGymServer` runs one resources-server class in the NeMo-Gym Python (`crucible/.envs/nemo`, 3.13;
+  `serve_resource.py`, which imports only `nemo_gym`) or attaches to a URL.
+- **App (`nemo_gym/resources`):**
+  - posts the dataset row to `/seed_session`; the session is the server's signed cookie, kept in the App's client;
+  - exposes the row's function tools, each call being `POST /<tool>`;
+  - **state** is a replay journal (calls, result digests, outputs): restore re-seeds a fresh session and re-issues the
+    calls, verifying each digest.
+- **Task:**
+  - the instruction is the row's input messages;
+  - `grade` rebuilds the Responses object, taking function calls and outputs from the App journal plus the final
+    message from the trace, and posts `/verify` with the row. The server's reward is the score gate, and
+    `mask_sample` masks;
+  - `oracle_actions()` replays `ground_truth` function calls.
+- **Found while testing:** `World.restore` does not rewind the trace (the log keeps abandoned branches), so a response
+  built from the trace re-sent pre-restore calls and a correct restored episode scored 0. The response now comes from
+  the App journal, which is exactly the calls applied to the current server session.
+- **Tests (real NeMo-Gym servers):**
+  - workplace_assistant: oracle 1.0 and no-op 0.0 on all 5 example rows;
+  - MRCR and RULER: NeMo-Gym's recorded rollouts, replayed through Crucible Worlds, reproduce NeMo's own rewards
+    (including MRCR's continuous 0.976);
+  - snapshot/restore re-seeds and replays to a correct 1.0;
+  - `mask_sample` masks.
+- **Not covered:** `math_with_autograder` and the other judge-graded servers need a judge model server (gap G10).
+
 **Kit grader: OOM attributed to "node contention" was the candidate's own memory (fixed 2026-10-10).** In task04 golden
 re-grades, `astra_v3b` and `oob` had their `concurrency` gate masked as `node_contention` ("other processes held
 28 GB"). History records both gates as passing, and the only process on the GPU was the grade's own `kinfu_replay`.

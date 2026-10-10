@@ -3,8 +3,7 @@
  "graded": "8/8",
  "pass": false,
  "needs_regrade": [
-  "astra_v3b",
-  "oob"
+  "astra_v3b"
  ],
  "agree_where_measured": true,
  "grades": {
@@ -237,17 +236,17 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "build": 1,
     "binary": 1,
+    "build": 1,
+    "concurrency": 1,
     "consumers": 1,
-    "kinfu": 1,
-    "people": 1,
-    "ncv": 0,
-    "concurrency": 0,
     "fresh": 0,
+    "kinfu": 1,
+    "ncv": 0,
+    "people": 1,
+    "perf": 0,
     "sanitizer": 0,
-    "perf": 0
+    "static": 1
    },
    "kit_status": {
     "static": "pass",
@@ -257,23 +256,21 @@
     "kinfu": "pass",
     "people": "pass",
     "ncv": "fail",
-    "concurrency": "infra",
+    "concurrency": "pass",
     "fresh": "fail",
     "sanitizer": "fail",
     "perf": "skip"
    },
    "reward": 0.0,
    "infra": {
-    "status": "masked",
-    "failure_kind": "check_infra",
-    "reason": "concurrency: node_contention: GPU out of memory while other processes held 28023 MiB (kinfu_replay)"
+    "failure_kind": null,
+    "reason": null,
+    "status": "ok"
    },
    "intended_gate": "ncv",
    "intended": true,
    "profile_diffs": {},
-   "needs_regrade": [
-    "concurrency"
-   ],
+   "needs_regrade": [],
    "fresh_consistent": true,
    "match": true
   },

@@ -68,7 +68,7 @@ The corpus audit's ten picks:
 - terminal-bench 2.1 / science; MiMo Harbor code + cyber; SmolDataEnvs; HF_ML_Tasksmith (all via A-1);
 - EnterpriseOps-Gym (new `interop/eog`);
 - verifiers v1 import (tau2/tau3, BrowseComp-Plus) and v0 import;
-- NeMo-Gym import (workplace_assistant, ruler/mrcr, math);
+- ✅ NeMo-Gym import (workplace_assistant, ruler/mrcr; math needs a judge server);
 - OpenEnv two-player games as multi-agent;
 - geoguesser (vision); browsergym (GUI);
 - the AWM grader (G12).
