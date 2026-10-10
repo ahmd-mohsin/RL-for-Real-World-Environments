@@ -26,6 +26,7 @@
 | Weight | `InprocPublisher` / `CheckpointPublisher` (`weights.py`); `DistributedPublisher` / `EngineReceiver` over `BroadcastWeightSync` (`weightsync.py`) | `publish()` → version + 1, exactly; engines load atomically between calls; every response carries its serving version; the distributed path: bucketed double-buffered broadcast, all-reduced error codes, atomic commit, subgroup updates (§6a) |
 | Training | `TrainerBackend` (`trainer.py`) | `step(records, groups)`; `state_dict()`; reference `TorchTrainer`; bridges to verl / TRL / SkyRL / rLLM (`bridges/`) |
 | Record | `crucible.rollout/v1` (`rollout.py`) | per call: token ids (linear delta storage), behaviour logprobs, `policy_version`, `version_spans`, sampling, credit; per rollout: reward (None = masked), segments, trajectory tokens; `valid_for_training()` |
+| Observability | `Tracking` over sinks (`sinks.py`; `RuntimeConfig.sinks`) | step metrics, every trained `crucible.rollout/v1` record, every failure and the final summary fan out to JSONL / TensorBoard / W&B (offline by default) / console; a sink that raises is disabled with one warning and listed in the summary (`sinks_failed`), never fatal (m13 C-1) |
 
 ## 2. Parallelization granularity: every unit, defined once
 

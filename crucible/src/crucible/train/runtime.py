@@ -78,6 +78,10 @@ class RuntimeConfig:
     # by ``audit_fn`` (full tier); fast > 0 and full == 0 is a confirmed hack (or tier divergence) and feeds
     # ``confirmed_hack_rate`` and ``audit/*`` metrics
     audit_rate: float = 0.05
+    # metric / record sinks (m13 C-1, ``train.sinks``): step metrics, trained records (``record_rollouts``), failure
+    # examples and the final summary; a failing sink is disabled, never fatal
+    sinks: list = field(default_factory=list)
+    record_rollouts: bool = True
     reward_deadline_s: float | None = None
     reward_timeout_s: float = 600.0
     aux_deadline_s: float | None = None
@@ -157,6 +161,10 @@ class Runtime:
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
         self.monitor = StepMonitor()
         self.report = RunReport()
+        from crucible.train.sinks import Tracking
+
+        self.tracking = Tracking(cfg.sinks)
+        self._step_now = 0
         self.tasks: dict[str, asyncio.Task] = {}
         self.changed = asyncio.Event()
         self.version = 0
@@ -232,8 +240,10 @@ class Runtime:
         self.report.failures[key] = self.report.failures.get(key, 0) + 1
         if rollout:
             self._recent.append(blame)
+        ex = {"kind": key, "message": (str(e) or repr(e))[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]}
         if self.report.failures[key] <= 2:
-            self.report.failure_examples.append({"kind": key, "message": (str(e) or repr(e))[:500], "traceback": "".join(traceback.format_exception(e))[-3000:]})
+            self.report.failure_examples.append(ex)
+        self.tracking.record("failure", {**ex, "rollout": rollout}, self._step_now)  # every failure, not only the examples
 
     def _breaker(self) -> str | None:
         n = len(self._recent)
@@ -406,6 +416,8 @@ class Runtime:
         else:
             m = self.trainer.step(recs, groups)
         self.report.trained_records += recs
+        if self.cfg.record_rollouts:
+            self.tracking.records("rollout", recs, self._step_now + 1)
         self._schedule_audits(recs)
         if self.cfg.keep_records is not None and len(self.report.trained_records) > self.cfg.keep_records:
             del self.report.trained_records[: len(self.report.trained_records) - self.cfg.keep_records]
@@ -446,11 +458,20 @@ class Runtime:
         return self.start_step
 
     async def run(self) -> RunReport:
+        status = "error"
         try:
-            return await self._run()
+            rep = await self._run()
+            status = rep.stop_reason or "steps"
+            return rep
         finally:
             if self.envs is not None:
                 self.envs.close()
+            r = self.report
+            self.tracking.summary({"status": status, "steps": len(r.steps), "version": self.version, "publishes": r.publishes,
+                                   "masked_rollouts": r.masked_rollouts, "failures": dict(r.failures), "restarted_rollouts": r.restarted_rollouts,
+                                   "checkpoints": list(r.checkpoints), "audits": r.audits, "confirmed_hacks": r.confirmed_hacks,
+                                   "sinks_failed": dict(self.tracking.failed)})
+            self.tracking.finish(status)
 
     async def _run(self) -> RunReport:
         t_start = time.monotonic()
@@ -537,6 +558,8 @@ class Runtime:
             metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
             metrics.update(self._bubbles(mark, train_s, publish_s))
             self.report.steps.append(StepLog(step, self.version, metrics))
+            self._step_now = step
+            self.tracking.log(metrics, step)
         if self._audit_tasks:  # audits already started finish (their verdicts belong to this run)
             await asyncio.gather(*list(self._audit_tasks), return_exceptions=True)
         for t in self.tasks.values():

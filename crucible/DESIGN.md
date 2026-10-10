@@ -1120,6 +1120,31 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-1 (2026-10-10): metric and record sinks.** `train/sinks.py` ports verl / SkyRL `Tracking` (one object fanning out
+to backends) with two changes for long agentic runs:
+- **Failure isolation:** a backend that raises is disabled (one warning, listed as `sinks_failed` in the summary) and
+  the run continues. verl only guards `finish`.
+- **Records as well as scalars:** every trained `crucible.rollout/v1` record (`record_rollouts`) and every failure
+  (not only the two examples per kind in `RunReport`) streams to record sinks.
+
+Backends:
+- **`JsonlSink`:** line-buffered `metrics.jsonl` / `records.jsonl` and an atomically rewritten `summary.json`, so a
+  killed run keeps everything up to its last step.
+- **`TensorBoardSink`:** scalars.
+- **`WandbSink`:** offline by default.
+- **`ConsoleSink`.**
+
+Wiring:
+- `from_spec("jsonl:DIR,tensorboard:DIR,wandb:PROJECT[:online],console")` builds the sinks.
+- `RuntimeConfig.sinks` logs at every step barrier, records at training and failure time, and writes the summary
+  plus finish when the run ends, whatever the outcome.
+- The M12 GPU gate takes `--sinks` (default: JSONL under its output dir).
+
+Test: a real tiny runtime with a JSONL sink and a sink that raises finishes all steps. Metrics land at every step;
+rollout records equal the trained records; failure rows equal `RunReport.failures`; and the summary names the
+disabled sink. The golden and forge stagers also now treat an ssh session held open by the detached runner as
+started.
+
 **Kit grader: child interpreters lost the import order (2026-10-10, task03 lab golden).** Every task03 grade failed the
 `api` gate where history passed:
 - `test_pallas_kernels_are_used` traced no Pallas kernels;

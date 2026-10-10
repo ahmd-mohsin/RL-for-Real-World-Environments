@@ -102,9 +102,12 @@ def stage() -> None:
         if r.returncode:
             raise SystemExit(r.stderr.decode()[-500:])
     # a pidfile, not pgrep -f: a pattern can match this very command line (Appendix B.5)
-    r = lab(f"cd ~/{REMOTE} && (kill -0 $(cat runner.pid 2>/dev/null) 2>/dev/null || setsid nohup ./run.sh > runner.log 2>&1 < /dev/null &) ; "
-            "sleep 3; cat status.txt 2>/dev/null", timeout=60)
-    print(r.stdout or r.stderr)
+    try:  # the detached runner can hold the ssh session open: a timeout here means it started
+        r = lab(f"cd ~/{REMOTE} && (kill -0 $(cat runner.pid 2>/dev/null) 2>/dev/null || setsid nohup ./run.sh > runner.log 2>&1 < /dev/null &) ; "
+                "sleep 3; cat status.txt 2>/dev/null", timeout=60)
+        print(r.stdout or r.stderr)
+    except subprocess.TimeoutExpired:
+        print("started (ssh held open by the detached runner)")
 
 
 def status() -> None:

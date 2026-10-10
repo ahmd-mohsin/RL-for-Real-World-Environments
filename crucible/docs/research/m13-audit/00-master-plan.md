@@ -44,7 +44,7 @@ Already closed in this session:
 
 | ID | Item | Source |
 |---|---|---|
-| C-1 | Metric/record sinks (JSONL + optional TensorBoard/W&B) | A2-56 |
+| C-1 ✅ | Metric/record sinks (JSONL + optional TensorBoard/W&B) | A2-56 |
 | C-2 | Group grading stage (the group-level reward hook: tournaments, hack zeroing, recompute the group mean) | A2-15 |
 | C-3 | GAR (mass-conserving redistribution, λ cap) and GRS-style multiplicative rubric reward | A2-16/17 |
 | C-4 | Online hack interception at `World._call_tool` (refusal or dummy result, episode continues); a two-level detector (rules for recall, then an LLM judge for precision) | A2-28/29 |

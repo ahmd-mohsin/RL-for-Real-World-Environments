@@ -99,8 +99,11 @@ def stage() -> None:
             raise SystemExit("staging failed or a patch arrived empty: " + (r.stderr or r.stdout).decode()[-500:])
     start = (f"cd ~/{REMOTE} && (kill -0 $(cat runner.pid 2>/dev/null) 2>/dev/null || setsid nohup ./run.sh > runner.log 2>&1 < /dev/null &); "
              "sleep 3; cat status.txt 2>/dev/null; wc -l queue.txt")
-    r = subprocess.run([*LAB, start], capture_output=True, text=True, check=False, timeout=60)
-    print(r.stdout or r.stderr)
+    try:  # the detached runner can hold the ssh session open: a timeout here means it started
+        r = subprocess.run([*LAB, start], capture_output=True, text=True, check=False, timeout=60)
+        print(r.stdout or r.stderr)
+    except subprocess.TimeoutExpired:
+        print("started (ssh held open by the detached runner)")
 
 
 def status() -> None:

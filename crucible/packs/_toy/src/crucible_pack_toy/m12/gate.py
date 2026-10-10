@@ -67,6 +67,7 @@ async def run(args) -> dict:
     from crucible.train.mismatch import Correction
     from crucible.train.runtime import Runtime, RuntimeConfig
     from crucible.train.scheduler import SchedulerConfig
+    from crucible.train.sinks import from_spec
     from crucible.train.trainer import TorchTrainer, TrainerConfig
     from crucible.train.vllm_http import VLLMServerEngine
     from crucible.train.weights import CheckpointPublisher
@@ -90,7 +91,7 @@ async def run(args) -> dict:
         return tasks[prompt]
 
     rt = Runtime(RuntimeConfig(topology=args.topology, steps=args.steps, max_turn_tokens=args.max_tokens, temperature=1.0, stop_ids=tuple(codec.eos_ids),
-                               warmup_batches=0),
+                               warmup_batches=0, sinks=from_spec(args.sinks or f"jsonl:{Path(args.out) / 'metrics'}", run_name="m12-gate")),
                  SchedulerConfig(n=args.n, B=args.B, max_staleness=args.tau), pool, tr, pub, None, {"backlog": [f"s{i}" for i in range(100000)]},
                  rollout_fn=world_rollout(task_for, codec, max_steps=args.max_steps, max_tokens=args.max_tokens,
                                           context=ContextConfig(budget_tokens=args.context, keep_recent_turns=2)), harness="native:world-qwen@1")
@@ -126,6 +127,7 @@ def main() -> None:
     ap.add_argument("--mem", type=float, default=0.35)
     ap.add_argument("--max-len", dest="max_len", type=int, default=8192)
     ap.add_argument("--out", default="/work/out")
+    ap.add_argument("--sinks", default="", help="train.sinks spec, e.g. jsonl:DIR,tensorboard:DIR (default jsonl under --out)")
     a = ap.parse_args()
     Path(a.out).mkdir(parents=True, exist_ok=True)
     ext_dir = str(Path(__file__).resolve().parents[0] / "_ext")
