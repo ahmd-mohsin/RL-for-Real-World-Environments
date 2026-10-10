@@ -34,7 +34,8 @@ docker run --rm --name crucible_m12_gate --runtime=nvidia -e NVIDIA_VISIBLE_DEVI
   -v $HOME/REMOTE/src:/crucible -v $HOME/REMOTE/out:/work/out -v $HOME/REMOTE/hf:/root/.cache/huggingface \
   --entrypoint bash IMAGE -c 'pip install -q -e /crucible -e /crucible/packs/_toy > /work/out/pip.log 2>&1 && python3 -m crucible_pack_toy.m12.gate ARGS --out /work/out' \
   > out/console.log 2>&1
-echo "$(date -Is) done rc=$?" > status.txt
+RC=$?  # captured before anything else runs ($(date) in the echo would reset $?)
+echo "$(date -Is) done rc=$RC" > status.txt
 """
 
 
@@ -44,7 +45,7 @@ def lab(cmd: str) -> subprocess.CompletedProcess:
 
 def stage(args: str = "--steps 20") -> None:
     lab(f"mkdir -p ~/{REMOTE}/src")
-    subprocess.run(["rsync", "-a", "--delete", "--exclude", ".venv", "--exclude", "data", "--exclude", "__pycache__", "--exclude", ".git",
+    subprocess.run(["rsync", "-a", "--delete", "--exclude", ".venv", "--exclude", ".envs", "--exclude", "data", "--exclude", "__pycache__", "--exclude", ".git",
                     f"{CRUCIBLE}/", f"{HOST}:{REMOTE}/src/"], check=True)
     run = RUN.replace("REMOTE", REMOTE).replace("IMAGE", IMAGE).replace("ARGS", args)
     subprocess.run([*LAB, f"cat > ~/{REMOTE}/run.sh && chmod +x ~/{REMOTE}/run.sh"], input=run, text=True, check=True)
