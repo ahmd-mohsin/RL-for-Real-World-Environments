@@ -8,9 +8,11 @@ the version that was serving when the call started (call-level switching: a call
 
 Lifecycle on one GPU (research m11-m12/03 finding 1): the server keeps a fixed memory fraction. In ``colocated``
 placement ``pause()`` also puts it to ``/sleep?level=1`` (weights to CPU, KV discarded) so the trainer gets the memory;
-``load_weights`` wakes the weights, loads the published checkpoint through ``/collective_rpc`` →
-``CrucibleWorkerExtension.crucible_load_weights``, resets the prefix cache (a cache from old weights is stale) and wakes
-the KV cache; ``resume()`` reopens generation. In ``split`` placement it never sleeps (memory split: disaggregated
+``load_weights`` wakes **only the weights**, loads the published checkpoint through ``/collective_rpc`` →
+``CrucibleWorkerExtension.crucible_load_weights`` and resets the prefix cache (a cache from old weights is stale);
+``resume()`` wakes the KV cache and reopens generation. The KV cache must not wake inside the publish: the runtime offloads
+the trainer *between* publish and resume, and waking the KV first would put the full trainer and the full engine on the
+GPU at once (m13 audit 04: the wake-order defect that defeated sleep mode). In ``split`` placement it never sleeps (memory split: disaggregated
 semantics on one device).
 
 Requires the server started with ``VLLM_SERVER_DEV_MODE=1 --enable-sleep-mode --worker-extension-cls
@@ -36,7 +38,7 @@ class VLLMServerEngine:
         self._unpaused = asyncio.Event()
         self._unpaused.set()
         self._tasks: dict[str, asyncio.Task] = {}
-        self.sleeping = False
+        self.asleep: set[str] = set()  # sleeping vLLM memory tags: "weights", "kv_cache"
 
     async def _post(self, path: str, json: Any = None, params: Any = None) -> httpx.Response:
         r = await self.client.post(self.base + path, json=json, params=params)
@@ -80,26 +82,30 @@ class VLLMServerEngine:
         await self._post("/abort_requests", json={})
         return n
 
+    @property
+    def sleeping(self) -> bool:
+        return bool(self.asleep)
+
     async def pause(self) -> None:
         self._unpaused.clear()
         await self._post("/pause", params={"mode": "abort"})
         if self.placement == "colocated":
             await self._post("/sleep", params={"level": str(self.sleep_level)})
-            self.sleeping = True
+            self.asleep = {"weights", "kv_cache"}
+
+    async def _wake(self, tag: str) -> None:
+        if tag in self.asleep:
+            await self._post("/wake_up", params=[("tags", tag)])
+            self.asleep.discard(tag)
 
     async def resume(self) -> None:
-        if self.sleeping:
-            await self.client.post(self.base + "/wake_up")
-            self.sleeping = False
+        await self._wake("weights")  # (a resume without a publish)
+        await self._wake("kv_cache")  # only now: the trainer has been offloaded by the runtime
         await self._post("/resume")
         self._unpaused.set()
 
     async def load_weights(self, path: str, version: int) -> None:
-        if self.sleeping:
-            await self.client.post(self.base + "/wake_up", params=[("tags", "weights")])
+        await self._wake("weights")
         await self._post("/collective_rpc", json={"method": "crucible_load_weights", "args": [str(path)]})
         await self._post("/reset_prefix_cache")
-        if self.sleeping:
-            await self.client.post(self.base + "/wake_up", params=[("tags", "kv_cache")])
-            self.sleeping = False
         self.version = version

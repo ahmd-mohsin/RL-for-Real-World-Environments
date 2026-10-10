@@ -997,6 +997,19 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
 - **Gap it exposed:** a provider had no way to request token capture from a self-hosted engine. Fixed with
   `LLMProvider.request_defaults`, merged into every request with call-level `extra_body` keys winning.
 
+**A-4 (2026-10-10): vLLM colocated wake order and the engine's first tests.** `VLLMServerEngine.load_weights` used to wake
+the KV cache inside the publish, so the GPU held the full trainer and the full engine at once, defeating sleep mode.
+- **Fix:** sleep state is explicit (`asleep ⊆ {weights, kv_cache}`):
+  - the publish wakes only the weights, loads them and resets the prefix cache;
+  - `resume()` wakes the KV cache after the runtime has offloaded the trainer.
+- **Tests** (`tests/unit/test_vllm_engine.py`, mock vLLM server):
+  - token-id completions with version stamps;
+  - the exact HTTP sequence (pause → sleep; publish → wake weights / collective_rpc / reset_prefix_cache; resume →
+    wake KV / resume);
+  - generation waits while paused; abort returns `abort`;
+  - split placement never sleeps;
+  - the runtime order is publish → offload → resume.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
