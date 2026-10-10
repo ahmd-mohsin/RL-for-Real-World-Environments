@@ -724,7 +724,13 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
   - **OpenEnv `Environment`** (`interop/openenv/export.py`): on OpenEnv's own base and MCP types. Per-step rewards Ψ-telescope to the final reward, with Ψ₋₁ = 0 because a plan's invariants can hold at the start. A masked grade yields reward None.
   - **verifiers taskset** (`interop/verifiers/taskset.py`): subclasses verifiers' `HarborTask`/`HarborTaskset`. A masked grade raises a typed `TaskError`, which prime-rl drops; components are recorded as `crucible/` metrics.
 - **Framework environments:** `crucible/.envs/{openenv,verifiers,nemo}`. verifiers pins mcp 2, agentenv and OpenEnv mcp < 2, and NeMo-Gym Python ≥ 3.13.14. Each path runs in its own environment, and the gate compares the outputs.
-- **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, NeMo-Gym and OpenEnv, with the same final state fingerprint.
+- **agentenv plugin** (`interop/agentenv/plugin/`, registered by entry points):
+  - a `gpu_docker` sandbox provider (`--runtime=nvidia --init`);
+  - a `crucible_world` step: the World behind a real agentenv gateway, published as a `DeployedGatewayEnv`, so stock agentenv steps work unchanged;
+  - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows and raises;
+  - a `crucible_ref` artifact type.
+- **Canonical episode key** `"<task id>|<episode>"`: derived `call_id`s agree across runtimes.
+- **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, agentenv (real gateway REST transport), NeMo-Gym and OpenEnv, with the same final state fingerprint. verifiers keeps the reward and raises a typed error on a mask.
 
 ### 10.2 Two verifier tiers
 

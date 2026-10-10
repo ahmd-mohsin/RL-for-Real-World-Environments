@@ -3,7 +3,8 @@ channel through every runtime" means, and the normalizations that make it true.
 
 - ``jcs(obj)``: canonical JSON (RFC 8785 style: sorted keys, shortest round-trip float ``repr``, no whitespace). The gate
   compares canonical forms, not on-disk bytes (each runtime's writer formats differently).
-- ``call_id(episode_key, ordinal)``: model-call ids are **derived**, never copied — Responses item ids, verifiers node ids,
+- ``call_id(episode_key, ordinal)``: model-call ids are **derived**, never copied (``episode_key = "<task id>|<episode>"``
+  everywhere) — Responses item ids, verifiers node ids,
   ATIF step ids and gateway event ids all differ across runtimes; runtime ids are kept in ``extra`` for joins.
 - ``canonical_tool(name)``: one tool naming. Crucible ``<app>.<tool>``; agentenv / OpenAI ``<app>__<tool>``; NeMo-Gym
   strips its MCP namespace (``<server>/<tool>`` or ``<server>.<tool>``).

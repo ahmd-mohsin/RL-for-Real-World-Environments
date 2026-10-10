@@ -18,7 +18,7 @@ from pathlib import Path
 from crucible_pack_toy.runtime import HelpdeskTask
 from crucible_pack_toy.verify import GOLD
 
-KEY = "toy/helpdesk|e0"
+KEY = f"{HelpdeskTask.id}|e0"  # canonical episode key: "<task id>|<episode>" (call_ids derive from it)
 
 
 async def native(out: Path) -> dict:

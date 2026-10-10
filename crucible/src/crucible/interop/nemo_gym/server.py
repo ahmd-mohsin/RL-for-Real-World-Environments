@@ -65,7 +65,7 @@ def make_app(tasks: dict[str, Any]):
         write_reward_files(out, rj, rep.to_dict())
         steps_dir = s["dir"] / "steps"
         actions = from_world_trace(s["world"].to_trace())
-        await replay(s["task"], actions, steps_dir, episode_key=f"{s['task_id']}|{body.get('episode_key', 'e0')}", harness="nemo-gym@1")
+        await replay(s["task"], actions, steps_dir, episode_key=f"{getattr(s['task'], 'id', s['task_id'])}|{body.get('episode_key', 'e0')}", harness="nemo-gym@1")
         rows = [json.loads(x) for x in (steps_dir / "steps.jsonl").read_text().splitlines() if x.strip()]
         masked = (rj.get("infra") or {}).get("status") == "masked"
         flat = json.loads((out / "reward.json").read_text()) if (out / "reward.json").exists() else {}

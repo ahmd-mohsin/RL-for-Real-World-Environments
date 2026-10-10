@@ -26,16 +26,18 @@ class HelpdeskTask:
     id = "toy/helpdesk/all_tickets@1"
     world_id = "toy/helpdesk"
 
-    def __init__(self, instruction: str = INSTRUCTION, world_factory=None):
+    def __init__(self, instruction: str = INSTRUCTION, world_factory=None, backend: str = "local"):
         self.instruction = instruction
         self.world_factory = world_factory
+        self.backend = backend  # "agentenv": the same World behind a real agentenv gateway
 
     async def open(self, workdir: Path) -> World:
         workdir = Path(workdir)
         if self.world_factory:
             w = self.world_factory(workdir)
         else:
-            w = World(helpdesk_spec(), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", pack_root=PACK_ROOT)
+            w = World(helpdesk_spec(), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", pack_root=PACK_ROOT,
+                      backend=self.backend)
             for r in responders():
                 w.attach(r)
         await w.start()

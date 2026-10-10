@@ -157,6 +157,12 @@ def from_openenv_steps(actions: Sequence[dict], *, known: Iterable[str] = ()) ->
 
 
 def from_gateway_jsonl(events: Sequence[dict], *, known: Iterable[str] = ()) -> list[Action]:
-    """agentenv gateway ``GET /trajectory`` events: ``{"event_type": "tool_call", "tool_name", "arguments"}``."""
-    return [Action(canonical_tool(e.get("tool_name") or e.get("name", ""), known=known), canonical_args(e.get("arguments")))
-            for e in events if e.get("event_type") == "tool_call"]
+    """agentenv gateway ``GET /trajectory`` events: ``{"event_type": "tool_call", "tool_call": {"function_name", "arguments"}}``
+    (``agent_env/env/gateway/gateway.py`` ``_log_event``); flat ``tool_name``/``arguments`` also accepted."""
+    out = []
+    for e in events:
+        if e.get("event_type") != "tool_call":
+            continue
+        tc = e.get("tool_call") or e
+        out.append(Action(canonical_tool(tc.get("function_name") or tc.get("tool_name") or "", known=known), canonical_args(tc.get("arguments"))))
+    return out

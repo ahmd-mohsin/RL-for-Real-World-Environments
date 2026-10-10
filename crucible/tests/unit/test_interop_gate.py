@@ -15,7 +15,7 @@ from crucible.interop.canonical import jcs, reward_doc, steps_rows
 from crucible.interop.harbor.atif import episode_to_atif
 from crucible.interop.replay import from_atif, from_responses, from_world_trace, replay
 
-KEY = "toy/helpdesk|e0"
+KEY = f"{HelpdeskTask.id}|e0"  # canonical episode key: "<task id>|<episode>" (call_ids derive from it)
 
 
 async def native(tmp: Path):
@@ -180,3 +180,46 @@ def test_openenv_export_identical_and_telescoping(tmp_path):
     assert (tmp_path / "native" / "steps.jsonl").read_text() == (tmp_path / "oe" / "steps.jsonl").read_text()
     p = json.loads((tmp_path / "oe" / "path.json").read_text())
     assert abs(p["sum"] - p["final"]) < 1e-9 and p["masked"] is False and p["fingerprint"] == json.loads((tmp_path / "oe" / "path.json").read_text())["fingerprint"]
+
+
+async def test_agentenv_plugin_world_and_verify_through_the_gateway(tmp_path):
+    """agentenv path: the plugin's crucible_world step serves the World behind a real agentenv gateway; the oracle's tool
+    calls go through the gateway's REST /step (role header), and crucible_verify grades the World and replays the
+    gateway's own trajectory — identical reward.json and steps.jsonl to the native path; registered by entry point."""
+    import pytest
+
+    pytest.importorskip("agent_env")
+    import httpx
+    from agent_env.task_step.context import TaskStepContext
+    from crucible_pack_toy.m11.gate import native
+
+    from crucible.interop.agentenv.plugin.steps import WORLDS, CrucibleVerifyStep, CrucibleWorldStep
+
+    await native(tmp_path / "native")
+    ctx = TaskStepContext()
+    ctx = await CrucibleWorldStep("w", env_id="hd", task="crucible_pack_toy.runtime:HelpdeskTask").execute(ctx)
+    env = ctx.deployed_envs[-1]
+    assert env.env_provider_type == "gateway" and env.gateway_mode == "consistent"
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            tools = (await c.post(f"{env.gateway_url}/step", json={"action": "list_tools"}, headers={"AgentEnv-Role": "agent"})).json()["tools"]
+            assert any(t["name"] == "tickets__issue_refund" for t in tools)
+            for a in GOLD:
+                r = await c.post(f"{env.gateway_url}/step", json={"action": "call_tool", "tool_name": a.function_name.replace(".", "__", 1),
+                                                                 "arguments": a.arguments}, headers={"AgentEnv-Role": "agent"})
+                assert r.status_code == 200, r.text
+        ctx = await CrucibleVerifyStep("v", env_id="hd", episode_key="e0").execute(ctx)
+        ver = ctx.metadata["verifications"]["crucible"]
+        out = Path(ver["crucible"]["out_dir"])
+        assert ver["score"] == 1.0 and not ver["crucible"]["masked"]
+        assert (out / "reward.json").read_text() == (tmp_path / "native" / "reward.json").read_text()
+        nat_rows = steps_rows(tmp_path / "native" / "steps.jsonl")
+        from crucible.interop.canonical import VOLATILE_ROW_KEYS
+
+        assert [{k: v for k, v in r.items() if k != "harness" and k not in VOLATILE_ROW_KEYS} for r in ver["crucible"]["steps"]] == \
+            [{k: v for k, v in r.items() if k != "harness"} for r in nat_rows]
+    finally:
+        await WORLDS.pop("hd")["world"].close()
+    from importlib.metadata import entry_points
+
+    assert {e.name for e in entry_points(group="agent_env.task_steps")} >= {"crucible_world", "crucible_verify"}
