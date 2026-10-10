@@ -9,3 +9,6 @@
   - `patch.py` — verbatim copy of `_patch_env_code` from `scenario_manager.py` (points the generated
     FastAPI app's SQLAlchemy engine at the session DB, mounts `FastApiMCP`, fixes host/port).
 - Data: HF dataset `Snowflake/AgentWorldModel-1K` (generated environments; see its card for terms).
+  - `verifier_runner.py` — verbatim copy of `_verifier_runner.py` (out-of-process verifier execution: import allowlist,
+    CPU / memory / file / process limits). Used by `crucible.interop.openenv.awm_task` for AWM's deterministic
+    code-mode verifiers (`gen_verifier.pure_code.jsonl`).

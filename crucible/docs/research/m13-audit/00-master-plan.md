@@ -71,7 +71,7 @@ The corpus audit's ten picks:
 - ✅ NeMo-Gym import (workplace_assistant, ruler/mrcr; math needs a judge server);
 - ✅ OpenEnv two-player games as multi-agent (connect4; seats, turns, per-seat rewards);
 - geoguesser (vision); browsergym (GUI);
-- the AWM grader (G12).
+- ✅ the AWM grader (G12: AWM's deterministic code verifiers in its sandboxed runner).
 
 ### F. Engines (P0/P1)
 

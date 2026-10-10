@@ -1120,6 +1120,23 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**E: AWM-1K tasks with AWM's own verifiers (2026-10-10; audit 03 G12).** AWM scenarios loaded as Worlds (100/100) but
+produced no reward. `interop/openenv/awm_task.AwmTask(scenario, task_idx)`:
+- the instruction is the dataset's task;
+- `open` copies the freshly seeded session DB to `initial.db`;
+- `grade` runs that task's **code-mode** verifier (`gen_verifier.pure_code.jsonl`, 10,010 deterministic
+  `verify_task_completion(initial_db, final_db, final_answer)`) on the initial DB and a copy of the final DB, both
+  read-only.
+
+It runs in AWM's own out-of-process runner, vendored verbatim (BSD-3) as `_vendor/openenv_awm/verifier_runner.py`:
+an import allowlist, an `os` shim exposing only `os.path`, and CPU / memory / file / process limits. `complete` → 1,
+`others` → 0, and a runner error is masked. The LLM-judged SQL mode is not used.
+
+Tests:
+- real AWM `social_network_8` task 0 through its generated service: the correct `update_profile_summary` call scores 1,
+  a wrong summary 0, a no-op 0;
+- the runner rejects a disallowed import as an execution error, which the task masks.
+
 **E: two-player OpenEnv games as multi-agent Worlds (2026-10-10; audit 03 pick 8).** The OpenEnv importer had a single
 `agent` actor.
 
