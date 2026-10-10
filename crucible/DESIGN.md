@@ -521,6 +521,8 @@ Each role is an LLM agent with a narrow toolset and a typed output. The orchestr
 
 **Coordination (P28).** The orchestrator is deterministic but holds no content: roles coordinate through a shared task repository (drafts, checks, negatives as commits) and an issue tracker (audit findings, calibration results), so no single context has to hold every task. Roles are persistent specialists per family: the auditor that found a family's defects keeps them, instead of a fresh agent rediscovering them. Tasks may target problems nobody can solve yet (Preference Model's elliptic-curve rank) as long as the grader checks the outcome (P20).
 
+**Built in M8 (2026-10-09).** The orchestrator is a deterministic DAG with a journal (resume by input hash), a reserve/settle budget, retries that carry validator findings, and task states bound to the content hash (`forge/orchestrator.py`). "Cannot see" is enforced by staging, not prompts: a role receives only its visible inputs. The oracle's output carries a canary; a node with no visible path to the oracle that emits it fails as a breach. No role grades its own output: acceptance is the deterministic M9 subset (`accept/contract.py`: A1 A2 A3 A4-lite A5 A7 A8). Valid alternatives (different correct solutions that must pass) are part of A3, which catches checks that grade the oracle's internals instead of the property.
+
 ### 7.3 Horizon levels for coding
 
 | Level | Typical scope | Agent steps | Example in this family |
@@ -533,6 +535,8 @@ Each role is an LLM agent with a narrow toolset and a typed output. The orchestr
 | H5 | cross-repo / cross-team | 300+ | migrate a library and its downstream consumers owned by "other teams" (the first step toward horizontal) |
 
 **Decomposition generator.** One expert trace yields tasks at several horizons. Use start state = the expert's state at step i, goal = the milestones satisfied by step j. The H4 task's trace then provides H1–H3 subtasks, which are graded with the same milestone checks. This gives a curriculum, and it is the basis for step-level benchmarks (§11).
+
+*As built (M8):* task04 v3 spans are module-scoped (people, NCV, KinFu, KinFu-LS). The start state is the base plus the oracle's other modules, with **sibling forks excluded**: KinFu-LS is a fork of KinFu, and with the sibling's port in the start, 67–70% of a span's new lines were already visible. A5 measures this overlap (≤ 20%). A span's hidden gates are the seed's behavioural suites restricted to its scope; mined milestones feed Φ only, never gates, because gold-token milestones fail correct alternative implementations (M6 finding 4).
 
 ### 7.4 Generators (all parameterized)
 
@@ -983,4 +987,16 @@ Registry check: A3, mutation score.
 | The trusted runner reaped its child in `poll()` and then crashed in `wait4`; and it killed the cohort only after a 1 s drain grace | an attack "failed" because the grader crashed into a fail; a detached child rewrote outputs in the grace | `wait4(WNOHANG)` exit observation, cohort kill at exit; found by the red-team control |
 | M5 `phi` compared the sql adapter's exact float encoding (`{"f": hex}`), not the value | every float-valued milestone or predicate was unmeasurable | `evaluate.decode`; toy golden |
 | A runner liveness check used `pgrep -f` matching its own ssh command line | the GPU golden runner never started (B.5 repeated) | pidfile |
+
+**B.13 Found while building M8 (2026-10-09).**
+
+| Defect / finding | Where it bites | Check / status |
+|---|---|---|
+| A span's start held the expert's port of a sibling fork (KinFu ↔ KinFu-LS) | 67–70% of the span's solution visible in the start: asymmetry 1 gone | sibling forks excluded; A5 sibling-overlap ≤ 20% (`forge/derive.py`) |
+| The Adversary had no negative for a gate family (T1's policy gate) | a gate nobody ever proved can fail | A3 per-gate-family coverage; generic double-refund mutant |
+| A journaled role output was reused after the role's logic changed | stale negatives accepted | role `version` is part of the input hash; bump it with the logic |
+| Frontier run traces held gate events no mapper read | the seeds' best trap sources were unusable | `coding/agent_run` signal mapper |
+| The seed instruction's base-commit SHA matches the leak scrubber's pattern | every derived instruction failed A5 | derived instructions drop the base commit |
+| A cheap LLM Test writer wrote parameterized SQL despite feedback | weak or broken checks | deterministic validators; the node fails closed and the plan is rejected |
+| A node skipped because its upstream failed was labelled "abandoned" | content failures reported as budget/infra exhaustion | `skipped` status; a plan with any failed or breached node is `rejected` |
 

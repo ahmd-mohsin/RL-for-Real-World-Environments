@@ -81,6 +81,11 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | "no parseable reward → masked" | MiMo `run_verify.py` (Apache-2.0; pattern) | `verify/runtime/plan.py` |
 | expected-row database verifier, inverted to violating-row invariants | EnterpriseOps-Gym `database_state` (Apache-2.0; pattern) | `verify/runtime/patterns/invariants.py` |
 | reward files read by Harbor (flat numeric `reward.json`, `reward.txt`) | Harbor `verifier/verifier.py:104-121` (Apache-2.0; format) | `verify/runtime/plan.py` (`flat_reward`), `core/schema/reward.py` (`flat`) |
+| learnability reward 4p(1−p) | verifiers `environments/proposer_solver/taskset.py` (MIT; reimplemented with Wilson intervals) | `forge/learnability.py` |
+| world synthesis stage order (scenario → tasks → seed data serving the tasks → tools → checks) | OpenEnv `agent_world_model_env` / AWM (BSD-3; pattern) | toy `forge/scenario.py`, `forge/env.py` |
+| superseded-document decoys; infeasible requests | MiMo v2.6 general envs, EnterpriseOps-Gym (Apache-2.0; pattern) | toy `forge/env.py`, `forge/scenario.py` |
+| journal resume by input hash; reserve/settle budget; hash-bound task states | RTS `publish.py` (CC-BY data, pattern), Repo2RLEnv `campaigns/budget.py`, FrontierSmith (Apache-2.0; pattern) | `forge/orchestrator.py`, `forge/budget.py` |
+| procedural defect mutants applied to an oracle; PR-mirror negatives | SWE-smith `bug_gen/procedural`, `bug_gen/mirror` (MIT; pattern) | toy `forge/roles.py`, M6 `defect_to_check.reverse_patch` |
 ## Data used for tests and gates (never in training or benchmark splits)
 
 | Data | Source | License / terms | Use |

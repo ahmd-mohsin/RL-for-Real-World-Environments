@@ -2,7 +2,7 @@
  "model": "mistralai/mistral-nemo",
  "M1_world": {
   "ok": true,
-  "seconds": 0.36,
+  "seconds": 0.31,
   "audit_ok": true,
   "checks": {
    "runtime.reset_stable": "pass",
@@ -21,7 +21,7 @@
  },
  "M2_actors_llm_episode": {
   "ok": true,
-  "seconds": 27.98,
+  "seconds": 31.58,
   "steps": 20,
   "stop": "max_steps",
   "masked": false,
@@ -62,26 +62,52 @@
  },
  "M6_credit": {
   "ok": true,
-  "seconds": 2.31,
+  "seconds": 1.5,
   "reward": 0.0,
   "gates": {
    "refund_policy": 1
   },
   "outcome": 0.0,
   "progress": 0.0,
-  "judge_p_success": 0.2,
+  "judge_p_success": 0.1,
   "judge_error": null
+ },
+ "M7_verify": {
+  "ok": true,
+  "seconds": 0.02,
+  "reward": 0.0,
+  "gates": {
+   "refund_policy": 1,
+   "approvals": 1
+  },
+  "failing": [
+   "t1",
+   "t2",
+   "t3"
+  ],
+  "flat_numeric": true,
+  "reward_txt": "0"
  },
  "harness_bash_loop": {
   "ok": true,
-  "seconds": 11.97,
-  "steps": 7,
+  "seconds": 6.62,
+  "steps": 4,
   "stop": "agent_done",
   "format_errors": 0,
   "fib_output": "0 1 1 2 3 5 8 13 21 34",
   "correct": true
  },
- "spend_usd": 0.000989,
- "calls": 27,
+ "M8_forge": {
+  "ok": true,
+  "seconds": 14.39,
+  "state": "constructed",
+  "accepted": 5,
+  "tasks": 5,
+  "audit_sound": true,
+  "llm_narrative_findings": [],
+  "sample_instruction": "\"Ticket 36: Order O-7288 was received damaged. I'll need your approval for the refund.\" Refund the damaged item on order O-7288 in full on ticket 36. Add a note to ticket 36. Set ticket 36 to resolved. Follow the current"
+ },
+ "spend_usd": 0.000924,
+ "calls": 29,
  "all_layers_ran": true
 }

@@ -1,0 +1,724 @@
+{
+ "gate": "M8 coding: span + trap tasks (CPU acceptance; behavioural acceptance queued for the verifier image)",
+ "spans": {
+  "people": {
+   "title": "Bring PCL's GPU people detector (gpu/people, including the vendored NCV / NPP-staging primitives) to CUDA 12.8 (RTX 5090)",
+   "horizon": "H2",
+   "start_files": 48,
+   "span_files": 8,
+   "checks": [
+    "suite/static",
+    "suite/build",
+    "suite/binary",
+    "suite/consumers",
+    "suite/people",
+    "suite/ncv",
+    "suite/concurrency",
+    "suite/fresh",
+    "suite/sanitizer",
+    "suite/perf",
+    "trap/elec.cu:edgesTex#c72fca3ea9",
+    "trap/elec.cu:cudaTextureObject_t#efeaa0bdb4",
+    "trap/elec.cu:texture_binder#198a11d824",
+    "trap/elec.cu:TextureObject#5782ade6cb",
+    "trap/elec.cu:containers#c124700c35",
+    "trap/elec.cu:tex2D#6293663509",
+    "trap/elec.cu:impl#8a6bf9cd79",
+    "trap/multi_tree.cu:__float2int_rd#da4107133b"
+   ],
+   "milestones_for_phi": 86,
+   "negatives": {
+    "start": {
+     "applies": true,
+     "kind": "floor",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": false
+    },
+    "unported_0": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": false
+    },
+    "unported_1": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": true
+    },
+    "unported_2": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": true
+    },
+    "unported_3": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": true
+    },
+    "unported_4": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": true
+    },
+    "trap_sol_v3": {
+     "applies": true,
+     "kind": "trap_reversion",
+     "expected_gate": "ncv",
+     "c2_checks_pass": false
+    },
+    "astra_v3_module": {
+     "applies": true,
+     "kind": "valid_alternative",
+     "expected_gate": null,
+     "c2_checks_pass": false
+    }
+   },
+   "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
+   "trap_signals": [
+    "sig_e5cc99b7df2c062f"
+   ],
+   "c2": {
+    "proposed": 55,
+    "separating": 55,
+    "kept": 8,
+    "area": [
+     "gpu/people/CMakeLists.txt",
+     "gpu/people/src/cuda/elec.cu",
+     "gpu/people/src/cuda/multi_tree.cu",
+     "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
+     "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
+     "gpu/people/src/cuda/nvidia/NPP_staging.cu",
+     "gpu/people/src/cuda/utils.cu"
+    ]
+   },
+   "cpu": {
+    "A1_static_oracle": true,
+    "A2_static_start_fails": true,
+    "A1_c2_oracle": true,
+    "A5_instruction_clean": true,
+    "A5_no_oracle_lines_in_span_start": true,
+    "A5_no_hidden_paths_in_start": true,
+    "A5_start_does_not_reveal_via_siblings": true,
+    "A7_all_properties_graded": true,
+    "A7_no_unstated_gate": true,
+    "A8_provenance": true,
+    "A8_trap_signal_resolves": true,
+    "A3_cpu_negatives": true
+   },
+   "cpu_ok": true,
+   "sibling_overlap": {
+    "novel_oracle_lines": 171,
+    "also_in_sibling_modules_of_the_start": 2,
+    "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
+   },
+   "gpu_pending": [
+    "A1 behaviour (3 grades in the verifier image)",
+    "A2 start/naive behaviour",
+    "A3 negatives at their behavioural gates",
+    "valid alternative passes behaviourally"
+   ]
+  },
+  "ncv": {
+   "title": "Port PCL's vendored NCV / NPP-staging primitives (gpu/people/src/cuda/nvidia) to CUDA 12.8 (RTX 5090)",
+   "horizon": "H2",
+   "start_files": 53,
+   "span_files": 3,
+   "checks": [
+    "suite/static",
+    "suite/build",
+    "suite/binary",
+    "suite/consumers",
+    "suite/ncv",
+    "suite/fresh",
+    "suite/sanitizer",
+    "trap/NCVAlg.hpp:__activemask#654c865ea2",
+    "trap/NCVAlg.hpp:mask#037c60dd65",
+    "trap/NCVAlg.hpp:offset#17500e2eb9",
+    "trap/NCVAlg.hpp:pragma#eac537ece4",
+    "trap/NCVAlg.hpp:unroll#946336b65e",
+    "trap/NCVHaarObjectDetection.cu:__activemask#bec5d44eb4",
+    "trap/NCVHaarObjectDetection.cu:__ldg#0e77e4e7cd",
+    "trap/NCVHaarObjectDetection.cu:reinterpret_cast#c7748841dd"
+   ],
+   "milestones_for_phi": 36,
+   "negatives": {
+    "start": {
+     "applies": true,
+     "kind": "floor",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": false
+    },
+    "unported_0": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": false
+    },
+    "unported_1": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true,
+     "c2_checks_pass": true
+    },
+    "trap_sol_v3": {
+     "applies": true,
+     "kind": "trap_reversion",
+     "expected_gate": "ncv",
+     "c2_checks_pass": false
+    },
+    "astra_v3_module": {
+     "applies": true,
+     "kind": "valid_alternative",
+     "expected_gate": null,
+     "c2_checks_pass": false
+    }
+   },
+   "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
+   "trap_signals": [
+    "sig_e5cc99b7df2c062f"
+   ],
+   "c2": {
+    "proposed": 27,
+    "separating": 27,
+    "kept": 8,
+    "area": [
+     "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
+     "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
+     "gpu/people/src/cuda/nvidia/NPP_staging.cu"
+    ]
+   },
+   "cpu": {
+    "A1_static_oracle": true,
+    "A2_static_start_fails": true,
+    "A1_c2_oracle": true,
+    "A5_instruction_clean": true,
+    "A5_no_oracle_lines_in_span_start": true,
+    "A5_no_hidden_paths_in_start": true,
+    "A5_start_does_not_reveal_via_siblings": true,
+    "A7_all_properties_graded": true,
+    "A7_no_unstated_gate": true,
+    "A8_provenance": true,
+    "A8_trap_signal_resolves": true,
+    "A3_cpu_negatives": true
+   },
+   "cpu_ok": true,
+   "sibling_overlap": {
+    "novel_oracle_lines": 89,
+    "also_in_sibling_modules_of_the_start": 2,
+    "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
+   },
+   "gpu_pending": [
+    "A1 behaviour (3 grades in the verifier image)",
+    "A2 start/naive behaviour",
+    "A3 negatives at their behavioural gates",
+    "valid alternative passes behaviourally"
+   ]
+  },
+  "kinfu": {
+   "title": "Bring PCL's GPU KinectFusion (gpu/kinfu) to CUDA 12.8 (RTX 5090)",
+   "horizon": "H3",
+   "start_files": 15,
+   "span_files": 20,
+   "checks": [
+    "suite/static",
+    "suite/build",
+    "suite/binary",
+    "suite/consumers",
+    "suite/kinfu",
+    "suite/concurrency",
+    "suite/fresh",
+    "suite/sanitizer",
+    "suite/perf"
+   ],
+   "milestones_for_phi": 126,
+   "negatives": {
+    "start": {
+     "applies": true,
+     "kind": "floor",
+     "expected_gate": "static",
+     "static_fails": true
+    },
+    "unported_0": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true
+    },
+    "astra_v3_module": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "perf"
+    }
+   },
+   "trap": null,
+   "trap_signals": [],
+   "c2": null,
+   "cpu": {
+    "A1_static_oracle": true,
+    "A2_static_start_fails": true,
+    "A5_instruction_clean": true,
+    "A5_no_oracle_lines_in_span_start": true,
+    "A5_no_hidden_paths_in_start": true,
+    "A5_start_does_not_reveal_via_siblings": true,
+    "A7_all_properties_graded": true,
+    "A7_no_unstated_gate": true,
+    "A8_provenance": true,
+    "A8_trap_signal_resolves": true,
+    "A3_cpu_negatives": true
+   },
+   "cpu_ok": true,
+   "sibling_overlap": {
+    "novel_oracle_lines": 168,
+    "also_in_sibling_modules_of_the_start": 11,
+    "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
+   },
+   "gpu_pending": [
+    "A1 behaviour (3 grades in the verifier image)",
+    "A2 start/naive behaviour",
+    "A3 negatives at their behavioural gates",
+    "valid alternative passes behaviourally"
+   ]
+  },
+  "kinfu_large_scale": {
+   "title": "Bring PCL's GPU KinectFusion large scale (gpu/kinfu_large_scale) to CUDA 12.8 (RTX 5090)",
+   "horizon": "H3",
+   "start_files": 15,
+   "span_files": 21,
+   "checks": [
+    "suite/static",
+    "suite/build",
+    "suite/binary",
+    "suite/consumers",
+    "suite/kinfu",
+    "suite/concurrency",
+    "suite/fresh",
+    "suite/sanitizer",
+    "suite/perf"
+   ],
+   "milestones_for_phi": 135,
+   "negatives": {
+    "start": {
+     "applies": true,
+     "kind": "floor",
+     "expected_gate": "static",
+     "static_fails": true
+    },
+    "unported_0": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "static",
+     "static_fails": true
+    },
+    "astra_v3_module": {
+     "applies": true,
+     "kind": "defect_mutant",
+     "expected_gate": "perf"
+    }
+   },
+   "trap": null,
+   "trap_signals": [],
+   "c2": null,
+   "cpu": {
+    "A1_static_oracle": true,
+    "A2_static_start_fails": true,
+    "A5_instruction_clean": true,
+    "A5_no_oracle_lines_in_span_start": true,
+    "A5_no_hidden_paths_in_start": true,
+    "A5_start_does_not_reveal_via_siblings": true,
+    "A7_all_properties_graded": true,
+    "A7_no_unstated_gate": true,
+    "A8_provenance": true,
+    "A8_trap_signal_resolves": true,
+    "A3_cpu_negatives": true
+   },
+   "cpu_ok": true,
+   "sibling_overlap": {
+    "novel_oracle_lines": 157,
+    "also_in_sibling_modules_of_the_start": 13,
+    "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
+   },
+   "gpu_pending": [
+    "A1 behaviour (3 grades in the verifier image)",
+    "A2 start/naive behaviour",
+    "A3 negatives at their behavioural gates",
+    "valid alternative passes behaviourally"
+   ]
+  }
+ },
+ "traps": {
+  "task01_prims_omp": {
+   "skipped": "no recorded frontier failure for this seed (its only frontier run passed)"
+  },
+  "task01v2_tessera_omp": {
+   "signal": "sig_7cc2641232658e35",
+   "gate": "tests_gpu",
+   "model": "openai/gpt-5.6-sol",
+   "area": [
+    "apps/tsr_render.cpp",
+    "include/tsr/bin/mesh_bins.h",
+    "include/tsr/bin/tiles.h",
+    "include/tsr/device/backend.h",
+    "include/tsr/device/emu/cooperative_groups.h",
+    "include/tsr/device/emu/cuda_runtime.h",
+    "include/tsr/device/emu/intrinsics.h",
+    "include/tsr/device/emu/runtime.h",
+    "include/tsr/device/emu/vector_types.h",
+    "include/tsr/device/error.h",
+    "include/tsr/device/memory.h",
+    "include/tsr/encode/hashgrid.h",
+    "include/tsr/encode/mlp.h",
+    "include/tsr/geom/camera.h",
+    "include/tsr/geom/gaussian_math.h",
+    "include/tsr/geom/mesh.h",
+    "include/tsr/geom/mesh_ndc.h",
+    "include/tsr/geom/projection.h",
+    "include/tsr/math/mat.h",
+    "include/tsr/math/vec.h",
+    "include/tsr/post/tonemap.h",
+    "include/tsr/prims/block.cuh",
+    "include/tsr/prims/prims.h",
+    "include/tsr/prims/warp.cuh",
+    "include/tsr/raster/mesh_raster.h",
+    "include/tsr/raster/splat_raster.h",
+    "include/tsr/render/renderer.h",
+    "include/tsr/render/surface.h",
+    "src/bin/mesh_bins.cpp",
+    "src/bin/mesh_bins.cu",
+    "src/bin/tile_intersect.cpp",
+    "src/device/emu/cuda_runtime.cpp",
+    "src/device/emu/fiber_context.cpp",
+    "src/device/emu/fiber_context.h",
+    "src/device/emu/runtime.cpp",
+    "src/device/error.cu",
+    "src/device/memory.cpp",
+    "src/encode/hashgrid.cpp",
+    "src/encode/mlp.cpp",
+    "src/encode/mlp.cu",
+    "src/geom/camera.cpp",
+    "src/geom/mesh.cpp",
+    "src/geom/projection.cpp",
+    "src/io/image.cpp",
+    "src/post/tonemap.cpp",
+    "src/post/tonemap.cu",
+    "src/prims/bitonic_sort.cpp",
+    "src/prims/bitonic_sort.cu",
+    "src/prims/compact.cpp",
+    "src/prims/compact.cu",
+    "src/prims/histogram.cpp",
+    "src/prims/histogram.cu",
+    "src/prims/radix_sort.cpp",
+    "src/prims/radix_sort.cu",
+    "src/prims/reduce.cpp",
+    "src/prims/reduce.cu",
+    "src/prims/scan.cpp",
+    "src/prims/scan.cu",
+    "src/raster/mesh_raster.cpp",
+    "src/raster/splat_raster.cpp",
+    "src/raster/splat_raster.cu",
+    "src/render/renderer.cpp",
+    "src/render/surface.cpp",
+    "src/scene/scene.cpp",
+    "src/sched/frame_scheduler.cpp"
+   ],
+   "c2": {
+    "proposed": 264,
+    "separating": 264,
+    "kept": 8,
+    "area": [
+     "apps/tsr_render.cpp",
+     "include/tsr/bin/mesh_bins.h",
+     "include/tsr/bin/tiles.h",
+     "include/tsr/device/backend.h",
+     "include/tsr/device/emu/cooperative_groups.h",
+     "include/tsr/device/emu/cuda_runtime.h",
+     "include/tsr/device/emu/intrinsics.h",
+     "include/tsr/device/emu/runtime.h",
+     "include/tsr/device/emu/vector_types.h",
+     "include/tsr/device/error.h",
+     "include/tsr/device/memory.h",
+     "include/tsr/encode/hashgrid.h",
+     "include/tsr/encode/mlp.h",
+     "include/tsr/geom/camera.h",
+     "include/tsr/geom/gaussian_math.h",
+     "include/tsr/geom/mesh.h",
+     "include/tsr/geom/mesh_ndc.h",
+     "include/tsr/geom/projection.h",
+     "include/tsr/math/mat.h",
+     "include/tsr/math/vec.h",
+     "include/tsr/post/tonemap.h",
+     "include/tsr/prims/block.cuh",
+     "include/tsr/prims/prims.h",
+     "include/tsr/prims/warp.cuh",
+     "include/tsr/raster/mesh_raster.h",
+     "include/tsr/raster/splat_raster.h",
+     "include/tsr/render/renderer.h",
+     "include/tsr/render/surface.h",
+     "src/bin/mesh_bins.cpp",
+     "src/bin/mesh_bins.cu",
+     "src/bin/tile_intersect.cpp",
+     "src/device/emu/cuda_runtime.cpp",
+     "src/device/emu/fiber_context.cpp",
+     "src/device/emu/fiber_context.h",
+     "src/device/emu/runtime.cpp",
+     "src/device/error.cu",
+     "src/device/memory.cpp",
+     "src/encode/hashgrid.cpp",
+     "src/encode/mlp.cpp",
+     "src/encode/mlp.cu",
+     "src/geom/camera.cpp",
+     "src/geom/mesh.cpp",
+     "src/geom/projection.cpp",
+     "src/io/image.cpp",
+     "src/post/tonemap.cpp",
+     "src/post/tonemap.cu",
+     "src/prims/bitonic_sort.cpp",
+     "src/prims/bitonic_sort.cu",
+     "src/prims/compact.cpp",
+     "src/prims/compact.cu",
+     "src/prims/histogram.cpp",
+     "src/prims/histogram.cu",
+     "src/prims/radix_sort.cpp",
+     "src/prims/radix_sort.cu",
+     "src/prims/reduce.cpp",
+     "src/prims/reduce.cu",
+     "src/prims/scan.cpp",
+     "src/prims/scan.cu",
+     "src/raster/mesh_raster.cpp",
+     "src/raster/splat_raster.cpp",
+     "src/raster/splat_raster.cu",
+     "src/render/renderer.cpp",
+     "src/render/surface.cpp",
+     "src/scene/scene.cpp",
+     "src/sched/frame_scheduler.cpp"
+    ]
+   },
+   "checks": [
+    "trap/tiles.h:implementation#5612a4c30b",
+    "trap/tiles.h:unspecified#8707d3ec58",
+    "trap/tiles.h:contents#28627ea41c",
+    "trap/tiles.h:scratch#e2b59e177a",
+    "trap/tiles.h:unsorted#612aaf8ef9",
+    "trap/tiles.h:index#7a824622d8",
+    "trap/backend.h:device_synchronize#f890e105f5",
+    "trap/backend.h:static_assert#2c62d3f984"
+   ],
+   "oracle_passes": true,
+   "frontier_version_fails": true,
+   "start_fails": false,
+   "signal_resolves": true,
+   "cpu_ok": true
+  },
+  "task02_pcops_triton": {
+   "signal": "sig_182bce529d0ea29e",
+   "gate": "ops",
+   "model": "openai/gpt-5.6-sol",
+   "area": [
+    "csrc/cluster/cuda/fps_cuda.cu",
+    "csrc/cluster/cuda/fps_cuda.h",
+    "csrc/cluster/cuda/grid_cuda.cu",
+    "csrc/cluster/cuda/grid_cuda.h",
+    "csrc/cluster/cuda/knn_cuda.cu",
+    "csrc/cluster/cuda/knn_cuda.h",
+    "csrc/cluster/cuda/radius_cuda.cu",
+    "csrc/cluster/cuda/radius_cuda.h",
+    "csrc/cluster/cuda/utils.cuh",
+    "csrc/cluster/extensions.h",
+    "csrc/cluster/macros.h",
+    "csrc/pcops.cpp",
+    "csrc/pointnet/pointnet_cuda.cu",
+    "csrc/pointnet/pointnet_cuda.h",
+    "csrc/scatter/cuda/atomics.cuh",
+    "csrc/scatter/cuda/index_info.cuh",
+    "csrc/scatter/cuda/reducer.cuh",
+    "csrc/scatter/cuda/scatter_cuda.cu",
+    "csrc/scatter/cuda/scatter_cuda.h",
+    "csrc/scatter/cuda/segment_csr_cuda.cu",
+    "csrc/scatter/cuda/segment_csr_cuda.h",
+    "csrc/scatter/cuda/utils.cuh",
+    "csrc/scatter/extensions.h",
+    "csrc/scatter/macros.h",
+    "pcops/__init__.py",
+    "pcops/_kernels.py",
+    "setup.py"
+   ],
+   "c2": {
+    "proposed": 25,
+    "separating": 25,
+    "kept": 8,
+    "area": [
+     "csrc/cluster/cuda/fps_cuda.cu",
+     "csrc/cluster/cuda/fps_cuda.h",
+     "csrc/cluster/cuda/grid_cuda.cu",
+     "csrc/cluster/cuda/grid_cuda.h",
+     "csrc/cluster/cuda/knn_cuda.cu",
+     "csrc/cluster/cuda/knn_cuda.h",
+     "csrc/cluster/cuda/radius_cuda.cu",
+     "csrc/cluster/cuda/radius_cuda.h",
+     "csrc/cluster/cuda/utils.cuh",
+     "csrc/cluster/extensions.h",
+     "csrc/cluster/macros.h",
+     "csrc/pcops.cpp",
+     "csrc/pointnet/pointnet_cuda.cu",
+     "csrc/pointnet/pointnet_cuda.h",
+     "csrc/scatter/cuda/atomics.cuh",
+     "csrc/scatter/cuda/index_info.cuh",
+     "csrc/scatter/cuda/reducer.cuh",
+     "csrc/scatter/cuda/scatter_cuda.cu",
+     "csrc/scatter/cuda/scatter_cuda.h",
+     "csrc/scatter/cuda/segment_csr_cuda.cu",
+     "csrc/scatter/cuda/segment_csr_cuda.h",
+     "csrc/scatter/cuda/utils.cuh",
+     "csrc/scatter/extensions.h",
+     "csrc/scatter/macros.h",
+     "pcops/__init__.py",
+     "pcops/_kernels.py",
+     "setup.py"
+    ]
+   },
+   "checks": [
+    "trap/__init__.py:_implementation#fc05aeeeff",
+    "trap/__init__.py:implementations#6f0999a77a",
+    "trap/__init__.py:defines#f256a78adb",
+    "trap/__init__.py:schemas#bd56f4d0c6",
+    "trap/__init__.py:tensors#e4703f11bb",
+    "trap/__init__.py:registers#c26de942cb",
+    "trap/__init__.py:kernels#2adae452a4",
+    "trap/__init__.py:_ops#a54876c306"
+   ],
+   "oracle_passes": true,
+   "frontier_version_fails": true,
+   "start_fails": true,
+   "signal_resolves": true,
+   "cpu_ok": true
+  },
+  "task03_mdlite_pallas": {
+   "signal": "sig_19737a8ebceb6f63",
+   "gate": "api",
+   "model": "openai/gpt-5.6-sol",
+   "area": [
+    "mdlite/_lib.py",
+    "mdlite/_rng.py",
+    "mdlite/_topology.py",
+    "mdlite/simulation.py",
+    "setup.py",
+    "src/bonded.cu",
+    "src/capi.cpp",
+    "src/common.cuh",
+    "src/config.cpp",
+    "src/config.h",
+    "src/constraints.cu",
+    "src/crc32.h",
+    "src/engine.cuh",
+    "src/integrate.cu",
+    "src/neighbor.cu",
+    "src/nonbonded.cu",
+    "src/pme.cu",
+    "src/rng.cuh",
+    "src/simulation.cu",
+    "src/simulation.h",
+    "src/system.cpp",
+    "src/system.h"
+   ],
+   "c2": {
+    "proposed": 51,
+    "separating": 51,
+    "kept": 8,
+    "area": [
+     "mdlite/_lib.py",
+     "mdlite/_rng.py",
+     "mdlite/_topology.py",
+     "mdlite/simulation.py",
+     "setup.py",
+     "src/bonded.cu",
+     "src/capi.cpp",
+     "src/common.cuh",
+     "src/config.cpp",
+     "src/config.h",
+     "src/constraints.cu",
+     "src/crc32.h",
+     "src/engine.cuh",
+     "src/integrate.cu",
+     "src/neighbor.cu",
+     "src/nonbonded.cu",
+     "src/pme.cu",
+     "src/rng.cuh",
+     "src/simulation.cu",
+     "src/simulation.h",
+     "src/system.cpp",
+     "src/system.h"
+    ]
+   },
+   "checks": [
+    "trap/_rng.py:jnp.full_like#688e8633bf",
+    "trap/_rng.py:self.uniform#4042ee1666",
+    "trap/_rng.py:gauss2_host#1a630f6189",
+    "trap/_rng.py:philox_host#3813ffb077",
+    "trap/_rng.py:gauss3_jax#fe9fd4258b",
+    "trap/_rng.py:jnp.uint32#f55e9f4dd6",
+    "trap/_rng.py:philox_jax#ecad7ef0e2",
+    "trap/_rng.py:self.block#3cb8d478e3"
+   ],
+   "oracle_passes": true,
+   "frontier_version_fails": true,
+   "start_fails": false,
+   "signal_resolves": true,
+   "cpu_ok": true
+  },
+  "task04_pcl_gpu_cuda12": {
+   "signal": "sig_e5cc99b7df2c062f",
+   "gate": "correctness/ncv",
+   "model": "openai/gpt-5.6-sol",
+   "area": [
+    "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
+    "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
+    "gpu/people/src/cuda/nvidia/NPP_staging.cu"
+   ],
+   "c2": {
+    "proposed": 27,
+    "separating": 27,
+    "kept": 8,
+    "area": [
+     "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
+     "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
+     "gpu/people/src/cuda/nvidia/NPP_staging.cu"
+    ]
+   },
+   "checks": [
+    "trap/NCVAlg.hpp:__activemask#654c865ea2",
+    "trap/NCVAlg.hpp:mask#037c60dd65",
+    "trap/NCVAlg.hpp:offset#17500e2eb9",
+    "trap/NCVAlg.hpp:pragma#eac537ece4",
+    "trap/NCVAlg.hpp:unroll#946336b65e",
+    "trap/NCVHaarObjectDetection.cu:__activemask#bec5d44eb4",
+    "trap/NCVHaarObjectDetection.cu:__ldg#0e77e4e7cd",
+    "trap/NCVHaarObjectDetection.cu:reinterpret_cast#c7748841dd"
+   ],
+   "oracle_passes": true,
+   "frontier_version_fails": true,
+   "start_fails": true,
+   "signal_resolves": true,
+   "cpu_ok": true
+  }
+ },
+ "span_cpu_ok": true,
+ "traps_cpu_ok": {
+  "task01_prims_omp": false,
+  "task01v2_tessera_omp": true,
+  "task02_pcops_triton": true,
+  "task03_mdlite_pallas": true,
+  "task04_pcl_gpu_cuda12": true
+ }
+}

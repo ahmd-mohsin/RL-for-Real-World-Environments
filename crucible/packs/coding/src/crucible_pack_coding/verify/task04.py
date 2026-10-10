@@ -67,6 +67,40 @@ RULES = RuleSet(forbid=[Rule(f"texref{i}", p, suffixes=CODE, roots=("gpu", "cuda
                 exclude=(".git",), runner_tamper=False)
 
 
+# Span scopes (M8 G-span): a derived task grades only its module's workloads, gates and bars. "full" is the seed task.
+SCOPES = {
+    "full": {"roots": ("gpu", "cuda"), "kinfu": lambda n: True, "people": True, "ncv": True, "conc": lambda n: True, "people_threads": True,
+             "fresh": lambda n: True, "sanitize": lambda n: True, "perf": ("kinfu", "kinfuls", "people", "kinfu4")},
+    "people": {"roots": ("gpu/people",), "kinfu": lambda n: False, "people": True, "ncv": True, "conc": lambda n: False, "people_threads": True,
+               "fresh": lambda n: n.startswith(("people", "ncv")), "sanitize": lambda n: n in ("people", "ncv"), "perf": ("people",)},
+    "ncv": {"roots": ("gpu/people/src/cuda/nvidia",), "kinfu": lambda n: False, "people": False, "ncv": True, "conc": lambda n: False, "people_threads": False,
+            "fresh": lambda n: n.startswith("ncv"), "sanitize": lambda n: n == "ncv", "perf": ()},
+    "kinfu": {"roots": ("gpu/kinfu",), "kinfu": lambda n: n.startswith("kinfu_"), "people": False, "ncv": False, "conc": lambda n: n.endswith("_kinfu"),
+              "people_threads": False, "fresh": lambda n: n.startswith("kinfu") and not n.startswith("kinfuls"), "sanitize": lambda n: n == "kinfu",
+              "perf": ("kinfu", "kinfu4")},
+    "kinfu_large_scale": {"roots": ("gpu/kinfu_large_scale",), "kinfu": lambda n: n.startswith("kinfuls_"), "people": False, "ncv": False,
+                          "conc": lambda n: n.endswith("_kinfuls"), "people_threads": False, "fresh": lambda n: n.startswith("kinfuls"),
+                          "sanitize": lambda n: n == "kinfuls", "perf": ("kinfuls",)},
+}
+SCOPE_LIBS = {"full": None, "people": ("pcl_gpu_containers", "pcl_gpu_people"), "ncv": ("pcl_gpu_containers", "pcl_gpu_people"),
+              "kinfu": ("pcl_gpu_containers", "pcl_gpu_kinfu"), "kinfu_large_scale": ("pcl_gpu_containers", "pcl_gpu_kinfu_large_scale")}
+PERF_METRICS = {"kinfu": ("kinfu_frame_ms", "marching_cubes_ms", "cloud_ms"), "kinfuls": ("kinfuls_frame_ms",), "people": ("people_ms",),
+                "kinfu4": ("kinfu_concurrent_wall_ms",)}
+
+
+def scoped_rules(roots: tuple) -> RuleSet:
+    def top_ok(prefixes):  # Rule.roots matches the first path component; deeper scopes filter in scan_scoped
+        return tuple(sorted({r.split("/", 1)[0] for r in prefixes}))
+
+    return RuleSet(forbid=[Rule(f"texref{i}", p, suffixes=CODE, roots=top_ok(roots)) for i, p in enumerate(TEXREF)], exclude=(".git",), runner_tamper=False)
+
+
+def scan_scoped(root: Path, roots: tuple) -> dict:
+    r = scan(root, scoped_rules(roots))
+    keep = [v for v in r["violations"] if any(v["file"].startswith(x) for x in roots)]
+    return {**r, "violations": keep, "count": len(keep), "pass": not keep}
+
+
 def tail(text, n=40):
     return "\n".join((text or "").splitlines()[-n:])
 
@@ -102,6 +136,8 @@ class Task04:
         self.bins: dict[str, Path] = {}
         self.people_solo = None
         self.t.path = f"{CUDA}/bin:" + self.t.path
+        self.scope_name = ctx.params.get("scope", "full")
+        self.scope = SCOPES[self.scope_name]
 
     # ------------------------------------------------------------------ setup (root, before any candidate code)
     def setup(self, ctx: Context) -> None:
@@ -137,8 +173,8 @@ class Task04:
         pcl = self.work / "pcl"
         shutil.copytree(ctx.candidate, pcl, symlinks=True, ignore=shutil.ignore_patterns(".git"))
         ctx.artifacts["pcl"] = pcl
-        r = scan(pcl, RULES)
-        return Verdict(r["pass"], {"texture_or_surface_references": r["violations"][:40], "count": r["count"]})
+        r = scan(pcl, RULES) if self.scope_name == "full" else scan_scoped(pcl, self.scope["roots"])
+        return Verdict(r["pass"], {"texture_or_surface_references": r["violations"][:40], "count": r["count"], "scope": self.scope_name})
 
     def build(self, ctx):
         pcl = ctx.artifacts.get("pcl")
@@ -163,7 +199,7 @@ class Task04:
         install = ctx.artifacts["install"]
         issues, seen = [], {}
         libs = sorted((install / "lib").glob("libpcl_gpu_*.so*"))
-        for name in REQUIRED_LIBS:
+        for name in SCOPE_LIBS.get(self.scope_name) or REQUIRED_LIBS:
             if not [p for p in libs if re.fullmatch(rf"lib{name}\.so(\.[\d.]+)?", p.name)]:
                 issues.append({"lib": name, "error": "not built"})
         for lib in libs:
@@ -210,19 +246,23 @@ class Task04:
     def _fingerprint_refs(self):
         """References for every fixed workload, checked against the recorded fingerprints (a stale or broken verifier
         image is infra, not a candidate failure; Appendix B.5)."""
-        c = self.cases
-        for name, args in c.KINFU.items():
-            self.refs.get(name, ("kinfu_replay", args, 16))
-        self.refs.get("people", ("people_eval", self.people_args(c.PEOPLE_VARIANTS), 1))
-        for s in c.NCV_SEEDS:
-            self.refs.get(f"ncv{s}", ("ncv_check", ["--seed", str(s)], 1))
+        c, sc = self.cases, self.scope
+        kin = [n for n in c.KINFU if sc["kinfu"](n)]
+        for name in kin:
+            self.refs.get(name, ("kinfu_replay", c.KINFU[name], 16))
+        if sc["people"] or sc["people_threads"]:
+            self.refs.get("people", ("people_eval", self.people_args(c.PEOPLE_VARIANTS), 1))
+        if sc["ncv"]:
+            for s in c.NCV_SEEDS:
+                self.refs.get(f"ncv{s}", ("ncv_check", ["--seed", str(s)], 1))
         fp = {}
-        for v in c.PEOPLE_VARIANTS:
-            fp[f"people/{v}"] = c.sha256(self.refs.done["people"] / f"{v}.labels")
-        for s in c.NCV_SEEDS:
+        if "people" in self.refs.done:
+            for v in c.PEOPLE_VARIANTS:
+                fp[f"people/{v}"] = c.sha256(self.refs.done["people"] / f"{v}.labels")
+        for s in c.NCV_SEEDS if sc["ncv"] else []:
             for b in sorted(self.refs.done[f"ncv{s}"].glob("*.bin")):
                 fp[f"ncv{s}/{b.stem}"] = c.sha256(b)
-        for name in c.KINFU:
+        for name in kin:
             r = c.load(self.refs.done[name])
             fp[f"kinfu/{name}"] = [r["trans_err_mean"], r["tsdf"]["observed"], r.get("mesh", {}).get("triangles", 0)]
         self.ctx.revealed["reference_fingerprint_keys"] = len(fp)
@@ -233,14 +273,14 @@ class Task04:
             def match(k, w, g):
                 return all(abs(a - b) <= 0.03 * abs(b) + 1e-4 for a, b in zip(g, w, strict=False)) if k.startswith("kinfu/") else w == g
 
-            bad = [k for k in want if k not in fp or not match(k, want[k], fp[k])]
+            bad = [k for k in want if k in fp and not match(k, want[k], fp[k])] + ([] if self.scope_name != "full" else [k for k in want if k not in fp])
             if bad:
                 raise InfraError(f"the reference build does not reproduce its recorded fingerprints: {bad[:10]}")
 
     # ------------------------------------------------------------------ differential gates
     def kinfu(self, ctx):
         c = self.cases
-        cases = {n: ("kinfu_replay", a, 16) for n, a in c.KINFU.items()}
+        cases = {n: ("kinfu_replay", a, 16) for n, a in c.KINFU.items() if self.scope["kinfu"](n)}
         return D.differential(ctx, cases=cases, refs=self.refs, out_root=self.work / "cand",
                               candidate=lambda n, s, out: self.cand("kinfu_replay", s[1], out),
                               success=lambda rr, out: rr.rc == 0 and (out / "result.json").exists(),
@@ -271,7 +311,7 @@ class Task04:
         c = self.cases
         detail, ok = {}, True
         root = self.t.udir(self.work / "conc")
-        for name, gargs, spec in c.CONCURRENT:
+        for name, gargs, spec in [x for x in c.CONCURRENT if self.scope["conc"](x[0])]:
             items = spec.split(",")
 
             def solo(k, item, out, gargs=gargs):
@@ -284,9 +324,9 @@ class Task04:
             detail[name] = {"pass": v.passed, **v.detail}
             ok &= v.passed
         mism = []
-        if self.people_solo is None:
+        if self.scope["people_threads"] and self.people_solo is None:
             mism.append({"error": "no solo people run"})
-        for rnd in range(3 if self.people_solo else 0):
+        for rnd in range(3 if self.people_solo and self.scope["people_threads"] else 0):
             d = root / f"people_r{rnd}"
             rr = self.cand("people_eval", self.people_args(c.PEOPLE_VARIANTS, ["--threads", str(c.PEOPLE_THREADS)]), d, omp=1)
             self.t.seal(d)
@@ -304,7 +344,7 @@ class Task04:
         c = self.cases
         seed = D.draw_seed(ctx)
         fails = {}
-        for name, (tool, args) in c.fresh_workloads(seed).items():
+        for name, (tool, args) in [x for x in c.fresh_workloads(seed).items() if self.scope["fresh"](x[0])]:
             omp = 16 if tool == "kinfu_replay" else 1
             run_args = self.people_args(args) if tool == "people_eval" else args
             ref = self.refs.get(f"fresh/{name}", (tool, run_args, omp))
@@ -327,7 +367,7 @@ class Task04:
         c = self.cases
         detail, ok = {}, True
         for tool in ("racecheck", "synccheck", "memcheck"):
-            for name, binary, args in c.SANITIZE:
+            for name, binary, args in [x for x in c.SANITIZE if self.scope["sanitize"](x[0])]:
                 if binary == "people_eval":
                     args = self.people_args(args[1].split(","))
                 wrap = [f"{CUDA}/bin/compute-sanitizer", "--tool", tool, "--print-limit", "30", "--error-exitcode", "97"]
@@ -363,7 +403,7 @@ class Task04:
                 ("kinfuls", "kinfu_replay", c.KINFU["kinfuls_walk_clean"] + ["--skip-mesh"], 16),
                 ("people", "people_eval", self.people_args(c.PEOPLE_VARIANTS[:5], ["--repeat", "15"]), 1),
                 ("kinfu4", "kinfu_replay", c.THROUGHPUT_KINFU, 16)]
-        for tag, tool, args, omp in work:
+        for tag, tool, args, omp in [w for w in work if w[0] in self.scope["perf"]]:
             self.t.kill()
             r = P / f"{tag}{rnd}"
             env = {"LD_LIBRARY_PATH": f"{self.legacy}/lib", "OMP_NUM_THREADS": str(omp), "CUDA_CACHE_PATH": str(self.work / "ref" / ".nv"),
@@ -410,14 +450,23 @@ class Task04:
         p = ctx.params
         guard = None if p.get("no_load_guard") else LoadGuard(max_load_per_core=float(p.get("max_load_per_core", 0.5)),
                                                                  max_gpu_util=int(p.get("max_gpu_util", 20)), wait_s=float(p.get("load_wait_s", 1800)))
-        bars = PerfBars(self.thresholds["max_ratio"], self.perf_round, rounds=int(p.get("perf_rounds", 3)), remeasure=1,
+        metrics = {m for tag in self.scope["perf"] for m in PERF_METRICS[tag]}
+        bars = PerfBars({m: b for m, b in self.thresholds["max_ratio"].items() if m in metrics}, self.perf_round, rounds=int(p.get("perf_rounds", 3)), remeasure=1,
                         spread_max=p.get("spread_max", 0.25), wall_ratio_max=p.get("wall_ratio_max", 1.0), guard=guard)
         return bars(ctx)
 
 
 def plan(ctx: Context) -> Plan:
     g = Task04(ctx)
-    correctness = ("static", "build", "binary", "consumers", "kinfu", "people", "ncv", "concurrency", "fresh", "sanitizer")
+    sc = g.scope
+    measured = {"static", "build", "binary", "consumers", "sanitizer", "fresh"}
+    measured |= {"kinfu"} if any(sc["kinfu"](n) for n in g.cases.KINFU) else set()
+    measured |= {"people"} if sc["people"] or sc["people_threads"] else set()
+    measured |= {"ncv"} if sc["ncv"] else set()
+    measured |= {"concurrency"} if sc["people_threads"] or any(sc["conc"](x[0]) for x in g.cases.CONCURRENT) else set()
+    measured |= {"perf"} if sc["perf"] else set()
+    gates = [x for x in GATES if x in measured]
+    correctness = tuple(x for x in gates if x != "perf")
     after_build = ("build",)
     checks = [
         Check("static", "static", g.static, tier="fast", provenance="instruction:no texture/surface references"),
@@ -427,9 +476,10 @@ def plan(ctx: Context) -> Plan:
         Check("kinfu", "kinfu", g.kinfu, requires=("consumers",), provenance="reference_differential:original build", cost="expensive"),
         Check("people", "people", g.people, tier="fast", requires=("consumers",), provenance="reference_differential:original build"),
         Check("ncv", "ncv", g.ncv, tier="fast", requires=("consumers",), provenance="reference_differential;incident:B.4 NCV guard bands"),
-        Check("concurrency", "concurrency", g.concurrency, requires=("consumers", "people"), provenance="incident:B.3 compare to solo", cost="expensive"),
+        Check("concurrency", "concurrency", g.concurrency, requires=("consumers",) + (("people",) if "people" in gates else ()),
+              provenance="incident:B.3 compare to solo", cost="expensive"),
         Check("fresh", "fresh", g.fresh, requires=("consumers",), provenance="incident:B.2 fresh draws", cost="expensive"),
         Check("sanitizer", "sanitizer", g.sanitizer, requires=("consumers",), provenance="incident:B.4 memcheck exact allocation", cost="expensive"),
         Check("perf", "perf", g.perf, requires=correctness, provenance="calibration:B.1 v3 speedup bars", cost="expensive"),
     ]
-    return Plan(TASK, [Gate(x) for x in GATES], checks, setup=g.setup)
+    return Plan(TASK if g.scope_name == "full" else f"{TASK}:{g.scope_name}", [Gate(x) for x in gates], [c for c in checks if c.gate in gates], setup=g.setup)

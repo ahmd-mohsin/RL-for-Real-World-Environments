@@ -41,7 +41,7 @@ def _param(kv: str):
         return k, v
 
 
-def assemble(t: Trusted, base: Path, patch: Path | None) -> tuple[Path | None, str | None]:
+def assemble(t: Trusted, base: Path, patch: Path | None, pre: Path | None = None) -> tuple[Path | None, str | None]:
     src = t.work / "candidate_src"
     shutil.copytree(base, src, symlinks=True, ignore=shutil.ignore_patterns(".git"))
     t.give(src)
@@ -50,6 +50,14 @@ def assemble(t: Trusted, base: Path, patch: Path | None) -> tuple[Path | None, s
         r = t.run([*git, *cmd], cwd=src, candidate=True, timeout=1800)
         if r.rc != 0:
             raise RuntimeError(f"cannot stage the base tree: git {cmd[0]}: {r.stderr[-400:]}")
+        if cmd[0] == "add" and pre is not None:  # a derived (span) task starts from base + the span's start patch (grader material)
+            staged_pre = t.work / "start.patch"
+            shutil.copy(pre, staged_pre)
+            os.chmod(staged_pre, 0o644)
+            r = t.run([*git, "apply", "--whitespace=nowarn", staged_pre], cwd=src, candidate=True, timeout=600)
+            if r.rc != 0:
+                raise RuntimeError(f"the span start patch does not apply to the base: {r.stderr[-400:]}")
+            r = t.run([*git, "add", "-A"], cwd=src, candidate=True, timeout=1800)
     if patch is not None and patch.exists() and patch.stat().st_size > 0:
         staged = t.work / "model.patch"
         shutil.copy(patch, staged)
@@ -69,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--candidate", type=Path)
     ap.add_argument("--base", type=Path)
     ap.add_argument("--patch", type=Path)
+    ap.add_argument("--pre-patch", type=Path, help="derived tasks: applied to the base before the agent's patch")
     ap.add_argument("--param", action="append", default=[])
     ap.add_argument("--tier", default="full")
     ap.add_argument("--require-root", action="store_true")
@@ -83,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         params = dict(_param(p) for p in a.param)
         cand, why = (a.candidate, None)
         if a.base is not None:
-            cand, why = assemble(t, a.base, a.patch)
+            cand, why = assemble(t, a.base, a.patch, a.pre_patch)
         mod = importlib.import_module(a.plan)
         ctx = Context(t, candidate=cand, params=params, task_dir=Path(params["tests"]) if "tests" in params else None)
         if why is not None:

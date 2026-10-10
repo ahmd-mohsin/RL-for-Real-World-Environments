@@ -8,7 +8,8 @@ does every layer still work together on a real LLM, for cents?
   M5 workflow   segment the episode; Φ and stage over helpdesk SQL milestones from the verifier view
   M6 credit     the gated reward and R-properties on the episode end state; one LLM-judge pass on its prefix
   harness       BashLoopPolicy (native harness) solves a small shell task in a workspace World
-  M7 / M8       added when built (verifier kit patterns; forge world synthesis)
+  M7 verify     the helpdesk task's hidden checks (kit invariants + predicates) grade the LLM episode; reward files written
+  M8 forge      world_synth forges a 5-task variant world (LLM Architect narrative on the cheap model) and M9 accepts it
 
 ``python -m crucible_pack_toy.smoke [budget_usd]`` writes ``docs/modules/reports/smoke_cheap.json``. Correctness of the
 cheap model's *answers* is not the point (it is weak); every layer running and producing well-formed output is.
@@ -129,7 +130,9 @@ async def run(budget: float = 0.10) -> dict[str, Any]:
         async def m6():
             phis = (out5 or {}).get("phis") or {}
             v = w.verifier_view()
-            refunds = (await v.query("tickets", {"op": "sql", "args": {"sql": "SELECT amount_usd, approved_by FROM refunds WHERE ticket_id = 2"}})).value["rows"]
+            from crucible.workflow.milestones.evaluate import decode
+
+            refunds = decode((await v.query("tickets", {"op": "sql", "args": {"sql": "SELECT amount_usd, approved_by FROM refunds WHERE ticket_id = 2"}})).value)["rows"]
             unapproved = any(float(r[0] if isinstance(r, list | tuple) else r["amount_usd"]) > 50 and not (r[1] if isinstance(r, list | tuple) else r["approved_by"])
                              for r in refunds)
             rj = compose(gates={"refund_policy": not unapproved}, outcome=phis.get("sql/ticket2_resolved") == 1.0 and phis.get("sql/ticket2_refund") == 1.0,
@@ -140,6 +143,20 @@ async def run(budget: float = 0.10) -> dict[str, Any]:
             return {"reward": rj.reward, "gates": rj.gates, "outcome": rj.outcome, "progress": rj.progress, "judge_p_success": j.p_success, "judge_error": j.error}
 
         await step("M6_credit", rep, m6)
+
+        async def m7():
+            from crucible.verify.grader import grade_episode
+            from crucible.verify.runtime.plan import Context
+            from crucible.verify.runtime.trusted import Trusted
+            from crucible_pack_toy.verify import plan as toy_plan
+
+            out = await grade_episode(toy_plan(), Context(Trusted(d / "grade"), params={"view": w.verifier_view()}), out_dir=d / "verifier",
+                                      milestones=MILESTONES, series=[(out5 or {}).get("phis") or {}])
+            flat = json.loads((d / "verifier" / "reward.json").read_text())
+            return {"reward": out.reward.reward, "gates": out.reward.gates, "failing": out.report.failing_gates(), "flat_numeric": all(isinstance(v, float) for v in flat.values()),
+                    "reward_txt": (d / "verifier" / "reward.txt").read_text().strip()}
+
+        await step("M7_verify", rep, m7)
         await w.close()
 
         async def harness():
@@ -159,6 +176,21 @@ async def run(budget: float = 0.10) -> dict[str, Any]:
                 await hw.close()
 
         await step("harness_bash_loop", rep, harness)
+
+        async def m8():
+            from crucible_pack_toy.forge.world_synth import forge
+
+            r = await forge(seed=11, llm_model=None, out=d / "forge")
+            # one LLM role on the cheap model: the Architect's narrative, validated deterministically (literals and graded sentences verbatim)
+            from crucible.forge.schema import Architecture
+            from crucible_pack_toy.forge.scenario import LLMNarrativeArchitect, architect_validator
+
+            arch = await LLMNarrativeArchitect(llm).run({"signals": r["signals"]}, feedback=[], knobs={"seed": 11, "world_id": "toy/helpdesk_v2"})
+            findings = architect_validator(Architecture.model_validate(arch.model_dump()), {})
+            return {"state": r["state"], "accepted": r.get("summary", {}).get("accepted"), "tasks": r.get("summary", {}).get("total"),
+                    "audit_sound": r.get("audit", {}).get("sound"), "llm_narrative_findings": findings[:3], "sample_instruction": arch.tasks[1].instruction[:220]}
+
+        await step("M8_forge", rep, m8)
     rep["spend_usd"] = round(llm.spend.usd, 6)
     rep["calls"] = llm.spend.calls
     rep["all_layers_ran"] = all(v.get("ok") for k, v in rep.items() if isinstance(v, dict) and "ok" in v)
