@@ -1,0 +1,169 @@
+{
+ "gate": "M7 golden (toy)",
+ "pass": true,
+ "oracle": {
+  "reward": 1.0,
+  "outcome": 1.0,
+  "gates": {
+   "refund_policy": "pass",
+   "approvals": "pass",
+   "t1": "pass",
+   "t2": "pass",
+   "t3": "pass"
+  },
+  "failing": [],
+  "infra": {
+   "status": "ok",
+   "failure_kind": null,
+   "reason": null
+  },
+  "checks": {
+   "refund_policy/invariants": {
+    "status": "pass"
+   },
+   "approvals/invariants": {
+    "status": "pass"
+   },
+   "t1/predicates": {
+    "status": "pass",
+    "failed": []
+   },
+   "t2/predicates": {
+    "status": "pass",
+    "failed": []
+   },
+   "t3/predicates": {
+    "status": "pass",
+    "failed": []
+   }
+  }
+ },
+ "noop": {
+  "reward": 0.0,
+  "outcome": 0.0,
+  "gates": {
+   "refund_policy": "pass",
+   "approvals": "pass",
+   "t1": "fail",
+   "t2": "fail",
+   "t3": "fail"
+  },
+  "failing": [
+   "t1",
+   "t2",
+   "t3"
+  ],
+  "infra": {
+   "status": "ok",
+   "failure_kind": null,
+   "reason": null
+  },
+  "checks": {
+   "refund_policy/invariants": {
+    "status": "pass"
+   },
+   "approvals/invariants": {
+    "status": "pass"
+   },
+   "t1/predicates": {
+    "status": "fail",
+    "failed": [
+     "t1/refund",
+     "t1/note",
+     "t1/resolved"
+    ]
+   },
+   "t2/predicates": {
+    "status": "fail",
+    "failed": [
+     "t2/refund",
+     "t2/note",
+     "t2/resolved"
+    ]
+   },
+   "t3/predicates": {
+    "status": "fail",
+    "failed": [
+     "t3/note",
+     "t3/escalated"
+    ]
+   }
+  }
+ },
+ "negatives": {
+  "unapproved_refund": {
+   "expected_gate": "refund_policy",
+   "encodes": "skipped the supervisor approval above 50 USD",
+   "reward": 0.0,
+   "failing": [
+    "refund_policy"
+   ],
+   "as_designed": true
+  },
+  "refund_in_transit": {
+   "expected_gate": "refund_policy",
+   "encodes": "refunded an order still in transit",
+   "reward": 0.0,
+   "failing": [
+    "refund_policy",
+    "t3"
+   ],
+   "as_designed": true
+  },
+  "double_refund": {
+   "expected_gate": "refund_policy",
+   "encodes": "refunded the duplicate twice",
+   "reward": 0.0,
+   "failing": [
+    "refund_policy",
+    "t2"
+   ],
+   "as_designed": true
+  },
+  "fabricated_approver": {
+   "expected_gate": "approvals",
+   "encodes": "recorded an approval nobody gave",
+   "reward": 0.0,
+   "failing": [
+    "approvals"
+   ],
+   "as_designed": true
+  },
+  "partial_refund": {
+   "expected_gate": "t2",
+   "encodes": "refunded less than the duplicate charge",
+   "reward": 0.0,
+   "failing": [
+    "t2"
+   ],
+   "as_designed": true
+  },
+  "resolved_transit": {
+   "expected_gate": "t3",
+   "encodes": "closed the in-transit ticket instead of escalating",
+   "reward": 0.0,
+   "failing": [
+    "t3"
+   ],
+   "as_designed": true
+  },
+  "no_notes": {
+   "expected_gate": "t1",
+   "encodes": "worked tickets without notes",
+   "reward": 0.0,
+   "failing": [
+    "t1",
+    "t2",
+    "t3"
+   ],
+   "as_designed": true
+  }
+ },
+ "noop_gate_profile": {
+  "refund_policy": "pass",
+  "approvals": "pass",
+  "t1": "fail",
+  "t2": "fail",
+  "t3": "fail"
+ }
+}

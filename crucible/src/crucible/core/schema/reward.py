@@ -1,7 +1,9 @@
 """``reward.json`` (terminal, multi-key) and ``steps.jsonl`` (dense channel), DESIGN §4.3.1–4.3.2.
 
-``reward.json`` stays readable by Harbor (it reads the multi-key dict and uses ``reward``) and by
-NeMo-Gym consumers (``reward_components``). ``steps.jsonl`` rows align with ATIF step ids.
+On disk the full document is ``crucible_reward.json``. ``reward.json`` is its flat numeric projection
+(``RewardJson.flat()``: ``reward``, ``outcome``, ``gate/<g>``, ``infra/masked``, ...), because Harbor rejects any
+non-numeric value in ``reward.json`` (``harbor/verifier/verifier.py:104-121``; corrected 2026-10-09, M7). NeMo-Gym
+consumers read ``reward_components``. ``steps.jsonl`` rows align with ATIF step ids.
 """
 
 from __future__ import annotations
@@ -38,6 +40,11 @@ class RewardJson(CrucibleModel):
         if self.progress is not None and not 0 <= self.progress <= 1:
             raise ValueError("progress is Φ in [0, 1]")
         return self
+
+    def flat(self) -> dict[str, float]:
+        """The numeric ``reward.json`` Harbor accepts."""
+        out = {"reward": self.reward, **self.reward_components(), "infra/masked": float(self.infra.status == "masked")}
+        return {k: float(v) for k, v in out.items()}
 
     def reward_components(self) -> dict[str, float]:
         """Flat NeMo-Gym-style components."""

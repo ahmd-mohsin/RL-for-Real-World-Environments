@@ -1,0 +1,266 @@
+{
+ "gate": "M7 golden, CPU part (recorded history re-scored by the kit)",
+ "task04": {
+  "pass": true,
+  "matched": {
+   "static": "15/15",
+   "perf": "7/7",
+   "sanitizer": "14/14"
+  },
+  "grades": {
+   "astra": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "astra2": {
+    "recorded_reward": 1.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": true,
+     "kit": true,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "astra_v2_partial": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": false,
+     "kit": false,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "astra_v3": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": false,
+     "kit": false,
+     "infra": "perf rounds contaminated: ['candidate/cloud_ms', 'candidate/kinfu_concurrent_wall_ms', 'candidate/kinfu_frame_ms', 'candidate/marching_cubes_ms', 'candidate/people_ms']",
+     "match": true,
+     "expected_divergence": {
+      "kit": "infra",
+      "regrade": "astra_v3b",
+      "why": "another user's GPU job contaminated the rounds (KinFu 1.6 -> 60 ms/frame inside one grade); the seed grader scored the noise as a perf failure; the kit masks it and asks for a re-grade (Appendix B.5)"
+     }
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "astra_v3b": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": false,
+     "kit": false,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "empty": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": false,
+     "kit": false,
+     "violations": 51,
+     "match": true
+    }
+   },
+   "global": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "oob": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": false,
+     "kit": false,
+     "match": true
+    }
+   },
+   "oracle2": {
+    "recorded_reward": 1.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": true,
+     "kit": true,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "oracle3": {
+    "recorded_reward": 1.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": true,
+     "kit": true,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "sol": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "sol2": {
+    "recorded_reward": 1.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "perf": {
+     "recorded": true,
+     "kit": true,
+     "infra": null,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "sol_v3": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "tex": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": true,
+     "kit": true,
+     "match": true
+    }
+   },
+   "warp": {
+    "recorded_reward": 0.0,
+    "static": {
+     "recorded": true,
+     "kit": true,
+     "violations": 0,
+     "match": true
+    },
+    "sanitizer": {
+     "recorded": false,
+     "kit": false,
+     "match": true
+    }
+   }
+  }
+ },
+ "pass": true
+}

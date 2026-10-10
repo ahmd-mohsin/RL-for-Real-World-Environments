@@ -47,6 +47,21 @@ def _count(value: Any) -> int | None:
     return None
 
 
+def decode(v: Any) -> Any:
+    """Undo the State Adapters' exact encodings (the sql adapter writes floats as ``{"f": float.hex()}`` so that
+    fingerprints are exact): an expectation compares values, not encodings."""
+    if isinstance(v, dict):
+        if set(v) == {"f"} and isinstance(v["f"], str):
+            try:
+                return float.fromhex(v["f"])
+            except ValueError:
+                return v
+        return {k: decode(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [decode(x) for x in v]
+    return v
+
+
 def phi(expect: Expectation, r: QueryResult) -> float | None:
     """φ for one query result; None when the check itself failed to run."""
     if r.error and not r.ok and r.exit_code is None:
@@ -56,7 +71,7 @@ def phi(expect: Expectation, r: QueryResult) -> float | None:
         return 1.0 if r.ok and (r.exit_code in (None, 0)) else 0.0
     if not r.ok:
         return None
-    v = r.value
+    v = decode(r.value)
     if k == "truthy":
         if isinstance(v, dict) and "exists" in v:
             return 1.0 if v["exists"] else 0.0
