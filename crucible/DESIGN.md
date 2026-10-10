@@ -1052,6 +1052,14 @@ long-horizon gate's shape.
 - **Tests:** loss and gradient equal the per-call items within 1e-6 (group advantages + turn credit, critic GAE,
   compaction segments); doubling the turns doubles the forward tokens (per-call quadruples them).
 
+**B-2 (2026-10-10): memory-bounded log-probs.** `HFPolicy` computed full-vocabulary fp32 logits, and their log-softmax,
+for every position of every sequence, prompt included. That is ~78 GB at 128k tokens with Qwen3's vocabulary.
+- **Change:** it now takes the decoder's last hidden state (the base model, no LM head) and gathers rows only at the
+  positions predicting trained tokens. The FP32 head runs on those rows in checkpointed chunks of `logit_chunk`, and
+  backward recomputes each chunk.
+- **Tests:** values and gradients equal the full-logits computation within 1e-5 at chunk sizes 1, 7 and 4096; on MPS
+  the memory held for backward drops by at least the full logits.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

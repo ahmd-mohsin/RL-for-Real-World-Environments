@@ -19,13 +19,14 @@ import torch
 
 class HFPolicy(torch.nn.Module):
     def __init__(self, model: torch.nn.Module, *, lm_head_fp32: bool = True, gradient_checkpointing: bool = False,
-                 autocast_dtype: torch.dtype | None = None):
+                 autocast_dtype: torch.dtype | None = None, logit_chunk: int = 1024):
         """``autocast_dtype=torch.bfloat16`` with an fp32 model: fp32 master weights (small learning rates survive the update;
         bf16 weights silently drop updates below their precision) and a bf16 forward."""
         super().__init__()
         self.model = model
         self.lm_head_fp32 = lm_head_fp32
         self.autocast_dtype = autocast_dtype
+        self.logit_chunk = logit_chunk  # LM-head rows per checkpointed chunk (m13 B-2)
         if gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
             model.gradient_checkpointing_enable()
 
@@ -55,6 +56,45 @@ class HFPolicy(torch.nn.Module):
         with torch.autocast(device_type=ids.device.type, enabled=False):  # BF16 input, FP32 output (the LM head itself in FP32)
             return torch.nn.functional.linear(h.float(), head.weight.float(), None if head.bias is None else head.bias.float())
 
+    # ---- memory-bounded log-probs (m13 B-2) ------------------------------------------------------------------------
+    # The LM head runs only on the positions that predict trained tokens (never on the prompt), in checkpointed chunks of
+    # ``logit_chunk`` rows: peak memory is chunk × vocab instead of batch × length × vocab in fp32, and backward recomputes
+    # each chunk instead of storing it (prime-rl / AReaL chunked log-probs, the pattern).
+    def _hidden(self, ids: torch.Tensor, attn: torch.Tensor | None = None, position_ids: torch.Tensor | None = None) -> torch.Tensor:
+        kw = {"position_ids": position_ids} if position_ids is not None else {}
+        base = getattr(self.model, getattr(self.model, "base_model_prefix", "model"), None)
+
+        def run() -> torch.Tensor:
+            if base is not None and base is not self.model:  # the decoder without the LM head: no full-vocabulary logits at all
+                return base(input_ids=ids, attention_mask=attn, **kw).last_hidden_state
+            return self.model(input_ids=ids, attention_mask=attn, output_hidden_states=True, **kw).hidden_states[-1]
+
+        if self.autocast_dtype is not None:
+            with torch.autocast(device_type=ids.device.type, dtype=self.autocast_dtype):
+                return run()
+        return run()
+
+    def _head_rows(self, h: torch.Tensor, temperature: float) -> torch.Tensor:
+        head = self.model.get_output_embeddings()
+        with torch.autocast(device_type=h.device.type, enabled=False):
+            if self.lm_head_fp32:  # BF16 input, FP32 output (the LM head itself in FP32)
+                return torch.nn.functional.linear(h.float(), head.weight.float(), None if head.bias is None else head.bias.float()) / temperature
+            return head(h).float() / temperature
+
+    def _head_logprobs(self, h: torch.Tensor, targets: torch.Tensor, temperature: float) -> torch.Tensor:
+        from torch.utils.checkpoint import checkpoint
+
+        def chunk(hc: torch.Tensor, tc: torch.Tensor) -> torch.Tensor:
+            logits = self._head_rows(hc, temperature)
+            return logits.gather(-1, tc[:, None])[:, 0] - torch.logsumexp(logits, -1)
+
+        if h.shape[0] == 0:
+            return h.new_zeros(0, dtype=torch.float32)
+        C = max(1, self.logit_chunk)
+        parts = [checkpoint(chunk, h[i:i + C], targets[i:i + C], use_reentrant=False) if torch.is_grad_enabled() else chunk(h[i:i + C], targets[i:i + C])
+                 for i in range(0, h.shape[0], C)]
+        return torch.cat(parts)
+
     def token_logprobs(self, prompt: list[int], completion: list[int], temperature: float = 1.0, candidates: list[list[int]] | None = None) -> torch.Tensor:
         return self.batch_token_logprobs([(prompt, completion)], temperature, candidates=[candidates])[0]
 
@@ -67,21 +107,26 @@ class HFPolicy(torch.nn.Module):
         for i, s in enumerate(seqs):
             ids[i, : len(s)] = torch.tensor(s, device=self.device)
             attn[i, : len(s)] = 1
-        logits = self._logits(ids, attn) / temperature
-        lp = torch.log_softmax(logits, -1)
-        out = []
+        h = self._hidden(ids, attn)
+        out: list[torch.Tensor | None] = [None] * len(pairs)
+        rows, tgts, spans = [], [], []
         for i, (p, c) in enumerate(pairs):
+            hi = h[i, len(p) - 1: len(p) - 1 + len(c)]  # the positions predicting the completion tokens
             if not c:
-                out.append(lp[i, :0, 0])
-                continue
-            rows = lp[i, len(p) - 1: len(p) - 1 + len(c)]
-            if candidates is not None and candidates[i] is not None:  # top-p: renormalize over the engine's nucleus
+                out[i] = h.new_zeros(0, dtype=torch.float32)
+            elif candidates is not None and candidates[i] is not None:  # top-p: renormalize over the engine's nucleus (full rows, small)
                 from crucible.train.sampling import renormalized
 
-                out.append(renormalized(rows, c, candidates[i]))
-                continue
-            out.append(rows[torch.arange(len(c), device=self.device), torch.tensor(c, device=self.device)])
-        return out
+                out[i] = renormalized(torch.log_softmax(self._head_rows(hi, temperature), -1), c, candidates[i])
+            else:
+                spans.append((i, sum(len(r) for r in rows), len(c)))
+                rows.append(hi)
+                tgts.append(torch.tensor(c, device=self.device))
+        if rows:
+            lp = self._head_logprobs(torch.cat(rows), torch.cat(tgts), temperature)
+            for i, s0, n in spans:
+                out[i] = lp[s0: s0 + n]
+        return out  # type: ignore[return-value]
 
     def shared_prefix_logprobs(self, prompt: list[int], completions: list[list[int]], temperature: float = 1.0) -> list[torch.Tensor]:
         """Prefix sharing (checklist #50; MiniMax Forge packing): one sequence ``prompt + c₁[:-1] + c₂[:-1] + …`` with position
@@ -101,14 +146,18 @@ class HFPolicy(torch.nn.Module):
         q = torch.arange(L, device=dev)
         allow = (q[None, :] <= q[:, None]) & ((segt[None, :] == -1) | (segt[None, :] == segt[:, None]))
         mask = torch.zeros(1, 1, L, L, device=dev).masked_fill(~allow, torch.finfo(torch.float32).min)
-        lp = torch.log_softmax(self._logits(torch.tensor([seq], device=dev), mask, torch.tensor([pos], device=dev))[0] / temperature, -1)
-        out = []
+        h = self._hidden(torch.tensor([seq], device=dev), mask, torch.tensor([pos], device=dev))[0]
+        rows, tgts, spans = [], [], []
         for i, c in enumerate(completions):
-            if not c:
-                out.append(lp[:0, 0])
-                continue
-            rows = torch.cat([lp[P - 1: P], lp[starts[i]: starts[i] + len(c) - 1]])
-            out.append(rows[torch.arange(len(c), device=dev), torch.tensor(c, device=dev)])
+            if c:
+                spans.append((i, sum(len(t) for t in tgts), len(c)))
+                rows.append(torch.cat([h[P - 1: P], h[starts[i]: starts[i] + len(c) - 1]]))
+                tgts.append(torch.tensor(c, device=dev))
+        out = [h.new_zeros(0, dtype=torch.float32) for _ in completions]
+        if rows:
+            lp = self._head_logprobs(torch.cat(rows), torch.cat(tgts), temperature)
+            for i, s0, n in spans:
+                out[i] = lp[s0: s0 + n]
         return out
 
     def state_dict(self, *a, **kw):  # HF names (what vLLM load_weights expects), without the wrapper prefix
