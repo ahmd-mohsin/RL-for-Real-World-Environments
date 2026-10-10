@@ -1071,6 +1071,18 @@ every episode `checkpoint.json`, which is O(turns²).
   record equals the full-prompt record.
 - **Status:** Phase B (vertical scale) is complete.
 
+**Lab acceptance runs, 2026-10-10 (M7 / M8, task04).**
+- **M7 golden, GPU:** 7 of 8 submissions graded, all agree with history where measured. `sol_v3` and `oob` had their
+  concurrency gate **masked** as node contention (another user's job took ~28 GB mid-grade), which is the correct infra
+  classification. The comparison used to report a masked gate as a mismatch; it now lists it under `needs_regrade`.
+  `astra_v3b` (the perf gate) is pending.
+- **M8 forge spans, GPU:** all 25 grades masked, correctly, as `grader_exception`, because the stager shipped empty start
+  patches. The empty-patch negative is named `start.patch`, and copied next to the span's own `start.patch` it
+  overwrote it.
+- **Forge staging fixes:** negatives are staged under `neg/` with an explicit file column; empty start or solution
+  patches are refused; AppleDouble files are stripped; remote sizes are verified; masked grades show as masked in
+  `collect`. Re-staged after the labstack campaign.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

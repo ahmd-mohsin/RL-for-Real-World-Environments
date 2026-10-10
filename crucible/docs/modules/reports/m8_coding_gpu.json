@@ -1,0 +1,282 @@
+{
+ "graded": "23/23",
+ "pass": false,
+ "grades": {
+  "kinfu/solution": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  },
+  "kinfu/start": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "kinfu/unported_0": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "kinfu/astra_v3_module": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "perf",
+   "ok": false
+  },
+  "kinfu_large_scale/solution": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  },
+  "kinfu_large_scale/start": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "kinfu_large_scale/unported_0": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "kinfu_large_scale/astra_v3_module": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "perf",
+   "ok": false
+  },
+  "ncv/solution": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  },
+  "ncv/start": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "ncv/unported_0": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "ncv/unported_1": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "ncv/trap_sol_v3": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "ncv",
+   "ok": false
+  },
+  "ncv/astra_v3_module": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  },
+  "people/solution": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  },
+  "people/start": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/unported_0": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/unported_1": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/unported_2": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/unported_3": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/unported_4": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "static",
+   "ok": false
+  },
+  "people/trap_sol_v3": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "fail",
+   "expected_gate": "ncv",
+   "ok": false
+  },
+  "people/astra_v3_module": {
+   "reward": 0.0,
+   "gates": {},
+   "infra": {
+    "status": "masked",
+    "failure_kind": "grader_exception",
+    "reason": "RuntimeError: the span start patch does not apply to the base: error: No valid patches in input (allow with \"--allow-empty\")\n\nTraceback (most recent call last):\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 95, in main\n    cand, why = assemble(t, a.base, a.patch, a.pre_patch)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/crucible_verify/crucible/verify/runtime/run.py\", line 59, in assemble\n    raise RuntimeError(f\"the span start patch does not apply to the b"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": false
+  }
+ }
+}

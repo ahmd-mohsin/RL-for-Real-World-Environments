@@ -31,7 +31,8 @@ RUNNER = r"""#!/bin/bash
 cd ~/REMOTE
 echo $$ > runner.pid
 while kill -0 $(cat ~/rlenv/crucible_golden/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the golden runner" > status.txt; sleep 300; done
-while read SPAN SOL; do
+while kill -0 $(cat ~/rlenv/crucible_labstack/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the labstack campaign" > status.txt; sleep 300; done
+while read SPAN SOL FILE; do
   N=${SPAN}__${SOL}
   [ -f out/$N/crucible_reward.json ] && continue
   while true; do
@@ -46,7 +47,7 @@ while read SPAN SOL; do
     -v $HOME/REMOTE/bundle:/crucible_verify:ro -v $HOME/rlenv/task04/taskdir/tests:/tests:ro -v $HOME/REMOTE/spans/$SPAN:/span:ro \
     -v $HOME/REMOTE/out/$N:/logs/verifier --entrypoint python3 IMAGE -I /crucible_verify/crucible/verify/runtime/run.py \
     --plan crucible_pack_coding.verify.task04 --out /logs/verifier --require-root --base /opt/originals/pcl --pre-patch /span/start.patch \
-    --patch /span/$SOL.patch --param tests=/tests --param scope=$SPAN > out/$N.console 2>&1
+    --patch /span/$FILE --param tests=/tests --param scope=$SPAN > out/$N.console 2>&1
 done < queue.txt
 echo "$(date -Is) done" > status.txt
 """
@@ -75,17 +76,27 @@ def stage() -> None:
             tgt.mkdir(parents=True)
             (tgt / "start.patch").write_text((span_dir / "start.patch").read_text())
             (tgt / "solution.patch").write_text((span_dir / "solution" / "solution.patch").read_text())
-            queue.append(f"{s} solution")
+            queue.append(f"{s} solution solution.patch")
+            (tgt / "neg").mkdir()
             for neg in sorted((span_dir / "crucible" / "negatives").glob("*.patch")):
-                (tgt / neg.name).write_text(neg.read_text())
-                queue.append(f"{s} {neg.stem}")
+                # negatives live in neg/: the empty-patch negative is named start.patch and, copied next to the span's own
+                # start.patch, overwrote it (every grade of the first run masked: "No valid patches in input")
+                (tgt / "neg" / neg.name).write_text(neg.read_text())
+                queue.append(f"{s} {neg.stem} neg/{neg.name}")
+        empty = sorted(str(q.relative_to(d)) for q in (d / "spans").glob("*/*.patch") if q.stat().st_size == 0)  # start / solution (an empty negative is legitimate)
+        if empty:  # the first staging shipped empty start patches (regenerated mid-stage): every grade masked
+            raise SystemExit(f"refusing to stage empty patches: {empty}")
         (d / "queue.txt").write_text("\n".join(queue) + "\n")
         (d / "run.sh").write_text(RUNNER.replace("REMOTE", REMOTE).replace("IMAGE", IMAGE))
-        tar = subprocess.run(["tar", "-czf", "-", "--no-xattrs", "-C", str(d), "bundle", "spans", "queue.txt", "run.sh"], capture_output=True, check=True).stdout
-        r = subprocess.run([*LAB, f"mkdir -p ~/{REMOTE} && cd ~/{REMOTE} && rm -rf bundle spans && tar xzf - && chmod +x run.sh"], input=tar, capture_output=True,
-                           check=False, timeout=300)
-        if r.returncode:
-            raise SystemExit(r.stderr.decode()[-500:])
+        import os
+
+        tar = subprocess.run(["tar", "-czf", "-", "--no-xattrs", "-C", str(d), "bundle", "spans", "queue.txt", "run.sh"], capture_output=True, check=True,
+                             env={**os.environ, "COPYFILE_DISABLE": "1"}).stdout  # no macOS AppleDouble ._ files
+        unpack = (f"mkdir -p ~/{REMOTE} && cd ~/{REMOTE} && rm -rf bundle spans && tar xzf - && chmod +x run.sh && find . -name '._*' -delete && "
+                  "test -z \"$(find spans -maxdepth 2 -name '*.patch' -size 0)\" && rm -rf out && echo staged-ok")  # out/: masked results of the bad staging
+        r = subprocess.run([*LAB, unpack], input=tar, capture_output=True, check=False, timeout=300)
+        if r.returncode or b"staged-ok" not in r.stdout:
+            raise SystemExit("staging failed or a patch arrived empty: " + (r.stderr or r.stdout).decode()[-500:])
     start = (f"cd ~/{REMOTE} && (kill -0 $(cat runner.pid 2>/dev/null) 2>/dev/null || setsid nohup ./run.sh > runner.log 2>&1 < /dev/null &); "
              "sleep 3; cat status.txt 2>/dev/null; wc -l queue.txt")
     r = subprocess.run([*LAB, start], capture_output=True, text=True, check=False, timeout=60)
@@ -110,12 +121,15 @@ def collect() -> dict:
                 rows[f"{span_dir.name}/{sol}"] = {"pending": True}
                 continue
             r = json.loads(f.read_text())
+            if r.get("infra", {}).get("status") == "masked":  # infrastructure, never a verdict: re-grade
+                rows[f"{span_dir.name}/{sol}"] = {"masked": r["infra"].get("failure_kind"), "reason": str(r["infra"].get("reason"))[:200]}
+                continue
             ok = (r["reward"] == 1.0) if exp == "pass" else (r["reward"] == 0.0 and r.get("infra", {}).get("status") == "ok" and (gate is None or r["gates"].get(gate) == 0))
             rows[f"{span_dir.name}/{sol}"] = {"reward": r["reward"], "gates": r["gates"], "infra": r.get("infra"), "expected": exp, "expected_gate": gate, "ok": ok}
     done = [v for v in rows.values() if "ok" in v]
     rep = {"graded": f"{len(done)}/{len(rows)}", "pass": len(done) == len(rows) and all(v["ok"] for v in done), "grades": rows}
     REPORT.write_text(json.dumps(rep, indent=1) + "\n")
-    print(json.dumps({k: (v.get("ok"), v.get("reward")) if "ok" in v else "pending" for k, v in rows.items()}, indent=1))
+    print(json.dumps({k: (v.get("ok"), v.get("reward")) if "ok" in v else ("masked: " + v["masked"] if "masked" in v else "pending") for k, v in rows.items()}, indent=1))
     return rep
 
 
