@@ -831,6 +831,12 @@ Infra failures are masked and never trained.
 - A `torch.no_grad()` block spanning an `await` leaked grad-off mode into the trainer's coroutine on the same thread. Grad mode is thread-local, so scopes must never cross awaits.
 - `rollout_probs_diff` without π_θold also contains the policy drift since sampling. This is documented; the pure engine gap needs `old_logp`.
 
+**As built, part 3 (M12 bridges, 2026-10-10; module doc `docs/modules/M12-train.md`).**
+- `bridges/common.flatten` turns a rollout record into one causal training sequence per (actor, segment): response = completions interleaved with observation tokens; the mask is 1 only on sampled tokens; logprobs, per-token advantages and per-token versions are aligned.
+- Adapters: verl `AgentLoopOutput`, SkyRL `GeneratorOutput` (outcome on the last sampled token, since GRPO sums token rewards), TRL `rollout_func` fields, rLLM `Step`s with precomputed per-token advantages.
+- verl: the `crucible_delta` estimator, registered through verl's own `register_adv_est`, computes A_t = (R − group mean) + c_t, with turn credit encoded in the token rewards; masked rollouts are excluded.
+- TRL: `make_rollout_func` runs World episodes concurrently over TRL's colocated vLLM.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
