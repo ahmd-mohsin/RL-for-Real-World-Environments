@@ -80,3 +80,9 @@ async def test_world_ends_the_episode_when_a_tool_result_says_so(tmp_path):
     assert ep.steps == 1 and "agent" in w.done
     assert [e.text for e in w.log if e.type == "done"] == ["environment_terminal"]
     await w.close()
+
+
+def test_mcp_images_sim_clock_world_seed_and_events(tmp_path):
+    """An imported MCP environment: ImageContent → ToolResult.images (stored, in the replay digest); its sim time
+    drives the World's sim clock so a World event fires on simulation time; reset seed = the App's derived seed."""
+    _case("mcp_image_clock_seed", tmp_path)

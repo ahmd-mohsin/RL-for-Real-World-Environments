@@ -25,6 +25,11 @@ def sha256_text(text: str) -> str:
     return sha256_bytes(text.encode("utf-8"))
 
 
+def derive_seed(world_seed: int, name: str) -> int:
+    """A per-App (or per-actor) seed from the World seed: stable, independent across names, 63-bit."""
+    return int(hashlib.sha256(f"{world_seed}|{name}".encode()).hexdigest()[:15], 16)
+
+
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:

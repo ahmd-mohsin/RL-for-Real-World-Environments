@@ -768,6 +768,15 @@ Crucible World with snapshot/restore, the single reward producer, the dense chan
   - native = import = canonical replay = OpenEnv re-export, with step rewards telescoping to 1.0;
   - PortSim trains through the M12 runtime (scripted engine → exact-TITO tokens → rubric → `rollout/v1`).
 - `runtime/record.py` imports Harbor only for type checking, so in-process rollouts run without Harbor installed.
+- **World capabilities the catalogue needs** (M1; `docs/modules/M01-world.md` "Added for environment diversity"):
+  - per-tool call budgets (`LimitsSpec.tool_quota`; counts in `WorldRef`, spec hash unchanged without quotas);
+  - a `sim` clock driven by Apps (an imported environment's sim time via `clock_from`), so World events fire on
+    simulation time;
+  - per-App derived seeds (`reset.seed = "world"` for imports);
+  - image tool outputs (`ToolResult.images` as store refs; MCP `ImageContent` mapped and covered by the replay
+    digest; vision policies get them as a user turn);
+  - World events over an imported environment (`OpenEnvTask(events=...)`);
+  - the < 5 ms in-process step budget.
 
 ### 10.2 Two verifier tiers
 

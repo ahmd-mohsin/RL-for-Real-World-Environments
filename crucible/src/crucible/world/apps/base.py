@@ -32,6 +32,7 @@ class AppContext:
     clock: VirtualClock | None = None
     pack_root: Path | None = None  # seeds referenced by the spec resolve against this (host side)
     extra: dict[str, Any] = field(default_factory=dict)
+    seed: int = 0  # this App's own seed: derive_seed(WorldSpec.seed, app id); reproducible from the spec hash in every trace
 
     def resolve(self, p: str) -> str:
         return p if p.startswith("/") else posixpath.normpath(posixpath.join(self.base_path, p))
@@ -81,6 +82,14 @@ class App(ABC):
 
     async def after_restore(self) -> None:
         """Hook: the World just restored this App's state (and every other App's) from a WorldRef."""
+
+    def image(self, data: bytes, mime: str = "image/png"):
+        """An image tool output: stored once (content-addressed) and attached to the live observation."""
+        import base64
+
+        from crucible.core.schema.actions import ImageRef
+
+        return ImageRef(mime=mime, ref=self.ctx.store.put_bytes(data), data_b64=base64.b64encode(data).decode())
 
     @property
     def policy_exec(self):

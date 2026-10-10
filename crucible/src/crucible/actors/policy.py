@@ -82,12 +82,20 @@ class ContextConfig:
     mode: str = "compact"  # "compact" | "none" (overflow ends the episode as context_overflow, scored)
 
 
+IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
+
+
 def approx_tokens(messages: list[dict[str, Any]]) -> int:
-    """A provider-independent estimate (4 characters per token) used for the compaction trigger and the accounting."""
+    """A provider-independent estimate (4 characters per token) used for the compaction trigger and the accounting;
+    an image part counts ``IMAGE_TOKENS``, not its base64 length."""
     n = 0
     for m in messages:
         c = m.get("content")
-        n += len(c) if isinstance(c, str) else len(json.dumps(c, default=str)) if c else 0
+        if isinstance(c, list):
+            for part in c:
+                n += IMAGE_TOKENS * 4 if isinstance(part, dict) and part.get("type") == "image_url" else len(json.dumps(part, default=str))
+        else:
+            n += len(c) if isinstance(c, str) else len(json.dumps(c, default=str)) if c else 0
         if m.get("tool_calls"):
             n += len(json.dumps(m["tool_calls"], default=str))
     return n // 4 + 4 * len(messages)
@@ -101,8 +109,9 @@ class LLMToolPolicy(Policy):
     provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
 
     def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
-                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None):
+                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False):
         self.actor_id, self.llm, self.system = actor_id, llm, system
+        self.vision = vision  # send tool images to the model (vision models); otherwise a placeholder line per image
         self.max_tokens, self.max_tool_output, self.temperature = max_tokens, max_tool_output, temperature
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         self.tools: list[dict[str, Any]] = []
@@ -195,8 +204,14 @@ class LLMToolPolicy(Policy):
             if self.max_tool_output and len(content) > self.max_tool_output:
                 h = self.max_tool_output * 2 // 3
                 content = content[:h] + f"\n[... {len(content) - self.max_tool_output} characters truncated ...]\n" + content[-(self.max_tool_output - h):]
+            if tr.images and not self.vision:
+                content += "".join(f"\n[image {i.mime} omitted: this model receives text only]" for i in tr.images)
             self.messages.append({"role": "tool", "tool_call_id": tr.tool_call_id, "content": content})
             self._pending.discard(tr.tool_call_id)
+            if tr.images and self.vision:  # OpenAI-style tool messages carry text only: images follow the batch as a user turn
+                self._held.append({"role": "user", "content": [{"type": "text", "text": f"[images returned by tool call {tr.tool_call_id}]"},
+                                                               *({"type": "image_url", "image_url": {"url": f"data:{i.mime};base64,{i.data_b64}"}}
+                                                                 for i in tr.images if i.data_b64)]})
         for m in obs.inbox:
             if m.frm == self.actor_id:  # its own line from a prefilled conversation
                 self._held.append({"role": "assistant", "content": m.text})

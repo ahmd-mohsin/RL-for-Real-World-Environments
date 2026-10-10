@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import fnmatch
 import json
 import logging
 import shutil
@@ -29,7 +30,7 @@ from pathlib import Path
 from typing import Any, Protocol, Self, runtime_checkable
 
 from crucible.connectors.agent_events import annotate_probes, writes_of
-from crucible.core.ids import new_id, sha256_text
+from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
 from crucible.core.schema.run import Failure
@@ -156,6 +157,7 @@ class World:
         self.responders: dict[str, Responder] = {}
         self.inboxes: dict[str, list[Inbound]] = {a.id: [] for a in spec.actors}
         self.done: set[str] = set()
+        self.tool_counts: dict[str, int] = {}  # LimitsSpec.tool_quota pattern -> calls used this episode
         self.step_index = 0
         self.log: list[TraceEvent] = []
         self.trace_sink: Path | None = None  # stream every trace event here as it happens (long episodes: a crash loses nothing)
@@ -194,6 +196,7 @@ class World:
                 clock=self.clock,
                 pack_root=self.pack_root,
                 extra={"peers": self.apps, "seed": self.spec.seed},  # peers: live dict (a browser reaches a website's URL)
+                seed=derive_seed(self.spec.seed, app_spec.id),
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
         for app in self.apps.values():
@@ -317,6 +320,13 @@ class World:
         problem = _argument_problem(call.arguments, spec.input_schema)
         if problem:
             return fail(qualified, f"Invalid arguments for {qualified}: {problem}. Resend the call with a JSON object matching the tool's schema.", "invalid_arguments")
+        if not system and self.spec.limits.tool_quota:
+            hit = [pat for pat in self.spec.limits.tool_quota if fnmatch.fnmatchcase(qualified, pat)]
+            spent = [pat for pat in hit if self.tool_counts.get(pat, 0) >= self.spec.limits.tool_quota[pat]]
+            if spent:
+                return fail(qualified, f"{qualified}: no calls left this episode (budget {self.spec.limits.tool_quota[spent[0]]})", "quota_exhausted")
+            for pat in hit:
+                self.tool_counts[pat] = self.tool_counts.get(pat, 0) + 1
         router = self.backend.router()
         t0 = time.monotonic()
         try:
@@ -411,8 +421,11 @@ class World:
             self._log("action", actor, "tool_call", data={"function": action.function_name, "arguments": action.arguments, "id": action.tool_call_id})
             res = await self._call_tool(actor, action)
             results.append(res)
-            self._log("observation", actor, "tool_result", text=res.content, data={"function": res.function_name, "ok": res.ok, "error": res.error, "id": res.tool_call_id,
-                                                                                    "fault": res.fault, "truncated": res.truncated, "content_ref": res.content_ref})
+            data = {"function": res.function_name, "ok": res.ok, "error": res.error, "id": res.tool_call_id, "fault": res.fault, "truncated": res.truncated,
+                    "content_ref": res.content_ref}
+            if res.images:  # store refs only: pixels never enter the trace
+                data["images"] = [{"mime": i.mime, "ref": i.ref} for i in res.images]
+            self._log("observation", actor, "tool_result", text=res.content, data=data)
             await self._run_fired(self.scheduler.on_tool(res.function_name, actor))
             if res.ends_episode:  # the environment terminated the episode (imported OpenEnv / Gym environments)
                 self.done.add(actor)
@@ -574,6 +587,7 @@ class World:
             acl_rules=self.acl.state(),
             inboxes={a: [m.model_dump(mode="json", by_alias=True) for m in msgs] for a, msgs in sorted(self.inboxes.items()) if msgs},
             done=sorted(self.done),
+            tool_counts=dict(sorted(self.tool_counts.items())),
             backend=await self.backend.snapshot_state(),
         )
         ref.fingerprint = self._fingerprint(ref)
@@ -582,6 +596,8 @@ class World:
     def _fingerprint(self, ref: WorldRef) -> str:
         body = ref.model_dump(mode="json", exclude={"fingerprint", "step"})
         body["apps"] = {k: v["fingerprint"] for k, v in body["apps"].items()}
+        if not body.get("tool_counts"):
+            body.pop("tool_counts", None)  # no quotas: fingerprints stay identical to refs captured before tool_count existed
         if ref.clock.mode == "wall":
             body["clock"] = {k: v for k, v in body["clock"].items() if k != "now"}  # wall time always moves
         return sha256_text(json.dumps(body, sort_keys=True, separators=(",", ":")))
@@ -604,6 +620,7 @@ class World:
         for a, msgs in ref.inboxes.items():
             self.inboxes[a] = [Inbound.model_validate(m) for m in msgs]
         self.done = set(ref.done)
+        self.tool_counts = dict(ref.tool_counts)
         for a, st in ref.actors.items():
             if a in self.responders:
                 self.responders[a].load_state_dict(st)

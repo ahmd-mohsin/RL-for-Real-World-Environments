@@ -10,7 +10,10 @@ import sys
 import zlib
 from pathlib import Path
 
+from fastmcp import FastMCP
+from fastmcp.utilities.types import Image
 from openenv.core.env_server.interfaces import Environment
+from openenv.core.env_server.mcp_environment import MCPEnvironment
 from openenv.core.env_server.types import Action, Observation, State
 
 from crucible.actors.policy import EpisodeLimits, ScriptedPolicy, run_episode
@@ -84,6 +87,54 @@ class NoisyEnv(CounterEnv):
 
 
 GENERIC = {"action_cls": f"{__name__}:AddAction", "show_metadata": True}
+
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452")
+
+
+def make_sim_env():
+    """An MCP environment with an image tool, simulation time in its observations and a reset seed."""
+    class SimMcpEnv(MCPEnvironment):
+        def __init__(self):
+            mcp = FastMCP("sim")
+            self.t, self.seed = 0.0, None
+
+            @mcp.tool
+            def render() -> Image:
+                """A frame of the simulation."""
+                return Image(data=PNG, format="png")
+
+            @mcp.tool
+            def wait(hours: float) -> str:
+                """Let the simulation run."""
+                self.t += hours * 3600
+                return f"t={self.t / 3600:.0f}h"
+
+            @mcp.tool
+            def seed() -> str:
+                """The reset seed."""
+                return str(self.seed)
+
+            super().__init__(mcp)
+            self._state = State()
+
+        def reset(self, seed=None, episode_id=None, **kw):
+            self.t, self.seed = 0.0, seed
+            self._state = State(episode_id=episode_id, step_count=0)
+            return Observation(done=False, reward=None, metadata={"goal": "watch"})
+
+        async def step_async(self, action, timeout_s=None, **kw):
+            o = await super().step_async(action, timeout_s=timeout_s, **kw)
+            o.metadata = {**(o.metadata or {}), "sim": {"t_s": self.t}}
+            return o
+
+        def _step_impl(self, action, timeout_s=None, **kw):
+            return Observation(done=False, reward=0.0)
+
+        @property
+        def state(self):
+            return self._state
+
+    return SimMcpEnv()
 
 
 # ---- cases ------------------------------------------------------------------------------------------------------
@@ -228,7 +279,31 @@ async def m12_runtime(d: Path) -> None:
     assert all(len(r.turns) == 1 for r in rep.trained_records)  # one call: submit_plan ended the episode
 
 
-CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime)}
+async def mcp_image_clock_seed(d: Path) -> None:
+    from crucible.core.ids import derive_seed
+
+    ev = [{"id": "shift", "when": {"after": "3h"}, "actor": "agent", "action": {"type": "nl", "text": "shift change", "to": "agent"}}]
+    t = OpenEnvTask("openenv/sim/s@1", f"{__name__}:make_sim_env", reset={"seed": "world"}, seed=11, clock_from="sim.t_s",
+                    clock={"mode": "sim", "t0": "2026-01-05T00:00:00Z"}, events=ev)
+    w = await t.open(d / "w")
+    try:
+        r = (await w.step("agent", tc(0, "render", {}))).observation.tool_results[0]
+        assert r.ok and r.images and w.store.get_bytes(r.images[0].ref) == PNG
+        assert (await w.step("agent", tc(1, "seed", {}))).observation.tool_results[0].content == str(derive_seed(11, "env"))
+        o = (await w.step("agent", tc(2, "wait", {"hours": 2}))).observation
+        assert o.time == "2026-01-05T02:00:00Z" and not o.inbox
+        ref = await w.snapshot()
+        o = (await w.step("agent", tc(3, "wait", {"hours": 2}))).observation
+        assert o.time == "2026-01-05T04:00:00Z" and [m.text for m in o.inbox] == ["shift change"]
+        await w.restore(ref)  # replay re-renders the image and re-checks its digest; the clock returns to 2h
+        assert w.clock.now_iso() == "2026-01-05T02:00:00Z" and w.apps["env"].env.t == 7200.0
+        j = w.apps["env"].journal
+        assert j["steps"][0]["images"] == [r.images[0].ref]
+    finally:
+        await w.close()
+
+
+CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime, mcp_image_clock_seed)}
 
 if __name__ == "__main__":
     asyncio.run(CASES[sys.argv[1]](Path(sys.argv[2])))

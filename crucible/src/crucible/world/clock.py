@@ -78,6 +78,13 @@ class VirtualClock:
             raise ValueError("time cannot go backwards")
         self._offset += delta
 
+    def advance_to(self, t: datetime) -> None:
+        """Move to absolute time ``t`` (sim mode: the simulation reports where it is); never backwards."""
+        self.advance(t - self.now())
+
+    def advance_sim_seconds(self, seconds_since_t0: float) -> None:
+        self.advance_to(self._t0 + timedelta(seconds=float(seconds_since_t0)))
+
     def reset(self) -> None:
         self._base = self._t0
         self._offset = timedelta()

@@ -72,6 +72,15 @@ class Done(CrucibleModel):
 Action = Annotated[ToolCall | Message | Done, Field(discriminator="kind")]
 
 
+class ImageRef(CrucibleModel):
+    """An image a tool returned (a screenshot, a rendered frame, a chart). The bytes live in the World's store under
+    ``ref`` (content-addressed); ``data_b64`` rides only on the live observation handed to the policy, never in traces."""
+
+    mime: str = "image/png"
+    ref: str
+    data_b64: str | None = Field(default=None, exclude=True)  # never serialized (records, checkpoints, traces)
+
+
 class ToolResult(CrucibleModel):
     tool_call_id: str
     function_name: str
@@ -88,6 +97,7 @@ class ToolResult(CrucibleModel):
     # the environment ended the episode with this call (an OpenEnv / Gym ``done``: a final answer, a step budget); the
     # World marks the calling actor done, exactly as if it had sent ``Done``
     ends_episode: bool = False
+    images: list[ImageRef] = Field(default_factory=list)  # image outputs (vision environments); text stays in ``content``
 
 
 class Inbound(CrucibleModel):

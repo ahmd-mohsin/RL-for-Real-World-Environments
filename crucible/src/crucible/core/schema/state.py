@@ -73,7 +73,7 @@ class QueryResult(CrucibleModel):
 
 
 class ClockState(CrucibleModel):
-    mode: Literal["off", "step", "wall"] = "off"
+    mode: Literal["off", "step", "wall", "sim"] = "off"
     t0: str | None = None  # RFC 3339
     now: str | None = None  # virtual time at capture
     rate: float = 1.0
@@ -100,5 +100,6 @@ class WorldRef(CrucibleModel):
     acl_rules: dict[str, list[list[str]]] = Field(default_factory=dict)  # actor -> [[grant|revoke, pattern]]
     inboxes: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # undelivered messages per actor
     done: list[str] = Field(default_factory=list)  # actors that declared done
+    tool_counts: dict[str, int] = Field(default_factory=dict)  # LimitsSpec.tool_quota pattern -> calls used this episode
     backend: dict[str, Any] = Field(default_factory=dict)  # backend-held runtime state (e.g. agentenv gateway clock/triggers)
     fingerprint: str = ""  # hash over everything above except `step` (same state reached in different #steps is the same state)

@@ -164,6 +164,28 @@ Source: Preference Model, Repo2RLEnv and Prime Intellect, re-checked after M3. S
 ## Gate re-verified after the hardening (2026-10-09)
 With the choke point (schema validation, deadlines, fault labels), virtual time for tool modules and the new error envelopes in place, the generality gate still holds: **266/266** complete MiMo envs (`reports/m1_mimo_sweep_inprocess.json`) and **100/100** AWM scenarios (`reports/m1_awm_sweep.json`) pass every check. The test suite is `tests/unit` + `tests/toy_e2e` (82) and `tests/redteam` (3 tests, 25+ attacks), and the lab gates are `tests/gpu` (seed worlds, CI on the verifier image, agentenv GPU sandbox).
 
+## Added for environment diversity (2026-10-10; research `docs/research/m11-m12/05` §5.2)
+What the OpenEnv / FineEnvs / NeMo-Gym catalogue (simulations, games, vision, budgeted tools) needs from every World.
+Tests: `tests/unit/test_world_diversity.py`, `tests/unit/test_openenv_import.py`.
+- **Environment-terminated episodes:** `ToolResult.ends_episode` marks the calling actor done (logged
+  `environment_terminal`), for environments that end themselves (a final answer, a step budget).
+- **Per-tool call budgets:** `LimitsSpec.tool_quota` maps fnmatch patterns over qualified names to calls per episode
+  (all policy actors together). It is enforced at the choke point after argument validation; an exhausted budget is a
+  policy-fault result (`quota_exhausted`). The counts live in `WorldRef.tool_counts`, are part of the fingerprint, and
+  are restored on restore and cleared on reset. The field is `None` by default, so specs without quotas keep their content hash.
+- **Sim clock:** `ClockSpec.mode = "sim"`. Time moves only when an App calls `ctx.clock.advance_to` /
+  `advance_sim_seconds` (a discrete-event simulator, or an imported environment reporting its time through
+  `clock_from`), never per step and never backwards. Time-triggered events fire when the simulation passes their due time.
+- **Per-App seeds:** `AppContext.seed = derive_seed(WorldSpec.seed, app id)` (sha256, 63-bit): stable, distinct per App,
+  reproducible from the spec hash.
+- **Image tool outputs:** `ToolResult.images` (`ImageRef`: mime + content-addressed store key; `App.image(bytes)`).
+  - Traces record refs only. `data_b64` rides on the live observation and is excluded from every serialization.
+  - `LLMToolPolicy(vision=True)` sends the images as a user turn after the tool batch (OpenAI tool messages carry
+    text only); text models get a placeholder line instead.
+  - `approx_tokens` counts an image as a fixed 768 tokens.
+  - M12 token-in-token-out training is text-only for now (a multimodal processor codec is open).
+- **Step overhead:** `World.step` on an in-process App stays under 5 ms on average (tested).
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.

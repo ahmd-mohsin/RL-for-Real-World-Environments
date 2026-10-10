@@ -92,10 +92,12 @@ class ClockSpec(CrucibleModel):
 
     ``step`` mode: time moves only by ``step_dt_s`` per world step and by explicit advances, so
     episodes are reproducible (RL default). ``wall`` mode: agentenv gateway semantics,
-    now = t0 + real_elapsed * rate (urn:agentenv:clock/v1).
+    now = t0 + real_elapsed * rate (urn:agentenv:clock/v1). ``sim`` mode: a simulation owns time; it moves only
+    when an App advances it (``AppContext.clock.advance_to``: a discrete-event simulator, an imported environment
+    reporting its sim time), never per step; time-triggered events fire when the simulation passes their due time.
     """
 
-    mode: Literal["step", "wall"] = "step"
+    mode: Literal["step", "wall", "sim"] = "step"
     t0: str = "2026-01-05T09:00:00Z"
     rate: float = 1.0  # wall mode: virtual seconds per real second (max 86400)
     step_dt_s: float = 60.0  # step mode: virtual seconds per world step
@@ -170,6 +172,10 @@ class LimitsSpec(CrucibleModel):
 
     tool_timeout_s: float = 3600  # a hung tool becomes an infra-fault result, never a hung episode
     max_tool_output_chars: int = 30000  # one head+tail cut with a banner; the full text goes to the store
+    # per-episode call budgets: fnmatch pattern over qualified tool names -> max calls (all policy actors together),
+    # e.g. {"env.check_plan": 10}; an exhausted budget is a policy-fault result ("quota_exhausted"), never a crash.
+    # None (not {}) by default: canonical JSON drops None, so specs without quotas keep their content hash
+    tool_quota: dict[str, int] | None = None
 
 
 class IsolationSpec(CrucibleModel):

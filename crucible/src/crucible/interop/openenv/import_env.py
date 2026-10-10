@@ -12,9 +12,12 @@ snapshot / restore / verifier view, the single reward producer, the dense channe
 - ``reset``: ``reset()`` kwargs (task selection: ``seed`` / ``split`` / ``index`` / ``task_id``; ``episode_id`` is pinned to
   ``"crucible"`` unless given, so environments that put the id in observations stay deterministic);
 - MCP environments (``MCPEnvironment``): the tools come from ``ListToolsAction``; ``allow_tools`` (fnmatch) narrows them;
-  each call is a ``CallToolAction``. Other environments: one tool ``step`` whose schema is ``action_cls``'s JSON schema;
+  each call is a ``CallToolAction``; MCP ``ImageContent`` parts become ``ToolResult.images`` (stored, digested). Other environments: one tool ``step`` whose schema is ``action_cls``'s JSON schema;
 - ``show_metadata``: also show the observation's ``metadata`` to the policy (off by default: environments put grades
   and hidden fields there).
+- ``reset.seed = "world"``: the App's derived seed (``derive_seed(WorldSpec.seed, app id)``);
+- ``clock_from``: a dotted metadata path holding the simulation's time; with a ``sim`` clock the World follows it, so
+  time-triggered World events (disruptions, deadlines) fire on simulation time.
 
 **State = the replay journal** (``json_doc`` adapter over ``path``): reset kwargs, every call's arguments, the digest
 of its result (and the text, capped), its reward and ``done``. OpenEnv environments are opaque Python objects with no snapshot of their own;
@@ -86,6 +89,17 @@ def result_text(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)
 
 
+def result_images(result: Any) -> list[tuple[bytes, str]]:
+    """MCP ``ImageContent`` parts of a tool result, as (bytes, mime)."""
+    import base64
+
+    out = []
+    for c in getattr(result, "content", None) or []:
+        if getattr(c, "type", None) == "image" and getattr(c, "data", None):
+            out.append((base64.b64decode(c.data), getattr(c, "mimeType", None) or "image/png"))
+    return out
+
+
 def _is_error(result: Any) -> bool:
     return bool(getattr(result, "is_error", False) or getattr(result, "isError", False) or (isinstance(result, dict) and result.get("isError")))
 
@@ -106,7 +120,24 @@ class OpenEnvApp(App):
     def _reset_kwargs(self) -> dict:
         kw = dict(self.spec.params.get("reset") or {})
         kw.setdefault("episode_id", "crucible")
+        if kw.get("seed") == "world":  # this App's derived seed (WorldSpec.seed → derive_seed(seed, app id))
+            kw["seed"] = self.ctx.seed
         return kw
+
+    def _sim_time(self, obs: Any) -> None:
+        """``clock_from``: a dotted path into the observation's metadata holding the simulation's time (seconds since the
+        World clock's t0); the World's sim clock follows it, so time-triggered events fire on simulation time."""
+        path = self.spec.params.get("clock_from")
+        clock = self.ctx.clock
+        if not path or clock is None or clock.mode != "sim":
+            return
+        node: Any = getattr(obs, "metadata", None) or {}
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return
+            node = node[part]
+        if isinstance(node, (int, float)) and clock.t0.timestamp() + float(node) > clock.now().timestamp():
+            clock.advance_sim_seconds(float(node))
 
     async def _fresh(self) -> Any:
         """A new Environment, reset; returns the reset observation."""
@@ -171,8 +202,8 @@ class OpenEnvApp(App):
         if _digest(self._obs_text(obs, reset=True)) != doc["reset_digest"]:
             raise SnapshotMismatch(f"{self.id}: the environment's reset observation changed (non-deterministic reset)")
         for i, s in enumerate(doc["steps"]):
-            _, text, _, _ = await self._issue(s["tool"], s["args"])
-            if _digest(text) != s["digest"]:
+            obs, text, _, _ = await self._issue(s["tool"], s["args"])
+            if self._step_digest(obs, text) != s["digest"]:
                 raise SnapshotMismatch(f"{self.id}: replayed step {i} ({s['tool']}) gave a different result: the environment is not deterministic")
         self.journal = doc
 
@@ -202,6 +233,14 @@ class OpenEnvApp(App):
         r = getattr(obs, "reward", None)
         return obs, self._obs_text(obs), (float(r) if r is not None else None), bool(getattr(obs, "done", False))
 
+    @staticmethod
+    def _images(obs: Any) -> list[tuple[bytes, str]]:
+        return result_images(obs.result) if hasattr(obs, "tool_name") and obs.error is None else []
+
+    @classmethod
+    def _step_digest(cls, obs: Any, text: str) -> str:
+        return _digest(text + "".join(f"|image:{hashlib.sha256(b).hexdigest()}" for b, _ in cls._images(obs)))
+
     async def call(self, name: str, args: dict[str, Any], *, actor: str, call_id: str) -> ToolResult:
         q = f"{self.id}.{name}"
         if name not in {t.name for t in self._tools}:
@@ -210,8 +249,11 @@ class OpenEnvApp(App):
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content="The episode is over.", error="episode_over", fault="policy",
                               ends_episode=True)
         obs, text, reward, done = await self._issue(name, args)
+        self._sim_time(obs)
         err = getattr(obs, "error", None)
-        self.journal["steps"].append({"tool": name, "args": args, "digest": _digest(text), "text": text[:TEXT_CAP], "reward": reward, "done": done})
+        images = [self.image(b, mime) for b, mime in self._images(obs)]
+        self.journal["steps"].append({"tool": name, "args": args, "digest": self._step_digest(obs, text), "text": text[:TEXT_CAP], "reward": reward, "done": done,
+                                      **({"images": [i.ref for i in images]} if images else {})})
         self.journal["rewards"].append(reward)
         if done:
             self.journal["done"] = True
@@ -223,7 +265,7 @@ class OpenEnvApp(App):
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=err.error_type.value, fault=fault, ends_episode=done)
         if self.mcp and _is_error(obs.result):
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error="tool_error", fault="tool", ends_episode=done)
-        return ToolResult(tool_call_id=call_id, function_name=q, ok=True, content=text, data={"reward": reward, "done": done}, ends_episode=done)
+        return ToolResult(tool_call_id=call_id, function_name=q, ok=True, content=text, data={"reward": reward, "done": done}, ends_episode=done, images=images)
 
 
 # ---- the RunTask ----------------------------------------------------------------------------------------------
@@ -232,13 +274,16 @@ class OpenEnvTask:
 
     ``instruction``: the policy's instruction; a callable gets the reset observation (e.g. the environment's rules in
     ``metadata["instructions"]``). ``progress``: extra M7 checks over the journal for the dense channel (each
-    ``fn(journal) -> bool``); the defaults are ``terminated`` and ``positive_reward``.
+    ``fn(journal) -> bool``); the defaults are ``terminated`` and ``positive_reward``. ``tool_quota`` / ``clock`` /
+    ``seed`` / ``events`` go to the WorldSpec: Crucible's own budgets, sim clock and timed events layered over the
+    imported environment.
     """
 
     def __init__(self, id: str, factory: str, *, reset: dict | None = None, factory_kwargs: dict | None = None, app: str = "env",
                  instruction: str | Callable[[Any], str] = "", action_cls: str | None = None, allow_tools: Sequence[str] | None = None,
                  show_metadata: bool = False, reward_range: tuple[float, float] = (0.0, 1.0), reward_mode: str = "last",
-                 progress: dict[str, Callable[[dict], bool]] | None = None, tool_timeout_s: float = 120.0):
+                 progress: dict[str, Callable[[dict], bool]] | None = None, tool_timeout_s: float = 120.0, tool_quota: dict[str, int] | None = None,
+                 clock: dict | None = None, clock_from: str | None = None, seed: int = 0, events: Sequence[dict] | None = None):
         if reward_mode not in ("last", "sum"):
             raise ValueError("reward_mode: 'last' | 'sum'")
         self.id, self.world_id, self.app = id, f"openenv/{id.split('/')[1] if '/' in id else id}", app
@@ -248,13 +293,19 @@ class OpenEnvTask:
         if allow_tools:
             self.params["allow_tools"] = list(allow_tools)
         self.instruction, self.reward_range, self.reward_mode = instruction, reward_range, reward_mode
+        if clock_from:
+            self.params["clock_from"] = clock_from
         self.progress = progress or {}
-        self.tool_timeout_s = tool_timeout_s
+        self.tool_timeout_s, self.tool_quota, self.clock, self.seed = tool_timeout_s, dict(tool_quota or {}), clock, seed
+        self.events = list(events or [])  # World events over the imported environment (disruptions, deadlines, messages)
 
     def spec(self, workdir: Path):
         from crucible.core.schema.world import WorldSpec
 
-        return WorldSpec.model_validate({"world": self.world_id, "limits": {"tool_timeout_s": self.tool_timeout_s},
+        extra = {"clock": self.clock} if self.clock else {}
+        if self.events:
+            extra["events"] = self.events
+        return WorldSpec.model_validate({"world": self.world_id, "seed": self.seed, **extra, "limits": {"tool_timeout_s": self.tool_timeout_s, "tool_quota": self.tool_quota or None},
                                          "apps": [{"id": self.app, "template": "openenv/env",
                                                    "state": {"adapter": "json_doc", "params": {"path": str(Path(workdir).resolve() / "openenv" / "journal.json")}},
                                                    "params": self.params}],
