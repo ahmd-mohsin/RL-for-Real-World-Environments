@@ -6,11 +6,11 @@
  "nodes": {
   "architect": [
    "done",
-   1
+   0
   ],
   "env": [
    "done",
-   1
+   0
   ],
   "checks": [
    "failed",
@@ -18,7 +18,7 @@
   ],
   "oracle": [
    "done",
-   1
+   0
   ],
   "negatives": [
    "skipped",

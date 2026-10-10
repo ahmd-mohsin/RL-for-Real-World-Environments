@@ -1,37 +1,38 @@
+{
+ "pass": true,
+ "state": "constructed",
+ "audit": true,
+ "summary": {
+  "accepted": 5,
+  "total": 5,
+  "failing": {}
+ },
+ "nodes": {
+  "architect": [
+   "done",
+   0
+  ],
+  "env": [
+   "done",
+   0
+  ],
+  "checks": [
+   "done",
+   0
+  ],
+  "oracle": [
+   "done",
+   0
+  ],
+  "negatives": [
+   "done",
+   0
+  ],
+  "audit": [
+   "done",
+   0
+  ]
+ },
+ "spend_usd": 0
+}
 
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py", line 194, in <module>
-    main()
-  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py", line 186, in main
-    rep = asyncio.run(forge(a.seed, llm_model=a.llm, budget=a.budget, out=a.out))
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
-    return runner.run(main)
-           ^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
-    return self._loop.run_until_complete(task)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
-    return future.result()
-           ^^^^^^^^^^^^^^^
-  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/world_synth.py", line 167, in forge
-    r = await accept(task, resolve=lambda s: s in known)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/accept/contract.py", line 216, in accept
-    out.append(await a1_oracle(t))
-               ^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/accept/contract.py", line 82, in a1_oracle
-    rep, fp = await t.grade(t.oracle, run=k)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py", line 122, in grade
-    return await self._run(list(solution))
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/packs/_toy/src/crucible_pack_toy/forge/task.py", line 114, in _run
-    rep = await self.plan.arun(Context(Trusted(d / "grade"), params={"view": v, "events": list(w.log)}), tier=tier)
-                                       ^^^^^^^^^^^^^^^^^^^^
-  File "<string>", line 7, in __init__
-  File "/crucible/src/crucible/verify/runtime/trusted.py", line 210, in __post_init__
-    raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); "
-crucible.verify.runtime.trusted.InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-l9d7n0vt is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error

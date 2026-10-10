@@ -135,3 +135,17 @@ async def test_blank_usage_tolerant_mode_books_uncertain_spend(tmp_path, monkeyp
     monkeypatch.setitem(tol.config.prices, tol.model, (1.0, 4.0))
     r = await tol.complete([{"role": "user", "content": "x"}], max_tokens=1000)
     assert r.usage == {"blank": 1} and tol.spend.blank_usage_calls == 1 and tol.spend.uncertain_usd >= 1000 / 1e6 * 4.0  # worst case, not $0
+
+
+def test_provider_policy_version_and_named_gaps(tmp_path):
+    """A served checkpoint's version comes from the provider config (lab M10: every train rollout was masked because an
+    external vLLM had no version stamp), and an invalid record names what is missing."""
+    from crucible.actors.llm import LLMClient
+    from crucible.core.config import Config, LLMProvider
+    from crucible.train.rollout import Turn
+
+    cfg = Config(llm_providers={"lab": LLMProvider(base_url="http://127.0.0.1:1/v1", policy_version=0)}, models={"p": "lab:m"}, data_dir=str(tmp_path))
+    assert LLMClient("p", config=cfg, cache_mode="off").policy_version == 0
+    t = Turn(call_id="c1", actor="agent", prompt_token_ids=[1, 2], completion_token_ids=[3, 4], logprobs=[-0.1, -0.2], policy_version=None)
+    assert t.missing() == ["policy_version (set the provider's policy_version for a served checkpoint)"]
+    assert Turn(call_id="c2", actor="agent", prompt_token_ids=[1], completion_token_ids=[3], logprobs=[-0.1], policy_version=0).missing() == []

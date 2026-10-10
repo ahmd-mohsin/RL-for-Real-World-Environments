@@ -44,12 +44,16 @@ async def m10() -> dict:
                        k=4, concurrency=4, rollout_mode=mode, sampling={"temperature": 0.7})
         s = await Runner(root / mode).run(spec)
         rolls = list((root / mode).rglob("rollout.json"))
-        valid = 0
-        for p in rolls:
-            d = json.loads(p.read_text())
-            valid += int(not d.get("mask_sample") and d.get("reward") is not None and all(t.get("completion_token_ids") for t in d.get("turns", [])))
+        from crucible.train.rollout import RolloutRecord
+
+        valid, why = 0, {}
+        for p in rolls:  # the trainer's own test, not a looser one (eval-mode records are checked the same way)
+            ok, reason = RolloutRecord.model_validate_json(p.read_text()).valid_for_training()
+            valid += int(ok)
+            if not ok:
+                why[reason] = why.get(reason, 0) + 1
         out[mode] = {"planned": s.planned, "terminal": s.terminal, "scored": s.scored, "masked": s.masked_terminal, "mean_reward": s.mean_reward,
-                     "pass_at_1": s.pass_at_1, "stopped": s.stopped, "by_failure": s.by_failure, "rollouts": len(rolls), "train_valid_rollouts": valid,
+                     "pass_at_1": s.pass_at_1, "stopped": s.stopped, "by_failure": s.by_failure, "rollouts": len(rolls), "train_valid_rollouts": valid, "not_train_valid": why,
                      "seconds": round(time.monotonic() - t0, 1)}
     _ = FibTask
     # rc=0 is not a pass: run 4 "passed" with every rollout masked (agent_run_error). Both modes must score, and train

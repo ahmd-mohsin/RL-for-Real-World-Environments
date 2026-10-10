@@ -1,6 +1,6 @@
 {
  "pass": false,
- "accepted": "0/11",
+ "accepted": "3/11",
  "power_tests": {
   "proven": 13,
   "per_kit": 10,
@@ -8,136 +8,28 @@
  },
  "blocking": {
   "toy/helpdesk_v2/t1_duplicate": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_v2/t2_approval": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
-  },
-  "toy/helpdesk_v2/t3_in_transit": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_v2/t4_decoy": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_v2/t5_compose": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_hindsight/t1001": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_hindsight/t1003": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
-  },
-  "toy/helpdesk_hindsight/t1013": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_hindsight/t1015": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
-  },
-  "toy/helpdesk_hindsight/t1018": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   },
   "toy/helpdesk_hindsight/t1021": {
-   "A1": "error",
-   "A2": "error",
-   "A3": "pending",
-   "A4": "pending",
-   "A6": "pending",
-   "A9": "error",
-   "A10": "pending",
-   "A11": "pending",
-   "A12": "pending",
-   "A13": "pending"
+   "A10": "error"
   }
  }
 }

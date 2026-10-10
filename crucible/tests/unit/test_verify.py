@@ -166,7 +166,7 @@ def test_trusted_unprivileged_mode(tmp_path):
         os.chmod(tmp_path, 0o755)
     t = Trusted(tmp_path / "w")
     r = t.run(["sh", "-c", "echo $HOME; echo x > $HOME/f"], candidate=True)
-    assert r.rc == 0 and not r.trusted and r.wall_s >= 0
+    assert r.rc == 0 and r.trusted == t.is_root and r.wall_s >= 0  # as root the candidate ran demoted (a trusted grade)
     assert not Path(r.stdout.strip()).exists()  # a fresh HOME dies with its invocation
     r2 = t.python(script=None, module="json.tool", args=["--help"], first=[], last=[])
     assert r2.rc == 0

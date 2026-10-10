@@ -3,7 +3,7 @@
  "tool_call": true,
  "tool_calls": [
   {
-   "id": "chatcmpl-tool-9e94913b11841cde",
+   "id": "chatcmpl-tool-a6c29ff9eaad4949",
    "name": "get_ticket",
    "arguments": {
     "id": 2

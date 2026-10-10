@@ -1062,7 +1062,24 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - otherwise the check tops up with more frontier runs, doubling, up to `Policy.a10_max_runs` (8), through
       `calibrate(k=…)`, which resumes the same journaled run;
     - a rejection at the cap says the interval still overlapped.
-  - **False passes in the campaign:**
+- **Run 6 findings (fixed):**
+  - **Every M10 train-mode rollout was masked as `capture_incomplete`.** A train-valid call needs a `policy_version`,
+    and an `LLMClient` pointed at an external vLLM never had one. The reason string only said "token record
+    incomplete".
+    - `LLMProvider.policy_version` declares the served checkpoint's version (`LLMClient` starts from it; a trainer
+      bridge still overrides it per update), and the lab config sets it to 0.
+    - `Turn.missing()` names every gap (prompt ids, logprobs, policy_version, prefix_break, spans, candidates), and
+      `valid_for_training` reports it.
+    - The M10 phase now counts train-valid rollouts with the trainer's own test.
+    - Checked offline: Qwen3-4B-Instruct's template does preserve the sampled tool-call prefix across chat-API turns.
+  - **A10 top-ups errored.** The runner refuses to resume a run whose spec changed, and `k` is part of it. The toy
+    task's `calibrate(k)` now runs only the missing samples as a new run (`…-n<have>`) and returns the latest `k`.
+  - **Root-only test assumptions:**
+    - a demoted candidate run reports `trusted=True` as root;
+    - the empty-collection injection relies on `chmod 000`, which root reads anyway, so it skips as root.
+  - **M12 GRPO on the lab passes:** 20 steps, 20 publishes, 0 masked, `stop_reason=steps`, 13.2 GB peak (OOM at 27 GB
+    before the checkpointing fix), Qwen3-0.6B on the long-horizon backlog worlds.
+- **False passes in the campaign:**
     - run 4's M10 phase exited 0 with every rollout masked; the phase now reports `pass` only when both modes score
       and train mode yields token-complete rollouts;
     - M9's verdict with a 4B model is expected to stay below 11/11: A10 asks whether the *frontier* model lands in

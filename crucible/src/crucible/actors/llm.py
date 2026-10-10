@@ -154,7 +154,8 @@ class LLMClient:
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.require_usage = require_usage  # False: tolerate blank usage, booking an upper-bound estimate as uncertain spend
-        self.policy_version: int | str | None = None  # set by the trainer bridge on every weight update; stamped on each call's token record
+        # the served checkpoint's version (provider config), replaced by the trainer bridge on every weight update; stamped on each call's token record
+        self.policy_version: int | str | None = self.provider.policy_version
         self.spend = Spend()
         self._client = None
 

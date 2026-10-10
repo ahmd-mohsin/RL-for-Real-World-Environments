@@ -29,6 +29,7 @@ def lab_config(model: str, port: int) -> Path:
 base_url = "http://127.0.0.1:{port}/v1"
 api_key = "EMPTY"
 request_defaults = {{ logprobs = true, extra_body = {{ return_token_ids = true }} }}
+policy_version = 0
 
 [models]
 sim-default = "lab:{model}"

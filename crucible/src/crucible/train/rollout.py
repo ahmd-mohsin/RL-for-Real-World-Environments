@@ -71,6 +71,16 @@ class Turn(CrucibleModel):
         toks = self.completion_token_ids or []
         return self.candidates is not None and len(self.candidates) == len(toks) and all(t in c for t, c in zip(toks, self.candidates, strict=True))
 
+    def missing(self) -> list[str]:
+        """What keeps this call out of training (empty: train-valid). Named, so a masked run says why."""
+        n = len(self.completion_token_ids or [])
+        out = [k for k, bad in (("prompt_token_ids", self.prompt_token_ids is None), ("completion_token_ids", n == 0),
+                                ("logprobs", self.logprobs is None or len(self.logprobs) != n),
+                                ("policy_version (set the provider's policy_version for a served checkpoint)", self.policy_version is None),
+                                ("prefix_break", self.prefix_break), ("version_spans", not self.spans_valid()),
+                                ("top_p candidates", not self.candidates_valid())) if bad]
+        return out
+
     def token_complete(self) -> bool:
         n = len(self.completion_token_ids or [])
         return self.prompt_token_ids is not None and n > 0 and self.logprobs is not None and len(self.logprobs) == n and self.policy_version is not None
@@ -121,9 +131,9 @@ class RolloutRecord(CrucibleModel):
             return False, f"masked ({self.failure_kind or 'no reward'})"
         if not self.turns:
             return False, "no model calls recorded"
-        bad = [t.call_id for t in self.turns if not t.token_complete() or t.prefix_break or not t.spans_valid() or not t.candidates_valid()]
+        bad = [(t.call_id, t.missing()) for t in self.turns if t.missing()]
         if bad:
-            return False, f"token record incomplete for {len(bad)}/{len(self.turns)} calls (first: {bad[0]})"
+            return False, f"token record incomplete for {len(bad)}/{len(self.turns)} calls (first: {bad[0][0]}: {', '.join(bad[0][1])})"
         return True, "ok"
 
 

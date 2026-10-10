@@ -289,7 +289,9 @@ class ToyForgedTask:
 
 
     async def calibrate(self, budget_usd: float, *, model: str = "policy-default", k: int = 2) -> list[dict]:
-        """Paid A10 runs: ``k`` samples of an LLM tool policy through the M10 runner (journaled under ``data/runs``)."""
+        """Paid A10 runs: ``k`` samples of an LLM tool policy through the M10 runner (journaled under ``data/runs``).
+        A larger ``k`` (A10's sequential top-up) runs only the missing samples, as a new run: the runner refuses to
+        resume a run whose spec (``k``) changed."""
         from crucible.actors.llm import LLMClient
         from crucible.runtime.harness.native import NativeHarness
         from crucible.runtime.run import Runner, RunSpec
@@ -298,7 +300,11 @@ class ToyForgedTask:
 
         llm = LLMClient(model, budget_usd=budget_usd)
         root = PACK_ROOT.parent.parent / "data" / "runs"
-        rid = "m9-a10-" + self.task_id.replace("/", "_")
-        await Runner(root).run(RunSpec(run_id=rid, tasks=[self.runtime_task()], policies=[llm_policy(llm)], harnesses=[NativeHarness()], k=k,
+        mine = f"llm:{llm.model}"
+        have = [r for r in self.calibration_runs() if r["policy"] == mine]
+        if len(have) >= k:
+            return have[-k:]
+        rid = "m9-a10-" + self.task_id.replace("/", "_") + (f"-n{len(have)}" if have else "")
+        await Runner(root).run(RunSpec(run_id=rid, tasks=[self.runtime_task()], policies=[llm_policy(llm)], harnesses=[NativeHarness()], k=k - len(have),
                                        budget_usd=budget_usd))
         return [r for r in self.calibration_runs() if r["policy"] == f"llm:{llm.model}"][-k:]

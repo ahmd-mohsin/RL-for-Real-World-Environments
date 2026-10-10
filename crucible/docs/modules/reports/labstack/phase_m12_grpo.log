@@ -1,98 +1,26 @@
+{
+ "gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090",
+ "model": "Qwen/Qwen3-0.6B",
+ "topology": "colocated_partial",
+ "steps": 20,
+ "wall_s": 136.9,
+ "aborted_calls": 386,
+ "reprefill_tokens": 680606,
+ "publishes": 20,
+ "masked_rollouts": 0,
+ "max_untrained": 32,
+ "gpu": "NVIDIA GeForce RTX 5090",
+ "peak_mem_gb": 13.18,
+ "stop_reason": "steps",
+ "failures": {},
+ "failure_examples": [],
+ "reward_first3": 0.0,
+ "reward_last3": 0.010416666666666666,
+ "pass": true
+}
 
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
 
 Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]
-Loading weights: 100%|██████████| 311/311 [00:00<00:00, 3766.60it/s]
-[W1010 13:51:17.213365894 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 71303168 bytes (free: 88342528, total: 33636024320).
-[W1010 13:51:17.304549083 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 71303168 bytes (free: 50593792, total: 33636024320).
-[W1010 13:51:17.321226652 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 71303168 bytes (free: 86245376, total: 33636024320).
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py", line 148, in <module>
-    main()
-  File "/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py", line 135, in main
-    rep = asyncio.run(run(a))
-          ^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
-    return runner.run(main)
-           ^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
-    return self._loop.run_until_complete(task)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
-    return future.result()
-           ^^^^^^^^^^^^^^^
-  File "/crucible/packs/_toy/src/crucible_pack_toy/m12/gate.py", line 98, in run
-    rep = await rt.run()
-          ^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/runtime.py", line 450, in run
-    return await self._run()
-           ^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/runtime.py", line 491, in _run
-    m = await self._train(sel)
-        ^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/runtime.py", line 407, in _train
-    m = self.trainer.step(recs, groups)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/trainer.py", line 376, in step
-    lp, roll, adv, mask, old_t = self._padded(items, idx, old)
-                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/trainer.py", line 316, in _padded
-    rows = self._logprobs(items, idx)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/trainer.py", line 303, in _logprobs
-    return self._plain_logprobs(items, idx)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/trainer.py", line 307, in _plain_logprobs
-    return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/hf.py", line 110, in batch_token_logprobs
-    h = self._hidden(ids, attn)
-        ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/crucible/src/crucible/train/hf.py", line 74, in _hidden
-    return run()
-           ^^^^^
-  File "/crucible/src/crucible/train/hf.py", line 69, in run
-    return base(input_ids=ids, attention_mask=attn, **kw).last_hidden_state
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py", line 1068, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/utils/output_capturing.py", line 286, in wrapper
-    outputs = func(self, *args, **kwargs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py", line 413, in forward
-    hidden_states = decoder_layer(
-                    ^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/modeling_layers.py", line 109, in __call__
-    return super().__call__(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py", line 307, in forward
-    hidden_states, _ = self.self_attn(
-                       ^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py", line 257, in forward
-    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/models/qwen3/modeling_qwen3.py", line 168, in apply_rotary_pos_emb
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-                           ~~~~~~~~~~~~~~~^~~~~
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 68.00 MiB. GPU 0 has a total capacity of 31.33 GiB of which 82.25 MiB is free. Process 422691 has 1.09 GiB memory in use. Including non-PyTorch memory, this process has 30.01 GiB memory in use. Of the allocated memory 27.42 GiB is allocated by PyTorch, and 1.98 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+Loading weights: 100%|██████████| 311/311 [00:00<00:00, 4914.93it/s]
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.

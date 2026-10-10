@@ -2,7 +2,7 @@
  "model": "Qwen/Qwen3-4B-Instruct-2507",
  "M1_world": {
   "ok": true,
-  "seconds": 0.38,
+  "seconds": 0.37,
   "audit_ok": true
  },
  "M2_actors_llm_episode": {
@@ -62,9 +62,19 @@
   "judge_error": null
  },
  "M7_verify": {
-  "ok": false,
-  "seconds": 0.01,
-  "error": "InfraError: candidate uid cannot reach the work dir: /tmp/tmpfmxeniy9 is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error"
+  "ok": true,
+  "seconds": 0.02,
+  "reward": 0.2,
+  "gates": {
+   "refund_policy": 1,
+   "approvals": 1
+  },
+  "failing": [
+   "t1",
+   "t3"
+  ],
+  "flat_numeric": true,
+  "reward_txt": "0.0"
  },
  "harness_bash_loop": {
   "ok": true,
@@ -76,12 +86,17 @@
   "correct": true
  },
  "M8_forge": {
-  "ok": false,
-  "seconds": 0.16,
-  "error": "InfraError: candidate uid cannot reach the work dir: /tmp/forge-grade-14ds8ysw is mode 0o700 (needs o+x); every candidate write would fail as a spurious policy error"
+  "ok": true,
+  "seconds": 9.49,
+  "state": "constructed",
+  "accepted": 5,
+  "tasks": 5,
+  "audit_sound": true,
+  "llm_narrative_findings": [],
+  "sample_instruction": "Ticket 36: order O-7288 arrived damaged. We need supervisor approval to process a refund for this order. Refund the damaged item on order O-7288 in full on ticket 36. Add a note to ticket 36. Set ticket 36 to resolved. F"
  },
  "spend_usd": 0.0,
- "calls": 13,
- "all_layers_ran": false
+ "calls": 18,
+ "all_layers_ran": true
 }
 

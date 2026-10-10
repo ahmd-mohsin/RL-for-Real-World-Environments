@@ -28,6 +28,9 @@ class LLMProvider(CrucibleModel):
     # merged into every chat request to this provider: self-hosted engines (vLLM / SGLang) need e.g.
     # {"logprobs": true, "extra_body": {"return_token_ids": true}} for token-in-token-out capture (train mode)
     request_defaults: dict[str, Any] = Field(default_factory=dict)
+    # the version stamp of the fixed checkpoint this provider serves (train-mode token records need one; a trainer
+    # bridge overrides it on every weight update). None: hosted APIs, whose records are never train-valid anyway.
+    policy_version: int | str | None = None
 
 
 class GpuHost(CrucibleModel):

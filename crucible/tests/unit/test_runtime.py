@@ -141,6 +141,10 @@ async def test_inject_grader_exception(tmp_path):
 
 
 async def test_inject_empty_collection_then_recollect(tmp_path):
+    import os
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("the injection makes a file unreadable with chmod 000, which root reads anyway")
     acts = fib_actions(extra=[ToolCall(tool_call_id="x", function_name="ws.shell", arguments={"command": "echo s > secret.txt && chmod 000 secret.txt"})])
     _s, fails, res = await _one(tmp_path, FibTask(), scripted("fib-locked", acts), WorkspaceHarness(collect_mode="legacy"))
     assert fails[0]["failure"]["kind"] == "crucible:empty_collection" and fails[0]["failure"]["blame"] is None and fails[0]["reward"] is None
