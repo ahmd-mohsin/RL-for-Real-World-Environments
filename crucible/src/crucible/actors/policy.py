@@ -124,6 +124,8 @@ class LLMToolPolicy(Policy):
         self.stop: str | None = None
         self.sample_key: str | None = None
         self.model_calls: list[dict[str, Any]] = []
+        self._last_full: list[int] | None = None  # prompt + completion of the last captured call in this segment (delta capture)
+        self._last_seg: int | None = None
         self._nudges, self.max_nudges = 0, max_nudges
         self.context = context
         self.segment = 0
@@ -142,6 +144,22 @@ class LLMToolPolicy(Policy):
             self.trajectory_tokens += approx_tokens([m for m in self.messages[self._seen:] if m.get("role") != "assistant"])
             self._seen = len(self.messages)
 
+    def _compress(self, tok: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Linear token capture (m13 B-3): a call whose prompt extends the previous call's prompt + completion (same segment,
+        exact TITO) stores only the new tail (``prompt_delta``) and the prefix length; the full prompt is rebuilt in
+        ``runtime.record.build``. Capture memory and checkpoints are O(T) instead of O(turns²)."""
+        if not tok or tok.get("prompt_token_ids") is None:
+            return tok
+        full = list(tok["prompt_token_ids"])
+        out = dict(tok)
+        if self._last_full is not None and self._last_seg == self.segment and full[: len(self._last_full)] == self._last_full:
+            out["prompt_token_ids"] = None
+            out["prompt_delta"] = full[len(self._last_full):]
+            out["prompt_prefix_len"] = len(self._last_full)
+        self._last_full = full + list(tok.get("completion_token_ids") or [])
+        self._last_seg = self.segment
+        return out
+
     def _count_reply(self, usage: dict[str, Any], fallback: list[dict[str, Any]]) -> None:
         self.trajectory_tokens += int(usage.get("completion_tokens") or approx_tokens(fallback))
 
@@ -157,7 +175,7 @@ class LLMToolPolicy(Policy):
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
                                  "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                 "cached": r.cached, "actions": [], "tokens": r.tokens, "context_tokens": before})
+                                 "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})
         task = next((m for m in self.messages if m["role"] == "user"), None)  # the instruction, kept verbatim
         starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
         cut = starts[-cfg.keep_recent_turns] if len(starts) >= cfg.keep_recent_turns else (starts[0] if starts else len(self.messages))
@@ -175,6 +193,7 @@ class LLMToolPolicy(Policy):
         return {"messages": self.messages, "tools": self.tools, "names": self._names, "queue": [a.model_dump(mode="json") for a in self._queue],
                 "pending": sorted(self._pending), "held": self._held, "stop": self.stop, "nudges": self._nudges, "model_calls": self.model_calls,
                 "segment": self.segment, "segments": self.segments, "trajectory_tokens": self.trajectory_tokens, "seen": self._seen,
+                "last_full": self._last_full, "last_seg": self._last_seg,
                 "sample_key": self.sample_key, "error": self.error, "failure_kind": self.failure_kind}
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
@@ -185,6 +204,7 @@ class LLMToolPolicy(Policy):
         self._pending, self._held = set(d["pending"]), d["held"]
         self.stop, self._nudges, self.model_calls = d["stop"], d["nudges"], d["model_calls"]
         self.segment, self.segments, self.trajectory_tokens, self._seen = d["segment"], d["segments"], d["trajectory_tokens"], d["seen"]
+        self._last_full, self._last_seg = d.get("last_full"), d.get("last_seg")
         self.sample_key, self.error, self.failure_kind = d.get("sample_key"), d.get("error"), d.get("failure_kind")
 
     def _ingest(self, obs: Observation) -> None:
@@ -240,7 +260,7 @@ class LLMToolPolicy(Policy):
         call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
                 "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
-                "tool_calls": len(r.tool_calls), "actions": [], "tokens": r.tokens}
+                "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens)}
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
         if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:

@@ -1060,6 +1060,15 @@ for every position of every sequence, prompt included. That is ~78 GB at 128k to
 - **Tests:** values and gradients equal the full-logits computation within 1e-5 at chunk sizes 1, 7 and 4096; on MPS
   the memory held for backward drops by at least the full logits.
 
+**B-3 (2026-10-10): linear token capture.** Every captured model call kept its full prompt token ids, in memory and in
+every episode `checkpoint.json`, which is O(turns²).
+- **Change:** `LLMToolPolicy._compress` stores a call whose prompt extends the previous call's prompt plus completion
+  (same segment) as `prompt_delta` plus `prompt_prefix_len`. `runtime.record.build` rebuilds the full prompts and
+  still flags prefix breaks. The policy's checkpoint carries the one running full sequence.
+- **Test:** over 25 turns, 196 stored prompt tokens against about 4,600 with full-prompt capture, and the rebuilt
+  record equals the full-prompt record.
+- **Status:** Phase B (vertical scale) is complete.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

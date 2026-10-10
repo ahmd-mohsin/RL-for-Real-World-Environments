@@ -64,6 +64,9 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
             tok = c.get("tokens") or {}
             full = tok.get("prompt_token_ids")
             seg = int(c.get("segment") or 0)
+            chained = prev_full is not None and seg == prev_seg and len(prev_full) == tok.get("prompt_prefix_len")
+            if full is None and tok.get("prompt_delta") is not None and chained:  # linear capture (policy._compress): rebuild from the chain
+                full = prev_full + list(tok["prompt_delta"])
             delta, is_delta, brk = full, False, False
             if full is not None and prev_full is not None and seg == prev_seg:
                 if full[: len(prev_full)] == prev_full:
