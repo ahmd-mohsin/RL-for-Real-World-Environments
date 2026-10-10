@@ -212,6 +212,8 @@ class Runner:
         ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
                    progress=prog if prog.exists() else None, segments=hr.segments)
         ro.flags = list(hr.flags)
+        for t in ro.turns:
+            t.format_errors = int(hr.format_errors.get(t.call_id, 0))
         if hr.flags:
             ro.reward_components["hack/intercepted"] = float(sum(f["rule"].startswith("intercepted:") for f in hr.flags))
         if ro.failure_kind == "crucible:capture_incomplete" and not rec.mask_sample:

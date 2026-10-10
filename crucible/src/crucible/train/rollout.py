@@ -48,6 +48,7 @@ class Turn(CrucibleModel):
     # on-policy distillation / KL reference (m13 C-5, ``train.teachers``): per completion token, the teacher's and the
     # reference model's log-prob of the sampled token given exactly this prompt
     teacher_logprobs: list[float] | None = None
+    format_errors: int = 0  # malformed tool calls this call issued (m13 C-8): ``TrainerConfig.tool_format_penalty`` each, on its tokens
     ref_logprobs: list[float] | None = None
     atif_step_ids: list[int] = Field(default_factory=list)
 

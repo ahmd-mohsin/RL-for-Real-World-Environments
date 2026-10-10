@@ -387,8 +387,14 @@ class Runtime:
         return out
 
     async def _grade(self, rec: RolloutRecord) -> RolloutRecord | None:
-        cfg = self.cfg
         t0 = time.monotonic()
+        try:
+            return await self._grade_inner(rec, t0)
+        finally:  # m13 C-8 (A2-26): grader compute is a scaling axis (MiMo: 12.7% of cost)
+            rec.timings["grade_s"] = rec.timings.get("grade_s", 0.0) + (time.monotonic() - t0)
+
+    async def _grade_inner(self, rec: RolloutRecord, t0: float) -> RolloutRecord | None:
+        cfg = self.cfg
         aux_fn, reward_fn = _per_source(self.aux_fn, rec.source), _per_source(self.reward_fn, rec.source)
         aux = asyncio.create_task(aux_fn(rec)) if aux_fn is not None else None
         if reward_fn is not None:
@@ -543,6 +549,11 @@ class Runtime:
         by_group: dict[str, list[float]] = {}
         for r, g in zip(recs, groups, strict=True):
             by_group.setdefault(g, []).append(r.reward)
+        g_s = sum(float(r.timings.get("grade_s", 0.0)) for r in recs)
+        if g_s:
+            act = sum(float(r.timings.get("active_s", 0.0)) for r in recs)
+            gm = {**gm, "grader/s": g_s, "grader/usd": sum(float(r.reward_components.get("grader/usd", 0.0)) for r in recs),
+                  "grader/share": g_s / max(g_s + act, 1e-9)}
         by_src: dict[str, list[RolloutRecord]] = {}
         for r in recs:
             by_src.setdefault(r.source or "?", []).append(r)

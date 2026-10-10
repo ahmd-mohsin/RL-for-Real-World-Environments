@@ -1120,6 +1120,29 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C-8 (2026-10-10): shaping (A2-19, A2-21, A2-24..26).**
+- **Incomplete trajectories:** `LimitPolicy` takes `"penalty:<c>"` for a limit stop (steps, timeout, context window);
+  the reward becomes c in the M10 harness and in M12's `world_rollout(limit_policy=...)`.
+- **Tool-format penalty:** `credit/shaping.format_errors_by_call` joins each model call's `actions` (`tool:<id>`) to
+  the World's `tool_result` errors (`invalid_arguments`, `unknown_tool`, `bad_tool_name`, `unknown_app`) and stores the
+  count on that call (`Turn.format_errors`). `TrainerConfig.tool_format_penalty` subtracts penalty × count from *that
+  call's tokens only*, in call and segment items.
+- **Speed term:** `speed_term(t, T) = 1/(1+t/T)`. `with_speed(reward_fn, beta, t_base)` adds `beta·h` to passing
+  rollouts only, so a fast failure earns nothing. A terminal outcome already reaches every call's advantage, which is
+  reward-to-go for that case.
+- **Verbosity budget:** `verbosity_group_fn(sigma, l0_of=...)` is a group stage. A member longer than σ·ℓ₀ loses
+  (reward 0), with ℓ₀ the task's reference length (default: the median length of the passing members).
+- **Grader compute:** each rollout records `timings["grade_s"]`, and a reward function may report
+  `reward_components["grader/usd"]`. Steps report `grader/s`, `grader/usd` and `grader/share` (of grading plus
+  rollout time).
+- **Tests:**
+  - a real Runner at max_steps under `penalty:-0.5` scores −0.5;
+  - malformed calls are attributed to the issuing call, and the penalty touches only that call's tokens (call and
+    segment items) and nothing at penalty 0;
+  - the speed term is monotone and gated on success, and the terminal reward reaches every call;
+  - the verbosity budget uses a strict "longer than" boundary;
+  - the grader is accounted on every step.
+
 **C-7 (2026-10-10): context strategies, compaction as an action, thinking-history modes (A2-46..48).**
 - **Strategies (`ContextConfig.strategy`, mode `compact`):** each keeps system + task verbatim and starts a new segment
   recorded with its `strategy`.

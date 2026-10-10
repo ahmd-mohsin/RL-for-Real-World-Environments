@@ -94,7 +94,7 @@ class EngineLLM:
 
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
-                  workroot: Path | None = None) -> Callable:
+                  workroot: Path | None = None, limit_policy: Any = None) -> Callable:
     """``task_for(prompt) -> RunTask`` (M10 contract: ``open(workdir)``, ``grade(world, workdir)``)."""
     from crucible.actors.policy import EpisodeLimits, LLMToolPolicy, run_episode
     from crucible.core.schema.run import RunRecord
@@ -114,8 +114,12 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             rep = await task.grade(world, d / "grade")
             if rep.infra.get("status") == "masked":
                 return None
+            reward = rep.reward
+            pen = limit_policy.penalty(ep.stop_condition) if limit_policy is not None else None
+            if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty
+                reward = pen
             rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at="", steps=ep.steps,
-                            outcome="completed", reward=rep.reward, attempt=f"{rid}-a1",
+                            outcome="completed", reward=reward, attempt=f"{rid}-a1",
                             meta={"harness": harness, "stop": ep.stop_condition, "truncated": ep.truncated, "gates": rep.gate_bits()})
             ro = build(rec, calls=ep.model_calls, segments={"agent": list(pol.segments)} if pol.segments else None, sampling={"temperature": temperature})
             ro.group = None
@@ -123,6 +127,11 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             from crucible.credit.hack_detector import rule_flags
 
             ro.flags = rule_flags(trace)  # m13 C-4 level 1: judged (level 2) in the group stage
+            from crucible.credit.shaping import format_errors_by_call
+
+            fe = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: malformed tool calls, charged to the issuing call
+            for t in ro.turns:
+                t.format_errors = int(fe.get(t.call_id, 0))
             if world.intercepts:
                 ro.reward_components["hack/intercepted"] = float(len(world.intercepts))
             probes = (trace.outcome.details or {}).get("probes") or {}

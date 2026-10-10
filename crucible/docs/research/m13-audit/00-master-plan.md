@@ -51,7 +51,7 @@ Already closed in this session:
 | C-5 ✅ | On-policy distillation: a teacher pool and a per-token OPD/MOPD loss (route ④) | A2-9/10 |
 | C-6 ✅ | Multi-domain runtime: per-source `rollout_fn` / `reward_fn` / harness, plus per-source staleness and metrics | A2-53..55 |
 | C-7 ✅ | Context modes: keep-recent-k, discard-all, tiered; compaction as a policy action; thinking-history modes in the chat codec | A2-46..48 |
-| C-8 | Shaping: verbosity budget, speed term, reward-to-go, incomplete-trajectory and tool-format penalties | A2-20..26 |
+| C-8 ✅ | Shaping: verbosity budget, speed term, reward-to-go, incomplete-trajectory and tool-format penalties | A2-20..26 |
 
 ### D. Horizontal scale (P0/P1)
 

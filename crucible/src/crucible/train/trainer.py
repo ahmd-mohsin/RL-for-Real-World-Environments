@@ -66,6 +66,8 @@ class TrainerConfig:
     # coefficient ``kl_coef`` or per source ``kl_coef_by_source`` (StepFun 0.001, Seed 1e-5 / 0)
     kl_coef: float = 0.0
     kl_coef_by_source: dict = field(default_factory=dict)
+    # m13 C-8 (A2-25): −penalty × ``Turn.format_errors`` on the offending call's tokens only (MiniMax r_process, Qwen)
+    tool_format_penalty: float = 0.0
 
 
 @dataclass
@@ -295,7 +297,8 @@ class TorchTrainer:
                 if all(records[i].advantage is not None for i in idx):
                     for i in idx:
                         advs[i] = float(records[i].advantage)
-        if (self.cfg.opd_coef and self.cfg.opd_mode == "token") or self.cfg.rl_coef != 1.0:  # m13 C-5: per-token OPD advantage
+        fmt = bool(self.cfg.tool_format_penalty) and any(t.format_errors for r in records for t in r.turns)
+        if (self.cfg.opd_coef and self.cfg.opd_mode == "token") or self.cfg.rl_coef != 1.0 or fmt:  # m13 C-5 / C-8: per-token advantages
             pt: dict[tuple[str, str], list[float]] = {}
             for r, a in zip(records, advs, strict=True):
                 if r.mask_sample or r.reward is None:
@@ -306,8 +309,10 @@ class TorchTrainer:
                         continue
                     base = [self.cfg.rl_coef * x for x in (per_token[(r.rollout_id, t.call_id)] if per_token is not None else [a] * n)]
                     tl, bl = t.teacher_logprobs, t.logprobs
-                    if self.cfg.opd_mode == "token" and tl is not None and bl is not None and len(tl) == n == len(bl):
+                    if self.cfg.opd_coef and self.cfg.opd_mode == "token" and tl is not None and bl is not None and len(tl) == n == len(bl):
                         base = [b + self.cfg.opd_coef * (x - y) for b, x, y in zip(base, tl, bl, strict=True)]
+                    if fmt and t.format_errors:
+                        base = [b - self.cfg.tool_format_penalty * t.format_errors for b in base]
                     pt[(r.rollout_id, t.call_id)] = base
             per_token = pt
         pids = {g: i for i, g in enumerate(dict.fromkeys(groups))}

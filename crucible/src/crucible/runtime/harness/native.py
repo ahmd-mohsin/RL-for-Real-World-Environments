@@ -125,8 +125,11 @@ class NativeHarness:
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
             from crucible.credit.hack_detector import rule_flags
+            from crucible.credit.shaping import format_errors_by_call
 
-            res.flags = rule_flags(world.to_trace())  # m13 C-4 level 1 (intercepts, tampering rules)
+            trace = world.to_trace()
+            res.flags = rule_flags(trace)  # m13 C-4 level 1 (intercepts, tampering rules)
+            res.format_errors = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: charged to the issuing call's tokens
             save_episode(attempt, ep, res, self.id, policies)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
@@ -146,6 +149,10 @@ class NativeHarness:
             if rep.infra.get("status") == "masked":
                 raise StageFailure(classify_verifier(rep.infra))
             res.reward, res.gates = rep.reward, rep.gate_bits()
+            pen = self.limit_policy.penalty(ep.stop_condition) if ep.stop_condition in LIMIT_STOPS else None
+            if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty, not its partial grade
+                res.grade["limit_penalty"] = pen
+                res.reward = pen
         except StageFailure as sf:
             res.failure = sf.failure
         finally:

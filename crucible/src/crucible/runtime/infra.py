@@ -96,12 +96,19 @@ class RetryRule:
 
 @dataclass
 class LimitPolicy:
-    on_timeout: str = "score"  # "score" (policy's outcome) | "mask"
+    on_timeout: str = "score"  # "score" (policy's outcome) | "mask" | "penalty:<c>" (m13 C-8, A2-24: the reward becomes c)
     on_context_window: str = "score"
     on_steps: str = "score"
 
     def for_stop(self, stop: str) -> str:
         return {"timeout": self.on_timeout, "max_steps": self.on_steps, "context_overflow": self.on_context_window}.get(stop, "score")
+
+    def penalty(self, stop: str) -> float | None:
+        """The reward a limit stop gets under ``"penalty:<c>"``; None when the policy scores or masks it."""
+        rule = self.for_stop(stop)
+        if not rule.startswith("penalty:"):
+            return None
+        return float(rule.split(":", 1)[1])
 
 
 # --------------------------------------------------------------------------------------------- aggregates

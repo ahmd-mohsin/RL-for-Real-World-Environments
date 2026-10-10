@@ -46,6 +46,7 @@ class HarnessResult(CrucibleModel):
     grade: dict[str, Any] = Field(default_factory=dict)
     calls: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> the policy's model calls (call ids, usage, token records)
     flags: list[dict[str, Any]] = Field(default_factory=list)  # level-1 hack suspicions (m13 C-4): copied to the rollout record
+    format_errors: dict[str, int] = Field(default_factory=dict)  # model call id -> malformed tool calls it issued (m13 C-8)
     segments: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> context-compaction segments
     trajectory_tokens: dict[str, int] = Field(default_factory=dict)  # actor -> tokens that entered its context, before compaction
 
