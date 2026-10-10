@@ -9,6 +9,7 @@ api_key = "env:OPENROUTER_API_KEY"
 sim-default = "openrouter:openai/gpt-6-luna"
 judge-default = "openrouter:anthropic/claude-haiku-5.5"   # different family than the simulator
 policy-default = "openrouter:openai/gpt-6-luna"
+smoke-cheap = "openrouter:mistralai/mistral-nemo"    # cheapest tool-calling model (2026-10-09): smoke tests only
 
 # The lab RTX 5090 (shared machine: containers only, clean up, keep GPU work polite).
 [gpu_hosts.lab5090]
@@ -21,3 +22,4 @@ shared = true
 [prices]
 "openai/gpt-6-luna" = [0.10, 0.50]
 "anthropic/claude-haiku-5.5" = [0.10, 0.50]
+"mistralai/mistral-nemo" = [0.03, 0.03]

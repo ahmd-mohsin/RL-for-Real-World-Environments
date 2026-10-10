@@ -1,0 +1,87 @@
+{
+ "model": "mistralai/mistral-nemo",
+ "M1_world": {
+  "ok": true,
+  "seconds": 0.36,
+  "audit_ok": true,
+  "checks": {
+   "runtime.reset_stable": "pass",
+   "runtime.state_contract": "pass",
+   "tool_declaration_accuracy": "pass",
+   "tool_smoke": "pass",
+   "network.answer_sources": "pass",
+   "no_solution_leakage.static": "pass",
+   "runtime.episode_isolation": "skip",
+   "episode_determinism": "skip",
+   "no_solution_leakage.dynamic": "skip",
+   "oracle_passes": "skip",
+   "floor_gap.nop_fails": "skip",
+   "runtime.host_containment": "skip"
+  }
+ },
+ "M2_actors_llm_episode": {
+  "ok": true,
+  "seconds": 27.98,
+  "steps": 20,
+  "stop": "max_steps",
+  "masked": false,
+  "tool_calls": [
+   "tickets.get_ticket"
+  ],
+  "events": 23
+ },
+ "M3_connectors_ingest": {
+  "ok": true,
+  "seconds": 0.0,
+  "stored": true,
+  "events": 23
+ },
+ "M4_signals": {
+  "ok": true,
+  "seconds": 0.01,
+  "trace": "github:PointCloudLibrary/pcl#5958",
+  "signals": 11,
+  "types": [
+   "check_result"
+  ]
+ },
+ "M5_workflow": {
+  "ok": true,
+  "seconds": 0.0,
+  "steps": 2,
+  "kinds": [
+   "investigate",
+   "message"
+  ],
+  "phis": {
+   "sql/ticket2_note": 0.0,
+   "sql/ticket2_refund": 0.0,
+   "sql/ticket2_resolved": 0.0
+  },
+  "phi": 0.0
+ },
+ "M6_credit": {
+  "ok": true,
+  "seconds": 2.31,
+  "reward": 0.0,
+  "gates": {
+   "refund_policy": 1
+  },
+  "outcome": 0.0,
+  "progress": 0.0,
+  "judge_p_success": 0.2,
+  "judge_error": null
+ },
+ "harness_bash_loop": {
+  "ok": true,
+  "seconds": 11.97,
+  "steps": 7,
+  "stop": "agent_done",
+  "format_errors": 0,
+  "fib_output": "0 1 1 2 3 5 8 13 21 34",
+  "correct": true
+ },
+ "spend_usd": 0.000989,
+ "calls": 27,
+ "all_layers_ran": true
+}
