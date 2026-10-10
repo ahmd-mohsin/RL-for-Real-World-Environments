@@ -203,6 +203,12 @@ class Trusted:
             os.chmod(self.work, 0o755)
             if self.uid is None:
                 self.uid = fresh_uid()
+            import stat
+
+            for d in self.work.resolve().parents:  # the demoted candidate must be able to traverse to its HOME / outputs
+                if not os.stat(d).st_mode & stat.S_IXOTH:
+                    raise InfraError(f"candidate uid cannot reach the work dir: {d} is mode {oct(os.stat(d).st_mode & 0o777)} (needs o+x); "
+                                     "every candidate write would fail as a spurious policy error")
         else:
             self.uid = os.getuid() if hasattr(os, "getuid") else None
 

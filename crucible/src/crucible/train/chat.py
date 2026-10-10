@@ -111,11 +111,26 @@ class HFChatCodec:
     def render(self, messages, tools) -> list[int]:
         return self._apply(messages, tools, gen=True)
 
+    SENTINEL = "\u27e6crucible-turn-end\u27e7"
+
     def suffix(self, new_messages, tools) -> list[int]:
-        full = self._apply(self._dummy + list(new_messages), None, gen=True)
-        if full[: len(self._dummy_ids)] != self._dummy_ids:
-            raise ValueError("chat template is not prefix-preserving for appended messages; use a training-safe template")
-        return full[len(self._dummy_ids):]
+        """The tokens the template appends *after* an assistant turn ends, for the messages that follow it: exact TITO
+        (next prompt = the sampled prompt + completion + EOS + this suffix).
+
+        Taken after the end-of-turn token that closes a sentinel assistant message, not as a diff against a rendered
+        dummy: templates re-render history when a turn is appended (Qwen3 gives only the *last* assistant turn an empty
+        ``<think></think>`` block and strips it from earlier ones), so no rendered dummy is a prefix of the longer render
+        (found on the lab: every multi-turn Qwen3 episode raised "not prefix-preserving")."""
+        dummy = [{"role": "user", "content": "x"}, {"role": "assistant", "content": self.SENTINEL}]
+        full = self._apply(dummy + list(new_messages), None, gen=True)
+        sent = self.tok.encode(self.SENTINEL, add_special_tokens=False)
+        start = next((i for i in range(len(full) - len(sent) + 1) if full[i:i + len(sent)] == sent), None)
+        if start is None:
+            raise ValueError("chat template dropped the sentinel assistant turn; cannot compute the exact-TITO suffix")
+        end = next((i for i in range(start + len(sent), len(full)) if full[i] in self.eos_ids), None)
+        if end is None:
+            raise ValueError("chat template closes assistant turns without an EOS token; cannot compute the exact-TITO suffix")
+        return full[end + 1:]
 
     def parse(self, completion_ids: list[int]) -> tuple[str, list[dict[str, Any]]]:
         return parse_tool_calls(self.tok.decode(completion_ids, skip_special_tokens=True))

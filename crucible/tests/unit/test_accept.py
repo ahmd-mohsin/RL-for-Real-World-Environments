@@ -116,7 +116,16 @@ async def test_backfill_quarantines_only_failing_tasks(tmp_path):
 
 
 async def test_full_contract_on_a_forged_toy_task(tmp_path):
+    import pytest
+    from crucible_pack_toy import PACK_ROOT
     from crucible_pack_toy.forge.world_synth import forge
+
+    from crucible.connectors.trace_store import TraceStore
+    from crucible.core.store import Store
+
+    m3 = PACK_ROOT.parent.parent / "data" / "m3" / "store"
+    if not (m3.exists() and any(i.startswith("toy/") for i in TraceStore(Store(m3)).ids())):
+        pytest.skip("needs the M3 toy ticket traces (run the M3 ingest first)")
 
     col: list = []
     await forge(collect=col)

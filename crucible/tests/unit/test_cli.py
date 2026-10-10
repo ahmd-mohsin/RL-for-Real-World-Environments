@@ -7,6 +7,14 @@ from crucible.cli.main import cli
 
 
 def test_cli_registry_seeds_and_task_show():
+    import pytest
+
+    try:
+        dirs = seed_dirs()
+    except (FileNotFoundError, OSError):
+        dirs = []
+    if len(dirs) < 5:
+        pytest.skip("needs the seed tasks (../migration_tasks), not shipped with the package")
     r = CliRunner().invoke(cli, ["registry"])
     assert r.exit_code == 0 and "world_backend" in r.output and "agentenv" in r.output
     r = CliRunner().invoke(cli, ["seeds"])

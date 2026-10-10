@@ -124,6 +124,8 @@ class TorchTrainer:
 
         gc.collect()  # the last step's graph leaves reference cycles that pin device tensors (measured: a parameter-sized residue)
         if self._home.type == "cuda":
+            if hasattr(torch._C, "_cuda_clearCublasWorkspaces"):  # cuBLAS workspaces live in the caching allocator (64 MiB on the lab 5090)
+                torch._C._cuda_clearCublasWorkspaces()
             torch.cuda.empty_cache()
         elif self._home.type == "mps":
             torch.mps.empty_cache()

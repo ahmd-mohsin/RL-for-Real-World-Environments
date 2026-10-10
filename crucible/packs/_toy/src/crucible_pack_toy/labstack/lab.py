@@ -37,7 +37,7 @@ for ATTEMPT in $(seq 1 30); do
   echo "$(date -Is) running (attempt $ATTEMPT)" > status.txt
   docker run --rm --name crucible_labstack --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --network host --ipc host --init \
     -v $HOME/REMOTE/src:/crucible -v $HOME/REMOTE/deps:/deps -v $HOME/REMOTE/out:/work/out -v $HOME/HFCACHE:/root/.cache/huggingface \
-    --entrypoint bash IMAGE -c 'python3 -m pip freeze | grep -iE "^(torch|triton|nvidia-)" | grep -v "@" > /work/constraints.txt; python3 -m venv --system-site-packages /work/venv && /work/venv/bin/pip install -q -c /work/constraints.txt -e /deps/harbor -e "/crucible[mcp,llm,openenv-awm,dev]" -e /crucible/packs/_toy -e /crucible/packs/coding > /work/out/pip.log 2>&1 && /work/venv/bin/python -m crucible_pack_toy.labstack.run ARGS' \
+    --entrypoint bash IMAGE -c '(command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git) > /work/out/apt.log 2>&1); python3 -m pip freeze | grep -iE "^(torch|triton|nvidia-)" | grep -v "@" > /work/constraints.txt; python3 -m venv --system-site-packages /work/venv && /work/venv/bin/pip install -q -c /work/constraints.txt -e /deps/harbor -e "/crucible[mcp,llm,openenv-awm,dev]" -e /crucible/packs/_toy -e /crucible/packs/coding > /work/out/pip.log 2>&1 && /work/venv/bin/python -m crucible_pack_toy.labstack.run ARGS' \
     > out/console.log 2>&1
   RC=$?
   [ "$RC" != 75 ] && break

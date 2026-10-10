@@ -1013,6 +1013,22 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
 - **Report:** one JSON report.
 - **Gap it exposed:** a provider had no way to request token capture from a self-hosted engine. Fixed with
   `LLMProvider.request_defaults`, merged into every request with call-level `extra_body` keys winning.
+- **Run 3 findings (fixed):**
+  - **Exact TITO on Qwen3:** the chat template gives only the *last* assistant turn an empty `<think></think>`, so the
+    old suffix (render with and without a dummy assistant turn, take the difference) was wrong once a turn stopped being
+    last. `HFChatCodec.suffix` now renders a sentinel assistant turn followed by the new messages and takes the tokens
+    after the EOS that closes the sentinel. A multi-turn test checks it against a full render on a Qwen3-style template.
+  - **Pipeline bubbles:** `EnginePool` counted time spent paused (weight publish) as busy. Busy time now accrues only
+    while the pool is active and not paused.
+  - **Offload on CUDA:** `TorchTrainer.offload` left 64 MiB of cuBLAS workspace resident; it now clears cuBLAS
+    workspaces before `empty_cache`.
+  - **Phase order:** smoke, M8 and M9 read the M3 trace store, which the container doesn't carry. A new
+    `m3_toy_ingest` phase ingests the toy ticket logs first, twice, and checks idempotency.
+  - **Unit suite in the container:** docker-marked tests skip when no daemon is reachable (`tests/conftest.py`);
+    data-dependent tests skip when their data isn't staged; git is installed in the container.
+  - **Trusted as root:** the demoted candidate uid could not traverse pytest's 0700 temp root, so every candidate write
+    failed and looked like a policy error. `Trusted` now refuses (InfraError) a work dir whose parents lack o+x,
+    instead of producing spurious agent failures.
 
 **A-4 (2026-10-10): vLLM colocated wake order and the engine's first tests.** `VLLMServerEngine.load_weights` used to wake
 the KV cache inside the publish, so the GPU held the full trainer and the full engine at once, defeating sleep mode.

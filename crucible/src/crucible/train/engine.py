@@ -79,27 +79,39 @@ class EnginePool:
     def __init__(self, engines: Sequence[Engine]):
         self.engines = list(engines)
         self.inflight = [0] * len(self.engines)
-        self.busy_s = 0.0  # wall time with ≥ 1 call in flight anywhere in the pool (bubble accounting, checklist #9)
-        self._active, self._busy_t0 = 0, 0.0
+        # wall time with ≥ 1 call in flight anywhere in the pool and the pool not paused (bubble accounting, checklist #9):
+        # calls re-issued at the colocated barrier wait on the paused engines, and that wait is idle time, not busy time
+        # (found on the lab: paused waits were counted as ~100 % utilization during training)
+        self.busy_s = 0.0
+        self._active, self._busy_t0, self._paused = 0, 0.0, False
+
+    def _running(self) -> bool:
+        return self._active > 0 and not self._paused
 
     def busy_until_now(self) -> float:
         import time
 
-        return self.busy_s + (time.monotonic() - self._busy_t0 if self._active else 0.0)
+        return self.busy_s + (time.monotonic() - self._busy_t0 if self._running() else 0.0)
+
+    def _set(self, *, active: int | None = None, paused: bool | None = None) -> None:
+        import time
+
+        was = self._running()
+        if active is not None:
+            self._active = active
+        if paused is not None:
+            self._paused = paused
+        now_running = self._running()
+        if was and not now_running:
+            self.busy_s += time.monotonic() - self._busy_t0
+        elif now_running and not was:
+            self._busy_t0 = time.monotonic()
 
     def _enter(self) -> None:
-        import time
-
-        if self._active == 0:
-            self._busy_t0 = time.monotonic()
-        self._active += 1
+        self._set(active=self._active + 1)
 
     def _exit(self) -> None:
-        import time
-
-        self._active -= 1
-        if self._active == 0:
-            self.busy_s += time.monotonic() - self._busy_t0
+        self._set(active=self._active - 1)
 
     def route(self, rid: str) -> int:
         i = zlib.crc32(rid.encode()) % len(self.engines)
@@ -121,12 +133,14 @@ class EnginePool:
         return sum([await e.abort_all() for e in self.engines])
 
     async def pause(self) -> None:
+        self._set(paused=True)
         for e in self.engines:
             await e.pause()
 
     async def resume(self) -> None:
         for e in self.engines:
             await e.resume()
+        self._set(paused=False)
 
     async def load_weights(self, state: Any, version: int) -> None:
         for e in self.engines:

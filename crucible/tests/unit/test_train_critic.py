@@ -62,8 +62,14 @@ def test_truncation_bootstraps_from_the_final_value():
 
 
 def test_ttur_and_frozen_attention_on_a_transformer_critic():
+    from transformers import Qwen3Config, Qwen3ForCausalLM
+
     from crucible.train.hf import HFPolicy
-    from tests.unit.test_train_runtime import _tiny_qwen
+
+    def _tiny_qwen():  # local copy: the suite runs from any rootdir (the lab container has no `tests` package on sys.path)
+        torch.manual_seed(0)
+        return Qwen3ForCausalLM(Qwen3Config(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2, num_attention_heads=4,
+                                            num_key_value_heads=2, head_dim=8, max_position_embeddings=128, tie_word_embeddings=True))
 
     qwen = _tiny_qwen()
     critic = HFValue(copy.deepcopy(qwen), freeze_attention=True)

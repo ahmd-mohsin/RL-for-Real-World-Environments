@@ -107,11 +107,14 @@ def main() -> None:
 
     llm_phases = [
         ("probe", [PY, "-m", "crucible_pack_toy.labstack.phases", "probe", str(OUT / "probe.json")], 600, OUT / "probe.json"),
+        # producers before consumers: M3 ingest → (M4 signals) → M8 world synthesis → calibration / M9 acceptance
+        ("m3_toy_ingest", [PY, "-m", "crucible_pack_toy.labstack.phases", "m3", str(OUT / "m3.json")], 900, OUT / "m3.json"),
         ("smoke_m1_m9", [PY, "-m", "crucible_pack_toy.smoke", "100"], 3600, CR / "docs/modules/reports/smoke_cheap.json"),
         ("m2_actors", [PY, "-m", "crucible_pack_toy.m2_gate", str(OUT / "m2.json"), "2"], 3600, OUT / "m2.json"),
         ("m7_verify_golden", [PY, "-m", "crucible_pack_toy.verify"], 1800, None),
+        ("m8_world_synth", [PY, "-m", "crucible_pack_toy.forge.world_synth", "--seed", "7"], 3600, None),
+        ("m8_world_synth_llm", [PY, "-m", "crucible_pack_toy.forge.world_synth", "--seed", "7", "--llm", "policy-default", "--budget", "100"], 3600, None),
         ("m8_forge_calibrate", [PY, "-m", "crucible_pack_toy.forge.calibrate", "--model", "policy-default", "--k", "4", "--budget", "100"], 3600, None),
-        ("m8_forge_world_synth", [PY, "-m", "crucible_pack_toy.forge.world_synth", "--llm", "policy-default", "--budget", "100", "--out", str(OUT / "forge")], 3600, None),
         ("m9_accept", [PY, "-m", "crucible_pack_toy.accept_gate", "--budget", "100"], 3600, None),
         ("m10_runtime", [PY, "-m", "crucible_pack_toy.labstack.phases", "m10", str(OUT / "m10.json")], 3600, OUT / "m10.json"),
         ("m11_interop_native", [PY, "-m", "crucible_pack_toy.m11.gate", "native", str(OUT / "m11")], 1800, None),

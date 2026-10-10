@@ -3,6 +3,7 @@
     python -m crucible_pack_toy.labstack.phases probe  OUT.json   # the served model returns a tool call
     python -m crucible_pack_toy.labstack.phases m10    OUT.json   # Runner: k samples of the LLM policy on the toy tasks
     python -m crucible_pack_toy.labstack.phases m11    OUT.json   # an LLM trajectory replayed → the live grade
+    python -m crucible_pack_toy.labstack.phases m3     OUT.json   # M3 toy ingest (the trace store M4 / M8 / M9 read)
 """
 
 from __future__ import annotations
@@ -81,9 +82,29 @@ async def m11() -> dict:
             "steps_rows": rep["steps"], "pass": rep["reward"] == live.reward and rep["fingerprint"] == live_fp}
 
 
+async def m3_toy_ingest() -> dict:
+    """M3 on the lab: ingest the toy ticket logs (file-drop connector, redaction on) into the trace store the M4 signals,
+    M8 world synthesis and M9 acceptance read (``data/m3/store``); twice, to check idempotency."""
+    from crucible.connectors.base import ingest
+    from crucible.connectors.file_drop import FieldMap, FileDropConnector
+    from crucible.connectors.redact import RedactionPolicy
+    from crucible.connectors.trace_store import TraceStore
+    from crucible.core.store import Store
+    from crucible_pack_toy import PACK_ROOT
+
+    root = PACK_ROOT.parent.parent / "data" / "m3" / "store"
+    ts = TraceStore(Store(root))
+    conn = FileDropConnector(FieldMap(family="toy/support_ticket", extra=["team"]))
+    refs = list(conn.discover({"glob": str(PACK_ROOT / "data" / "ticket_logs" / "*.jsonl")}))
+    keys = ingest(conn, refs, ts, policy=RedactionPolicy())
+    again = ingest(conn, refs, ts, policy=RedactionPolicy())
+    toy = [i for i in ts.ids() if i.startswith("toy/support_ticket:")]
+    return {"refs": len(refs), "traces": len(set(keys)), "toy_traces": len(toy), "idempotent": sorted(keys) == sorted(again), "pass": bool(toy) and sorted(keys) == sorted(again)}
+
+
 def main() -> None:
     which, out = sys.argv[1], Path(sys.argv[2])
-    res = asyncio.run({"probe": probe, "m10": m10, "m11": m11}[which]())
+    res = asyncio.run({"probe": probe, "m10": m10, "m11": m11, "m3": m3_toy_ingest}[which]())
     out.write_text(json.dumps(res, indent=1, default=str))
     print(json.dumps(res, default=str)[:2000])
 

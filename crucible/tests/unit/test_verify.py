@@ -156,6 +156,14 @@ def test_results_channel_verdicts():
 
 
 def test_trusted_unprivileged_mode(tmp_path):
+    import os
+    import tempfile
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:  # as root the candidate is demoted: pytest's root temp dir is 0700
+        with pytest.raises(InfraError, match="cannot reach the work dir"):
+            Trusted(tmp_path / "unreachable")
+        tmp_path = Path(tempfile.mkdtemp(prefix="crucible-trusted-", dir="/tmp"))
+        os.chmod(tmp_path, 0o755)
     t = Trusted(tmp_path / "w")
     r = t.run(["sh", "-c", "echo $HOME; echo x > $HOME/f"], candidate=True)
     assert r.rc == 0 and not r.trusted and r.wall_s >= 0
@@ -313,8 +321,12 @@ def test_seed_kit_plans_build(tmp_path):
     import sys
     import types
 
-    sys.modules.setdefault("numpy", types.ModuleType("numpy"))
     mt = Path(__file__).resolve().parents[3] / "migration_tasks"
+    if not mt.exists():
+        import pytest
+
+        pytest.skip("needs the seed tasks (../migration_tasks)")
+    sys.modules.setdefault("numpy", types.ModuleType("numpy"))
     from crucible_pack_coding.verify import task01, task02, task03, task04
 
     def ctx(**p):

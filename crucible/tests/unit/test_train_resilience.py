@@ -81,3 +81,37 @@ async def test_an_infra_outage_stops_on_the_masked_share():
 async def test_occasional_infra_failures_do_not_trip_the_breaker():
     rep = await _rt(env=lambda: CopyTask(turns=2, infra_fail=0.03)).run()
     assert rep.stop_reason == "steps" and len(rep.steps) == 5
+
+
+def test_qwen3_multi_turn_tool_episode_keeps_exact_tito():
+    """Found on the lab (M12 GPU run 2): Qwen3's template gives only the last assistant turn an empty <think></think>
+    block, so the suffix-by-diff method raised "not prefix-preserving" on every multi-turn episode. The suffix is now
+    taken after the sentinel assistant turn's EOS; a tool-calling episode chains every prompt exactly."""
+    import json
+
+    from crucible_pack_toy.longhorizon.task import BacklogTask
+
+    from crucible.actors.policy import ContextConfig
+    from crucible.train.chat import HFChatCodec
+    from crucible.train.rollout import full_prompts
+    from crucible.train.world_env import world_rollout
+
+    tok = _qwen_tokenizer()
+    codec = HFChatCodec(tok, template_kwargs={"enable_thinking": False})
+    fn = world_rollout(lambda p: BacklogTask(seed=1, n=4), codec, max_steps=4, max_tokens=128, context=ContextConfig(budget_tokens=6000, keep_recent_turns=2))
+    n = {"k": 0}
+
+    async def gen(prompt, max_tokens, temperature):
+        n["k"] += 1
+        call = {"name": "tickets__list_tickets", "arguments": {}} if n["k"] < 4 else None
+        text = f"<tool_call>\n{json.dumps(call)}\n</tool_call>" if call else "Done for now."
+        out = tok.encode(text, add_special_tokens=False) + [codec.eos_ids[0]]
+        return GenResult(out, [-0.5] * len(out), 0, "stop", None, len(prompt))
+
+    rec = asyncio.run(fn("r1", "s1", 0, gen, temperature=1.0, harness="h"))
+    assert rec is not None and len(rec.turns) >= 3 and rec.valid_for_training()[0]
+    prompts = full_prompts(rec)
+    for a, b in zip(rec.turns, rec.turns[1:], strict=False):  # each prompt = previous prompt + its completion + the suffix
+        pa = prompts[a.call_id]
+        assert prompts[b.call_id][: len(pa) + len(a.completion_token_ids)] == pa + a.completion_token_ids
+    assert not any(t.prefix_break for t in rec.turns)
