@@ -12,6 +12,7 @@ Shapes: verl ``TokenTrace`` / uni_agent ``Trajectory`` with a per-span version (
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Any, Literal
 
 from pydantic import Field
@@ -35,12 +36,31 @@ class Turn(CrucibleModel):
     prompt_token_ids: list[int] | None = None
     completion_token_ids: list[int] | None = None
     logprobs: list[float] | None = None  # behaviour logprobs, one per completion token
-    policy_version: int | str | None = None
+    policy_version: int | str | None = None  # the version that produced the call (call-level switching: the only one)
+    # Token-level switching (AReaL-style abort + resubmit with the partial output, DeepSeek pause at a token boundary):
+    # run-length spans [start_completion_token, version], covering every completion token, in order. Absent = one version.
+    version_spans: list[tuple[int, int]] | None = None
     sampling: dict[str, Any] = Field(default_factory=dict)  # temperature, top_p, max_tokens, seed
     finish: str | None = None
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
     advantage: float | None = None  # per-turn credit from steps.jsonl (M6), attached to this call's tokens
     atif_step_ids: list[int] = Field(default_factory=list)
+
+    def versions(self) -> list[int]:
+        if self.version_spans:
+            return [int(v) for _, v in self.version_spans]
+        return [int(self.policy_version)] if isinstance(self.policy_version, int) else []
+
+    def spans_valid(self) -> bool:
+        """Version purity is provable: no spans (one version), or spans starting at token 0, strictly increasing starts,
+        non-decreasing versions, all inside the completion."""
+        if not self.version_spans:
+            return True
+        starts = [s for s, _ in self.version_spans]
+        vs = [v for _, v in self.version_spans]
+        n = len(self.completion_token_ids or [])
+        return starts[0] == 0 and all(a < b for a, b in pairwise(starts)) and all(a <= b for a, b in pairwise(vs)) \
+            and starts[-1] < max(n, 1)
 
     def token_complete(self) -> bool:
         n = len(self.completion_token_ids or [])
@@ -83,7 +103,7 @@ class RolloutRecord(CrucibleModel):
     progress: dict[str, Any] = Field(default_factory=dict)  # dense progress summary (phi0, phi_final, sum_delta, drift)
 
     def oldest_version(self) -> int | str | None:
-        vs = [t.policy_version for t in self.turns if t.policy_version is not None]
+        vs = [v for t in self.turns for v in (t.versions() or ([t.policy_version] if t.policy_version is not None else []))]
         return min(vs, key=lambda v: (isinstance(v, str), v)) if vs else None
 
     def valid_for_training(self) -> tuple[bool, str]:
@@ -91,7 +111,24 @@ class RolloutRecord(CrucibleModel):
             return False, f"masked ({self.failure_kind or 'no reward'})"
         if not self.turns:
             return False, "no model calls recorded"
-        bad = [t.call_id for t in self.turns if not t.token_complete() or t.prefix_break]
+        bad = [t.call_id for t in self.turns if not t.token_complete() or t.prefix_break or not t.spans_valid()]
         if bad:
             return False, f"token record incomplete for {len(bad)}/{len(self.turns)} calls (first: {bad[0]})"
         return True, "ok"
+
+
+def full_prompts(ro: RolloutRecord) -> dict[str, list[int]]:
+    """Reconstruct each call's full prompt from linear (delta) storage: within a segment a delta prompt extends the previous
+    call's prompt + completion; the first call of a segment stores its whole prompt. Per actor."""
+    out: dict[str, list[int]] = {}
+    prev: dict[tuple[str, int], list[int]] = {}
+    for t in ro.turns:
+        key = (t.actor, t.segment)
+        if t.prompt_is_delta and key in prev:
+            full = prev[key] + list(t.prompt_token_ids or [])
+        else:
+            full = list(t.prompt_token_ids or [])
+        out[t.call_id] = full
+        prev[key] = full + list(t.completion_token_ids or [])
+    return out
+

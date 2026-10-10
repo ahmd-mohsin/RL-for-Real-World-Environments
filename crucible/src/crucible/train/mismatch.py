@@ -99,6 +99,8 @@ def correct(c: Correction, *, logp: torch.Tensor, rollout_logp: torch.Tensor, ad
     ref = (old_logp if old_logp is not None else logp.detach())
     log_rdis = (ref - rollout_logp).detach()
     r_dis = log_rdis.exp()
+    # with old_logp: the engine gap at the behaviour version (r_dis); without it the reference is the current policy, so the
+    # metric also contains the policy drift since sampling (staleness) — log both regimes under the same name, knowingly
     metrics: dict[str, float] = {"rollout_probs_diff": _masked_mean((ref.exp() - rollout_logp.exp()).abs().detach(), m), **_quantiles(r_dis, m)}
     keep = mask.bool().clone()
     clipped = torch.zeros_like(keep)

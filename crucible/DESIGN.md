@@ -767,6 +767,44 @@ engine-independent and tested on CPU:
 - `train/monitors.py`: staleness, spans, length-bias KS, pass rate with a jump alarm, zero-variance groups, mismatch
   and timing metrics.
 
+**As built, part 2 (M12 runtime, 2026-10-10).** The native runtime executes the scheduler's decisions with real concurrency:
+
+- `train/engine.py`: the engine contract.
+  - Token ids in; token ids, behaviour logprobs and the serving version out.
+  - `abort_all`, pause/resume, `load_weights`, capacity.
+  - Sticky crc32 routing in `EnginePool`.
+  - Weights are pinned at call start, so a publish never changes weights under a running call.
+  - Version switching is per call (an aborted call is re-issued whole) or per token (AReaL-style resume, recorded as `Turn.version_spans`, validated by `spans_valid`).
+  - `TinyPolicy` + `TorchEngine` are a real tiny torch LM; the engine serves bf16-rounded weights, so the train–inference gap is real.
+- `train/envs.py`: the token-level env contract. An infra error masks the rollout. `CopyTask` is a multi-turn toy with a latency long tail and failure injection.
+- `train/trainer.py`: the `TrainerBackend` contract and `TorchTrainer`.
+  - Group advantages exclude masked rollouts; turn credit is optional.
+  - Prompts are reconstructed from delta storage.
+  - Micro batches are DP-balanced and token-budgeted, with exact global token-mean scaling.
+  - π_θold is computed only when the correction needs it.
+- `train/weights.py`: in-process and checkpoint publishers. The version is +1 per publish. Hooks for a post-update transform and an optimizer reset.
+- `train/runtime.py`: one asyncio task per rollout. Environment steps never wait for weights. Topologies:
+  - colocated sync;
+  - colocated partial (abort + pause at S1, train, publish, resume);
+  - disaggregated stream (trainer in a thread, engines keep generating).
+
+**End-to-end result (CPU, `tests/unit/test_train_runtime.py`).** A tiny real policy learns the copy task under every topology:
+
+| Topology | Reward (first 5 → last 5 steps) | Max staleness | Calls aborted |
+|---|---|---|---|
+| sync | 0.08 → 0.37 | 0 | 0 |
+| partial, call-level | 0.09 → 0.61 | 2 | 906, re-issued |
+| partial, token-level | 0.09 → 0.57 | 2 | 925, resumed with valid spans |
+| disaggregated | 0.07 → 0.51 | 1 | 0 |
+
+Infra failures are masked and never trained.
+
+**Single GPU.** No surveyed framework overlaps generation and training on one GPU with sleep/wake colocation (research m11-m12/02–03). Colocated async only buys carry-over of unfinished rollouts across steps. Real overlap on one GPU means a memory split: the engine at a fixed memory fraction with the trainer resident beside it. That is `disaggregated_stream` semantics on one device. Placement is therefore a separate knob from topology.
+
+**Two concurrency hazards found and fixed.**
+- A `torch.no_grad()` block spanning an `await` leaked grad-off mode into the trainer's coroutine on the same thread. Grad mode is thread-local, so scopes must never cross awaits.
+- `rollout_probs_diff` without π_θold also contains the policy drift since sampling. This is documented; the pure engine gap needs `old_logp`.
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

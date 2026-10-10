@@ -170,3 +170,16 @@ def test_token_credit_masks_frozen_and_masked():
     assert tc[0].advantages == [0.75, 0.75] and tc[0].loss_mask == [1, 1] and tc[1].loss_mask == [0]
     ro.mask_sample = True
     assert all(m == 0 for x in token_credit(ro, 0.5) for m in x.loss_mask)
+
+
+def test_version_spans_validation():
+    from crucible.train.rollout import RolloutRecord, Turn
+
+    base = {"call_id": "c", "actor": "a", "prompt_token_ids": [1], "completion_token_ids": [5, 6, 7, 8], "logprobs": [-1.0] * 4, "policy_version": 3}
+    ok = Turn(**base, version_spans=[(0, 3), (2, 4)])
+    bad = Turn(**base, version_spans=[(1, 3)])  # does not start at token 0
+    assert ok.spans_valid() and ok.versions() == [3, 4] and not bad.spans_valid()
+    ro = RolloutRecord(rollout_id="r", sample="s", task="t", harness="h", policy="p", reward=1.0, turns=[ok])
+    assert ro.valid_for_training()[0] and ro.oldest_version() == 3
+    ro.turns = [bad]
+    assert not ro.valid_for_training()[0]

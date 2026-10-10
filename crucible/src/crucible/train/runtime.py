@@ -1,0 +1,229 @@
+"""The M12 runtime: the asyncio control loop over the scheduler, the engines, the environments, the trainer and the
+weight publisher (research m11-m12/01–06). The *decisions* are the scheduler's (``scheduler.py``, the same object the
+discrete-event simulator drives); this file only executes them with real concurrency.
+
+Planes and their synchronization points:
+
+- **rollout plane**: one asyncio task per rollout (dispatch unit = one rollout). Model calls go to the engine pool
+  (sticky routing); environment steps run on the event loop / env workers and **never wait for weights** (only model
+  calls do). Every call is stamped with the version that served it; an aborted call is re-issued whole
+  (``version_switch="call"``, the default: call-level version purity) or resumed with its partial output on the new
+  version (``"token"``, recorded as ``version_spans``: AReaL).
+- **data plane**: the ``DataPool`` (tags for scheduling, values = ``crucible.rollout/v1`` records).
+- **control plane**: admit (S×B·n untrained cap, per-source caps), select at the sample barrier S1, train, publish S2.
+- **weight plane**: ``publish()`` → +1 version → engines load it.
+
+Topologies (logical; *placement* is separate: one GPU can host ``disaggregated_stream`` by splitting its memory —
+vLLM at a fixed fraction, trainer resident — research m11-m12/03 finding 1):
+
+| topology               | S1 sample barrier                      | engines during training                 | S3 in-flight calls at publish |
+|------------------------|----------------------------------------|-----------------------------------------|-------------------------------|
+| colocated_sync         | the whole admitted batch is terminal   | idle (nothing admitted)                 | none                          |
+| colocated_partial      | B selectable groups                    | **aborted + paused** (GPU handed over)  | aborted → re-issued / resumed |
+| disaggregated_stream   | B selectable groups                    | **keep generating** (trainer in a thread)| finish on their version       |
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+from crucible.train.engine import EnginePool, GenRequest, GenResult
+from crucible.train.envs import EnvInfraError
+from crucible.train.monitors import StepMonitor
+from crucible.train.pool import DataPool
+from crucible.train.rollout import RolloutRecord, Segment, Turn  # noqa: F401
+from crucible.train.scheduler import Scheduler, SchedulerConfig
+
+
+@dataclass
+class RuntimeConfig:
+    topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream
+    steps: int = 10
+    publish_every: int = 1
+    warmup_batches: int = 1
+    version_switch: str = "call"  # call | token
+    max_turn_tokens: int = 8
+    temperature: float = 1.0
+    stop_ids: tuple[int, ...] = ()
+    poll_s: float = 0.002
+    max_wall_s: float = 600.0
+
+
+@dataclass
+class StepLog:
+    step: int
+    version: int
+    metrics: dict[str, float]
+
+
+@dataclass
+class RunReport:
+    steps: list[StepLog] = field(default_factory=list)
+    aborted_calls: int = 0
+    resumed_calls: int = 0
+    reprefill_tokens: int = 0
+    publishes: int = 0
+    max_untrained: int = 0
+    masked_rollouts: int = 0
+    trained_records: list[RolloutRecord] = field(default_factory=list)
+
+    def series(self, key: str) -> list[float]:
+        return [s.metrics[key] for s in self.steps if key in s.metrics]
+
+
+class Runtime:
+    def __init__(self, cfg: RuntimeConfig, sched_cfg: SchedulerConfig, engines: EnginePool, trainer: Any, publisher: Any,
+                 env_factory: Callable[[], Any], sources: dict[str, list[str]], *, harness: str = "native:token@1"):
+        if cfg.topology == "colocated_sync":
+            sched_cfg = SchedulerConfig(**{**sched_cfg.__dict__, "admission_staleness": 1, "staleness_strategy": "none"})
+        self.cfg, self.sched_cfg = cfg, sched_cfg
+        self.engines, self.trainer, self.publisher, self.env_factory, self.harness = engines, trainer, publisher, env_factory, harness
+        self._queues = {s: list(ps) for s, ps in sources.items()}
+        self.pool = DataPool()
+        self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
+        self.monitor = StepMonitor()
+        self.report = RunReport()
+        self.tasks: dict[str, asyncio.Task] = {}
+        self.changed = asyncio.Event()
+        self.version = 0
+
+    # ---- rollout plane --------------------------------------------------------------------------------------------
+    async def _call(self, rid: str, call_id: str, prompt: list[int]) -> GenResult:
+        req = GenRequest(rid=rid, call_id=call_id, prompt_ids=list(prompt), max_tokens=self.cfg.max_turn_tokens, temperature=self.cfg.temperature,
+                         stop_ids=self.cfg.stop_ids)
+        while True:
+            res = await self.engines.generate(req)
+            if res.finish != "abort":
+                return res
+            self.report.aborted_calls += 1
+            if self.cfg.version_switch == "token":  # keep the partial output; it continues on the next version
+                self.report.resumed_calls += 1
+                req.resume_completion, req.resume_logprobs = res.completion_ids, res.logprobs
+                req.resume_spans = list(res.version_spans or [(0, res.version)])
+                self.report.reprefill_tokens += len(prompt) + len(res.completion_ids)
+            else:  # discard the partial completion; the whole call is re-issued under the new version
+                self.report.reprefill_tokens += len(prompt)
+                req.resume_completion, req.resume_logprobs, req.resume_spans = [], [], []
+
+    async def _rollout(self, rid: str, prompt: str, seed: int) -> None:
+        env = self.env_factory()
+        tag = self.pool.tags[rid]
+        try:
+            obs = await env.reset(prompt, seed)
+            context: list[int] = list(obs)
+            prev_full: list[int] | None = None
+            turns: list[Turn] = []
+            reward = None
+            k = 0
+            while True:
+                k += 1
+                res = await self._call(rid, f"{rid}:c{k}", context)
+                delta = context[len(prev_full):] if prev_full is not None and context[: len(prev_full)] == prev_full else context
+                turns.append(Turn(call_id=f"{rid}:c{k}", actor="agent", prompt_is_delta=prev_full is not None, prompt_token_ids=list(delta),
+                                  completion_token_ids=res.completion_ids, logprobs=res.logprobs, policy_version=res.version,
+                                  version_spans=res.version_spans, finish=res.finish, sampling={"temperature": self.cfg.temperature}))
+                for _, v in (res.version_spans or [(0, res.version)]):
+                    self.pool.call(rid, v, 0)
+                tag.length += len(res.completion_ids)
+                prev_full = context + res.completion_ids
+                step = await env.step(res.completion_ids)
+                context = prev_full + step.obs_ids
+                if step.done:
+                    reward = step.reward
+                    break
+            g = self.pool.groups[tag.group]
+            rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=self.harness, policy="native", group=tag.group,
+                                turns=turns, reward=reward, stop="done")
+            self.pool.finish(rid, reward=reward, value=rec, now=time.monotonic())
+        except EnvInfraError:  # infrastructure: masked, never scored 0
+            self.pool.finish(rid, reward=None, status="masked", value=None, now=time.monotonic())
+            self.report.masked_rollouts += 1
+        finally:
+            self.changed.set()
+
+    def _launch_pending(self) -> None:
+        for rid, t in self.pool.tags.items():
+            if t.status == "pending" and rid not in self.tasks:
+                self.pool.start(rid)
+                g = self.pool.groups[t.group]
+                self.tasks[rid] = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=len(self.tasks)))
+
+    # ---- control plane --------------------------------------------------------------------------------------------
+    def _admit(self) -> None:
+        self.sched.admit(self.version)
+        self._launch_pending()
+        self.report.max_untrained = max(self.report.max_untrained, self.sched.untrained_count())
+
+    async def _train(self, sel) -> dict[str, float]:
+        recs, groups = [], []
+        for g in sel.groups:
+            for t in self.pool.members(g.gid, {"finished", "failure", "masked"}):
+                r = self.pool.values.get(t.rid)
+                if r is None:  # masked member (pad backfill): no value, excluded from statistics
+                    continue
+                recs.append(r)
+                groups.append(g.gid)
+        if self.cfg.topology == "disaggregated_stream":
+            m = await asyncio.to_thread(self.trainer.step, recs, groups)  # engines keep generating meanwhile
+        else:
+            m = self.trainer.step(recs, groups)
+        self.report.trained_records += recs
+        return {**m, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs]}
+
+    async def run(self) -> RunReport:
+        t_start = time.monotonic()
+        step = 0
+        self._admit()
+        while step < self.cfg.steps and time.monotonic() - t_start < self.cfg.max_wall_s:
+            self._admit()
+            if step == 0 and self.cfg.topology != "colocated_sync" and self.cfg.warmup_batches:
+                ready = len(self.pool.terminal_groups())
+                if ready < self.sched_cfg.B * (1 + self.cfg.warmup_batches) and any(not t.done() for t in self.tasks.values()):
+                    await self._wait()
+                    continue
+            t_wait = time.monotonic()
+            sel = self.sched.select(self.version)
+            if sel.blocked:
+                self._admit()
+                await self._wait()
+                continue
+            sample_wait = time.monotonic() - t_wait
+            aborted = 0
+            if self.cfg.topology in ("colocated_partial", "colocated_sync"):
+                aborted = await self.engines.abort_all()  # S1: hand the GPU to the trainer; Worlds keep their state
+                await self.engines.pause()
+            t0 = time.monotonic()
+            m = await self._train(sel)
+            train_s = time.monotonic() - t0
+            self.sched.trained(sel)
+            step += 1
+            publish_s = 0.0
+            if step % self.cfg.publish_every == 0:  # S2
+                t1 = time.monotonic()
+                self.version = await self.publisher.publish()
+                publish_s = time.monotonic() - t1
+                self.report.publishes += 1
+            if self.cfg.topology in ("colocated_partial", "colocated_sync"):
+                await self.engines.resume()
+            rewards, lengths = m.pop("_rewards"), m.pop("_lengths")
+            metrics = self.monitor.record(step, staleness=sel.staleness, spans=sel.spans, lengths=lengths, rewards=rewards,
+                                          timing={"train_s": train_s, "publish_s": publish_s, "sample_wait_s": sample_wait},
+                                          evicted={k: float(v) for k, v in self.sched.counters.items()})
+            metrics.update({k: v for k, v in m.items()})
+            metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
+            self.report.steps.append(StepLog(step, self.version, metrics))
+        for t in self.tasks.values():
+            t.cancel()
+        await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        return self.report
+
+    async def _wait(self) -> None:
+        self.changed.clear()
+        try:
+            await asyncio.wait_for(self.changed.wait(), timeout=max(self.cfg.poll_s, 0.05))
+        except TimeoutError:
+            pass
