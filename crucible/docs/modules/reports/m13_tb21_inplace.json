@@ -1,0 +1,11 @@
+{
+ "check": "m13 A-1 on real data: terminal-bench 2.1 task through HarborInPlaceTask (Harbor's own OracleAgent + Verifier, in the task container)",
+ "date": "2026-10-10",
+ "host": "macOS laptop, Docker Desktop 29.8.0",
+ "task": "terminal-bench/adaptive-rejection-sampler (image alexgshaw/adaptive-rejection-sampler:20251031, allow_internet=true)",
+ "results": [
+  {"policy": "oracle (solution/solve.sh)", "reward": 1.0, "infra": "ok", "seconds": 77},
+  {"policy": "no-op", "reward": 0.0, "infra": "ok", "seconds": 38}
+ ],
+ "note": "through the old patch path (verify_dir.HarborDirTask) both would get the pristine image's grade: the in-place path is what makes foreign Harbor tasks gradeable"
+}
