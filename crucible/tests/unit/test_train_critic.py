@@ -31,7 +31,7 @@ def test_trainer_advantages_equal_direct_gae_including_segments():
         with torch.no_grad():
             critic.head.weight.normal_(0, 0.5)  # non-trivial values
         cc = CriticConfig(lam_policy=0.9)
-        tr = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(), critic=critic, critic_cfg=cc)
+        tr = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(item_unit="call"), critic=critic, critic_cfg=cc)
         rec = _rec(segments=segs)
         items = tr._items([rec], ["g"])
         from crucible.train.rollout import full_prompts
@@ -55,8 +55,8 @@ def test_truncation_bootstraps_from_the_final_value():
     with torch.no_grad():
         critic.head.bias.fill_(0.5)  # V ≡ 0.5
     cc = CriticConfig(lam_policy=1.0)
-    full = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(), critic=critic, critic_cfg=cc)._items([_rec(reward=0.0)], ["g"])
-    cut = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(), critic=critic, critic_cfg=cc)._items([_rec(reward=0.0, truncated=True)], ["g"])
+    full = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(item_unit="call"), critic=critic, critic_cfg=cc)._items([_rec(reward=0.0)], ["g"])
+    cut = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(item_unit="call"), critic=critic, critic_cfg=cc)._items([_rec(reward=0.0, truncated=True)], ["g"])
     assert abs(full[-1].adv[-1] + 0.5) < 1e-6  # finished with 0: the last step lost the 0.5 the critic expected
     assert abs(cut[-1].adv[-1]) < 1e-6  # truncated is not failure: R̂ = V(s_T)
 

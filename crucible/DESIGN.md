@@ -1041,6 +1041,17 @@ which nothing wrote, so it was always 0.
 - **Bug found by the test:** audit failures went through the rollout failure path and tripped the masked-share breaker.
   Failures outside rollouts are now recorded outside the breaker window.
 
+**B-1 (2026-10-10): segment-level trainer items.** The reference trainer made every model call an item with its full
+prompt, so a long multi-turn rollout cost O(turns²) forward tokens. The audit estimated ~300× redundancy on the
+long-horizon gate's shape.
+- **Change:** `TrainerConfig.item_unit = "segment"` (the new default) builds one causal sequence per (rollout, actor,
+  compaction segment) with `bridges.common.flatten`:
+  - sampled tokens are trained and observation tokens masked;
+  - critic GAE advantages sit on their calls' spans.
+- **Exception:** records needing per-call inputs (top-p candidates, R3 routing) keep per-call items.
+- **Tests:** loss and gradient equal the per-call items within 1e-6 (group advantages + turn credit, critic GAE,
+  compaction segments); doubling the turns doubles the forward tokens (per-call quadruples them).
+
 **Design finding (B.16).** A cap on rollouts *in flight* (Ling's S × B) does not bound staleness when finished rollouts
 can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, rollouts were trained at staleness 12. The
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a

@@ -220,10 +220,10 @@ def test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts():
 
     multi = [rec(0, [0, 1]), rec(1, [1, 1])]
     with pytest.raises(ValueError, match="span several policy versions"):
-        TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"))).step(multi, ["g", "g"])
-    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo", old_logprob_source="recompute_current"))).step(multi, ["g", "g"])
+        TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"), item_unit="call")).step(multi, ["g", "g"])
+    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo", old_logprob_source="recompute_current"), item_unit="call")).step(multi, ["g", "g"])
     assert m["train/items"] == 4
-    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"))).step([rec(0, [1, 1]), rec(1, [1, 1])], ["g", "g"])
+    m = TorchTrainer(TinyPolicy(16, 8), TrainerConfig(correction=Correction("ppo"), item_unit="call")).step([rec(0, [1, 1]), rec(1, [1, 1])], ["g", "g"])
     assert m["train/items"] == 4  # single-version rollouts: the implicit recompute is valid
 
 

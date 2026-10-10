@@ -36,7 +36,7 @@ Already closed in this session:
 
 | ID | Item | Acceptance |
 |---|---|---|
-| B-1 | Segment-level trainer items: one causal sequence per (actor, segment), with completion tokens trained and observation tokens masked (reuses `bridges/common.flatten`) | loss and gradients equal the per-call items; forward tokens drop from O(turns²) to O(turns) |
+| B-1 ✅ | Segment-level trainer items: one causal sequence per (actor, segment), with completion tokens trained and observation tokens masked (reuses `bridges/common.flatten`) | loss and gradients equal the per-call items; forward tokens drop from O(turns²) to O(turns) |
 | B-2 | Chunked LM-head logprobs (no full-vocabulary fp32 logits) | equal to unchunked within 1e-6; peak memory lower by more than 5× at 8k tokens |
 | B-3 | Linear token capture (delta prompts in policy captures and checkpoints) | capture memory is O(T) on a 2k-turn episode |
 

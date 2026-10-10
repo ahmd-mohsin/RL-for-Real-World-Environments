@@ -51,6 +51,9 @@ class TrainerConfig:
     temperature: float = 1.0
     routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
     prefix_sharing: bool = False  # items with the same full prompt in a micro batch encode it once (checklist #50)
+    # "segment" (default): one causal sequence per (rollout, actor, compaction segment), loss only on sampled tokens:
+    # forward tokens O(turns) instead of O(turns²) (m13 B-1). "call": one item per model call with its full prompt.
+    item_unit: str = "segment"
 
 
 @dataclass
@@ -62,6 +65,7 @@ class _Item:
     prompt_index: int
     candidates: list[list[int]] | None = None  # top-p nucleus per token: π_θ is renormalized over it (checklist #37)
     routing: list[list[int]] | None = None  # MoE experts per token, replayed under routing_replay="r3"
+    mask: list[int] | None = None  # per completion position: 1 = trained (sampled), 0 = observation (segment items); None = all
 
 
 class TorchTrainer:
@@ -214,6 +218,28 @@ class TorchTrainer:
             loss_v = total
         return {"critic/loss": loss_v, "critic/explained_variance": self._ev, "critic/updates": float(self.critic_updates)}
 
+    def _segment_ok(self, r: RolloutRecord) -> bool:
+        """Segment packing needs no per-call model inputs: truncated sampling (candidates) and R3 routing keep per-call items."""
+        if self.cfg.routing_replay == "r3":
+            return False
+        return all(float(t.sampling.get("top_p", 1.0)) >= 1.0 for t in r.turns)
+
+    def _segment_items(self, r: RolloutRecord, a: float, per_token: dict | None, pid: int) -> list[_Item]:
+        from crucible.train.bridges.common import flatten
+
+        out = []
+        for seq in flatten(r, seq_adv=a, turn_weight=self.cfg.turn_weight):
+            adv = list(seq.advantages)
+            if per_token is not None:  # critic GAE: per-token advantages on each call's own span (+ turn credit)
+                credit = {t.call_id: self.cfg.turn_weight * (t.advantage or 0.0) for t in r.turns}
+                for cid, s0, s1 in seq.call_spans:
+                    vals = per_token.get(cid)
+                    if vals is not None:
+                        adv[s0:s1] = [x + credit.get(cid, 0.0) for x in vals[: s1 - s0]]
+            if sum(seq.response_mask):
+                out.append(_Item(list(seq.prompt_ids), list(seq.response_ids), list(seq.logprobs), adv, pid, mask=list(seq.response_mask)))
+        return out
+
     def _items(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[_Item]:
         if self.critic is not None:
             per_token = self._gae_advantages(records)
@@ -226,6 +252,9 @@ class TorchTrainer:
         items = []
         for r, a, g in zip(records, advs, groups, strict=True):
             if r.mask_sample or r.reward is None:
+                continue
+            if self.cfg.item_unit == "segment" and self._segment_ok(r):
+                items += self._segment_items(r, a, per_token, pids[g])
                 continue
             prompts = full_prompts(r)
             for t in r.turns:
@@ -296,7 +325,7 @@ class TorchTrainer:
             lp_rows.append(torch.nn.functional.pad(rows[k].to(fdt), (0, T - n)))
             roll[k, :n] = torch.tensor(it.rollout_lp[:n], dtype=fdt, device=dev)
             adv[k, :n] = torch.tensor(it.adv[:n], dtype=fdt, device=dev) if isinstance(it.adv, list) else it.adv
-            mask[k, :n] = 1
+            mask[k, :n] = torch.tensor(it.mask[:n], dtype=mask.dtype, device=dev) if it.mask is not None else 1
             if old is not None:
                 old_t[k, :n] = old[i].to(dev)
         return torch.stack(lp_rows), roll, adv, mask, (old_t if old is not None else None)
@@ -319,7 +348,7 @@ class TorchTrainer:
         items = self._items(records, groups)
         if not items:
             return {"train/items": 0.0}
-        lengths = [len(it.completion) for it in items]  # trained tokens: the loss normalizer
+        lengths = [sum(it.mask) if it.mask is not None else len(it.completion) for it in items]  # trained tokens: the loss normalizer
         seq_lens = [len(it.prompt) + len(it.completion) for it in items]  # forward tokens: memory and compute, for placement
         g_tokens = sum(lengths)
         single = self.cfg.loss_agg != "token_mean_global"
