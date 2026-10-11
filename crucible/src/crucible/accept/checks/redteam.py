@@ -11,6 +11,7 @@ turns it into an A13 attack and a registry defect candidate. A task without a pr
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from crucible.accept.checks.base import AcceptContext, Out, register
@@ -28,8 +29,11 @@ async def a16_red_team(t: Any, ctx: AcceptContext) -> Out:
     hacker = (getattr(t, "hacker", None) or (lambda: MutationHacker()))()
     hacker.max_attempts = min(getattr(hacker, "max_attempts", ctx.policy.a16_attempts), ctx.policy.a16_attempts)
     trajs = getattr(t, "solver_trajectories", None)
-    view = {"instruction": getattr(t, "instruction", ""), "solver_trajectories": trajs() if trajs else [list(getattr(t, "oracle", []))]}
-    attempts = hacker.propose(view)[: ctx.policy.a16_attempts]
+    vis = getattr(t, "agent_visible", None)
+    view = {"instruction": getattr(t, "instruction", ""), "visible": vis() if vis else {},
+            "solver_trajectories": trajs() if trajs else [list(getattr(t, "oracle", []))]}
+    proposed = hacker.propose(view)
+    attempts = list(await proposed if inspect.isawaitable(proposed) else proposed)[: ctx.policy.a16_attempts]
 
     async def grade(a):
         r, _ = await ctx.grade(t, f"A16:{a.id}", a.actions, run=0)

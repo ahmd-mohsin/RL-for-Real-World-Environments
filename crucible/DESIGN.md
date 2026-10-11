@@ -1120,6 +1120,37 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-11 (2026-10-10): sandboxed roles and the sandboxed hacker.** `interop/harbor/role_runner.py` runs a forge role
+as a Harbor installed agent inside a wrapper task. It DEPENDs on Harbor and PORTs the structure of
+`analyze/checker.py` (Apache-2.0, credited in THIRD_PARTY.md).
+- **Wrapper layout:**
+  - `environment/` is exactly the role's visible files: a prebuilt image with no Dockerfile, which Harbor uploads to
+    `/app`;
+  - forbidden strings (zone canaries, grader material) refuse the wrapper before it runs;
+  - the instruction holds the role prompt, the file tree and "`/app/<role>-out.json` is your only deliverable",
+    with the JSON schema;
+  - a stdlib `tests/validate.py` checks the required keys and top-level types (reward 1 means well-formed, not
+    correct), and the full pydantic parse happens on our side.
+- **Network:** the environment baseline and the verifier are `no-network`; the agent phase is an allowlist of the
+  model API.
+- **`HarborRole`:** the orchestrator `Role` adapter. Staged inputs become `inputs/*`. An invalid deliverable raises
+  `LLMOutputError` (retried with feedback); a trial failure raises `RoleInfraError`; spend is accumulated.
+- **`forge/hacker.py:SandboxedHacker`:** the LLM hacker behind `propose(view)`, which A16 now awaits. Its sandbox
+  holds the agent-visible files and the solver trajectories. Trajectories carry what a policy saw in earlier
+  episodes; that cross-episode memory is the B.15 threat, so the hacker may see it. Canaries are forbidden.
+- **Finding:** a TCP connect from inside the allowlisted sandbox to `example.com:443` succeeds. The egress filter
+  accepts the connection and drops the request. Network isolation must therefore be measured at the request level.
+  The e2e test does exactly that: `https://example.com` is blocked and the model API is reached.
+- **Tests:**
+  - the wrapper holds only the visible files, and Harbor's own `Task` parses its network policy;
+  - leak and path-escape refusals;
+  - the validator on good, wrong-type, missing-key, non-JSON and absent deliverables;
+  - the `HarborRole` failure mapping.
+  - With Docker:
+    - a real Harbor job (the oracle agent in place of an LLM) sees exactly the visible files and reaches only the
+      model API;
+    - a sandboxed hacker's proposal against B.15-weakened t2 is graded by A16 as one confirmed hack.
+
 **G-12 (2026-10-10): the Curator.** `forge/curator.py`.
 - **Dedup:** the `forge/dedup.py` layers run against every kept task.
 - **Placement from the ladder:** an inversion rejects (`fix_grader`); `bench` when the frontier's upper bound is
