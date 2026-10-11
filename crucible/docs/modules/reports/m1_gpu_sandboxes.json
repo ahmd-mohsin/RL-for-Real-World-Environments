@@ -29,5 +29,59 @@
     }
    ]
   }
+ },
+ "agentenv_modal": {
+  "egress": {
+   "allowed": [],
+   "allowed_reachable": {},
+   "isolated": true,
+   "lanes_ok": null,
+   "reachable": [],
+   "tested": [
+    "1.1.1.1:80",
+    "8.8.8.8:53",
+    "169.254.169.254:80",
+    "2606:4700:4700::1111:80",
+    "github.com:443",
+    "codeload.github.com:443",
+    "raw.githubusercontent.com:443",
+    "objects.githubusercontent.com:443",
+    "gitlab.com:443",
+    "bitbucket.org:443",
+    "pypi.org:443",
+    "files.pythonhosted.org:443",
+    "registry.npmjs.org:443",
+    "crates.io:443",
+    "static.crates.io:443",
+    "proxy.golang.org:443",
+    "conda.anaconda.org:443",
+    "huggingface.co:443",
+    "web.archive.org:443",
+    "sourceforge.net:443",
+    "git.kernel.org:443",
+    "pypi.org:80",
+    "github.com:22",
+    "172.20.0.1:80",
+    "172.20.0.1:53",
+    "172.20.0.1:22",
+    "host.docker.internal:58986",
+    "172.17.0.1:58986"
+   ]
+  },
+  "policy_shell": "[exit 0]\nagent\nNVIDIA L4, 23034 MiB\nBuild cuda_12.8.r12.8/compiler.35583870_0\n",
+  "sandbox": "agentenv:modal runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04, gpu=L4 (served by modal)",
+  "start_s": 68.2,
+  "verifier_gpu": {
+   "gpus": [
+    {
+     "compute_cap": "8.9",
+     "driver": "610.57.04",
+     "memory_total_mb": 23034,
+     "memory_used_mb": 4,
+     "name": "NVIDIA L4",
+     "utilization_pct": 0
+    }
+   ]
+  }
  }
 }

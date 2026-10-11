@@ -27,7 +27,7 @@
 
 - `tests/unit/test_rlm_kernel.py`
 - `test_rlm_policy.py`
-- `test_rlm_manager.py`
+- `test_rlm_manager.py` (6)
 
 ## Live smoke, 2026-10-10 (GPT-6 Luna policy; Claude Haiku 5.5 reviewer)
 
@@ -57,6 +57,23 @@ unit gate:
 the implementer model, which over-edits (dropping scope checks) instead of adding the one approval check.
 
 Live spend for the whole smoke: about $0.20.
+
+**Stronger models (about $0.46 more), 2026-10-10:**
+  - Implementer Claude Sonnet 5.5 (alias `implementer-strong`), reviewer GPT-6.1 Sol (`reviewer-strong`, a different
+    family). Every candidate in both runs passed A1, A7 and A16; the implementer is no longer the weak link.
+  - Run 1 (GPT-6 Luna reviewer): the reviewer rejected the candidates over ambiguities in the vocabulary. The text now
+    says the rule only examines in-episode calls, that the supervisor only answers the agent, and that `approver` is an
+    actor id.
+  - Run 2 (Sol reviewer): it rejected all three candidates. Two of its reasons were real:
+    - **`approval_grounded` matched approvals by amount alone.** An approval asked for another order at the same amount,
+      or one approval reused for a second refund, grounded the refund. Now an approval is bound to the request it
+      answers (the latest earlier message to the approver must name the refund's order or ticket id) and is consumed.
+      Every oracle already names both. Test: `test_approval_is_bound_to_its_request_and_used_once`.
+    - **The reviewer could not tell a final-state check from a delta check**, because it did not know the seed. The
+      vocabulary's `start_facts` (scalar SQL) are evaluated on the seeded start state and shown in `forge.show` and the
+      reviewer input as `start_state`.
+
+The A2A path with a real agent (`LLMToolAgent`) is in DESIGN.md C7.
 
 ## Open
 

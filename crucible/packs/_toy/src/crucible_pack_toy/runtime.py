@@ -150,3 +150,46 @@ def crashing_tool_world(pack_root: Path, *, tool: str = "get_ticket", on_attempt
 def nemo_tasks() -> dict:
     """Env-server task factory (``python -m crucible.interop.nemo_gym.server --tasks crucible_pack_toy.runtime:nemo_tasks``)."""
     return {"toy/helpdesk": HelpdeskTask()}
+
+
+class FibWorldTask:
+    """The fib task as a World graded from its own workspace state (m13 C7: external agents through the A2A harness). With
+    ``backend="agentenv"`` the World is served over MCP by a real agentenv gateway; the agent writes ``fib.py`` through the
+    workspace tools and the grader runs it from the workspace (never in the agent's process)."""
+
+    id = "toy/workspace/fib_world@1"
+    world_id = "toy/workspace"
+    instruction = FibTask.instruction
+
+    def __init__(self, backend: str = "agentenv"):
+        self.backend = backend
+
+    async def open(self, workdir: Path) -> World:
+        from crucible.core.schema.world import WorldSpec
+
+        workdir = Path(workdir)
+        root = (workdir / "ws").resolve()
+        spec = WorldSpec.model_validate({"world": "toy/workspace", "backend": self.backend, "apps": [{"id": "ws", "template": "common/workspace",
+                                         "state": {"adapter": "fs", "params": {"root": str(root)}},
+                                         "params": {"shell": True, "allow_unsafe_local_shell": True, "init_git": True}}],
+                                         "actors": [{"id": "agent", "kind": "policy", "tools": ["ws.*"]}]})
+        w = World(spec, instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
+        w._crucible_ws = root
+        await w.start()
+        await w.reset()
+        return w
+
+    async def grade(self, world: World, workdir: Path) -> GradeReport:
+        import subprocess
+
+        from crucible.verify.runtime.plan import Check, Gate, Plan, Verdict
+
+        root = world._crucible_ws
+
+        def output(_ctx) -> Verdict:
+            if not (root / "fib.py").exists():
+                return Verdict(False, {"error": "fib.py missing"})
+            r = subprocess.run(["python3", "fib.py"], cwd=root, capture_output=True, text=True, timeout=30, check=False)
+            return Verdict(r.stdout.split() == ["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], {"stdout": r.stdout[-200:]})
+
+        return await Plan(self.id, [Gate("output")], [Check("output", "output", output)]).arun(Context(Trusted(Path(workdir) / "grade")))

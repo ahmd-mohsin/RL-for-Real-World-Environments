@@ -1141,7 +1141,17 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
   - with a hosted upstream it is masked `capture_incomplete`;
   - an agent-reported failure is `agent_run_error` with blame `policy`;
   - token-record parsing (ids or `token_id:N`).
-- **Pending:** a real coding agent (LLM spend) and snapshot/v1 mid-episode restore.
+- **Real agent (2026-10-10):** `interop/agentenv/agents.py:LLMToolAgent` is a minimal function-calling A2A agent.
+  - It lists the tools of the first registered MCP server and runs an OpenAI-compatible chat loop over them through
+    the capture proxy. `llm_api_key` is write-only.
+  - It caps tool output, stops on a reply with no tool call or at `max_turns`, and returns Usage plus its native
+    trajectory.
+  - `FibWorldTask` (toy pack) is a coding World: an agentenv workspace app with a shell and git, graded by running
+    `python3 fib.py`.
+  - Live through OpenRouter, GPT-6 Luna and Claude Sonnet 5.5 each solved it (reward 1.0, about $0.01 in total).
+  - `tests/unit/test_llm_tool_agent.py`: a scripted upstream (write_file → shell → answer). The eval rollout scores
+    1.0 in 3 turns; the train rollout is masked `capture_incomplete` (a hosted upstream has no token ids).
+- **Pending:** snapshot/v1 mid-episode restore.
 
 **C9 (2026-10-10): agentenv env images as Apps.** App template `agentenv/mcp_env`
 (`interop/agentenv/mcp_env.py`, which DEPENDs on `agentenv_protocol`'s data-plane client) runs an agentenv-protocol env
@@ -1198,7 +1208,7 @@ module doc in `docs/modules/M14-rlm.md`, and the code in `src/crucible/actors/rl
   - `TaskFSM`: Planner → Implementer (child RLM) → Reviewer (a different model, given the check meanings and the rule
     semantics) → objective Verifier. It loops back with findings, and its state is journaled and resumable.
   - `RLMTaskManager` drives it through its `forge` proxy.
-- **Tests:** kernel 3, policy 8, manager 5. They cover the B.15 repair with a loop-back, a crash mid-cell → the same
+- **Tests:** kernel 3, policy 8, manager 6. They cover the B.15 repair with a loop-back, a crash mid-cell → the same
   final fingerprint, a train rollout complete with sub-calls, and the kernel in a no-network container.
 - **Soundness finding (live).** A candidate that dropped checks passed A16, because the property audit is built from
   the task's own checks. Now `ForgeWorkspace.verify` sets the committed version's checks as an **audit floor**
@@ -1216,6 +1226,20 @@ module doc in `docs/modules/M14-rlm.md`, and the code in `src/crucible/actors/rl
   - **Seventh run:** verification and review rejected all three candidates for real reasons (dropped scope checks, the
     hack still open, scope invariants that rejected the oracle). The FSM works; the remaining weak link is the
     implementer model (GPT-6 Luna over-edits instead of making the one-check fix).
+- **Stronger models (about $0.46 more).**
+  - Implementer Claude Sonnet 5.5 (alias `implementer-strong`), reviewer GPT-6.1 Sol (`reviewer-strong`, a different
+    family). Every candidate in both runs passed A1, A7 and A16; the implementer is no longer the weak link.
+  - Run 1 (GPT-6 Luna reviewer): the reviewer rejected the candidates over ambiguities in the vocabulary. The text now
+    says the rule only examines in-episode calls, that the supervisor only answers the agent, and that `approver` is an
+    actor id.
+  - Run 2 (Sol reviewer): it rejected all three candidates. Two of its reasons were real:
+    - **`approval_grounded` matched approvals by amount alone.** An approval asked for another order at the same amount,
+      or one approval reused for a second refund, grounded the refund. Now an approval is bound to the request it
+      answers (the latest earlier message to the approver must name the refund's order or ticket id) and is consumed.
+      Every oracle already names both. Test: `test_approval_is_bound_to_its_request_and_used_once`.
+    - **The reviewer could not tell a final-state check from a delta check**, because it did not know the seed. The
+      vocabulary's `start_facts` (scalar SQL) are evaluated on the seeded start state and shown in `forge.show` and the
+      reviewer input as `start_state`.
 
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into

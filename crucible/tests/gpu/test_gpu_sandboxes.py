@@ -27,6 +27,9 @@ from crucible.world.world import World
 pytestmark = [pytest.mark.gpu, pytest.mark.slow]
 pytest.importorskip("agent_env")
 
+# a public CUDA devel image that ships python3 and git (Crucible's state adapters need both). nvidia/cuda has neither and
+# pytorch/pytorch's devel image has no git (probed on Modal, 2026-10-10).
+MODAL_IMAGE = "runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04"
 REPORT = Path(__file__).resolve().parents[2] / "docs" / "modules" / "reports" / "m1_gpu_sandboxes.json"
 
 
@@ -80,7 +83,7 @@ async def test_agentenv_gpu_sandbox_on_the_lab_5090(tmp_path: Path):
 
 @pytest.mark.skipif(not os.environ.get("CRUCIBLE_MODAL"), reason="set CRUCIBLE_MODAL=1 (and Modal credentials) to rent a cloud GPU")
 async def test_agentenv_gpu_sandbox_on_modal(tmp_path: Path):
-    image = os.environ.get("CRUCIBLE_MODAL_IMAGE", "nvidia/cuda:12.8.1-devel-ubuntu24.04")
+    image = os.environ.get("CRUCIBLE_MODAL_IMAGE", MODAL_IMAGE)
     w = World(gpu_world({"provider": "modal", "image": image}, gpu_type=os.environ.get("CRUCIBLE_MODAL_GPU", "L4")),
               store=Store(tmp_path / "s"), workdir=tmp_path / "w")
     rec = await _exercise(w)

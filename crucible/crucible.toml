@@ -9,6 +9,8 @@ api_key = "env:OPENROUTER_API_KEY"
 sim-default = "openrouter:openai/gpt-6-luna"
 judge-default = "openrouter:anthropic/claude-haiku-5.5"   # different family than the simulator
 policy-default = "openrouter:openai/gpt-6-luna"
+implementer-strong = "openrouter:anthropic/claude-sonnet-5.5"   # m14: RLM task-repair implementer (stronger than the policy default)
+reviewer-strong = "openrouter:openai/gpt-6.1-sol"   # m14: adversarial reviewer, a different family than the implementer
 smoke-cheap = "openrouter:mistralai/mistral-nemo"    # cheapest tool-calling model (2026-10-09): smoke tests only
 
 # The lab RTX 5090 (shared machine: containers only, clean up, keep GPU work polite).
@@ -23,3 +25,5 @@ shared = true
 "openai/gpt-6-luna" = [0.10, 0.50]
 "anthropic/claude-haiku-5.5" = [0.10, 0.50]
 "mistralai/mistral-nemo" = [0.03, 0.03]
+"anthropic/claude-sonnet-5.5" = [2.0, 10.0]
+"openai/gpt-6.1-sol" = [2.0, 10.0]

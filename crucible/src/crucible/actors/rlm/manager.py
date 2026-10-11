@@ -202,6 +202,7 @@ class ForgeWorkspace:
                  cache_root: Path | None = None, vocabulary: dict[str, Any] | None = None):
         self.versions: dict[str, list[Version]] = {k: [Version(t, None, "original")] for k, t in tasks.items()}
         self.vocab = dict(vocabulary or {})  # the pack's check grammar: kinds, event rules, examples (an implementer cannot guess them)
+        self._start: dict[str, dict[str, Any]] = {}
         self.rebuild, self.checks = rebuild, checks
         self.cache_root = cache_root
         self.committed: dict[str, int] = dict.fromkeys(tasks, 0)
@@ -225,11 +226,27 @@ class ForgeWorkspace:
         if hasattr(t, "agent_visible"):  # the policy documents the task is graded against (planner and reviewer read them)
             docs = {k: v[:4000] for k, v in t.agent_visible().items() if k != "instruction" and k.endswith((".md", ".txt"))}
         return {"task_id": task_id, "version": self.committed[task_id] if version is None else int(version), "instruction": t.instruction,
-                "documents": docs,
+                "documents": docs, "start_state": await self.start_state(task_id),
                 "properties": [{"id": p.id, "kind": p.kind, "text": p.text} for p in t.spec.properties],
                 "checks": [c.model_dump(mode="json", exclude_none=True, exclude_defaults=True) | {"id": c.id, "gate": c.gate, "kind": c.kind}
                            for c in t.cs.checks],
                 "oracle_actions": len(t.oracle)}
+
+    async def start_state(self, task_id: str) -> dict[str, Any]:
+        """The vocabulary's ``start_facts`` (name -> scalar SQL) evaluated on the task's seeded start state. Every episode starts
+        from it, so a final-state check over rows absent here grades in-episode work; the m14 live reviewer rejected sound
+        candidates because it could not know that."""
+        facts = self.vocab.get("start_facts") or {}
+        t = self.task(task_id, 0)
+        if not facts or not hasattr(t, "_run"):
+            return {}
+        if task_id not in self._start:
+            out = {}
+            for name, q in facts.items():
+                app, sql = q if isinstance(q, (list, tuple)) else ("tickets", q)
+                out[name] = await t._run([], query=(app, sql))
+            self._start[task_id] = {"note": "every episode starts from this seeded state", **out}
+        return self._start[task_id]
 
     def _new(self, task_id: str, base: int, checks: list[Any], note: str) -> int:
         t = self.rebuild(self.task(task_id, base), checks)
@@ -384,6 +401,7 @@ class TaskFSM:
         rules = {(c.get("spec") or {}).get("rule") for c in added} - {None}
         vocab = self.ws.vocab
         return {"task_id": task_id, "instruction": after["instruction"], "properties": after["properties"], "documents": after.get("documents", {}),
+                "start_state": after.get("start_state", {}),
                 "check_grammar": {"rules_used": {r: (vocab.get("event_rules") or {}).get(r) for r in rules}, "fields": vocab.get("check_fields")},
                 "what_the_verification_proves": {k: CHECK_MEANING.get(k, "") for k in ver["checks"]},
                 "change": {"added_checks": [a[k] for k in a if k not in b], "removed_checks": [k for k in b if k not in a],

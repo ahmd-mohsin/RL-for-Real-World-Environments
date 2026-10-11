@@ -192,3 +192,29 @@ async def test_candidates_cannot_weaken_their_audit_and_must_conform(weak_t2, tm
         v = await ws.drop_check("t2", cid, base=v)
     rep = await ws.verify("t2", v, checks=["A1", "A7", "A16"])
     assert not rep["passed"] and rep["checks"]["A7"]["status"] == "fail" and rep["checks"]["A16"]["status"] == "pass", rep["checks"]
+
+
+async def test_approval_is_bound_to_its_request_and_used_once(weak_t2, tmp_path):
+    """m14 live reviewer finding: an approval matched by amount alone grounded a refund for another order (or two refunds).
+    The approval is bound to the request it answers (it must name the refund's order or ticket) and is consumed. The
+    workspace also shows the seeded start state, so a reviewer can tell a final-state check from a delta check."""
+    from crucible_pack_toy.forge.vocabulary import VOCABULARY
+
+    from crucible.actors.rlm.manager import ForgeWorkspace
+
+    t = weak_t2
+    rep, _ = await t.grade(t.oracle)
+    assert rep.reward == 1.0, rep.failing_gates()  # the oracle's requests name ticket and order
+    msg = next(i for i, a in enumerate(t.oracle) if a.get("kind") == "message" and a.get("to") == "supervisor")
+    refund = next(a for a in t.oracle if a.get("function_name") == "tickets.issue_refund")
+    amt = refund["arguments"]["amount_usd"]
+    other = [*t.oracle[:msg], {"kind": "message", "to": "supervisor", "text": f"Please approve a refund of {amt} USD for order O-0000."}, *t.oracle[msg + 1:]]
+    rep2, _ = await t.grade(other)
+    v = next(c for c in rep2.checks if c.id == "policy/approval_given_in_episode")
+    assert v.status == "fail" and v.detail["unapproved_but_recorded"], v
+    twice = [*t.oracle, {**refund, "tool_call_id": "dup"}]
+    rep3, _ = await t.grade(twice)
+    assert next(c for c in rep3.checks if c.id == "policy/approval_given_in_episode").status == "fail"
+    ws = ForgeWorkspace({"t2": t}, rebuild=_rebuild, cache_root=tmp_path / "a", vocabulary=VOCABULARY)
+    st = (await ws.show("t2"))["start_state"]
+    assert st["refund_rows"] is not None and "refunds" in st
