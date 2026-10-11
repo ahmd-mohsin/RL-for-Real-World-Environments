@@ -123,9 +123,29 @@ class AgentEnvBackend(Backend):
         sbx = self.sandbox_spec is not None
         return BackendCapabilities(isolation="container" if sbx else "none", gpus=sbx and any(a.resources.gpus for a in self.spec.apps),
                                    native_acl=True, native_clock=self.spec.clock is not None and self.spec.clock.mode == "wall",
-                                   network_enforced=sbx and self.spec.network != "public",
+                                   network_enforced=sbx and self.spec.network != "public", pausable=sbx and hasattr(self.sandbox_cls_hint(), "pause"),
                                    notes=["agentenv gateway: role-based tool access, clock, triggers"]
                                    + ([f"state and commands in a sandbox: {self.sandbox_spec.provider} {self.sandbox_spec.image}"] if sbx else []))
+
+    def sandbox_cls_hint(self):
+        if self.sandbox_spec is None:
+            return object
+        if self.sandbox_spec.provider == "docker":
+            from crucible.world.sandbox import DockerSandbox
+
+            return DockerSandbox
+        return object
+
+    async def pause(self) -> None:
+        if self.sandbox is None or not hasattr(self.sandbox, "pause"):
+            raise NotImplementedError("this agentenv world has no pausable sandbox")
+        await self.sandbox.pause()
+
+    async def resume(self) -> None:
+        await self.sandbox.resume()
+        w = self._world
+        if w is not None and w.spec.clock is not None and w.spec.clock.mode == "wall":
+            await self._set_clock(w.clock.now_iso(), w.spec.clock.rate)  # the gateway's clock continues from the frozen time
 
     def validate(self) -> list[str]:
         problems = []

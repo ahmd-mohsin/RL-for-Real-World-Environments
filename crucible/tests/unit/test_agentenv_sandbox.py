@@ -97,3 +97,31 @@ async def test_sandboxed_agentenv_refuses_host_side_servers(image: str, tmp_path
     w = World(s, store=Store(tmp_path / "s"), workdir=tmp_path / "w")
     with pytest.raises(Exception, match="outside the sandbox"):
         await w.start()
+
+
+async def test_pause_resume_keeps_state_and_virtual_time(image: str, tmp_path: Path):
+    """m13 S6: a sandboxed World paused while the trainer holds the GPU keeps its state fingerprints and its virtual time."""
+    import asyncio
+    from datetime import timedelta
+
+    from crucible.world.clock import parse_time
+
+    sp = WorldSpec.model_validate({**spec(image).model_dump(), "clock": {"mode": "wall", "t0": "2026-03-02T09:00:00Z", "rate": 600}})
+    w = World(sp, store=Store(tmp_path / "s"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        await w.reset()
+        assert w.backend.capabilities.pausable
+        assert (await call(w, "mail.send_email", to=["bob@corp.example"], subject="before pause", body="x")).ok
+        fp0 = await w.verifier_view().fingerprints()
+        await w.pause()
+        t_paused = w.clock.now()
+        await asyncio.sleep(3)  # 30 virtual minutes at this rate, if the pause leaked
+        assert w.clock.now() == t_paused
+        await w.resume()
+        assert await w.verifier_view().fingerprints() == fp0
+        gw = await w.backend.gateway_time()
+        assert gw is not None and abs(parse_time(gw) - t_paused) < timedelta(minutes=5), (gw, t_paused)
+        assert (await call(w, "mail.list_sent")).ok  # the World works after resume
+    finally:
+        await w.close()

@@ -263,6 +263,18 @@ class World:
                 if not out.ok:
                     raise WorldError(f"bundle {src} -> {dest} failed: {out.stderr[-400:]}")
 
+    async def pause(self) -> None:
+        """Freeze the World while the trainer holds the GPU (m13 S6): its processes stop (cgroup freezer), its state is
+        untouched, and its virtual clock does not advance until ``resume``."""
+        if not self.backend.capabilities.pausable:
+            raise WorldError(f"{self.backend.name} backend cannot pause this World")
+        self.clock.pause()
+        await self.backend.pause()
+
+    async def resume(self) -> None:
+        await self.backend.resume()
+        self.clock.resume()
+
     async def close(self) -> None:
         for app in self.apps.values():
             try:

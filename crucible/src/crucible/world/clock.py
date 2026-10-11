@@ -55,8 +55,11 @@ class VirtualClock:
         self._base = self._t0
         self._offset = timedelta()
         self._real0 = time.monotonic()
+        self._paused_at: datetime | None = None
 
     def now(self) -> datetime:
+        if self._paused_at is not None:
+            return self._paused_at
         if self.mode == "wall":
             assert self.spec is not None
             return self._base + timedelta(seconds=(time.monotonic() - self._real0) * self.spec.rate) + self._offset
@@ -89,6 +92,18 @@ class VirtualClock:
         self._base = self._t0
         self._offset = timedelta()
         self._real0 = time.monotonic()
+        self._paused_at = None
+
+    def pause(self) -> None:
+        """Freeze a wall clock (m13 S6: the World is paused while the trainer holds the GPU); step clocks never move by themselves."""
+        if self.mode == "wall" and self._paused_at is None:
+            self._paused_at = self.now()
+
+    def resume(self) -> None:
+        """Continue from the frozen time: no jump for the paused interval."""
+        at = self._paused_at
+        if at is not None:
+            self._base, self._offset, self._real0, self._paused_at = at, timedelta(), time.monotonic(), None
 
     def state(self) -> ClockState:
         if self.spec is None:

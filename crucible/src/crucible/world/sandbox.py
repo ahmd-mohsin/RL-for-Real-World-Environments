@@ -113,5 +113,16 @@ class DockerSandbox:
             raise RuntimeError(f"sandbox container failed to start ({self.description}): {(out.stderr or out.stdout)[-800:]}")
         self.image_id = await image_id(self.name, self.docker_host, container=True)
 
+    async def pause(self) -> None:
+        """Freeze every process in the container (cgroup freezer): no CPU, memory and files kept as they are (m13 S6)."""
+        out = await _run_subprocess(["docker", "pause", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)
+        if not out.ok:
+            raise RuntimeError(f"docker pause {self.name}: {(out.stderr or out.stdout)[-300:]}")
+
+    async def resume(self) -> None:
+        out = await _run_subprocess(["docker", "unpause", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)
+        if not out.ok:
+            raise RuntimeError(f"docker unpause {self.name}: {(out.stderr or out.stdout)[-300:]}")
+
     async def close(self) -> None:
         await _run_subprocess(["docker", "rm", "-f", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)

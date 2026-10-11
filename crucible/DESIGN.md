@@ -1120,6 +1120,17 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**S6 (2026-10-10): pause / resume.** `World.pause()` / `resume()` free the CPU while the trainer holds the GPU.
+- **Backend:** a backend with `capabilities.pausable` freezes the World's processes. `DockerSandbox` uses
+  `docker pause` (the cgroup freezer), and so do pooled sandboxes and the agentenv backend with a docker sandbox.
+- **Clock:** a wall clock freezes at pause and continues from the frozen time, with no jump. Step clocks never move by
+  themselves. On resume, the agentenv gateway's clock is reset to the frozen time.
+- **Tests:**
+  - a wall clock at 3600× shows no drift over a 0.2 s pause;
+  - a busy sandbox drops to 0.0% CPU while paused, keeps its files, and its process continues after resume;
+  - a sandboxed agentenv World with a 600× wall clock, paused for 3 s, keeps its state fingerprints, its gateway time
+    stays within 5 virtual minutes of the frozen time, and the World works afterwards.
+
 **S10 (2026-10-10): the sandbox warm pool.** `world/pool.py` keeps `SandboxSpec.pool` pre-started containers per
 launch signature: image plus every hardening flag (network, pids, GPUs, cpus, memory, capabilities). It refills in the
 background, and `open_sandbox` returns a `PooledSandbox` when `pool > 0`.

@@ -28,6 +28,7 @@ class BackendCapabilities:
     network_enforced: bool = False
     native_clock: bool = False  # backend keeps virtual time itself (agentenv gateway)
     native_acl: bool = False  # backend enforces per-actor tool access itself
+    pausable: bool = False  # pause()/resume() freeze the World's processes (m13 S6)
     notes: list[str] = field(default_factory=list)
 
 
@@ -58,6 +59,13 @@ class Backend(ABC):
 
     @abstractmethod
     def exec_for(self, app: AppSpec) -> Exec: ...
+
+    async def pause(self) -> None:
+        """Freeze the World's processes (a backend with ``capabilities.pausable``)."""
+        raise NotImplementedError(f"{self.name} backend cannot pause")
+
+    async def resume(self) -> None:
+        raise NotImplementedError(f"{self.name} backend cannot pause")
 
     @abstractmethod
     def base_path(self, app: AppSpec) -> str:

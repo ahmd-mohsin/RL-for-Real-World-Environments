@@ -102,7 +102,7 @@ From `06`:
 - `ssh_exec` hosts (the Runpod pod);
 - gVisor or Kata on the lab;
 - ✅ warm pools (S10: fresh by default, verified hygiene for reuse);
-- pause/fork through providers that have them (Smol `fork_batch`, OpenSandbox pause);
+- ✅ pause/resume (S6: docker freezer, frozen virtual clock); fork through providers that have them (Smol `fork_batch`, OpenSandbox pause);
 - agentenv C5–C10 (fallback chains, attribution, the native Env, the gateway inside the sandbox, the full trigger language, agentenv env images as Apps).
 
 ## Working rules

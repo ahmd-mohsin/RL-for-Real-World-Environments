@@ -199,6 +199,12 @@ class PooledSandbox:
         self.acquire_s = time.perf_counter() - t0
         self.exec = self._sbx.exec
 
+    async def pause(self) -> None:
+        await self._sbx.pause()
+
+    async def resume(self) -> None:
+        await self._sbx.resume()
+
     async def close(self) -> None:
         if self._sbx is not None:
             await self.pool.release(self._sbx)
