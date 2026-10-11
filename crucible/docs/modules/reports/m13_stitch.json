@@ -1,0 +1,56 @@
+{
+ "spans": [
+  "people",
+  "ncv",
+  "kinfu",
+  "kinfu_large_scale"
+ ],
+ "nested": [
+  [
+   "ncv",
+   "people"
+  ]
+ ],
+ "residual_into_oracle": [
+  "gpu/containers/CMakeLists.txt",
+  "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+  "gpu/containers/src/device_memory.cpp",
+  "gpu/containers/src/repacks.cu",
+  "gpu/utils/include/pcl/gpu/utils/device/block.hpp",
+  "gpu/utils/include/pcl/gpu/utils/device/reduce.hpp",
+  "gpu/utils/include/pcl/gpu/utils/device/warp.hpp"
+ ],
+ "start_files": 0,
+ "oracle_files": 56,
+ "v3_files": 56,
+ "missing_vs_v3": [],
+ "extra_vs_v3": [],
+ "differing_vs_v3": [],
+ "gates": [
+  "static",
+  "build",
+  "binary",
+  "consumers",
+  "kinfu",
+  "people",
+  "ncv",
+  "concurrency",
+  "fresh",
+  "sanitizer",
+  "perf"
+ ],
+ "v3_gates": [
+  "static",
+  "build",
+  "binary",
+  "consumers",
+  "kinfu",
+  "people",
+  "ncv",
+  "concurrency",
+  "fresh",
+  "sanitizer",
+  "perf"
+ ],
+ "reproduces_v3": true
+}

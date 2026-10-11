@@ -1120,6 +1120,28 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-10 (2026-10-10): stitch.** `forge/stitch.py` inverts G-span, file by file (`path -> diff`).
+- **Owned files:** each span's oracle files. Two spans may own one file only with the identical diff; that is a
+  nested span, recorded.
+- **Consistency:** a span's start may pre-apply another span's file only with that span's oracle diff.
+- **Residual:** files that every start pre-applies and no span owns must agree. They go into the stitched oracle
+  (`residual="oracle"`, the seed's base start) or stay pre-applied (`"start"`, an easier variant, reported as such).
+- **Errors:** files only some starts pre-apply, or conflicting diffs.
+- **Gates:** the union of the spans' gates.
+- **Reproduction claim:** a stitched task whose files equal the seed oracle's, under the seed's grader, has the seed's
+  verdicts.
+- **task04 (`crucible_pack_coding.forge.stitch_task04`, report `docs/modules/reports/m13_stitch.json`):** people,
+  ncv, kinfu and kinfu_large_scale stitch back to task04 v3:
+  - 56/56 files with identical diffs, an empty start, and the seed's 11 gates in its order;
+  - NCV is nested in People;
+  - 7 shared helpers (gpu/containers, gpu/utils) are taught by no span and return to the oracle.
+
+  The golden runner's v3 verdicts therefore carry over without a GPU grade.
+- **Tests:**
+  - synthetic spans reproduce the seed (nested merge, residual into the oracle or pre-applied);
+  - each error case raises;
+  - the real task04 check skips when the local seed data is absent.
+
 **G-9 (2026-10-10): fuse (cross-World) and nest.**
 - **`forge/fuse.py:fuse_worlds(a, b)`** builds one World from two.
   - Apps are unioned. A shared app id is renamed `b_<id>`, and b's tool patterns, event tool actions, grant/revoke
