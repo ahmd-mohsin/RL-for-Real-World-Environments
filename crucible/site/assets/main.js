@@ -2,8 +2,45 @@
 import { Stage, View, ENV } from './kit.js';
 import * as S1 from './scenes1.js';
 import * as S2 from './scenes2.js';
+import * as S3 from './scenes3.js';
 
-const SCENES = { ...S1, ...S2 };
+const SCENES = { ...S1, ...S2, ...S3 };
+
+// What each figure shows, so a reader can name every shape.
+const KEYS = {
+  hero: [['Red dotted vessel', 'Crucible'], ['Black balls', 'records of real work'], ['Red balls', 'environments, tasks and benchmarks that come out']],
+  pipeline: [['Stations', 'the steps of the work'], ['Red line', 'the path of one record so far'], ['Red ball', 'the record'], ['Base', 'one shared record format']],
+  world: [['Floor', 'the workplace'], ['Models on the floor', 'apps that hold data and tools'], ['White figures', 'simulated people'], ['Red ball and red gate', 'the agent and its one gate'], ['Glass box', 'the sandbox']],
+  infra: [['Glass layers', 'worlds, models, data, training'], ['Small glass cubes', 'worlds in sandboxes'], ['Stacks with lights', 'inference engines'], ['Cards', 'records of finished episodes'], ['Red balls from the top', 'new weights']],
+  lhbuild: [['Small cards', 'the cases of one shift'], ['Red arc', 'a case that must wait'], ['Red wall', 'a rule change'], ['Black arcs', 'links to earlier cases'], ['Flags and bar', 'milestones and progress']],
+  m0: [['Flat tiles', 'record types'], ['Tile with red edges', 'a bad record'], ['Cabinet', 'the record store'], ['Blocks in front', 'domain packs']],
+  m1: [['Round platform', 'the workplace'], ['Red ball', 'the agent'], ['White figures', 'simulated people'], ['Red cylinder', 'the one gate for actions']],
+  m2: [['Red ball', 'the agent'], ['White figures', 'simulated people'], ['Sheet stacks', 'their real records'], ['Quote', 'a reply built only from records']],
+  m3: [['Left side', 'places where work happens'], ['Red wall', 'the secret filter'], ['Black balls', 'events'], ['Glass box', 'the record store']],
+  m4: [['Blocks', 'the steps of one piece of work'], ['Green ball', 'approval or passed check'], ['Red ball', 'correction'], ['Amber ball', 'rejection, low trust'], ['Thread', 'link to the step that changed the item']],
+  m5: [['Dotted lines', 'recorded attempts'], ['Red line', 'one attempt'], ['Posts with red caps', 'milestones'], ['Glass bands', 'stages'], ['Red ball', 'an agent on the way']],
+  m6: [['Columns', 'progress after each step'], ['Pink column', 'a step back'], ['Red ball', 'the agent'], ['Red gate', 'a hard rule']],
+  m7: [['Glass box', 'the sandbox of the attempt'], ['Dark cube', 'the result of the attempt'], ['Red sheets', 'fake results'], ['Gems on the table', 'hidden references'], ['Row of dots', 'checks, green pass, red fail']],
+  m8: [['Booths', 'AI roles'], ['Red figure', 'the solution builder'], ['Pink walls', 'walls between roles'], ['Red bead', 'the hidden marker'], ['Red ring', 'the quality gate']],
+  m9: [['Centre cube', 'the task'], ['Rings', 'groups of checks, low cost first'], ['Green tiles', 'passed checks'], ['Dark cubes', 'planted errors'], ['Round pool', 'accepted tasks']],
+  m10: [['Capsules', 'attempts'], ['Glass box', 'the world'], ['White box', 'the checker'], ['Red stack', 'the budget'], ['Glass bin', 'system faults, not counted']],
+  m12: [['White cubes', 'worlds'], ['Stacks with lights', 'models that act'], ['Balls', 'data, coloured by model version'], ['Red topped block', 'the trainer']],
+  lh: [['Spiral', 'one long task over time'], ['Red part', 'steps done'], ['Red ring', 'the context window'], ['Bar', 'context used'], ['Flags and gems', 'save points and summaries']],
+  rlm: [['Red ball', 'the model'], ['Dotted sphere', 'the sandboxed memory'], ['Drawers', 'task, tools, observations, messages, history'], ['White balls', 'helper models'], ['Blocks on the right', 'the world']],
+  fsm: [['Four stations', 'planner, editor, reviewer, checker'], ['White cube', 'the task'], ['Amber balls', 'findings'], ['Red block', 'the saved version']],
+  m13: [['Columns', 'score of each agent on each task'], ['Taller and redder', 'better'], ['Bar above', 'one shared scale']],
+  m11: [['Capsules', 'recorded runs'], ['Arch', 'standard actions'], ['Glass box', 'a new world'], ['Red gem', 'the scorer'], ['Sheets', 'output files']],
+  m14: [['Long block', 'the shared base'], ['Cartridges', 'domain packs'], ['Red beam', 'a check level'], ['Three gates', 'order, receipt and invoice']],
+  studio: [['Sheets', 'workflow logs'], ['Back belt', 'the label path'], ['Front belt', 'the build path'], ['Balls', 'data that moves']],
+  results: [['Columns', 'measured results'], ['Red column', 'the first result in each set']],
+};
+function addKey(el, id) {
+  const k = KEYS[id]; if (!k) return;
+  const div = document.createElement('div'); div.className = 'key'; div.setAttribute('aria-label', 'What the figure shows');
+  div.innerHTML = k.map(([a, b]) => `<span><b>${a}</b> ${b}</span>`).join('');
+  const host = el.closest('.fig') || el.parentElement;
+  if (el.dataset.scene === 'hero') el.after(div); else host.appendChild(div);
+}
 const $ = (q, el = document) => el.querySelector(q);
 const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 
@@ -58,6 +95,7 @@ if (!stage.failed) {
     const make = SCENES[el.dataset.scene];
     if (!make) continue;
     const v = stage.add(new View(el, make()));
+    addKey(el, el.dataset.scene);
     const st = el.dataset.scene === 'studio' ? $('#studio-stepper') : el.closest('.fig')?.querySelector('.stepper');
     if (st && v.spec.steps?.length) v.bindStepper(st); else st?.remove();
   }

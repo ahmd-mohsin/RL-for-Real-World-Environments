@@ -277,6 +277,20 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 .v-label.station.on b, .v-label.station.on span, .v-label.station.hover b, .v-label.station.hover span { color: #fff; }
 @media (max-width: 720px) { .v-label.station span { display: none; } .v-label.station b { font-size: 7.5px; } }
 
+/* ---------------------------------------------------------------------------------------------- detail cards */
+.fig.wide.tall .view { aspect-ratio: 16 / 8; }
+@media (max-width: 720px) { .fig.wide.tall .view { aspect-ratio: 4 / 3.6; } }
+.info { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0; margin-top: clamp(22px, 3vw, 34px); box-shadow: var(--ring); background: var(--paper); }
+.info > div { padding: 20px 20px 22px; box-shadow: inset -1px -1px 0 var(--hair); display: grid; gap: 10px; align-content: start; min-width: 0; }
+.info b { font: 600 17px/1.25 var(--serif); color: var(--cardinal); text-wrap: balance; }
+.info ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.info li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.info li::before { content: ""; width: 5px; height: 5px; margin-top: 8px; background: var(--cardinal); transform: rotate(45deg); }
+.key { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 0 2px; border-top: 1px dashed var(--rule); margin-top: 8px; }
+.key span { font: 400 13px/1.4 var(--serif); color: var(--muted); }
+.key b { font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--cardinal); margin-right: 4px; }
+.hero-card .key { padding: 10px clamp(24px, 3.4vw, 44px) 16px; margin-top: 0; }
+
 /* ---------------------------------------------------------------------------------------------------- motion */
 .term .cur { display: inline-block; width: .55em; height: 1.05em; vertical-align: -0.18em; background: #e4847c; margin-left: 1px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -292,6 +306,9 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
     <nav class="nav" aria-label="Sections">
       <a href="#why">Why</a>
       <a href="#pipeline">How it works</a>
+      <a href="#world">World</a>
+      <a href="#infra">RL infra</a>
+      <a href="#long">Long tasks</a>
       <a href="#modules">Parts</a>
       <a href="#use">Use it</a>
       <a href="#results">Results</a>
@@ -380,6 +397,79 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
     </div>
     <div class="legend"><a href="#m3">Capture work</a><a href="#m4">Find feedback</a><a href="#m5">Map workflow</a><a href="#m6">Score steps</a><a href="#m7">Check results</a><a href="#m8">Build tasks</a><a href="#m9">Approve tasks</a><a href="#m1">Simulate work</a><a href="#m2">Simulate people</a><a href="#m10">Run agents</a><a href="#m12">Train model</a><a href="#m13">Measure</a><a href="#m11">Export</a><a href="#m14">Add domains</a><a href="#use">Two commands</a><a href="#m0">Shared records</a></div>
+  </div>
+</section>
+
+<!-- ==================================================================================================== world -->
+<section id="world" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The Crucible world</div>
+      <h2>A real workplace, <em>inside a safe sandbox</em></h2>
+      <p class="lede">A Crucible world is a running copy of a workplace. It holds apps, people, a clock and events. The agent works in it the way a person works at a desk. Hidden checks read the result. Crucible can save and restore the full world at any step.</p>
+    </div>
+    <div class="fig wide tall">
+      <div class="view" data-scene="world" aria-label="A Crucible world: apps, people and a clock inside a sandbox, with one gate for the agent"><span class="hint">Drag to turn</span></div>
+      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
+    </div>
+    <div class="info">
+      <div><b>What a world can hold</b><ul><li>Databases, from a small file to a full database server</li><li>Files and code with their full history</li><li>Documents, spreadsheets, slides and PDF files</li><li>Inboxes and message threads</li><li>Websites and a real browser</li><li>A hidden check runner and GPU tools</li><li>Any tool server that uses the standard tool protocol</li></ul></div>
+      <div><b>Where a world runs</b><ul><li>On this machine, for fast tests</li><li>In a container on this machine</li><li>In a container on a remote GPU host</li><li>In a cloud sandbox, with the GPU type that you ask for</li><li>A snapshot from one place restores in another place</li></ul></div>
+      <div><b>How time works</b><ul><li>Step time moves one tick for each action</li><li>Wall time moves at a set speed and stops when the world pauses</li><li>Simulation time moves only when the simulator moves it</li><li>Events occur at a set time or after a set action</li><li>Tools read the world clock and the world seed, so a replay gives the same data</li></ul></div>
+      <div><b>What keeps it safe</b><ul><li>The agent gets a new account with few permissions</li><li>Programs that raise permissions do not work for the agent</li><li>The network is closed, and a self test proves it before the first step</li><li>The checks use their own trusted copy of the code history</li><li>Crucible stops leftover processes and cleans temporary files between episodes</li><li>A suite of more than 20 attacks runs against the sandbox</li></ul></div>
+      <div><b>How the gate checks each action</b><ul><li>It checks the tool name and the permission of the actor</li><li>It checks the inputs against the format of the tool</li><li>It stops a tool that runs too long</li><li>It limits the size of the output</li><li>It counts calls against a budget for each tool</li><li>If an app fails, the gate holds the error and the episode continues</li></ul></div>
+      <div><b>Why it is generic</b><ul><li>The base has no domain logic. All domain parts come from packs.</li><li>Any app that has state and tools can join a world</li><li>Each app gives a fingerprint, a snapshot and a restore</li><li>A world can end itself, return images and use its own seed for each app</li><li>An audit command checks any world before you use it</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================================================== infra -->
+<section id="infra" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">RL infrastructure</div>
+      <h2>How Crucible trains a model <em>while agents work</em></h2>
+      <p class="lede">Crucible has its own RL infrastructure. Agents collect data in live worlds while the trainer updates the model. Each part has one job and one clear contract.</p>
+    </div>
+    <div class="fig wide tall">
+      <div class="view" data-scene="infra" aria-label="The Crucible RL infrastructure as four layers: worlds, models, data and training"><span class="hint">Drag to turn</span></div>
+      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
+    </div>
+    <div class="info">
+      <div><b>Worlds and episodes</b><ul><li>Each episode runs as its own task</li><li>Worker machines run the worlds, with leases and heartbeats</li><li>Environment servers keep one live session for each episode</li><li>A slow world never blocks the batch</li></ul></div>
+      <div><b>Models</b><ul><li>Inference engines run behind one gateway</li><li>Each episode stays on the same engine</li><li>A failed engine leaves the pool, and its calls start again on another engine</li><li>Each reply carries the model version that made it</li></ul></div>
+      <div><b>Records</b><ul><li>Crucible keeps the exact tokens that the model made, and never tokenizes the text again</li><li>Each token keeps its probability and its model version</li><li>Each record keeps the step scores and the cause of each failure</li><li>A masked record never goes into training</li></ul></div>
+      <div><b>Scheduler</b><ul><li>It admits new work only when the trainer can use it</li><li>It picks each batch by groups of tries</li><li>It drops data that is older than the limit</li><li>One run can mix many domains, each with its own age limit</li></ul></div>
+      <div><b>Dense reward</b><ul><li>Milestones come from real expert work</li><li>Progress is the share of milestones that are complete</li><li>Each step earns its change in progress</li><li>Each step score goes onto the tokens of its turn</li><li>The group of tries gives the baseline for each advantage</li><li>A broken rule gives zero, and loops earn nothing</li></ul></div>
+      <div><b>Training and weights</b><ul><li>The trainer corrects each token for the age of its data</li><li>It supports group advantages, a critic over segments and learning from a teacher model</li><li>New weights reach all engines in one step</li><li>Three layouts are available. One shared GPU, partly shared GPUs, or separate machines.</li><li>One command starts the engines, the workers, the environment servers and the trainer</li></ul></div>
+      <div><b>Long episodes</b><ul><li>A summary starts a new segment, and the trainer learns from the summary</li><li>Credit crosses from one segment to the next</li><li>Save points let a crashed episode continue</li></ul></div>
+      <div><b>Hack defense</b><ul><li>A check stops dangerous calls before they run</li><li>It flags episodes that change tests or fake an exit status</li><li>A judge looks only at flagged episodes</li><li>A confirmed hack gets no reward</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================================================== long -->
+<section id="long" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Long tasks</div>
+      <h2>How we build tasks <em>that take a full shift</em></h2>
+      <p class="lede">Real enterprise work runs for hours. Crucible builds long tasks from real cases and keeps the reward dense and exact from the first step to the last.</p>
+    </div>
+    <div class="fig wide tall">
+      <div class="view" data-scene="lhbuild" aria-label="Building a long task: one real case grows into a shift with waits, rule changes, links and milestones"><span class="hint">Drag to turn</span></div>
+      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
+    </div>
+    <div class="info">
+      <div><b>Grow one case into a shift</b><ul><li>Crucible takes a real case and makes many related cases</li><li>Each case has its own data, people and correct result</li></ul></div>
+      <div><b>Make the agent wait</b><ul><li>Some replies arrive hours later in world time</li><li>The agent must come back to the case</li></ul></div>
+      <div><b>Change a rule</b><ul><li>A rule changes during the shift</li><li>The checks score each action by the rule in force at that moment</li></ul></div>
+      <div><b>Link the cases</b><ul><li>Later cases refer to earlier cases, for example the same order</li><li>The agent must stay consistent across hundreds of steps</li></ul></div>
+      <div><b>Add real context</b><ul><li>Message threads and knowledge base documents fill the context</li><li>The model must summarize to continue</li></ul></div>
+      <div><b>Keep approvals honest</b><ul><li>A simulated approver must approve the exact amount</li><li>The approval must occur inside the episode</li></ul></div>
+      <div><b>Summarize and continue</b><ul><li>Near the context limit, the model writes its own summary</li><li>A new segment starts, and the trainer learns from the summary too</li></ul></div>
+      <div><b>Save and resume</b><ul><li>The world, the model state and the progress save together every few steps</li><li>A crash continues from the last save, not from the start</li></ul></div>
+    </div>
   </div>
 </section>
 
