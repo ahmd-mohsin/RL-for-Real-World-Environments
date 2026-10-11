@@ -1,6 +1,12 @@
 # M7 `verify` — verifier kit
 
-**Status: built (2026-10-09). The toy golden, the A13 attack suite and the CPU golden pass. The GPU golden is 1 of 8 task04 grades done (the empty patch; it needs no GPU). The other 7 are queued on the lab RTX 5090, which another user's job holds at 100%. The runner starts each grade only on an idle GPU.**
+**Status (2026-10-11).**
+- **Passing:** the toy golden, the A13 attack suite, the CPU golden, and **the task04 GPU golden: 8/8 graded, `pass: true`**
+  (`reports/m7_golden_gpu.json`).
+  - Every grade reproduces its recorded gate profile.
+  - The last one, `astra_v3b`, was first masked because another user's job held the GPU, then regraded on an idle GPU on
+    2026-10-11. It reproduces exactly: all gates pass except `perf`, the intended failure.
+- **Open:** the task03 GPU golden (`neg_floatgrid`, `cheat_tamper` diffs), and tasks 01/01v2/02 are not re-expressed.
 
 - **Code:** `src/crucible/verify/`; coding pack `verify/` (`task04.py`, `task03.py`, `golden_cpu.py`, `golden_gpu.py`); toy pack `verify.py`.
 - **Tests:**
@@ -39,7 +45,7 @@ Two layers:
 | Requirement (ARCHITECTURE M7) | Result |
 |---|---|
 | Toy checks pass and fail as designed | ✅ The oracle scores 1 and the no-op 0 (all three outcome gates fail). **7/7 negatives fail their intended gate:** unapproved refund, in-transit refund and double refund fail `refund_policy`; a fabricated approver fails `approvals`; a partial refund fails `t2`; closing instead of escalating fails `t3`; no notes fails `t1`–`t3` |
-| Seed graders re-expressed with the kit reproduce history: every oracle 1.0, every negative fails at its gate, Astra/sol reproduce their profiles | **CPU part ✅:** the kit's decision logic re-scores the recorded history.<br>• task04: 15/15 static verdicts (patches applied to the pinned PCL tree), 7/7 perf verdicts from the recorded rounds, 14/14 sanitizer verdicts.<br>• task03: 10/10 static verdicts.<br>• One divergence is documented: `astra_v3` was graded during another user's GPU job. The kit masks it, and its re-grade `astra_v3b` is reproduced.<br>**GPU part ⏳ (2/8 task04 grades so far):** the kit task04 grader in the real verifier image reproduced the empty patch's full profile (static 0, build 1, binary 0, consumers 0, the rest 0), and **scored the v3 oracle 1.0 with all 11 gates passing**, perf included, under the load guard, spread check and whole-process wall bar. The oracle, Astra v3, sol v3 and the global/oob/tex/warp negatives are queued and run when the GPU is idle. The task03 GPU golden comes after them. tasks 01/01v2/02 are not re-expressed yet |
+| Seed graders re-expressed with the kit reproduce history: every oracle 1.0, every negative fails at its gate, Astra/sol reproduce their profiles | **CPU part ✅:** the kit's decision logic re-scores the recorded history.<br>• task04: 15/15 static verdicts (patches applied to the pinned PCL tree), 7/7 perf verdicts from the recorded rounds, 14/14 sanitizer verdicts.<br>• task03: 10/10 static verdicts.<br>• One divergence is documented: `astra_v3` was graded during another user's GPU job. The kit masks it, and its re-grade `astra_v3b` is reproduced.<br>**GPU part ✅ for task04 (8/8, 2026-10-11; earlier note follows):** the kit task04 grader in the real verifier image reproduced the empty patch's full profile (static 0, build 1, binary 0, consumers 0, the rest 0), and **scored the v3 oracle 1.0 with all 11 gates passing**, perf included, under the load guard, spread check and whole-process wall bar. The oracle, Astra v3, sol v3 and the global/oob/tex/warp negatives are queued and run when the GPU is idle. The task03 GPU golden comes after them. tasks 01/01v2/02 are not re-expressed yet |
 | Grader attack suite (A13) | ✅ Honest 1. **11/11 cheats 0** at their intended gate: `os._exit(0)` under pytest, fake stdout rows, writing reward files, detached output fix-up, memoizing in HOME, shadowing stdlib `json`, shadowing the test runner, delegating to the reference, tampering with hidden tests, dynamic banned import, `pytest.skip` from library code. **6 controls:** the same cheats beat a grader with the seed graders' habits |
 
 ## Findings

@@ -3,7 +3,7 @@
 **Status: core built (2026-10-10).**
 - **CPU end to end ✅:** every topology learns.
 - **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 41 done, 11 partial, 0 missing; the gaps are being closed in order.
-- **GPU gate ⏳:** Qwen3-0.6B on the lab RTX 5090 is staged and waiting for the shared GPU.
+- **GPU learning run ✅ (2026-10-11), gate flag ❌:** Qwen3-0.6B, colocated partial, on the lab RTX 5090 (`reports/m12_gpu_gate.json`). Held-out eval (32 seeds × 4) went from 0.44 (56/128) to 1.00 (128/128); train pass rate went from 0.48 to 1.00 by step 5; staleness max 2 (τ = 2); 0 masked rollouts; 22 publishes; peak 13.2 GB. The gate flag is false only because the 600 s wall clock stopped the run at step 22 of the 60 requested (`stop_reason: wall_clock`).
 
 - **Research** (`docs/research/m11-m12/`):
   - `01` verl + slime;
@@ -144,7 +144,7 @@ Facts behind the table:
 | Distributed weight sync | ✅ real processes over gloo: bitwise across dtypes and buckets, slow-reload pipeline, sharded owners, all-rank abort with no commit, subgroup + elastic plan, publisher → receiver |
 | Truncated and agent-broke-env cases | ✅ (M10 records; masked never trained, agent failures scored) |
 | CPU end to end | ✅ a real tiny policy learns under sync (0.08 → 0.37), partial call-level (0.09 → 0.61, 906 aborts re-issued), partial token-level (0.09 → 0.57, resumed with spans), disaggregated (0.07 → 0.51) |
-| One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ❌→⏳ first run (2026-10-10): 0 steps, 228k masked rollouts (transformers-5 chat-codec bug, swallowed silently); fixed + failure accounting + circuit breaker; re-staged |
+| One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ❌→⏳ first run (2026-10-10): 0 steps, 228k masked rollouts (transformers-5 chat-codec bug, swallowed silently); fixed + failure accounting + circuit breaker; re-staged. Second run (2026-10-11): ✅ learns, held-out 0.44 → 1.00, staleness ≤ 2, `rollout_probs_diff` on every step; stopped by the wall clock at step 22 of 60, so the strict flag reads false |
 
 ## 8. Remaining
 

@@ -1,10 +1,28 @@
 {
- "graded": "16/17",
- "pass": false,
+ "graded": "17/17",
+ "pass": true,
  "grades": {
   "kinfu_family/solution": {
-   "masked": "check_infra",
-   "reason": "perf: original's perf rounds contaminated: ['original/kinfu_concurrent_wall_ms']"
+   "reward": 1.0,
+   "gates": {
+    "binary": 1,
+    "build": 1,
+    "concurrency": 1,
+    "consumers": 1,
+    "fresh": 1,
+    "kinfu": 1,
+    "perf": 1,
+    "sanitizer": 1,
+    "static": 1
+   },
+   "infra": {
+    "failure_kind": null,
+    "reason": null,
+    "status": "ok"
+   },
+   "expected": "pass",
+   "expected_gate": null,
+   "ok": true
   },
   "kinfu_family/start": {
    "reward": 0.0,

@@ -3,7 +3,7 @@
 **Status: built (2026-10-09).**
 - **Toy gate ✅:** the forged variant world's 5 tasks pass the M9 subset.
 - **Coding gate, CPU part ✅:** 4 span tasks from task04 v3; traps for 4 of 5 seeds.
-- **Coding gate, behavioural part ⏳:** 25 grades queued on the lab RTX 5090, after the M7 golden runs.
+- **Coding gate, behavioural part ✅ (2026-10-11):** 17/17 grades on the lab RTX 5090 (`reports/m8_coding_gpu.json`). The 3 spans (people, ncv, kinfu_family): every solution scores 1.0 with all gates green; every start, unported mutant and trap scores 0.0 at its expected gate. The kinfu_family solution, masked earlier for contaminated perf rounds, regraded clean.
 - **task01 has no trap:** its only frontier run passed, so there is no failure signal to ground one on.
 
 - **Code:**
@@ -34,7 +34,7 @@
 | Requirement (ARCHITECTURE M8) | Result |
 |---|---|
 | The toy variant world and its tasks pass M9 | ✅ `toy/helpdesk_v2` (seed 7; 5 customers, 19 orders with 7 distractors, an archived-policy decoy, a month-end freeze event). **5/5 tasks accepted:** A1 (3/3 fresh grades = 1.0, identical end states), A2, A3 (6–10 negatives per task, mutation score 1.0, valid alternatives pass), A4-lite, A5, A7, A8 (100% provenance). 0 paid calls; replayed from the journal at no cost |
-| Every derived span task passes M9 | **CPU ✅, behavioural ⏳.** 4 spans from task04 v3: people (H2, 8 files), NCV (H2, 3 files), KinFu (H3, 20 files), KinFu-LS (H3, 21 files). Each passes the CPU subset: static gate (oracle passes, start and unported mutants fail), A5 (clean instruction, no oracle lines in the start, sibling overlap ≤ 20%), A7, A8. 25 behavioural grades are queued in the verifier image (scoped kit grader, `--pre-patch`) |
+| Every derived span task passes M9 | **CPU ✅, behavioural ✅.** 4 spans from task04 v3: people (H2, 8 files), NCV (H2, 3 files), KinFu (H3, 20 files), KinFu-LS (H3, 21 files). Each passes the CPU subset: static gate (oracle passes, start and unported mutants fail), A5 (clean instruction, no oracle lines in the start, sibling overlap ≤ 20%), A7, A8. Behavioural ✅: 17/17 grades in the verifier image (scoped kit grader, `--pre-patch`) on the lab RTX 5090 |
 | ≥ 1 trap task per seed, citing its signal | **4 of 5 seeds.** Each trap's C2 checks pass the oracle and kill the frontier's version, and each cites a resolvable M4 signal:<br>• task04: sol v3 failed `correctness/ncv` → NCV area, 27 separating checks;<br>• task03: sol failed `api` → 51;<br>• task02: sol failed `ops` → 25;<br>• task01v2: sol failed `tests_gpu` → 264.<br>**task01: none.** Its only frontier run (Fable 5.1) passed, so no failure signal exists. A construction-transcript mapper (M4) would be the source |
 | G-hindsight on recorded workflow data (toy) | ✅ **6/6 tasks accepted** (`m8_toy_hindsight.json`). The recorded refund cases T1001, T1003, T1013, T1015, T1018 and T1021 become World tasks graded on the outcome that **held up** after corrections. Four cases carry the expert's real first response as a trap negative, each citing its M4 signal (violation, revert or rework). A rule that a correction revealed ("used add-ons are not refundable", from T1021's revert) is compiled into a policy invariant with that signal as provenance. T1003's fee rule rests on one supervisor correction (240.00 → 230.00); the report says so |
 | Calibrator (learnability steering) | ✅ `forge/calibrate.py` on the 5 forged toy tasks, with the cheapest model as the stand-in "policy being trained" (k = 4, $0.003). Results:<br>• p = 0 on T1, T2, T4 and T5;<br>• p = 0.25 on T3 (interval 0.05–0.70, learnability 0.75).<br>The advice is "sample more" for every task, because k = 4 never decides the band: the 0/4 interval [0, 0.49] overlaps p ∈ [0.1, 0.7]. Knobs move only once the 4 → 8 → 16 schedule decides the band or is spent. Failure modes recorded per attempt: outcome checks (no note, wrong status) and the policy gate (unapproved refunds) |
@@ -54,7 +54,6 @@
 
 ## Not done
 
-- Behavioural acceptance of the coding spans (queued on the lab GPU).
 - G-transplant (OOD tasks on unseen repos), G-tighten. (m13 G-1..G-5 added the concurrent orchestrator, chain/fan-in composition with A14/A15/A17, the solver ladder and the A16 red-team hacker; see DESIGN.md.) G-hindsight exists for the toy logs only; for coding it needs per-step expert states (M5 replay).
 - Frontier calibration (A10: ≥ 2 frontier runs per task; paid) and the Curator (splits, difficulty ladder).
 - Harbor-run sandboxed builder roles (`role_runner.py`) and the agentenv human-review step.

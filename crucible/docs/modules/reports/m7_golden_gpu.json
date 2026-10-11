@@ -1,10 +1,8 @@
 {
  "gate": "M7 golden, GPU part (task04 kit grader in the verifier image)",
  "graded": "8/8",
- "pass": false,
- "needs_regrade": [
-  "astra_v3b"
- ],
+ "pass": true,
+ "needs_regrade": [],
  "agree_where_measured": true,
  "grades": {
   "oracle3": {
@@ -77,7 +75,7 @@
    "kit": {
     "binary": 1,
     "build": 1,
-    "concurrency": 0,
+    "concurrency": 1,
     "consumers": 1,
     "fresh": 1,
     "kinfu": 1,
@@ -95,23 +93,21 @@
     "kinfu": "pass",
     "people": "pass",
     "ncv": "pass",
-    "concurrency": "infra",
+    "concurrency": "pass",
     "fresh": "pass",
     "sanitizer": "pass",
-    "perf": "skip"
+    "perf": "fail"
    },
-   "reward": null,
+   "reward": 0.0,
    "infra": {
-    "failure_kind": "check_infra",
-    "reason": "concurrency: node_contention: GPU out of memory while other processes held 29057 MiB (kinfu_replay)",
-    "status": "masked"
+    "failure_kind": null,
+    "reason": null,
+    "status": "ok"
    },
    "intended_gate": "perf",
    "intended": true,
    "profile_diffs": {},
-   "needs_regrade": [
-    "concurrency"
-   ],
+   "needs_regrade": [],
    "fresh_consistent": true,
    "match": true
   },

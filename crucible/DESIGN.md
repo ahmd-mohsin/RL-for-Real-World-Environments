@@ -1532,7 +1532,7 @@ The failures were not kit bugs; they were derivation bugs.
 - **Re-derivation:** people and ncv are byte-identical (their 17 verdicts stand). The spans are now people, ncv and
   kinfu_family, all CPU-ok. The 3-span stitch still reproduces v3 (56/56).
 - **Lab runner:** keeps verdicts of unchanged spans, drops masked grades and unstaged spans, and waits for the task03
-  runner. The 4 `kinfu_family` grades are queued.
+  runner. The 4 `kinfu_family` grades are queued. (2026-10-11: all 17 grades pass on the lab RTX 5090; the kinfu_family solution regraded clean at 1.0.)
 
 **G-11 (2026-10-10): sandboxed roles and the sandboxed hacker.** `interop/harbor/role_runner.py` runs a forge role
 as a Harbor installed agent inside a wrapper task. It DEPENDs on Harbor and PORTs the structure of
