@@ -155,6 +155,12 @@ def open_sandbox(sb: SandboxSpec, spec: WorldSpec, *, pids_limit: int | None = N
     if sb.provider == "docker":
         from crucible.world.sandbox import DockerSandbox
 
+        if sb.runtime == "runsc-in-container":
+            if sb.pool > 0:
+                raise ValueError("the runsc-in-container runtime is not pooled (each sandbox owns its gVisor instance)")
+            from crucible.world.sandbox import GVisorSandbox
+
+            return GVisorSandbox(sb, spec, pids_limit=pids_limit, memory=memory)
         if sb.pool > 0:
             from crucible.world.pool import PooledSandbox, pool_for
 

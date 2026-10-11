@@ -46,6 +46,9 @@ class SandboxSpec(CrucibleModel):
     memory_mb: int | None = None
     timeout_s: int = 7200
     workdir: str = "/crucible"  # where relative App paths live inside the sandbox
+    # docker: runc (default), runsc (a daemon with gVisor registered), or runsc-in-container (gVisor inside a privileged
+    # container: no daemon change, m13 S5)
+    runtime: Literal["runc", "runsc", "runsc-in-container"] = "runc"
     pool: int = 0  # docker: keep this many pre-started containers per launch signature (world/pool.py, m13 S10)
     pool_reuse: bool = False  # reuse released containers after verified hygiene (default: destroy, start fresh)
 

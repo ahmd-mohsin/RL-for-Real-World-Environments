@@ -100,7 +100,7 @@ From `06`:
 ### H. Sandboxes (P1/P2)
 
 - `ssh_exec` hosts (the Runpod pod);
-- gVisor or Kata on the lab;
+- ✅ gVisor (S5: runsc-in-container, no daemon change; Mac + lab amd64), Kata open;
 - ✅ warm pools (S10: fresh by default, verified hygiene for reuse);
 - ✅ pause/resume (S6: docker freezer, frozen virtual clock); fork through providers that have them (Smol `fork_batch`, OpenSandbox pause);
 - agentenv C5–C10 (fallback chains, attribution, the native Env, the gateway inside the sandbox, the full trigger language, agentenv env images as Apps).

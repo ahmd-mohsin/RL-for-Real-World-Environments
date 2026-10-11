@@ -1120,6 +1120,33 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**S5 (2026-10-10): the gVisor tier.** `SandboxSpec.runtime` takes three values:
+- `runc` (the default);
+- `runsc`, when a daemon has gVisor registered (`--runtime=runsc`);
+- `runsc-in-container`, which needs no daemon change (`world/sandbox.py:GVisorSandbox`).
+
+How `runsc-in-container` works:
+- **Toolbox:** the pinned toolbox image (`docker/gvisor`: release 20261005.0, sha512-verified; the tarball now
+  carries `runsc` plus `gvisor-bin/` sidecars) is mounted read-only with `--volumes-from` into the World's image,
+  which runs as a privileged outer container.
+- **Sandbox:** one long-lived gVisor sandbox runs inside it, with `--platform=systrap`, `--network=none` for
+  no-network worlds, `--overlay2=none --file-access=shared` and the outer root as its root. Every command goes
+  through `runsc exec` (`GVisorExec`; user names are resolved to uid:gid), and files go through the outer container.
+- **Spec fixes found on the way:**
+  - gVisor's own `/tmp` tmpfs hid pushed files, so the outer `/tmp` is bind-mounted;
+  - `runsc spec`'s minimal capabilities made root unable to `chown`, so the spec gets Docker's default set plus
+    `SYS_RESOURCE`;
+  - runsc state, the bundle and `/opt/gvisor` are masked with empty tmpfs.
+- **Scope:** the outer container keeps Docker's pids, memory and cpu limits. There are no GPUs (nvproxy is not
+  configured) and no pooling. The capability reports `isolation="gvisor"`.
+- **Tests (Mac):**
+  - a hardened agentenv World runs under gVisor: the dmesg banner and `uname` show it, the policy is demoted, App
+    state is unreadable, and the egress probe is isolated;
+  - a snapshot / restore round trip works.
+- **Lab (amd64):** the toolbox builds and `runsc do` shows the banner.
+- **Incident:** a cleanup on the lab ran `docker container prune`, which acts machine-wide. Docker's event log
+  shows it removed only our own toolbox container. Machine-wide prunes are now banned in the lab notes.
+
 **S6 (2026-10-10): pause / resume.** `World.pause()` / `resume()` free the CPU while the trainer holds the GPU.
 - **Backend:** a backend with `capabilities.pausable` freezes the World's processes. `DockerSandbox` uses
   `docker pause` (the cgroup freezer), and so do pooled sandboxes and the agentenv backend with a docker sandbox.

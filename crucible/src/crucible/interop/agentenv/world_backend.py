@@ -121,7 +121,8 @@ class AgentEnvBackend(Backend):
     @property
     def capabilities(self) -> BackendCapabilities:
         sbx = self.sandbox_spec is not None
-        return BackendCapabilities(isolation="container" if sbx else "none", gpus=sbx and any(a.resources.gpus for a in self.spec.apps),
+        gv = sbx and self.sandbox_spec.runtime in ("runsc", "runsc-in-container")
+        return BackendCapabilities(isolation=("gvisor" if gv else "container") if sbx else "none", gpus=sbx and any(a.resources.gpus for a in self.spec.apps),
                                    native_acl=True, native_clock=self.spec.clock is not None and self.spec.clock.mode == "wall",
                                    network_enforced=sbx and self.spec.network != "public", pausable=sbx and hasattr(self.sandbox_cls_hint(), "pause"),
                                    notes=["agentenv gateway: role-based tool access, clock, triggers"]

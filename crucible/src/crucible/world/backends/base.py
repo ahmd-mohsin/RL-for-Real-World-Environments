@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class BackendCapabilities:
-    isolation: str = "none"  # none | container | vm
+    isolation: str = "none"  # none | container | gvisor | vm
     gpus: bool = False
     network_enforced: bool = False
     native_clock: bool = False  # backend keeps virtual time itself (agentenv gateway)
