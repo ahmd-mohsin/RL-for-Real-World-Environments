@@ -1,5 +1,5 @@
 <title>Crucible</title>
-<meta name="description" content="Crucible turns real work into honest, trainable RL environments: dense step-level rewards, verified frontier-hard tasks and step-level benchmarks.">
+<meta name="description" content="Crucible turns enterprise work into trainable RL environments. Each environment scores each step and comes with a benchmark.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap">
@@ -123,13 +123,8 @@ section { padding-block: clamp(64px, 9vw, 120px); }
 .btn.line { color: var(--cardinal); box-shadow: 0 0 0 1px rgba(140, 21, 21, .32); }
 .btn.line:hover { background: var(--blush); }
 .hero-card .hero-view { aspect-ratio: 2.55 / 1; min-height: 300px; box-shadow: none; }
-.hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 18px clamp(24px, 3.4vw, 44px) 24px; border-top: 1px solid var(--hair); }
-.hero-stats div { display: grid; gap: 2px; padding-right: 8px; }
-.hero-stats b { font: 600 clamp(22px, 2.4vw, 28px)/1 var(--serif); color: var(--cardinal); font-variant-numeric: tabular-nums; }
-.hero-stats span { font: 400 9.5px/1.35 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 @media (max-width: 860px) { .hero-head { grid-template-columns: 1fr; align-items: start; } .hero-card .hero-view { aspect-ratio: 4 / 3; min-height: 0; } }
-@media (max-width: 520px) { .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; } .hero-card .hero-view { aspect-ratio: 1 / 1; } }
-
+@media (max-width: 520px) { .hero-card .hero-view { aspect-ratio: 1 / 1; } }
 /* --------------------------------------------------------------------------------------------------------- views */
 .view { position: relative; background: transparent; box-shadow: var(--ring), var(--shadow); touch-action: pan-y; user-select: none; -webkit-user-select: none; min-width: 0; cursor: grab; }
 .view.dragging { cursor: grabbing; }
@@ -137,7 +132,7 @@ section { padding-block: clamp(64px, 9vw, 120px); }
 .no-webgl .view::after { content: "3D view needs WebGL"; position: absolute; inset: 0; display: grid; place-items: center; font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .fig { display: grid; gap: 0; min-width: 0; }
 .fig .view { aspect-ratio: 4 / 3; max-width: 100%; }
-.fig.wide .view { aspect-ratio: 16 / 8; }
+.fig.wide .view { aspect-ratio: 16 / 6.2; }
 @media (max-width: 720px) { .fig.wide .view { aspect-ratio: 4 / 3.6; } }
 
 /* stepper: a figure's flow, step by step */
@@ -169,7 +164,7 @@ section { padding-block: clamp(64px, 9vw, 120px); }
 .mods { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
 .mod-index { position: sticky; top: 84px; display: grid; gap: 14px; }
 .mod-index .grp { font: 500 9.5px var(--mono); letter-spacing: .24em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
-.mod-index a { display: grid; grid-template-columns: 34px minmax(0, 1fr); text-decoration: none; color: var(--ink-2); font-size: 14px; line-height: 1.3; padding: 2px 0; }
+.mod-index a { display: block; text-decoration: none; color: var(--ink-2); font-size: 14px; line-height: 1.3; padding: 2px 0; }
 .mod-index a span { font: 600 10px/1.9 var(--mono); color: var(--cardinal); letter-spacing: .06em; }
 .mod-index a.on { color: var(--cardinal); }
 .mod-index a.on span::after { content: ""; }
@@ -262,6 +257,26 @@ footer p { margin: 4px 0 0; color: var(--muted); font-size: 14.5px; }
 footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
 footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
 
+/* ------------------------------------------------------------------------------------------------------- problem */
+.why { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; box-shadow: var(--ring); background: var(--paper); }
+.why div { padding: 22px 22px 24px; box-shadow: inset -1px 0 0 var(--hair); display: grid; gap: 8px; align-content: start; min-width: 0; }
+.why b { font: 600 18px/1.25 var(--serif); color: var(--cardinal); text-wrap: balance; }
+.why span { font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.answer { margin-top: clamp(24px, 3.5vw, 40px); padding: clamp(22px, 3vw, 36px); background: var(--paper); box-shadow: var(--ring), var(--shadow); display: grid; gap: 12px; border-top: 3px solid var(--cardinal); }
+.answer h3 { margin: 0; font: 700 clamp(24px, 2.6vw, 32px)/1.15 var(--serif); color: var(--ink); text-wrap: balance; }
+.answer-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px clamp(24px, 4vw, 48px); }
+.answer-cols p { margin: 0; color: var(--ink-2); font-size: 16px; line-height: 1.65; }
+@media (max-width: 960px) { .why { grid-template-columns: repeat(2, minmax(0, 1fr)); } .why div { box-shadow: inset -1px -1px 0 var(--hair); } }
+@media (max-width: 720px) { .why, .answer-cols { grid-template-columns: 1fr; } }
+
+/* station labels on the pipeline board: a plain name and one line on what happens there */
+.v-label.station { display: grid; gap: 1px; text-align: center; padding: 4px 7px 5px; text-transform: none; letter-spacing: 0; transition: opacity .35s ease, background .3s ease, color .3s ease; }
+.v-label.station b { font: 600 9.5px/1.2 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--ink); }
+.v-label.station span { font: italic 400 10.5px/1.2 var(--serif); color: var(--muted); }
+.v-label.station.on, .v-label.station.hover { background: var(--cardinal); box-shadow: none; }
+.v-label.station.on b, .v-label.station.on span, .v-label.station.hover b, .v-label.station.hover span { color: #fff; }
+@media (max-width: 720px) { .v-label.station span { display: none; } .v-label.station b { font-size: 7.5px; } }
+
 /* ---------------------------------------------------------------------------------------------------- motion */
 .term .cur { display: inline-block; width: .55em; height: 1.05em; vertical-align: -0.18em; background: #e4847c; margin-left: 1px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -275,12 +290,13 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       crucible
     </a>
     <nav class="nav" aria-label="Sections">
-      <a href="#pipeline">Pipeline</a>
-      <a href="#modules">Modules</a>
+      <a href="#why">Why</a>
+      <a href="#pipeline">How it works</a>
+      <a href="#modules">Parts</a>
       <a href="#use">Use it</a>
       <a href="#results">Results</a>
     </nav>
-    <a class="cta-mini" href="#quickstart">Quickstart</a>
+    <a class="cta-mini" href="#quickstart">Quick start</a>
   </div>
 </header>
 
@@ -291,24 +307,43 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
     <div class="hero-card">
       <div class="hero-head">
         <div>
-          <div class="kicker">Agentic RL framework · 16 modules</div>
+          <div class="kicker">Agentic RL for enterprises</div>
           <h1>Crucible</h1>
-          <p class="tag">Real work in. Honest, trainable RL environments out.</p>
+          <p class="tag">Your work goes in. Trainable RL environments come out.</p>
         </div>
         <div>
-          <p class="body">Every day, teams already produce expert judgement: reviews, corrections, test results, approvals, outcomes. Crucible turns those traces into live environments with dense step-level rewards, tasks that frontier models fail, and benchmarks that score every step.</p>
+          <p class="body">Your teams make expert decisions every day. They review, correct, test and approve work. Crucible records this work and makes RL environments from it. Each environment scores each step, gives tasks that frontier models fail and comes with a benchmark.</p>
           <div class="btns">
-            <a class="btn solid" href="#pipeline">See the pipeline</a>
-            <a class="btn line" href="#quickstart">Run it in minutes</a>
+            <a class="btn solid" href="#why">Why Crucible</a>
+            <a class="btn line" href="#pipeline">See how it works</a>
           </div>
         </div>
       </div>
       <div class="view hero-view" data-scene="hero" aria-label="A crucible: work traces flow in, environments, tasks and benchmarks flow out"><span class="hint">Drag to turn</span></div>
-      <div class="hero-stats">
-        <div><b>16</b><span>modules, one core</span></div>
-        <div><b>18</b><span>acceptance checks</span></div>
-        <div><b>566</b><span>tests passing</span></div>
-        <div><b>4</b><span>domain packs</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================================================================= why -->
+<section id="why" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The problem</div>
+      <h2>Real agent work happens <em>inside enterprises</em></h2>
+      <p class="lede">Today, experts make RL environments by hand. They find tasks where models fail and build an environment for each task. Then they train a model, test it on a benchmark and sell the environment or its data. This method has limits.</p>
+    </div>
+    <div class="why">
+      <div><b>There are not enough experts</b><span>Each environment needs expert time. The work is slow and difficult. Labs now reach the limit of this method.</span></div>
+      <div><b>Real work crosses departments</b><span>Most environments cover one domain, for example code. Enterprise work is horizontal. Finance, HR, sales and engineering often work on one report.</span></div>
+      <div><b>Each enterprise has thousands of workflows</b><span>These workflows are long and dense. It is very difficult to build them by hand, and it is also difficult to measure them.</span></div>
+      <div><b>The data stays inside</b><span>Each enterprise has its own data and its own workflows. This data never goes out of the enterprise. An environment made outside cannot copy these workflows.</span></div>
+    </div>
+    <div class="answer">
+      <div class="eyebrow">Our answer</div>
+      <h3>A black box that turns enterprise work into RL environments</h3>
+      <div class="answer-cols">
+        <p>Crucible runs inside the enterprise. It reads the agent traces and the expert feedback in your workflows. It makes RL environments from them, with rubrics that give a strong signal at each step. You use these environments to train your own open models on your own workflows. Crucible also makes the benchmark that measures the improvement.</p>
+        <p>The difficult part is the expert signal. A weak signal teaches the model from low quality, AI made data. Crucible keeps each signal grounded in what your experts really did. Then a model helps to improve a model, and the loop continues. We will use Crucible to make many more enterprise environments.</p>
       </div>
     </div>
   </div>
@@ -318,16 +353,16 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 <section id="ideas" style="padding-top:0">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">The rule</div>
-      <h2>The model proposes. <em>Recorded reality decides.</em></h2>
+      <div class="eyebrow">The rules</div>
+      <h2>The model proposes. <em>The record decides.</em></h2>
     </div>
     <div class="principles">
-      <div><b>Credit goes to states</b><span>Reward measures what the world now holds, never which keys were pressed.</span></div>
-      <div><b>Dense, and impossible to farm</b><span>Progress telescopes: breaking and re-fixing a thing earns exactly nothing.</span></div>
-      <div><b>Gates come first</b><span>Break a hard rule and the episode scores zero, however much else went right.</span></div>
-      <div><b>Infrastructure is not failure</b><span>A crashed sandbox is masked and never counted as a zero.</span></div>
-      <div><b>The environment enforces</b><span>Rules live in the world and its graders, not in a prompt that asks nicely.</span></div>
-      <div><b>One core, many domains</b><span>Everything domain-specific plugs in as a pack; the core stays generic.</span></div>
+      <div><b>Score the result</b><span>The reward measures the state of the work, not the keys that the agent pressed.</span></div>
+      <div><b>No points for loops</b><span>If the agent breaks a thing and fixes it again, it gets no reward.</span></div>
+      <div><b>Rules come first</b><span>If the agent breaks a hard rule, the episode gets zero.</span></div>
+      <div><b>System faults do not count</b><span>If the system fails, Crucible marks the run. It does not score it as zero.</span></div>
+      <div><b>The environment enforces the rules</b><span>The rules live in the environment and its checks, not in a prompt.</span></div>
+      <div><b>One base, many domains</b><span>Each domain plugs in as a pack. The base stays the same for all domains.</span></div>
     </div>
   </div>
 </section>
@@ -336,20 +371,15 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 <section id="pipeline" style="padding-top:0">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">The pipeline</div>
+      <div class="eyebrow">How it works</div>
       <h2>From a day of work <em>to a trained agent</em></h2>
-      <p class="lede">Sixteen modules on one typed core. Step through the path a single trace takes, or click any station to open its module.</p>
+      <p class="lede">Follow one work record through Crucible. Click a station to see how it works.</p>
     </div>
     <div class="fig wide">
-      <div class="view" data-scene="pipeline" aria-label="The Crucible pipeline as a 3D board of module stations"><span class="hint">Drag to turn · click a station</span></div>
-      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count">1 / 8</span><span class="st-dots"></span><p class="st-say"></p></div>
+      <div class="view" data-scene="pipeline" aria-label="The Crucible pipeline as a 3D board of stations"><span class="hint">Drag to turn · click a station</span></div>
+      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
     </div>
-    <div class="legend">
-      <a href="#m3"><b>M3</b>Connectors</a><a href="#m4"><b>M4</b>Signals</a><a href="#m5"><b>M5</b>Workflow</a><a href="#m6"><b>M6</b>Credit</a>
-      <a href="#m7"><b>M7</b>Verify</a><a href="#m8"><b>M8</b>Forge</a><a href="#m9"><b>M9</b>Accept</a><a href="#m1"><b>M1</b>World</a>
-      <a href="#m2"><b>M2</b>Actors</a><a href="#m10"><b>M10</b>Runtime</a><a href="#m12"><b>M12</b>Train</a><a href="#m13"><b>M13</b>Bench</a>
-      <a href="#m11"><b>M11</b>Export</a><a href="#m14"><b>M14</b>Packs</a><a href="#use"><b>M15</b>Studio</a><a href="#m0"><b>M0</b>Core</a>
-    </div>
+    <div class="legend"><a href="#m3">Capture work</a><a href="#m4">Find feedback</a><a href="#m5">Map workflow</a><a href="#m6">Score steps</a><a href="#m7">Check results</a><a href="#m8">Build tasks</a><a href="#m9">Approve tasks</a><a href="#m1">Simulate work</a><a href="#m2">Simulate people</a><a href="#m10">Run agents</a><a href="#m12">Train model</a><a href="#m13">Measure</a><a href="#m11">Export</a><a href="#m14">Add domains</a><a href="#use">Two commands</a><a href="#m0">Shared records</a></div>
   </div>
 </section>
 
@@ -357,490 +387,483 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 <section id="modules" style="padding-top:0">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">The modules</div>
-      <h2>Every module, <em>in motion</em></h2>
-      <p class="lede">Each figure is a live model. Turn it, or step through how the module works.</p>
+      <div class="eyebrow">The parts</div>
+      <h2>Each part, <em>in motion</em></h2>
+      <p class="lede">Each figure is a live 3D model. Turn it, or step through it.</p>
     </div>
     <div class="mods">
-      <aside class="mod-index" aria-label="Module index">
+      <aside class="mod-index" aria-label="Index of parts">
         <div class="grp">Foundation</div>
-        <nav><a href="#m0"><span>M0</span>Core contracts</a><a href="#m1"><span>M1</span>World runtime</a><a href="#m2"><span>M2</span>Grounded actors</a></nav>
+        <nav><a href="#m0">Shared records</a><a href="#m1">Simulated workplace</a><a href="#m2">Simulated people</a></nav>
         <div class="grp">Understand work</div>
-        <nav><a href="#m3"><span>M3</span>Trace connectors</a><a href="#m4"><span>M4</span>Expert signals</a><a href="#m5"><span>M5</span>Workflow model</a></nav>
+        <nav><a href="#m3">Work capture</a><a href="#m4">Expert feedback</a><a href="#m5">Workflow map</a></nav>
         <div class="grp">Reward</div>
-        <nav><a href="#m6"><span>M6</span>Dense credit</a><a href="#m7"><span>M7</span>Verifier kit</a></nav>
+        <nav><a href="#m6">Step scores</a><a href="#m7">Result checks</a></nav>
         <div class="grp">Make tasks</div>
-        <nav><a href="#m8"><span>M8</span>Forge</a><a href="#m9"><span>M9</span>Acceptance</a></nav>
+        <nav><a href="#m8">Task builder</a><a href="#m9">Quality gate</a></nav>
         <div class="grp">Run and learn</div>
-        <nav><a href="#m10"><span>M10</span>Runtime</a><a href="#m12"><span>M12</span>Training</a><a href="#lh"><span>LH</span>Long horizons</a><a href="#rlm"><span>RLM</span>Recursive agent</a></nav>
+        <nav><a href="#m10">Agent runs</a><a href="#m12">Model training</a><a href="#lh">Long tasks</a><a href="#rlm">Memory agent</a><a href="#fsm">Task repair</a></nav>
         <div class="grp">Measure and ship</div>
-        <nav><a href="#m13"><span>M13</span>Benchmarks</a><a href="#m11"><span>M11</span>Export</a><a href="#m14"><span>M14</span>Packs</a><a href="#use"><span>M15</span>Studio</a></nav>
+        <nav><a href="#m13">Benchmarks</a><a href="#m11">Replay and export</a><a href="#m14">Domain packs</a><a href="#use">Two commands</a></nav>
       </aside>
 
       <div class="mod-list">
-        <!-- ------------------------------------------------------------------------------------------- foundation -->
-        <div class="group-head"><div class="eyebrow">Foundation</div><h3>A typed core, live worlds, and people who only say what is on record</h3></div>
+        <div class="group-head"><div class="eyebrow">Foundation</div><h3>One record format, a simulated workplace, and people who say only what is on record</h3></div>
 
         <article class="mod" id="m0">
           <header class="mod-head">
-            <div class="mod-code">M0 <i>Core contracts</i></div>
-            <h4>One typed language</h4>
-            <p class="tl">Every module speaks it; nothing malformed gets in.</p>
+            <div class="mod-code">Shared records</div>
+            <h4>One record format for all parts</h4>
+            <p class="tl">All parts of Crucible use it. Bad records do not get in.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m0"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Worlds, traces, signals, milestones, rewards, tasks and runs are versioned documents, serialized as canonical JSON and content-hashed. The core holds no domain logic.</p>
+              <p class="what">Crucible keeps worlds, work records, feedback, milestones, rewards, tasks and runs as versioned records. Each record has a content hash. The base holds no domain logic.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Strict schemas.</b> Unknown keys rejected, wrong versions refused.</span></li>
-              <li><span><b>Content-addressed store.</b> Corruption is detected on read.</span></li>
-              <li><span><b>Provenance everywhere.</b> Every artifact names what it came from.</span></li>
-              <li><span><b>Plugin registry.</b> Packs register themselves; the core never imports them.</span></li>
+              <li><span><b>Strict format.</b> Crucible rejects unknown fields and wrong versions.</span></li>
+              <li><span><b>Safe storage.</b> Crucible finds damaged records when it reads them.</span></li>
+              <li><span><b>Clear source.</b> Each record names the records it came from.</span></li>
+              <li><span><b>Pack registry.</b> Packs add themselves. The base does not depend on them.</span></li>
             </ul>
-              <div class="stats"><div><b>11</b><span>schemas round-trip</span></div><div><b>7 / 7</b><span>planted mistakes rejected</span></div><div><b>13</b><span>expert-signal types</span></div></div>
+              <div class="stats"><div><b>11</b><span>record types pass a round trip</span></div><div><b>7 / 7</b><span>planted errors rejected</span></div><div><b>13</b><span>feedback types</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m1">
           <header class="mod-head">
-            <div class="mod-code">M1 <i>World runtime</i></div>
-            <h4>Live worlds, rewound exactly</h4>
-            <p class="tl">Apps with state, actors, a virtual clock, and exact snapshots.</p>
+            <div class="mod-code">Simulated workplace</div>
+            <h4>A live workplace that you can rewind</h4>
+            <p class="tl">Apps, people, a clock and exact snapshots.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m1"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">A spec becomes a running world: databases, documents, inboxes, workspaces and GPUs as apps, people as actors, events on a virtual clock. Policies step it; graders read it through a view the policy never sees.</p>
+              <p class="what">Crucible makes a running workplace from a spec. Databases, documents, inboxes and workspaces become apps. People become simulated people. Events occur on a world clock. The agent acts in this world. Hidden checks read it through a view that the agent cannot see.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible world validate world.yaml --gold actions.json</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>One choke point.</b> Every tool call is validated, permissioned and bounded.</span></li>
-              <li><span><b>Exact restore.</b> Fingerprints of every app prove the rewind.</span></li>
-              <li><span><b>Hardened sandbox.</b> Demoted user, no way out to the network.</span></li>
-              <li><span><b>Virtual clock.</b> Replies and rule changes fire on world time, so runs replay exactly.</span></li>
+              <li><span><b>One gate for actions.</b> Crucible checks and limits each tool call.</span></li>
+              <li><span><b>Exact rewind.</b> A fingerprint of each app proves the restore.</span></li>
+              <li><span><b>Locked sandbox.</b> The agent cannot get out to the network.</span></li>
+              <li><span><b>World clock.</b> Replies and rule changes occur on world time, so runs repeat exactly.</span></li>
             </ul>
-              <div class="stats"><div><b>15 / 15</b><span>GPU restores bit-identical</span></div><div><b>5 / 5</b><span>seed worlds, 3 of 3 runs on GPU</span></div><div><b>&lt; 5 ms</b><span>step overhead</span></div></div>
+              <div class="stats"><div><b>15 / 15</b><span>GPU restores identical</span></div><div><b>5 / 5</b><span>seed worlds pass 3 of 3 runs</span></div><div><b>&lt; 5 ms</b><span>time added to each step</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m2">
           <header class="mod-head">
-            <div class="mod-code">M2 <i>Grounded actors</i></div>
+            <div class="mod-code">Simulated people</div>
             <h4>People who answer from the record</h4>
-            <p class="tl">Customers, reviewers and approvers, simulated without invention.</p>
+            <p class="tl">Customers, reviewers and approvers who do not make things up.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m2"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Everyone who is not the policy lives inside the world. Grounded actors reply only with what real people actually wrote, and say “I have no record of that” otherwise.</p>
+              <p class="what">All people other than the agent live inside the world. They reply only with what real people wrote. If there is no record, they say “I have no record of that.”</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Quote mode.</b> The model selects; the record speaks.</span></li>
-              <li><span><b>No future leaks.</b> Records stay hidden until their timestamp.</span></li>
-              <li><span><b>Citations checked.</b> Numbers and dates must match exactly.</span></li>
-              <li><span><b>Real reviewers.</b> Recorded comments replay at matching code.</span></li>
+              <li><span><b>Quote mode.</b> The model selects a reply. The record gives the words.</span></li>
+              <li><span><b>No future data.</b> Records stay hidden until their time.</span></li>
+              <li><span><b>Checked facts.</b> Numbers and dates must match exactly.</span></li>
+              <li><span><b>Real reviewers.</b> Crucible replays real review comments at the matching code.</span></li>
             </ul>
-              <div class="stats"><div><b>0 / 225</b><span>fabricated sentences</span></div><div><b>0.977</b><span>reviewer location precision</span></div><div><b>30 / 30</b><span>unanswerables: “no record”</span></div></div>
+              <div class="stats"><div><b>0 / 225</b><span>made up sentences</span></div><div><b>0.977</b><span>reviewer location precision</span></div><div><b>30 / 30</b><span>unknown questions get “no record”</span></div></div>
             </div>
           </div>
         </article>
 
-        <!-- ---------------------------------------------------------------------------------------- understand work -->
-        <div class="group-head"><div class="eyebrow">Understand work</div><h3>Capture what experts did, find their judgement, learn the shape of the job</h3></div>
+        <div class="group-head"><div class="eyebrow">Understand work</div><h3>Record what experts did, find their feedback and map the workflow</h3></div>
 
         <article class="mod" id="m3">
           <header class="mod-head">
-            <div class="mod-code">M3 <i>Trace connectors</i></div>
-            <h4>Capture real work, redacted first</h4>
-            <p class="tl">Many sources in, one trace format out.</p>
+            <div class="mod-code">Work capture</div>
+            <h4>Record real work and remove secrets first</h4>
+            <p class="tl">Many sources go in. One record format comes out.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m3"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Ticket and ERP exports, audit logs, telemetry, live model traffic, code history, test reports and policy documents become one typed trace. Redaction runs before anything is stored.</p>
+              <p class="what">Crucible reads ticket and ERP exports, audit logs, model traffic, code history, test reports and policy documents. It turns them into one record format. It removes secrets before it stores anything.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible ingest toy</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Nothing unredacted is stored.</b> Secrets become stable pseudonyms.</span></li>
-              <li><span><b>Zero-change capture.</b> A recording proxy watches live agents.</span></li>
-              <li><span><b>Idempotent.</b> Re-ingest returns identical content hashes.</span></li>
-              <li><span><b>Probes tagged.</b> Answer-key lookups are marked, never scored.</span></li>
+              <li><span><b>Secrets out first.</b> Crucible replaces each secret with a stable alias.</span></li>
+              <li><span><b>No change to your tools.</b> A recording proxy watches live agents.</span></li>
+              <li><span><b>Same input, same result.</b> A second import gives identical records.</span></li>
+              <li><span><b>Answer lookups marked.</b> Crucible marks lookups of the answer key and does not score them.</span></li>
             </ul>
-              <div class="stats"><div><b>20 / 20</b><span>planted secrets removed</span></div><div><b>106 / 106</b><span>traces schema-valid</span></div><div><b>9,684</b><span>events from one session</span></div></div>
+              <div class="stats"><div><b>20 / 20</b><span>planted secrets removed</span></div><div><b>106 / 106</b><span>records in the correct format</span></div><div><b>9,684</b><span>events from one session</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m4">
           <header class="mod-head">
-            <div class="mod-code">M4 <i>Expert signals</i></div>
-            <h4>Judgement, already in the logs</h4>
-            <p class="tl">Corrections, approvals and reverts become graded evidence.</p>
+            <div class="mod-code">Expert feedback</div>
+            <h4>Expert judgement is already in your logs</h4>
+            <p class="tl">Corrections, approvals and reverts become scored evidence.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m4"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Signals are typed, pinned to the step they grade (the event that last wrote the object), and weighed by how well they predicted what happened next.</p>
+              <p class="what">Crucible finds expert feedback in the records. It links each item to the step that it judges. It gives more weight to feedback that predicts what happens next.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible signals toy</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>13 generic types.</b> Packs map onto them, never add new ones.</span></li>
-              <li><span><b>Credit follows writes.</b> Last-writer attribution.</span></li>
-              <li><span><b>Learned reliability.</b> Weak signals are down-weighted automatically.</span></li>
-              <li><span><b>Pivots.</b> A corrected mistake becomes a wrong/fixed pair.</span></li>
+              <li><span><b>13 feedback types.</b> Each domain maps onto the same 13 types.</span></li>
+              <li><span><b>Feedback follows changes.</b> Crucible links feedback to the last step that changed the item.</span></li>
+              <li><span><b>Learned trust.</b> Crucible gives less weight to weak feedback.</span></li>
+              <li><span><b>Before and after pairs.</b> Each corrected error becomes a wrong and fixed pair.</span></li>
             </ul>
-              <div class="stats"><div><b>1.0</b><span>type accuracy, dev set</span></div><div><b>0.987</b><span>correction reliability</span></div><div><b>0.043</b><span>rejections, down-weighted</span></div></div>
+              <div class="stats"><div><b>1.0</b><span>type accuracy on test labels</span></div><div><b>0.987</b><span>trust in corrections</span></div><div><b>0.043</b><span>weight of rejections</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m5">
           <header class="mod-head">
-            <div class="mod-code">M5 <i>Workflow model</i></div>
+            <div class="mod-code">Workflow map</div>
             <h4>The shape of the job</h4>
-            <p class="tl">Stages and milestones, mined from how work really goes.</p>
+            <p class="tl">Crucible learns the stages and milestones from real work.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m5"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Traces split into steps, the state after each step is rebuilt, and checkable milestones are mined from diffs, test results and reviews. A tracker tells any agent where it stands.</p>
+              <p class="what">Crucible splits each record into steps and rebuilds the state after each step. It finds milestones that it can check in changes, test results and reviews. A tracker tells an agent how far it is.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible model toy</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Replay test.</b> Rebuilt state must match the record.</span></li>
-              <li><span><b>Real milestones.</b> Executable, non-trivial, monotone, predictive.</span></li>
-              <li><span><b>Stages from data.</b> “A before B” in at least 90% of traces.</span></li>
-              <li><span><b>Never guessed.</b> Traces that will not replay are quarantined.</span></li>
+              <li><span><b>Replay test.</b> The rebuilt state must match the record.</span></li>
+              <li><span><b>Real milestones.</b> Each milestone is a check that runs and predicts success.</span></li>
+              <li><span><b>Stages from data.</b> “A before B” must occur in 90% of records or more.</span></li>
+              <li><span><b>No guesses.</b> Crucible sets aside records that do not replay.</span></li>
             </ul>
-              <div class="stats"><div><b>94.9%</b><span>attempts replayed exactly</span></div><div><b>κ 0.87</b><span>tracker vs human labels</span></div><div><b>31 / 31</b><span>recorded checks reproduced</span></div></div>
+              <div class="stats"><div><b>94.9%</b><span>attempts replayed exactly</span></div><div><b>κ 0.87</b><span>tracker agrees with people</span></div><div><b>31 / 31</b><span>recorded checks repeated</span></div></div>
             </div>
           </div>
         </article>
 
-        <!-- -------------------------------------------------------------------------------------------------- reward -->
-        <div class="group-head"><div class="eyebrow">Reward</div><h3>Step-level credit that cannot be gamed, decided by graders the agent cannot touch</h3></div>
+        <div class="group-head"><div class="eyebrow">Reward</div><h3>A score at each step that agents cannot cheat, from checks that agents cannot touch</h3></div>
 
         <article class="mod" id="m6">
           <header class="mod-head">
-            <div class="mod-code">M6 <i>Dense credit</i></div>
-            <h4>Reward at every step</h4>
-            <p class="tl">Progress you can measure, and cannot farm.</p>
+            <div class="mod-code">Step scores</div>
+            <h4>A score at each step</h4>
+            <p class="tl">Progress that you can measure and that agents cannot farm.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m6"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Progress Φ is the weighted share of milestones met, each counting only once its prerequisites hold. Each step earns ΔΦ, so the best policy never changes; gates and a capped partial term keep anything short of success below success.</p>
+              <p class="what">Progress is the weighted share of milestones that the agent completed. A milestone counts only when its earlier milestones are also complete. Each step earns the change in progress. Rules and a cap keep partial work below full success.</p>
               <div class="snip"><pre><span class="c">reward</span>  R = G · [ O·(1 + αp + βe) + κ·(1 − O)·Φ ]    <span class="c">κ ≤ 0.3</span></pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Potential shaping.</b> ΔΦ telescopes; loops net zero.</span></li>
-              <li><span><b>Gates first.</b> One hard failure means zero.</span></li>
-              <li><span><b>Capped partial credit.</b> Always below finishing.</span></li>
-              <li><span><b>Branch values.</b> Estimated from restored snapshots.</span></li>
+              <li><span><b>Fair shaping.</b> Loops give zero net progress.</span></li>
+              <li><span><b>Rules first.</b> One broken rule gives zero.</span></li>
+              <li><span><b>Capped partial credit.</b> Partial work always scores below success.</span></li>
+              <li><span><b>Branch values.</b> Crucible estimates them from restored snapshots.</span></li>
             </ul>
-              <div class="stats"><div><b>6 / 6</b><span>reward-safety properties</span></div><div><b>0.72</b><span>Φ AUC vs 0.67 judge</span></div><div><b>Φ = 1</b><span>oracle; base scores 0</span></div></div>
+              <div class="stats"><div><b>6 / 6</b><span>reward safety tests pass</span></div><div><b>0.72</b><span>progress accuracy, judge 0.67</span></div><div><b>1 and 0</b><span>score of the solution and of the start</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m7">
           <header class="mod-head">
-            <div class="mod-code">M7 <i>Verifier kit</i></div>
-            <h4>Graders behind glass</h4>
-            <p class="tl">Hidden, isolated, and tested against every cheat.</p>
+            <div class="mod-code">Result checks</div>
+            <h4>Checks behind glass</h4>
+            <p class="tl">Hidden, isolated and tested against each known cheat.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m7"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Graders run in a separate, network-less container and trust only what the candidate cannot write: artifacts compared against hidden references, never exit codes or printed claims.</p>
+              <p class="what">The checks run in a separate container with no network. They trust only evidence that the agent cannot write. They compare the results with hidden references. They do not trust exit codes or claims.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Untouchable channels.</b> Only evidence the candidate cannot forge.</span></li>
-              <li><span><b>Differential checks.</b> Against hidden references and fresh draws.</span></li>
-              <li><span><b>Guarded performance.</b> Noisy runs are masked, never failed.</span></li>
-              <li><span><b>Attack suite.</b> With controls proving each defence matters.</span></li>
+              <li><span><b>Safe evidence.</b> The checks use only evidence that the agent cannot forge.</span></li>
+              <li><span><b>Hidden references.</b> Hidden answers and new samples catch fake results.</span></li>
+              <li><span><b>Fair timing.</b> Crucible marks noisy runs and does not fail them.</span></li>
+              <li><span><b>Cheat tests.</b> Control runs prove that each defense works.</span></li>
             </ul>
-              <div class="stats"><div><b>11 / 11</b><span>cheats score zero</span></div><div><b>8 / 8</b><span>historical GPU grades reproduced</span></div><div><b>36 / 36</b><span>recorded verdicts</span></div></div>
+              <div class="stats"><div><b>11 / 11</b><span>cheats score zero</span></div><div><b>8 / 8</b><span>past GPU grades repeated</span></div><div><b>36 / 36</b><span>recorded results match</span></div></div>
             </div>
           </div>
         </article>
 
-        <!-- ---------------------------------------------------------------------------------------------- make tasks -->
-        <div class="group-head"><div class="eyebrow">Make tasks</div><h3>New tasks built solution-first, admitted only with evidence</h3></div>
+        <div class="group-head"><div class="eyebrow">Make tasks</div><h3>Build new tasks from the solution first, and accept them only with proof</h3></div>
 
         <article class="mod" id="m8">
           <header class="mod-head">
-            <div class="mod-code">M8 <i>Forge</i></div>
-            <h4>Frontier-hard, by construction</h4>
-            <p class="tl">A swarm of roles behind information walls.</p>
+            <div class="mod-code">Task builder</div>
+            <h4>Tasks that frontier models fail</h4>
+            <p class="tl">A team of AI roles with walls between them.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m8"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Specialist roles turn traces into new worlds and tasks. The solution and the hidden checks exist before any solver tries, and each role sees only the inputs it is allowed to see.</p>
+              <p class="what">Special roles turn work records into new worlds and tasks. The solution and the hidden checks exist before an agent tries the task. Each role sees only the inputs that it needs.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible forge toy</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Solution-first.</b> Oracle and checks precede every attempt.</span></li>
-              <li><span><b>Canary breach.</b> A leaked oracle marker fails the leaker.</span></li>
-              <li><span><b>Traps from real failures.</b> Each cites an expert signal.</span></li>
-              <li><span><b>Learnable band.</b> Training pass rate aimed at 0.1 to 0.7.</span></li>
+              <li><span><b>Solution first.</b> The solution and the checks come before each attempt.</span></li>
+              <li><span><b>Leak marker.</b> If a role leaks the solution marker, that role fails.</span></li>
+              <li><span><b>Traps from real errors.</b> Each trap comes from real expert feedback.</span></li>
+              <li><span><b>Correct difficulty.</b> Crucible aims for a training pass rate from 0.1 to 0.7.</span></li>
             </ul>
-              <div class="stats"><div><b>5 / 5</b><span>forged tasks accepted</span></div><div><b>1.0</b><span>mutation score</span></div><div><b>56 / 56</b><span>files reproduced by stitching</span></div></div>
+              <div class="stats"><div><b>5 / 5</b><span>new tasks accepted</span></div><div><b>1.0</b><span>planted errors caught</span></div><div><b>56 / 56</b><span>files rebuilt from parts</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m9">
           <header class="mod-head">
-            <div class="mod-code">M9 <i>Acceptance contract</i></div>
-            <h4>Evidence, or it does not ship</h4>
-            <p class="tl">Eighteen executable checks between a task and the pool.</p>
+            <div class="mod-code">Quality gate</div>
+            <h4>No proof, no task</h4>
+            <p class="tl">Eighteen checks stand between a task and the task pool.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m9"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">The contract proves the oracle passes, floors fail, checks kill mutants, nothing leaks and the grader resists attacks. No model decides a gate, and every defect ever found becomes a new detector.</p>
+              <p class="what">The gate proves that the solution passes and that empty attempts fail. It proves that the checks catch planted errors, that no answer leaks and that the checks resist attacks. No model decides a gate. Each new error type becomes a new check.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible accept toy</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Cheapest first.</b> Static, CPU, container, GPU, paid, human.</span></li>
-              <li><span><b>Mutation score ≥ 0.9.</b> Checks must kill generated defects.</span></li>
-              <li><span><b>Content-addressed.</b> An edit re-grades only what changed.</span></li>
-              <li><span><b>Growing registry.</b> New detectors re-check every task.</span></li>
+              <li><span><b>Low cost first.</b> Fast checks run first. People check last.</span></li>
+              <li><span><b>Catch 90% or more.</b> The checks must catch planted errors.</span></li>
+              <li><span><b>Only changes again.</b> An edit checks again only the parts that it changed.</span></li>
+              <li><span><b>A growing list.</b> Each new check runs on all tasks again.</span></li>
             </ul>
-              <div class="stats"><div><b>A1–A18</b><span>executable checks</span></div><div><b>23</b><span>defects in the registry</span></div><div><b>32</b><span>red-team attempts per task</span></div></div>
+              <div class="stats"><div><b>18</b><span>checks that run</span></div><div><b>23</b><span>error types on file</span></div><div><b>32</b><span>attack attempts for each task</span></div></div>
             </div>
           </div>
         </article>
 
-        <!-- ------------------------------------------------------------------------------------------- run and learn -->
-        <div class="group-head"><div class="eyebrow">Run and learn</div><h3>Run agents at scale, train on exact tokens, keep context for a million tokens</h3></div>
+        <div class="group-head"><div class="eyebrow">Run and learn</div><h3>Run agents, train models and keep the context of long tasks</h3></div>
 
         <article class="mod" id="m10">
           <header class="mod-head">
-            <div class="mod-code">M10 <i>Runtime</i></div>
-            <h4>Infrastructure is never failure</h4>
-            <p class="tl">k samples, any policy, every failure labelled.</p>
+            <div class="mod-code">Agent runs</div>
+            <h4>System faults never count as agent failures</h4>
+            <p class="tl">Many tries, any agent, a cause for each failure.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m10"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Runs tasks × policies × harnesses with budgets, retries and resumable journals. Infrastructure faults are masked out of every average; policy faults are scored.</p>
+              <p class="what">Crucible runs each task with each agent many times. It uses budgets, retries and a run log, so a run can continue after a stop. It removes system faults from all averages. It scores agent faults.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Blame on every failure.</b> Infra masked, policy scored.</span></li>
-              <li><span><b>Reserve, then settle.</b> Crash-safe spend accounting.</span></li>
-              <li><span><b>Resume anywhere.</b> Finished work never re-dispatches.</span></li>
-              <li><span><b>Regrade from artifacts.</b> No agent re-run needed.</span></li>
+              <li><span><b>A cause for each failure.</b> System faults stay out. Agent faults count.</span></li>
+              <li><span><b>Safe spending.</b> Crucible reserves the budget before each attempt and settles it after.</span></li>
+              <li><span><b>Continue from any point.</b> Crucible does not run finished work again.</span></li>
+              <li><span><b>Score again from results.</b> Crucible scores a run again without a new agent run.</span></li>
             </ul>
-              <div class="stats"><div><b>8 / 8</b><span>failure classes masked</span></div><div><b>1.0000</b><span>progress sum after a crash</span></div><div><b>0 cost</b><span>to regrade a run</span></div></div>
+              <div class="stats"><div><b>8 / 8</b><span>fault types removed</span></div><div><b>1.0000</b><span>progress total after a crash</span></div><div><b>$0</b><span>to score a run again</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m12">
           <header class="mod-head">
-            <div class="mod-code">M12 <i>Training</i></div>
-            <h4>Asynchronous RL on exact tokens</h4>
-            <p class="tl">Rollouts and updates overlap; staleness stays bounded.</p>
+            <div class="mod-code">Model training</div>
+            <h4>Train while the agents work</h4>
+            <p class="tl">Agents collect data and the model learns at the same time.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m12"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Rollouts run against live worlds while weights update. Every token carries its policy version, and staleness is enforced at admission, at batch selection and in the loss.</p>
+              <p class="what">Agents act in live worlds while the model updates. Each token keeps the model version that made it. Crucible limits the age of the data at three points.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible train job.toml</pre></div>
-              <div class="chips"><span><b>GRPO</b>group advantages</span><span><b>GAE</b>with segments</span><span><b>OPD</b>on-policy distillation</span><span><b>GAR</b>mass-conserving</span></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Token in, token out.</b> Output is never re-tokenized.</span></li>
-              <li><span><b>Three topologies.</b> Colocated sync, partial, disaggregated.</span></li>
-              <li><span><b>Off-policy corrections.</b> Token-level importance weights, clipped and masked.</span></li>
-              <li><span><b>Dense turn credit.</b> Mapped onto each call’s tokens.</span></li>
+              <li><span><b>Exact tokens.</b> Crucible trains on the exact tokens that the model made.</span></li>
+              <li><span><b>Three layouts.</b> One shared GPU, partly shared GPUs, or separate machines.</span></li>
+              <li><span><b>Corrections for old data.</b> Crucible changes the weight of each token for its age.</span></li>
+              <li><span><b>A score for each turn.</b> The step scores go onto the tokens of each turn.</span></li>
             </ul>
-              <div class="stats"><div><b>0.44 → 1.00</b><span>held-out reward, 0.6B model on one GPU</span></div><div><b>≤ 2</b><span>versions stale, on GPU</span></div><div><b>6e-7</b><span>data-parallel match</span></div></div>
+              <div class="stats"><div><b>0.44 → 1.00</b><span>test reward, small model on one GPU</span></div><div><b>2</b><span>versions old at most</span></div><div><b>6e-7</b><span>difference across GPUs</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="lh">
           <header class="mod-head">
-            <div class="mod-code">LH <i>Long horizons</i></div>
-            <h4>A million tokens, honestly</h4>
-            <p class="tl">Compact, checkpoint, crash, resume, and still add up.</p>
+            <div class="mod-code">Long tasks</div>
+            <h4>A million tokens in one task</h4>
+            <p class="tl">Summarize, save, crash, continue, and the score still adds up.</p>
           </header>
           <div class="fig"><div class="view" data-scene="lh"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">One episode can run thousands of steps. Near its budget the policy writes its own summary, a trained call that opens a new segment; the world checkpoints every K steps, so a crash resumes mid-episode.</p>
+              <p class="what">One task can take thousands of steps. Near the context limit, the model writes its own summary and starts a new segment. The world saves its state every few steps, so a crash continues from the last save.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Self-written compaction.</b> At 80% of the budget.</span></li>
-              <li><span><b>Segments.</b> Each compaction opens a fresh, trained sequence.</span></li>
-              <li><span><b>Exact telescoping.</b> ΣΔΦ equals the final reward.</span></li>
-              <li><span><b>Linear storage.</b> Tokens kept as deltas.</span></li>
+              <li><span><b>Own summaries.</b> The model writes a summary at 80% of the limit.</span></li>
+              <li><span><b>Segments.</b> Each summary starts a new segment that Crucible trains.</span></li>
+              <li><span><b>Exact total.</b> The step scores add up to the final reward.</span></li>
+              <li><span><b>Small storage.</b> Crucible stores only the new tokens of each step.</span></li>
             </ul>
-              <div class="stats"><div><b>1,114,725</b><span>tokens in one episode</span></div><div><b>7,623</b><span>steps, 4 compactions</span></div><div><b>1.0000</b><span>ΣΔΦ after resume</span></div></div>
+              <div class="stats"><div><b>1,114,725</b><span>tokens in one task</span></div><div><b>7,623</b><span>steps and 4 summaries</span></div><div><b>1.0000</b><span>score total after a crash</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="rlm">
           <header class="mod-head">
-            <div class="mod-code">RLM <i>Recursive agent</i></div>
-            <h4>Context lives in a kernel</h4>
-            <p class="tl">A short prompt over a persistent Python memory.</p>
+            <div class="mod-code">Memory agent</div>
+            <h4>The agent keeps its memory in code</h4>
+            <p class="tl">A short prompt over a memory that does not forget.</p>
           </header>
           <div class="fig"><div class="view" data-scene="rlm"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">The task, tools, every observation and every message are variables in a sandboxed kernel the model reads by writing code. It fans out sub-calls, and old turns are archived verbatim where it can still search them.</p>
+              <p class="what">The task, the tools, each observation and each message are variables in a sandboxed memory. The model reads them when it writes code. It sends questions to helper models. Crucible keeps old turns word for word, and the model can still search them.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Prompt as variables.</b> TASK, TOOLS, OBS, INBOX, HISTORY.</span></li>
-              <li><span><b>One step per call.</b> Each world call is one world step.</span></li>
-              <li><span><b>Trainable tree.</b> Sub-calls share their parent’s credit.</span></li>
-              <li><span><b>Exact restore.</b> Journal replay, digest-checked.</span></li>
+              <li><span><b>Prompt as variables.</b> Task, tools, observations, messages and history.</span></li>
+              <li><span><b>One step for each call.</b> Each world call is one world step.</span></li>
+              <li><span><b>Helpers get credit.</b> Helper calls share the credit of the call that made them.</span></li>
+              <li><span><b>Exact restore.</b> Crucible replays the memory log and checks it.</span></li>
             </ul>
-              <div class="stats"><div><b>1.0</b><span>12-ticket backlog solved</span></div><div><b>$0.35</b><span>for that episode</span></div><div><b>0.67</b><span>same model, plain harness</span></div></div>
+              <div class="stats"><div><b>1.0</b><span>backlog of 12 tickets solved</span></div><div><b>$0.35</b><span>cost of that task</span></div><div><b>0.67</b><span>same model in a simple tool loop</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="fsm">
           <header class="mod-head">
-            <div class="mod-code">RLM <i>Task manager</i></div>
+            <div class="mod-code">Task repair</div>
             <h4>Tasks that repair themselves</h4>
-            <p class="tl">Plan, implement, review, verify, and only then commit.</p>
+            <p class="tl">Plan, change, review, check, and only then save.</p>
           </header>
           <div class="fig"><div class="view" data-scene="fsm"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">The same recursive core runs a loop that repairs and improves tasks. A different model reviews every change, and an objective verifier, never a model, has the final word.</p>
+              <p class="what">The memory agent also runs a loop that repairs and improves tasks. A different model reviews each change. The quality gate, not a model, makes the last decision.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Adversarial review.</b> A second model hunts for flaws.</span></li>
-              <li><span><b>Objective verifier.</b> Acceptance checks, not opinions.</span></li>
-              <li><span><b>Audit floor.</b> A candidate can only strengthen its checks.</span></li>
-              <li><span><b>Journaled.</b> A crashed loop resumes where it stopped.</span></li>
+              <li><span><b>Hard review.</b> A second model looks for errors.</span></li>
+              <li><span><b>Objective check.</b> The quality gate decides, not an opinion.</span></li>
+              <li><span><b>No weaker checks.</b> A change can only make the checks stronger.</span></li>
+              <li><span><b>Run log.</b> A stopped loop continues from where it stopped.</span></li>
             </ul>
-              <div class="stats"><div><b>3 / 3</b><span>candidates verified</span></div><div><b>2</b><span>real grader flaws caught</span></div><div><b>$0.46</b><span>for the whole run</span></div></div>
+              <div class="stats"><div><b>3 / 3</b><span>changes verified</span></div><div><b>2</b><span>real check errors found</span></div><div><b>$0.46</b><span>cost of the full run</span></div></div>
             </div>
           </div>
         </article>
 
-        <!-- ----------------------------------------------------------------------------------------- measure and ship -->
-        <div class="group-head"><div class="eyebrow">Measure and ship</div><h3>Benchmarks that show where agents fail, and packs that carry any domain</h3></div>
+        <div class="group-head"><div class="eyebrow">Measure and ship</div><h3>Find where agents fail, and add new domains</h3></div>
 
         <article class="mod" id="m13">
           <header class="mod-head">
-            <div class="mod-code">M13 <i>Benchmarks</i></div>
+            <div class="mod-code">Benchmarks</div>
             <h4>Where agents fail, step by step</h4>
-            <p class="tl">Progress, not just pass or fail.</p>
+            <p class="tl">Progress, not only pass or fail.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m13"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Benchmarks measure gate profiles, how far and how fast agents get, regressions and cost. Fixed anchors plus freshly generated items share one IRT scale, so versions stay comparable and resist contamination.</p>
+              <p class="what">Crucible benchmarks show which rules agents break, how far and how fast they get, what got worse and what it cost. Fixed items and new items share one scale. Thus you can compare versions, and old answers do not help.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible bench run finance_ap --out runs</pre></div>
-              <div class="chips"><span><b>pass@k</b></span><span><b>pass^k</b></span><span><b>gate profile</b></span><span><b>progress AUC</b></span><span><b>stage reach</b></span><span><b>regressions</b></span><span><b>cost / success</b></span><span><b>probe profile</b></span></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Masked is never a sample.</b> Coverage reported beside every mean.</span></li>
-              <li><span><b>Anchors and fresh items.</b> Behind commit–reveal seeds.</span></li>
-              <li><span><b>2PL IRT.</b> Models and items on one scale.</span></li>
-              <li><span><b>Paired comparison.</b> Exact McNemar and paired bootstrap.</span></li>
+              <li><span><b>Fair averages.</b> Removed runs never count as samples.</span></li>
+              <li><span><b>Fixed and new items.</b> Secret seeds make the new items.</span></li>
+              <li><span><b>One scale.</b> Crucible puts models and items on one scale.</span></li>
+              <li><span><b>Paired tests.</b> Crucible compares two versions on the same items.</span></li>
             </ul>
-              <div class="stats"><div><b>byte-for-byte</b><span>reproducible reports</span></div><div><b>&gt; 0.9</b><span>IRT recovery of the truth</span></div><div><b>p &lt; 0.001</b><span>paired regression test</span></div></div>
+              <div class="stats"><div><b>Identical</b><span>report on each run</span></div><div><b>&gt; 0.9</b><span>scale finds the true ranks</span></div><div><b>p &lt; 0.001</b><span>paired test for regressions</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m11">
           <header class="mod-head">
-            <div class="mod-code">M11 <i>Export</i></div>
-            <h4>One episode, one reward</h4>
-            <p class="tl">Every episode replays into the same reward and step files.</p>
+            <div class="mod-code">Replay and export</div>
+            <h4>One task, one reward</h4>
+            <p class="tl">Each run replays into the same reward and step files.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m11"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">An episode is normalized into canonical actions and replayed in a fresh world. One reward producer grades the replay, so its reward and step files come out byte-identical every time, ready for training or for audit.</p>
+              <p class="what">Crucible turns a recorded run into standard actions and replays them in a new world. One scorer scores the replay. The reward and step files are identical each time. You can use them for training or for audit.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible export --to canonical --pack finance_ap</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Canonical actions.</b> Call ids derived, never trusted from the transcript.</span></li>
-              <li><span><b>Fresh replay.</b> Actions rerun against a new world, not a saved answer.</span></li>
-              <li><span><b>Byte-identical.</b> The same reward file on every replay.</span></li>
-              <li><span><b>Masks survive.</b> A masked grade is never written as zero.</span></li>
+              <li><span><b>Standard actions.</b> Crucible makes its own action IDs and does not trust the record.</span></li>
+              <li><span><b>New replay.</b> The actions run again in a new world.</span></li>
+              <li><span><b>Same files.</b> Each replay gives the same reward file.</span></li>
+              <li><span><b>Marks stay.</b> Crucible never writes a removed run as zero.</span></li>
             </ul>
-              <div class="stats"><div><b>5 / 5</b><span>forged tasks replay at reward 1.0</span></div><div><b>2</b><span>files per episode: reward and steps</span></div><div><b>0</b><span>masked grades written as zero</span></div></div>
+              <div class="stats"><div><b>5 / 5</b><span>new tasks replay at 1.0</span></div><div><b>2</b><span>files for each run</span></div><div><b>0</b><span>removed runs written as zero</span></div></div>
             </div>
           </div>
         </article>
 
         <article class="mod" id="m14">
           <header class="mod-head">
-            <div class="mod-code">M14 <i>Packs</i></div>
-            <h4>Domains plug in</h4>
-            <p class="tl">One manifest per domain; the core stays generic.</p>
+            <div class="mod-code">Domain packs</div>
+            <h4>Add a new domain</h4>
+            <p class="tl">One file describes a domain. The base stays the same.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m14"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">A pack holds everything domain-specific: sources, credit rules, generators, policies and fixtures. Each one is checked at three levels before anything uses it.</p>
+              <p class="what">A pack holds all parts that are specific to a domain. These are sources, scoring rules, task makers, agents and test cases. Crucible checks each pack at three levels before it uses it.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible pack new demo --dir ./demo
 <span class="p">$ </span>crucible pack check ./demo --level semantic</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Static.</b> Manifest, license, layout, hooks.</span></li>
-              <li><span><b>Fixture.</b> Designed cases grade exactly as expected.</span></li>
-              <li><span><b>Semantic.</b> Gold reaches the top; the untouched task does not.</span></li>
+              <li><span><b>Structure check.</b> Crucible checks the manifest, license, layout and hooks.</span></li>
+              <li><span><b>Test cases.</b> Each designed case gets the expected score.</span></li>
+              <li><span><b>Meaning check.</b> The solution gets the top score. An untouched task does not.</span></li>
               <li><span><b>Accounts payable.</b> A three-way match with five fraud controls.</span></li>
             </ul>
-              <div class="stats"><div><b>4</b><span>packs pass every level</span></div><div><b>1.0 / 0.0</b><span>oracle / approve-everything</span></div><div><b>9</b><span>designed AP fixture cases</span></div></div>
+              <div class="stats"><div><b>3</b><span>levels of checks for each pack</span></div><div><b>1.0 and 0.0</b><span>correct clerk and approve all</span></div><div><b>9</b><span>accounts payable test cases</span></div></div>
             </div>
           </div>
         </article>
+
       </div>
     </div>
   </div>
@@ -850,9 +873,9 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 <section id="use" style="padding-top:0">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">M15 · Studio</div>
-      <h2>Two commands. <em>Label work, or build environments.</em></h2>
-      <p class="lede"><span class="mono" style="font-size:.85em;color:var(--cardinal)">label</span> turns workflow logs into traces with dense rewards and training datasets. <span class="mono" style="font-size:.85em;color:var(--cardinal)">build</span> turns the same logs into accepted tasks, exports and a benchmark.</p>
+      <div class="eyebrow">Two commands</div>
+      <h2>Label your work, <em>or build environments from it</em></h2>
+      <p class="lede">The <span class="mono" style="font-size:.85em;color:var(--cardinal)">label</span> command turns workflow logs into scored records and training data. The <span class="mono" style="font-size:.85em;color:var(--cardinal)">build</span> command turns the same logs into accepted tasks, exports and a benchmark.</p>
     </div>
     <div class="use">
       <div class="fig">
@@ -862,33 +885,33 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       <div class="term-wrap">
         <div class="term" aria-live="polite"><div class="bar"><i></i><i></i><i></i><span>terminal</span></div><pre id="term-out"></pre></div>
         <div class="cmd-grid">
-          <div><code>crucible label</code><span>logs → dense-reward traces + SFT / DPO / KTO</span></div>
-          <div><code>crucible build</code><span>logs → forge → accept → export → benchmark</span></div>
+          <div><code>crucible label</code><span>logs to scored records and training data</span></div>
+          <div><code>crucible build</code><span>logs to tasks, checks, exports and a benchmark</span></div>
           <div><code>crucible bench</code><span>run, report and compare benchmarks</span></div>
-          <div><code>crucible pack</code><span>scaffold and check a domain pack</span></div>
-          <div><code>crucible model</code><span>the workflow model of a pack’s logs</span></div>
-          <div><code>crucible export</code><span>canonical replays: reward and step files</span></div>
+          <div><code>crucible pack</code><span>make and check a domain pack</span></div>
+          <div><code>crucible model</code><span>map the workflow in the logs of a pack</span></div>
+          <div><code>crucible export</code><span>replay runs into reward and step files</span></div>
         </div>
       </div>
     </div>
 
     <div class="quick" id="quickstart">
       <div>
-        <div class="eyebrow">Quickstart</div>
+        <div class="eyebrow">Quick start</div>
         <h3>No model, no GPU, no API key.</h3>
-        <p>The whole path runs on a laptop CPU in a couple of minutes. Every command prints the next one.</p>
+        <p>All steps run on a laptop CPU in about two minutes. Each command shows the next command.</p>
       </div>
-      <div class="snip" style="padding:16px 18px"><button class="copy">Copy</button><pre><span class="c"># a domain pack, checked at every level</span>
+      <div class="snip" style="padding:16px 18px"><button class="copy">Copy</button><pre><span class="c"># make a domain pack and check it at all levels</span>
 <span class="p">$ </span>crucible pack new demo --dir ./demo
 <span class="p">$ </span>crucible pack check ./demo --level semantic
 
-<span class="c"># label: logs → traces with dense rewards + datasets</span>
+<span class="c"># turn logs into scored records and training data</span>
 <span class="p">$ </span>crucible label --pack toy --out label
 
-<span class="c"># build: logs → accepted tasks → benchmark report</span>
+<span class="c"># turn logs into accepted tasks and a benchmark report</span>
 <span class="p">$ </span>crucible build toy --out build
 
-<span class="c"># a real domain: accounts payable</span>
+<span class="c"># run a real domain, accounts payable</span>
 <span class="p">$ </span>crucible bench run finance_ap --out runs</pre></div>
     </div>
   </div>
@@ -900,7 +923,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
     <div class="sec-head">
       <div class="eyebrow">Results</div>
       <h2>Measured, <em>not claimed</em></h2>
-      <p class="lede">Every number below came out of the framework’s own runs and gate reports.</p>
+      <p class="lede">All numbers below come from Crucible runs and gate reports.</p>
     </div>
     <div class="results">
       <div class="fig">
@@ -909,42 +932,42 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       </div>
       <div class="res-cards">
         <div class="res">
-          <h5>Live benchmark · 7 tasks · k = 2</h5>
+          <h5>Live benchmark · 7 tasks · 2 tries</h5>
           <div class="bars">
             <div class="bar"><span>Frontier model A</span><i style="--w:71%"></i><b>0.71</b></div>
             <div class="bar"><span>Frontier model B</span><i style="--w:57%"></i><b>0.57</b></div>
             <div class="bar dim"><span>Open model</span><i style="--w:43%"></i><b>0.43</b></div>
           </div>
-          <p class="note">pass@1 · IRT ability +0.60 / −0.01 / −0.59 · total cost $2.15</p>
+          <p class="note">first try pass rate · scale scores +0.60, −0.01 and −0.59 · total cost $2.15</p>
         </div>
         <div class="res">
-          <h5>The harness matters</h5>
+          <h5>The agent design matters</h5>
           <div class="bars">
-            <div class="bar"><span>Recursive agent</span><i style="--w:100%"></i><b>1.00</b></div>
-            <div class="bar dim"><span>Plain tool loop</span><i style="--w:67%"></i><b>0.67</b></div>
+            <div class="bar"><span>Memory agent</span><i style="--w:100%"></i><b>1.00</b></div>
+            <div class="bar dim"><span>Simple tool loop</span><i style="--w:67%"></i><b>0.67</b></div>
           </div>
-          <p class="note">same model, same 12-ticket backlog · $0.35 for the solve</p>
+          <p class="note">same model, same backlog of 12 tickets · $0.35 for the solve</p>
         </div>
         <div class="res">
-          <h5>Accounts payable · controls gate</h5>
+          <h5>Accounts payable · controls</h5>
           <div class="bars">
             <div class="bar"><span>Correct clerk</span><i style="--w:100%"></i><b>1.00</b></div>
             <div class="bar dim"><span>Approve all</span><i style="--w:0%"></i><b>0.00</b></div>
             <div class="bar dim"><span>Do nothing</span><i style="--w:0%"></i><b>0.00</b></div>
           </div>
-          <p class="note">approving one invoice a rule should stop zeroes the episode</p>
+          <p class="note">one approval that a rule must stop gives zero for the episode</p>
         </div>
       </div>
     </div>
     <div style="margin-top:clamp(28px,4vw,48px)">
-      <div class="eyebrow">The acceptance contract</div>
+      <div class="eyebrow">The eighteen quality checks</div>
       <div class="checks">
-        <div><b>A1</b>Oracle passes, reproducibly</div><div><b>A2</b>Floors score zero</div><div><b>A3</b>Checks kill ≥ 90% of mutants</div>
-        <div><b>A4</b>Zero flakiness</div><div><b>A5</b>No answer leaks</div><div><b>A6</b>Isolation survives tampering</div>
-        <div><b>A7</b>Instruction matches graded properties</div><div><b>A8</b>Checks grounded in signals</div><div><b>A9</b>Pinned, reproducible builds</div>
-        <div><b>A10</b>Pass rate inside the target band</div><div><b>A11</b>Harness failures classified</div><div><b>A12</b>Grade fits its cost budget</div>
-        <div><b>A13</b>Known grader attacks fail</div><div><b>A14</b>Every component is necessary</div><div><b>A15</b>Composite is genuinely harder</div>
-        <div><b>A16</b>Adaptive red team finds nothing</div><div><b>A17</b>Components do not interfere</div><div><b>A18</b>Perturbations change what they claim</div>
+        <div><b>1</b>The solution passes each time</div><div><b>2</b>Empty attempts score zero</div><div><b>3</b>Checks catch 90% of planted errors</div>
+        <div><b>4</b>Results do not change between runs</div><div><b>5</b>No answer leaks</div><div><b>6</b>Isolation resists tampering</div>
+        <div><b>7</b>Instructions match the checks</div><div><b>8</b>Checks come from real feedback</div><div><b>9</b>Builds are fixed and repeatable</div>
+        <div><b>10</b>The pass rate is in the target range</div><div><b>11</b>Each failure has a cause</div><div><b>12</b>Checks stay in their budget</div>
+        <div><b>13</b>Known attacks fail</div><div><b>14</b>Each part of a task is necessary</div><div><b>15</b>Combined tasks are harder</div>
+        <div><b>16</b>An adaptive attacker finds nothing</div><div><b>17</b>Parts do not interfere</div><div><b>18</b>Each change does what it claims</div>
       </div>
     </div>
   </div>
@@ -955,9 +978,9 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
   <div class="wrap">
     <div>
       <div class="fn">Crucible</div>
-      <p>An agentic RL framework by <a href="https://ahmd-mohsin.github.io">Muhammad Ahmed Mohsin</a>.</p>
+      <p>An agentic RL framework for enterprises, by <a href="https://ahmd-mohsin.github.io">Muhammad Ahmed Mohsin</a>.</p>
     </div>
-    <div class="links"><a href="#pipeline">Pipeline</a><a href="#modules">Modules</a><a href="#quickstart">Quickstart</a><a href="#results">Results</a><a href="#top">Top ↑</a></div>
+    <div class="links"><a href="#why">Why</a><a href="#pipeline">How it works</a><a href="#modules">Parts</a><a href="#quickstart">Quick start</a><a href="#results">Results</a><a href="#top">Top ↑</a></div>
   </div>
 </footer>
 

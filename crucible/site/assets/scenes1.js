@@ -65,7 +65,7 @@ export const hero = () => ({
     [[-0.22, 0, -0.2, 0.32], [0.2, 0, 0.18, 0.22], [0.2, 0, -0.22, 0.42], [-0.2, 0, 0.22, 0.18]].forEach(([x, y, z, h]) => {
       const b = block(0.22, h, 0.22); b.position.set(x, 0.02, z); envCube.add(b);
     });
-    outs.push({ o: envCube, label: 'environments', sub: 'dense step reward', p: [3.3, 0.36, -1.7] });
+    outs.push({ o: envCube, label: 'environments', sub: 'a score for each step', p: [3.3, 0.36, -1.7] });
     const tasks = new THREE.Group();
     for (let i = 0; i < 4; i++) { const c = block(0.82, 0.05, 0.6); c.position.set(i * 0.02, i * 0.08, -i * 0.02); c.rotation.y = 0.08 * i; tasks.add(c); }
     const seal = cyl(0.13, 0.03, { color: PAL.cardinal, kind: 'gloss', edge: null }); seal.position.set(0.18, 0.34, 0.12); tasks.add(seal);
@@ -80,7 +80,7 @@ export const hero = () => ({
       v.flow(c, { count: 4, speed: 0.16, r: 0.06, color: PAL.cardinal, offset: i * 0.21 });
       v.label(`<b>${d.label}</b><br><span>${d.sub}</span>`, anchor(d.o, 0.72, 0.45, 0), { cls: 'big', html: true, align: 'left' });
     });
-    v.label('raw work traces', V(-4.1, 2.6, 0.2), { cls: 'ghost' });
+    v.label('raw work records', V(-4.1, 2.6, 0.2), { cls: 'ghost' });
     v.label('crucible', anchor(vessel, 0, H + 0.42, 0), { cls: 'tag' });
   },
   update(v, t) {
@@ -90,51 +90,132 @@ export const hero = () => ({
 });
 
 // ============================================================================================================ pipeline
+// Each station says what happens there in plain words, and its model shows it.
 const STATIONS = [
-  { id: 'm3', code: 'M3', name: 'connectors', at: [-5.2, -1.15] },
-  { id: 'm4', code: 'M4', name: 'signals', at: [-3.75, -1.15] },
-  { id: 'm5', code: 'M5', name: 'workflow', at: [-2.3, -1.15] },
-  { id: 'm6', code: 'M6', name: 'credit', at: [-0.85, -1.15] },
-  { id: 'm7', code: 'M7', name: 'verify', at: [0.6, -1.15] },
-  { id: 'm8', code: 'M8', name: 'forge', at: [2.05, -1.15] },
-  { id: 'm9', code: 'M9', name: 'accept', at: [3.5, -1.15] },
-  { id: 'm1', code: 'M1', name: 'world', at: [5.1, -0.2] },
-  { id: 'm2', code: 'M2', name: 'actors', at: [5.1, 1.2] },
-  { id: 'm10', code: 'M10', name: 'runtime', at: [3.5, 1.4] },
-  { id: 'm12', code: 'M12', name: 'train', at: [2.05, 1.4] },
-  { id: 'm13', code: 'M13', name: 'bench', at: [0.6, 1.4] },
-  { id: 'm11', code: 'M11', name: 'export', at: [-0.85, 1.4] },
-  { id: 'm14', code: 'M14', name: 'packs', at: [-2.3, 1.4] },
-  { id: 'use', code: 'M15', name: 'studio', at: [-3.75, 1.4] },
+  { id: 'm3', name: 'Capture work', desc: 'logs, tickets, reviews', at: [-6.30, -1.3], row: 'top' },
+  { id: 'm4', name: 'Find feedback', desc: 'approvals and fixes', at: [-4.20, -1.3], row: 'top' },
+  { id: 'm5', name: 'Map workflow', desc: 'stages and milestones', at: [-2.10, -1.3], row: 'top' },
+  { id: 'm6', name: 'Score steps', desc: 'progress at each step', at: [0.00, -1.3], row: 'top' },
+  { id: 'm7', name: 'Check results', desc: 'hidden checks', at: [2.10, -1.3], row: 'top' },
+  { id: 'm8', name: 'Build tasks', desc: 'solution first', at: [4.20, -1.3], row: 'top' },
+  { id: 'm9', name: 'Approve tasks', desc: '18 quality checks', at: [6.30, -1.3], row: 'top' },
+  { id: 'm1', name: 'Simulate work', desc: 'apps, data, clock', at: [8.00, -0.55], row: 'side' },
+  { id: 'm2', name: 'Simulate people', desc: 'replies from records', at: [8.00, 0.85], row: 'side' },
+  { id: 'm10', name: 'Run agents', desc: 'many tries, fair counts', at: [6.30, 1.5], row: 'bottom' },
+  { id: 'm12', name: 'Train model', desc: 'learn from scores', at: [4.20, 1.5], row: 'bottom' },
+  { id: 'm13', name: 'Measure', desc: 'where agents fail', at: [2.10, 1.5], row: 'bottom' },
+  { id: 'm11', name: 'Export', desc: 'reward and step files', at: [-0.00, 1.5], row: 'bottom' },
+  { id: 'm14', name: 'Add domains', desc: 'one pack per domain', at: [-2.10, 1.5], row: 'bottom' },
+  { id: 'use', name: 'Two commands', desc: 'label and build', at: [-4.20, 1.5], row: 'bottom' },
 ];
 
+const check = (color = PAL.pass, s = 1) => {
+  // a check mark made of two short bars
+  const g = new THREE.Group();
+  const a = block(0.05 * s, 0.05 * s, 0.14 * s, { color, kind: 'gloss', edge: null }); a.rotation.x = 0; a.position.set(-0.05 * s, 0, 0); a.rotation.y = 0.8; g.add(a);
+  const b = block(0.05 * s, 0.05 * s, 0.28 * s, { color, kind: 'gloss', edge: null }); b.position.set(0.06 * s, 0, -0.04 * s); b.rotation.y = -0.75; g.add(b);
+  return g;
+};
+
 function stationIcon(id) {
+  const g = new THREE.Group();
   switch (id) {
-    case 'm3': { const g = new THREE.Group(); const f = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.08, 0.42, 32, 1, true), mat('clay')); f.material = f.material.clone(); f.material.side = THREE.DoubleSide; f.position.y = 0.36; f.castShadow = true; g.add(f); g.add(cyl(0.08, 0.15, {})); return g; }
-    case 'm4': return flagPole(PAL.cardinal, 0.66);
-    case 'm5': { const g = new THREE.Group(); [0.22, 0.4, 0.58].forEach((h, i) => { const p = cyl(0.03, h, { edge: null, seg: 10 }); p.position.x = (i - 1) * 0.25; g.add(p); const c = sphere(0.06, {}); c.position.set((i - 1) * 0.25, h + 0.05, 0); g.add(c); }); return g; }
-    case 'm6': { const g = new THREE.Group(); [0.12, 0.24, 0.36, 0.48].forEach((h, i) => { const b = block(0.16, h, 0.4); b.position.x = (i - 1.5) * 0.17; g.add(b); }); return g; }
-    case 'm7': return arch(0.56, 0.5, 0.08, PAL.cardinal, 'gloss');
-    case 'm8': { const g = new THREE.Group(); const b = block(0.5, 0.18, 0.3); g.add(b); const t = block(0.7, 0.1, 0.34); t.position.y = 0.18; g.add(t); const w = cube(0.14, { color: PAL.cardinal, kind: 'gloss' }); w.position.set(0.12, 0.28, 0); g.add(w); return g; }
-    case 'm9': { const g = new THREE.Group(); [0.18, 0.3, 0.42].forEach(r => { const rg = ring(r, 0.016, PAL.cardinal, 'gloss'); rg.position.y = 0.05; g.add(rg); }); const c = cube(0.16, {}); c.position.y = 0.04; g.add(c); return g; }
-    case 'm1': { const g = new THREE.Group(); g.add(block(0.62, 0.62, 0.62, { kind: 'glass', edge: PAL.cardinal })); const a = block(0.18, 0.3, 0.18); a.position.set(-0.12, 0, -0.1); g.add(a); const b = cyl(0.09, 0.2, {}); b.position.set(0.14, 0, 0.12); g.add(b); return g; }
-    case 'm2': { const g = new THREE.Group(); [-0.24, 0, 0.24].forEach((x, i) => { const p = pawn(i === 1 ? PAL.cardinal : 0xffffff, i === 1 ? 'gloss' : 'clay', 0.75); p.position.x = x; g.add(p); }); return g; }
-    case 'm10': { const g = new THREE.Group(); const r = block(0.8, 0.04, 0.12); g.add(r); const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.26, 6, 16), mat('gloss', PAL.cardinal)); p.rotation.z = Math.PI / 2; p.position.y = 0.16; p.castShadow = true; g.add(p); return g; }
-    case 'm12': { const g = new THREE.Group(); const a = block(0.22, 0.5, 0.3); a.position.x = -0.22; g.add(a); const b = block(0.26, 0.36, 0.34, { color: PAL.cardinal, kind: 'gloss' }); b.position.x = 0.24; g.add(b); g.add(tube(arc(V(-0.22, 0.55, 0), V(0.24, 0.4, 0), 0.3), 0.012, PAL.cardinal, 'gloss')); return g; }
-    case 'm13': return bars([0.45, 0.3, 0.6, 0.38], { w: 0.12, gap: 0.05, hmax: 0.9 });
-    case 'm11': { const g = new THREE.Group(); const ico = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), mat('gloss', PAL.cardinal)); ico.position.y = 0.3; ico.castShadow = true; g.add(ico); return g; }
-    case 'm14': { const c = cart(0.5, 0.14, 0.6); return c; }
+    case 'm3': { // a funnel that takes in work documents
+      const f = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.08, 0.4, 32, 1, true), mat('clay')); f.material = f.material.clone(); f.material.side = THREE.DoubleSide; f.position.y = 0.34; f.castShadow = true; g.add(f);
+      g.add(cyl(0.08, 0.14, {}));
+      [[-0.12, 0.72, 0.02, 0.4], [0.1, 0.84, -0.05, -0.3], [0, 0.98, 0.06, 0.15]].forEach(([x, y, z, r], i) => { const d = block(0.2, 0.012, 0.26, { color: i === 1 ? PAL.blush : undefined }); d.position.set(x, y, z); d.rotation.set(0.5, r, 0.2); g.add(d); });
+      return g;
+    }
+    case 'm4': { // a comment bubble with a green check: feedback
+      const bb = bubble(0.56, 0.32); g.add(bb);
+      const c = check(PAL.pass, 1.2); c.position.set(0.12, 0.62, 0.13); c.rotation.x = Math.PI / 2; g.add(c);
+      return g;
+    }
+    case 'm5': { // a small flowchart: three steps joined, a flag at the milestone
+      const pts = [V(-0.3, 0.06, 0.12), V(0, 0.06, -0.1), V(0.3, 0.06, 0.12)];
+      pts.forEach((p, i) => { const t = block(0.18, 0.1, 0.18, { color: i === 2 ? PAL.cardinal : undefined, kind: i === 2 ? 'gloss' : 'clay' }); t.position.copy(p); g.add(t); });
+      g.add(tube(new THREE.CatmullRomCurve3(pts.map(p => p.clone().setY(0.12))), 0.014, PAL.ink, 'clay', 24));
+      const fl = flagPole(PAL.cardinal, 0.42); fl.position.set(0.3, 0.16, 0.12); g.add(fl);
+      return g;
+    }
+    case 'm6': { // a staircase of scores, rising step by step
+      [0.1, 0.2, 0.3, 0.42].forEach((h, i) => { const b = block(0.15, h, 0.36, { color: i === 3 ? PAL.cardinal : undefined, kind: i === 3 ? 'gloss' : 'clay' }); b.position.x = (i - 1.5) * 0.16; g.add(b); });
+      return g;
+    }
+    case 'm7': { // a page under a glass dome, checked
+      const page = block(0.36, 0.02, 0.44); page.position.y = 0.02; g.add(page);
+      for (let i = 0; i < 3; i++) { const ln = block(0.22 - i * 0.04, 0.005, 0.03, { color: PAL.stone, edge: null }); ln.position.set(-0.03, 0.045, -0.12 + i * 0.09); g.add(ln); }
+      const c = check(PAL.pass, 1.1); c.position.set(0.1, 0.06, 0.12); g.add(c);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.34, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat('glass')); g.add(dome);
+      return g;
+    }
+    case 'm8': { // a workbench where a new task block is made
+      const b = block(0.5, 0.18, 0.3); g.add(b); const t = block(0.68, 0.06, 0.36); t.position.y = 0.18; g.add(t);
+      const w = cube(0.15, { color: PAL.cardinal, kind: 'gloss' }); w.position.set(0.1, 0.24, 0); g.add(w);
+      const h = block(0.04, 0.04, 0.3, { color: PAL.grey, edge: null }); h.position.set(-0.16, 0.3, 0.02); h.rotation.y = 0.5; g.add(h);
+      const hd = block(0.14, 0.08, 0.08, { color: PAL.ink, kind: 'gloss', edge: null }); hd.position.set(-0.08, 0.3, -0.1); g.add(hd);
+      return g;
+    }
+    case 'm9': { // a gate with a green light, a task waiting to pass
+      const l = block(0.06, 0.5, 0.06); l.position.x = -0.24; g.add(l); const r = block(0.06, 0.5, 0.06); r.position.x = 0.24; g.add(r);
+      const top = block(0.56, 0.06, 0.08); top.position.y = 0.5; g.add(top);
+      const lamp = sphere(0.06, { color: PAL.pass }); lamp.position.y = 0.62; g.add(lamp);
+      const c = cube(0.14, {}); c.position.set(0, 0, 0.26); g.add(c);
+      return g;
+    }
+    case 'm1': { // an office desk with a screen and a wall clock
+      const desk = block(0.6, 0.04, 0.34); desk.position.y = 0.2; g.add(desk);
+      [[-0.26, -0.13], [0.26, -0.13], [-0.26, 0.13], [0.26, 0.13]].forEach(([x, z]) => { const lg = block(0.03, 0.2, 0.03, { edge: null }); lg.position.set(x, 0, z); g.add(lg); });
+      const scr = terminal(0.32, 0.22, 0.04); scr.position.set(0, 0.24, -0.08); g.add(scr);
+      const clk = cyl(0.08, 0.02, { color: 0xffffff }); clk.rotation.x = Math.PI / 2; clk.position.set(0.22, 0.55, -0.16); g.add(clk);
+      const hand = block(0.008, 0.06, 0.006, { color: PAL.cardinal, edge: null }); hand.position.set(0.22, 0.55, -0.145); g.add(hand);
+      return g;
+    }
+    case 'm2': { // three people, one speaking
+      [-0.24, 0, 0.24].forEach((x, i) => { const p = pawn(i === 1 ? PAL.cardinal : 0xffffff, i === 1 ? 'gloss' : 'clay', 0.72); p.position.x = x; g.add(p); });
+      const bb = bubble(0.3, 0.16); bb.scale.setScalar(0.8); bb.position.set(0.12, 0.5, 0); g.add(bb);
+      return g;
+    }
+    case 'm10': { // three agents on three lanes: many tries
+      [-0.14, 0, 0.14].forEach((z, i) => {
+        const r = block(0.8, 0.02, 0.05); r.position.z = z; g.add(r);
+        const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.14, 6, 12), mat('gloss', i === 1 ? PAL.cardinal : 0xffffff)); p.rotation.z = Math.PI / 2; p.position.set(-0.2 + i * 0.18, 0.07, z); p.castShadow = true; g.add(p);
+      });
+      return g;
+    }
+    case 'm12': { // a learning curve that rises to an arrow
+      const board = block(0.62, 0.03, 0.36); g.add(board);
+      const pts = [V(-0.26, 0.06, 0.1), V(-0.12, 0.12, 0.05), V(0.02, 0.28, 0), V(0.16, 0.42, -0.05), V(0.26, 0.5, -0.08)];
+      g.add(tube(new THREE.CatmullRomCurve3(pts), 0.02, PAL.cardinal, 'gloss', 30));
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 12), mat('gloss', PAL.cardinal)); tip.position.set(0.28, 0.55, -0.09); tip.rotation.z = -0.6; g.add(tip);
+      return g;
+    }
+    case 'm13': { // a podium chart: who got how far
+      const b = bars([0.45, 0.7, 0.32], { w: 0.16, gap: 0.04, hmax: 0.8 }); g.add(b);
+      const base = block(0.6, 0.03, 0.26); g.add(base);
+      return g;
+    }
+    case 'm11': { // a sealed package with two files going out
+      const box = block(0.34, 0.26, 0.34); g.add(box);
+      const band = block(0.36, 0.05, 0.08, { color: PAL.cardinal, kind: 'gloss', edge: null }); band.position.y = 0.26; g.add(band);
+      [0, 1].forEach(i => { const f = block(0.16, 0.012, 0.2, { color: i ? PAL.blush : undefined }); f.position.set(0.3 + i * 0.05, 0.08 + i * 0.12, 0.08 - i * 0.04); f.rotation.set(0, 0.3, 0.3); g.add(f); });
+      return g;
+    }
+    case 'm14': { // three domain cartridges in a row
+      [0, 1, 2].forEach(i => { const c = cart(0.18, 0.1, 0.26, i === 2 ? PAL.cardinal : undefined); c.position.set((i - 1) * 0.22, 0.02, 0); c.rotation.x = -0.15; g.add(c); });
+      return g;
+    }
     case 'use': return terminal(0.56, 0.4, 0.36);
     default: return cube(0.3);
   }
 }
 
 export const pipeline = () => ({
-  size: 6.2, minWidth: 13.4, target: [0, 0.3, 0.15], az: 0.3, elev: 0.6, sway: 0.05, shadowSize: 9, interval: 4.6,
+  size: 6.2, minWidth: 13.4, target: [0, 0.3, 0.15], az: 0.12, elev: 0.72, sway: 0.04, shadowSize: 11, interval: 4.6,
   setup(v) {
     const s = v.s = { st: [] };
-    const slab = block(13.2, 0.16, 4.6); slab.position.set(-0.05, -0.16, 0.12); v.add(slab);
-    v.label('<b>M0</b> &nbsp;core contracts · the typed base every module stands on', V(2.2, -0.16, 2.45), { cls: 'code', html: true, align: 'left', dy: 20 });
+    const slab = block(17.6, 0.16, 5.0); slab.position.set(0.85, -0.16, 0.1); v.add(slab);
+    v.label('One shared record format sits under every station', V(-7.9, -0.16, 2.6), { cls: 'code', align: 'left', dy: 30 });
     const pts = STATIONS.map(d => V(d.at[0], 0.14, d.at[1]));
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.25);
     v.add(tube(curve, 0.02, PAL.rule, 'clay', 400));
@@ -148,11 +229,12 @@ export const pipeline = () => ({
       g.position.set(d.at[0], 0, d.at[1]);
       pickable(g, { href: '#' + d.id, i });
       v.add(g); v.pick.push(g);
-      const code = v.label(d.code, anchor(g, 0, 1.12, 0), { cls: 'mcode' });
-      const name = v.label(d.name, anchor(g, 0, -0.05, 0.62), { cls: '' });
-      s.st.push({ g, icon, code, name, d });
+      // back row labels sit above their stations, front row labels below, side labels to the right
+      const at = d.row === 'top' ? anchor(g, 0, 1.35, -0.25) : d.row === 'bottom' ? anchor(g, 0, -0.05, 0.72) : anchor(g, 0.7, 0.25, 0);
+      const name = v.label(`<b>${d.name}</b><span>${d.desc}</span>`, at, { cls: 'station', html: true, align: d.row === 'side' ? 'left' : 'center' });
+      s.st.push({ g, icon, name, d });
     });
-    s.flowIn = v.flow(arc(V(-7.4, 0.5, -1.15), V(-5.2, 0.4, -1.15), 0.5), { count: 4, speed: 0.22, r: 0.05, color: PAL.ink });
+    s.flowIn = v.flow(arc(V(-8.2, 0.5, -1.3), V(-6.3, 0.4, -1.3), 0.5), { count: 4, speed: 0.22, r: 0.05, color: PAL.ink });
   },
   update(v, t, dt) {
     const s = v.s;
@@ -162,24 +244,24 @@ export const pipeline = () => ({
     s.packet.position.y += 0.12 + Math.sin(t * 4) * 0.02;
     s.st.forEach((st, i) => { const on = s.active?.includes(i) || v.hover === st.g; st.icon.position.y += ((on ? 0.22 : 0.06) - st.icon.position.y) * Math.min(1, dt * 6); });
   },
-  onHover(v, o) { v.s.st.forEach(st => st.name.el.classList.toggle('tag', st.g === o)); },
+  onHover(v, o) { v.s.st.forEach(st => st.name.el.classList.toggle('hover', st.g === o)); },
   onClick(v, o) { const el = document.querySelector(o.userData.href); el?.scrollIntoView({ behavior: ENV.REDUCED ? 'auto' : 'smooth', block: 'start' }); },
   steps: (() => {
     const seg = (a, b) => (v) => {
       const n = STATIONS.length - 1;
       v.s.active = Array.from({ length: b - a + 1 }, (_, k) => a + k);
       v.s.uTo = b / n;
-      v.s.st.forEach((st, i) => { st.code.el.classList.toggle('tag', v.s.active.includes(i)); st.code.el.classList.toggle('mcode', !v.s.active.includes(i)); });
+      v.s.st.forEach((st, i) => st.name.el.classList.toggle('on', v.s.active.includes(i)));
     };
     return [
-      { say: 'Capture. Real work is captured and redacted: pull requests, reviews, test runs, tickets, agent sessions.', go: seg(0, 0) },
-      { say: 'Signals. The expert judgement inside those traces is typed, pinned to the step it grades, and weighed.', go: seg(1, 1) },
-      { say: 'Workflow. Stages and milestones are mined from how the work really went; every step gets a progress value.', go: seg(2, 2) },
-      { say: 'Reward. Progress becomes dense, gated step credit, and hidden graders decide the outcome.', go: seg(3, 4) },
-      { say: 'Tasks. New frontier-hard tasks are forged solution-first and must pass the eighteen-check acceptance contract.', go: seg(5, 6) },
-      { say: 'Run. Agents act in live worlds with grounded actors; every model call and world step is recorded.', go: seg(7, 9) },
-      { say: 'Learn and measure. Asynchronous RL trains on exact tokens; step-level benchmarks show where agents fail.', go: seg(10, 11) },
-      { say: 'Ship. Every episode exports with its exact reward, domains plug in as packs, and two commands drive the whole path.', go: seg(12, 14) },
+      { say: 'Crucible records real work and removes secrets. It reads pull requests, reviews, test runs, tickets and agent sessions.', go: seg(0, 0) },
+      { say: 'Crucible finds the expert feedback in the records. It links each item to the step that it judges.', go: seg(1, 1) },
+      { say: 'Crucible learns the stages and milestones of the work. It gives each step a progress value.', go: seg(2, 2) },
+      { say: 'Crucible turns progress into a score for each step. Hidden checks decide the result.', go: seg(3, 4) },
+      { say: 'Crucible builds new tasks from the solution first. Each task must pass eighteen quality checks.', go: seg(5, 6) },
+      { say: 'Agents work in a simulated workplace with simulated people. Crucible records each model call and each step.', go: seg(7, 9) },
+      { say: 'Crucible trains the model on the exact tokens. Benchmarks show where agents fail.', go: seg(10, 11) },
+      { say: 'Crucible exports each run with its exact reward. New domains plug in as packs. Two commands do all of this.', go: seg(12, 14) },
     ];
   })(),
 });
@@ -190,7 +272,7 @@ export const m0 = () => ({
   setup(v) {
     const s = v.s = {};
     const slab = block(3.9, 0.12, 2.5); slab.position.set(-0.35, 0, 0); v.add(slab);
-    const names = ['World', 'Trace', 'Signal', 'Milestone', 'Reward', 'Task', 'Run', 'Card'];
+    const names = ['World', 'Record', 'Feedback', 'Milestone', 'Reward', 'Task', 'Run', 'Report'];
     s.home = []; s.tiles = []; s.stamps = [];
     names.forEach((n, i) => {
       const t = new THREE.Group();
@@ -205,7 +287,7 @@ export const m0 = () => ({
     });
     const bad = new THREE.Group(); bad.add(block(0.78, 0.05, 0.52, { edge: PAL.cardinal }));
     bad.position.set(-3.6, 1.35, 1.6); v.add(bad); s.bad = bad;
-    s.badLabel = v.label('unknown key · rejected', anchor(bad, 0, 0.32, 0), { cls: 'red' }); s.badLabel.opacity = 0;
+    s.badLabel = v.label('unknown field, rejected', anchor(bad, 0, 0.32, 0), { cls: 'red' }); s.badLabel.opacity = 0;
     const vault = new THREE.Group(); vault.position.set(2.3, 0, -0.1); v.add(vault);
     const cab = block(1.05, 1.5, 0.95); vault.add(cab);
     for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) {
@@ -214,33 +296,33 @@ export const m0 = () => ({
       const knob = sphere(0.025, { color: PAL.cardinal }); knob.position.set(-0.24 + c * 0.48, 0.24 + r * 0.34, 0.49); vault.add(knob);
     }
     s.vaultSlots = Array.from({ length: 8 }, (_, i) => V(2.3 - 0.24 + (i % 2) * 0.48, 0.24 + Math.floor(i / 2) * 0.34, 0.55));
-    v.label('content-addressed store', anchor(vault, 0, 1.75, 0), { cls: '' });
+    v.label('record store', anchor(vault, 0, 1.75, 0), { cls: '' });
     s.carts = ['toy', 'coding', 'finance_ap'].map((n, i) => {
       const c = cart(0.5, 0.12, 0.62, i === 2 ? PAL.cardinal : undefined); c.position.set(-1.6 + i * 0.9, 0.12, 2.3); v.add(c);
       const lb = v.label(n, anchor(c, 0, 0.3, 0), { cls: 'code' }); lb.opacity = 0;
       return { c, lb };
     });
-    s.regLabel = v.label('plugin registry', V(-0.35, 0.12, 1.25), { cls: 'ghost' });
-    s.hash = v.label('sha256 · canonical JSON', V(-0.5, 2.25, 0.2), { cls: 'red' }); s.hash.opacity = 0;
+    s.regLabel = v.label('pack registry', V(-0.35, 0.12, 1.25), { cls: 'ghost' });
+    s.hash = v.label('standard form, content hash', V(-0.5, 2.25, 0.2), { cls: 'red' }); s.hash.opacity = 0;
   },
   update(v, t) { v.s.stamps.forEach((st, i) => { st.rotation.y = t + i; }); },
   steps: [
-    { say: 'Define. Every document has a versioned schema: worlds, traces, signals, milestones, rewards, tasks, runs.', go(v) {
+    { say: 'Each record type has a versioned format. Worlds, records, feedback, milestones, rewards, tasks and runs all use one.', go(v) {
       const s = v.s; s.tiles.forEach((t, i) => { moveTo(v, t, s.home[i].toArray(), 1.1); v.tw.to(t, 'rotation', V(0, 0, 0), 1.1); scaleTo(v, t, 1); });
       s.stamps.forEach(st => scaleTo(v, st, 0.001)); moveTo(v, s.bad, [-3.6, 1.35, 1.6]); show(v, s.badLabel, false); show(v, s.hash, false);
       s.carts.forEach(({ c, lb }, i) => { moveTo(v, c, [-1.6 + i * 0.9, 0.12, 2.3]); show(v, lb, false); });
     } },
-    { say: 'Validate. A document with an unknown key or the wrong version is refused at the door.', go(v) {
+    { say: 'Crucible rejects a record with an unknown field or the wrong version.', go(v) {
       const s = v.s; moveTo(v, s.bad, [-2.4, 1.35, 0.6], 0.7); show(v, s.badLabel, true);
       v.later(() => moveTo(v, s.bad, [-3.9, 1.0, 1.9], 0.8), 750);
     } },
-    { say: 'Canonicalize. Each accepted document becomes canonical JSON with a content hash.', go(v) {
+    { say: 'Crucible writes each accepted record in one standard form and gives it a content hash.', go(v) {
       const s = v.s; s.stamps.forEach(st => scaleTo(v, st, 1, 0.5)); show(v, s.hash, true); show(v, s.badLabel, false);
     } },
-    { say: 'Store. Hashed documents go into a content-addressed store; corruption is caught on read.', go(v) {
+    { say: 'Crucible stores the records by their hash. It finds damaged records when it reads them.', go(v) {
       const s = v.s; s.tiles.forEach((t, i) => { moveTo(v, t, s.vaultSlots[i].toArray(), 1.0 + i * 0.05); scaleTo(v, t, 0.42, 1.0); }); show(v, s.hash, false);
     } },
-    { say: 'Register. Domain packs plug into the registry; the core never imports them.', go(v) {
+    { say: 'Domain packs add themselves to the registry. The base does not depend on them.', go(v) {
       const s = v.s; s.carts.forEach(({ c, lb }, i) => { moveTo(v, c, [-1.6 + i * 0.9, 0.12, 0.95], 0.9 + i * 0.15); show(v, lb, true); });
     } },
   ],
@@ -261,28 +343,28 @@ export const m1 = () => ({
     s.appList = [db, docs, mail, ws]; s.homes = s.appList.map(a => a.position.clone());
     apps.add(db, docs, mail, ws, router);
     [[db, 'database'], [docs, 'documents'], [mail, 'inbox'], [ws, 'workspace']].forEach(([o, n]) => v.label(n, anchor(o, 0, 0.95, 0)));
-    s.routerLabel = v.label('one choke point', anchor(router, 0, 0.7, 0), { cls: 'red' });
+    s.routerLabel = v.label('one gate for actions', anchor(router, 0, 0.7, 0), { cls: 'red' });
     [db, docs, mail, ws].forEach(o => v.add(tube(arc(V(0, 0.3, 0), V(o.position.x, 0.25, o.position.z), 0.25), 0.01, PAL.rule)));
     // clock
     const clock = ring(2.45, 0.016, PAL.stone, 'clay'); clock.position.y = 0.06; v.add(clock);
     for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; const tk = block(0.03, 0.05 + (i % 6 ? 0 : 0.06), 0.1, { edge: null }); tk.position.set(Math.cos(a) * 2.45, 0.04, Math.sin(a) * 2.45); tk.rotation.y = -a; v.add(tk); }
     s.hand = sphere(0.07, { color: PAL.cardinal }); v.add(s.hand); s.handA = 0; s.handSpeed = 0.25;
-    s.clockLabel = v.label('virtual clock · 09:30', anchor(s.hand, 0, 0.3, 0), { cls: '' }); s.clockLabel.opacity = 0;
+    s.clockLabel = v.label('world clock 9.30', anchor(s.hand, 0, 0.3, 0), { cls: '' }); s.clockLabel.opacity = 0;
     // actors + policy
     s.agent = sphere(0.16, { color: PAL.cardinal }); s.agent.position.set(-2.9, 0.3, 1.6); v.add(s.agent);
-    v.label('policy', anchor(s.agent, 0, 0.4, 0), { cls: 'tag' });
+    v.label('agent', anchor(s.agent, 0, 0.4, 0), { cls: 'tag' });
     s.actors = [pawn(0xffffff, 'clay', 0.85), pawn(0xffffff, 'clay', 0.85)];
     s.actors.forEach(a => v.add(a));
     v.label('customer', anchor(s.actors[0], 0, 0.75, 0)); v.label('supervisor', anchor(s.actors[1], 0, 0.75, 0));
     s.callFlow = v.flow(arc(V(-2.8, 0.35, 1.5), V(0, 0.5, 0), 0.9), { count: 4, speed: 0.3, r: 0.05 });
     s.dbFlow = v.flow(arc(V(0, 0.5, 0), V(-1.0, 0.75, -0.55), 0.5), { count: 3, speed: 0.4, r: 0.045 });
     s.eventFlow = v.flow(arc(V(2.2, 0.2, 1.1), V(1.0, 0.6, 0.75), 0.6), { count: 3, speed: 0.35, r: 0.05, color: PAL.ink }); s.eventFlow.target = 0;
-    s.callLabel = v.label('schema · permission · deadline', V(-1.5, 1.45, 0.8), { cls: 'code' }); s.callLabel.opacity = 0;
+    s.callLabel = v.label('format, permission, time limit', V(-1.5, 1.45, 0.8), { cls: 'code' }); s.callLabel.opacity = 0;
     // snapshot ghost
     const ghost = new THREE.Group(); ghost.position.y = 0.12;
     [db, docs, mail, ws].forEach(o => { const c = o.clone(true); c.traverse(m => { if (m.isMesh) m.material = mat('glass', PAL.cardinal); }); ghost.add(c); });
     v.add(ghost); s.ghost = ghost; v.setAlpha(ghost, 0);
-    s.fp = v.label('fingerprint 2f4b…c3e7', V(0, 2.95, 0), { cls: 'red' }); s.fp.opacity = 0;
+    s.fp = v.label('fingerprint saved', V(0, 2.95, 0), { cls: 'red' }); s.fp.opacity = 0;
     s.ok = v.label('fingerprints match', V(0, 2.95, 0), { cls: 'pass' }); s.ok.opacity = 0;
     // membrane
     const dome = new THREE.Mesh(new THREE.SphereGeometry(2.75, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), mat('glass', 0xffffff));
@@ -290,7 +372,7 @@ export const m1 = () => ({
     v.add(dome); s.dome = dome; v.setAlpha(dome, 0);
     const probeC = arc(V(-0.95, 0.75, 0.8), V(-2.0, 1.75, 1.6), 0.5);
     s.probe = v.flow(probeC, { count: 3, speed: 0.5, r: 0.05, color: PAL.ink }); s.probe.target = 0;
-    s.egress = v.label('no network out', V(-2.15, 2.05, 1.7), { cls: 'red' }); s.egress.opacity = 0;
+    s.egress = v.label('no network access', V(-2.15, 2.05, 1.7), { cls: 'red' }); s.egress.opacity = 0;
   },
   update(v, t, dt) {
     const s = v.s;
@@ -299,25 +381,25 @@ export const m1 = () => ({
     s.actors[1].position.set(Math.cos(t * 0.18 + 4.3) * 2.8, 0, Math.sin(t * 0.18 + 4.3) * 2.8);
   },
   steps: [
-    { say: 'A spec becomes a live world: apps that hold state and tools, people, and a virtual clock.', go(v) {
+    { say: 'Crucible makes a live workplace from a spec. It has apps with data and tools, people and a clock.', go(v) {
       const s = v.s; s.handSpeed = 0.25; s.eventFlow.target = 0; s.probe.target = 0; v.fade(s.ghost, 0); v.fade(s.dome, 0);
       [s.fp, s.ok, s.egress, s.clockLabel, s.callLabel].forEach(l => show(v, l, false));
       s.appList.forEach((a, i) => { moveTo(v, a, s.homes[i].toArray()); v.tw.to(a, 'rotation', V(0, 0, 0)); });
     } },
-    { say: 'Every tool call passes one choke point: schema-checked, permissioned, bounded in time and output.', go(v) { show(v, v.s.callLabel, true); } },
-    { say: 'Scheduled events fire on virtual time: a reply lands, a rule changes mid-shift.', go(v) { const s = v.s; s.handSpeed = 1.4; s.eventFlow.target = 1; show(v, s.clockLabel, true); show(v, s.callLabel, false); } },
-    { say: 'A snapshot fingerprints every app, the clock and every inbox.', go(v) {
+    { say: 'Each tool call goes through one gate. The gate checks the format, the permission, the time and the output size.', go(v) { show(v, v.s.callLabel, true); } },
+    { say: 'Events occur on world time. A reply arrives. A rule changes during the shift.', go(v) { const s = v.s; s.handSpeed = 1.4; s.eventFlow.target = 1; show(v, s.clockLabel, true); show(v, s.callLabel, false); } },
+    { say: 'A snapshot records a fingerprint of each app, the clock and each inbox.', go(v) {
       const s = v.s; s.handSpeed = 0.25; s.eventFlow.target = 0; show(v, s.clockLabel, false);
       v.fade(s.ghost, 1); v.tw.to(s.ghost.position, 'y', 1.95, 1.0); show(v, s.fp, true);
     } },
-    { say: 'The episode keeps changing the world.', go(v) {
+    { say: 'The agent continues to change the world.', go(v) {
       const s = v.s; s.appList.forEach((a, i) => { moveTo(v, a, [s.homes[i].x * 0.6 + (i % 2 ? 0.5 : -0.4), 0, s.homes[i].z * 1.1 + (i < 2 ? 0.3 : -0.25)]); v.tw.to(a, 'rotation', V(0, (i - 1.5) * 0.7, 0)); });
     } },
-    { say: 'Restore rewinds every app exactly, and matching fingerprints prove it.', go(v) {
+    { say: 'A restore puts each app back exactly. Matching fingerprints prove it.', go(v) {
       const s = v.s; s.appList.forEach((a, i) => { moveTo(v, a, s.homes[i].toArray(), 1.1); v.tw.to(a, 'rotation', V(0, 0, 0), 1.1); });
       v.tw.to(s.ghost.position, 'y', 0.12, 1.1); v.later(() => v.fade(s.ghost, 0), 900); show(v, s.fp, false); show(v, s.ok, true);
     } },
-    { say: 'The policy runs as a demoted user, with no way out to the network.', go(v) {
+    { say: 'The agent runs as a user with few permissions. It cannot get out to the network.', go(v) {
       const s = v.s; show(v, s.ok, false); v.fade(s.dome, 1); s.probe.target = 1; show(v, s.egress, true);
     } },
   ],
@@ -331,7 +413,7 @@ export const m2 = () => ({
     v.add(dotGrid(6, 5, 0.3, { size: 1.8 }));
     const ped = cyl(0.42, 0.14, { seg: 48 }); v.add(ped);
     s.agent = sphere(0.24, { color: PAL.cardinal }); s.agent.position.y = 0.42; v.add(s.agent);
-    v.label('policy', anchor(s.agent, 0, 0.45, 0), { cls: 'tag' });
+    v.label('agent', anchor(s.agent, 0, 0.45, 0), { cls: 'tag' });
     const defs = [['customer', [-1.75, 0, 0.55]], ['supervisor', [1.6, 0, 0.75]], ['reviewer', [0.15, 0, -1.75]]];
     s.people = defs.map(([n, p]) => {
       const g = new THREE.Group(); g.position.set(...p); v.add(g);
@@ -349,7 +431,7 @@ export const m2 = () => ({
     s.rev = v.flow(arc(V(0.15, 0.6, -1.75), V(1.7, 0.4, -1.4), 0.5), { count: 3, speed: 0.4, r: 0.05 }); s.rev.target = 0;
     const code = terminal(0.7, 0.45, 0.4); code.position.set(1.85, 0, -1.55); code.rotation.y = -0.6; v.add(code);
     v.label('code under review', anchor(code, 0, 0.8, 0), { cls: 'ghost' });
-    s.future = v.label('hidden until 10:40', anchor(people[0].cab, 0, 0.62, 0), { cls: 'code' }); s.future.opacity = 0;
+    s.future = v.label('hidden until 10.40', anchor(people[0].cab, 0, 0.62, 0), { cls: 'code' }); s.future.opacity = 0;
     s.quote = v.label('“Charged twice for order 5521.” <span style="color:#8c1515">[rec 1001]</span>', V(-0.9, 1.75, 0.3), { cls: 'serif', html: true }); s.quote.opacity = 0;
     s.none = v.label('“I have no record of that.”', V(1.4, 1.75, 0.6), { cls: 'serif' }); s.none.opacity = 0;
     s.revL = v.label('replays a real comment at line 212', V(1.2, 1.5, -1.6), { cls: 'code' }); s.revL.opacity = 0;
@@ -358,18 +440,18 @@ export const m2 = () => ({
   },
   update(v, t) { v.s.agent.position.y = 0.42 + Math.sin(t * 2) * 0.03; },
   steps: [
-    { say: 'Everyone except the policy lives inside the world: customers, approvers, reviewers.', go(v) {
+    { say: 'All people other than the agent live inside the world. These are customers, approvers and reviewers.', go(v) {
       const s = v.s; [s.ask, s.reply, s.ask2, s.rev].forEach(f => f.target = 0); [s.future, s.quote, s.none, s.revL].forEach(l => show(v, l, false));
       s.cite.forEach(l => v.fade(l, 0)); s.people[0].cards.forEach((c, i) => { v.tw.to(c.position, 'y', i * 0.07); v.fade(c, 1); });
     } },
     { say: 'The agent asks a customer a question.', go(v) { v.s.ask.target = 1; } },
-    { say: 'The actor can only see records written before the world’s current time.', go(v) {
+    { say: 'The simulated person sees only the records written before the current world time.', go(v) {
       const s = v.s; s.people[0].cards.forEach((c, i) => { if (i >= 4) v.fade(c, 0.12); else v.tw.to(c.position, 'y', i * 0.07 + (i >= 2 ? 0.35 : 0)); }); show(v, s.future, true);
     } },
-    { say: 'The reply is assembled from quoted records, each sentence citing its source.', go(v) {
+    { say: 'Crucible builds the reply from quoted records. Each sentence shows its source.', go(v) {
       const s = v.s; s.ask.target = 0; s.reply.target = 1; show(v, s.quote, true); s.cite.forEach(l => v.fade(l, 1)); show(v, s.future, false);
     } },
-    { say: 'Ask something with no record behind it, and the answer is a plain “I have no record of that.”', go(v) {
+    { say: 'If no record answers the question, the person says “I have no record of that.”', go(v) {
       const s = v.s; s.reply.target = 0; s.ask2.target = 1; show(v, s.quote, false); s.cite.forEach(l => v.fade(l, 0)); show(v, s.none, true);
     } },
     { say: 'The reviewer replays real review comments at the matching lines of code.', go(v) {
@@ -397,7 +479,7 @@ export const m3 = () => ({
     laser.material = laser.material.clone(); laser.material.opacity = 0.1; laser.material.side = THREE.DoubleSide;
     laser.rotation.y = Math.PI / 2; laser.position.set(-0.2, 0.62, 0); v.add(laser); s.laser = laser;
     const scan = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 1.0), mat('flat', PAL.bright)); scan.position.set(-0.2, 0.6, 0); v.add(scan); s.scan = scan;
-    v.label('redact', anchor(gate, 0, 1.5, 0), { cls: 'tag' });
+    v.label('remove secrets', anchor(gate, 0, 1.5, 0), { cls: 'tag' });
     s.pre = s.src.map((g, i) => v.flow(arc(V(-2.2, 0.5, g.position.z), V(-0.35, 0.6, 0), 0.4), { count: 3, speed: 0.22, r: 0.045, color: PAL.cardinal, offset: i * 0.2 }));
     const track = block(2.0, 0.04, 0.3); track.position.set(1.05, 0, 0); v.add(track);
     s.post = v.flow(arc(V(-0.05, 0.25, 0), V(2.0, 0.25, 0), 0.08), { count: 5, speed: 0.25, r: 0.05, color: PAL.ink });
@@ -407,25 +489,25 @@ export const m3 = () => ({
     for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) s.slots.push(V(2.6, 0.18 + r * 0.38, -0.3 + c * 0.6));
     s.carts = s.slots.map(p => { const c = block(0.42, 0.2, 0.42, { color: PAL.cardinal, kind: 'gloss' }); c.position.copy(p); c.position.y += 2.2; v.add(c); v.setAlpha(c, 0); return c; });
     s.dup = block(0.42, 0.2, 0.42, { color: PAL.cardinal, kind: 'gloss' }); s.dup.position.set(1.0, 1.9, 0.3); v.add(s.dup); v.setAlpha(s.dup, 0);
-    v.label('trace store', anchor(rack, 0, 1.9, 0));
-    s.sec = v.label('sk-live-4f… → &lt;secret:3f2a&gt;', V(-0.3, 1.75, 0.2), { cls: 'code', html: true }); s.sec.opacity = 0;
-    s.hash = v.label('sha256:0f54…', V(2.6, 2.2, 0.6), { cls: 'red' }); s.hash.opacity = 0;
-    s.same = v.label('same content · same hash', V(1.3, 2.5, 0.3), { cls: 'pass' }); s.same.opacity = 0;
+    v.label('record store', anchor(rack, 0, 1.9, 0));
+    s.sec = v.label('secret key becomes an alias', V(-0.3, 1.75, 0.2), { cls: 'code', html: true }); s.sec.opacity = 0;
+    s.hash = v.label('content hash', V(2.6, 2.2, 0.6), { cls: 'red' }); s.hash.opacity = 0;
+    s.same = v.label('same content, same hash', V(1.3, 2.5, 0.3), { cls: 'pass' }); s.same.opacity = 0;
   },
   update(v, t) { v.s.scan.position.y = 0.15 + (Math.sin(t * 2.4) * 0.5 + 0.5) * 1.0; },
   steps: [
-    { say: 'Discover. Connectors find cases, sessions, pull requests, audit rows and logs.', go(v) {
+    { say: 'Connectors find cases, sessions, pull requests, audit rows and logs.', go(v) {
       const s = v.s; s.pre.forEach(f => f.target = 0); s.post.target = 0; [s.sec, s.hash, s.same].forEach(l => show(v, l, false));
       s.carts.forEach(c => { v.fade(c, 0); v.tw.to(c.position, 'y', c.position.y < 2 ? c.position.y + 2.2 : c.position.y, 0.4); }); v.fade(s.dup, 0);
       s.src.forEach((g, i) => { v.tw.to(g.position, 'y', 0.25, 0.4); v.later(() => v.tw.to(g.position, 'y', 0, 0.5), 500 + i * 80); });
     } },
-    { say: 'Fetch and normalize. Every record becomes typed trace events: who acted, what they wrote, when.', go(v) { v.s.pre.forEach(f => f.target = 1); } },
-    { say: 'Redact. Secrets, keys and personal ids are removed before anything is stored, into stable pseudonyms.', go(v) { v.s.post.target = 1; show(v, v.s.sec, true); v.s.laser.material.opacity = 0.22; } },
-    { say: 'Store. Traces are kept by content hash and validated against the schema.', go(v) {
+    { say: 'Crucible turns each item into events. Each event shows who did what, and when.', go(v) { v.s.pre.forEach(f => f.target = 1); } },
+    { say: 'Crucible removes secrets, keys and personal IDs before it stores anything. Each secret becomes a stable alias.', go(v) { v.s.post.target = 1; show(v, v.s.sec, true); v.s.laser.material.opacity = 0.22; } },
+    { say: 'Crucible stores the records by their hash and checks their format.', go(v) {
       const s = v.s; show(v, s.sec, false); s.laser.material.opacity = 0.1; show(v, s.hash, true);
       s.carts.forEach((c, i) => v.later(() => { v.fade(c, 1); v.tw.to(c.position, 'y', s.slots[i].y, 0.7); }, i * 140));
     } },
-    { say: 'Re-ingest. The same source returns the same hash, so nothing is stored twice.', go(v) {
+    { say: 'A second import of the same source gives the same hash. Crucible does not store anything twice.', go(v) {
       const s = v.s; show(v, s.hash, false); v.fade(s.dup, 1); s.dup.position.set(1.0, 1.9, 0.3); moveTo(v, s.dup, [s.slots[7].x, s.slots[7].y + 0.02, s.slots[7].z], 1.2); show(v, s.same, true);
       v.later(() => v.fade(s.dup, 0), 1300);
     } },
@@ -461,22 +543,22 @@ export const m4 = () => ({
       return { f, lab, rel, thread, d, x };
     });
     const ghost = block(0.5, 0.28, 0.5, { kind: 'glass', edge: PAL.cardinal }); ghost.position.set(-2.8 + 3 * 0.8, 0.06, 0); v.add(ghost); s.ghost = ghost; v.setAlpha(ghost, 0);
-    s.pair = v.label('rejected step &nbsp;↔&nbsp; chosen fix', V(-0.4, 1.35, -1.0), { cls: 'code', html: true }); s.pair.opacity = 0;
-    s.lw = v.label('pinned to the last writer', V(0.2, 2.1, 0.2), { cls: 'red' }); s.lw.opacity = 0;
+    s.pair = v.label('wrong step and its fix', V(-0.4, 1.35, -1.0), { cls: 'code', html: true }); s.pair.opacity = 0;
+    s.lw = v.label('linked to the last change', V(0.2, 2.1, 0.2), { cls: 'red' }); s.lw.opacity = 0;
   },
   steps: [
-    { say: 'Map. A pack maps raw events onto thirteen generic signal types.', go(v) {
+    { say: 'Each pack maps its raw events onto thirteen standard feedback types.', go(v) {
       const s = v.s; s.sig.forEach((g, k) => { v.tw.to(g.f.position, 'y', 2.3 + (k % 2) * 0.3, 0.9); show(v, g.lab, false); show(v, g.rel, false); v.fade(g.thread, 0); scaleTo(v, g.f, 1); v.fade(g.f, 1); });
       v.fade(s.ghost, 0); show(v, s.pair, false); show(v, s.lw, false); v.tw.to(s.blocks[3].position, 'z', 0);
     } },
-    { say: 'Type. Each signal gets a type and a polarity: corrections and rejections negative, approvals positive.', go(v) { v.s.sig.forEach(g => show(v, g.lab, true)); } },
-    { say: 'Attribute. Each signal is pinned to the step that last wrote the object it judges.', go(v) {
+    { say: 'Each feedback item gets a type and a sign. Corrections and rejections are negative. Approvals are positive.', go(v) { v.s.sig.forEach(g => show(v, g.lab, true)); } },
+    { say: 'Crucible links each item to the last step that changed the object it judges.', go(v) {
       const s = v.s; s.sig.forEach(g => { v.fade(g.thread, 1); v.tw.to(g.f.position, 'y', 0.75, 0.9); }); show(v, s.lw, true);
     } },
-    { say: 'Weigh. Reliability is learned from what happened next; a weak signal fades out of the reward.', go(v) {
+    { say: 'Crucible learns how much to trust each type from what happened next. Weak feedback has less effect on the reward.', go(v) {
       const s = v.s; show(v, s.lw, false); s.sig.forEach(g => { show(v, g.rel, true); if (g.d.rel < 0.5) { v.fade(g.f, 0.25); v.fade(g.thread, 0.15); scaleTo(v, g.f, 0.6); } });
     } },
-    { say: 'Pivot. A corrected mistake becomes a training pair: the wrong step and its fix.', go(v) {
+    { say: 'Each corrected error becomes a training pair. The pair shows the wrong step and its fix.', go(v) {
       const s = v.s; v.fade(s.ghost, 1); v.tw.to(s.ghost.position, 'z', -0.85, 0.9); show(v, s.pair, true);
     } },
   ],
@@ -519,8 +601,8 @@ export const m5 = () => ({
     });
     s.token = sphere(0.12, { color: PAL.cardinal }); s.token.position.set(-3, 0.3, 1.75); v.add(s.token); s.token.visible = false;
     s.tokX = -3; s.here = v.label('you are here', anchor(s.token, 0, 0.4, 0), { cls: 'tag' }); s.here.opacity = 0;
-    s.rep = v.label('rebuilt state = record', V(0, 1.4, -0.2), { cls: 'pass' }); s.rep.opacity = 0;
-    s.drop = v.label('dropped: true at start', V(1.5, 1.7, 1.75), { cls: 'code' }); s.drop.opacity = 0;
+    s.rep = v.label('rebuilt state matches the record', V(0, 1.4, -0.2), { cls: 'pass' }); s.rep.opacity = 0;
+    s.drop = v.label('dropped, true at the start', V(1.5, 1.7, 1.75), { cls: 'code' }); s.drop.opacity = 0;
   },
   update(v, t, dt) {
     const s = v.s;
@@ -537,21 +619,21 @@ export const m5 = () => ({
     }
   },
   steps: [
-    { say: 'Segment. Each trace is cut into steps, one per change of state.', go(v) {
+    { say: 'Crucible cuts each record into steps. Each step is one change of state.', go(v) {
       const s = v.s; s.tidyTo = 0; s.beacons.forEach(b => v.tw.to(b.g, 'scale', V(1, 0.001, 1), 0.5)); s.bands.forEach(b => { v.fade(b.m, 0); show(v, b.lab, false); });
       s.token.visible = false; [s.here, s.rep, s.drop].forEach(l => show(v, l, false));
     } },
-    { say: 'Replay. The state after every step is rebuilt and must match the recorded one.', go(v) { v.s.tidyTo = 1; show(v, v.s.rep, true); } },
-    { say: 'Mine. Milestones, checkable facts about state, come from diffs, test results and reviews.', go(v) {
+    { say: 'Crucible rebuilds the state after each step. The state must match the record.', go(v) { v.s.tidyTo = 1; show(v, v.s.rep, true); } },
+    { say: 'Crucible finds milestones in changes, test results and reviews. A milestone is a fact about the state that Crucible can check.', go(v) {
       const s = v.s; show(v, s.rep, false); s.beacons.forEach((b, i) => v.later(() => v.tw.to(b.g, 'scale', V(1, 1, 1), 0.7), i * 120));
     } },
-    { say: 'Filter. Only real milestones survive: non-trivial, monotone, and predictive of the outcome.', go(v) {
+    { say: 'Crucible keeps only real milestones. Each one must not be trivial, must not go back, and must predict success.', go(v) {
       const s = v.s; s.beacons.forEach(b => { if (b.drop) v.tw.to(b.g, 'scale', V(1, 0.001, 1), 0.8); }); show(v, s.drop, true);
     } },
-    { say: 'Induce. Stages come from which milestones come before which in at least 90% of traces.', go(v) {
+    { say: 'Crucible finds the stages from the order of milestones. One milestone must come before the other in 90% of records.', go(v) {
       const s = v.s; show(v, s.drop, false); s.bands.forEach((b, i) => v.later(() => { v.fade(b.m, 1); show(v, b.lab, true); }, i * 200));
     } },
-    { say: 'Track. One tracker tells any agent, live or recorded, where it stands in the work.', go(v) { const s = v.s; s.token.visible = true; s.tokX = -3; show(v, s.here, true); } },
+    { say: 'One tracker tells each agent how far it is in the work.', go(v) { const s = v.s; s.token.visible = true; s.tokX = -3; show(v, s.here, true); } },
   ],
 });
 
@@ -575,12 +657,12 @@ export const m6 = () => ({
     const barG = block(0.06, 0.06, 0.9, { color: PAL.cardinal, kind: 'gloss', edge: null }); barG.position.set(3.05, 0.7, 0); v.add(barG); s.bar = barG; v.setAlpha(barG, 0);
     s.ingot = block(0.4, 0.22, 0.28, { color: PAL.cardinal, kind: 'gloss' }); s.ingot.position.set(3.05, 3.2, 0); v.add(s.ingot); v.setAlpha(s.ingot, 0);
     const cap = line([V(-2.9, 0.3 * s.H + 0.02, -0.4), V(2.6, 0.3 * s.H + 0.02, -0.4)], PAL.stone, 'dash'); v.add(cap); s.cap = cap; v.setAlpha(cap, 0);
-    s.capL = v.label('partial credit cap · κ ≤ 0.3 &lt; finishing', V(-2.4, 0.3 * s.H + 0.25, -0.4), { cls: 'code', html: true, align: 'left' }); s.capL.opacity = 0;
-    s.phiL = v.label('Φ = weighted share of milestones met', V(-1.0, 2.75, 0), { cls: 'red' }); s.phiL.opacity = 0;
-    s.loop = v.label('−0.15 then +0.15 → net 0', V(0.5, 2.0, 0.5), { cls: 'code' }); s.loop.opacity = 0;
-    s.zero = v.label('gate failed → R = 0', V(1.6, 1.4, 0), { cls: 'red' }); s.zero.opacity = 0;
-    s.full = v.label('success → R = 1', V(3.05, 2.2, 0), { cls: 'tag' }); s.full.opacity = 0;
-    v.label('gate', anchor(gate, 0, 1.75, 0), { cls: 'ghost' });
+    s.capL = v.label('partial work stays below success', V(-2.4, 0.3 * s.H + 0.25, -0.4), { cls: 'code', html: true, align: 'left' }); s.capL.opacity = 0;
+    s.phiL = v.label('progress is the share of milestones met', V(-1.0, 2.75, 0), { cls: 'red' }); s.phiL.opacity = 0;
+    s.loop = v.label('minus 0.15, then plus 0.15, net 0', V(0.5, 2.0, 0.5), { cls: 'code' }); s.loop.opacity = 0;
+    s.zero = v.label('rule broken, score 0', V(1.6, 1.4, 0), { cls: 'red' }); s.zero.opacity = 0;
+    s.full = v.label('success, score 1', V(3.05, 2.2, 0), { cls: 'tag' }); s.full.opacity = 0;
+    v.label('rule gate', anchor(gate, 0, 1.75, 0), { cls: 'ghost' });
   },
   update(v, t, dt) {
     const s = v.s;
@@ -591,21 +673,21 @@ export const m6 = () => ({
     s.climber.position.set(a.position.x + (b.position.x - a.position.x) * k, ya + (yb - ya) * k + 0.14 + Math.sin(k * Math.PI) * 0.2, 0);
   },
   steps: [
-    { say: 'Measure. Milestones are checked at every step, each at the cost it allows.', go(v) {
+    { say: 'Crucible checks the milestones at each step. Each check stays in its cost limit.', go(v) {
       const s = v.s; s.climbing = false; s.cu = 0; s.cols.forEach(c => v.tw.to(c.scale, 'y', 0.02)); s.dbars.forEach(b => v.tw.to(b.scale, 'y', 0.001));
       [s.capL, s.phiL, s.loop, s.zero, s.full].forEach(l => show(v, l, false)); v.fade(s.bar, 0); v.fade(s.ingot, 0); v.fade(s.cap, 0);
     } },
-    { say: 'Potential. Φ is the weighted share of milestones met, each counting only once its prerequisites hold.', go(v) {
+    { say: 'Progress is the weighted share of complete milestones. A milestone counts only when its earlier milestones are complete.', go(v) {
       const s = v.s; s.cols.forEach((c, i) => v.tw.to(c.scale, 'y', Math.max(0.02, s.phi[i] * s.H), 0.8 + i * 0.05)); show(v, s.phiL, true);
     } },
-    { say: 'Credit. Each step earns its change in Φ, and the sum telescopes to the final progress.', go(v) {
+    { say: 'Each step earns its change in progress. The sum of the step scores equals the final progress.', go(v) {
       const s = v.s; show(v, s.phiL, false); s.climbing = true; s.dbars.forEach(b => v.tw.to(b.scale, 'y', Math.max(0.001, Math.abs(b.userData.d) * s.H * 1.4), 0.7));
     } },
-    { say: 'Break something and fix it again, and the credit cancels exactly: loops earn nothing.', go(v) { show(v, v.s.loop, true); } },
-    { say: 'Fail a hard gate, and the whole episode scores zero however much else went right.', go(v) {
+    { say: 'If the agent breaks a thing and fixes it again, the two scores cancel. Loops earn nothing.', go(v) { show(v, v.s.loop, true); } },
+    { say: 'If the agent breaks a hard rule, the full episode scores zero.', go(v) {
       const s = v.s; show(v, s.loop, false); v.fade(s.bar, 1); s.cols.forEach(c => v.tw.to(c.scale, 'y', 0.02, 0.8)); s.dbars.forEach(b => v.tw.to(b.scale, 'y', 0.001)); show(v, s.zero, true); s.climbing = false;
     } },
-    { say: 'Partial credit stays capped below success; finishing earns the full reward.', go(v) {
+    { say: 'Partial work stays below success. Only a finished task gets the full reward.', go(v) {
       const s = v.s; show(v, s.zero, false); v.fade(s.bar, 0); s.cols.forEach((c, i) => v.tw.to(c.scale, 'y', Math.max(0.02, s.phi[i] * s.H), 0.8));
       v.fade(s.cap, 1); show(v, s.capL, true); v.fade(s.ingot, 1); s.ingot.position.y = 3.2; v.tw.to(s.ingot.position, 'y', 0.02, 1.0, 'out'); show(v, s.full, true); s.climbing = true;
     } },
@@ -622,21 +704,21 @@ export const m7 = () => ({
     v.label('one-way glass', anchor(wall, 0, 2.15, 0), { cls: 'ghost' });
     const cell = block(2.1, 1.4, 2.0, { kind: 'glass', edge: PAL.ink }); cell.position.set(-1.6, 0.06, 0); v.add(cell);
     s.cand = cube(0.42, { color: PAL.ink, kind: 'gloss' }); s.cand.position.set(-1.7, 0.06, 0); v.add(s.cand);
-    v.label('candidate · unprivileged', anchor(cell, 0, 1.7, 0));
+    v.label('attempt, few permissions', anchor(cell, 0, 1.7, 0));
     s.boxes = [0, 1, 2].map(i => { const b = cube(0.18, {}); b.position.set(-1.2, 0.08, -0.5 + i * 0.5); v.add(b); return b; });
     s.boxT = 0; s.moving = false;
     const ped = cyl(0.75, 0.35, { seg: 48 }); ped.position.set(1.8, 0.06, -0.35); v.add(ped);
     s.crystals = [0, 1, 2].map(i => { const o = octa(0.17, i === 1 ? PAL.cardinal : 0xffffff, i === 1 ? 'gloss' : 'clay'); o.position.set(1.5 + i * 0.3, 0.75, -0.35); v.add(o); return o; });
     v.label('hidden references', anchor(ped, 0, 1.25, 0));
-    const names = ['static', 'build', 'tests', 'diff', 'perf', 'isolation'];
+    const names = ['rules', 'build', 'tests', 'compare', 'speed', 'isolation'];
     s.stamps = names.map((n, i) => {
       const d = cyl(0.11, 0.05, { color: 0xffffff, edge: PAL.rule }); d.position.set(0.75 + i * 0.4, 0.06, 0.95); v.add(d);
       v.label(n, anchor(d, 0, -0.02, 0.32), { cls: 'ghost' });
       return d;
     });
     s.cheats = [0, 1].map(i => { const c = block(0.36, 0.02, 0.26, { color: PAL.cardinal, kind: 'gloss', edge: null }); c.position.set(-1.2, 1.0 + i * 0.3, 0.6 - i * 0.8); c.rotation.x = 0.4; v.add(c); v.setAlpha(c, 0); return c; });
-    s.cheatL = v.label('fake reward file · forged PASS', V(-0.9, 1.9, 0.2), { cls: 'red' }); s.cheatL.opacity = 0;
-    s.verdict = v.label('reward.json · gate profile', V(2.0, 1.6, 0.95), { cls: 'tag' }); s.verdict.opacity = 0;
+    s.cheatL = v.label('fake reward file, fake pass', V(-0.9, 1.9, 0.2), { cls: 'red' }); s.cheatL.opacity = 0;
+    s.verdict = v.label('reward and check results', V(2.0, 1.6, 0.95), { cls: 'tag' }); s.verdict.opacity = 0;
     s.beams = s.boxes.map((b, i) => { const l = line([V(0.6, 0.2, -0.5 + i * 0.5), V(1.5 + i * 0.3, 0.75, -0.35)], PAL.cardinal, 'lineT'); v.add(l); v.setAlpha(l, 0); return l; });
   },
   update(v, t, dt) {
@@ -646,21 +728,21 @@ export const m7 = () => ({
     s.cand.rotation.y = t * (s.busy ? 2 : 0.2);
   },
   steps: [
-    { say: 'Collect. The candidate’s end state is collected and handed to a separate grader.', go(v) {
+    { say: 'Crucible collects the final state of the attempt and sends it to a separate checker.', go(v) {
       const s = v.s; s.boxT = 0; s.moving = true; s.busy = false; resetStamps(s);
       s.beams.forEach(l => v.fade(l, 0)); s.cheats.forEach(c => v.fade(c, 0)); [s.cheatL, s.verdict].forEach(l => show(v, l, false));
     } },
-    { say: 'Stage. A trusted runtime is staged into a verifier container with no network.', go(v) { v.s.crystals.forEach((o, i) => v.tw.to(o.position, 'y', 0.95, 0.6 + i * 0.1)); } },
-    { say: 'Static. Rules run over the exact tree that will be built.', go(v) { stamp(v.s, 0, true); } },
-    { say: 'Execute. Candidate code runs unprivileged, and its whole process group is killed afterwards.', go(v) { v.s.busy = true; stamp(v.s, 1, true); stamp(v.s, 2, true); } },
-    { say: 'Compare. Results are checked against hidden references and freshly drawn inputs.', go(v) {
+    { say: 'Crucible puts a trusted runtime into a check container with no network.', go(v) { v.s.crystals.forEach((o, i) => v.tw.to(o.position, 'y', 0.95, 0.6 + i * 0.1)); } },
+    { say: 'Static rules check the exact files that Crucible will build.', go(v) { stamp(v.s, 0, true); } },
+    { say: 'The attempt runs with few permissions. Crucible stops all its processes after the run.', go(v) { v.s.busy = true; stamp(v.s, 1, true); stamp(v.s, 2, true); } },
+    { say: 'Crucible compares the results with hidden references and new random inputs.', go(v) {
       const s = v.s; s.busy = false; s.beams.forEach(l => v.fade(l, 1)); stamp(s, 3, true); stamp(s, 4, false); stamp(s, 5, true);
     } },
-    { say: 'Cheats bounce off. Forged results and fake reward files never count: 11 of 11 known cheats score zero.', go(v) {
+    { say: 'Fake results and fake reward files do not count. All 11 known cheats score zero.', go(v) {
       const s = v.s; s.beams.forEach(l => v.fade(l, 0)); show(v, s.cheatL, true);
       s.cheats.forEach((c, i) => { v.fade(c, 1); c.position.x = -1.2; v.tw.to(c.position, 'x', -0.12, 0.5); v.later(() => { v.tw.to(c.position, 'x', -1.4, 0.7); v.fade(c, 0); }, 600 + i * 120); });
     } },
-    { say: 'Verdict. Every gate reports pass, fail, mask or skip; a masked grade is never written as a zero.', go(v) { show(v, v.s.cheatL, false); show(v, v.s.verdict, true); } },
+    { say: 'Each check gives pass, fail, mask or skip. Crucible never writes a masked result as zero.', go(v) { show(v, v.s.cheatL, false); show(v, v.s.verdict, true); } },
   ],
 });
 function tintOf(d) { if (!d.userData._own) { d.material = d.material.clone(); d.userData._own = true; } return d.material.color; }
