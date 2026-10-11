@@ -75,8 +75,9 @@ class CheckSpec(CrucibleModel):
     id: str
     gate: str
     gate_kind: Literal["gate", "outcome", "score"] = "outcome"
-    kind: Literal["predicate", "invariant", "static", "milestone", "suite", "event"] = "predicate"  # suite: a behavioural gate the kit grader runs (coding)
+    kind: Literal["predicate", "invariant", "static", "milestone", "suite", "event", "cross"] = "predicate"  # suite: a behavioural gate the kit grader runs (coding)
     # event: a rule over the episode's events (e.g. an approval recorded in state must have been given in the episode)
+    # cross: row sets of two Apps compared (spec: left/right {app, sql}, relation equal | subset; fused Worlds, m13 G-9)
     app: str | None = None
     sql: str | None = None  # predicate: one scalar; invariant: violating rows
     expect: dict[str, Any] = Field(default_factory=dict)  # Expectation fields for predicates

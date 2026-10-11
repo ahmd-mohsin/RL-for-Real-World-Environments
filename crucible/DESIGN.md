@@ -1120,6 +1120,35 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-9 (2026-10-10): fuse (cross-World) and nest.**
+- **`forge/fuse.py:fuse_worlds(a, b)`** builds one World from two.
+  - Apps are unioned. A shared app id is renamed `b_<id>`, and b's tool patterns, event tool actions, grant/revoke
+    patterns and policies are renamed to match.
+  - Two apps may never share a state path or a bundle destination.
+  - Same-id policy actors merge their tools. Any other shared actor must be identical: two different people under
+    one name is an error.
+  - Clock, backend and network must agree.
+- **`compose.fuse(a, b, cross=…, renames=…)`:** independent components (A17 applies) plus cross-App checks with gate
+  `x.<gate>`, which no component owns (`Composite.cross`). `rename_apps` renames a task's checks and oracle with the
+  same map.
+- **`compose.nest(outer, inner, at)`:** the inner oracle runs after outer's first `at` steps. Outer's actions are
+  therefore not contiguous, and outer's own negatives get the inner oracle inserted at `at`. The order is graded
+  only when a check observes it (pass such checks as `cross`).
+- **Cross check:** `verify/state.py:cross_check` compares two Apps' row sets (`equal` or `subset`). It is the
+  `CheckSpec.kind="cross"` used by the toy plan.
+- **Toy second App:** a warehouse (`inventory`: shipped items, stock, returns). `crucible_pack_toy.forge.fused`
+  generates its World from the helpdesk scenario. The fused task is t1_duplicate ⊕ "log the refunded order's items
+  as damaged (quarantined, not restocked)", with `x.consistency`: refunded orders = returned orders.
+- **Compose fix:** a drop-component negative now expects a gate with a positive (predicate) check. Before, it expected
+  the alphabetically first owned gate, which on the fused task was an invariant that a no-op passes.
+- **Tests:**
+  - the fused WorldSpec validates, and two fresh starts give the same fingerprint;
+  - the oracle scores 1.0; each part alone keeps its own gates but fails `x.consistency`, so the interaction is real;
+  - every negative fails at its gate;
+  - A14 and A17 pass;
+  - fusion conflicts (state path, two actors under one name, clocks) raise;
+  - nest interleaves as specified and its oracle scores 1.0.
+
 **G-8 (2026-10-10): the swarm stage runner.** `forge/swarm.py` runs one role's homogeneous workers against the zoned
 repo, GitSwarm-style.
 - **Scheduling:** at most C in flight (default 5), with replacement on exit, until B charged episodes are spent. An

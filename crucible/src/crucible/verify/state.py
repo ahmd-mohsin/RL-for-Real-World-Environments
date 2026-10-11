@@ -78,3 +78,23 @@ def predicate_check(gate: str, view_of, predicates: list[Predicate], *, id: str 
 def invariant_check(gate: str, view_of, app: str, invariants: list[Invariant], *, id: str | None = None, tier: str = "fast") -> Check:
     return Check(id=id or f"{gate}/invariants", gate=gate, fn=lambda ctx: check_invariants(view_query(view_of(ctx), app), invariants), tier=tier,
                  provenance=";".join(i.provenance for i in invariants if i.provenance) or None)
+
+
+def cross_check(gate: str, view_of, left: tuple[str, str], right: tuple[str, str], *, relation: str = "equal", id: str | None = None,
+                tier: str = "fast", provenance: str | None = None) -> Check:
+    """A check across two Apps (m13 G-9, fused Worlds): the row sets of ``left = (app, sql)`` and ``right`` must be
+    ``equal`` or ``left`` a ``subset`` of ``right`` (e.g. every refunded order in the ticketing system has a return
+    logged in the warehouse, and no return without a refund)."""
+    if relation not in ("equal", "subset"):
+        raise ValueError(f"relation must be equal or subset, got {relation!r}")
+
+    async def fn(ctx) -> Verdict:
+        view = view_of(ctx)
+        a = {tuple(r) if isinstance(r, (list, tuple)) else (r,) for r in await view_query(view, left[0])(left[1])}
+        b = {tuple(r) if isinstance(r, (list, tuple)) else (r,) for r in await view_query(view, right[0])(right[1])}
+        only_l, only_r = sorted(a - b, key=repr), sorted(b - a, key=repr)
+        ok = not only_l and (relation == "subset" or not only_r)
+        return Verdict(ok, {"relation": relation, f"only_in_{left[0]}": [list(x) for x in only_l[:10]],
+                            f"only_in_{right[0]}": [list(x) for x in only_r[:10]]})
+
+    return Check(id=id or f"{gate}/cross", gate=gate, fn=fn, tier=tier, provenance=provenance)

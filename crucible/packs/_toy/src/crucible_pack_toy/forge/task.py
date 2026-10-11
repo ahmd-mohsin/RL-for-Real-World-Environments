@@ -25,7 +25,7 @@ from crucible.forge.schema import CheckSet, NegativeSpec, TaskSpec
 from crucible.verify.runtime.patterns.invariants import Invariant
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan
 from crucible.verify.runtime.trusted import Trusted
-from crucible.verify.state import Predicate, invariant_check, predicate_check
+from crucible.verify.state import Predicate, cross_check, invariant_check, predicate_check
 from crucible.world.world import World
 
 
@@ -63,6 +63,11 @@ def plan_for(cs: CheckSet) -> Plan:
         gates.setdefault(c.gate, c.gate_kind)
         if c.kind == "event":
             checks.append(approval_grounded(c.id, c.gate, c.spec.get("approver", "supervisor")))
+            continue
+        if c.kind == "cross":
+            L, R = c.spec["left"], c.spec["right"]
+            checks.append(cross_check(c.gate, view, (L["app"], L["sql"]), (R["app"], R["sql"]), relation=c.spec.get("relation", "equal"), id=c.id,
+                                      provenance=c.provenance))
             continue
         if c.kind == "invariant":
             checks.append(invariant_check(c.gate, view, c.app or "tickets", [Invariant(c.id, c.sql or "", provenance=c.provenance)], id=c.id))
