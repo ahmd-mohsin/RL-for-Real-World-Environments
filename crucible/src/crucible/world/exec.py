@@ -263,3 +263,75 @@ class DockerExec(Exec):
         out = await _run_subprocess(["docker", "cp", f"{self.container}:{src}", str(dest)], cwd=None, env=self._env(), timeout_s=600, stdin=None)
         if not out.ok:
             raise ExecError(f"docker cp from {src} failed: {out.stderr[-500:]}", out)
+
+
+class SSHExec(Exec):
+    """Host processes on a remote machine over SSH (m13 S4: Docker-less GPU hosts such as a Runpod pod, which is itself a
+    container without user namespaces). One multiplexed connection (``ControlMaster``) carries every command; files go
+    by ``scp`` over it. **No isolation**: commands run as the SSH user with resource limits only (``ulimit``: processes,
+    address space, file size, CPU seconds), so never give an untrusted policy a shell here unless explicitly opted in."""
+
+    name = "ssh"
+
+    def __init__(self, target: str, *, port: int | None = None, key: str | None = None, rlimits: dict[str, int] | None = None, python: str = "python3",
+                 control_dir: str | None = None, staging_dir: str = "/tmp", known_hosts: str | None = None):
+        import hashlib
+        import tempfile
+
+        self.target, self.port, self.key, self.python, self.staging_dir = target, port, key, python, staging_dir
+        self.rlimits, self.known_hosts = dict(rlimits or {}), known_hosts
+        cd = Path(control_dir or tempfile.gettempdir())
+        self.control = str(cd / f"crucible-ssh-{hashlib.sha256(f'{target}:{port}'.encode()).hexdigest()[:12]}")
+
+    def _opts(self) -> list[str]:
+        o = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30", "-o", "ControlMaster=auto",
+             "-o", f"ControlPath={self.control}", "-o", "ControlPersist=120"]
+        if self.key:
+            o += ["-i", self.key, "-o", "IdentitiesOnly=yes"]
+        if self.known_hosts:
+            o += ["-o", f"UserKnownHostsFile={self.known_hosts}"]
+        return o
+
+    def _limits(self) -> str:
+        flags = {"nproc": "-u", "as_mb": "-v", "fsize_mb": "-f", "cpu_s": "-t", "nofile": "-n"}
+        parts = []
+        for k, v in self.rlimits.items():
+            if k not in flags:
+                raise ExecError(f"unknown rlimit {k!r} (one of {sorted(flags)})")
+            n = int(v) * 1024 if k == "as_mb" else int(v) * 2048 if k == "fsize_mb" else int(v)  # ulimit -v is KiB, -f is 512-byte blocks
+            parts.append(f"ulimit {flags[k]} {n}")
+        return " && ".join(parts)
+
+    async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None) -> ExecOut:
+        if user is not None:
+            raise ExecError("SSHExec runs as the SSH user and cannot switch users (no isolation on ssh_exec hosts)")
+        inner = with_deadline(cmd, timeout_s)
+        pre = [f"cd {shlex.quote(cwd)}"] if cwd else []
+        pre += [f"export {k}={shlex.quote(str(v))}" for k, v in (env or {}).items()]
+        lim = self._limits()
+        script = " && ".join([*pre, *([lim] if lim else []), inner]) if (pre or lim) else inner
+        argv = ["ssh", *self._opts(), *(["-p", str(self.port)] if self.port else []), self.target, f"bash -c {shlex.quote(script)}"]
+        out = await _run_subprocess(argv, cwd=None, env=None, timeout_s=timeout_s + 30 if timeout_s else None, stdin=stdin)
+        if out.rc == 255 and ("Connection" in out.stderr or "ssh:" in out.stderr):
+            raise ExecError(f"ssh to {self.target} failed: {out.stderr[-300:]}", out)
+        if deadline_hit(out.rc, out.duration_s, timeout_s):
+            out.timed_out, out.rc = True, -9
+        return out
+
+    async def push_file(self, src: Path, dest: str) -> None:
+        await self.run(f"mkdir -p {shlex.quote(str(Path(dest).parent))}")
+        out = await _run_subprocess(["scp", "-q", *self._opts(), *(["-P", str(self.port)] if self.port else []), str(src), f"{self.target}:{dest}"],
+                                    cwd=None, env=None, timeout_s=600, stdin=None)
+        if not out.ok:
+            raise ExecError(f"scp to {dest} failed: {out.stderr[-500:]}", out)
+
+    async def pull_file(self, src: str, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        out = await _run_subprocess(["scp", "-q", *self._opts(), *(["-P", str(self.port)] if self.port else []), f"{self.target}:{src}", str(dest)],
+                                    cwd=None, env=None, timeout_s=600, stdin=None)
+        if not out.ok:
+            raise ExecError(f"scp from {src} failed: {out.stderr[-500:]}", out)
+
+    async def close(self) -> None:
+        await _run_subprocess(["ssh", *self._opts(), *(["-p", str(self.port)] if self.port else []), "-O", "exit", self.target], cwd=None, env=None,
+                              timeout_s=30, stdin=None)

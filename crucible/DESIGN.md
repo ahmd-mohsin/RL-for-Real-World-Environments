@@ -1120,6 +1120,23 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**S4 (2026-10-10): the `ssh_exec` backend.** For Docker-less GPU hosts: a Runpod pod is itself a container, with no
+user namespaces, so no container runtime can run there.
+- **`world/exec.py:SSHExec`:** one multiplexed SSH connection (`ControlMaster`/`ControlPersist`), files by `scp`, the
+  in-host deadline, and `ulimit` rlimits (nproc, as_mb, fsize_mb, cpu_s, nofile). It cannot switch users.
+- **`world/backends/ssh.py:SSHExecBackend`** (registry key `ssh_exec`):
+  - each World gets its own directory under `~/crucible_worlds`, removed at teardown;
+  - the host needs python3 and git for the state adapters;
+  - the capability reports `isolation="none"`, `gpus=True`.
+- **Refusals:** a World that gives the policy a shell, unless `allow_untrusted_shell` is set; and a `no-network`
+  World, which host processes cannot enforce.
+- **Tests:** against a throwaway sshd container with its own key and known_hosts:
+  - mailbox tool calls and a snapshot/restore round trip work, and the world directory is removed afterwards;
+  - `as_mb=200` turns a 400 MB allocation into `MemoryError`, and `nproc=64` holds;
+  - both refusals fire.
+- **Pending:** the Runpod acceptance (sm_89 preflight, verifier score equals a manual run) needs a running pod. The
+  recorded pod refused connections on 2026-10-10.
+
 **S5 (2026-10-10): the gVisor tier.** `SandboxSpec.runtime` takes three values:
 - `runc` (the default);
 - `runsc`, when a daemon has gVisor registered (`--runtime=runsc`);

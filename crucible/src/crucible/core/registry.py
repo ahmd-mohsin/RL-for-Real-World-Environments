@@ -152,6 +152,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("app_template", "nemo_gym/resources", "crucible.interop.nemo_gym.import_server:NemoGymApp")
     # World backends: core ships `local`; framework backends live in interop and load lazily.
     r.register("world_backend", "local", "crucible.world.backends.local:LocalBackend")
+    r.register("world_backend", "ssh_exec", "crucible.world.backends.ssh:SSHExecBackend")
     r.register("world_backend", "harbor", "crucible.interop.harbor.world_backend:HarborBackend")
     r.register("world_backend", "agentenv", "crucible.interop.agentenv.world_backend:AgentEnvBackend")
     # Actors

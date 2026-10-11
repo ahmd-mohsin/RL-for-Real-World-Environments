@@ -99,7 +99,7 @@ From `06`:
 
 ### H. Sandboxes (P1/P2)
 
-- `ssh_exec` hosts (the Runpod pod);
+- ✅ `ssh_exec` hosts (S4: SSHExec + backend, rlimits, refusals; tested on an sshd container; Runpod GPU acceptance pending a pod);
 - ✅ gVisor (S5: runsc-in-container, no daemon change; Mac + lab amd64), Kata open;
 - ✅ warm pools (S10: fresh by default, verified hygiene for reuse);
 - ✅ pause/resume (S6: docker freezer, frozen virtual clock); fork through providers that have them (Smol `fork_batch`, OpenSandbox pause);
