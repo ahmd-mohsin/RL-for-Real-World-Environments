@@ -1120,6 +1120,31 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**F-1 / F-2 (2026-10-10): engine capabilities and a real HF engine.**
+- **`train/hf_engine.HFGenerateEngine`:** serves a Hugging Face causal LM (CPU / MPS / CUDA) with `TorchEngine`'s
+  contract:
+  - token ids in, token ids plus the sampled token's processed log-prob (after temperature and top-p) out;
+  - version pinned at call start, token-level resume with `version_spans`, top-p candidate sets;
+  - `abort_all` plus per-call `abort(call_id)`, and pause / resume;
+  - KV-cache decoding (O(1) positions per token);
+  - `load_weights(state | checkpoint dir)` loads into a copy while calls run and in place when idle. It accepts
+    `HFPolicy`'s `model.`-prefixed state dicts and refuses a partial load (only a tied `lm_head` may be absent).
+
+  Real models now run end to end through M12 without vLLM.
+- **Capabilities (F-1):** every engine declares `capabilities()` (token ids, logprob convention, abort granularity,
+  pause modes, sleep, top-p candidates, routing, weight-load form). `EnginePool.capabilities()` offers what every
+  engine offers.
+- **Logprob probe:** `probe_logprobs_mode(engine, reference)` *measures* the convention by sampling at T = 2 and
+  comparing with a reference model at T = 2 and T = 1. The off-policy corrections assume processed logprobs, and vLLM
+  defaults to raw ones.
+- **Tests (random small Qwen3, CPU):**
+  - engine logprobs equal `HFPolicy`'s at T ∈ {1, 0.7, 1.3} within 1e-4, so KV-cache decode equals a full forward;
+  - the probe returns "processed" for the HF engine and "raw" for a raw-logprob engine;
+  - a per-call abort stops only that call;
+  - a publish during a running call leaves it on version 0 while new calls get version 1;
+  - a bad state dict is refused, and the pool's capabilities are the intersection;
+  - the M12 runtime trains 4 steps on the HF engine with train/inference mismatch < 1e-3.
+
 **E: OpenEnv client mode and image fields (2026-10-10; audit 03 G7).** The OpenEnv importer ran environments in process
 only, and pixels in non-MCP observations were serialized as JSON text.
 

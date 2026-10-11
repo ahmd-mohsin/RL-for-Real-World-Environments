@@ -332,6 +332,10 @@ class HTTPEngine:
         r.raise_for_status()
         return r.json()
 
+    def capabilities(self) -> dict[str, Any]:
+        return {"token_ids": True, "logprobs": "remote", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": True, "routing": False,
+                "weight_load": "checkpoint_dir"}
+
     async def generate(self, req: GenRequest) -> GenResult:
         d = await self._post("/generate", dataclasses.asdict(req))
         spans = [tuple(x) for x in d["version_spans"]] if d.get("version_spans") else None

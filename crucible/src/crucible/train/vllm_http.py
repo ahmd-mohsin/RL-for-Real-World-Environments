@@ -47,6 +47,12 @@ class VLLMServerEngine:
 
     kv_modes = ("discard",)  # vLLM sleep discards the KV cache; keeping it in a host pool needs a KV-offload connector
 
+    def capabilities(self) -> dict[str, Any]:
+        """vLLM reports *raw* logprobs unless the server runs with ``--logprobs-mode processed_logprobs`` (check with
+        ``hf_engine.probe_logprobs_mode``); top-p candidate sets and routed experts are not exposed over HTTP yet."""
+        return {"token_ids": True, "logprobs": "server", "abort": "all", "pause": ["keep"], "sleep": self.placement == "colocated",
+                "top_p_candidates": False, "routing": False, "weight_load": "checkpoint_dir"}
+
     async def generate(self, req: GenRequest) -> GenResult:
         if req.top_p < 1.0:  # checklist #37: without the per-token nucleus the trainer would compare against the wrong distribution
             raise NotImplementedError("VLLMServerEngine does not report top-p candidate sets yet; sample with top_p=1.0")

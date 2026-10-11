@@ -77,8 +77,8 @@ The corpus audit's ten picks:
 
 | ID | Item |
 |---|---|
-| F-1 | Engine protocol v2: `capabilities()`, per-call abort, pause modes (abort / keep), sleep/wake, a logprobs-mode probe |
-| F-2 | HF generate engine: a real HF model on CPU/MPS for end-to-end runs on the Mac |
+| F-1 ✅ | Engine protocol v2: `capabilities()`, per-call abort, pause modes (abort / keep), sleep/wake, a logprobs-mode probe |
+| F-2 ✅ | HF generate engine: a real HF model on CPU/MPS for end-to-end runs on the Mac |
 | F-3 | SGLang server engine (update weights, abort, pause, logprobs, routed experts) |
 | F-4 | vLLM routed experts (R3) and top-p candidates over HTTP |
 

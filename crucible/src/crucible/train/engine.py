@@ -132,6 +132,25 @@ class EnginePool:
     async def abort_all(self) -> int:
         return sum([await e.abort_all() for e in self.engines])
 
+    def capabilities(self) -> dict[str, Any]:
+        """What every engine in the pool supports (m13 F-1): a capability is offered only if all engines offer it."""
+        from crucible.train.hf_engine import capabilities
+
+        caps = [capabilities(e) for e in self.engines]
+        if not caps:
+            return {}
+        out = dict(caps[0])
+        for c in caps[1:]:
+            for k, v in list(out.items()):
+                w = c.get(k)
+                if isinstance(v, bool):
+                    out[k] = v and bool(w)
+                elif isinstance(v, list):
+                    out[k] = [x for x in v if x in (w or [])]
+                elif v != w:
+                    out[k] = "mixed"
+        return out
+
     async def pause(self) -> None:
         self._set(paused=True)
         for e in self.engines:
@@ -368,6 +387,10 @@ class TorchEngine:
     async def resume(self) -> None:
         self._unpaused.set()
 
+    def capabilities(self) -> dict[str, Any]:
+        return {"token_ids": True, "logprobs": "processed", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": True,
+                "routing": hasattr(self._serve, "last_routes"), "weight_load": "state_dict"}
+
     async def load_weights(self, state: dict[str, torch.Tensor], version: int) -> None:
         new = copy.deepcopy(self._serve).float()  # a new object: running calls keep the one they pinned
         new.load_state_dict(state)
@@ -402,6 +425,10 @@ class ScriptedEngine:
     async def abort_all(self) -> int:
         self._abort_epoch += 1
         return 0
+
+    def capabilities(self) -> dict[str, Any]:
+        return {"token_ids": True, "logprobs": "fixed", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": False, "routing": False,
+                "weight_load": "version_only"}
 
     async def pause(self) -> None:
         self._unpaused.clear()
