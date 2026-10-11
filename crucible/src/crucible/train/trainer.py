@@ -488,13 +488,14 @@ class TorchTrainer:
                     if p.grad is None:
                         p.grad = torch.zeros_like(p)
             self._reduce_grads()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip)
+            grad_norm = float(torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip))  # pre-clip: proves a step had signal
             self.opt.step()
             self.updates += 1
             keys = sorted({k for m in agg_metrics for k in m})
             sums = self._reduce_scalars([total_loss, float(len(mbs))] + [sum(m.get(k, 0.0) for m in agg_metrics) for k in keys])
             n_mb = sums[1]
-            metrics = {"train/loss": sums[0], "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),
+            metrics = {"train/loss": sums[0], "train/grad_norm": grad_norm, "train/lr": float(self.opt.param_groups[0]["lr"]),
+                       "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),
                        "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts)}
             for k, v in zip(keys, sums[2:], strict=True):
                 metrics[f"mismatch/{k}"] = v / max(n_mb, 1.0)

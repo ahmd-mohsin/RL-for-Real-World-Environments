@@ -1,0 +1,2247 @@
+{
+ "digest": "64ae0cee9b51f400",
+ "irt": {
+  "anchors": [],
+  "item_qa_flagged": [],
+  "items": {
+   "toy/helpdesk/all_tickets@1": {
+    "a": 1.0,
+    "b": 2.309227,
+    "se_b": 1.138385
+   },
+   "toy/helpdesk_backlog/s21-n12@1": {
+    "a": 1.0,
+    "b": 0.605186,
+    "se_b": 0.80009
+   },
+   "toy/helpdesk_v2/t1_duplicate": {
+    "a": 1.0,
+    "b": -0.621857,
+    "se_b": 0.801395
+   },
+   "toy/helpdesk_v2/t2_approval": {
+    "a": 1.0,
+    "b": -0.007848,
+    "se_b": 0.774728
+   },
+   "toy/helpdesk_v2/t3_in_transit": {
+    "a": 1.0,
+    "b": -2.342562,
+    "se_b": 1.148324
+   },
+   "toy/helpdesk_v2/t4_decoy": {
+    "a": 1.0,
+    "b": -0.007848,
+    "se_b": 0.774728
+   },
+   "toy/helpdesk_v2/t5_compose": {
+    "a": 1.0,
+    "b": -2.342562,
+    "se_b": 1.148324
+   }
+  },
+  "loglik": -16.094354,
+  "model": "1pl",
+  "sweeps": 8,
+  "theta": {
+   "llm:anthropic/claude-sonnet-5.5@native:llm-tool@1": -0.005801,
+   "llm:openai/gpt-6.1-sol@native:llm-tool@1": 0.599197,
+   "llm:qwen/qwen3-235b-a22b-2507@native:llm-tool@1": -0.593396
+  },
+  "theta_se": {
+   "llm:anthropic/claude-sonnet-5.5@native:llm-tool@1": 0.543208,
+   "llm:openai/gpt-6.1-sol@native:llm-tool@1": 0.559786,
+   "llm:qwen/qwen3-235b-a22b-2507@native:llm-tool@1": 0.543369
+  }
+ },
+ "summary": {
+  "ks": [
+   1
+  ],
+  "models": [
+   {
+    "harness": "native:llm-tool@1",
+    "horizons": {
+     "all": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 67564.75,
+        "tool_calls": 26.625,
+        "usd": 0.278181,
+        "wall_s": 41.893875
+       },
+       "tokens": 540518,
+       "usd": 2.225448,
+       "wall_s": 335.151
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 14,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 14,
+        "measured_tasks": 7
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "outcome": {
+          "pass_rate": 0.9,
+          "passed": 9,
+          "total": 10
+         },
+         "policy": {
+          "pass_rate": 0.9,
+          "passed": 9,
+          "total": 10
+         },
+         "refund_policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 10,
+          "total": 10
+         },
+         "t1": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.85,
+        "verifier_level_pass_rate": 0.9
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.666666643,
+       "mean_reward": 0.666666643,
+       "mean_reward_ci": [
+        0.380952,
+        0.904762
+       ],
+       "mean_reward_raw": 0.666666643,
+       "messages": 20,
+       "messages_per_success": 2.5,
+       "pass@1": 0.571428571,
+       "pass^1": 0.571428571,
+       "phi_final": 0.666666667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.188378033,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": null,
+        "q2": null,
+        "q3": null,
+        "q4": null
+       },
+       "stage_reach": -1.0,
+       "stage_reach_hist": {
+        "-1": 2
+       },
+       "steps": 17.714285714,
+       "tool_calls": 213
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 1.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 67564.75,
+       "tool_calls": 26.625,
+       "usd": 0.278181,
+       "wall_s": 41.893875
+      },
+      "tokens": 540518,
+      "usd": 2.225448,
+      "wall_s": 335.151
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 14,
+       "fully_masked_tasks": 0,
+       "masked": 0,
+       "measured": 14,
+       "measured_tasks": 7
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "approvals": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "outcome": {
+         "pass_rate": 0.9,
+         "passed": 9,
+         "total": 10
+        },
+        "policy": {
+         "pass_rate": 0.9,
+         "passed": 9,
+         "total": 10
+        },
+        "refund_policy": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "scope": {
+         "pass_rate": 1.0,
+         "passed": 10,
+         "total": 10
+        },
+        "t1": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "t2": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 2
+        },
+        "t3": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        }
+       },
+       "macro_pass_rate": 0.85,
+       "verifier_level_pass_rate": 0.9
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 0.666666643,
+      "mean_reward": 0.666666643,
+      "mean_reward_ci": [
+       0.380952,
+       0.904762
+      ],
+      "mean_reward_raw": 0.666666643,
+      "messages": 20,
+      "messages_per_success": 2.5,
+      "pass@1": 0.571428571,
+      "pass^1": 0.571428571,
+      "phi_final": 0.666666667,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": 0.188378033,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": {
+       "q1": null,
+       "q2": null,
+       "q3": null,
+       "q4": null
+      },
+      "stage_reach": -1.0,
+      "stage_reach_hist": {
+       "-1": 2
+      },
+      "steps": 17.714285714,
+      "tool_calls": 213
+     }
+    },
+    "policy": "llm:anthropic/claude-sonnet-5.5",
+    "tasks": {
+     "toy/helpdesk/all_tickets@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 82872,
+       "usd": 0.280478,
+       "wall_s": 67.689
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "refund_policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "t1": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.8,
+        "verifier_level_pass_rate": 0.8
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 8,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 24.0,
+       "tool_calls": 37
+      }
+     },
+     "toy/helpdesk_backlog/s21-n12@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 305870,
+       "usd": 1.348358,
+       "wall_s": 109.953
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {},
+        "macro_pass_rate": null,
+        "verifier_level_pass_rate": null
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.6666665,
+       "mean_reward": 0.6666665,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.6666665,
+       "messages": 7,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.666666667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.188378033,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": null,
+        "q2": null,
+        "q3": null,
+        "q4": null
+       },
+       "stage_reach": -1.0,
+       "stage_reach_hist": {
+        "-1": 2
+       },
+       "steps": 56.0,
+       "tool_calls": 103
+      }
+     },
+     "toy/helpdesk_v2/t1_duplicate": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 14035.0,
+        "tool_calls": 7.0,
+        "usd": 0.067343,
+        "wall_s": 13.597
+       },
+       "tokens": 28070,
+       "usd": 0.134686,
+       "wall_s": 27.194
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 8.0,
+       "tool_calls": 14
+      }
+     },
+     "toy/helpdesk_v2/t2_approval": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 35088.0,
+        "tool_calls": 14.0,
+        "usd": 0.162466,
+        "wall_s": 31.52
+       },
+       "tokens": 35088,
+       "usd": 0.162466,
+       "wall_s": 31.52
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.833333333,
+        "verifier_level_pass_rate": 0.833333333
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.5,
+       "mean_reward": 0.5,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.5,
+       "messages": 2,
+       "messages_per_success": 2.0,
+       "pass@1": 0.5,
+       "pass^1": 0.5,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 9.0,
+       "tool_calls": 14
+      }
+     },
+     "toy/helpdesk_v2/t3_in_transit": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 10172.5,
+        "tool_calls": 6.0,
+        "usd": 0.025117,
+        "wall_s": 10.9025
+       },
+       "tokens": 20345,
+       "usd": 0.050234,
+       "wall_s": 21.805
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 7.0,
+       "tool_calls": 12
+      }
+     },
+     "toy/helpdesk_v2/t4_decoy": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 35636.0,
+        "tool_calls": 13.0,
+        "usd": 0.141558,
+        "wall_s": 33.792
+       },
+       "tokens": 35636,
+       "usd": 0.141558,
+       "wall_s": 33.792
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.833333333,
+        "verifier_level_pass_rate": 0.833333333
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.5,
+       "mean_reward": 0.5,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.5,
+       "messages": 3,
+       "messages_per_success": 3.0,
+       "pass@1": 0.5,
+       "pass^1": 0.5,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 9.0,
+       "tool_calls": 13
+      }
+     },
+     "toy/helpdesk_v2/t5_compose": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 16318.5,
+        "tool_calls": 10.0,
+        "usd": 0.053834,
+        "wall_s": 21.599
+       },
+       "tokens": 32637,
+       "usd": 0.107668,
+       "wall_s": 43.198
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 11.0,
+       "tool_calls": 20
+      }
+     }
+    }
+   },
+   {
+    "harness": "native:llm-tool@1",
+    "horizons": {
+     "all": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 47449.6,
+        "tool_calls": 22.0,
+        "usd": 0.065744,
+        "wall_s": 41.9543
+       },
+       "tokens": 474496,
+       "usd": 0.657436,
+       "wall_s": 419.543
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 14,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 14,
+        "measured_tasks": 7
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "outcome": {
+          "pass_rate": 0.8,
+          "passed": 8,
+          "total": 10
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 10,
+          "total": 10
+         },
+         "refund_policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 10,
+          "total": 10
+         },
+         "t1": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.7875,
+        "verifier_level_pass_rate": 0.875
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.714285714,
+       "mean_reward": 0.714285714,
+       "mean_reward_ci": [
+        0.428571,
+        1.0
+       ],
+       "mean_reward_raw": 0.714285714,
+       "messages": 60,
+       "messages_per_success": 6.0,
+       "pass@1": 0.714285714,
+       "pass^1": 0.714285714,
+       "phi_final": 1.0,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.267731311,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": 48.5,
+        "q2": 56.5,
+        "q3": 61.0,
+        "q4": 62.5
+       },
+       "stage_reach": 3.0,
+       "stage_reach_hist": {
+        "3": 2
+       },
+       "steps": 21.214285714,
+       "tool_calls": 220
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 1.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 47449.6,
+       "tool_calls": 22.0,
+       "usd": 0.065744,
+       "wall_s": 41.9543
+      },
+      "tokens": 474496,
+      "usd": 0.657436,
+      "wall_s": 419.543
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 14,
+       "fully_masked_tasks": 0,
+       "masked": 0,
+       "measured": 14,
+       "measured_tasks": 7
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "approvals": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "outcome": {
+         "pass_rate": 0.8,
+         "passed": 8,
+         "total": 10
+        },
+        "policy": {
+         "pass_rate": 1.0,
+         "passed": 10,
+         "total": 10
+        },
+        "refund_policy": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "scope": {
+         "pass_rate": 1.0,
+         "passed": 10,
+         "total": 10
+        },
+        "t1": {
+         "pass_rate": 0.5,
+         "passed": 1,
+         "total": 2
+        },
+        "t2": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 2
+        },
+        "t3": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        }
+       },
+       "macro_pass_rate": 0.7875,
+       "verifier_level_pass_rate": 0.875
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 0.714285714,
+      "mean_reward": 0.714285714,
+      "mean_reward_ci": [
+       0.428571,
+       1.0
+      ],
+      "mean_reward_raw": 0.714285714,
+      "messages": 60,
+      "messages_per_success": 6.0,
+      "pass@1": 0.714285714,
+      "pass^1": 0.714285714,
+      "phi_final": 1.0,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": 0.267731311,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": {
+       "q1": 48.5,
+       "q2": 56.5,
+       "q3": 61.0,
+       "q4": 62.5
+      },
+      "stage_reach": 3.0,
+      "stage_reach_hist": {
+       "3": 2
+      },
+      "steps": 21.214285714,
+      "tool_calls": 220
+     }
+    },
+    "policy": "llm:openai/gpt-6.1-sol",
+    "tasks": {
+     "toy/helpdesk/all_tickets@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 44960,
+       "usd": 0.171938,
+       "wall_s": 85.638
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "refund_policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "t1": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.7,
+        "verifier_level_pass_rate": 0.7
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 19,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 29.5,
+       "tool_calls": 38
+      }
+     },
+     "toy/helpdesk_backlog/s21-n12@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 152641.5,
+        "tool_calls": 55.5,
+        "usd": 0.117459,
+        "wall_s": 61.492
+       },
+       "tokens": 305283,
+       "usd": 0.234918,
+       "wall_s": 122.984
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {},
+        "macro_pass_rate": null,
+        "verifier_level_pass_rate": null
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 16,
+       "messages_per_success": 8.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 1.0,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.267731311,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": 48.5,
+        "q2": 56.5,
+        "q3": 61.0,
+        "q4": 62.5
+       },
+       "stage_reach": 3.0,
+       "stage_reach_hist": {
+        "3": 2
+       },
+       "steps": 66.0,
+       "tool_calls": 111
+      }
+     },
+     "toy/helpdesk_v2/t1_duplicate": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 20430,
+       "usd": 0.052307,
+       "wall_s": 40.163
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.666666667,
+        "verifier_level_pass_rate": 0.666666667
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 6,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 9.0,
+       "tool_calls": 10
+      }
+     },
+     "toy/helpdesk_v2/t2_approval": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 11521.5,
+        "tool_calls": 7.0,
+        "usd": 0.025208,
+        "wall_s": 17.908
+       },
+       "tokens": 23043,
+       "usd": 0.050417,
+       "wall_s": 35.816
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 4,
+       "messages_per_success": 2.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 10.0,
+       "tool_calls": 14
+      }
+     },
+     "toy/helpdesk_v2/t3_in_transit": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 5933.0,
+        "tool_calls": 6.0,
+        "usd": 0.014258,
+        "wall_s": 11.7025
+       },
+       "tokens": 11866,
+       "usd": 0.028516,
+       "wall_s": 23.405
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 7.0,
+       "tool_calls": 12
+      }
+     },
+     "toy/helpdesk_v2/t4_decoy": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 13906.5,
+        "tool_calls": 7.0,
+        "usd": 0.026048,
+        "wall_s": 23.3765
+       },
+       "tokens": 27813,
+       "usd": 0.052095,
+       "wall_s": 46.753
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 6,
+       "messages_per_success": 3.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 11.0,
+       "tool_calls": 14
+      }
+     },
+     "toy/helpdesk_v2/t5_compose": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 20550.5,
+        "tool_calls": 10.5,
+        "usd": 0.033622,
+        "wall_s": 32.392
+       },
+       "tokens": 41101,
+       "usd": 0.067245,
+       "wall_s": 64.784
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 9,
+       "messages_per_success": 4.5,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 16.0,
+       "tool_calls": 21
+      }
+     }
+    }
+   },
+   {
+    "harness": "native:llm-tool@1",
+    "horizons": {
+     "all": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 203595.0,
+        "tool_calls": 39.333333,
+        "usd": 0.037589,
+        "wall_s": 219.228333
+       },
+       "tokens": 1221570,
+       "usd": 0.225533,
+       "wall_s": 1315.37
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 14,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 14,
+        "measured_tasks": 7
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "outcome": {
+          "pass_rate": 0.9,
+          "passed": 9,
+          "total": 10
+         },
+         "policy": {
+          "pass_rate": 0.7,
+          "passed": 7,
+          "total": 10
+         },
+         "refund_policy": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 10,
+          "total": 10
+         },
+         "t1": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.6375,
+        "verifier_level_pass_rate": 0.775
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.523809571,
+       "mean_reward": 0.523809571,
+       "mean_reward_ci": [
+        0.142857,
+        0.857143
+       ],
+       "mean_reward_raw": 0.523809571,
+       "messages": 29,
+       "messages_per_success": 4.833333,
+       "pass@1": 0.428571429,
+       "pass^1": 0.428571429,
+       "phi_final": 0.666666667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.335,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": null,
+        "q2": null,
+        "q3": null,
+        "q4": null
+       },
+       "stage_reach": -1.0,
+       "stage_reach_hist": {
+        "-1": 2
+       },
+       "steps": 19.928571429,
+       "tool_calls": 236
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 1.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 203595.0,
+       "tool_calls": 39.333333,
+       "usd": 0.037589,
+       "wall_s": 219.228333
+      },
+      "tokens": 1221570,
+      "usd": 0.225533,
+      "wall_s": 1315.37
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 14,
+       "fully_masked_tasks": 0,
+       "masked": 0,
+       "measured": 14,
+       "measured_tasks": 7
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "approvals": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "outcome": {
+         "pass_rate": 0.9,
+         "passed": 9,
+         "total": 10
+        },
+        "policy": {
+         "pass_rate": 0.7,
+         "passed": 7,
+         "total": 10
+        },
+        "refund_policy": {
+         "pass_rate": 0.5,
+         "passed": 1,
+         "total": 2
+        },
+        "scope": {
+         "pass_rate": 1.0,
+         "passed": 10,
+         "total": 10
+        },
+        "t1": {
+         "pass_rate": 0.5,
+         "passed": 1,
+         "total": 2
+        },
+        "t2": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 2
+        },
+        "t3": {
+         "pass_rate": 0.5,
+         "passed": 1,
+         "total": 2
+        }
+       },
+       "macro_pass_rate": 0.6375,
+       "verifier_level_pass_rate": 0.775
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 0.523809571,
+      "mean_reward": 0.523809571,
+      "mean_reward_ci": [
+       0.142857,
+       0.857143
+      ],
+      "mean_reward_raw": 0.523809571,
+      "messages": 29,
+      "messages_per_success": 4.833333,
+      "pass@1": 0.428571429,
+      "pass^1": 0.428571429,
+      "phi_final": 0.666666667,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": 0.335,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": {
+       "q1": null,
+       "q2": null,
+       "q3": null,
+       "q4": null
+      },
+      "stage_reach": -1.0,
+      "stage_reach_hist": {
+       "-1": 2
+      },
+      "steps": 19.928571429,
+      "tool_calls": 236
+     }
+    },
+    "policy": "llm:qwen/qwen3-235b-a22b-2507",
+    "tasks": {
+     "toy/helpdesk/all_tickets@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 187081,
+       "usd": 0.036522,
+       "wall_s": 317.321
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "approvals": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "refund_policy": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "t1": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "t2": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "t3": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.5,
+        "verifier_level_pass_rate": 0.5
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 9,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 28.0,
+       "tool_calls": 45
+      }
+     },
+     "toy/helpdesk_backlog/s21-n12@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 805113,
+       "usd": 0.129717,
+       "wall_s": 462.247
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {},
+        "macro_pass_rate": null,
+        "verifier_level_pass_rate": null
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.666667,
+       "mean_reward": 0.666667,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.666667,
+       "messages": 9,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.666666667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.335,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": null,
+        "q2": null,
+        "q3": null,
+        "q4": null
+       },
+       "stage_reach": -1.0,
+       "stage_reach_hist": {
+        "-1": 2
+       },
+       "steps": 55.0,
+       "tool_calls": 99
+      }
+     },
+     "toy/helpdesk_v2/t1_duplicate": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 14130.0,
+        "tool_calls": 8.0,
+        "usd": 0.002988,
+        "wall_s": 30.0525
+       },
+       "tokens": 28260,
+       "usd": 0.005976,
+       "wall_s": 60.105
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 9.0,
+       "tool_calls": 16
+      }
+     },
+     "toy/helpdesk_v2/t2_approval": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 32845,
+       "usd": 0.010091,
+       "wall_s": 102.217
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.666666667,
+        "verifier_level_pass_rate": 0.666666667
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 10.0,
+       "tool_calls": 18
+      }
+     },
+     "toy/helpdesk_v2/t3_in_transit": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 14560.0,
+        "tool_calls": 8.0,
+        "usd": 0.003829,
+        "wall_s": 51.0995
+       },
+       "tokens": 29120,
+       "usd": 0.007658,
+       "wall_s": 102.199
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 9.0,
+       "tool_calls": 16
+      }
+     },
+     "toy/helpdesk_v2/t4_decoy": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 53065,
+       "usd": 0.014615,
+       "wall_s": 129.886
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.666666667,
+        "verifier_level_pass_rate": 0.666666667
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 5,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 12.0,
+       "tool_calls": 17
+      }
+     },
+     "toy/helpdesk_v2/t5_compose": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 43043.0,
+        "tool_calls": 12.5,
+        "usd": 0.010476,
+        "wall_s": 70.6975
+       },
+       "tokens": 86086,
+       "usd": 0.020953,
+       "wall_s": 141.395
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "outcome": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "policy": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "scope": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 6,
+       "messages_per_success": 3.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 16.5,
+       "tool_calls": 25
+      }
+     }
+    }
+   }
+  ],
+  "threshold": 1.0
+ },
+ "title": "toy-live"
+}

@@ -88,3 +88,22 @@ async def forge(out: Path, store: Path) -> list:
     col: list = []
     await world_synth(out=Path(out), collect=col, store=Path(store))
     return col
+
+
+def fixtures() -> list[dict]:
+    """The helpdesk grader's designed negatives (``verify.NEGATIVES``): each must score 0 and fail its gate; gold scores 1."""
+    from crucible_pack_toy.runtime import HelpdeskTask
+    from crucible_pack_toy.verify import GOLD, NEGATIVES
+
+    return [{"name": "gold", "task": HelpdeskTask(), "actions": list(GOLD), "reward": 1.0}] + [
+        {"name": name, "task": HelpdeskTask(), "actions": list(acts), "reward": 0.0, "fails_gate": gate} for name, (acts, gate, _why) in NEGATIVES.items()]
+
+
+async def model(traces: list) -> dict:
+    """The M5 workflow model of the ticket workflow: milestones mined from good dev tickets, induced and named stages."""
+    from crucible_pack_toy.m56 import pipeline as p
+
+    dev = sorted((t for t in traces if t.source.ref in p.DEV), key=lambda t: t.source.ref)
+    graph, mined = await p.build_graph(dev)
+    return {"milestones": [m.model_dump(mode="json") for m in graph.milestones], "stages": [s.model_dump(mode="json") if hasattr(s, "model_dump") else s for s in graph.stages],
+            "mined": mined, "dev_traces": [t.trace_id for t in dev]}

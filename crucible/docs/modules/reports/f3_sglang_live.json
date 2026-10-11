@@ -1,0 +1,37 @@
+{
+ "probe": {
+  "prompt_tokens": 19,
+  "first": [
+   151644,
+   872,
+   198,
+   675
+  ]
+ },
+ "generate": {
+  "tokens": 6,
+  "logprobs": 6,
+  "finish": "stop",
+  "version": 0,
+  "text": "red, blue, green",
+  "greedy_deterministic": true,
+  "ok": true
+ },
+ "abort": {
+  "finish": "abort",
+  "tokens": 175,
+  "ok": true
+ },
+ "barrier": {
+  "same_after_wake": true,
+  "ok": true
+ },
+ "weight_load": {
+  "version": 1,
+  "same_output": true,
+  "ok": true
+ },
+ "pass": true,
+ "sglang": "0.5.21",
+ "model": "Qwen/Qwen3-0.6B"
+}

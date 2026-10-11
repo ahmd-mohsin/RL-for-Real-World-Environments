@@ -62,3 +62,14 @@ def generate(seed: int) -> GreetingTask:
 def policies() -> list[PolicyRef]:
     return [PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", a.task.gold())}),
             PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+
+
+def fixtures() -> list[dict]:
+    """Designed cases with their exact expected grade: the grader must reject near misses, not only the empty episode."""
+    t = GreetingTask(0)
+    write = lambda path, content: [ToolCall(tool_call_id="f1", function_name="ws.write_file", arguments={"path": path, "content": content})]  # noqa: E731
+    return [{"name": "gold", "task": t, "actions": t.gold(), "reward": 1.0},
+            {"name": "noop", "task": t, "actions": [], "reward": 0.0, "fails_gate": "outcome"},
+            {"name": "wrong_word", "task": t, "actions": write("greeting.txt", "goodbye\n"), "reward": 0.0, "fails_gate": "outcome"},
+            {"name": "wrong_file", "task": t, "actions": write("greetings.txt", t.word + "\n"), "reward": 0.0, "fails_gate": "outcome"},
+            {"name": "no_newline", "task": t, "actions": write("greeting.txt", t.word), "reward": 0.0, "fails_gate": "outcome"}]

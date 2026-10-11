@@ -193,3 +193,48 @@ class FibWorldTask:
             return Verdict(r.stdout.split() == ["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], {"stdout": r.stdout[-200:]})
 
         return await Plan(self.id, [Gate("output")], [Check("output", "output", output)]).arun(Context(Trusted(Path(workdir) / "grade")))
+
+
+WORDS = ["amber", "basil", "cedar", "delta", "ember", "fjord", "glade", "harbor", "indigo", "juniper", "kestrel", "lumen", "meadow", "nectar",
+         "onyx", "pepper", "quartz", "raven", "sierra", "tundra", "umber", "violet", "willow", "xenon", "yarrow", "zephyr"]
+
+
+class WordFileTask:
+    """A seeded workspace task small enough for a sub-1B policy to learn by RL (the M12 learning-evidence gate): write
+    ``<name>.txt`` containing exactly ``<word>`` and a newline through the workspace's ``write_file`` tool. Graded from
+    the file; binary reward. Native backend, no shell, no Docker."""
+
+    world_id = "toy/wordfile"
+
+    def __init__(self, seed: int = 0):
+        import random
+
+        r = random.Random(f"toy/wordfile/{seed}")
+        self.seed, self.word, self.name = seed, r.choice(WORDS), r.choice(WORDS) + str(r.randrange(10, 99))
+        self.id = f"toy/wordfile/s{seed}@1"
+        self.instruction = (f"Use the workspace tools to create the file {self.name}.txt containing exactly the word {self.word} followed by a "
+                            "newline. Then reply that you are done.")
+
+    async def open(self, workdir: Path) -> World:
+        from crucible.core.schema.world import WorldSpec
+
+        root = (Path(workdir) / "ws").resolve()
+        spec = WorldSpec.model_validate({"world": self.world_id, "apps": [{"id": "ws", "template": "common/workspace",
+                                         "state": {"adapter": "fs", "params": {"root": str(root)}}, "params": {"shell": False}}],
+                                         "actors": [{"id": "agent", "kind": "policy", "tools": ["ws.*"]}]})
+        w = World(spec, instructions={"agent": self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
+        w._crucible_ws = root
+        await w.start()
+        await w.reset()
+        return w
+
+    async def grade(self, world: World, workdir: Path) -> GradeReport:
+        from crucible.verify.runtime.plan import Check, Gate, Plan, Verdict
+
+        path = world._crucible_ws / f"{self.name}.txt"
+
+        def content(_ctx) -> Verdict:
+            got = path.read_text() if path.exists() else None
+            return Verdict(got is not None and got.strip() == self.word, {"got": (got or "")[:100]})
+
+        return await Plan(self.id, [Gate("outcome")], [Check("file", "outcome", content)]).arun(Context(Trusted(Path(workdir))))

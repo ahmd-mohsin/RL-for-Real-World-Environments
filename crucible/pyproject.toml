@@ -51,6 +51,9 @@ crucible_verify = "crucible.interop.agentenv.plugin.steps:CrucibleVerifyStep"
 [project.entry-points."agent_env.artifacts"]
 crucible_ref = "crucible.interop.agentenv.plugin.artifacts:CrucibleRefArtifact"
 
+[project.entry-points."agent_env.explorer_plugins"]
+crucible = "crucible.interop.agentenv.explorer:CrucibleExplorerPlugin"
+
 [project.entry-points."crucible.packs"]
 
 [build-system]

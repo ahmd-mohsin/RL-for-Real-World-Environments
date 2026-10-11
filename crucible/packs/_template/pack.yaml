@@ -22,3 +22,4 @@ hooks:
   tasks: __PACK_PKG__.studio:tasks          # [(RunTask, gold actions)]: `pack check --level semantic` runs gold and no-op
   generator: __PACK_PKG__.studio:generate   # seed -> RunTask: fresh benchmark items
   policies: __PACK_PKG__.studio:policies    # scripted policies for a model-free `crucible bench run`
+  fixtures: __PACK_PKG__.studio:fixtures    # designed cases with exact expected grades: `pack check --level fixture`

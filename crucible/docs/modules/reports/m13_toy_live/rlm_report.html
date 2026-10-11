@@ -1,0 +1,23 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>toy-live-rlm</title><style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--line:#e5e5ea;--card:#f7f7f9}
+@media (prefers-color-scheme:dark){:root{--bg:#111214;--fg:#ececf0;--mut:#9a9aa3;--line:#2a2b30;--card:#1a1b1f}}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:24px 16px;max-width:1200px;margin:auto}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}.mut{color:var(--mut)}
+table{border-collapse:collapse;width:100%;margin:6px 0;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}th{font-weight:600}
+.scroll{overflow-x:auto}.cell{width:26px;height:18px;padding:0;border:1px solid var(--bg)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0}
+.waffle span{display:inline-block;width:12px;height:12px;margin:1px;border-radius:2px}
+</style></head><body>
+<h1>toy-live-rlm</h1><div class=mut>deterministic digest e3f60087010bcc65 · threshold 1.0 · masked samples are excluded from every quality metric</div>
+<h2>Models</h2><div class=scroll><table><tr><th>policy</th><th>harness</th><th>measured / masked</th><th>mean reward (raw)</th><th>95% CI</th><th>pass@1</th><th>pass^1</th><th>progress AUC</th><th>stage reach</th><th>regressions</th><th>msgs / success</th><th>USD / success</th></tr>
+<tr><td>llm:anthropic/claude-sonnet-5.5</td><td>rlm:c73141da7b@1</td><td>1 / 0</td><td>1.000 (1.000)</td><td>—</td><td>1.000</td><td>1.000</td><td>0.424</td><td>3.000</td><td>0</td><td>8.000</td><td>0.351</td></tr>
+</table></div>
+<h2>Progress Φ per normalized step</h2><div class=mut>mean Φ at the end of each of 10 step bins; one row per task</div>
+<div class=card><b>llm:anthropic/claude-sonnet-5.5@rlm:c73141da7b@1</b><div class=scroll><table><tr><th>task</th><th class=mut>10%</th><th class=mut>20%</th><th class=mut>30%</th><th class=mut>40%</th><th class=mut>50%</th><th class=mut>60%</th><th class=mut>70%</th><th class=mut>80%</th><th class=mut>90%</th><th class=mut>100%</th></tr>
+<tr><td>toy/helpdesk_backlog/s21-n12@1</td><td class=cell style='background:hsl(10,65%,62%)' title='0.000'></td><td class=cell style='background:hsl(10,65%,62%)' title='0.000'></td><td class=cell style='background:hsl(10,65%,62%)' title='0.000'></td><td class=cell style='background:hsl(10,65%,62%)' title='0.000'></td><td class=cell style='background:hsl(49,65%,56%)' title='0.333'></td><td class=cell style='background:hsl(79,65%,51%)' title='0.583'></td><td class=cell style='background:hsl(100,65%,48%)' title='0.750'></td><td class=cell style='background:hsl(130,65%,44%)' title='1.000'></td><td class=cell style='background:hsl(130,65%,44%)' title='1.000'></td><td class=cell style='background:hsl(130,65%,44%)' title='1.000'></td></tr>
+</table></div></div>
+<h2>Episodes</h2><div class=mut>one cell per episode: colour = reward; grey = masked</div>
+<div class='card waffle'><b>llm:anthropic/claude-sonnet-5.5@rlm:c73141da7b@1</b><br><span title='toy/helpdesk_backlog/s21-n12@1#0: 1.000' style='background:hsl(130,65%,44%)'></span></div>
+<h2>Reward vs cost</h2><svg viewBox="0 0 520 220" width="100%" style="max-width:520px" role="img" aria-label="reward vs cost"><line x1="36" y1="184" x2="484" y2="184" stroke="currentColor" opacity=".3"/><line x1="36" y1="36" x2="36" y2="184" stroke="currentColor" opacity=".3"/><text x="484" y="212" font-size="11" text-anchor="end">cost per episode</text><text x="8" y="26" font-size="11">mean reward</text><circle cx="484.0" cy="36.0" r="5" fill="currentColor"/><text x="492.0" y="40.0" font-size="11">llm:anthropic/claude-sonnet-5.5</text></svg>
+</body></html>

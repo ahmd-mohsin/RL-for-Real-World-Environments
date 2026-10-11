@@ -11,6 +11,7 @@ judge-default = "openrouter:anthropic/claude-haiku-5.5"   # different family tha
 policy-default = "openrouter:openai/gpt-6-luna"
 implementer-strong = "openrouter:anthropic/claude-sonnet-5.5"   # m14: RLM task-repair implementer (stronger than the policy default)
 reviewer-strong = "openrouter:openai/gpt-6.1-sol"   # m14: adversarial reviewer, a different family than the implementer
+open-default = "openrouter:qwen/qwen3-235b-a22b-2507"   # m13: the open-weights model in benchmark reports
 smoke-cheap = "openrouter:mistralai/mistral-nemo"    # cheapest tool-calling model (2026-10-09): smoke tests only
 
 # The lab RTX 5090 (shared machine: containers only, clean up, keep GPU work polite).
@@ -27,3 +28,4 @@ shared = true
 "mistralai/mistral-nemo" = [0.03, 0.03]
 "anthropic/claude-sonnet-5.5" = [2.0, 10.0]
 "openai/gpt-6.1-sol" = [2.0, 10.0]
+"qwen/qwen3-235b-a22b-2507" = [0.09, 0.55]   # m13 live bench: the open model (OpenRouter list price 2026-10-11)

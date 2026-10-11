@@ -41,16 +41,18 @@ def pack_new(name: str, dest: Path | None, as_json: bool) -> None:
 
 @pack.command("check")
 @click.argument("ref", required=False)
-@click.option("--level", type=click.Choice(["static", "semantic"]), default="static", show_default=True)
+@click.option("--level", type=click.Choice(["static", "fixture", "semantic"]), default="static", show_default=True)
 @click.option("--all", "all_", is_flag=True, help="every pack under packs/")
+@click.option("--allow", default="", help="requirements this machine satisfies, e.g. gpu,paid (docker is detected)")
 @click.option("--json", "as_json", is_flag=True)
-def pack_check(ref: str | None, level: str, all_: bool, as_json: bool) -> None:
-    """Validate a pack: manifest, placeholders, entry point, hooks, ingest (static); gold passes and no-op fails (semantic).
-    Exit 0 = pass or warn, 1 = a check failed."""
+def pack_check(ref: str | None, level: str, all_: bool, allow: str, as_json: bool) -> None:
+    """Validate a pack. static: manifest, placeholders, entry point, hooks, ingest; fixture: designed cases grade exactly;
+    semantic: gold passes and no-op fails. Exit 0 = pass or warn, 1 = a check failed."""
     from crucible.studio.pack import all_packs, check
 
     refs = [str(p) for p in all_packs()] if all_ else [ref or "."]
-    reports = [asyncio.run(check(r, level=level)) for r in refs]
+    allowed = tuple(x for x in allow.split(",") if x)
+    reports = [asyncio.run(check(r, level=level, allow=allowed)) for r in refs]
     if as_json:
         click.echo(json.dumps([r.to_json() for r in reports] if all_ else reports[0].to_json(), indent=1, sort_keys=True))
     else:
@@ -278,3 +280,41 @@ def bench_compare(base_dir, cand_dir, base_policy, cand_policy, threshold, as_js
     c = [e for e in load_run(cand_dir) if cand_policy in (None, e.policy)]
     r = compare(b, c, threshold=threshold)
     click.echo(json.dumps(r, indent=1, sort_keys=True) if as_json else to_markdown(base_policy or str(base_dir), cand_policy or str(cand_dir), r))
+
+
+@click.command("model")
+@click.argument("pack_ref")
+@click.option("--out", type=click.Path(path_type=Path), default=Path("data/model"), show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+def model(pack_ref, out, as_json) -> None:
+    """M5: the workflow model (milestones, stages) mined from a pack's ingested workflow logs."""
+    import tempfile
+
+    from crucible.studio.label import ingest as run
+    from crucible.studio.pack import find_pack, load_manifest, resolve
+
+    d = find_pack(pack_ref)
+    m = load_manifest(d)
+    if not m.hooks.model:
+        raise ValueError(f"pack {m.name} has no hooks.model")
+    with tempfile.TemporaryDirectory() as tmp:
+        traces = run(d, m, Path(tmp), labelled_only=True)
+    wm = asyncio.run(resolve(d, m.hooks.model)(traces))
+    Path(out).mkdir(parents=True, exist_ok=True)
+    (Path(out) / "workflow.json").write_text(json.dumps(wm, indent=1, sort_keys=True, default=str) + "\n")
+    _emit({"milestones": len(wm.get("milestones", [])), "stages": len(wm.get("stages", [])), "file": str(Path(out) / "workflow.json")}, as_json,
+          [f"{len(wm.get('milestones', []))} milestones, {len(wm.get('stages', []))} stages -> {Path(out) / 'workflow.json'}"])
+
+
+@click.command("export")
+@click.option("--to", "target", type=click.Choice(["canonical", "atif", "nemo-gym", "openenv"]), required=True)
+@click.option("--pack", "pack_ref", default=None)
+@click.option("--run", "run_dir", type=click.Path(path_type=Path, exists=True), default=None)
+@click.option("--out", type=click.Path(path_type=Path), default=Path("data/export"), show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+def export(target, pack_ref, run_dir, out, as_json) -> None:
+    """M11: export a pack's tasks (canonical replay, NeMo-Gym server, OpenEnv environment) or a run's episodes (ATIF)."""
+    from crucible.studio.export import export as run
+
+    r = asyncio.run(run(target, out=out, pack=pack_ref, run=run_dir))
+    _emit(r, as_json, [json.dumps(r, indent=1, default=str)])

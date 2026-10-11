@@ -1,0 +1,19 @@
+{
+ "native": {
+  "summary": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-native/bench/summary.json",
+  "episodes": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-native/bench/episodes.json",
+  "report": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-native/bench/report.html"
+ },
+ "spend": {
+  "implementer-strong": 1.323,
+  "reviewer-strong": 0.3558,
+  "open-default": 0.1197,
+  "rlm:implementer-strong": 0.3507
+ },
+ "rlm": {
+  "summary": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-rlm/bench/summary.json",
+  "episodes": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-rlm/bench/episodes.json",
+  "report": "/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/m13-live-8bx271e_/runs/toy-live-rlm/bench/report.html"
+ },
+ "total_spend_usd": 2.1492
+}

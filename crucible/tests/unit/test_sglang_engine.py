@@ -75,3 +75,23 @@ async def test_colocated_lifecycle_and_refused_weights():
     with pytest.raises(RuntimeError, match="refused"):
         await bad.load_weights("/ckpt/v2", 2)
     assert bad.version == 0
+
+
+async def test_resume_without_publish_reloads_released_weights():
+    """Live finding (Modal, SGLang 0.5.21): release_memory_occupation frees the weights without their contents, so a resume
+    with no publish in between generated from garbage. The engine reloads the last weights; after a publish it does not."""
+    eng, calls = _engine()
+    eng.weights_path = "/models/base"
+    await eng.pause()
+    await eng.resume()
+    loads = [b for p, b in calls if p == "/update_weights_from_disk"]
+    assert loads == [{"model_path": "/models/base"}] and ("/continue_generation", {}) in calls
+    calls.clear()
+    await eng.pause()
+    await eng.load_weights("/ckpt/v1", 1)
+    await eng.resume()
+    assert [b for p, b in calls if p == "/update_weights_from_disk"] == [{"model_path": "/ckpt/v1"}]  # the publish only, no second reload
+    blind, _ = _engine()
+    await blind.pause()
+    with pytest.raises(RuntimeError, match="no weights path"):
+        await blind.resume()

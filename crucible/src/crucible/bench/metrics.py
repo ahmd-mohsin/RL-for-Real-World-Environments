@@ -58,6 +58,7 @@ class Episode:
     probes_attempted: int = 0
     exposed: bool = False
     tags: list[str] = field(default_factory=list)
+    progress_tracked: bool = True  # Φ was measured at every step (progress.jsonl); recorded external runs carry only an end-state Φ
 
     @property
     def masked(self) -> bool:
@@ -95,16 +96,21 @@ def load_run(run_dir: Path, *, tags_of: Callable[[str], list[str]] | None = None
             elif e.get("actor") in policy_actors and e.get("type") == "message":
                 messages += 1
         ro = json.loads((adir / "rollout.json").read_text()) if (adir / "rollout.json").exists() else {}
+        tokens = int(sum((r.tokens or {}).values()))
+        if not tokens and (adir / "calls.json").exists():  # the run record carries no token counts: sum the model calls' usage
+            for cs in json.loads((adir / "calls.json").read_text()).values():
+                tokens += sum(int((c.get("usage") or {}).get("prompt_tokens") or 0) + int((c.get("usage") or {}).get("completion_tokens") or 0) for c in cs)
         comps = ro.get("reward_components") or {}
         timings = r.meta.get("timings") or {}
         task = str(sk.get("task") or r.task or "")
         out.append(Episode(
             task=task, policy=str(sk.get("policy") or r.policy), harness=str(sk.get("harness") or r.meta.get("harness") or ""),
             sample_idx=int(sk.get("sample_idx") or 0), attempt=r.attempt or "", reward=r.scored_reward(), gates=dict(r.meta.get("gates") or {}),
-            steps=int(r.steps or 0), stop=r.meta.get("stop"), cost_usd=float(r.cost_usd or 0.0), tokens=int(sum((r.tokens or {}).values())),
+            steps=int(r.steps or 0), stop=r.meta.get("stop"), cost_usd=float(r.cost_usd or 0.0), tokens=tokens,
             tool_calls=tool_calls, messages=messages, wall_s=float(sum(v for v in timings.values() if isinstance(v, (int, float)))),
             gpu_s=float(r.meta.get("gpu_s") or 0.0), rows=_jsonl(adir / "progress.jsonl"),
             phi_final=(r.meta.get("progress") or {}).get("phi_final"), probes_attempted=int(comps.get("probe/attempted") or 0),
+            progress_tracked=(adir / "progress.jsonl").exists(),
             exposed=bool(r.failure and "exposed" in (r.failure.kind or "")), tags=list(tags_of(task) if tags_of else [])))
     return out
 
@@ -266,7 +272,7 @@ def summarize_group(eps: Sequence[Episode], *, ks: Sequence[int] = (1,), thresho
     if not scored:  # an all-masked group: coverage only, never an invented 0
         return {"deterministic": {"coverage": cov}, "cost": {"usd": round(sum(e.cost_usd for e in eps), 6)}}
     succ = [e for e in scored if e.passed(threshold)]
-    aucs = [progress_auc(e.rows, e.steps) for e in scored if e.phi_final is not None]  # only where Φ was instrumented (subgoals)
+    aucs = [progress_auc(e.rows, e.steps) for e in scored if e.progress_tracked and e.phi_final is not None]  # only where Φ was measured per step
     st_of = (lambda t: stages_of(t)) if stages_of else (lambda t: stages)
     staged = [(e, st_of(e.task)) for e in scored if st_of(e.task)]
     reach = [stage_reach(final_milestones(e.rows), st)[0] for e, st in staged]
@@ -336,7 +342,7 @@ def heatmap(eps: Sequence[Episode], *, bins: int = 10) -> dict[str, dict[str, li
     """Mean Φ per normalized-step bin, per model (policy@harness) and task: the report's per-step heatmap."""
     acc: dict[str, dict[str, list[list[float]]]] = {}
     for e in eps:
-        if e.masked:
+        if e.masked or not e.progress_tracked:
             continue
         T = max(e.steps, max((int(r["step"]) for r in e.rows), default=0), 1)
         pts = sorted((int(r["step"]), float(r["phi"])) for r in e.rows)

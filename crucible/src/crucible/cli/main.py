@@ -4,7 +4,7 @@
     crucible build toy                        workflows -> RL tasks (forge, accept, export) + a benchmark report
     crucible pack new <name> | pack check     scaffold / validate a domain pack
     crucible bench run|report|compare         M13 benchmarks
-    crucible ingest | signals | forge | accept | train      the module steps one at a time
+    crucible ingest | signals | model | forge | accept | export | train   the module steps one at a time
     crucible registry | task show | seeds | world ...       inspection and World audits
 
 Subcommands are imported only when invoked (rLLM's ``_LazyGroup``, NeMo-Gym's command table), so ``crucible --help``
@@ -31,6 +31,8 @@ LAZY = {  # name -> (module:attr, short help)
     "forge": ("crucible.cli.studio:forge", "M8: construct tasks from a pack's workflows."),
     "accept": ("crucible.cli.studio:accept", "M9: model-free acceptance checks on a pack's forged tasks."),
     "train": ("crucible.cli.studio:train", "M12: run a training job spec."),
+    "model": ("crucible.cli.studio:model", "M5: the workflow model (milestones, stages) of a pack's logs."),
+    "export": ("crucible.cli.studio:export", "M11: export tasks (canonical, NeMo-Gym, OpenEnv) or episodes (ATIF)."),
 }
 USER_ERRORS = (ValueError, LookupError, FileNotFoundError, FileExistsError, PermissionError)
 

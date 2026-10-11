@@ -25,3 +25,5 @@ hooks:
   stages: crucible_pack_toy.studio:stages
   forge: crucible_pack_toy.studio:forge            # world_synth (scripted roles, no paid calls) -> constructed tasks
   policies: crucible_pack_toy.studio:policies      # scripted oracle / half / no-op for a model-free benchmark
+  fixtures: crucible_pack_toy.studio:fixtures      # gold + the 7 designed negatives of the helpdesk grader
+  model: crucible_pack_toy.studio:model            # the M5 workflow model (milestones, stages) of the ticket logs

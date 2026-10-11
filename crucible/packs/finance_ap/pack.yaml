@@ -1,0 +1,24 @@
+# The finance_ap pack's manifest (schema: crucible.core.schema.pack.PackManifest).
+schema_version: 1
+name: finance_ap
+version: 0.1.0
+description: Accounts payable (the thesis MVP domain) - pending invoices decided under a 3-way-match policy with fraud controls (duplicates, blocked vendors, unverified bank changes, price tolerance, missing receipts). Seeded worlds, state-graded, Φ per invoice.
+license: Apache-2.0
+authors: [crucible]
+kind: domain
+package: crucible_pack_finance_ap
+entry_point: crucible_pack_finance_ap:register
+template_version: 1
+reward:
+  range: [0.0, 1.0]
+  higher_is_better: true
+determinism: seeded
+label:
+  policy_roles: [agent]
+  threshold: 1.0
+hooks:
+  tasks: crucible_pack_finance_ap.studio:tasks          # two seeded AP worlds with their gold decisions
+  generator: crucible_pack_finance_ap.studio:generate   # seed -> a fresh AP world (tolerance and cases drawn)
+  stages: crucible_pack_finance_ap.studio:stages
+  policies: crucible_pack_finance_ap.studio:policies    # scripted oracle / approve-everything / no-op
+  fixtures: crucible_pack_finance_ap.studio:fixtures    # gold + 5 control breaches (score 0) + 2 near misses (partial credit) + no-op

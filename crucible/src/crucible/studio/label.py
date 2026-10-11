@@ -26,20 +26,60 @@ from typing import Any
 from crucible.credit import datasets as ds
 
 
-def ingest(pack_dir: Path, manifest: Any, store_dir: Path) -> list[Any]:
-    from crucible.connectors.base import ingest as m3_ingest
+def _paths(v: Any, pack_dir: Path) -> Any:
+    if isinstance(v, str) and v.startswith(("./", "../")):
+        return Path(pack_dir) / v
+    if isinstance(v, dict):
+        return {k: _paths(x, pack_dir) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_paths(x, pack_dir) for x in v]
+    return v
+
+
+def connector_for(spec: Any, pack_dir: Path) -> Any:
     from crucible.connectors.file_drop import FieldMap, FileDropConnector
+    from crucible.core.registry import get_registry
+
+    if spec.connector == "file_drop":
+        return FileDropConnector(FieldMap(family=spec.family, extra=list(spec.extra)))
+    target = get_registry().get("connector", spec.connector)
+    if isinstance(target, str):
+        from crucible.studio.pack import resolve as _resolve
+
+        target = _resolve(pack_dir, target)
+    return target(**_paths(spec.init, pack_dir))
+
+
+def ingest(pack_dir: Path, manifest: Any, store_dir: Path, *, labelled_only: bool = False) -> list[Any]:
+    """M3 over every ``ingest`` source of the pack (fetch, normalize, redact, store; idempotent). Returns the traces of
+    those sources, by the keys the store returned (not by an id prefix: connectors name traces their own way)."""
+    from crucible.connectors.base import ingest as m3_ingest
+    from crucible.connectors.redact import RedactionPolicy
     from crucible.connectors.trace_store import TraceStore
     from crucible.core.store import Store
 
     ts = TraceStore(Store(Path(store_dir)))
     keys: list[str] = []
     for spec in manifest.ingest:
-        conn = FileDropConnector(FieldMap(family=spec.family, extra=list(spec.extra)))
-        refs = list(conn.discover({"glob": str(Path(pack_dir) / spec.glob)}))
-        keys += m3_ingest(conn, refs, ts)
-    ids = sorted({i for i in ts.ids() if any(i.startswith(s.family + ":") for s in manifest.ingest)})
-    return [ts.get(i) for i in ids]
+        if labelled_only and not spec.label:
+            continue
+        conn = connector_for(spec, pack_dir)
+        if spec.connector == "file_drop":
+            base = Path(pack_dir) / spec.root if spec.root else Path(pack_dir)
+            refs = list(conn.discover({"glob": str(base / spec.glob)}))
+        else:
+            refs = list(getattr(conn, spec.discover)(_paths(spec.scope, pack_dir)) if spec.scope or spec.discover != "discover" else conn.discover())
+        policy = RedactionPolicy.with_env_file(Path(pack_dir) / spec.redaction_env) if spec.redaction_env else RedactionPolicy()
+        keys += m3_ingest(conn, refs, ts, policy=policy)
+    from crucible.core.schema.trace import Trace
+
+    out, seen = [], set()
+    for k in keys:  # the store returns content keys: each is one stored version of a trace
+        t = ts.store.get_doc(k, Trace)
+        if t.trace_id not in seen:
+            seen.add(t.trace_id)
+            out.append(ts.get(t.trace_id))  # the latest version of that trace id
+    return sorted(out, key=lambda t: t.trace_id)
 
 
 def _resolved(out: Path, cmd: str, cfg: dict[str, Any]) -> None:
@@ -68,11 +108,11 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
         if not m.ingest:
             raise ValueError(f"pack {m.name} declares no ingest sources: nothing to label (add `ingest:` to pack.yaml)")
         if dry_run:
-            files = sorted(str(p) for s in m.ingest for p in pack_dir.glob(s.glob))
+            files = sorted(str(p) for s in m.ingest if s.glob for p in (pack_dir / (s.root or ".")).glob(s.glob))
             return {**summary, "dry_run": True, "would_ingest": files, "credit_hook": m.hooks.credit}
         out.mkdir(parents=True, exist_ok=True)
         _resolved(out, "label", cfg | {"pack_dir": str(pack_dir), "threshold": thr})
-        traces = ingest(pack_dir, m, out / "store")
+        traces = ingest(pack_dir, m, out / "store", labelled_only=True)
         labelled_traces = []
         sig_counts: dict[str, int] = {}
         for t in traces:

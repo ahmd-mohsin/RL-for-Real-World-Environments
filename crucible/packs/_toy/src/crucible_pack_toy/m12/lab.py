@@ -25,6 +25,10 @@ RUN = r"""#!/bin/bash
 cd ~/REMOTE
 echo $$ > runner.pid
 mkdir -p out hf
+# perf-sensitive grades (M7 golden, M8 forge) must never share the GPU with training: wait for their runners to finish
+for R in crucible_golden crucible_golden_t3 crucible_forge crucible_labstack; do
+  while kill -0 $(cat ~/rlenv/$R/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the $R runner" > status.txt; sleep 300; done
+done
 for ATTEMPT in $(seq 1 30); do
   QUIET=0
   while [ "$QUIET" -lt 3 ]; do

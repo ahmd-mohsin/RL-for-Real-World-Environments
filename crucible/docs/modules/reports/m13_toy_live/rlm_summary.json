@@ -1,0 +1,209 @@
+{
+ "digest": "e3f60087010bcc65",
+ "summary": {
+  "ks": [
+   1
+  ],
+  "models": [
+   {
+    "harness": "rlm:c73141da7b@1",
+    "horizons": {
+     "all": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 161263.0,
+        "tool_calls": 98.0,
+        "usd": 0.350726,
+        "wall_s": 73.76
+       },
+       "tokens": 161263,
+       "usd": 0.350726,
+       "wall_s": 73.76
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {},
+        "macro_pass_rate": null,
+        "verifier_level_pass_rate": null
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 8,
+       "messages_per_success": 8.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 1.0,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.424454829,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": 72.0,
+        "q2": 72.0,
+        "q3": 78.0,
+        "q4": 81.0
+       },
+       "stage_reach": 3.0,
+       "stage_reach_hist": {
+        "3": 1
+       },
+       "steps": 107.0,
+       "tool_calls": 98
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 1.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 161263.0,
+       "tool_calls": 98.0,
+       "usd": 0.350726,
+       "wall_s": 73.76
+      },
+      "tokens": 161263,
+      "usd": 0.350726,
+      "wall_s": 73.76
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 1,
+       "fully_masked_tasks": 0,
+       "masked": 0,
+       "measured": 1,
+       "measured_tasks": 1
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {},
+       "macro_pass_rate": null,
+       "verifier_level_pass_rate": null
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 1.0,
+      "mean_reward": 1.0,
+      "mean_reward_ci": null,
+      "mean_reward_raw": 1.0,
+      "messages": 8,
+      "messages_per_success": 8.0,
+      "pass@1": 1.0,
+      "pass^1": 1.0,
+      "phi_final": 1.0,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": 0.424454829,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": {
+       "q1": 72.0,
+       "q2": 72.0,
+       "q3": 78.0,
+       "q4": 81.0
+      },
+      "stage_reach": 3.0,
+      "stage_reach_hist": {
+       "3": 1
+      },
+      "steps": 107.0,
+      "tool_calls": 98
+     }
+    },
+    "policy": "llm:anthropic/claude-sonnet-5.5",
+    "tasks": {
+     "toy/helpdesk_backlog/s21-n12@1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 1.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 161263.0,
+        "tool_calls": 98.0,
+        "usd": 0.350726,
+        "wall_s": 73.76
+       },
+       "tokens": 161263,
+       "usd": 0.350726,
+       "wall_s": 73.76
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {},
+        "macro_pass_rate": null,
+        "verifier_level_pass_rate": null
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 8,
+       "messages_per_success": 8.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 1.0,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": 0.424454829,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": {
+        "q1": 72.0,
+        "q2": 72.0,
+        "q3": 78.0,
+        "q4": 81.0
+       },
+       "stage_reach": 3.0,
+       "stage_reach_hist": {
+        "3": 1
+       },
+       "steps": 107.0,
+       "tool_calls": 98
+      }
+     }
+    }
+   }
+  ],
+  "threshold": 1.0
+ },
+ "title": "toy-live-rlm"
+}

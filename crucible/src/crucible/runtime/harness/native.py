@@ -165,5 +165,8 @@ class NativeHarness:
             t["cleanup"] = time.monotonic() - t0
             usd, unc = attempt.policy.spend()
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
+            own = [c for cs in (res.calls or {}).values() for c in cs if c.get("cost_usd") is not None]
+            if own:  # the attempt's own model calls: a client shared by concurrent attempts makes the spend delta count theirs too
+                res.cost_usd = round(sum(float(c["cost_usd"]) for c in own), 9)
             res.timings = {k: round(v, 3) for k, v in t.items()}
         return res

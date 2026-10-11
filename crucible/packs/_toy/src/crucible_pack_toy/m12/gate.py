@@ -10,6 +10,12 @@ loads them through ``/collective_rpc``; generation resumes on the new version. S
 masked/clipped token shares, aborts and publish latency are recorded per step.
 
     python -m crucible_pack_toy.m12.gate --steps 20 --out /work/out
+    python -m crucible_pack_toy.m12.gate --task wordfile --steps 40 --eval 32 --out /work/out   # learning evidence
+
+**Learning evidence** (``--eval N``): the policy is evaluated on N held-out task seeds (never trained on), ``--eval-k``
+samples each, at version 0 before any update and again with the final weights, through the same engine and rollout
+path. Training reward alone can rise from noise or from the sampler; held-out success at the final version is the
+claim. ``--task wordfile`` (``runtime.WordFileTask``) is small enough for a 0.6B policy to learn; the backlog is not.
 """
 
 from __future__ import annotations
@@ -73,6 +79,7 @@ async def run(args) -> dict:
     from crucible.train.weights import CheckpointPublisher
     from crucible.train.world_env import world_rollout
     from crucible_pack_toy.longhorizon.task import BacklogTask
+    from crucible_pack_toy.runtime import WordFileTask
 
     base = f"http://127.0.0.1:{args.port}"
     tok = AutoTokenizer.from_pretrained(args.model)
@@ -83,21 +90,61 @@ async def run(args) -> dict:
                                    autocast_dtype=torch.bfloat16)
     tr = TorchTrainer(pol, TrainerConfig(lr=args.lr, correction=Correction("dis"), token_budget=args.token_budget))
     pub = CheckpointPublisher(tr, pool, Path(args.out) / "ckpt", post_update_transform=lambda sd: {k: v.to(torch.bfloat16) for k, v in sd.items()})
-    tasks: dict[str, BacklogTask] = {}
+    tasks: dict[str, object] = {}
 
-    def task_for(prompt: str) -> BacklogTask:
+    def task_for(prompt: str):
         if prompt not in tasks:
-            tasks[prompt] = BacklogTask(seed=int(prompt[1:]), n=args.tickets)
+            tasks[prompt] = WordFileTask(seed=int(prompt[1:])) if args.task == "wordfile" else BacklogTask(seed=int(prompt[1:]), n=args.tickets)
         return tasks[prompt]
+
+    rollout = world_rollout(task_for, codec, max_steps=args.max_steps, max_tokens=args.max_tokens,
+                            context=ContextConfig(budget_tokens=args.context, keep_recent_turns=2))
+
+    async def evaluate(tag: str) -> dict:
+        """Held-out seeds (offset 10^6: disjoint from the training prompts), eval_k samples each, current engine weights."""
+        from crucible.train.engine import GenRequest
+
+        sem = asyncio.Semaphore(16)
+        rewards: list[float] = []
+        masked = 0
+
+        async def one(i: int, j: int) -> None:
+            nonlocal masked
+            rid = f"eval-{tag}-{i}-{j}"
+            calls = [0]
+
+            async def gen(ids, max_tokens, temperature):
+                calls[0] += 1
+                return await eng.generate(GenRequest(rid=rid, call_id=f"{rid}:c{calls[0]}", prompt_ids=ids, max_tokens=max_tokens, temperature=temperature,
+                                                     stop_ids=tuple(codec.eos_ids), seed=None))
+
+            async with sem:
+                ro = await rollout(rid, f"s{1_000_000 + i}", j, gen, temperature=args.eval_temperature, harness="eval")
+            if ro is None or ro.reward is None:
+                masked += 1
+            else:
+                rewards.append(float(ro.reward))
+
+        await asyncio.gather(*(one(i, j) for i in range(args.eval) for j in range(args.eval_k)))
+        n = len(rewards)
+        mean = sum(rewards) / n if n else None
+        se = (sum((r - mean) ** 2 for r in rewards) / max(1, n - 1) / n) ** 0.5 if n > 1 else None
+        return {"version": eng.version, "mean": mean, "se": se, "n": n, "masked": masked, "solved": sum(r >= 1.0 for r in rewards)}
+
+    before = await evaluate("before") if args.eval else None
 
     rt = Runtime(RuntimeConfig(topology=args.topology, steps=args.steps, max_turn_tokens=args.max_tokens, temperature=1.0, stop_ids=tuple(codec.eos_ids),
                                warmup_batches=0, sinks=from_spec(args.sinks or f"jsonl:{Path(args.out) / 'metrics'}", run_name="m12-gate")),
-                 SchedulerConfig(n=args.n, B=args.B, max_staleness=args.tau), pool, tr, pub, None, {"backlog": [f"s{i}" for i in range(100000)]},
-                 rollout_fn=world_rollout(task_for, codec, max_steps=args.max_steps, max_tokens=args.max_tokens,
-                                          context=ContextConfig(budget_tokens=args.context, keep_recent_turns=2)), harness="native:world-qwen@1")
+                 SchedulerConfig(n=args.n, B=args.B, max_staleness=args.tau), pool, tr, pub, None, {args.task: [f"s{i}" for i in range(100000)]},
+                 rollout_fn=rollout, harness="native:world-qwen@1")
     t0 = time.time()
     rep = await rt.run()
-    out = {"gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090", "model": args.model, "topology": args.topology, "steps": len(rep.steps),
+    after = None
+    if args.eval:
+        await eng.resume()  # the colocated engine may be asleep after the last barrier
+        after = await evaluate("after")
+    out = {"gate": "M12 GPU: colocated async GRPO on toy Worlds, lab RTX 5090", "model": args.model, "task": args.task, "topology": args.topology, "steps": len(rep.steps),
+           "eval": {"before": before, "after": after, "seeds": args.eval, "k": args.eval_k, "temperature": args.eval_temperature} if args.eval else None,
            "wall_s": round(time.time() - t0, 1), "aborted_calls": rep.aborted_calls, "reprefill_tokens": rep.reprefill_tokens, "publishes": rep.publishes,
            "masked_rollouts": rep.masked_rollouts, "max_untrained": rep.max_untrained, "per_step": [{"step": s.step, "version": s.version, **s.metrics} for s in rep.steps],
            "gpu": torch.cuda.get_device_name(0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2),
@@ -127,6 +174,10 @@ def main() -> None:
     ap.add_argument("--mem", type=float, default=0.35)
     ap.add_argument("--max-len", dest="max_len", type=int, default=8192)
     ap.add_argument("--out", default="/work/out")
+    ap.add_argument("--task", choices=["backlog", "wordfile"], default="backlog")
+    ap.add_argument("--eval", type=int, default=0, help="held-out task seeds evaluated before and after training (0 = off)")
+    ap.add_argument("--eval-k", dest="eval_k", type=int, default=4)
+    ap.add_argument("--eval-temperature", dest="eval_temperature", type=float, default=1.0)
     ap.add_argument("--sinks", default="", help="train.sinks spec, e.g. jsonl:DIR,tensorboard:DIR (default jsonl under --out)")
     a = ap.parse_args()
     Path(a.out).mkdir(parents=True, exist_ok=True)

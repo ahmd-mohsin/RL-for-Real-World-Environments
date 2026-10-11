@@ -42,7 +42,8 @@ class SubgoalSet(Protocol):
     async def evaluate(self, world: Any, ids: Iterable[str]) -> dict[str, bool]: ...
 
 
-ARG_KEYS = {"ticket_id": "ticket", "order_id": "order", "customer_id": "customer", "path": "doc", "id": "id"}
+ARG_KEYS = {"ticket_id": "ticket", "order_id": "order", "customer_id": "customer", "invoice_id": "invoice", "vendor_id": "vendor", "po_id": "po",
+            "path": "doc", "id": "id"}
 
 
 def keys_of_action(action: Any) -> set[str]:

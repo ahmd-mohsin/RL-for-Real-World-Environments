@@ -1,0 +1,36 @@
+# The coding pack's manifest (schema: crucible.core.schema.pack.PackManifest). Every studio command reads it.
+schema_version: 1
+name: coding
+version: 0.1.0
+description: Legacy GPU code migration (DESIGN §12). Seeds 01-04 are real migrations (OpenMP offload, Triton, Pallas, a PCL CUDA 12 port) with kit graders that run in GPU verifier images, plus derived span tasks and traps.
+license: Apache-2.0
+authors: [crucible]
+kind: coding
+package: crucible_pack_coding
+entry_point: crucible_pack_coding:register
+reward:
+  range: [0.0, 1.0]
+  higher_is_better: true
+determinism: seeded
+requires: [gpu, docker]   # live grading runs in the seeds' verifier images on a GPU host (the lab RTX 5090)
+ingest:
+  # frontier agent runs on tasks 01-04 (mini-swe-agent trajectories + final patches)
+  - {connector: agent_runs, family: coding/agent_run, init: {root: ../../../migration_tasks}, redaction_env: ../../../.env}
+  # the 55 PCL GPU-migration pull requests from the cached git history (offline: 0 API calls)
+  - connector: github_pr
+    family: coding/pull_request
+    init: {cache_dir: ../../data/cache/github, git_dir: ../../data/cache/git, now: "2026-10-09T12:00:00+00:00", offline: true}
+    discover: discover_git
+    scope:
+      repo: PointCloudLibrary/pcl
+      paths: [gpu, cuda]
+      title_re: '\bcuda\b|thrust|\bcub\b|nvcc|\bsm_\d|compute capabilit|texture|\bwarp|__shfl|deprecat|\bc\+\+1[47]\b|toolkit|kepler|maxwell|pascal|volta|turing|ampere|hopper|blackwell|\bport(?:s|ed|ing)?\b|moderni[sz]'   # = crucible_pack_coding.m3.gate.GPU_MIGRATION
+    redaction_env: ../../../.env
+  # the seeds' recorded grade reports (CI evidence, context for signals; not episodes)
+  - {connector: ci_logs, family: coding/ci_run, init: {root: ../../../migration_tasks}, scope: {glob: "*/runs/*/grade_report.json"}, label: false}
+label:
+  policy_roles: [agent]
+  threshold: 1.0
+hooks:
+  credit: crucible_pack_coding.studio:credit       # M5 milestones from each seed's oracle diff; Φ of each run's final patch; recorded outcome
+  fixtures: crucible_pack_coding.studio:fixtures   # CPU: the dense reward's oracle = 1 and base = 0 on all four seeds, and recorded runs at their outcome

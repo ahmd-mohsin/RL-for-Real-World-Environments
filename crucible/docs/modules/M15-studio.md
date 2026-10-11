@@ -68,7 +68,7 @@ correct|best|all` and `--max-per-task`.
 
 ## Gate
 
-`tests/unit/test_studio.py` (3). The toy part of the exit gate runs through the CLI exactly as the README quickstart does:
+`tests/unit/test_studio.py` (3), `test_packs.py` (4), `test_explorer_plugin.py` (1). The toy part of the exit gate runs through the CLI exactly as the README quickstart does:
 
 **`pack new demo` → `pack check --level semantic`:**
 - passes;
@@ -102,9 +102,17 @@ and the row shapes.
   them.
 - **Run-sourced rows carry no `tools` schemas,** because the run directory does not hold the World's tool list. Datasets
   from runs should record the tool cards.
-- **Not built:**
-  - `crucible model` (M5 workflow model as its own command; the toy `credit` hook mines it internally);
-  - `crucible export` to framework-native formats beyond the canonical outputs;
-  - the agentenv explorer UI plugin;
-  - `pack check --level fixture`.
-- **The exit gate's task02 part** (label and build on a coding seed from the README) is not run; it needs the lab GPU.
+- **Built 2026-10-11:**
+  - `crucible model <pack>`: the M5 workflow model (`workflow.json`; toy: 3 milestones, 3 stages);
+  - `crucible export --to canonical|atif|nemo-gym|openenv`:
+    - canonical replays (finance_ap gold 1.0);
+    - ATIF trajectories validated by Harbor's validator;
+    - a NeMo-Gym server launcher (the app is built to prove the tasks load);
+    - an OpenEnv environment module (it builds and resets in `.envs/openenv`);
+  - the agentenv explorer plugin (`crucible.interop.agentenv.explorer:CrucibleExplorerPlugin`, entry point
+    `agent_env.explorer_plugins`), serving packs, pack checks, runs, M13 summaries and reports, episodes and label
+    datasets under `/api/v1/crucible`. Run ids are validated and resolved inside the data root;
+  - `pack check --level fixture` (see `M14-packs.md`).
+- **`crucible label --pack coding`:** the 11 recorded frontier runs and 55 PCL PRs give 66 traces, 11 credited (end-state
+  Φ, recorded outcome), 62 KTO rows. **The `build` part of the task02 gate needs the lab GPU** (the coding forge's tasks
+  are graded in GPU verifier images).

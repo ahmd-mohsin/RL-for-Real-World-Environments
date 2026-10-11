@@ -32,7 +32,11 @@ head -c 600 label/sft.jsonl                  # messages, message_loss_mask, per-
 crucible build toy --out build
 open build/runs/bench-toy-build/bench/report.html
 
-# 5. Datasets and comparisons from any run
+# 5. A real domain: accounts payable (3-way match, fraud controls)
+crucible pack check finance_ap --level semantic
+crucible bench run finance_ap --out runs
+
+# 6. Datasets and comparisons from any run
 crucible label --run build/runs/bench-toy-build --out label_run          # best-vs-worst DPO pairs per task
 crucible bench compare build/runs/bench-toy-build build/runs/bench-toy-build \
     --base-policy scripted:oracle --cand-policy scripted:half              # flips, exact McNemar, paired CI
@@ -47,9 +51,10 @@ What each command does:
 | `crucible build P` | M3 → M8 forge → M9 accept (model-free checks) → M11 canonical export → M13 bench | task dirs, `accept.json`, `export/`, `report.html` |
 | `crucible bench run / report / compare` | M13 | pass@k, pass^k, gate profile, progress AUC, stage reach, regressions, cost, IRT, flips |
 | `crucible pack new / check` | M14 | a pack from `packs/_template`; a check report (exit 1 on failure) |
-| `crucible ingest / signals / forge / accept / train` | one module each | |
+| `crucible ingest / signals / model / forge / accept / export / train` | one module each | `export --to canonical|atif|nemo-gym|openenv` |
 
-Options are listed under `crucible <command> --help`. `--json` prints the full result. `--dry-run` (`label`, `build`)
+The packs are `toy`, `coding` (its live grading needs the lab GPU) and `finance_ap`. `crucible pack check --all` validates
+them all. Options are listed under `crucible <command> --help`. `--json` prints the full result. `--dry-run` (`label`, `build`)
 shows what would run. To make a pack your own, edit `src/<package>/studio.py` and `pack.yaml` (its hooks), then rerun
 `crucible pack check`.
 

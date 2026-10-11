@@ -1311,6 +1311,51 @@ What the study found:
 **Tests:** `test_bench.py` (4), `test_studio.py` (3). The module docs are `docs/modules/M13-bench.md` and
 `M15-studio.md`.
 
+**M13–M15 completed, paid models and GPUs, and an improvement study (2026-10-11).**
+
+**M14 packs:**
+- `pack.yaml` ingest now takes any registered connector (`init`, `scope`, `discover`, `redaction_env`).
+- Hooks `fixtures` and `model` were added; `pack check --level fixture` grades designed cases exactly; `requires` gates
+  only the semantic level.
+- The **coding pack** gets a manifest: the recorded runs and PRs as ingest sources, credit for recorded runs, and CPU
+  fixtures over the dense reward on all four seeds.
+- **`finance_ap`** is a real accounts-payable World (3-way match, fraud controls, a per-world tolerance, a controls gate,
+  Φ per invoice).
+
+**M15 studio:**
+- `crucible model` and `crucible export` (canonical, ATIF validated by Harbor, NeMo-Gym, OpenEnv);
+- the agentenv explorer plugin.
+
+**M13 with real models:**
+- Toy: Sonnet 5.5, Sol 6.1 and Qwen3-235B, $2.15. Sonnet under the RLM harness solved the 12-ticket backlog.
+- Coding: from recorded frontier runs, $0.
+
+**Live engine and run findings:**
+- **SGLang** (first live run, Modal L4, 0.5.21): the real server rejected nothing once prompts were token lists. But
+  released weights were not restored on resume without a publish, so greedy output changed. The engine now reloads the
+  last weights. Generate, abort, barrier and weight load all pass.
+- **Cost attribution:** concurrent attempts sharing a client were charged each other's spend. Cost now comes from the
+  attempt's own calls.
+
+**M12:**
+- The GPU gate gained a learnable task (`WordFileTask`) and held-out eval before and after training.
+- The trainer logs grad norm and lr.
+
+**Recorded runs:** the coding runs' per-step Φ cannot be replayed (python and `sed` edits), so they report end-state Φ
+only.
+
+**Improvement study.** One per module group, in `docs/research/improvements/` (index `00-index.md`). Correctness problems
+it found, now queued:
+- a candidate can turn a perf failure into a masked grade (M7);
+- dense credit ignores gates, with live evidence on finance_ap (M6);
+- judges read agent text unfenced;
+- circular M4 reliability;
+- uncontained harness exceptions;
+- broken layering with no CI;
+- the `SandboxPool` loop;
+- uncapped RLM sub-calls;
+- an id-only bench seal.
+
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
 `core/triggers.py` (Apache-2.0); core may not import agentenv.

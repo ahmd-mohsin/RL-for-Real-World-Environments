@@ -91,5 +91,27 @@ Contamination: canary, 13-gram, code-substring and near-duplicate hits, and no f
 - IRT puts oracle > half ≥ no-op, and the paired comparison finds 12 regressions with McNemar p < 0.001.
 - **A re-run in a fresh directory gives the same digest and byte-identical HTML.**
 
-**Not yet run (needs spend):** the MVP gate's report on tasks 01–04 and their span tasks for 2 frontier models and 1 open
-model. That needs paid model runs and the lab GPU.
+## Gate, real models
+
+**Toy, live (`crucible_pack_toy.bench_live`, $2.15, `reports/m13_toy_live/`).**
+- Setup: Claude Sonnet 5.5 and GPT-6.1 Sol (frontier), and Qwen3-235B (open), on 7 toy tasks (5 forged, helpdesk, a
+  12-ticket backlog), k = 2, native harness, every metric.
+- IRT ability: Sol +0.60 (pass@1 0.71), Sonnet −0.01 (0.57), Qwen3-235B −0.59 (0.43).
+- No model solves the helpdesk task: all fail the t2 / t3 gates.
+- Under the RLM harness, Sonnet solved the backlog (reward 1.0, stage reach 3, $0.35), where the native harness scored
+  0.67.
+
+**Coding, recorded (`crucible_pack_coding.bench_recorded`, $0, `reports/m13_coding_recorded/`).**
+- Covers tasks 01–04 (each version its own item) plus the task04 people and NCV spans, from the recorded frontier runs:
+  SEEDS, run dirs, grade reports, the task04 history and the M8 span grades.
+- 13 episodes, 3 masked (runs that ended without a grade: an API error or an abort).
+- Results: Claude Fable 5.1 1.0 (n = 1), GPT-6 Astra 0.5 (n = 2), GPT-5.6 Sol 0.14 (n = 7).
+- End-state Φ per run. Per-step progress is **not tracked**: the recorded agents edited through python and `sed`, which
+  replay cannot follow (0–12 states out of 46–200 calls), so the report shows no curve rather than a guessed one.
+- **Still open:** the open-model part on the coding tasks. It needs a live run on the GPU Worlds.
+
+**Fixes made while running the real-model benchmark:**
+- Concurrent attempts sharing one client were charged each other's spend ($2.23 recorded for $1.32 spent): per-attempt
+  cost now comes from the attempt's own model calls.
+- Token counts are read from `calls.json` when run records carry none.
+- `Episode.progress_tracked`: an untracked run reports AUC as unmeasured, not 0.

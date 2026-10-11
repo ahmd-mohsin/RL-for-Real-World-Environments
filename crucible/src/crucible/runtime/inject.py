@@ -41,7 +41,14 @@ class FakeLLM:
             raise self.fail_at[1]
         self.spend.usd += self.cost
         r = self.script.pop(0) if self.script else LLMResponse(text="done")
-        return r if isinstance(r, LLMResponse) else LLMResponse(text=r)
+        r = r if isinstance(r, LLMResponse) else LLMResponse(text=r)
+        return r.model_copy(update={"cost_usd": self.cost}) if hasattr(r, "model_copy") else _with_cost(r, self.cost)
+
+
+def _with_cost(r: LLMResponse, cost: float) -> LLMResponse:
+    import dataclasses
+
+    return dataclasses.replace(r, cost_usd=cost)
 
 
 def tool_reply(name: str, args: dict, i: int = 0) -> LLMResponse:

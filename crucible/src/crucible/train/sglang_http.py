@@ -30,8 +30,15 @@ from crucible.train.engine import GenRequest, GenResult
 class SGLangServerEngine:
     kv_modes = ("discard",)
 
-    def __init__(self, base_url: str, *, capacity: int = 64, placement: str = "colocated", timeout_s: float = 1800.0, routed_experts: bool = False):
+    def __init__(self, base_url: str, *, capacity: int = 64, placement: str = "colocated", timeout_s: float = 1800.0, routed_experts: bool = False,
+                 model_path: str | None = None):
+        """``model_path``: the weights the server was launched with. SGLang's ``release_memory_occupation`` frees the weights
+        without keeping their contents (unless the server runs with ``--enable-weights-cpu-backup``), so a resume with no
+        publish in between must reload them. Found by the live check (2026-10-11): greedy output changed after a sleep/wake
+        cycle with no new weights. The engine reloads the last loaded weights; with none known it refuses to resume."""
         self.base, self.capacity, self.placement, self.routed_experts = base_url.rstrip("/"), capacity, placement, routed_experts
+        self.weights_path = model_path
+        self._weights_released = False
         self.version = 0
         self.client = httpx.AsyncClient(timeout=timeout_s)
         self._unpaused = asyncio.Event()
@@ -45,7 +52,8 @@ class SGLangServerEngine:
 
     async def _post(self, path: str, json: Any = None) -> httpx.Response:
         r = await self.client.post(self.base + path, json=json)
-        r.raise_for_status()
+        if r.is_error:  # the server's reason, not just the status (a 400 from SGLang names the offending field)
+            raise httpx.HTTPStatusError(f"SGLang {path} -> {r.status_code}: {r.text[:800]}", request=r.request, response=r)
         return r
 
     async def generate(self, req: GenRequest) -> GenResult:
@@ -95,6 +103,7 @@ class SGLangServerEngine:
         if self.placement == "colocated":
             await self._post("/release_memory_occupation", {"tags": ["weights", "kv_cache"]})
             self.asleep = {"weights", "kv_cache"}
+            self._weights_released = True
 
     async def resume(self) -> None:
         if "kv_cache" in self.asleep:  # after the trainer offloaded (the publish woke only the weights)
@@ -103,6 +112,14 @@ class SGLangServerEngine:
         if "weights" in self.asleep:
             await self._post("/resume_memory_occupation", {"tags": ["weights"]})
             self.asleep.discard("weights")
+        if self._weights_released:  # woken memory holds no weights: reload the last ones (a publish would have cleared this)
+            if not self.weights_path:
+                raise RuntimeError("SGLang weights were released and no weights path is known to reload: pass model_path= or publish before resume")
+            d = (await self._post("/update_weights_from_disk", {"model_path": str(self.weights_path)})).json()
+            if not d.get("success", True):
+                raise RuntimeError(f"SGLang refused to reload {self.weights_path}: {d.get('message')}")
+            await self._post("/flush_cache", {})
+            self._weights_released = False
         await self._post("/continue_generation", {})
         self._unpaused.set()
 
@@ -115,3 +132,4 @@ class SGLangServerEngine:
             raise RuntimeError(f"SGLang refused the weights at {path}: {d.get('message')}")
         await self._post("/flush_cache", {})
         self.version = version
+        self.weights_path, self._weights_released = str(path), False

@@ -12,8 +12,12 @@ The template's version is recorded in ``pack.yaml`` for a later 3-way upgrade (k
 - **static:** the manifest parses and its contract holds; no ``TODO`` placeholder or ``unknown`` license is left (NeMo-Gym
   ``publication.py``); the package and README exist; the entry point and every hook import and are callable; every
   ingest glob matches a file.
+- **fixture** (NeMo-Gym's scaffolded verifier fixtures): every case from ``hooks.fixtures`` grades to its expected
+  reward exactly, and fails the gate it names. Designed negatives prove the grader is not lenient.
 - **semantic** (model-free; verifiers ``vf-validate``, OpenEnv RFC 008): for each task from ``hooks.tasks``, the gold
   actions reach the top of ``reward.range`` and the untouched task stays below it.
+A pack's ``requires`` (docker, gpu, network, paid) describes its live tasks: when this machine cannot satisfy it, the
+semantic check is ``skip`` with the reason (fixtures still run); ``--allow`` names the requirements the caller vouches for.
 Each check id maps to fail or warn through a versioned severity policy. The exit code is 0 for pass or warn, 1 for any
 fail, and 3 for an internal error.
 """
@@ -38,7 +42,7 @@ TEMPLATE_VERSION = 1
 SEVERITY_V1 = {  # check id -> "fail" | "warn"
     "static.manifest": "fail", "static.placeholders": "fail", "static.license": "fail", "static.layout": "fail", "static.readme": "warn",
     "static.entry_point": "fail", "static.hooks": "fail", "static.ingest": "fail", "semantic.gold": "fail", "semantic.noop": "fail",
-    "semantic.tasks": "warn",
+    "semantic.tasks": "warn", "fixture.cases": "fail", "fixture.hook": "warn",
 }
 NAME = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 
@@ -160,6 +164,10 @@ def _r(cid: str, ok: bool, detail: str = "", *, skip: bool = False) -> CheckResu
     return CheckResult(cid, "pass" if ok else SEVERITY_V1.get(cid, "fail"), detail)
 
 
+def _local_paths(d: dict[str, Any]) -> list[str]:
+    return [v for v in d.values() if isinstance(v, str) and v.startswith(("./", "../")) and not any(c in v for c in "*?[")]
+
+
 def check_static(pack_dir: Path) -> tuple[list[CheckResult], PackManifest | None]:
     out: list[CheckResult] = []
     pack_dir = Path(pack_dir)
@@ -190,9 +198,71 @@ def check_static(pack_dir: Path) -> tuple[list[CheckResult], PackManifest | None
         except Exception as e:  # noqa: BLE001
             bad.append(f"{k} ({ref}): {type(e).__name__}: {e}"[:200])
     out.append(_r("static.hooks", not bad, "; ".join(bad) if bad else ", ".join(k for k, v in m.hooks.model_dump().items() if v) or "none declared"))
-    missing = [s.glob for s in m.ingest if not list(pack_dir.glob(s.glob))]
-    out.append(_r("static.ingest", not missing, ("no file matches " + ", ".join(missing)) if missing else f"{len(m.ingest)} source(s)"))
+    missing = []
+    for s in m.ingest:
+        if s.connector == "file_drop":
+            if not list((pack_dir / (s.root or ".")).glob(s.glob or "")):
+                missing.append(f"{s.family}: no file matches {s.glob}")
+        else:
+            from crucible.core.registry import get_registry
+
+            try:
+                get_registry().get("connector", s.connector)
+            except Exception:  # noqa: BLE001 - reported
+                missing.append(f"{s.family}: no connector named {s.connector!r}")
+            missing += [f"{s.family}: {v} does not exist" for v in _local_paths({**s.init, **s.scope}) if not (pack_dir / v).exists()]
+    out.append(_r("static.ingest", not missing, "; ".join(missing) if missing else f"{len(m.ingest)} source(s)"))
     return out, m
+
+
+async def _grade(task: Any, actions: list, wd: Path) -> Any:
+    from crucible.actors.policy import EpisodeLimits, ScriptedPolicy, run_episode
+
+    w = await task.open(wd / "work")
+    try:
+        await run_episode(w, {"agent": ScriptedPolicy("agent", list(actions))}, limits=EpisodeLimits(max_steps=max(50, 2 * len(actions))), reset=False)
+        return await task.grade(w, wd / "grade")
+    finally:
+        await w.close()
+
+
+def missing_requirements(m: PackManifest, allow: tuple[str, ...] = ()) -> list[str]:
+    import shutil
+    import subprocess
+
+    miss = []
+    for r in m.requires:
+        if r in allow:
+            continue
+        if r == "docker" and not (shutil.which("docker") and subprocess.run(["docker", "info"], capture_output=True, check=False).returncode == 0):
+            miss.append("docker")
+        elif r in ("gpu", "paid", "network"):
+            miss.append(r)  # never assumed: the caller vouches with --allow
+    return miss
+
+
+async def check_fixture(pack_dir: Path, m: PackManifest) -> list[CheckResult]:
+    """A case is ``{"name", "task", "actions", "reward", "fails_gate"?}`` (an episode in a World), or ``{"name",
+    "grade": async () -> (reward, {gate: "pass" | "fail"}), "reward", ...}`` for packs whose graders work on artifacts
+    (patches, files) rather than live Worlds."""
+    if not m.hooks.fixtures:
+        return [_r("fixture.hook", False, "no hooks.fixtures: designed negatives cannot be checked")]
+    res = resolve(pack_dir, m.hooks.fixtures)()
+    cases = await res if hasattr(res, "__await__") else res
+    bad = []
+    with tempfile.TemporaryDirectory(prefix="pack-fixture-") as d:
+        for k, c in enumerate(cases):
+            if "grade" in c:
+                reward, gates = await c["grade"]()
+            else:
+                rep = await _grade(c["task"], c["actions"], Path(d) / str(k))
+                reward, gates = rep.reward, rep.gates
+            fails = c.get("fails_gate")
+            if reward is None or abs(reward - float(c["reward"])) > 1e-6:
+                bad.append(f"{c['name']}: graded {reward}, expected {c['reward']}")
+            elif fails and gates.get(fails) == "pass":
+                bad.append(f"{c['name']}: gate {fails} passed, expected it to fail")
+    return [_r("fixture.cases", not bad, "; ".join(bad) or f"{len(cases)} case(s) graded exactly as expected")]
 
 
 async def check_semantic(pack_dir: Path, m: PackManifest) -> list[CheckResult]:
@@ -226,13 +296,24 @@ async def check_semantic(pack_dir: Path, m: PackManifest) -> list[CheckResult]:
             _r("semantic.noop", not noop_bad, "; ".join(noop_bad) or f"{len(tasks)} task(s): no-op stays below {hi}")]
 
 
-async def check(ref: str | Path, *, level: str = "static") -> PackReport:
-    if level not in ("static", "semantic"):
-        raise ValueError("level: static | semantic")
+LEVELS = ("static", "fixture", "semantic")
+
+
+async def check(ref: str | Path, *, level: str = "static", allow: tuple[str, ...] = ()) -> PackReport:
+    """Levels are cumulative: ``fixture`` runs static + fixture; ``semantic`` runs all three."""
+    if level not in LEVELS:
+        raise ValueError("level: " + " | ".join(LEVELS))
     pack_dir = find_pack(ref)
     results, m = check_static(pack_dir)
-    if level == "semantic" and m is not None and all(r.status != "fail" for r in results):
-        results += await check_semantic(pack_dir, m)
+    if m is not None and level != "static" and all(r.status != "fail" for r in results):
+        results += await check_fixture(pack_dir, m)
+        if level == "semantic":
+            miss = missing_requirements(m, allow)  # live tasks need what the pack declares; fixtures do not
+            if miss:
+                results.append(_r("semantic.gold", True, f"skipped: live tasks need {', '.join(miss)} (pass --allow {','.join(miss)} where they are)",
+                                  skip=True))
+            else:
+                results += await check_semantic(pack_dir, m)
     return PackReport(m.name if m else str(ref), str(pack_dir), level, results)
 
 

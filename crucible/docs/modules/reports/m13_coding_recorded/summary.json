@@ -1,0 +1,2073 @@
+{
+ "digest": "cefd2f4533e82eeb",
+ "irt": {
+  "anchors": [],
+  "items": {
+   "task01_prims_omp@v1": {
+    "a": 1.0,
+    "b": -0.792044,
+    "se_b": 1.527234
+   },
+   "task01v2_tessera_omp@v2": {
+    "a": 1.0,
+    "b": 0.908115,
+    "se_b": 1.571091
+   },
+   "task02_pcops_triton@v1": {
+    "a": 1.0,
+    "b": 0.908115,
+    "se_b": 1.571091
+   },
+   "task03_mdlite_pallas@v1": {
+    "a": 1.0,
+    "b": 0.908115,
+    "se_b": 1.571091
+   },
+   "task04_pcl_gpu_cuda12@v1": {
+    "a": 1.0,
+    "b": -1.548985,
+    "se_b": 1.316118
+   },
+   "task04_pcl_gpu_cuda12@v3": {
+    "a": 1.0,
+    "b": 1.459097,
+    "se_b": 1.384845
+   },
+   "task04_span/ncv@v3": {
+    "a": 1.0,
+    "b": 0.908115,
+    "se_b": 1.571091
+   },
+   "task04_span/people@v3": {
+    "a": 1.0,
+    "b": 0.908115,
+    "se_b": 1.571091
+   }
+  },
+  "loglik": -2.17344,
+  "model": "1pl",
+  "sweeps": 8,
+  "theta": {
+   "claude-fable-5.1@mini-swe-agent@2.4.6": 0.399155,
+   "gpt-5.6-sol@mini-swe-agent@2.4.6": -0.528984,
+   "gpt-6-astra@mini-swe-agent@2.4.6": 0.129828
+  },
+  "theta_se": {
+   "claude-fable-5.1@mini-swe-agent@2.4.6": 0.915956,
+   "gpt-5.6-sol@mini-swe-agent@2.4.6": 0.705045,
+   "gpt-6-astra@mini-swe-agent@2.4.6": 0.877887
+  }
+ },
+ "open_model": "not run: no recorded open-model attempt; needs a live run on the GPU Worlds",
+ "per_episode_phi": {
+  "span/ncv/trap_sol_v3": null,
+  "span/people/trap_sol_v3": null,
+  "task01_prims_omp/fable-5.1-run1": 0.491667,
+  "task01v2_tessera_omp/gpt-5.6-sol-run1": 0.613508,
+  "task02_pcops_triton/gpt-5.6-sol-run1": 0.42029,
+  "task03_mdlite_pallas/gpt-5.6-sol-run1": 0.274194,
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-run1": 0.316062,
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-v2-run1": null,
+  "task04_pcl_gpu_cuda12/gpt-5.6-sol-v3-run1": 0.318653,
+  "task04_pcl_gpu_cuda12/gpt-6-astra-run1": 0.329016,
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v2-run1": null,
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v3-aborted": null,
+  "task04_pcl_gpu_cuda12/gpt-6-astra-v3-run2": 0.554404
+ },
+ "sources": "recorded frontier runs (SEEDS, run dirs, grade reports, task04 history, M8 span grades); no new spend",
+ "summary": {
+  "ks": [
+   1
+  ],
+  "models": [
+   {
+    "harness": "mini-swe-agent@2.4.6",
+    "horizons": {
+     "H3/H4": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 200.0,
+        "usd": 50.46,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 50.46,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "build_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "link": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "offload": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "tests_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "tests_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 0.491667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 200.0,
+       "tool_calls": 200
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 0.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 0.0,
+       "tool_calls": 200.0,
+       "usd": 50.46,
+       "wall_s": 0.0
+      },
+      "tokens": 0,
+      "usd": 50.46,
+      "wall_s": 0.0
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 1,
+       "fully_masked_tasks": 0,
+       "masked": 0,
+       "measured": 1,
+       "measured_tasks": 1
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "build_gpu": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "build_host": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "link": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "offload": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "perf": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "static": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "tests_gpu": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "tests_host": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        }
+       },
+       "macro_pass_rate": 1.0,
+       "verifier_level_pass_rate": 1.0
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 1.0,
+      "mean_reward": 1.0,
+      "mean_reward_ci": null,
+      "mean_reward_raw": 1.0,
+      "messages": 0,
+      "messages_per_success": 0.0,
+      "pass@1": 1.0,
+      "pass^1": 1.0,
+      "phi_final": 0.491667,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": null,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": null,
+      "stage_reach": null,
+      "stage_reach_hist": null,
+      "steps": 200.0,
+      "tool_calls": 200
+     }
+    },
+    "policy": "claude-fable-5.1",
+    "tasks": {
+     "task01_prims_omp@v1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 200.0,
+        "usd": 50.46,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 50.46,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "build_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "link": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "offload": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "tests_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "tests_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 0.491667,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 200.0,
+       "tool_calls": 200
+      }
+     }
+    }
+   },
+   {
+    "harness": "mini-swe-agent@2.4.6",
+    "horizons": {
+     "H3/H4": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 491.0,
+        "usd": 18.896017,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 18.896017,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 6,
+        "fully_masked_tasks": 1,
+        "masked": 1,
+        "measured": 5,
+        "measured_tasks": 5
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "api": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "app": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "build_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "dynamics": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "forces": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 0.666666667,
+          "passed": 2,
+          "total": 3
+         },
+         "hard": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "install": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "link": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "offload": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "ops": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "perf": {
+          "pass_rate": 0.2,
+          "passed": 1,
+          "total": 5
+         },
+         "physics": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5
+         },
+         "tests_gpu": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "tests_host": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.614666667,
+        "verifier_level_pass_rate": 0.688888889
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.2,
+       "mean_reward": 0.2,
+       "mean_reward_ci": [
+        0.0,
+        0.6
+       ],
+       "mean_reward_raw": 0.166666667,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 0.2,
+       "pass^1": 0.2,
+       "phi_final": 0.3885414,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 98.2,
+       "tool_calls": 491
+      }
+     },
+     "span": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 0.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 0.0,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 2,
+        "measured_tasks": 2
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "fresh": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "ncv": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 2
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.7,
+        "verifier_level_pass_rate": 0.705882353
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": [
+        0.0,
+        0.0
+       ],
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 0.0,
+       "tool_calls": 0
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 0.0,
+       "usd": 0.75
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 0.0,
+       "tool_calls": 491.0,
+       "usd": 18.896017,
+       "wall_s": 0.0
+      },
+      "tokens": 0,
+      "usd": 18.896017,
+      "wall_s": 0.0
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 8,
+       "fully_masked_tasks": 1,
+       "masked": 1,
+       "measured": 7,
+       "measured_tasks": 7
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "api": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "app": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "binary": {
+         "pass_rate": 1.0,
+         "passed": 4,
+         "total": 4
+        },
+        "build": {
+         "pass_rate": 1.0,
+         "passed": 4,
+         "total": 4
+        },
+        "build_gpu": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "build_host": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "concurrency": {
+         "pass_rate": 1.0,
+         "passed": 3,
+         "total": 3
+        },
+        "consumers": {
+         "pass_rate": 1.0,
+         "passed": 4,
+         "total": 4
+        },
+        "dynamics": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "forces": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "fresh": {
+         "pass_rate": 0.4,
+         "passed": 2,
+         "total": 5
+        },
+        "hard": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "install": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "kinfu": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "link": {
+         "pass_rate": 1.0,
+         "passed": 1,
+         "total": 1
+        },
+        "ncv": {
+         "pass_rate": 0.25,
+         "passed": 1,
+         "total": 4
+        },
+        "offload": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "ops": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "people": {
+         "pass_rate": 1.0,
+         "passed": 3,
+         "total": 3
+        },
+        "perf": {
+         "pass_rate": 0.166666667,
+         "passed": 1,
+         "total": 6
+        },
+        "physics": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "sanitizer": {
+         "pass_rate": 1.0,
+         "passed": 4,
+         "total": 4
+        },
+        "static": {
+         "pass_rate": 1.0,
+         "passed": 7,
+         "total": 7
+        },
+        "tests_gpu": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        },
+        "tests_host": {
+         "pass_rate": 0.0,
+         "passed": 0,
+         "total": 1
+        }
+       },
+       "macro_pass_rate": 0.592666667,
+       "verifier_level_pass_rate": 0.693548387
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 0.142857143,
+      "mean_reward": 0.142857143,
+      "mean_reward_ci": [
+       0.0,
+       0.428571
+      ],
+      "mean_reward_raw": 0.125,
+      "messages": 0,
+      "messages_per_success": 0.0,
+      "pass@1": 0.142857143,
+      "pass^1": 0.142857143,
+      "phi_final": 0.3885414,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": null,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": null,
+      "stage_reach": null,
+      "stage_reach_hist": null,
+      "steps": 70.142857143,
+      "tool_calls": 491
+     }
+    },
+    "policy": "gpt-5.6-sol",
+    "tasks": {
+     "task01v2_tessera_omp@v2": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 3.03,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "build_gpu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build_host": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "link": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "offload": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "tests_gpu": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "tests_host": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.5,
+        "verifier_level_pass_rate": 0.5
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.613508,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 95.0,
+       "tool_calls": 95
+      }
+     },
+     "task02_pcops_triton@v1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 2.29,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "app": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "hard": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "install": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ops": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.5,
+        "verifier_level_pass_rate": 0.5
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.42029,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 88.0,
+       "tool_calls": 88
+      }
+     },
+     "task03_mdlite_pallas@v1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 2.96,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "api": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "app": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "dynamics": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "forces": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "install": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "physics": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.555555556,
+        "verifier_level_pass_rate": 0.555555556
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.274194,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 81.0,
+       "tool_calls": 81
+      }
+     },
+     "task04_pcl_gpu_cuda12@v1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 128.0,
+        "usd": 3.63,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 3.63,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 0.316062,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 128.0,
+       "tool_calls": 128
+      }
+     },
+     "task04_pcl_gpu_cuda12@v2": {
+      "cost": {
+       "usd": 3.906017
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 1,
+        "masked": 1,
+        "measured": 0,
+        "measured_tasks": 0
+       }
+      }
+     },
+     "task04_pcl_gpu_cuda12@v3": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 3.08,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.727272727,
+        "verifier_level_pass_rate": 0.727272727
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.318653,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 99.0,
+       "tool_calls": 99
+      }
+     },
+     "task04_span/ncv@v3": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 0.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 0.0,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.714285714,
+        "verifier_level_pass_rate": 0.714285714
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 0.0,
+       "tool_calls": 0
+      }
+     },
+     "task04_span/people@v3": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 0.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 0.0,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.7,
+        "verifier_level_pass_rate": 0.7
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": null,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 0.0,
+       "tool_calls": 0
+      }
+     }
+    }
+   },
+   {
+    "harness": "mini-swe-agent@2.4.6",
+    "horizons": {
+     "H3/H4": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 205.0,
+        "usd": 61.147863,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 61.147863,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 4,
+        "fully_masked_tasks": 1,
+        "masked": 2,
+        "measured": 2,
+        "measured_tasks": 2
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "fresh": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "ncv": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "perf": {
+          "pass_rate": 0.5,
+          "passed": 1,
+          "total": 2
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "total": 2
+         }
+        },
+        "macro_pass_rate": 0.954545455,
+        "verifier_level_pass_rate": 0.954545455
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.5,
+       "mean_reward": 0.5,
+       "mean_reward_ci": [
+        0.0,
+        1.0
+       ],
+       "mean_reward_raw": 0.25,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 0.5,
+       "pass^1": 0.5,
+       "phi_final": 0.44171,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 102.5,
+       "tool_calls": 205
+      }
+     }
+    },
+    "overall": {
+     "cost": {
+      "gpu_s": 0.0,
+      "observability": {
+       "tokens": 0.0,
+       "usd": 1.0
+      },
+      "per_success": {
+       "gpu_s": 0.0,
+       "tokens": 0.0,
+       "tool_calls": 205.0,
+       "usd": 61.147863,
+       "wall_s": 0.0
+      },
+      "tokens": 0,
+      "usd": 61.147863,
+      "wall_s": 0.0
+     },
+     "deterministic": {
+      "coverage": {
+       "episodes": 4,
+       "fully_masked_tasks": 1,
+       "masked": 2,
+       "measured": 2,
+       "measured_tasks": 2
+      },
+      "first_irrecoverable_step": null,
+      "gate_profile": {
+       "gates": {
+        "binary": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "build": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "concurrency": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "consumers": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "fresh": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "kinfu": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "ncv": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "people": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "perf": {
+         "pass_rate": 0.5,
+         "passed": 1,
+         "total": 2
+        },
+        "sanitizer": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        },
+        "static": {
+         "pass_rate": 1.0,
+         "passed": 2,
+         "total": 2
+        }
+       },
+       "macro_pass_rate": 0.954545455,
+       "verifier_level_pass_rate": 0.954545455
+      },
+      "irrecoverable_episodes": null,
+      "max@1": 0.5,
+      "mean_reward": 0.5,
+      "mean_reward_ci": [
+       0.0,
+       1.0
+      ],
+      "mean_reward_raw": 0.25,
+      "messages": 0,
+      "messages_per_success": 0.0,
+      "pass@1": 0.5,
+      "pass^1": 0.5,
+      "phi_final": 0.44171,
+      "probes": {
+       "attempted": 0,
+       "exposed": 0
+      },
+      "progress_auc": null,
+      "recovery_rate": null,
+      "regressions": 0,
+      "stage_first_step": null,
+      "stage_reach": null,
+      "stage_reach_hist": null,
+      "steps": 102.5,
+      "tool_calls": 205
+     }
+    },
+    "policy": "gpt-6-astra",
+    "tasks": {
+     "task04_pcl_gpu_cuda12@v1": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": 0.0,
+        "tokens": 0.0,
+        "tool_calls": 71.0,
+        "usd": 11.08,
+        "wall_s": 0.0
+       },
+       "tokens": 0,
+       "usd": 11.08,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 0,
+        "masked": 0,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 1.0,
+        "verifier_level_pass_rate": 1.0
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 1.0,
+       "mean_reward": 1.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 1.0,
+       "messages": 0,
+       "messages_per_success": 0.0,
+       "pass@1": 1.0,
+       "pass^1": 1.0,
+       "phi_final": 0.329016,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 71.0,
+       "tool_calls": 71
+      }
+     },
+     "task04_pcl_gpu_cuda12@v2": {
+      "cost": {
+       "usd": 5.37639
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 1,
+        "fully_masked_tasks": 1,
+        "masked": 1,
+        "measured": 0,
+        "measured_tasks": 0
+       }
+      }
+     },
+     "task04_pcl_gpu_cuda12@v3": {
+      "cost": {
+       "gpu_s": 0.0,
+       "observability": {
+        "tokens": 0.0,
+        "usd": 1.0
+       },
+       "per_success": {
+        "gpu_s": null,
+        "tokens": null,
+        "tool_calls": null,
+        "usd": null,
+        "wall_s": null
+       },
+       "tokens": 0,
+       "usd": 44.691474,
+       "wall_s": 0.0
+      },
+      "deterministic": {
+       "coverage": {
+        "episodes": 2,
+        "fully_masked_tasks": 0,
+        "masked": 1,
+        "measured": 1,
+        "measured_tasks": 1
+       },
+       "first_irrecoverable_step": null,
+       "gate_profile": {
+        "gates": {
+         "binary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "build": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "concurrency": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "consumers": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "fresh": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "kinfu": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "ncv": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "people": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "perf": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "total": 1
+         },
+         "sanitizer": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         },
+         "static": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "total": 1
+         }
+        },
+        "macro_pass_rate": 0.909090909,
+        "verifier_level_pass_rate": 0.909090909
+       },
+       "irrecoverable_episodes": null,
+       "max@1": 0.0,
+       "mean_reward": 0.0,
+       "mean_reward_ci": null,
+       "mean_reward_raw": 0.0,
+       "messages": 0,
+       "messages_per_success": null,
+       "pass@1": 0.0,
+       "pass^1": 0.0,
+       "phi_final": 0.554404,
+       "probes": {
+        "attempted": 0,
+        "exposed": 0
+       },
+       "progress_auc": null,
+       "recovery_rate": null,
+       "regressions": 0,
+       "stage_first_step": null,
+       "stage_reach": null,
+       "stage_reach_hist": null,
+       "steps": 134.0,
+       "tool_calls": 134
+      }
+     }
+    }
+   }
+  ],
+  "threshold": 1.0
+ },
+ "title": "Coding tasks 01-04 + spans, recorded frontier runs"
+}
