@@ -186,3 +186,9 @@ async def test_candidates_cannot_weaken_their_audit_and_must_conform(weak_t2, tm
         await ws.add_check("t2", {**RIGHT, "id": "policy/y", "spec": {"rule": "made_up_rule"}})
     with pytest.raises(ValueError, match="already exists"):
         await ws.add_check("t2", RIGHT)
+    # dropping every scope check passes A1 and A16 (no hack makes collateral edits) but leaves "scope" ungraded: A7 fails it
+    v = ws.committed["t2"]
+    for cid in [c.id for c in ws.task("t2").cs.checks if c.id.startswith("scope/")]:
+        v = await ws.drop_check("t2", cid, base=v)
+    rep = await ws.verify("t2", v, checks=["A1", "A7", "A16"])
+    assert not rep["passed"] and rep["checks"]["A7"]["status"] == "fail" and rep["checks"]["A16"]["status"] == "pass", rep["checks"]

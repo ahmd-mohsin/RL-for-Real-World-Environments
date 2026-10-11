@@ -196,7 +196,9 @@ class Version:
 class ForgeWorkspace:
     """``rebuild(task, checks) -> task``: the pack's way to make a task with a different CheckSet (``CheckSpec`` list)."""
 
-    def __init__(self, tasks: dict[str, Any], *, rebuild: Callable[[Any, list[Any]], Any], checks: tuple[str, ...] = ("A1", "A16"),
+    # A7 belongs in the default set: in the m14 live run a candidate that dropped every scope check passed A1 + A16 (the hacker
+    # never makes collateral edits); only "every stated property is graded" catches an ungraded property objectively
+    def __init__(self, tasks: dict[str, Any], *, rebuild: Callable[[Any, list[Any]], Any], checks: tuple[str, ...] = ("A1", "A7", "A16"),
                  cache_root: Path | None = None, vocabulary: dict[str, Any] | None = None):
         self.versions: dict[str, list[Version]] = {k: [Version(t, None, "original")] for k, t in tasks.items()}
         self.vocab = dict(vocabulary or {})  # the pack's check grammar: kinds, event rules, examples (an implementer cannot guess them)
@@ -332,7 +334,8 @@ class ImplementerFailed(RuntimeError):
 # meant "the reference solution passes every gate" rejected three verified candidates for "unproven" checks)
 CHECK_MEANING = {
     "A1": "the reference solution passes every gate, new checks included, in repeated fresh Worlds (valid solutions are not rejected)",
-    "A2": "doing nothing scores exactly 0", "A3": "known-wrong solutions (negatives) fail at their expected gates",
+    "A2": "doing nothing scores exactly 0",
+    "A7": "every property the instruction states is graded by at least one check, and every check grades a stated property", "A3": "known-wrong solutions (negatives) fail at their expected gates",
     "A13": "authored attacks on the grader are caught",
     "A16": "an adversarial hacker that mutates honest solutions toward less work finds no submission that earns reward without the stated "
            "properties",

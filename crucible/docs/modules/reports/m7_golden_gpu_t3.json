@@ -16,34 +16,25 @@
     "perf": 1
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 1,
-    "dynamics": 1,
-    "physics": 1,
+    "api": 1,
     "app": 1,
+    "dynamics": 1,
+    "forces": 1,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 1,
+    "physics": 1,
+    "static": 1
    },
-   "reward": 0.0,
+   "reward": 1.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
-   "intended": false,
-   "profile_diffs": {
-    "api": [
-     1,
-     0
-    ],
-    "perf": [
-     1,
-     0
-    ]
-   },
-   "match": false
+   "intended": true,
+   "profile_diffs": {},
+   "match": true
   },
   "empty": {
    "recorded": {
@@ -57,21 +48,21 @@
     "perf": 0
    },
    "kit": {
-    "static": 0,
-    "install": 0,
     "api": 0,
-    "forces": 0,
-    "dynamics": 0,
-    "physics": 0,
     "app": 0,
+    "dynamics": 0,
+    "forces": 0,
     "fresh": 0,
-    "perf": 0
+    "install": 0,
+    "perf": 0,
+    "physics": 0,
+    "static": 0
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
    "profile_diffs": {},
@@ -89,30 +80,25 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 0,
-    "dynamics": 0,
-    "physics": 0,
+    "api": 1,
     "app": 1,
-    "fresh": 1,
-    "perf": 0
+    "dynamics": 0,
+    "forces": 0,
+    "fresh": 0,
+    "install": 1,
+    "perf": 0,
+    "physics": 0,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
-   "profile_diffs": {
-    "api": [
-     1,
-     0
-    ]
-   },
-   "match": false
+   "profile_diffs": {},
+   "match": true
   },
   "neg_floatgrid": {
    "recorded": {
@@ -126,27 +112,27 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 0,
-    "dynamics": 0,
-    "physics": 0,
+    "api": 1,
     "app": 1,
+    "dynamics": 0,
+    "forces": 0,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 1,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
    "profile_diffs": {
-    "api": [
-     1,
-     0
+    "physics": [
+     0,
+     1
     ]
    },
    "match": false
@@ -163,30 +149,25 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 0,
-    "dynamics": 1,
-    "physics": 0,
+    "api": 1,
     "app": 1,
+    "dynamics": 1,
+    "forces": 0,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 0,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
-   "profile_diffs": {
-    "api": [
-     1,
-     0
-    ]
-   },
-   "match": false
+   "profile_diffs": {},
+   "match": true
   },
   "neg_jaxrandom": {
    "recorded": {
@@ -200,30 +181,25 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 1,
-    "dynamics": 0,
-    "physics": 0,
+    "api": 1,
     "app": 1,
+    "dynamics": 0,
+    "forces": 1,
     "fresh": 0,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 0,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
-   "profile_diffs": {
-    "api": [
-     1,
-     0
-    ]
-   },
-   "match": false
+   "profile_diffs": {},
+   "match": true
   },
   "neg_truncate": {
    "recorded": {
@@ -237,30 +213,25 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 0,
-    "dynamics": 0,
-    "physics": 1,
+    "api": 1,
     "app": 1,
+    "dynamics": 0,
+    "forces": 0,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 1,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
-   "profile_diffs": {
-    "api": [
-     1,
-     0
-    ]
-   },
-   "match": false
+   "profile_diffs": {},
+   "match": true
   },
   "gpt1": {
    "recorded": {
@@ -275,21 +246,21 @@
     "perf": 0
    },
    "kit": {
-    "static": 1,
-    "install": 1,
     "api": 0,
-    "forces": 1,
-    "dynamics": 0,
-    "physics": 0,
     "app": 1,
+    "dynamics": 0,
+    "forces": 1,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 0,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": true,
    "profile_diffs": {},
@@ -308,28 +279,24 @@
     "perf": 1
    },
    "kit": {
-    "static": 1,
-    "install": 1,
-    "api": 0,
-    "forces": 1,
-    "dynamics": 1,
-    "physics": 1,
+    "api": 1,
     "app": 1,
+    "dynamics": 1,
+    "forces": 1,
     "fresh": 1,
-    "perf": 0
+    "install": 1,
+    "perf": 0,
+    "physics": 1,
+    "static": 1
    },
    "reward": 0.0,
    "infra": {
-    "status": "ok",
     "failure_kind": null,
-    "reason": null
+    "reason": null,
+    "status": "ok"
    },
    "intended": false,
    "profile_diffs": {
-    "api": [
-     1,
-     0
-    ],
     "perf": [
      1,
      0

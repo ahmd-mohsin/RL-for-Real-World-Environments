@@ -1203,13 +1203,19 @@ module doc in `docs/modules/M14-rlm.md`, and the code in `src/crucible/actors/rl
 - **Soundness finding (live).** A candidate that dropped checks passed A16, because the property audit is built from
   the task's own checks. Now `ForgeWorkspace.verify` sets the committed version's checks as an **audit floor**
   (`ToyForgedTask.audit_checks`), so a candidate can only strengthen its audit.
+- **A7 in the default verifier set** (A1, A7, A16). In the last live run a candidate that dropped every scope check
+  passed A1 and A16: the hacker never makes collateral edits, so A16 cannot see a missing scope gate even with the audit
+  floor. A7 ("every stated property is graded") fails it objectively. Before this, only the reviewer caught it.
 - **Vocabulary conformance.** `add_check` now rejects kinds, rules and spec keys the pack grammar does not understand
   (the implementer had invented fields that the grader silently ignored), and rejects duplicate ids.
-- **Live smoke (about $0.15).**
+- **Live smoke (about $0.20).**
   - The policy works mechanically: 0 on the toy helpdesk, the same as native function calling with GPT-6 Luna.
   - Six live FSM runs exposed and fixed: reasoning budgets, reviewer error vs. rejection, a lossy `show`, evidence-free
     findings, opaque proxies, the vocabulary's actor-id rule, a reviewer without grounding, and an implementer out of
     turns.
+  - **Seventh run:** verification and review rejected all three candidates for real reasons (dropped scope checks, the
+    hack still open, scope invariants that rejected the oracle). The FSM works; the remaining weak link is the
+    implementer model (GPT-6 Luna over-edits instead of making the one-check fix).
 
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into

@@ -50,7 +50,13 @@ unit gate:
   version's checks are an audit floor);
 - the implementer invented spec fields that the grader silently ignored (now vocabulary conformance in `add_check`).
 
-Live spend for the whole smoke: about $0.15.
+- a candidate that dropped every scope check passed A1 and A16 (no hack makes collateral edits); A7 is now in the
+  default verifier set.
+
+**Seventh run:** verification and review rejected three bad candidates for correct reasons. The remaining weak link is
+the implementer model, which over-edits (dropping scope checks) instead of adding the one approval check.
+
+Live spend for the whole smoke: about $0.20.
 
 ## Open
 
