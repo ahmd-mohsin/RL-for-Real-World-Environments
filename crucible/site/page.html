@@ -1,0 +1,965 @@
+<title>Crucible</title>
+<meta name="description" content="Crucible turns real work into honest, trainable RL environments: dense step-level rewards, verified frontier-hard tasks and step-level benchmarks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap">
+<style>
+/* Layout concept: an architectural model on white paper. Lora in cardinal red sets the voice, JetBrains Mono labels
+   every instrument, and each module is a square-cornered plate holding a live 3D model you can turn and step through. */
+:root {
+  --paper: #ffffff;
+  --ground: #fbfaf9;
+  --ink: #1f1e1c;
+  --ink-2: #3b3a37;
+  --muted: #5d6066;
+  --rule: #e7e2df;
+  --hair: #efebe9;
+  --cardinal: #8c1515;
+  --cardinal-deep: #6c1010;
+  --cardinal-ink: #7a1212;
+  --blush: #f8eeee;
+  --blush-2: #fdf7f7;
+  --pass: #3f7d5c;
+  --warn: #9a6a1f;
+  --code: #faf8f7;
+  --serif: "Lora", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --wrap: 1180px;
+  --gut: clamp(16px, 4vw, 40px);
+  --shadow: 0 1px 0 rgba(31, 30, 28, .03), 0 2px 10px rgba(31, 30, 28, .04), 0 26px 48px -26px rgba(140, 21, 21, .26);
+  --ring: 0 0 0 1px var(--hair);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 17px/1.62 var(--serif); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  padding-inline: var(--gut); overflow-x: hidden;
+}
+body::before { /* the ground: faint radial rays, like light on a drafting table */
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(1200px 520px at 50% -140px, rgba(140, 21, 21, .045), transparent 70%),
+    repeating-conic-gradient(from 0deg at 50% -20%, rgba(0, 0, 0, .012) 0deg 3deg, transparent 3deg 9deg),
+    var(--paper);
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+a { color: var(--cardinal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: var(--cardinal-deep); }
+:focus-visible { outline: 2px solid var(--cardinal); outline-offset: 3px; }
+::selection { background: var(--blush); color: var(--cardinal-deep); }
+.wrap { max-width: var(--wrap); margin-inline: auto; }
+
+/* ---------------------------------------------------------------------------------------------------- canvas layer */
+.stage-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 30; }
+.stage-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 31; }
+.v-labels { position: absolute; overflow: hidden; }
+.v-label {
+  position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform; transition: opacity .35s ease;
+  font: 500 10px/1.25 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2);
+  padding: 3px 6px; background: rgba(255, 255, 255, .88); box-shadow: 0 0 0 1px var(--hair);
+}
+.v-label.a-center { translate: -50% -50%; }
+.v-label.a-left { translate: 0 -50%; }
+.v-label.a-right { translate: -100% -50%; }
+.v-label.a-above { translate: -50% -100%; }
+.v-label.red { color: var(--cardinal); box-shadow: 0 0 0 1px rgba(140, 21, 21, .22); }
+.v-label.tag { color: #fff; background: var(--cardinal); box-shadow: none; }
+.v-label.ghost { background: transparent; box-shadow: none; color: var(--muted); }
+.v-label.code { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 10.5px; }
+.v-label.serif { font: italic 500 13px/1.3 var(--serif); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.v-label.big { font: 600 15px/1.2 var(--serif); letter-spacing: 0; text-transform: none; color: var(--cardinal); background: rgba(255,255,255,.92); }
+.v-label.pass { color: var(--pass); box-shadow: 0 0 0 1px rgba(63, 125, 92, .3); }
+.v-label.mcode { font: 600 9px/1 var(--mono); letter-spacing: .14em; color: var(--cardinal); background: transparent; box-shadow: none; padding: 0; }
+.v-label.big span { font: 500 12.5px/1.2 var(--serif); color: var(--ink-2); }
+@media (max-width: 720px) {
+  .v-label { font-size: 8px; letter-spacing: .06em; padding: 2px 4px; }
+  .v-label.code { font-size: 8.5px; }
+  .v-label.big { font-size: 11px; } .v-label.big span { font-size: 9.5px; }
+  .v-label.ghost, .v-label.mcode { display: none; }
+}
+
+/* ------------------------------------------------------------------------------------------------------- header */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 40; margin-inline: calc(var(--gut) * -1);
+  padding-inline: var(--gut); background: rgba(255, 255, 255, .9); backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--hair);
+}
+.top .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--cardinal); font: 600 13px var(--mono); letter-spacing: .02em; }
+.brand-mark { width: 18px; height: 18px; display: block; }
+.nav { display: flex; gap: 26px; margin-inline: auto; }
+.nav a { font: 400 11.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-decoration: none; }
+.nav a:hover, .nav a.on { color: var(--cardinal); }
+.cta-mini { font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--cardinal); text-decoration: none; padding: 7px 12px; box-shadow: 0 0 0 1px rgba(140, 21, 21, .3); }
+.cta-mini:hover { background: var(--blush); }
+@media (max-width: 860px) { .nav { display: none; } .top .wrap { justify-content: space-between; } }
+
+/* ------------------------------------------------------------------------------------------------------- type */
+.eyebrow { display: flex; align-items: center; gap: 12px; font: 500 10.5px var(--mono); letter-spacing: .28em; text-transform: uppercase; color: var(--cardinal); margin: 0 0 18px; }
+.eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--cardinal); opacity: .7; }
+h1, h2, h3 { text-wrap: balance; font-family: var(--serif); margin: 0; }
+h2 { font-weight: 600; font-size: clamp(30px, 4.4vw, 46px); line-height: 1.08; letter-spacing: -.012em; color: var(--ink); }
+h2 em { font-style: italic; font-weight: 500; color: var(--cardinal); }
+.lede { font-size: clamp(17px, 1.6vw, 19px); color: var(--ink-2); max-width: 62ch; margin: 14px 0 0; }
+.mono { font-family: var(--mono); }
+section { padding-block: clamp(64px, 9vw, 120px); }
+.sec-head { display: grid; gap: 4px; margin-bottom: clamp(28px, 4vw, 48px); max-width: 820px; }
+
+/* --------------------------------------------------------------------------------------------------------- hero */
+.hero { padding-block: clamp(24px, 3.4vw, 44px) clamp(40px, 6vw, 72px); }
+.hero-card { background: var(--paper); box-shadow: var(--ring), var(--shadow); display: grid; min-width: 0; }
+.hero-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px clamp(28px, 4vw, 56px); padding: clamp(24px, 3.4vw, 44px) clamp(24px, 3.4vw, 44px) 4px; align-items: end; }
+.hero-head > div { display: grid; gap: 16px; min-width: 0; }
+.hero-card .kicker { font: 500 10px var(--mono); letter-spacing: .3em; text-transform: uppercase; color: var(--muted); }
+.hero h1 { font-weight: 700; font-size: clamp(56px, 8.4vw, 112px); line-height: .92; letter-spacing: -.03em; color: var(--cardinal); }
+.hero .tag { font: italic 500 clamp(19px, 2vw, 24px)/1.35 var(--serif); color: var(--ink); margin: 0; }
+.hero p.body { margin: 0; color: var(--ink-2); font-size: 16.5px; }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.btn { font: 500 11.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; text-decoration: none; padding: 12px 16px; display: inline-flex; align-items: center; gap: 8px; }
+.btn.solid { background: var(--cardinal); color: #fff; }
+.btn.solid:hover { background: var(--cardinal-deep); color: #fff; }
+.btn.line { color: var(--cardinal); box-shadow: 0 0 0 1px rgba(140, 21, 21, .32); }
+.btn.line:hover { background: var(--blush); }
+.hero-card .hero-view { aspect-ratio: 2.55 / 1; min-height: 300px; box-shadow: none; }
+.hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 18px clamp(24px, 3.4vw, 44px) 24px; border-top: 1px solid var(--hair); }
+.hero-stats div { display: grid; gap: 2px; padding-right: 8px; }
+.hero-stats b { font: 600 clamp(22px, 2.4vw, 28px)/1 var(--serif); color: var(--cardinal); font-variant-numeric: tabular-nums; }
+.hero-stats span { font: 400 9.5px/1.35 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+@media (max-width: 860px) { .hero-head { grid-template-columns: 1fr; align-items: start; } .hero-card .hero-view { aspect-ratio: 4 / 3; min-height: 0; } }
+@media (max-width: 520px) { .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; } .hero-card .hero-view { aspect-ratio: 1 / 1; } }
+
+/* --------------------------------------------------------------------------------------------------------- views */
+.view { position: relative; background: transparent; box-shadow: var(--ring), var(--shadow); touch-action: pan-y; user-select: none; -webkit-user-select: none; min-width: 0; cursor: grab; }
+.view.dragging { cursor: grabbing; }
+.view .hint { position: absolute; right: 10px; bottom: 9px; font: 400 9px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); opacity: .75; z-index: 32; pointer-events: none; }
+.no-webgl .view::after { content: "3D view needs WebGL"; position: absolute; inset: 0; display: grid; place-items: center; font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.fig { display: grid; gap: 0; min-width: 0; }
+.fig .view { aspect-ratio: 4 / 3; max-width: 100%; }
+.fig.wide .view { aspect-ratio: 16 / 8; }
+@media (max-width: 720px) { .fig.wide .view { aspect-ratio: 4 / 3.6; } }
+
+/* stepper: a figure's flow, step by step */
+.stepper { display: grid; grid-template-columns: auto auto auto auto minmax(0, 1fr); align-items: center; gap: 6px 10px; padding: 12px 0 0; }
+.stepper button { font: 500 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); background: var(--paper); border: 0; box-shadow: 0 0 0 1px var(--rule); padding: 7px 10px; cursor: pointer; min-width: 34px; }
+.stepper button:hover { color: var(--cardinal); box-shadow: 0 0 0 1px rgba(140, 21, 21, .35); }
+.stepper .st-play { min-width: 64px; }
+.st-count { font: 500 10.5px var(--mono); color: var(--cardinal); font-variant-numeric: tabular-nums; letter-spacing: .06em; white-space: nowrap; }
+.st-say { font: 400 15px/1.45 var(--serif); color: var(--ink); min-height: 2.9em; grid-column: 1 / -1; padding-top: 2px; }
+.st-dots { display: flex; gap: 5px; justify-self: end; flex-wrap: wrap; }
+.st-dots i { width: 6px; height: 6px; background: var(--rule); cursor: pointer; display: block; }
+.st-dots i.on { background: var(--cardinal); }
+
+/* ------------------------------------------------------------------------------------------------------ principles */
+.principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; box-shadow: var(--ring); background: var(--paper); }
+.principles div { padding: 22px 22px 24px; box-shadow: inset -1px -1px 0 var(--hair); display: grid; gap: 6px; align-content: start; }
+.principles b { font: 600 18px/1.25 var(--serif); color: var(--cardinal); }
+.principles span { font-size: 15px; color: var(--ink-2); line-height: 1.5; }
+@media (max-width: 860px) { .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .principles { grid-template-columns: 1fr; } }
+
+/* -------------------------------------------------------------------------------------------------------- pipeline */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.legend a { font: 500 10.5px var(--mono); letter-spacing: .08em; text-decoration: none; color: var(--ink-2); padding: 6px 9px; box-shadow: 0 0 0 1px var(--rule); background: var(--paper); }
+.legend a b { color: var(--cardinal); font-weight: 600; margin-right: 6px; }
+.legend a:hover { box-shadow: 0 0 0 1px rgba(140, 21, 21, .4); color: var(--cardinal); }
+
+/* --------------------------------------------------------------------------------------------------------- modules */
+.mods { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
+.mod-index { position: sticky; top: 84px; display: grid; gap: 14px; }
+.mod-index .grp { font: 500 9.5px var(--mono); letter-spacing: .24em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.mod-index a { display: grid; grid-template-columns: 34px minmax(0, 1fr); text-decoration: none; color: var(--ink-2); font-size: 14px; line-height: 1.3; padding: 2px 0; }
+.mod-index a span { font: 600 10px/1.9 var(--mono); color: var(--cardinal); letter-spacing: .06em; }
+.mod-index a.on { color: var(--cardinal); }
+.mod-index a.on span::after { content: ""; }
+.mod-index nav { display: grid; gap: 3px; }
+@media (max-width: 1060px) { .mods { grid-template-columns: 1fr; } .mod-index { display: none; } }
+.group-head { display: grid; gap: 6px; padding-top: 18px; margin-top: 18px; }
+.group-head:first-child { margin-top: 0; padding-top: 0; }
+.group-head h3 { font: 600 clamp(24px, 2.8vw, 32px)/1.15 var(--serif); color: var(--ink); }
+.group-head p { margin: 0; color: var(--muted); font-size: 15.5px; max-width: 60ch; }
+.mod { display: grid; gap: 18px; padding-block: clamp(36px, 5vw, 60px); border-top: 1px solid var(--hair); min-width: 0; }
+.mod-head { display: grid; gap: 10px; max-width: 780px; }
+.mod .fig .view { aspect-ratio: 16 / 8.6; }
+@media (max-width: 720px) { .mod .fig .view { aspect-ratio: 4 / 3.4; } }
+.mod-body { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 16px clamp(28px, 4vw, 52px); margin-top: 6px; }
+.mod-l, .mod-r { display: grid; gap: 14px; align-content: start; min-width: 0; }
+@media (max-width: 860px) { .mod-body { grid-template-columns: 1fr; } }
+.mod-code { font: 600 10.5px var(--mono); letter-spacing: .24em; color: var(--cardinal); text-transform: uppercase; display: flex; gap: 10px; align-items: center; }
+.mod-code i { font-style: normal; color: var(--muted); font-weight: 400; letter-spacing: .18em; }
+.mod h4 { margin: 0; font: 700 clamp(26px, 2.6vw, 32px)/1.08 var(--serif); color: var(--cardinal); letter-spacing: -.01em; }
+.mod .tl { margin: -2px 0 0; font: italic 500 17px/1.4 var(--serif); color: var(--ink); }
+.mod p.what { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.6; }
+.ideas { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; box-shadow: 0 -1px 0 var(--hair); }
+.ideas li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 0; box-shadow: 0 1px 0 var(--hair); font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.ideas li::before { content: ""; width: 7px; height: 7px; margin-top: 7px; background: var(--cardinal); transform: rotate(45deg); }
+.ideas b { color: var(--ink); font-weight: 600; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.stats div { display: grid; gap: 3px; padding: 12px 12px 11px; background: var(--blush-2); box-shadow: 0 0 0 1px rgba(140, 21, 21, .1); }
+.stats b { font: 600 21px/1.05 var(--serif); color: var(--cardinal); font-variant-numeric: tabular-nums; }
+.stats span { font: 400 9.5px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+@media (max-width: 420px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.snip { position: relative; background: var(--code); box-shadow: 0 0 0 1px var(--hair); padding: 12px 14px; overflow-x: auto; font: 400 12.5px/1.6 var(--mono); color: var(--ink-2); min-width: 0; }
+.snip pre { margin: 0; white-space: pre; }
+.snip .p { color: var(--cardinal); user-select: none; }
+.snip .c { color: #8c8780; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: var(--paper); border: 0; box-shadow: 0 0 0 1px var(--rule); padding: 4px 7px; cursor: pointer; }
+.copy:hover { color: var(--cardinal); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips span { font: 500 10px var(--mono); letter-spacing: .06em; padding: 4px 7px; color: var(--ink-2); box-shadow: 0 0 0 1px var(--rule); background: var(--paper); }
+.chips span b { color: var(--cardinal); font-weight: 600; margin-right: 4px; }
+
+/* -------------------------------------------------------------------------------------------------------- use it */
+.use { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px clamp(20px, 3vw, 36px); align-items: start; }
+.use > .fig { grid-column: 1 / -1; }
+.use > .fig .view { aspect-ratio: 16 / 7.4; }
+.use > .term-wrap { display: contents; }
+@media (max-width: 860px) { .use { grid-template-columns: 1fr; } .use > .fig .view { aspect-ratio: 4 / 3.4; } }
+@media (max-width: 960px) { .use { grid-template-columns: 1fr; } }
+.term { background: #1f1e1c; color: #ece8e4; font: 400 12.5px/1.65 var(--mono); padding: 14px 16px 16px; box-shadow: var(--shadow); min-width: 0; overflow-x: auto; }
+.term .bar { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
+.term .bar i { width: 9px; height: 9px; border-radius: 50%; background: #4a4844; display: block; }
+.term .bar span { margin-left: 8px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #9b958e; }
+.term pre { margin: 0; white-space: pre-wrap; word-break: break-word; min-height: 14.5em; }
+.term .p { color: #e4847c; }
+.term .o { color: #b9b2ab; }
+.term .k { color: #fff; }
+.term .g { color: #9fd0b3; }
+.cmd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; box-shadow: var(--ring); background: var(--paper); }
+.cmd-grid div { padding: 12px 14px; box-shadow: inset -1px -1px 0 var(--hair); display: grid; gap: 3px; min-width: 0; }
+.cmd-grid code { font: 600 12px var(--mono); color: var(--cardinal); }
+.cmd-grid span { font-size: 13.5px; color: var(--ink-2); line-height: 1.4; }
+@media (max-width: 520px) { .cmd-grid { grid-template-columns: 1fr; } }
+.quick { margin-top: clamp(32px, 5vw, 56px); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(20px, 3vw, 36px); align-items: start; }
+@media (max-width: 860px) { .quick { grid-template-columns: 1fr; } }
+.quick h3 { font: 600 26px/1.15 var(--serif); }
+.quick p { color: var(--ink-2); font-size: 15.5px; margin: 10px 0 0; }
+
+/* ------------------------------------------------------------------------------------------------------- results */
+.results { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(20px, 3vw, 36px); align-items: start; }
+@media (max-width: 960px) { .results { grid-template-columns: 1fr; } }
+.res-cards { display: grid; gap: 12px; }
+.res { background: var(--paper); box-shadow: var(--ring); padding: 16px 18px; display: grid; gap: 8px; }
+.res h5 { margin: 0; font: 600 10px var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--cardinal); }
+.res p { margin: 0; font-size: 15px; color: var(--ink-2); line-height: 1.5; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 112px minmax(0, 1fr) 46px; gap: 10px; align-items: center; font: 400 11px var(--mono); color: var(--ink-2); }
+.bar i { display: block; height: 8px; background: var(--hair); position: relative; }
+.bar i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--cardinal); }
+.bar.dim i::after { background: #c9a2a2; }
+.bar b { font-weight: 600; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.note { font: 400 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--muted); }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0; box-shadow: var(--ring); margin-top: 6px; }
+.checks div { padding: 9px 11px; box-shadow: inset -1px -1px 0 var(--hair); font-size: 13px; line-height: 1.35; color: var(--ink-2); display: grid; gap: 2px; }
+.checks b { font: 600 10px var(--mono); color: var(--cardinal); letter-spacing: .06em; }
+
+/* -------------------------------------------------------------------------------------------------------- footer */
+footer { padding-block: 48px 64px; border-top: 1px solid var(--hair); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; align-items: baseline; }
+footer .fn { font: 700 28px var(--serif); color: var(--cardinal); }
+footer p { margin: 4px 0 0; color: var(--muted); font-size: 14.5px; }
+footer .links { display: flex; gap: 18px; flex-wrap: wrap; }
+footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
+
+/* ---------------------------------------------------------------------------------------------------- motion */
+.term .cur { display: inline-block; width: .55em; height: 1.05em; vertical-align: -0.18em; background: #e4847c; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .term .cur { animation: none; } }
+</style>
+
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#hero" aria-label="Crucible home">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-2.4 11.2A5 5 0 0 1 13.7 20h-3.4a5 5 0 0 1-4.9-3.8z" fill="none" stroke="#8c1515" stroke-width="1.6"/><path d="M6.2 11h11.6l-.9 4.3a3 3 0 0 1-2.9 2.4h-4a3 3 0 0 1-2.9-2.4z" fill="#8c1515"/></svg>
+      crucible
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#pipeline">Pipeline</a>
+      <a href="#modules">Modules</a>
+      <a href="#use">Use it</a>
+      <a href="#results">Results</a>
+    </nav>
+    <a class="cta-mini" href="#quickstart">Quickstart</a>
+  </div>
+</header>
+
+<main>
+<!-- ============================================================================================================ hero -->
+<section class="hero" id="hero">
+  <div class="wrap">
+    <div class="hero-card">
+      <div class="hero-head">
+        <div>
+          <div class="kicker">Agentic RL framework · 16 modules</div>
+          <h1>Crucible</h1>
+          <p class="tag">Real work in. Honest, trainable RL environments out.</p>
+        </div>
+        <div>
+          <p class="body">Every day, teams already produce expert judgement: reviews, corrections, test results, approvals, outcomes. Crucible turns those traces into live environments with dense step-level rewards, tasks that frontier models fail, and benchmarks that score every step.</p>
+          <div class="btns">
+            <a class="btn solid" href="#pipeline">See the pipeline</a>
+            <a class="btn line" href="#quickstart">Run it in minutes</a>
+          </div>
+        </div>
+      </div>
+      <div class="view hero-view" data-scene="hero" aria-label="A crucible: work traces flow in, environments, tasks and benchmarks flow out"><span class="hint">Drag to turn</span></div>
+      <div class="hero-stats">
+        <div><b>16</b><span>modules, one core</span></div>
+        <div><b>18</b><span>acceptance checks</span></div>
+        <div><b>566</b><span>tests passing</span></div>
+        <div><b>4</b><span>domain packs</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================================================== principles -->
+<section id="ideas" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The rule</div>
+      <h2>The model proposes. <em>Recorded reality decides.</em></h2>
+    </div>
+    <div class="principles">
+      <div><b>Credit goes to states</b><span>Reward measures what the world now holds, never which keys were pressed.</span></div>
+      <div><b>Dense, and impossible to farm</b><span>Progress telescopes: breaking and re-fixing a thing earns exactly nothing.</span></div>
+      <div><b>Gates come first</b><span>Break a hard rule and the episode scores zero, however much else went right.</span></div>
+      <div><b>Infrastructure is not failure</b><span>A crashed sandbox is masked and never counted as a zero.</span></div>
+      <div><b>The environment enforces</b><span>Rules live in the world and its graders, not in a prompt that asks nicely.</span></div>
+      <div><b>One core, many domains</b><span>Everything domain-specific plugs in as a pack; the core stays generic.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================================================== pipeline -->
+<section id="pipeline" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The pipeline</div>
+      <h2>From a day of work <em>to a trained agent</em></h2>
+      <p class="lede">Sixteen modules on one typed core. Step through the path a single trace takes, or click any station to open its module.</p>
+    </div>
+    <div class="fig wide">
+      <div class="view" data-scene="pipeline" aria-label="The Crucible pipeline as a 3D board of module stations"><span class="hint">Drag to turn · click a station</span></div>
+      <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count">1 / 8</span><span class="st-dots"></span><p class="st-say"></p></div>
+    </div>
+    <div class="legend">
+      <a href="#m3"><b>M3</b>Connectors</a><a href="#m4"><b>M4</b>Signals</a><a href="#m5"><b>M5</b>Workflow</a><a href="#m6"><b>M6</b>Credit</a>
+      <a href="#m7"><b>M7</b>Verify</a><a href="#m8"><b>M8</b>Forge</a><a href="#m9"><b>M9</b>Accept</a><a href="#m1"><b>M1</b>World</a>
+      <a href="#m2"><b>M2</b>Actors</a><a href="#m10"><b>M10</b>Runtime</a><a href="#m12"><b>M12</b>Train</a><a href="#m13"><b>M13</b>Bench</a>
+      <a href="#m11"><b>M11</b>Interop</a><a href="#m14"><b>M14</b>Packs</a><a href="#use"><b>M15</b>Studio</a><a href="#m0"><b>M0</b>Core</a>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================================================= modules -->
+<section id="modules" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The modules</div>
+      <h2>Every module, <em>in motion</em></h2>
+      <p class="lede">Each figure is a live model. Turn it, or step through how the module works.</p>
+    </div>
+    <div class="mods">
+      <aside class="mod-index" aria-label="Module index">
+        <div class="grp">Foundation</div>
+        <nav><a href="#m0"><span>M0</span>Core contracts</a><a href="#m1"><span>M1</span>World runtime</a><a href="#m2"><span>M2</span>Grounded actors</a></nav>
+        <div class="grp">Understand work</div>
+        <nav><a href="#m3"><span>M3</span>Trace connectors</a><a href="#m4"><span>M4</span>Expert signals</a><a href="#m5"><span>M5</span>Workflow model</a></nav>
+        <div class="grp">Reward</div>
+        <nav><a href="#m6"><span>M6</span>Dense credit</a><a href="#m7"><span>M7</span>Verifier kit</a></nav>
+        <div class="grp">Make tasks</div>
+        <nav><a href="#m8"><span>M8</span>Forge</a><a href="#m9"><span>M9</span>Acceptance</a></nav>
+        <div class="grp">Run and learn</div>
+        <nav><a href="#m10"><span>M10</span>Runtime</a><a href="#m12"><span>M12</span>Training</a><a href="#lh"><span>LH</span>Long horizons</a><a href="#rlm"><span>RLM</span>Recursive agent</a></nav>
+        <div class="grp">Measure and ship</div>
+        <nav><a href="#m13"><span>M13</span>Benchmarks</a><a href="#m11"><span>M11</span>Interop</a><a href="#m14"><span>M14</span>Packs</a><a href="#use"><span>M15</span>Studio</a></nav>
+      </aside>
+
+      <div class="mod-list">
+        <!-- ------------------------------------------------------------------------------------------- foundation -->
+        <div class="group-head"><div class="eyebrow">Foundation</div><h3>A typed core, live worlds, and people who only say what is on record</h3></div>
+
+        <article class="mod" id="m0">
+          <header class="mod-head">
+            <div class="mod-code">M0 <i>Core contracts</i></div>
+            <h4>One typed language</h4>
+            <p class="tl">Every module speaks it; nothing malformed gets in.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m0"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Worlds, traces, signals, milestones, rewards, tasks and runs are versioned documents, serialized as canonical JSON and content-hashed. The core holds no domain logic and imports no framework.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Strict schemas.</b> Unknown keys rejected, wrong versions refused.</span></li>
+              <li><span><b>Content-addressed store.</b> Corruption is detected on read.</span></li>
+              <li><span><b>Provenance everywhere.</b> Every artifact names what it came from.</span></li>
+              <li><span><b>Plugin registry.</b> Packs register themselves; the core never imports them.</span></li>
+            </ul>
+              <div class="stats"><div><b>11</b><span>schemas round-trip</span></div><div><b>7 / 7</b><span>planted mistakes rejected</span></div><div><b>13</b><span>expert-signal types</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m1">
+          <header class="mod-head">
+            <div class="mod-code">M1 <i>World runtime</i></div>
+            <h4>Live worlds, rewound exactly</h4>
+            <p class="tl">Apps with state, actors, a virtual clock, and exact snapshots.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m1"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">A spec becomes a running world: databases, documents, inboxes, workspaces and GPUs as apps, people as actors, events on a virtual clock. Policies step it; graders read it through a view the policy never sees.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible world validate world.yaml --gold actions.json</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>One choke point.</b> Every tool call is validated, permissioned and bounded.</span></li>
+              <li><span><b>Exact restore.</b> Fingerprints of every app prove the rewind.</span></li>
+              <li><span><b>Hardened sandbox.</b> Demoted user, no way out to the network.</span></li>
+              <li><span><b>Any environment.</b> Existing suites import as worlds.</span></li>
+            </ul>
+              <div class="stats"><div><b>15 / 15</b><span>GPU restores bit-identical</span></div><div><b>266 / 266</b><span>imported environments pass</span></div><div><b>&lt; 5 ms</b><span>step overhead</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m2">
+          <header class="mod-head">
+            <div class="mod-code">M2 <i>Grounded actors</i></div>
+            <h4>People who answer from the record</h4>
+            <p class="tl">Customers, reviewers and approvers, simulated without invention.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m2"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Everyone who is not the policy lives inside the world. Grounded actors reply only with what real people actually wrote, and say “I have no record of that” otherwise.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Quote mode.</b> The model selects; the record speaks.</span></li>
+              <li><span><b>No future leaks.</b> Records stay hidden until their timestamp.</span></li>
+              <li><span><b>Citations checked.</b> Numbers and dates must match exactly.</span></li>
+              <li><span><b>Real reviewers.</b> Recorded comments replay at matching code.</span></li>
+            </ul>
+              <div class="stats"><div><b>0 / 225</b><span>fabricated sentences</span></div><div><b>0.977</b><span>reviewer location precision</span></div><div><b>30 / 30</b><span>unanswerables: “no record”</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---------------------------------------------------------------------------------------- understand work -->
+        <div class="group-head"><div class="eyebrow">Understand work</div><h3>Capture what experts did, find their judgement, learn the shape of the job</h3></div>
+
+        <article class="mod" id="m3">
+          <header class="mod-head">
+            <div class="mod-code">M3 <i>Trace connectors</i></div>
+            <h4>Capture real work, redacted first</h4>
+            <p class="tl">Many sources in, one trace format out.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m3"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Ticket and ERP exports, audit logs, telemetry, live model traffic, code history, test reports and policy documents become one typed trace. Redaction runs before anything is stored.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible ingest toy</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Nothing unredacted is stored.</b> Secrets become stable pseudonyms.</span></li>
+              <li><span><b>Zero-change capture.</b> A recording proxy watches live agents.</span></li>
+              <li><span><b>Idempotent.</b> Re-ingest returns identical content hashes.</span></li>
+              <li><span><b>Probes tagged.</b> Answer-key lookups are marked, never scored.</span></li>
+            </ul>
+              <div class="stats"><div><b>20 / 20</b><span>planted secrets removed</span></div><div><b>106 / 106</b><span>traces schema-valid</span></div><div><b>9,684</b><span>events from one session</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m4">
+          <header class="mod-head">
+            <div class="mod-code">M4 <i>Expert signals</i></div>
+            <h4>Judgement, already in the logs</h4>
+            <p class="tl">Corrections, approvals and reverts become graded evidence.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m4"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Signals are typed, pinned to the step they grade (the event that last wrote the object), and weighed by how well they predicted what happened next.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible signals toy</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>13 generic types.</b> Packs map onto them, never add new ones.</span></li>
+              <li><span><b>Credit follows writes.</b> Last-writer attribution.</span></li>
+              <li><span><b>Learned reliability.</b> Weak signals are down-weighted automatically.</span></li>
+              <li><span><b>Pivots.</b> A corrected mistake becomes a wrong/fixed pair.</span></li>
+            </ul>
+              <div class="stats"><div><b>1.0</b><span>type accuracy, dev set</span></div><div><b>0.987</b><span>correction reliability</span></div><div><b>0.043</b><span>rejections, down-weighted</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m5">
+          <header class="mod-head">
+            <div class="mod-code">M5 <i>Workflow model</i></div>
+            <h4>The shape of the job</h4>
+            <p class="tl">Stages and milestones, mined from how work really goes.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m5"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Traces split into steps, the state after each step is rebuilt, and checkable milestones are mined from diffs, test results and reviews. A tracker tells any agent where it stands.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible model toy</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Replay test.</b> Rebuilt state must match the record.</span></li>
+              <li><span><b>Real milestones.</b> Executable, non-trivial, monotone, predictive.</span></li>
+              <li><span><b>Stages from data.</b> “A before B” in at least 90% of traces.</span></li>
+              <li><span><b>Never guessed.</b> Traces that will not replay are quarantined.</span></li>
+            </ul>
+              <div class="stats"><div><b>94.9%</b><span>attempts replayed exactly</span></div><div><b>κ 0.87</b><span>tracker vs human labels</span></div><div><b>31 / 31</b><span>recorded checks reproduced</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- -------------------------------------------------------------------------------------------------- reward -->
+        <div class="group-head"><div class="eyebrow">Reward</div><h3>Step-level credit that cannot be gamed, decided by graders the agent cannot touch</h3></div>
+
+        <article class="mod" id="m6">
+          <header class="mod-head">
+            <div class="mod-code">M6 <i>Dense credit</i></div>
+            <h4>Reward at every step</h4>
+            <p class="tl">Progress you can measure, and cannot farm.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m6"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Progress Φ is the weighted share of milestones met, each counting only once its prerequisites hold. Each step earns ΔΦ, so the best policy never changes; gates and a capped partial term keep anything short of success below success.</p>
+              <div class="snip"><pre><span class="c">reward</span>  R = G · [ O·(1 + αp + βe) + κ·(1 − O)·Φ ]    <span class="c">κ ≤ 0.3</span></pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Potential shaping.</b> ΔΦ telescopes; loops net zero.</span></li>
+              <li><span><b>Gates first.</b> One hard failure means zero.</span></li>
+              <li><span><b>Capped partial credit.</b> Always below finishing.</span></li>
+              <li><span><b>Branch values.</b> Estimated from restored snapshots.</span></li>
+            </ul>
+              <div class="stats"><div><b>6 / 6</b><span>reward-safety properties</span></div><div><b>0.72</b><span>Φ AUC vs 0.67 judge</span></div><div><b>Φ = 1</b><span>oracle; base scores 0</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m7">
+          <header class="mod-head">
+            <div class="mod-code">M7 <i>Verifier kit</i></div>
+            <h4>Graders behind glass</h4>
+            <p class="tl">Hidden, isolated, and tested against every cheat.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m7"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Graders run in a separate, network-less container and trust only what the candidate cannot write: artifacts compared against hidden references, never exit codes or printed claims.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Untouchable channels.</b> Only evidence the candidate cannot forge.</span></li>
+              <li><span><b>Differential checks.</b> Against hidden references and fresh draws.</span></li>
+              <li><span><b>Guarded performance.</b> Noisy runs are masked, never failed.</span></li>
+              <li><span><b>Attack suite.</b> With controls proving each defence matters.</span></li>
+            </ul>
+              <div class="stats"><div><b>11 / 11</b><span>cheats score zero</span></div><div><b>8 / 8</b><span>historical GPU grades reproduced</span></div><div><b>36 / 36</b><span>recorded verdicts</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---------------------------------------------------------------------------------------------- make tasks -->
+        <div class="group-head"><div class="eyebrow">Make tasks</div><h3>New tasks built solution-first, admitted only with evidence</h3></div>
+
+        <article class="mod" id="m8">
+          <header class="mod-head">
+            <div class="mod-code">M8 <i>Forge</i></div>
+            <h4>Frontier-hard, by construction</h4>
+            <p class="tl">A swarm of roles behind information walls.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m8"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Specialist roles turn traces into new worlds and tasks. The solution and the hidden checks exist before any solver tries, and each role sees only the inputs it is allowed to see.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible forge toy</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Solution-first.</b> Oracle and checks precede every attempt.</span></li>
+              <li><span><b>Canary breach.</b> A leaked oracle marker fails the leaker.</span></li>
+              <li><span><b>Traps from real failures.</b> Each cites an expert signal.</span></li>
+              <li><span><b>Learnable band.</b> Training pass rate aimed at 0.1 to 0.7.</span></li>
+            </ul>
+              <div class="stats"><div><b>5 / 5</b><span>forged tasks accepted</span></div><div><b>1.0</b><span>mutation score</span></div><div><b>56 / 56</b><span>files reproduced by stitching</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m9">
+          <header class="mod-head">
+            <div class="mod-code">M9 <i>Acceptance contract</i></div>
+            <h4>Evidence, or it does not ship</h4>
+            <p class="tl">Eighteen executable checks between a task and the pool.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m9"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">The contract proves the oracle passes, floors fail, checks kill mutants, nothing leaks and the grader resists attacks. No model decides a gate, and every defect ever found becomes a new detector.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible accept toy</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Cheapest first.</b> Static, CPU, container, GPU, paid, human.</span></li>
+              <li><span><b>Mutation score ≥ 0.9.</b> Checks must kill generated defects.</span></li>
+              <li><span><b>Content-addressed.</b> An edit re-grades only what changed.</span></li>
+              <li><span><b>Growing registry.</b> New detectors re-check every task.</span></li>
+            </ul>
+              <div class="stats"><div><b>A1–A18</b><span>executable checks</span></div><div><b>23</b><span>defects in the registry</span></div><div><b>32</b><span>red-team attempts per task</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ------------------------------------------------------------------------------------------- run and learn -->
+        <div class="group-head"><div class="eyebrow">Run and learn</div><h3>Run agents at scale, train on exact tokens, keep context for a million tokens</h3></div>
+
+        <article class="mod" id="m10">
+          <header class="mod-head">
+            <div class="mod-code">M10 <i>Runtime</i></div>
+            <h4>Infrastructure is never failure</h4>
+            <p class="tl">k samples, any policy, every failure labelled.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m10"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Runs tasks × policies × harnesses with budgets, retries and resumable journals. Infrastructure faults are masked out of every average; policy faults are scored.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Blame on every failure.</b> Infra masked, policy scored.</span></li>
+              <li><span><b>Reserve, then settle.</b> Crash-safe spend accounting.</span></li>
+              <li><span><b>Resume anywhere.</b> Finished work never re-dispatches.</span></li>
+              <li><span><b>Regrade from artifacts.</b> No agent re-run needed.</span></li>
+            </ul>
+              <div class="stats"><div><b>8 / 8</b><span>failure classes masked</span></div><div><b>1.0000</b><span>progress sum after a crash</span></div><div><b>0 cost</b><span>to regrade a run</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m12">
+          <header class="mod-head">
+            <div class="mod-code">M12 <i>Training</i></div>
+            <h4>Asynchronous RL on exact tokens</h4>
+            <p class="tl">Rollouts and updates overlap; staleness stays bounded.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m12"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Rollouts run against live worlds while weights update. Every token carries its policy version, and staleness is enforced at admission, at batch selection and in the loss.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible train job.toml</pre></div>
+              <div class="chips"><span><b>GRPO</b>group advantages</span><span><b>GAE</b>with segments</span><span><b>OPD</b>on-policy distillation</span><span><b>GAR</b>mass-conserving</span></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Token in, token out.</b> Output is never re-tokenized.</span></li>
+              <li><span><b>Three topologies.</b> Colocated sync, partial, disaggregated.</span></li>
+              <li><span><b>Off-policy corrections.</b> DIS by default, with TIS, IcePop, GSPO, CISPO.</span></li>
+              <li><span><b>Dense turn credit.</b> Mapped onto each call’s tokens.</span></li>
+            </ul>
+              <div class="stats"><div><b>0.44 → 1.00</b><span>held-out reward, 0.6B model on one GPU</span></div><div><b>≤ 2</b><span>versions stale, on GPU</span></div><div><b>6e-7</b><span>data-parallel match</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="lh">
+          <header class="mod-head">
+            <div class="mod-code">LH <i>Long horizons</i></div>
+            <h4>A million tokens, honestly</h4>
+            <p class="tl">Compact, checkpoint, crash, resume, and still add up.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="lh"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">One episode can run thousands of steps. Near its budget the policy writes its own summary, a trained call that opens a new segment; the world checkpoints every K steps, so a crash resumes mid-episode.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Self-written compaction.</b> At 80% of the budget.</span></li>
+              <li><span><b>Segments.</b> Each compaction opens a fresh, trained sequence.</span></li>
+              <li><span><b>Exact telescoping.</b> ΣΔΦ equals the final reward.</span></li>
+              <li><span><b>Linear storage.</b> Tokens kept as deltas.</span></li>
+            </ul>
+              <div class="stats"><div><b>1,114,725</b><span>tokens in one episode</span></div><div><b>7,623</b><span>steps, 4 compactions</span></div><div><b>1.0000</b><span>ΣΔΦ after resume</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="rlm">
+          <header class="mod-head">
+            <div class="mod-code">RLM <i>Recursive agent</i></div>
+            <h4>Context lives in a kernel</h4>
+            <p class="tl">A short prompt over a persistent Python memory.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="rlm"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">The task, tools, every observation and every message are variables in a sandboxed kernel the model reads by writing code. It fans out sub-calls, and old turns are archived verbatim where it can still search them.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Prompt as variables.</b> TASK, TOOLS, OBS, INBOX, HISTORY.</span></li>
+              <li><span><b>One step per call.</b> Each world call is one world step.</span></li>
+              <li><span><b>Trainable tree.</b> Sub-calls share their parent’s credit.</span></li>
+              <li><span><b>Exact restore.</b> Journal replay, digest-checked.</span></li>
+            </ul>
+              <div class="stats"><div><b>1.0</b><span>12-ticket backlog solved</span></div><div><b>$0.35</b><span>for that episode</span></div><div><b>0.67</b><span>same model, plain harness</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="fsm">
+          <header class="mod-head">
+            <div class="mod-code">RLM <i>Task manager</i></div>
+            <h4>Tasks that repair themselves</h4>
+            <p class="tl">Plan, implement, review, verify, and only then commit.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="fsm"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">The same recursive core runs a loop that repairs and improves tasks. A different model reviews every change, and an objective verifier, never a model, has the final word.</p>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Adversarial review.</b> A second model hunts for flaws.</span></li>
+              <li><span><b>Objective verifier.</b> Acceptance checks, not opinions.</span></li>
+              <li><span><b>Audit floor.</b> A candidate can only strengthen its checks.</span></li>
+              <li><span><b>Journaled.</b> A crashed loop resumes where it stopped.</span></li>
+            </ul>
+              <div class="stats"><div><b>3 / 3</b><span>candidates verified</span></div><div><b>2</b><span>real grader flaws caught</span></div><div><b>$0.46</b><span>for the whole run</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ----------------------------------------------------------------------------------------- measure and ship -->
+        <div class="group-head"><div class="eyebrow">Measure and ship</div><h3>Benchmarks that show where agents fail, and packs that carry any domain</h3></div>
+
+        <article class="mod" id="m13">
+          <header class="mod-head">
+            <div class="mod-code">M13 <i>Benchmarks</i></div>
+            <h4>Where agents fail, step by step</h4>
+            <p class="tl">Progress, not just pass or fail.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m13"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Benchmarks measure gate profiles, how far and how fast agents get, regressions and cost. Fixed anchors plus freshly generated items share one IRT scale, so versions stay comparable and resist contamination.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible bench run finance_ap --out runs</pre></div>
+              <div class="chips"><span><b>pass@k</b></span><span><b>pass^k</b></span><span><b>gate profile</b></span><span><b>progress AUC</b></span><span><b>stage reach</b></span><span><b>regressions</b></span><span><b>cost / success</b></span><span><b>probe profile</b></span></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Masked is never a sample.</b> Coverage reported beside every mean.</span></li>
+              <li><span><b>Anchors and fresh items.</b> Behind commit–reveal seeds.</span></li>
+              <li><span><b>2PL IRT.</b> Models and items on one scale.</span></li>
+              <li><span><b>Paired comparison.</b> Exact McNemar and paired bootstrap.</span></li>
+            </ul>
+              <div class="stats"><div><b>byte-for-byte</b><span>reproducible reports</span></div><div><b>&gt; 0.9</b><span>IRT recovery of the truth</span></div><div><b>p &lt; 0.001</b><span>paired regression test</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m11">
+          <header class="mod-head">
+            <div class="mod-code">M11 <i>Interop</i></div>
+            <h4>One task, any runtime</h4>
+            <p class="tl">Identical rewards wherever the episode ran.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m11"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">Tasks and episodes export to a standard trajectory format, to environment servers and to trainer datasets, and existing environment suites import as worlds. One reward producer grades every runtime.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible export --to canonical --pack finance_ap</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Canonical actions.</b> Transcripts normalized, then replayed fresh.</span></li>
+              <li><span><b>Byte-identical.</b> The same reward file from every runtime.</span></li>
+              <li><span><b>Strict edge.</b> Framework code lives only at the boundary.</span></li>
+              <li><span><b>Masks survive.</b> A masked grade is never written as zero.</span></li>
+            </ul>
+              <div class="stats"><div><b>5</b><span>runtimes, identical rewards</span></div><div><b>100 / 100</b><span>generated suites import</span></div><div><b>1,050</b><span>imported training tasks</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mod" id="m14">
+          <header class="mod-head">
+            <div class="mod-code">M14 <i>Packs</i></div>
+            <h4>Domains plug in</h4>
+            <p class="tl">One manifest per domain; the core stays generic.</p>
+          </header>
+          <div class="fig"><div class="view" data-scene="m14"><span class="hint">Drag to turn</span></div>
+            <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
+          <div class="mod-body">
+            <div class="mod-l">
+              <p class="what">A pack holds everything domain-specific: sources, credit rules, generators, policies and fixtures. Each one is checked at three levels before anything uses it.</p>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible pack new demo --dir ./demo
+<span class="p">$ </span>crucible pack check ./demo --level semantic</pre></div>
+            </div>
+            <div class="mod-r">
+              <ul class="ideas">
+              <li><span><b>Static.</b> Manifest, license, layout, hooks.</span></li>
+              <li><span><b>Fixture.</b> Designed cases grade exactly as expected.</span></li>
+              <li><span><b>Semantic.</b> Gold reaches the top; the untouched task does not.</span></li>
+              <li><span><b>Accounts payable.</b> A three-way match with five fraud controls.</span></li>
+            </ul>
+              <div class="stats"><div><b>4</b><span>packs pass every level</span></div><div><b>1.0 / 0.0</b><span>oracle / approve-everything</span></div><div><b>9</b><span>designed AP fixture cases</span></div></div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================================================== use it -->
+<section id="use" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">M15 · Studio</div>
+      <h2>Two commands. <em>Label work, or build environments.</em></h2>
+      <p class="lede"><span class="mono" style="font-size:.85em;color:var(--cardinal)">label</span> turns workflow logs into traces with dense rewards and training datasets. <span class="mono" style="font-size:.85em;color:var(--cardinal)">build</span> turns the same logs into accepted tasks, exports and a benchmark.</p>
+    </div>
+    <div class="use">
+      <div class="fig">
+        <div class="view" data-scene="studio"><span class="hint">Drag to turn</span></div>
+        <div class="stepper" id="studio-stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
+      </div>
+      <div class="term-wrap">
+        <div class="term" aria-live="polite"><div class="bar"><i></i><i></i><i></i><span>terminal</span></div><pre id="term-out"></pre></div>
+        <div class="cmd-grid">
+          <div><code>crucible label</code><span>logs → dense-reward traces + SFT / DPO / KTO</span></div>
+          <div><code>crucible build</code><span>logs → forge → accept → export → benchmark</span></div>
+          <div><code>crucible bench</code><span>run, report and compare benchmarks</span></div>
+          <div><code>crucible pack</code><span>scaffold and check a domain pack</span></div>
+          <div><code>crucible model</code><span>the workflow model of a pack’s logs</span></div>
+          <div><code>crucible export</code><span>canonical replays, trajectories, servers</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="quick" id="quickstart">
+      <div>
+        <div class="eyebrow">Quickstart</div>
+        <h3>No model, no GPU, no API key.</h3>
+        <p>The whole path runs on a laptop CPU in a couple of minutes. Every command prints the next one.</p>
+      </div>
+      <div class="snip" style="padding:16px 18px"><button class="copy">Copy</button><pre><span class="c"># a domain pack, checked at every level</span>
+<span class="p">$ </span>crucible pack new demo --dir ./demo
+<span class="p">$ </span>crucible pack check ./demo --level semantic
+
+<span class="c"># label: logs → traces with dense rewards + datasets</span>
+<span class="p">$ </span>crucible label --pack toy --out label
+
+<span class="c"># build: logs → accepted tasks → benchmark report</span>
+<span class="p">$ </span>crucible build toy --out build
+
+<span class="c"># a real domain: accounts payable</span>
+<span class="p">$ </span>crucible bench run finance_ap --out runs</pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================================================= results -->
+<section id="results" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Results</div>
+      <h2>Measured, <em>not claimed</em></h2>
+      <p class="lede">Every number below came out of the framework’s own runs and gate reports.</p>
+    </div>
+    <div class="results">
+      <div class="fig">
+        <div class="view" data-scene="results" style="aspect-ratio: 4 / 3"><span class="hint">Drag to turn</span></div>
+        <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div>
+      </div>
+      <div class="res-cards">
+        <div class="res">
+          <h5>Live benchmark · 7 tasks · k = 2</h5>
+          <div class="bars">
+            <div class="bar"><span>Frontier model A</span><i style="--w:71%"></i><b>0.71</b></div>
+            <div class="bar"><span>Frontier model B</span><i style="--w:57%"></i><b>0.57</b></div>
+            <div class="bar dim"><span>Open model</span><i style="--w:43%"></i><b>0.43</b></div>
+          </div>
+          <p class="note">pass@1 · IRT ability +0.60 / −0.01 / −0.59 · total cost $2.15</p>
+        </div>
+        <div class="res">
+          <h5>The harness matters</h5>
+          <div class="bars">
+            <div class="bar"><span>Recursive agent</span><i style="--w:100%"></i><b>1.00</b></div>
+            <div class="bar dim"><span>Plain tool loop</span><i style="--w:67%"></i><b>0.67</b></div>
+          </div>
+          <p class="note">same model, same 12-ticket backlog · $0.35 for the solve</p>
+        </div>
+        <div class="res">
+          <h5>Accounts payable · controls gate</h5>
+          <div class="bars">
+            <div class="bar"><span>Correct clerk</span><i style="--w:100%"></i><b>1.00</b></div>
+            <div class="bar dim"><span>Approve all</span><i style="--w:0%"></i><b>0.00</b></div>
+            <div class="bar dim"><span>Do nothing</span><i style="--w:0%"></i><b>0.00</b></div>
+          </div>
+          <p class="note">approving one invoice a rule should stop zeroes the episode</p>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:clamp(28px,4vw,48px)">
+      <div class="eyebrow">The acceptance contract</div>
+      <div class="checks">
+        <div><b>A1</b>Oracle passes, reproducibly</div><div><b>A2</b>Floors score zero</div><div><b>A3</b>Checks kill ≥ 90% of mutants</div>
+        <div><b>A4</b>Zero flakiness</div><div><b>A5</b>No answer leaks</div><div><b>A6</b>Isolation survives tampering</div>
+        <div><b>A7</b>Instruction matches graded properties</div><div><b>A8</b>Checks grounded in signals</div><div><b>A9</b>Pinned, reproducible builds</div>
+        <div><b>A10</b>Pass rate inside the target band</div><div><b>A11</b>Harness failures classified</div><div><b>A12</b>Grade fits its cost budget</div>
+        <div><b>A13</b>Known grader attacks fail</div><div><b>A14</b>Every component is necessary</div><div><b>A15</b>Composite is genuinely harder</div>
+        <div><b>A16</b>Adaptive red team finds nothing</div><div><b>A17</b>Components do not interfere</div><div><b>A18</b>Perturbations change what they claim</div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="fn">Crucible</div>
+      <p>An agentic RL framework by <a href="https://ahmd-mohsin.github.io">Muhammad Ahmed Mohsin</a>.</p>
+    </div>
+    <div class="links"><a href="#pipeline">Pipeline</a><a href="#modules">Modules</a><a href="#quickstart">Quickstart</a><a href="#results">Results</a><a href="#top">Top ↑</a></div>
+  </div>
+</footer>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<script type="module" src="assets/main.js"></script>

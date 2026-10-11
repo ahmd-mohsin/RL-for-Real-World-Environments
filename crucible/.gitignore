@@ -6,3 +6,5 @@ __pycache__/
 .crucible-cache/
 .playwright-mcp/
 .envs/
+site/_mobile.html
+site/index.html

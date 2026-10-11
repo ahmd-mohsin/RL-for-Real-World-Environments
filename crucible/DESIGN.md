@@ -2541,6 +2541,12 @@ Compute estimate: the fast-tier grade is GPU-minutes per rollout, so GRPO with n
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
 
+**Website (`site/`, 2026-10-11).** A one-page tour of the framework: a hero model, the pipeline as a clickable board, one stepped 3D figure per module (M0–M14, long horizons, the recursive agent, the task manager), the studio flow with its real CLI output, and results from the framework's own reports.
+- **Engine (`assets/kit.js`):** one WebGL renderer draws every figure into its panel's rectangle (scissor and viewport) under a fixed canvas, with HTML labels projected on top. A figure is a spec: `setup`, `update`, and `steps` of `{say, go}`. Figures build on first sight and pause offscreen.
+- **Framing:** each figure frames itself from the settled first step. Meshes, flow paths and measured label boxes are projected onto the camera plane, and the orthographic view fits them at any aspect ratio. Objects that appear later opt in with `userData.fit`.
+- **Steppers:** jumping to a step (dots, back) replays the earlier steps instantly, so the figure always shows the state the story reached. Step timers (`v.later`) are cancelled on every step change.
+- **Copy rules:** no other framework, environment suite or model is named; models are "frontier A/B" and "open model". Every number comes from a gate report or a recorded run.
+
 ---
 
 ## Appendix A — What we take from each surveyed framework
