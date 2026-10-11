@@ -283,7 +283,8 @@ class LLMClient:
             from crucible.train.world_env import EngineLLM
 
             codec = HFChatCodec(AutoTokenizer.from_pretrained(self.model), template_kwargs=self.provider.template_kwargs)
-            eng = VLLMServerEngine(self.provider.base_url.rstrip("/").removesuffix("/v1"), self.model, timeout_s=self.timeout_s)
+            eng = VLLMServerEngine(self.provider.base_url.rstrip("/").removesuffix("/v1"), self.model, timeout_s=self.timeout_s,
+                                   api_key=resolve_secret(self.provider.api_key) or None)
             calls = [0]
 
             async def gen(prompt: list[int], n: int, temp: float):

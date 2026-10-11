@@ -22,6 +22,15 @@ stall signatures (identical cells, consecutive errors, identical repeated World 
 signatures) inject a ``[stall-detected]`` notice and stop the episode after ``max_stalls``; a timed-out or wedged cell
 restores the kernel by journal replay to before the cell.
 
+**Context is kept in the kernel, not lost** (the RLM harness for long-horizon RL): at each compaction the turns that leave
+the prompt are archived, verbatim, into the kernel's ``HISTORY`` (one entry per segment: its summary and every cell's code
+and output), so the model can search its own past with code after the summary replaced it. ``OBS`` and ``INBOX`` already
+hold every tool result and message.
+
+**Training records** follow ``LLMToolPolicy``'s contract: every root call carries ``step`` (the World step it decided at)
+and linear token capture (``prompt_delta`` within a segment); an engine re-render (``tokens.new_segment``: a thinking
+template dropped earlier reasoning) starts a new segment instead of becoming a prefix break.
+
 **Checkpoint:** ``state_dict`` = context, model calls, the kernel journal (an in-progress cell included) and counters;
 ``load_state_dict`` replays the kernel; ``recover(world)`` (called by ``runtime.checkpoint.resume``) finds the result of a
 World call that was stepped just before the checkpoint in the restored trace.
@@ -35,8 +44,8 @@ import json
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
-from crucible.actors.policy import ContextConfig, Policy, approx_tokens
-from crucible.actors.rlm.kernel import CellResult, JournalEntry, Kernel
+from crucible.actors.policy import ContextConfig, LLMToolPolicy, Policy, approx_tokens
+from crucible.actors.rlm.kernel import CellResult, JournalEntry, Kernel, LocalLauncher
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall
 
 PYTHON_TOOL = {"type": "function", "function": {
@@ -51,7 +60,7 @@ RLM_SYSTEM = """You are an agent working in a simulated workplace through a pers
 - Message a person: `await world.send(to, text)`. Messages to you are appended to `INBOX` (dicts with from, text, at); new ones are announced.
 - Sub-LLMs: `await rlm.query(prompt, context=None)` returns a string; `await rlm.batch([prompt, ...])` runs prompts in parallel. Use them to read, filter or analyse large data instead of printing it.
 - What you print is truncated to {max_output} characters. Keep large data in variables and print only what you need.
-- Variables, functions and imports persist across calls, and across context compaction.
+- Variables, functions and imports persist across calls, and across context compaction. After a compaction, `HISTORY` holds every earlier segment verbatim: `HISTORY[i]["summary"]` and `HISTORY[i]["turns"]` (each {"code", "output"}).
 - When the task is complete, call `rlm.finish("<short summary>")`. Before that, check the current state against every requirement."""
 
 BOOTSTRAP = r'''
@@ -102,8 +111,12 @@ class _RLM:
 
 world = _World()
 rlm = _RLM()
+HISTORY = []
 def _deliver(msgs):
     INBOX.extend(msgs)
+def _archive(entry):
+    HISTORY.append(entry)
+    return len(HISTORY) - 1
 '''
 
 COMPACT = ("Your context is nearly full. Write a summary that lets you continue without the earlier history: what is done, what is "
@@ -111,6 +124,8 @@ COMPACT = ("Your context is nearly full. Write a summary that lets you continue 
            "running after this summary: every variable, function and import stays available, but the cells that defined them will not "
            "be visible, so name the variables worth remembering. Reply with the summary only, no tool call.")
 SUMMARY_HEAD = "[Summary of your earlier work in this episode; the full history was compacted]\n"
+ARCHIVED = ("[python-state] Your kernel kept running. The compacted turns are archived verbatim in HISTORY[{i}] (\"summary\", and \"turns\": "
+            "a list of {{\"code\", \"output\"}}); search it with code when you need a detail the summary left out. Live names: {names}")
 CONTINUE = ("[goal: continuation] You stopped without calling rlm.finish(). The task is not marked complete. Check the current state "
             "against every requirement in TASK (use your variables and the tools), finish what is missing, then call rlm.finish(summary).")
 
@@ -119,9 +134,10 @@ class RLMPolicy(Policy):
     def __init__(self, actor_id: str, llm: LLMClient, *, sub_llm: LLMClient | None = None, launcher: Any = None, seed: int = 0,
                  max_output_chars: int = 8192, cell_timeout_s: float = 120.0, max_tokens: int = 2000, sub_max_tokens: int = 1000,
                  temperature: float = 0.0, context: ContextConfig | None = None, max_continuations: int = 2, max_stalls: int = 3,
-                 stall_repeat: int = 3, max_cell_errors: int = 4, max_turns: int = 500, system: str = RLM_SYSTEM):
+                 stall_repeat: int = 3, max_cell_errors: int = 4, max_turns: int = 500, system: str = RLM_SYSTEM, tool_index: bool = True):
         self.actor_id, self.llm, self.sub_llm = actor_id, llm, sub_llm or llm
-        self.launcher, self.seed = launcher, seed
+        self.launcher, self.seed = launcher or LocalLauncher(), seed
+        self.tool_index = tool_index
         self.max_output_chars, self.cell_timeout_s = max_output_chars, cell_timeout_s
         self.max_tokens, self.sub_max_tokens, self.temperature = max_tokens, sub_max_tokens, temperature
         self.context, self.max_continuations, self.max_stalls = context, max_continuations, max_stalls
@@ -151,6 +167,9 @@ class RLMPolicy(Policy):
         self._replaying_pending: dict[str, Any] | None = None
         self._cell_msgs: list[dict[str, Any]] = []
         self._n_actions = 0
+        self._step = 0
+        self._last_full: list[int] | None = None
+        self._last_seg: int | None = None
         self._instruction = ""
         self._tools: dict[str, Any] = {}
 
@@ -158,7 +177,10 @@ class RLMPolicy(Policy):
         self.sample_key = episode_id
 
     # ---- the act() <-> driver bridge ----------------------------------------------------------------------------------
+    _compress = LLMToolPolicy._compress  # linear token capture (m13 B-3): a call extending the last one stores only its delta
+
     async def act(self, obs: Observation) -> Action:
+        self._step = obs.step
         for m in obs.inbox:
             if m.frm != self.actor_id:
                 self._inbox.append({"from": m.frm, "text": m.text, "at": m.at})
@@ -253,7 +275,7 @@ class RLMPolicy(Policy):
         self.counters["sub_calls"] += 1
         parent = self._current_call["call_id"] if self._current_call else None
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "sub", "parent": parent, "segment": self.segment,
-                                 "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                                 "step": self._step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
                                  "cached": r.cached, "actions": [], "tokens": r.tokens})
         return r.text or ""
 
@@ -270,6 +292,16 @@ class RLMPolicy(Policy):
     async def _close_kernel(self) -> None:
         if self.kernel is not None:
             await self.kernel.close()
+
+    async def aclose(self) -> None:
+        """End of the episode however it ended: an episode stopped by a limit leaves the driver waiting inside a cell and
+        the kernel process alive. The journal stays readable (``kernel.state()``)."""
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)  # the episode is over; its outcome was recorded
+        await self._close_kernel()
+        if hasattr(self.launcher, "aclose"):
+            await self.launcher.aclose()  # the kernel's container or scratch directory
 
     async def _restore_before_last(self) -> None:
         """A cell timed out or wedged the kernel: rebuild the kernel from the journal without that cell."""
@@ -302,7 +334,7 @@ class RLMPolicy(Policy):
                 return
         else:
             await self._ensure_kernel()
-            self.messages.append({"role": "user", "content": self._instruction})
+            self.messages.append({"role": "user", "content": self._task_message()})
             self.trajectory_tokens += approx_tokens(self.messages)
         while self.counters["turns"] < self.max_turns:
             await self._maybe_compact()
@@ -322,9 +354,13 @@ class RLMPolicy(Policy):
                 self.stop = "policy_error"
                 return
             self.counters["turns"] += 1
-            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment,
+            if (r.tokens or {}).get("new_segment") and self.model_calls:  # the engine re-rendered the history: a new segment, not a break
+                self.segments.append({"index": self.segment + 1, "strategy": "rerender", "summary_call": None, "context_before": approx_tokens(self.messages),
+                                      "context_after": approx_tokens(self.messages), "kept_turns": None})
+                self.segment += 1
+            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "step": self._step,
                     "context_tokens": approx_tokens(self.messages), "model": r.model, "finish": r.raw_finish, "usage": r.usage,
-                    "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "actions": [], "tokens": r.tokens}
+                    "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens)}
             self.model_calls.append(call)
             self.trajectory_tokens += int((r.usage or {}).get("completion_tokens") or 0)
             code_calls = [tc for tc in r.tool_calls if tc["name"] == "python"]
@@ -404,23 +440,61 @@ class RLMPolicy(Policy):
         cfg = self.context
         if cfg is None or cfg.mode == "none" or approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
             return
+        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+        if len(starts) <= cfg.keep_recent_turns:
+            return  # nothing would leave the context (a long task alone can exceed the trigger): an overflow is scored, not summarized away
         before = approx_tokens(self.messages)
         r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
                                     temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
-                                 "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                 "cached": r.cached, "actions": [], "tokens": r.tokens, "context_tokens": before})
-        names = await self.kernel.names() if self.kernel is not None else []
-        starts = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+                                 "step": self._step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd,
+                                 "latency_s": round(r.latency_s, 3), "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens),
+                                 "context_tokens": before})
         k = cfg.keep_recent_turns
-        recent = self.messages[starts[-k]:] if k and len(starts) >= k else []
-        self.messages = [self.messages[0], {"role": "user", "content": self._instruction}, {"role": "user", "content": SUMMARY_HEAD + (r.text or "")},
-                         {"role": "user", "content": "[python-state] Your kernel kept running. Live names: " + ", ".join(n for n in names if n not in
-                                                                                                                         ("world", "rlm", "host", "asyncio"))},
-                         *recent]
+        cut = starts[-k] if k and len(starts) >= k else len(self.messages)
+        recent = self.messages[cut:]
+        idx = await self._archive(self.messages[:cut], r.text or "")
+        names = await self.kernel.names() if self.kernel is not None else []
+        live = ", ".join(n for n in names if n not in ("world", "rlm", "host", "asyncio", "HISTORY"))
+        state = ARCHIVED.format(i=idx, names=live) if idx is not None else "[python-state] Your kernel kept running. Live names: " + live
+        self.messages = [self.messages[0], {"role": "user", "content": self._task_message()}, {"role": "user", "content": SUMMARY_HEAD + (r.text or "")},
+                         {"role": "user", "content": state}, *recent]
         self.segments.append({"index": self.segment + 1, "strategy": "summary", "summary_call": self.model_calls[-1]["call_id"],
-                              "context_before": before, "context_after": approx_tokens(self.messages), "kept_turns": min(k, len(starts))})
+                              "context_before": before, "context_after": approx_tokens(self.messages), "kept_turns": min(k, len(starts)),
+                              "archived": idx})
         self.segment += 1
+
+    def _task_message(self) -> str:
+        """The task as the model first sees it. With ``tool_index``, a one-line-per-tool index follows (the full schemas stay
+        in ``TOOLS``): in the m14 live smoke a 4B model never read ``TOOLS`` and searched the filesystem for the policy."""
+        if not self.tool_index or not self._tools:
+            return self._instruction
+        lines = [f"- {name}: {(spec.get('description') or '').strip().splitlines()[0][:100] if spec.get('description') else ''}"
+                 for name, spec in sorted(self._tools.items())]
+        return (self._instruction + "\n\n[tools] Everything in this workplace (tickets, orders, the knowledge base) is reached through these tools, "
+                "never through local files: `await world.call(name, **args)`. Schemas: TOOLS[name][\"schema\"].\n" + "\n".join(lines))
+
+    async def _archive(self, dropped: list[dict[str, Any]], summary: str) -> int | None:
+        """The compacted turns go into the kernel's ``HISTORY`` verbatim (each cell's code and output), so a long episode
+        loses nothing at a compaction: the summary is the index, the kernel holds the record."""
+        if self.kernel is None:
+            return None
+        turns, codes = [], {}
+        for m in dropped:
+            for tc in m.get("tool_calls") or []:
+                try:
+                    codes[tc["id"]] = json.loads(tc["function"]["arguments"]).get("code", "")
+                except (ValueError, KeyError, TypeError):
+                    codes[tc.get("id")] = ""
+            if m["role"] == "tool":
+                turns.append({"code": codes.get(m.get("tool_call_id"), ""), "output": m.get("content") or ""})
+            elif m["role"] == "user" and m.get("content") != self._task_message():
+                turns.append({"note": m.get("content") or ""})
+            elif m["role"] == "assistant" and (m.get("content") or "").strip() and not m.get("tool_calls"):
+                turns.append({"said": m.get("content")})
+        entry = {"segment": self.segment, "summary": summary, "turns": turns}
+        r = await self.kernel.execute(f"_archive({entry!r})", self._host, timeout_s=30)
+        return int(r.result) if r.ok and r.result is not None and str(r.result).isdigit() else None
 
     # ---- checkpoint -----------------------------------------------------------------------------------------------------
     def state_dict(self) -> dict[str, Any]:
@@ -429,7 +503,8 @@ class RLMPolicy(Policy):
                 "counters": dict(self.counters), "stop": self.stop, "segment": self.segment, "segments": self.segments,
                 "trajectory_tokens": self.trajectory_tokens, "notes": self.notes, "n_actions": self._n_actions, "instruction": self._instruction,
                 "tools": self._tools, "pending_action": self._pending_action, "inbox": self._inbox, "recent_cells": self._recent_cells,
-                "recent_world": self._recent_world, "sample_key": self.sample_key, "in_cell": in_cell}
+                "recent_world": self._recent_world, "sample_key": self.sample_key, "in_cell": in_cell, "step": self._step,
+                "last_full": self._last_full, "last_seg": self._last_seg}
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
         self.messages, self.model_calls, self.counters = d["messages"], d["model_calls"], dict(d["counters"])
@@ -437,6 +512,7 @@ class RLMPolicy(Policy):
         self.notes, self._n_actions, self._instruction, self._tools = d["notes"], d["n_actions"], d["instruction"], d["tools"]
         self._pending_action, self._inbox = d.get("pending_action"), list(d.get("inbox") or [])
         self._recent_cells, self._recent_world, self.sample_key = d["recent_cells"], d["recent_world"], d.get("sample_key")
+        self._step, self._last_full, self._last_seg = d.get("step", 0), d.get("last_full"), d.get("last_seg")
         self._resume = {"kernel": d["kernel"], "in_cell": d.get("in_cell")}
 
     def recover(self, world: Any) -> None:

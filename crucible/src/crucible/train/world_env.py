@@ -94,21 +94,27 @@ class EngineLLM:
 
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
-                  workroot: Path | None = None, limit_policy: Any = None) -> Callable:
-    """``task_for(prompt) -> RunTask`` (M10 contract: ``open(workdir)``, ``grade(world, workdir)``)."""
+                  workroot: Path | None = None, limit_policy: Any = None, make_policy: Callable[[Any, float], Any] | None = None,
+                  harness_id: str = "native:world@1") -> Callable:
+    """``task_for(prompt) -> RunTask`` (M10 contract: ``open(workdir)``, ``grade(world, workdir)``). ``make_policy(llm,
+    temperature)`` replaces the default ``LLMToolPolicy`` (``rlm_world_rollout``: the RLM harness)."""
     from crucible.actors.policy import EpisodeLimits, LLMToolPolicy, run_episode
     from crucible.core.schema.run import RunRecord
     from crucible.runtime.record import build
 
     async def rollout(rid: str, prompt: str, seed: int, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, temperature: float = 1.0,
-                      harness: str = "native:world@1"):
+                      harness: str = harness_id):
         task = task_for(prompt)
         d = Path(tempfile.mkdtemp(prefix="m12-world-", dir=workroot))
         world = await task.open(d / "work")
         try:
             llm = EngineLLM(codec, gen)
-            pol = LLMToolPolicy("agent", llm, max_tokens=max_tokens, temperature=temperature, context=context)
-            ep = await run_episode(world, {"agent": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)
+            pol = make_policy(llm, temperature) if make_policy else LLMToolPolicy("agent", llm, max_tokens=max_tokens, temperature=temperature, context=context)
+            try:
+                ep = await run_episode(world, {"agent": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)
+            finally:
+                if hasattr(pol, "aclose"):
+                    await pol.aclose()
             if ep.masked:
                 return None
             rep = await task.grade(world, d / "grade")
@@ -143,3 +149,21 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             await world.close()
 
     return rollout
+
+
+def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: Any = None, *, max_steps: int = 10_000, workroot: Path | None = None,
+                      limit_policy: Any = None, launcher: Any = None) -> Callable:
+    """The M12 rollout under the RLM harness (m14): the engine's model drives an ``RLMPolicy`` configured by ``RLMConfig``;
+    root, sub and compaction calls carry the engine's token records; the harness label is ``rlm:<config digest>@1``."""
+    from crucible.actors.rlm.policy import RLMPolicy
+    from crucible.runtime.harness.rlm import RLMConfig
+
+    c = config or RLMConfig()
+
+    def make(llm: Any, temperature: float) -> Any:
+        return RLMPolicy("agent", llm, launcher=launcher or c.launcher(), max_output_chars=c.max_output_chars, cell_timeout_s=c.cell_timeout_s, max_tokens=c.max_tokens,
+                         sub_max_tokens=c.sub_max_tokens, temperature=temperature, context=c.context(), max_continuations=c.max_continuations,
+                         max_stalls=c.max_stalls, max_turns=c.max_turns, tool_index=c.tool_index)
+
+    return world_rollout(task_for, codec, max_steps=max_steps, workroot=workroot, limit_policy=limit_policy, make_policy=make,
+                         harness_id=f"rlm:{c.digest()}@1")

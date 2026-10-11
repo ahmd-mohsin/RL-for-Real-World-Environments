@@ -32,7 +32,7 @@ from crucible.train.engine import GenRequest, GenResult
 
 class VLLMServerEngine:
     def __init__(self, base_url: str, model: str, *, capacity: int = 64, placement: str = "colocated", timeout_s: float = 1800.0, sleep_level: int = 1,
-                 nucleus_k: int = 0):
+                 nucleus_k: int = 0, api_key: str | None = None):
         """``nucleus_k`` > 0 (m13 F-4): top-p sampling is allowed; each position's nucleus is rebuilt from the top-``k``
         processed logprobs (``return_tokens_as_token_ids``), exact whenever the top-``k`` mass reaches ``top_p``; a position
         where it does not (or the sampled token is outside it) fails the call, never a guessed candidate set. Run the
@@ -40,7 +40,8 @@ class VLLMServerEngine:
         self.base, self.model, self.capacity, self.placement, self.sleep_level = base_url.rstrip("/"), model, capacity, placement, sleep_level
         self.nucleus_k = nucleus_k
         self.version = 0
-        self.client = httpx.AsyncClient(timeout=timeout_s)
+        # ``api_key``: a server started with ``--api-key`` (a cloud endpoint, e.g. scripts/modal_vllm.py) wants a bearer token
+        self.client = httpx.AsyncClient(timeout=timeout_s, headers={"Authorization": f"Bearer {api_key}"} if api_key else None)
         self._unpaused = asyncio.Event()
         self._unpaused.set()
         self._tasks: dict[str, asyncio.Task] = {}

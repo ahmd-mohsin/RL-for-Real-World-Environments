@@ -70,15 +70,72 @@ class JournalEntry:
 
 
 class LocalLauncher:
+    """A host subprocess with a credential-free environment, started in an empty directory. For trusted code only (tests,
+    a person's own agent): the host filesystem is still reachable. RL rollouts use ``DockerLauncher`` (the m14 live
+    smoke's model probed the host's working directory for policy files)."""
+
     def __init__(self, python: str | None = None):
         self.python = python or sys.executable
+        self._cwd: str | None = None
 
     async def start(self, seed: int) -> asyncio.subprocess.Process:
+        import tempfile
+
         from crucible.world.exec import safe_environ
 
+        self._cwd = self._cwd or tempfile.mkdtemp(prefix="crucible-rlm-")
         env = safe_environ({"CRUCIBLE_RLM_SEED": str(seed), "PYTHONUNBUFFERED": "1", "PYTHONHASHSEED": str(seed)})
         return await asyncio.create_subprocess_exec(self.python, "-u", str(REPL_PATH), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024, start_new_session=True)
+                                                    stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024, start_new_session=True,
+                                                    cwd=self._cwd)
+
+    async def aclose(self) -> None:
+        if self._cwd:
+            import shutil
+
+            shutil.rmtree(self._cwd, ignore_errors=True)
+            self._cwd = None
+
+
+class DockerLauncher:
+    """The kernel in its own container: no network, read-only root (a ``/tmp`` tmpfs), every capability dropped,
+    ``no-new-privileges``, an unprivileged user, and memory and pid limits. The container lives as long as the launcher,
+    so a journal replay (a restore) reuses it; ``aclose`` removes it. Model-written code in RL rollouts runs here."""
+
+    def __init__(self, image: str = "python:3.12-slim", *, memory: str = "1g", pids: int = 256, cpus: str = "1", docker: str = "docker"):
+        self.image, self.memory, self.pids, self.cpus, self.docker = image, memory, pids, cpus, docker
+        self.name: str | None = None
+        self._exec: ExecLauncher | None = None
+
+    async def _run(self, *argv: str) -> None:
+        p = await asyncio.create_subprocess_exec(self.docker, *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, err = await p.communicate()
+        if p.returncode != 0:
+            raise RuntimeError(f"docker {argv[0]} failed: {err.decode(errors='replace')[-400:]}")
+
+    async def start(self, seed: int) -> asyncio.subprocess.Process:
+        if self._exec is None:
+            self.name = f"crucible-rlm-{uuid.uuid4().hex[:12]}"
+            await self._run("run", "-d", "--rm", "--name", self.name, "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=256m",
+                            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "--memory", self.memory,
+                            "--pids-limit", str(self.pids), "--cpus", self.cpus, "--workdir", "/tmp", "--label", "crucible.rlm=1", self.image,
+                            "sleep", "infinity")
+
+            async def push(src: Path, dest: str) -> None:  # docker cp cannot write into a tmpfs: stream the file through the shell
+                p = await asyncio.create_subprocess_exec(self.docker, "exec", "-i", self.name, "sh", "-c", f"cat > {dest}", stdin=asyncio.subprocess.PIPE,
+                                                         stderr=asyncio.subprocess.PIPE)
+                _, err = await p.communicate(src.read_bytes())
+                if p.returncode != 0:
+                    raise RuntimeError(f"pushing the kernel failed: {err.decode(errors='replace')[-300:]}")
+
+            self._exec = ExecLauncher([self.docker, "exec", "-i", self.name], push=push)
+        return await self._exec.start(seed)
+
+    async def aclose(self) -> None:
+        if self.name:
+            name, self.name, self._exec = self.name, None, None
+            with contextlib.suppress(Exception):
+                await self._run("rm", "-f", name)
 
 
 class ExecLauncher:

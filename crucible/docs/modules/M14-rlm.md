@@ -13,6 +13,7 @@
 | `kernel.py` | Host side. `LocalLauncher` runs a subprocess with a credential-free environment. `ExecLauncher` runs any argv prefix, e.g. `docker exec -i` into the World's sandbox. It also holds the journal, **exact restore by replay** (digest-checked; divergence raises), and kills wedged cells. |
 | `policy.py` | `RLMPolicy`: the RLM as a World policy. Prompt-as-variable (`TASK`, `TOOLS`, `OBS`, `INBOX`). **One World step per `world.call`.** Sub-LLMs `rlm.query/batch`, recorded as `kind="sub"` calls. `rlm.finish`, goal continuation, compaction with the kernel note, stall detection, timeout restore, mid-cell checkpoint/resume. |
 | `harness_state.py` | The continual harness: typed entries (`note`, `memory`, `skill`, `subagent`, `fsm`), whole-state versions, `rollback_to`. **Same-seed A/B evaluation before any edit is kept.** Also a ranked digest, usage counters and retirement candidates. |
+| `runtime/harness/rlm.py` | **`RLMHarness`**: the policy's model inside the RLM scaffold, as a harness for evaluation and RL rollouts. `RLMConfig` (output cap, budgets, compaction, temperature) is hashed into the harness id `rlm:<digest>@1`, so one GRPO group never mixes scaffolds. `train.world_env.rlm_world_rollout` is the M12 `rollout_fn`. |
 | `manager.py` | `RLMAgent` (the RLM loop with no World, proxy objects, `rlm.spawn`, `obj.help()`, budget wrap-up), `ForgeWorkspace` (versioned tasks; the verifier is M9; commit needs a passing verification), `TaskFSM` (Planner → Implementer (child RLM) → Reviewer (a different model) → objective Verifier, journaled and resumable) and `RLMTaskManager`. |
 
 ## Training contract
@@ -23,11 +24,60 @@
 - **Train mode:** a rollout is trainable when every root and sub call has a token record (test:
   `test_train_rollout_complete_with_token_records`).
 
+## The RLM harness for long-horizon RL trajectories
+
+The context of a long episode is kept by the harness in the kernel, not in the prompt:
+- **The prompt holds** the system prompt, the task, the RLM's own turns (output capped at 8192 characters) and, after a
+  compaction, its summary and a pointer.
+- **The kernel holds** `OBS` (every tool result), `INBOX` (every message) and `HISTORY` (every compacted segment, verbatim:
+  the summary and each cell's code and output). The model searches its past with code after the summary replaced it.
+- **Compaction** is the recorded summary call of DESIGN §10.4. Each one starts a segment, a fresh exact-prefix token
+  sequence. It is skipped while there is nothing to drop (a long task alone can exceed the trigger).
+
+Requirements taken from the harness docs (DESIGN §10.3–10.4, `docs/research/long-horizon/01-frameworks.md` §(a),
+`docs/research/m5-m6/06-harnesses.md`):
+
+| Requirement | Where |
+|---|---|
+| A token record on every call (TITO; never re-tokenized) | root, sub and compaction calls carry the engine's record; a missing one masks the rollout `capture_incomplete` |
+| One exact-prefix sequence per segment; a prefix check inside a segment | linear capture (`prompt_delta`, `LLMToolPolicy._compress`); `runtime.record.build` |
+| An engine re-render (thinking template) is a new segment, not a break | `tokens.new_segment` → segment `strategy: "rerender"` |
+| Sub-calls are tree nodes | `kind="sub"` with `parent`; they share the root turn's advantage |
+| Calls joined to World steps | `step` on every call |
+| The compaction mode is recorded in `harness@version`; one harness per group | `rlm:<sha of RLMConfig>@1` |
+| Evidence for audit and exact restore | `rlm.<actor>.json`: config, counters, segments, notes, and the kernel journal (every cell with its recorded host replies) |
+| No leaked kernels | `RLMPolicy.aclose()` after every episode, including limit stops (container removed) |
+| Model-written code is sandboxed | `DockerLauncher` by default: no network, read-only root, no capabilities, uid 65534 |
+
+Gate: `tests/unit/test_rlm_harness.py`. A scripted byte-codec engine (exact TITO) drives the RLM through the backlog
+with a 2.5k-token budget:
+- three compactions, one sub-call, deltas within each segment, no prefix breaks, policy versions present, and reward
+  1.0;
+- the model reads the first archived cell back from `HISTORY` after the summaries;
+- the same RLM runs as an M12 `rollout_fn`;
+- a step-limit stop closes the kernel.
+
+**Live (2026-10-11, Modal L4, vLLM 0.11 serving Qwen3-4B-Instruct-2507 over TITO, 2 train rollouts, under $0.20):**
+  - Both rollouts were train-valid: real engine token ids and logprobs, `policy_version` stamped, 10–12 delta-chained
+    turns, and no prefix breaks.
+  - Reward was 0. The 4B model never made a World call: it searched the host's working directory for `refund_policy.md`
+    and messaged the supervisor.
+  - That surfaced two harness defects, both fixed:
+    - **The kernel ran on the host.** The kernel is now a `DockerLauncher` container (no network, read-only root, all
+      capabilities dropped, uid 65534, memory and pid limits), the `RLMConfig.kernel` default. `LocalLauncher` starts
+      in an empty directory and is for trusted code only.
+    - **The model never read `TOOLS`.** A one-line-per-tool index now follows the task (`tool_index`).
+  - Also found: vLLM 0.11 breaks on transformers 5 (pinned in `scripts/modal_vllm.py`).
+
+Still open: accepting a summary as trainable only when it is good (01-frameworks §(a)), cross-segment GAE, and
+`sub_tools`.
+
 ## Gate
 
 - `tests/unit/test_rlm_kernel.py`
 - `test_rlm_policy.py`
 - `test_rlm_manager.py` (6)
+- `test_rlm_harness.py` (4)
 
 ## Live smoke, 2026-10-10 (GPT-6 Luna policy; Claude Haiku 5.5 reviewer)
 

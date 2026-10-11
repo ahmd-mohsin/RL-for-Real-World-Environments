@@ -1241,6 +1241,38 @@ module doc in `docs/modules/M14-rlm.md`, and the code in `src/crucible/actors/rl
       vocabulary's `start_facts` (scalar SQL) are evaluated on the seeded start state and shown in `forge.show` and the
       reviewer input as `start_state`.
 
+**M14 (2026-10-10): the RLM harness for RL trajectories.** The user asked for an RLM-based harness in which context
+for long-horizon agent trajectories is maintained by the RLM. `runtime/harness/rlm.py:RLMHarness` puts the policy's model
+inside the RLM scaffold:
+- **Policies:** `PolicyRef.make` may return a bare LLM client per actor.
+- **Harness id:** `RLMConfig` is hashed into `rlm:<digest>@1`, so the compaction mode, budgets and output cap separate
+  GRPO groups.
+- **Rollouts:** `train.world_env.rlm_world_rollout` is the M12 rollout (a `make_policy` hook on `world_rollout`).
+- **Context lives in the kernel.** At each compaction, the turns leaving the prompt are archived verbatim into
+  `HISTORY`, next to `OBS` and `INBOX`, and the prompt points at them.
+- **Training records now match `LLMToolPolicy`.** RLM calls carry `step` and linear capture (`prompt_delta`), and an
+  engine re-render starts a segment. Previously a thinking-template re-render after a CONTINUE, a stall notice or an
+  inbox notice was a prefix break, which masked the rollout.
+- **No compaction with nothing to drop.** A compaction before the first turn archived an empty segment and summarized
+  nothing.
+- **`aclose()`** ends the driver and the kernel after every episode. Before, a step-limit stop left the kernel process
+  alive.
+- **Evidence:** `rlm.<actor>.json` holds the config, counters, segments, notes and the kernel journal.
+- **Engine:** `VLLMServerEngine` takes `api_key`, which the TITO path passes from the provider, for a keyed cloud
+  endpoint. `scripts/modal_vllm.py` serves vLLM on Modal with processed logprobs behind a bearer key.
+- **Live (2026-10-11, Modal L4, vLLM 0.11 serving Qwen3-4B-Instruct-2507 over TITO, 2 train rollouts, under $0.20):**
+  - Both rollouts were train-valid: real engine token ids and logprobs, `policy_version` stamped, 10–12 delta-chained
+    turns, and no prefix breaks.
+  - Reward was 0. The 4B model never made a World call: it searched the host's working directory for `refund_policy.md`
+    and messaged the supervisor.
+  - That surfaced two harness defects, both fixed:
+    - **The kernel ran on the host.** The kernel is now a `DockerLauncher` container (no network, read-only root, all
+      capabilities dropped, uid 65534, memory and pid limits), the `RLMConfig.kernel` default. `LocalLauncher` starts
+      in an empty directory and is for trusted code only.
+    - **The model never read `TOOLS`.** A one-line-per-tool index now follows the task (`tool_index`).
+  - Also found: vLLM 0.11 breaks on transformers 5 (pinned in `scripts/modal_vllm.py`).
+- **Tests:** `tests/unit/test_rlm_harness.py` (4; the docker test checks the sandbox from inside the kernel).
+
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
 `core/triggers.py` (Apache-2.0); core may not import agentenv.
