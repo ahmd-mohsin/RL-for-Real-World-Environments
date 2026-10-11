@@ -337,6 +337,14 @@ A request that times out drops its socket, so a late reply is never paired with 
 - *Measured through Worlds:* CartPole goes from 15 to about 200 return (greedy 174–203) in 50k steps, and Pendulum from −1310 to about −200 in 150k steps, at about 2,400–2,800 World steps/s on one CPU.
 - `ControlTask` grades by the normalized environment return.
 
+**Computer use (M1 build item 11, 2026-10-12; `common/desktop`).** A desktop App runs its own Linux desktop container: Xvfb, xdotool, ImageMagick and `--network none`. The policy has one `computer` tool in the shared action vocabulary of Harbor's computer-1, Anthropic's computer tool and OSWorld: click, double, right and middle click, drag, scroll, move, type, key, hold_key, wait and screenshot, with a `modifier` held during a click or scroll. Coordinates are in the screenshot the model sees, which is scaled to `max_width`, and are mapped back to the screen. Every action returns a screenshot as an image, which a vision policy receives as an `image_url` part.
+
+Desktops cannot be snapshotted generically, so there are two reset tiers:
+- `reprovision` (default): a fresh container and `setup` for every episode; mid-episode restore is refused.
+- `replay`: a new container re-issues the journal's actions, checking every screenshot digest, with a short retry because a blinking caret has two legitimate screens.
+
+Graders use `inspect(cmd)` (a root shell inside the container). App health checks run inside an App's own container (`App.health_exec`).
+
 `ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
 
 ---

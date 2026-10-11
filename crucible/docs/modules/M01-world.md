@@ -448,6 +448,28 @@ Source: taxonomy families 10 and 12, now expressible. The user decided "both pro
   - vectorized simulators inside one World (thousands of environments per process), for speed beyond ~3k steps/s;
   - wiring M12 records and checkpoints for control runs.
 
+## M1 build item 11 (2026-10-12): a desktop App for computer use
+
+Source: taxonomy family 10 (computer use), now expressible.
+
+- **`world/apps/desktop.py`** (`DesktopApp`, template `common/desktop`):
+  - its own container, built once from an embedded Dockerfile (Debian, Xvfb, xdotool, ImageMagick, python3-tk);
+  - params: `screen`, `max_width` (screenshot scale), `files`, `setup`, `settle_s` and `wait_after_action_s`;
+  - `reset: reprovision|replay`, as described above;
+  - one `computer` tool with 12 actions plus `modifier`; validation of the action enum, coordinates on screen, keys and durations;
+  - a screenshot on every result (`ToolResult.images`); the journal records actions with screenshot digests; `inspect` and `screenshot` serve graders.
+- **World**: `check_health` uses an App's `health_exec` when it has one.
+- **Tests** (`tests/unit/test_desktop.py`, Docker, 4):
+  - a Tk app driven by screenshot-space clicks and typing, with files verified inside the container; off-screen and unknown actions refused; screenshots journaled correctly;
+  - both reset tiers, the replay tier stable across three runs;
+  - a health check inside the desktop;
+  - a vision LLM policy receiving every screenshot as an `image_url` part while it clicks Approve.
+- **Open:**
+  - full VMs (QEMU/KVM with `savevm` snapshots, as OSWorld needs) and pools of pre-booted VMs need a Linux host with `/dev/kvm`, so the lab node;
+  - accessibility trees (AT-SPI);
+  - Windows and macOS desktops (cloud providers);
+  - Android emulators.
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.

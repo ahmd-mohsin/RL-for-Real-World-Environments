@@ -557,7 +557,7 @@ class World:
         hc = spec or app.spec.healthcheck
         if hc is None:
             return {"healthy": True, "attempts": 0}
-        rep = await run_healthcheck(app.ctx.exec, hc, what=f"app {app_id!r}")
+        rep = await run_healthcheck(getattr(app, "health_exec", None) or app.ctx.exec, hc, what=f"app {app_id!r}")  # an App's own container, if it has one
         self.health[app_id] = rep
         return rep
 

@@ -53,6 +53,8 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `core/schema/spaces.py`, `world/apps/control.py`, `world/gym.py` | pattern only: Gymnasium `spaces` and `Env`/vector API (MIT), dm_env specs as OpenEnv `envs/dm_control_env` exports them (`_get_action_spec_info`, `DMControlState.control_timestep`), CARLA `ticks_after_tool` (OpenEnv `carla_env/server/benchmark_scenarios/base.py`) | 2026-10 | MIT / BSD-3-Clause | semantics only; Gymnasium is an optional DEPEND (`crucible[control]`) |
 | `train/control.py` | pattern only: CleanRL `ppo.py` / `ppo_continuous_action.py`, Stable-Baselines3 PPO (MIT) | 2026-10 | MIT | the PPO recipe (orthogonal init, GAE, clipped surrogate, value loss, LR annealing, gradient clipping, observation normalization); written anew |
 
+| `world/apps/desktop.py` | pattern only: Harbor `src/harbor/agents/computer_1/runtime.py` (`ComputerAction` vocabulary, coordinate scaling, xdotool), FineEnvs desktop (Anthropic `computer_20251124` tool set), OpenEnv `helium_browser_env` (Xvfb display), NeMo-Gym `osworld` (screenshot-per-step loop) | 2026-10 | Apache-2.0 / BSD-3-Clause | the action vocabulary and execution approach; written anew |
+
 ## Frameworks we call (DEPEND), added in the hardening pass
 
 | Framework piece | Where | What for |
