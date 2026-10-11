@@ -412,8 +412,138 @@ async def two_player(d: Path) -> None:
         await w.close()
 
 
+def _start_connect4_server():
+    """OpenEnv's own connect4 server (FastAPI + WebSocket) in a separate process; returns (process, port)."""
+    import os as _os
+    import socket
+    import subprocess
+    import time
+
+    import httpx
+
+    with socket.socket() as s_:
+        s_.bind(("127.0.0.1", 0))
+        port = s_.getsockname()[1]
+    srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "connect4_env.server.app:app", "--port", str(port), "--log-level", "warning"],
+                           env={**_os.environ, "PYTHONPATH": str(OPENENV_ENVS)}, cwd=str(OPENENV_ENVS), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        try:
+            if httpx.get(f"http://127.0.0.1:{port}/health", timeout=1).status_code < 500:
+                break
+        except httpx.HTTPError:
+            time.sleep(0.2)
+    return srv, port
+
+
+async def client_mode(d: Path) -> None:
+    """m13 E (G7): an OpenEnv environment reached through its own server (OpenEnv's GenericEnvClient), not in-process:
+    connect4's real FastAPI/WebSocket server in a separate process; the same moves give the native rewards and
+    termination; restore replays over the wire (reset + re-issue, digests verified)."""
+    from crucible.interop.openenv.import_env import OpenEnvTask, load
+
+    sys.path.insert(0, str(OPENENV_ENVS))
+    fac, act, moves = CATALOG["connect4"]
+    env = load(fac)()
+    env.reset()
+    native = []
+    for a in moves:
+        o = env.step(load(act).model_validate(a))
+        native.append(float(o.reward or 0.0))
+        if o.done:
+            break
+    srv, port = _start_connect4_server()
+    try:
+        schema = {"type": "object", "properties": {"column": {"type": "integer"}}, "required": ["column"]}
+        t = OpenEnvTask("openenv/connect4/remote@1", "", client={"base_url": f"http://127.0.0.1:{port}"}, action_schema=schema, reward_mode="sum",
+                        reward_range=(-1.0, 1.0))
+        w = await t.open(d / "remote")
+        try:
+            for i, a in enumerate(moves[:3]):
+                await w.step("agent", tc(i, "step", a))
+            ref = await w.snapshot()
+            await w.step("agent", tc(50, "step", {"column": 6}))
+            await w.restore(ref)  # a fresh server session, reset, the 3 journaled moves re-issued and their digests checked
+            assert len(w.apps["env"].journal["steps"]) == 3
+            for i, a in enumerate(moves[3:], start=3):
+                if w.apps["env"].journal["done"]:
+                    break
+                await w.step("agent", tc(i, "step", a))
+            j = w.apps["env"].journal
+            assert j["done"] and [r or 0.0 for r in j["rewards"]] == native, (j["rewards"], native)
+        finally:
+            await w.close()
+    finally:
+        srv.kill()
+        srv.wait()
+
+
+async def image_fields(d: Path) -> None:
+    """m13 E (G7): pixels in a non-MCP observation field become ToolResult.images (stored, in the replay digest), and the
+    policy's text shows a placeholder, not base64."""
+    import base64
+
+    from crucible.interop.openenv.import_env import OpenEnvTask
+
+    t = OpenEnvTask("openenv/pixels/t@1", "_openenv_import_cases:PixelEnv", action_cls="_openenv_import_cases:PixelAction", image_fields=["screenshot"],
+                    reward_mode="sum", reward_range=(0.0, 10.0))
+    w = await t.open(d / "px")
+    try:
+        r = (await w.step("agent", tc(0, "step", {"shade": 3}))).observation.tool_results[0]
+        assert r.ok and len(r.images) == 1 and r.images[0].mime == "image/png" and "<image:screenshot>" in r.content and "iVBOR" not in r.content
+        ref = await w.snapshot()
+        await w.step("agent", tc(1, "step", {"shade": 9}))
+        await w.restore(ref)  # replay re-renders the frame and re-checks its digest
+        assert w.apps["env"].journal["steps"][0]["images"] == [r.images[0].ref]
+        _ = base64
+    finally:
+        await w.close()
+
+
+try:  # a pixel-observation environment for the image_fields case (OpenEnv types exist only inside crucible/.envs/openenv)
+    from openenv.core.env_server.interfaces import Environment as _Env
+    from openenv.core.env_server.types import Action as _Action
+    from openenv.core.env_server.types import Observation as _Obs
+
+    class PixelAction(_Action):
+        shade: int = 0
+
+    class PixelObservation(_Obs):
+        screenshot: str = ""
+        caption: str = ""
+
+    class PixelEnv(_Env):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        @staticmethod
+        def _png(shade: int) -> str:
+            import base64
+            import struct
+            import zlib
+
+            raw = b"".join(b"\x00" + bytes([shade * 25 % 256] * 3) * 4 for _ in range(4))
+            chunk = lambda t, data: struct.pack(">I", len(data)) + t + data + struct.pack(">I", zlib.crc32(t + data))
+            png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+            return base64.b64encode(png).decode()
+
+        def reset(self):
+            self.n = 0
+            return PixelObservation(screenshot=self._png(0), caption="start", reward=0.0, done=False)
+
+        def step(self, action: PixelAction):
+            self.n += 1
+            return PixelObservation(screenshot=self._png(action.shade), caption=f"shade {action.shade}", reward=float(action.shade), done=self.n >= 5)
+
+        @property
+        def state(self):
+            return {"n": self.n}
+except ImportError:  # pragma: no cover - outside the OpenEnv environment
+    pass
+
+
 CASES = {f.__name__: f for f in (portsim_rewards, restore, generic_env, nondeterministic, cross_runtime, m12_runtime, mcp_image_clock_seed,
-                                 openenv_catalog, two_player)}
+                                 openenv_catalog, two_player, client_mode, image_fields)}
 
 if __name__ == "__main__":
     asyncio.run(CASES[sys.argv[1]](Path(sys.argv[2])))

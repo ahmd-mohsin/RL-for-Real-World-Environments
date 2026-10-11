@@ -138,8 +138,75 @@ async def _call(env: Any, name: str, *args: Any, **kw: Any) -> Any:
     return fn(*args, **_accepted(fn, kw))
 
 
+def _decode_image(v: str) -> tuple[bytes, str]:
+    import base64
+
+    if v.startswith("data:"):
+        head, _, data = v.partition(",")
+        return base64.b64decode(data), head[5:].split(";", 1)[0] or "image/png"
+    return base64.b64decode(v), "image/png"
+
+
 def _is_error(result: Any) -> bool:
     return bool(getattr(result, "is_error", False) or getattr(result, "isError", False) or (isinstance(result, dict) and result.get("isError")))
+
+
+class _ObsView:
+    """An OpenEnv client ``StepResult`` (observation dict + reward + done) seen through the attributes the App reads from
+    in-process observations (``reward``, ``done``, ``metadata``, ``model_dump``, and any observation key)."""
+
+    def __init__(self, obs: dict, reward: Any, done: bool):
+        self._obs, self.reward, self.done = dict(obs or {}), reward, bool(done)
+        self.metadata = self._obs.get("metadata") or {}
+
+    def model_dump(self, mode: str = "python") -> dict:
+        return {**self._obs, "reward": self.reward, "done": self.done}
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self.__dict__["_obs"][name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+class ClientEnv:
+    """OpenEnv's ``GenericEnvClient`` (HTTP / WebSocket to the environment's own server or Docker image, as OpenEnv's clients
+    connect) behind the in-process Environment surface: ``reset`` / ``step`` return observation views, actions are dicts."""
+
+    def __init__(self, base_url: str | None = None, *, docker_image: str | None = None, environment: dict | None = None):
+        from openenv.core.generic_client import GenericEnvClient
+
+        if docker_image:
+            self.client = GenericEnvClient.from_docker_image(docker_image, environment=environment or {})
+        else:
+            self.client = GenericEnvClient(base_url=base_url)
+        self._open = False
+
+    async def _ensure(self) -> None:
+        if not self._open:
+            c = self.client
+            if hasattr(c, "__aenter__"):
+                await c.__aenter__()
+            self._open = True
+
+    async def reset_async(self, **kw: Any) -> _ObsView:
+        await self._ensure()
+        r = await self.client.reset(**{k: v for k, v in kw.items() if v is not None})
+        return _ObsView(r.observation, r.reward, r.done)
+
+    async def step_async(self, action: dict, **kw: Any) -> _ObsView:
+        r = await self.client.step(action)
+        return _ObsView(r.observation, r.reward, r.done)
+
+    def close(self) -> None:
+        import asyncio as _a
+
+        c = self.client
+        if self._open and hasattr(c, "close"):
+            res = c.close()
+            if _a.iscoroutine(res):
+                with contextlib.suppress(Exception):
+                    _a.get_event_loop().create_task(res)
 
 
 class OpenEnvApp(App):
@@ -183,10 +250,15 @@ class OpenEnvApp(App):
         if self.env is not None:
             self._close_env()
         p = self.spec.params
-        self.env = load(p["factory"])(**(p.get("factory_kwargs") or {}))
-        from openenv.core.env_server.mcp_environment import MCPEnvironment
+        if p.get("client"):  # client mode (m13 E, G7): the environment's own server / Docker image, not an in-process object
+            c = dict(p["client"])
+            self.env = ClientEnv(c.get("base_url"), docker_image=c.get("docker_image"), environment=c.get("environment"))
+            self.mcp = False
+        else:
+            self.env = load(p["factory"])(**(p.get("factory_kwargs") or {}))
+            from openenv.core.env_server.mcp_environment import MCPEnvironment
 
-        self.mcp = isinstance(self.env, MCPEnvironment)
+            self.mcp = isinstance(self.env, MCPEnvironment)
         obs = await _call(self.env, "reset", **self._reset_kwargs())
         self.reset_observation = obs
         self._update_turn(obs)
@@ -229,6 +301,9 @@ class OpenEnvApp(App):
 
             obs = await self._step(ListToolsAction())
             tools = [ToolSpec(app=self.id, name=t.name, description=t.description or "", input_schema=t.input_schema or {"type": "object"}) for t in obs.tools]
+        elif p.get("client") and not p.get("action_cls"):  # client mode: the action schema is declared (the client sends dicts)
+            tools = [ToolSpec(app=self.id, name=STEP_TOOL, description=p.get("step_description") or "Take one action.",
+                              input_schema=p.get("action_schema") or {"type": "object"})]
         else:
             if not p.get("action_cls"):
                 raise ValueError(f"{self.id}: a non-MCP OpenEnv environment needs params.action_cls (its Action class)")
@@ -273,6 +348,9 @@ class OpenEnvApp(App):
         d = obs.model_dump(mode="json") if hasattr(obs, "model_dump") else dict(obs)
         for k in ("reward", "done"):
             d.pop(k, None)
+        for f in self.spec.params.get("image_fields") or []:  # pixels go to ToolResult.images, never into the text
+            if f in d:
+                d[f] = f"<image:{f}>"
         if not (self.spec.params.get("show_metadata") or reset):
             d.pop("metadata", None)
         return json.dumps(d, ensure_ascii=False, sort_keys=True, default=str)
@@ -282,18 +360,26 @@ class OpenEnvApp(App):
             from openenv.core.env_server.mcp_types import CallToolAction
 
             obs = await self._step(CallToolAction(tool_name=tool, arguments=dict(args)))
+        elif isinstance(self.env, ClientEnv):
+            obs = await self._step(dict(args))
         else:
             obs = await self._step(load(self.spec.params["action_cls"]).model_validate(args))
         r = getattr(obs, "reward", None)
         return obs, self._obs_text(obs), (float(r) if r is not None else None), bool(getattr(obs, "done", False))
 
-    @staticmethod
-    def _images(obs: Any) -> list[tuple[bytes, str]]:
-        return result_images(obs.result) if hasattr(obs, "tool_name") and obs.error is None else []
+    def _images(self, obs: Any) -> list[tuple[bytes, str]]:
+        if hasattr(obs, "tool_name"):
+            return result_images(obs.result) if obs.error is None else []
+        out = []  # ``image_fields``: observation keys holding images (base64 or data URLs; pixels of non-MCP environments)
+        for f in self.spec.params.get("image_fields") or []:
+            v = (obs.model_dump(mode="json") if hasattr(obs, "model_dump") else dict(obs)).get(f)
+            for item in v if isinstance(v, list) else [v]:
+                if isinstance(item, str) and item:
+                    out.append(_decode_image(item))
+        return out
 
-    @classmethod
-    def _step_digest(cls, obs: Any, text: str) -> str:
-        return _digest(text + "".join(f"|image:{hashlib.sha256(b).hexdigest()}" for b, _ in cls._images(obs)))
+    def _step_digest(self, obs: Any, text: str) -> str:
+        return _digest(text + "".join(f"|image:{hashlib.sha256(b).hexdigest()}" for b, _ in self._images(obs)))
 
     async def call(self, name: str, args: dict[str, Any], *, actor: str, call_id: str) -> ToolResult:
         q = f"{self.id}.{name}"
@@ -345,7 +431,8 @@ class OpenEnvTask:
                  show_metadata: bool = False, reward_range: tuple[float, float] = (0.0, 1.0), reward_mode: str = "last",
                  progress: dict[str, Callable[[dict], bool]] | None = None, tool_timeout_s: float = 120.0, tool_quota: dict[str, int] | None = None,
                  clock: dict | None = None, clock_from: str | None = None, seed: int = 0, events: Sequence[dict] | None = None,
-                 players: Sequence[str] | None = None, turn_from: str | None = None, turn_map: dict | None = None, zero_sum: bool = True):
+                 players: Sequence[str] | None = None, turn_from: str | None = None, turn_map: dict | None = None, zero_sum: bool = True,
+                 client: dict | None = None, action_schema: dict | None = None, image_fields: Sequence[str] | None = None):
         if reward_mode not in ("last", "sum"):
             raise ValueError("reward_mode: 'last' | 'sum'")
         self.id, self.world_id, self.app = id, f"openenv/{id.split('/')[1] if '/' in id else id}", app
@@ -357,6 +444,12 @@ class OpenEnvTask:
         self.instruction, self.reward_range, self.reward_mode = instruction, reward_range, reward_mode
         if clock_from:
             self.params["clock_from"] = clock_from
+        if client:  # client mode: {"base_url": ...} or {"docker_image": ..., "environment": {...}}
+            self.params["client"] = dict(client)
+        if action_schema:
+            self.params["action_schema"] = action_schema
+        if image_fields:
+            self.params["image_fields"] = list(image_fields)
         self.players, self.zero_sum = list(players or []), zero_sum
         if self.players:
             self.params["players"] = self.players

@@ -1120,6 +1120,21 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**E: OpenEnv client mode and image fields (2026-10-10; audit 03 G7).** The OpenEnv importer ran environments in process
+only, and pixels in non-MCP observations were serialized as JSON text.
+
+- **Client mode:** `OpenEnvTask(client={"base_url": ...} | {"docker_image": ..., "environment": {...}}, action_schema=...)`
+  reaches the environment's own server through OpenEnv's `GenericEnvClient`, as OpenEnv's clients do.
+  - `ClientEnv` and `_ObsView` present the client's step results through the in-process surface, so journal,
+    replay-restore (a fresh server session, reset, then re-issue with digest checks), rewards and termination are
+    unchanged. This opens browsergym, atari, carla, unity and other Docker-only environments.
+- **`image_fields`:** observation keys holding images (base64 or data URLs) become `ToolResult.images` (stored,
+  digested into the replay), and the policy's text gets `<image:field>` instead of base64.
+- **Tests (OpenEnv env):**
+  - OpenEnv's real connect4 server in a separate process, through the client: native rewards and termination, and a
+    mid-game restore replays over the wire;
+  - a pixel environment: one PNG per step as an image, a placeholder in the text, and frames verified on restore.
+
 **E: AWM-1K tasks with AWM's own verifiers (2026-10-10; audit 03 G12).** AWM scenarios loaded as Worlds (100/100) but
 produced no reward. `interop/openenv/awm_task.AwmTask(scenario, task_idx)`:
 - the instruction is the dataset's task;

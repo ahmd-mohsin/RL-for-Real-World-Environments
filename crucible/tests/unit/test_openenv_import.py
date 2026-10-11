@@ -98,3 +98,13 @@ def test_two_player_games_are_multi_agent_worlds(tmp_path):
     """connect4 with two policy seats: 100 seeded games equal to the native environment, per-seat zero-sum rewards, turn
     enforcement, both seats ended at game over, restore replays (m13 E pick 8)."""
     _case("two_player", tmp_path)
+
+
+def test_client_mode_reaches_the_environments_own_server(tmp_path):
+    """OpenEnv's connect4 server as a separate process through GenericEnvClient: native rewards, restore over the wire (G7)."""
+    _case("client_mode", tmp_path)
+
+
+def test_image_fields_become_tool_result_images(tmp_path):
+    """Pixels in a non-MCP observation field: ToolResult.images, placeholder text, frames in the replay digest (G7)."""
+    _case("image_fields", tmp_path)
