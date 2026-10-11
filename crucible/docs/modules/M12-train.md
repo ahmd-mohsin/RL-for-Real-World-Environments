@@ -67,6 +67,14 @@
 | `colocated_sync` | the admitted batch is terminal (admission cap S = 1) | idle | after every step | none in flight | time-shared |
 | `colocated_partial` (default) | B selectable groups | **aborted + paused** (vLLM `/pause?mode=abort` + `/sleep`), environments keep running | every `publish_every` steps | aborted calls re-issued whole on the new version (`call`), or resumed with their partial output (`token`, spans recorded) | time-shared (carry-over of unfinished rollouts only) |
 | `disaggregated_stream` | B selectable groups | **keep generating** (trainer in a thread / another process) | every `publish_every` steps | in-flight calls finish on their pinned version; new calls get the new one | **memory split** (engine at a fixed fraction, trainer resident): real overlap |
+| `elastic` (M12-infra A; LongCat DORA) | B selectable groups | the last `elastic_engines` engines are **aborted + held** for the trainer; the resident group **keeps generating** (new calls route around the held group) | every `publish_every` steps | elastic: re-issued / resumed; resident: finish on their version | resident group on its own devices, elastic group time-shared with the trainer |
+
+**Partial-rollout round boundaries** (`RuntimeConfig.partial_barrier`, M12-infra A):
+- `groups` (default): B selectable groups.
+- `completion_frac` (Kimi K3): the finished share of untrained rollouts reaches `barrier_frac` λ.
+- `token_budget` (Ring-1T C3PO++): `barrier_tokens` Φ completion tokens since the last barrier.
+
+The budget-driven boundaries train whatever has finished, up to B groups (`Scheduler.select(min_groups=1)`). Rollouts still running at a barrier are cut once more (`Tag.cuts`), and `max_cuts` σ evicts a group whose member was cut more than σ times (Ring's retention). An engine declaring `resume_keeps_kv` resumes token-level calls without re-prefill (DeepSeek-V4.1); it is counted as `kv_resumes`.
 
 Facts behind the table:
 - No surveyed framework overlaps generation and training on one GPU with sleep/wake (research 02, 03). On a single GPU, real overlap requires the memory split.
@@ -77,7 +85,9 @@ Facts behind the table:
 1. **Admission.** At most `S × B × n` **untrained** rollouts, counting in-flight *and* buffered (B.16). An in-flight-only cap let simulated rollouts train at staleness 12 with τ = 2.
 2. **Selection.**
    - Staleness = v_train − oldest version touched.
-   - `wait` (default): block selection while any live rollout has staleness ≥ τ. Nothing is dropped; the stale work finishes and trains.
+   - `wait` (default): block selection while any **open group** has staleness ≥ τ. A group's finished members count: they age while the group waits for its last runner. Nothing is dropped; the stale work finishes and trains.
+   - Groups at their bound train first. When more than B are selectable at the bound, `bound_overflow` decides: `batch` (default; the batch grows past B, counted as `bound_overflow_trained`), `drop`, or `allow` (staleness may reach τ + 1).
+   - These three rules close a gap found in M12-infra A. With live-rollout-only waiting, simulations of every topology trained at τ + 1 (B.21).
    - `drop`: evict terminal groups with staleness > τ; admission refills them.
    - Optional `max_offpolicy_frac`.
 3. **Loss.** The correction, by default `dis(0.8, 3.0)`, needs only rollout logprobs, so it is valid under multi-version async. Corrections that need π_θold refuse to run without it.

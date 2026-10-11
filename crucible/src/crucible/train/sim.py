@@ -52,7 +52,13 @@ def default_shapes(seed: int = 0, *, tail_frac: float = 0.2, tail_mult: float = 
 
 @dataclass
 class SimConfig:
-    topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream
+    topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream | elastic
+    elastic_frac: float = 0.5  # elastic: share of the engine slots handed to the trainer at each barrier (DORA)
+    partial_barrier: str = "groups"  # groups | completion_frac | token_budget (see runtime.RuntimeConfig)
+    barrier_frac: float = 0.8
+    barrier_tokens: int = 0
+    max_cuts: int | None = None  # retention σ
+    resume_keeps_kv: bool = False  # an aborted call resumes its decode where it stopped, without re-prefill (DeepSeek-V4.1)
     slots: int = 64
     tok_per_s: float = 50.0
     prefill_tok_per_s: float = 5_000.0
@@ -76,6 +82,7 @@ class _R:
     call_version: int | None = None
     gen_event: int | None = None
     aborted: bool = False  # the current call was cut at a barrier: its re-issue re-prefills the whole context
+    done_decode: int = 0  # resume_keeps_kv: decode tokens of the cut call already produced (kept, not redone)
 
 
 @dataclass
@@ -100,6 +107,7 @@ class SimResult:
     publishes: int = 0
     trained_while_generating_s: float = 0.0
     busy_while_training_s: float = 0.0
+    batch_sizes: list[int] = field(default_factory=list)  # groups per trained batch (budget barriers train fewer than B)
 
     def max_staleness(self) -> int:
         return max((s for b in self.staleness for s in b), default=0)
@@ -129,7 +137,15 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
     training = False
     updates_since_publish = 0
     publish_pending: int | None = None  # disaggregated: version becoming servable at its event
+    publishing = False
     last_t = 0.0
+    round_tokens = 0
+    elastic_slots = round(sim.slots * sim.elastic_frac) if sim.topology == "elastic" else 0
+    if sim.topology == "elastic" and not 0 < elastic_slots < sim.slots:
+        raise ValueError("elastic needs 0 < elastic_frac·slots < slots")
+
+    def capacity() -> int:
+        return sim.slots - elastic_slots if training and sim.topology == "elastic" else sim.slots
 
     def push(t: float, kind: str, rid: str = "") -> int:
         nonlocal seq
@@ -166,40 +182,85 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             res.inflight_violations += 1
 
     def start_calls() -> None:
-        while engine_up and engine_q and len(active) < sim.slots:
+        while engine_up and engine_q and len(active) < capacity():
             rid = engine_q.pop(0)
             r = rs[rid]
             add, comp, _ = r.shape.turns[r.turn]
             prefill = r.context + add if r.aborted else add  # prefix cache holds the context, except after an abort (KV discarded)
+            if r.done_decode:  # resumed with its KV: no prefill, only the rest of the decode
+                prefill, comp = 0, comp - r.done_decode
             r.aborted = False
             dur = prefill / sim.prefill_tok_per_s + comp / sim.tok_per_s
             r.call_started, r.call_version = now, version
             active.add(rid)
             r.gen_event = push(now + dur, "gen_done", rid)
 
-    def abort_all() -> None:
-        for rid in list(active):
+    def abort_all(keep: int = 0) -> None:
+        """Cut in-flight calls (all, or all but the ``keep`` earliest-started: the elastic resident group's share)."""
+        victims = sorted(active, key=lambda x: rs[x].call_started or 0.0)[keep:]
+        for rid in victims:
             r = rs[rid]
             if r.gen_event is not None:
                 cancelled.add(r.gen_event)
             _, comp, _ = r.shape.turns[r.turn]
-            res.wasted_decode_tokens += int(min(comp, (now - (r.call_started or now)) * sim.tok_per_s))
-            res.reprefill_tokens += r.context + r.shape.turns[r.turn][0]
-            pool.tags[rid].cuts += 1
-            pool.tags[rid].reprefill_tokens += r.context
-            r.call_started, r.call_version, r.gen_event, r.aborted = None, None, None, True
+            produced = int(min(comp - r.done_decode, (now - (r.call_started or now)) * sim.tok_per_s))
+            if sim.resume_keeps_kv:
+                r.done_decode += produced
+            else:
+                res.wasted_decode_tokens += produced
+                res.reprefill_tokens += r.context + r.shape.turns[r.turn][0]
+                pool.tags[rid].reprefill_tokens += r.context
+                r.done_decode = 0
+            r.call_started, r.call_version, r.gen_event, r.aborted = None, None, None, not sim.resume_keeps_kv
             active.discard(rid)
             engine_q.insert(0, rid)  # aborted calls resume first
+
+    def cut_live() -> None:
+        over = set()
+        for rid, r in rs.items():
+            t = pool.tags.get(rid)
+            if t is not None and t.status == "running":
+                t.cuts += 1
+                if sim.max_cuts is not None and t.cuts > sim.max_cuts:
+                    over.add(t.group)
+        for gid in over:
+            for rid in pool.evict_group(gid):
+                if rid in active:
+                    r = rs[rid]
+                    if r.gen_event is not None:
+                        cancelled.add(r.gen_event)
+                    active.discard(rid)
+                for q in (engine_q, env_q):
+                    while rid in q:
+                        q.remove(rid)
+                rs.pop(rid, None)
+            res.evicted["retention"] = res.evicted.get("retention", 0) + 1
+
+    def boundary() -> bool:
+        if sim.partial_barrier == "token_budget":
+            return round_tokens >= sim.barrier_tokens or not (active or engine_q or env_q)
+        if sim.partial_barrier == "completion_frac":
+            untrained = [t for t in pool.untrained() if t.status != "evicted"]
+            done = sum(1 for t in untrained if t.status in ("finished", "failure", "masked"))
+            return not untrained or done / len(untrained) >= sim.barrier_frac
+        return True
 
     def try_train() -> None:
         nonlocal training, engine_up
         if training or res.steps >= sim.steps:
             return
+        if publishing and sim.topology in ("colocated_partial", "colocated_sync"):
+            return  # the GPU is still busy with the publish: the next step cannot start (it would overlap the weight load)
         if res.steps == 0 and sim.topology != "colocated_sync" and sim.warmup_batches:
             ready = len(pool.terminal_groups())
             if ready < sched_cfg.B * (1 + sim.warmup_batches) and sched.live_count() > 0:
                 return
-        sel = sched.select(version)
+        if not boundary():
+            return
+        # staleness is measured against the trainer's committed version: a publish still in flight (disaggregated /
+        # elastic publish asynchronously) already holds the weights the next batch trains from
+        v_commit = publish_pending if publish_pending is not None else version
+        sel = sched.select(v_commit, min_groups=None if sim.partial_barrier == "groups" else 1)
         for reason in sel.evicted.values():
             res.evicted[reason] = res.evicted.get(reason, 0) + 1
         if sel.blocked:
@@ -213,10 +274,17 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
         res.batch_lengths.append([t.length for g in sel.groups for t in pool.members(g.gid, {"finished", "failure"})])
         res.batch_sources.append([g.source for g in sel.groups])
         tokens = sum(res.batch_lengths[-1])
-        training = True
+        res.batch_sizes.append(len(sel.groups))
+        nonlocal round_tokens
+        round_tokens = 0
         if sim.topology in ("colocated_partial", "colocated_sync"):
             abort_all()
             engine_up = False
+        elif sim.topology == "elastic":  # the elastic slots go to the trainer; the resident ones keep their calls
+            abort_all(keep=sim.slots - elastic_slots)
+        training = True
+        if sim.topology in ("colocated_partial", "elastic"):
+            cut_live()
         sched.trained(sel)
         push(now + sim.train_s_base + sim.train_s_per_ktok * tokens / 1000, "train_done")
 
@@ -230,15 +298,20 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
         if kind == "tick":
             admit()
         elif kind == "gen_done":
+            if rid not in rs:  # evicted (retention) while its call ran
+                continue
             r = rs[rid]
             active.discard(rid)
             add, comp, _env = r.shape.turns[r.turn]
             pool.call(rid, r.call_version if r.call_version is not None else version, comp)
+            round_tokens += comp - r.done_decode
             r.context += add + comp
-            r.call_started, r.gen_event = None, None
+            r.call_started, r.gen_event, r.done_decode = None, None, 0
             env_q.append(rid)
         elif kind == "env_done":
             env_busy -= 1
+            if rid not in rs:
+                continue
             r = rs[rid]
             r.turn += 1
             if r.turn >= len(r.shape.turns):
@@ -252,21 +325,23 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             updates_since_publish += 1
             if updates_since_publish >= sim.publish_every:
                 updates_since_publish = 0
-                if sim.topology == "disaggregated_stream":
+                publishing = True
+                if sim.topology in ("disaggregated_stream", "elastic"):
                     publish_pending = version + 1
-                    push(now + sim.publish_s, "publish_done")
-                else:
-                    push(now + sim.publish_s, "publish_done")
-            elif sim.topology != "disaggregated_stream":
+                push(now + sim.publish_s, "publish_done")
+            elif sim.topology not in ("disaggregated_stream", "elastic"):
                 engine_up = True
         elif kind == "publish_done":
             version = publish_pending if publish_pending is not None else version + 1
             publish_pending = None
+            publishing = False
             res.publishes += 1
             engine_up = True
             admit()
         while env_q and env_busy < sim.env_workers:
             rid2 = env_q.pop(0)
+            if rid2 not in rs:
+                continue
             env_busy += 1
             push(now + rs[rid2].shape.turns[rs[rid2].turn][2], "env_done", rid2)
         start_calls()

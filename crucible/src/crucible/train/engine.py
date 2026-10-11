@@ -84,6 +84,7 @@ class EnginePool:
         # (found on the lab: paused waits were counted as ~100 % utilization during training)
         self.busy_s = 0.0
         self._active, self._busy_t0, self._paused = 0, 0.0, False
+        self.held: set[int] = set()  # engines the trainer holds (``elastic`` topology): new calls avoid them
 
     def _running(self) -> bool:
         return self._active > 0 and not self._paused
@@ -113,11 +114,15 @@ class EnginePool:
     def _exit(self) -> None:
         self._set(active=self._active - 1)
 
+    def _routable(self) -> list[int]:
+        free = [j for j in range(len(self.engines)) if j not in self.held]
+        return free or list(range(len(self.engines)))
+
     def route(self, rid: str) -> int:
         i = zlib.crc32(rid.encode()) % len(self.engines)
-        if self.inflight[i] < self.engines[i].capacity:
+        if i not in self.held and self.inflight[i] < self.engines[i].capacity:
             return i
-        return min(range(len(self.engines)), key=lambda j: (self.inflight[j] / max(self.engines[j].capacity, 1), j))
+        return min(self._routable(), key=lambda j: (self.inflight[j] / max(self.engines[j].capacity, 1), j))
 
     async def generate(self, req: GenRequest) -> GenResult:
         i = self.route(req.rid)
@@ -160,6 +165,21 @@ class EnginePool:
         for e in self.engines:
             await e.resume()
         self._set(paused=False)
+
+    # ---- elastic groups (LongCat DORA): only some engines hand their accelerator to the trainer ---------------------
+    async def hold(self, indices: Sequence[int]) -> int:
+        """Abort and pause ``indices`` (the elastic group) while the rest keep serving; new calls route around them."""
+        self.held = set(indices)
+        n = 0
+        for i in indices:
+            n += await self.engines[i].abort_all()
+            await self.engines[i].pause()
+        return n
+
+    async def release(self) -> None:
+        for i in sorted(self.held):
+            await self.engines[i].resume()
+        self.held = set()
 
     async def load_weights(self, state: Any, version: int) -> None:
         for e in self.engines:
@@ -389,7 +409,8 @@ class TorchEngine:
 
     def capabilities(self) -> dict[str, Any]:
         return {"token_ids": True, "logprobs": "processed", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": True,
-                "routing": hasattr(self._serve, "last_routes"), "weight_load": "state_dict"}
+                "routing": hasattr(self._serve, "last_routes"), "weight_load": "state_dict",
+                "resume_keeps_kv": bool(getattr(self, "resume_keeps_kv", False))}
 
     async def load_weights(self, state: dict[str, torch.Tensor], version: int) -> None:
         new = copy.deepcopy(self._serve).float()  # a new object: running calls keep the one they pinned

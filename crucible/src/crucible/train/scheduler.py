@@ -57,6 +57,10 @@ class SchedulerConfig:
     max_offpolicy_frac: float | None = None
     drop_early_short: float | None = None  # length quantile in (0, 1)
     early_steps: int = 0
+    # groups at their staleness bound when more than B of them are selectable: they would exceed τ by waiting one more
+    # publish. ``batch`` (default) trains them all this step (the batch grows past B, recorded), ``drop`` evicts the
+    # overflow as stale, ``allow`` leaves them (staleness may reach τ + 1; recorded by the monitors)
+    bound_overflow: str = "batch"
 
     def tau(self, source: str) -> int:
         return int(self.max_staleness_by_source.get(source, self.max_staleness))
@@ -143,7 +147,9 @@ class Scheduler:
                     self.pool.refill_member(g.gid, version)
                     self.counters["refilled_members"] += 1
 
-    def select(self, v_train: int) -> Selection:
+    def select(self, v_train: int, *, min_groups: int | None = None) -> Selection:
+        """``min_groups``: the fewest groups a batch may have (default B). A budget-driven partial-rollout barrier (Kimi λ,
+        C3PO++ Φ) trains whatever has finished, up to B groups, once its round boundary is reached."""
         c = self.cfg
         evicted: dict[str, str] = {}
         self._backfill(v_train, evicted)
@@ -156,8 +162,11 @@ class Scheduler:
                     evicted[g.gid] = "stale"
                     ev_st.append(gs)
                     self.counters["evicted_stale"] += 1
-        elif c.staleness_strategy == "wait" and any(t.staleness(v_train) >= c.tau(t.source) for t in self.pool.live()):
-            return Selection([], evicted, blocked="wait_stale")
+        elif c.staleness_strategy == "wait":
+            # a group's staleness counts its finished members too: they age while the group waits for its last runner
+            open_groups = {t.group for t in self.pool.live()}
+            if any(self.pool.group_staleness(gid, v_train) >= c.tau(self.pool.groups[gid].source) for gid in open_groups):
+                return Selection([], evicted, blocked="wait_stale")
         if c.filter_zero_variance and c.n > 1:
             for g in self.pool.terminal_groups():
                 rs = [t.reward for t in self.pool.members(g.gid, {"finished", "failure"})]
@@ -187,6 +196,9 @@ class Scheduler:
             cands.sort(key=lambda g: (done_at[g.gid], g.submit_index))
         else:
             raise ValueError(c.buffer_policy)
+        # Groups at their staleness bound train first (stable within the buffer policy): a finished group that waits one
+        # more publish behind newer ones would exceed τ although no live rollout ever did ("wait" checks live rollouts).
+        cands.sort(key=lambda g: self.pool.group_staleness(g.gid, v_train) < c.tau(g.source))
         if c.max_offpolicy_frac is not None:
             limit = math.floor(c.max_offpolicy_frac * c.B)
             on = [g for g in cands if self.pool.group_staleness(g.gid, v_train) == 0]
@@ -202,9 +214,22 @@ class Scheduler:
                 self.counters["evicted_stale"] += 1
             cands = [g for g in cands if g.gid not in evicted]
             cands.sort(key=lambda g: self.pool.group_staleness(g.gid, v_train) < c.tau(g.source))  # groups at their bound first (stable)
-        if len(cands) < c.B:
+        if len(cands) < (c.B if min_groups is None else max(1, min(min_groups, c.B))):
             return Selection([], evicted, blocked="need_more")
         batch = cands[: c.B]
+        at_bound = [g for g in cands[c.B:] if self.pool.group_staleness(g.gid, v_train) >= c.tau(g.source)]
+        if at_bound and c.staleness_strategy != "none":
+            if c.bound_overflow == "batch":
+                batch = batch + at_bound
+                self.counters["bound_overflow_trained"] = self.counters.get("bound_overflow_trained", 0) + len(at_bound)
+            elif c.bound_overflow == "drop":
+                for g in at_bound:
+                    self.pool.evict_group(g.gid)
+                    evicted[g.gid] = "stale"
+                    ev_st.append(self.pool.group_staleness(g.gid, v_train))
+                    self.counters["evicted_stale"] += 1
+            elif c.bound_overflow != "allow":
+                raise ValueError(f"bound_overflow: batch | drop | allow (got {c.bound_overflow!r})")
         st, sp, worst, by_src = [], [], [], {}
         for g in batch:
             gst = []

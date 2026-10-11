@@ -2471,6 +2471,20 @@ can wait in the buffer: they age too. In simulation with τ = 2 and `wait`, roll
 admission cap therefore counts every **untrained** rollout, in flight or buffered. With oldest-first selection a
 rollout is trained within about S steps, and S = 1 is exactly synchronous.
 
+**M12-infra batch A (2026-10-12; `docs/research/m12-infra/00-option-matrix.md`).** The training stack offers synchronous and asynchronous operation as orthogonal axes, the article's route-② point. Placement is set by `topology`: `colocated_sync`, `colocated_partial`, `disaggregated_stream`, and the new `elastic` (LongCat DORA: a resident generation group keeps generating while an elastic group is held for the trainer). Synchronization is set by the scheduler's staleness knobs. Batch A adds:
+- partial-rollout round boundaries: B groups, Kimi K3's completion fraction λ, or Ring-1T C3PO++'s token budget Φ;
+- Ring's retention σ (`max_cuts`);
+- KV-preserving token-level resume (DeepSeek-V4.1, `resume_keeps_kv`).
+
+Each runs in both the runtime and the simulator.
+
+Three findings came out of building it:
+- **B.20.** The simulator let a colocated training step start before the previous publish finished, and the publish re-enabled the engine mid-training. Colocated engine down-time was understated by about half; it is now serialized.
+- **B.21.** `wait` watched only live rollouts. A group's finished members age while it waits for its last runner, so every topology trained at τ + 1. `wait` now checks open-group staleness, groups at the bound train first, and `bound_overflow` (`batch` by default) trains every group at the bound when more than B are selectable.
+- **B.22.** The simulator measured staleness against the version engines serve. In the async topologies the trainer's committed version is ahead by the publish in flight, and staleness is now measured against it.
+
+Across 24 seed and topology runs, no trained rollout exceeds τ.
+
 ### 10.4 Long horizons: million-token trajectories with dense, honest reward (built 2026-10-09)
 
 The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M context, SWE RL at 130 turns) and that rewards got sparse (one binary outcome after hundreds of steps). Crucible's environments must therefore produce, survive and credit such episodes natively, not only in the trainer. Evidence and per-framework mechanisms: `docs/research/long-horizon/01-frameworks.md`. Module doc: `docs/modules/long-horizon.md`.

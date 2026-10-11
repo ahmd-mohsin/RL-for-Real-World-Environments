@@ -59,7 +59,8 @@ class GatewayPool(EnginePool):
         live = [i for i, a in enumerate(self.alive) if a]
         if not live:
             raise EngineDown("no live engines in the gateway")
-        return live
+        free = [i for i in live if i not in self.held]  # elastic topology: the held group is training
+        return free or live
 
     def _load(self, i: int) -> float:
         return self.inflight[i] / max(self.engines[i].capacity, 1)
@@ -67,7 +68,7 @@ class GatewayPool(EnginePool):
     def route(self, rid: str) -> int:
         self.stats["routed"] += 1
         i = self.sessions.get(rid)
-        if i is not None and self.alive[i]:
+        if i is not None and self.alive[i] and i not in self.held:
             if self.inflight[i] < self.spill_factor * self.engines[i].capacity:
                 self.sessions.move_to_end(rid)
                 self.stats["sticky"] += 1

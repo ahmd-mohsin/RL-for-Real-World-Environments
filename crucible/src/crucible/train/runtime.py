@@ -22,6 +22,13 @@ vLLM at a fixed fraction, trainer resident — research m11-m12/03 finding 1):
 | colocated_sync         | the whole admitted batch is terminal   | idle (nothing admitted)                 | none                          |
 | colocated_partial      | B selectable groups                    | **aborted + paused** (GPU handed over)  | aborted → re-issued / resumed |
 | disaggregated_stream   | B selectable groups                    | **keep generating** (trainer in a thread)| finish on their version       |
+| elastic                | B selectable groups                    | elastic group aborted + held; resident group keeps generating | elastic: re-issued / resumed; resident: finish |
+
+Partial-rollout round boundaries (``partial_barrier``, M12-infra A): ``groups`` (B selectable), ``completion_frac`` λ (Kimi
+K3: the finished share of untrained rollouts reaches λ, then whatever finished trains, up to B), ``token_budget`` Φ
+(Ring-1T C3PO++: Φ completion tokens since the last barrier). ``max_cuts`` σ evicts rollouts cut more than σ times
+(Ring's retention), and an engine declaring ``resume_keeps_kv`` resumes token-level calls without re-prefill
+(DeepSeek-V4.1).
 """
 
 from __future__ import annotations
@@ -42,7 +49,20 @@ from crucible.train.scheduler import Scheduler, SchedulerConfig
 
 @dataclass
 class RuntimeConfig:
-    topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream
+    topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream | elastic
+    # partial-rollout round boundary (M12-infra A; art. §3.2.3.1): ``groups`` = B groups selectable (default);
+    # ``completion_frac`` = the finished share of untrained rollouts reaches ``barrier_frac`` λ (Kimi K3), then the
+    # finished groups train (up to B); ``token_budget`` = ``barrier_tokens`` Φ completion tokens generated since the last
+    # barrier (Ring-1T C3PO++), then the finished groups train. Unfinished rollouts continue on the next version.
+    partial_barrier: str = "groups"
+    barrier_frac: float = 0.8
+    barrier_tokens: int = 0
+    # retention σ (Ring-1T): a rollout cut by more than ``max_cuts`` barriers is evicted with its group (its oldest
+    # tokens are σ versions behind); None = never
+    max_cuts: int | None = None
+    # ``elastic`` topology (LongCat DORA): the last ``elastic_engines`` engines form the elastic group, handed to the
+    # trainer at each barrier (aborted + paused) and returned after the publish; the others keep generating meanwhile
+    elastic_engines: int = 0
     steps: int = 10
     publish_every: int = 1
     warmup_batches: int = 1
@@ -126,6 +146,8 @@ class RunReport:
     audits: int = 0
     confirmed_hacks: int = 0  # full-tier audit rejected what the fast tier paid
     checkpoints: list[str] = field(default_factory=list)
+    kv_resumes: int = 0  # aborted calls resumed at a token boundary with the engine's KV kept (no re-prefill)
+    retention_evictions: int = 0  # groups evicted because a member was cut more than max_cuts times
 
     def series(self, key: str) -> list[float]:
         return [s.metrics[key] for s in self.steps if key in s.metrics]
@@ -202,9 +224,20 @@ class Runtime:
         self.tasks: dict[str, asyncio.Task] = {}
         self.changed = asyncio.Event()
         self.version = 0
+        if cfg.topology not in ("colocated_sync", "colocated_partial", "disaggregated_stream", "elastic"):
+            raise ValueError(f"unknown topology {cfg.topology!r}")
+        if cfg.partial_barrier not in ("groups", "completion_frac", "token_budget"):
+            raise ValueError("partial_barrier: groups | completion_frac | token_budget")
+        if cfg.partial_barrier == "completion_frac" and not 0 < cfg.barrier_frac <= 1:
+            raise ValueError("barrier_frac must be in (0, 1]")
+        if cfg.partial_barrier == "token_budget" and cfg.barrier_tokens <= 0:
+            raise ValueError("token_budget needs barrier_tokens > 0")
+        if cfg.topology == "elastic" and not 0 < cfg.elastic_engines < len(engines.engines):
+            raise ValueError(f"elastic needs 0 < elastic_engines < {len(engines.engines)} (a resident generation group must remain)")
+        self._round_tokens = 0
         if cfg.train_state_on_rollout not in ("none", "cpu", "nvme"):
             raise ValueError("train_state_on_rollout: none | cpu | nvme")
-        if cfg.train_state_on_rollout != "none" and cfg.topology == "disaggregated_stream":
+        if cfg.train_state_on_rollout != "none" and cfg.topology in ("disaggregated_stream", "elastic"):
             raise ValueError("disaggregated_stream keeps the trainer resident (it trains while engines generate): no offload")
         for e in engines.engines:
             modes = getattr(e, "kv_modes", ("discard",))
@@ -226,6 +259,7 @@ class Runtime:
                          temperature=self.cfg.temperature if temperature is None else temperature, stop_ids=self.cfg.stop_ids, top_p=self.cfg.top_p)
         while True:
             res = await self.engines.generate(req)
+            self._round_tokens += max(0, len(res.completion_ids) - len(req.resume_completion or []))
             if res.finish != "abort":
                 return res
             self.report.aborted_calls += 1
@@ -234,7 +268,10 @@ class Runtime:
                 req.resume_completion, req.resume_logprobs, req.resume_candidates = res.completion_ids, res.logprobs, list(res.candidates or [])
                 req.resume_routing = list(res.routing or [])
                 req.resume_spans = list(res.version_spans or [(0, res.version)])
-                self.report.reprefill_tokens += len(prompt) + len(res.completion_ids)
+                if self.engines.capabilities().get("resume_keeps_kv"):  # DeepSeek-V4.1: resume at the token boundary, no re-prefill
+                    self.report.kv_resumes += 1
+                else:
+                    self.report.reprefill_tokens += len(prompt) + len(res.completion_ids)
             else:  # discard the partial completion; the whole call is re-issued under the new version
                 self.report.reprefill_tokens += len(prompt)
                 req.resume_completion, req.resume_logprobs, req.resume_spans, req.resume_candidates, req.resume_routing = [], [], [], [], []
@@ -535,8 +572,8 @@ class Runtime:
                     continue
                 recs.append(r)
                 groups.append(g.gid)
-        if self.cfg.topology == "disaggregated_stream":
-            m = await asyncio.to_thread(self.trainer.step, recs, groups)  # engines keep generating meanwhile
+        if self.cfg.topology in ("disaggregated_stream", "elastic"):
+            m = await asyncio.to_thread(self.trainer.step, recs, groups)  # (resident) engines keep generating meanwhile
         else:
             m = self.trainer.step(recs, groups)
         self.report.trained_records += recs
@@ -639,7 +676,10 @@ class Runtime:
                     await self._wait()
                     continue
             t_wait = time.monotonic()
-            sel = self.sched.select(self.version)
+            if not self._round_boundary():
+                await self._wait()
+                continue
+            sel = self.sched.select(self.version, min_groups=None if self.cfg.partial_barrier == "groups" else 1)
             if sel.blocked:
                 self._admit()
                 await self._wait()
@@ -649,6 +689,12 @@ class Runtime:
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):
                 aborted = await self.engines.abort_all()  # S1: hand the GPU to the trainer; Worlds keep their state
                 await self.engines.pause()
+            elif self.cfg.topology == "elastic":  # only the elastic group trains; the resident group keeps generating
+                n = len(self.engines.engines)
+                aborted = await self.engines.hold(list(range(n - self.cfg.elastic_engines, n)))
+            self._round_tokens = 0
+            if self.cfg.topology in ("colocated_partial", "elastic"):
+                self._cut_live()
             t0 = time.monotonic()
             if offload != "none":
                 self.trainer.onload()
@@ -677,6 +723,8 @@ class Runtime:
                 self.trainer.offload(offload)  # after the publish (which read the weights): free the accelerator for rollouts
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):
                 await self.engines.resume()
+            elif self.cfg.topology == "elastic":
+                await self.engines.release()
             rewards, lengths = m.pop("_rewards"), m.pop("_lengths")
             batch = m.pop("_records")
             probes = m.pop("_probes")
@@ -701,7 +749,8 @@ class Runtime:
                             "probe/attempt_share": probes / max(len(rewards), 1)})
             self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
             metrics.update({k: v for k, v in m.items()})
-            metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count())})
+            metrics.update({"reward/mean": sum(rewards) / max(len(rewards), 1), "aborted_calls": float(aborted), "untrained": float(self.sched.untrained_count()),
+                            "batch/groups": float(len(sel.groups)), "rollout/retention_evictions": float(self.report.retention_evictions)})
             metrics.update(self._bubbles(mark, train_s, publish_s))
             self.report.steps.append(StepLog(step, self.version, metrics))
             self._step_now = step
@@ -714,6 +763,34 @@ class Runtime:
             t.cancel()
         await asyncio.gather(*self.tasks.values(), return_exceptions=True)
         return self.report
+
+    def _round_boundary(self) -> bool:
+        """Whether the partial-rollout round may end now (``partial_barrier``); ``groups`` defers to the scheduler."""
+        c = self.cfg
+        if c.partial_barrier == "token_budget":
+            return self._round_tokens >= c.barrier_tokens or not any(not t.done() for t in self.tasks.values())
+        if c.partial_barrier == "completion_frac":
+            untrained = [t for t in self.pool.untrained() if t.status != "evicted"]
+            done = sum(1 for t in untrained if t.status in ("finished", "failure", "masked"))
+            return not untrained or done / len(untrained) >= c.barrier_frac
+        return True
+
+    def _cut_live(self) -> None:
+        """Every rollout still running at a barrier is cut once more (Ring-1T's retention counter ρ); with ``max_cuts``
+        σ, a rollout cut more than σ times is evicted with its group and its task cancelled (freed slots are refilled)."""
+        over: set[str] = set()
+        for t in self.pool.live():
+            if t.status in ("running", "grading"):
+                t.cuts += 1
+                if self.cfg.max_cuts is not None and t.cuts > self.cfg.max_cuts:
+                    over.add(t.group)
+        for gid in over:
+            for rid in self.pool.evict_group(gid):
+                task = self.tasks.pop(rid, None)
+                if task is not None:
+                    task.cancel()
+            self.sched.counters["evicted_retention"] = self.sched.counters.get("evicted_retention", 0) + 1
+            self.report.retention_evictions += 1
 
     async def _wait(self) -> None:
         self.changed.clear()
