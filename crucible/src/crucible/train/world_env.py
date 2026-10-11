@@ -170,3 +170,26 @@ def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: 
 
     return world_rollout(task_for, codec, max_steps=max_steps, workroot=workroot, limit_policy=limit_policy, make_policy=make,
                          harness_id=f"rlm:{c.digest()}@1")
+
+
+def tito_llm(provider: Any, model: str, *, timeout_s: float, seed: int | None = None) -> EngineLLM:
+    """``LLMProvider.tito``: an ``EngineLLM`` over a vLLM server's token-id completions endpoint, rendered with the
+    model's own chat template. ``actors.llm.LLMClient`` resolves this through a pointer (it may not import train)."""
+    from transformers import AutoTokenizer
+
+    from crucible.core.config import resolve_secret
+    from crucible.train.chat import HFChatCodec
+    from crucible.train.engine import GenRequest
+    from crucible.train.vllm_http import VLLMServerEngine
+
+    codec = HFChatCodec(AutoTokenizer.from_pretrained(model), template_kwargs=provider.template_kwargs)
+    eng = VLLMServerEngine(provider.base_url.rstrip("/").removesuffix("/v1"), model, timeout_s=timeout_s,
+                           api_key=resolve_secret(provider.api_key) or None)
+    calls = [0]
+
+    async def gen(prompt: list[int], n: int, temp: float):
+        calls[0] += 1
+        return await eng.generate(GenRequest(rid="llm", call_id=f"c{calls[0]}", prompt_ids=prompt, max_tokens=n, temperature=temp,
+                                             stop_ids=codec.eos_ids, seed=seed))
+
+    return EngineLLM(codec, gen, model=model)

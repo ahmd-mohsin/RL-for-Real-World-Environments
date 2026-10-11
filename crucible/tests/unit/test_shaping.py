@@ -11,12 +11,12 @@ from crucible_pack_toy.runtime import HelpdeskTask, scripted
 
 from crucible.actors.policy import EpisodeLimits
 from crucible.core.schema.actions import ToolCall
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.credit.shaping import format_errors_by_call, speed_term, verbosity_group_fn, with_speed
 from crucible.runtime.harness.native import NativeHarness
 from crucible.runtime.infra import LimitPolicy
 from crucible.runtime.run import Runner, RunSpec
 from crucible.train.engine import TinyPolicy
-from crucible.train.rollout import RolloutRecord, Turn
 from crucible.train.trainer import TorchTrainer, TrainerConfig
 
 

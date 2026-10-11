@@ -30,7 +30,6 @@ from crucible.core.schema.milestone import Expectation, Milestone, MilestoneChec
 from crucible.core.schema.state import Query
 from crucible.core.schema.trace import Trace
 from crucible.credit.compose import compose
-from crucible.credit.operators.potential import potential, trajectory
 from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only
 from crucible.credit.validity import auc
 from crucible.workflow.graph import WorkflowGraph
@@ -38,6 +37,7 @@ from crucible.workflow.logstate import LogStateView, states
 from crucible.workflow.milestones.evaluate import evaluate, evaluate_series
 from crucible.workflow.milestones.filters import screen
 from crucible.workflow.milestones.match import match
+from crucible.workflow.potential import potential, trajectory
 from crucible.workflow.stages import induce, name_stages
 from crucible.workflow.steps import segment
 from crucible.workflow.tracker import WorkflowTracker

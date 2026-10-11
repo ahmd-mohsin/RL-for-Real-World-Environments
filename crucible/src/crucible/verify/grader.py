@@ -24,8 +24,8 @@ from crucible.core.schema.milestone import Milestone
 from crucible.core.schema.reward import InfraStatus, RewardJson, StepRow
 from crucible.credit import steps as steps_io
 from crucible.credit.compose import compose, scalar
-from crucible.credit.operators.potential import potential, trajectory
 from crucible.verify.runtime.plan import Context, GradeReport, Plan, write_reward_files
+from crucible.workflow.potential import potential, trajectory
 from crucible.workflow.steps import Step
 
 

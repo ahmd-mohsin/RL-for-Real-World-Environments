@@ -24,7 +24,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
-from crucible.train.rollout import RolloutRecord, full_prompts
+from crucible.core.schema.rollout import RolloutRecord, full_prompts
 
 
 class Teacher(Protocol):

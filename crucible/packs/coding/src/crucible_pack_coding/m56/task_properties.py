@@ -23,11 +23,11 @@ from pathlib import Path
 from typing import Any
 
 from crucible.credit.compose import compose
-from crucible.credit.operators.potential import potential
 from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only
 from crucible.workflow.filestate import EditError, FileState
 from crucible.workflow.milestones.evaluate import FileStateView, evaluate
 from crucible.workflow.milestones.mine import from_diff
+from crucible.workflow.potential import potential
 from crucible_pack_coding import PACK_ROOT
 from crucible_pack_coding.connectors.agent_runs import _recorded
 

@@ -3,10 +3,10 @@ record tagged with its source; per-source reward / length / active-time metrics.
 
 from __future__ import annotations
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.engine import EnginePool, TinyPolicy, TorchEngine
 from crucible.train.envs import CopyTask
 from crucible.train.mismatch import Correction
-from crucible.train.rollout import RolloutRecord, Turn
 from crucible.train.runtime import Runtime, RuntimeConfig
 from crucible.train.scheduler import SchedulerConfig
 from crucible.train.trainer import TorchTrainer, TrainerConfig

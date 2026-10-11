@@ -23,7 +23,7 @@ import json
 import re
 from typing import Any, Literal
 
-from crucible.connectors.agent_events import EDIT_TOOLS
+from crucible.core.agent_events import EDIT_TOOLS
 
 ActionKind = Literal["investigate", "edit", "build", "test", "run", "communicate", "act", "submit", "other"]
 ORDER: tuple[ActionKind, ...] = ("submit", "edit", "build", "test", "run", "act", "communicate", "investigate", "other")

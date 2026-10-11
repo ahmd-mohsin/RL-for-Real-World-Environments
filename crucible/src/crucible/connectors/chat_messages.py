@@ -19,8 +19,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from crucible.connectors.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.connectors.base import RawRecord, SourceRef
+from crucible.core.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 

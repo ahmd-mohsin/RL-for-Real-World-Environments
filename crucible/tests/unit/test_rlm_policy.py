@@ -135,9 +135,9 @@ async def test_state_dict_is_json(tmp_path):
 async def test_train_rollout_complete_with_token_records(tmp_path):
     """Through the runtime (NativeHarness, rollout_mode="train"): root turns and sub-LLM calls carry token records, so the
     rollout is trainable; sub-calls appear as their own turns."""
+    from crucible.core.schema.rollout import RolloutRecord
     from crucible.runtime.harness.native import NativeHarness, PolicyRef
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.train.rollout import RolloutRecord
 
     tok = {"prompt_token_ids": [1, 2, 3], "completion_token_ids": [7, 8], "logprobs": [-0.1, -0.2], "policy_version": 1}
 

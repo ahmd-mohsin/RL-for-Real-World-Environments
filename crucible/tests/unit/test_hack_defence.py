@@ -6,9 +6,9 @@ import pytest
 from crucible_pack_toy.runtime import FibTask
 
 from crucible.core.schema.actions import ToolCall
+from crucible.core.schema.rollout import RolloutRecord
 from crucible.credit.gar import gar_group_fn
 from crucible.credit.hack_detector import chain_group_fns, detector_group_fn, llm_hack_judge, parse_verdict, rule_flags
-from crucible.train.rollout import RolloutRecord
 from crucible.world.intercept import Rule, RuleInterceptor
 
 

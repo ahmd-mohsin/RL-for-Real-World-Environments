@@ -30,8 +30,8 @@ def test_hf_chat_codec_returns_token_ids_and_world_rollout_builds_a_valid_record
     from crucible_pack_toy.longhorizon.task import BacklogTask
 
     from crucible.actors.policy import ContextConfig
+    from crucible.core.schema.rollout import full_prompts
     from crucible.train.chat import HFChatCodec
-    from crucible.train.rollout import full_prompts
     from crucible.train.world_env import world_rollout
 
     tok = _qwen_tokenizer()
@@ -92,8 +92,8 @@ def test_qwen3_multi_turn_tool_episode_keeps_exact_tito():
     from crucible_pack_toy.longhorizon.task import BacklogTask
 
     from crucible.actors.policy import ContextConfig
+    from crucible.core.schema.rollout import full_prompts
     from crucible.train.chat import HFChatCodec
-    from crucible.train.rollout import full_prompts
     from crucible.train.world_env import world_rollout
 
     tok = _qwen_tokenizer()

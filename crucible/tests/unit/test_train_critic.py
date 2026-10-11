@@ -8,11 +8,11 @@ import copy
 
 import torch
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.critic import CriticConfig, HFValue, TinyValue
 from crucible.train.engine import EnginePool, TinyPolicy, TorchEngine
 from crucible.train.envs import CopyTask
 from crucible.train.objectives import gae
-from crucible.train.rollout import RolloutRecord, Turn
 from crucible.train.runtime import Runtime, RuntimeConfig
 from crucible.train.scheduler import SchedulerConfig
 from crucible.train.trainer import TorchTrainer, TrainerConfig
@@ -34,7 +34,7 @@ def test_trainer_advantages_equal_direct_gae_including_segments():
         tr = TorchTrainer(TinyPolicy(32, 8), TrainerConfig(item_unit="call"), critic=critic, critic_cfg=cc)
         rec = _rec(segments=segs)
         items = tr._items([rec], ["g"])
-        from crucible.train.rollout import full_prompts
+        from crucible.core.schema.rollout import full_prompts
 
         p = full_prompts(rec)
         with torch.no_grad():

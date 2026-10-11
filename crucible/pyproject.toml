@@ -52,7 +52,7 @@ crucible_verify = "crucible.interop.agentenv.plugin.steps:CrucibleVerifyStep"
 crucible_ref = "crucible.interop.agentenv.plugin.artifacts:CrucibleRefArtifact"
 
 [project.entry-points."agent_env.explorer_plugins"]
-crucible = "crucible.interop.agentenv.explorer:CrucibleExplorerPlugin"
+crucible = "crucible.studio.explorer:CrucibleExplorerPlugin"
 
 [project.entry-points."crucible.packs"]
 
@@ -112,14 +112,14 @@ root_packages = ["crucible"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Only crucible.interop.<fw> imports external RL frameworks; core/world/actors reach backends through registries"
+name = "Only crucible.interop (and the studio, above it) imports external RL frameworks; lower layers reach adapters through registry pointers"
 type = "forbidden"
 source_modules = [
-  "crucible.core",
-  "crucible.world",
-  "crucible.actors",
+  "crucible.core", "crucible.world", "crucible.actors", "crucible.connectors", "crucible.signals", "crucible.workflow",
+  "crucible.credit", "crucible.verify", "crucible.runtime", "crucible.forge", "crucible.accept", "crucible.train", "crucible.bench",
 ]
-forbidden_modules = ["harbor", "agent_env", "agentenv_protocol", "verifiers", "openenv", "crucible.interop"]
+forbidden_modules = ["harbor", "agent_env", "agentenv_protocol", "verifiers", "openenv", "nemo_gym"]
+ignore_imports = ["crucible.runtime.record -> harbor"]  # a TYPE_CHECKING annotation only
 
 [[tool.importlinter.contracts]]
 name = "Core layers never import domain packs"
@@ -134,6 +134,21 @@ source_modules = ["crucible.connectors", "crucible.signals"]
 forbidden_modules = ["crucible.world", "crucible.actors", "crucible.interop", "harbor", "agent_env", "verifiers", "openenv", "crucible_pack_coding", "crucible_pack_toy"]
 
 [[tool.importlinter.contracts]]
-name = "Layering: core < world < actors"
+name = "Layering (M0 audit D3): a package may import only packages below it; siblings on one line are independent"
 type = "layers"
-layers = ["crucible.actors", "crucible.world", "crucible.core"]
+layers = [
+  "crucible.cli",
+  "crucible.studio",
+  "crucible.interop",
+  "crucible.train | crucible.bench",
+  "crucible.accept",
+  "crucible.forge",
+  "crucible.runtime",
+  "crucible.verify",
+  "crucible.credit",
+  "crucible.workflow",
+  "crucible.connectors | crucible.signals",
+  "crucible.actors",
+  "crucible.world",
+  "crucible.core",
+]

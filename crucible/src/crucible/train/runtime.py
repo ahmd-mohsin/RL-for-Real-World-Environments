@@ -32,11 +32,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from crucible.core.schema.rollout import RolloutRecord, Segment, Turn  # noqa: F401
 from crucible.train.engine import EnginePool, GenRequest, GenResult
 from crucible.train.envs import EnvInfraError
 from crucible.train.monitors import StepMonitor
 from crucible.train.pool import DataPool
-from crucible.train.rollout import RolloutRecord, Segment, Turn  # noqa: F401
 from crucible.train.scheduler import Scheduler, SchedulerConfig
 
 

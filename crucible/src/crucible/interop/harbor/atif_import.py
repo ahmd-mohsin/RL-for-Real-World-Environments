@@ -24,8 +24,8 @@ from typing import Any
 
 from harbor.models.trajectories import Trajectory
 
-from crucible.connectors.agent_events import INTERRUPT, REJECTED, annotate_probes, writes_of
 from crucible.connectors.base import RawRecord, SourceRef
+from crucible.core.agent_events import INTERRUPT, REJECTED, annotate_probes, writes_of
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
 

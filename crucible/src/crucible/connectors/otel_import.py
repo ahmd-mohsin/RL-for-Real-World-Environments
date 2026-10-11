@@ -22,8 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from crucible.connectors.agent_events import annotate_probes
 from crucible.connectors.base import RawRecord, SourceRef
+from crucible.core.agent_events import annotate_probes
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 
 LLM_OPS = {"chat", "text_completion", "generate_content"}

@@ -35,8 +35,10 @@ LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
 
 def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str, policies: dict[str, Any] | None = None) -> None:
     """The episode's evidence in the attempt dir: the World trace, the model calls, and one joined ATIF trajectory per
-    policy actor (``runtime.trajectories``)."""
-    from crucible.runtime.trajectories import to_atif
+    policy actor (``interop.harbor.trajectories``)."""
+    from crucible.core.registry import load_impl
+
+    to_atif = load_impl("crucible.interop.harbor.trajectories:to_atif")  # an interop exporter: runtime never imports Harbor
 
     (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
     res.artifacts["trace"] = "trace.json"

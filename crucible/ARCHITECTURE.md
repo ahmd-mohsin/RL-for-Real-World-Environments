@@ -127,6 +127,29 @@ The forge (M8) samples tasks only from parts that pass their fidelity gates.
 
 ### 1.5 How the core stays domain-agnostic
 - **Import contract:** `crucible.{core, world, actors, connectors, signals, workflow, credit, verify, forge, accept, runtime, train, bench}` may not import `packs.*` or name any domain concept. This is checked in CI.
+- **Layer order (enforced, M0 audit 2026-10-12):** a package imports only packages below it; packages on one line are
+  independent. `lint-imports` checks it, and `.github/workflows/crucible.yml` runs it with ruff and the CPU suite on every
+  push.
+
+  ```
+  cli
+  studio                         (may import frameworks: hosts the agentenv explorer plugin and exports)
+  interop                        (the only lower-level home of framework imports)
+  train | bench
+  accept                         (includes the RLM task-repair loop, accept/repair.py)
+  forge
+  runtime
+  verify
+  credit
+  workflow                       (includes the potential Φ, workflow/potential.py)
+  connectors | signals
+  actors
+  world
+  core                           (includes the rollout record, agent-event helpers, canonical JSON)
+  ```
+
+  A lower layer that needs an adapter (ATIF export, the exact-token engine, a sandboxed role) resolves it through a
+  `module:attr` pointer (`core.registry.load_impl`), never an import.
 - **`packs/_toy` exercises every module, CPU-only, in under 5 minutes.**
   - World: a helpdesk with a `tickets` SQLite app and a `kb` doc app; actors are an agent and a grounded simulated customer.
   - Signals: reopen, escalation, CSAT.
@@ -613,7 +636,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - `gpu.py` (lab 5090, Runpod, Modal);
   - `trajectories.py` (ATIF with step ids that line up with `steps.jsonl`);
   - `checkpoint.py` (mid-episode checkpoints; a masked attempt resumes from the last one, DESIGN §10.4), `perf_guard.py`, `record.py`, `harness/imported.py`.
-- **Long horizons (DESIGN §10.4):** `verify/progress.py` (online dense progress over the grader's subgoals, telescoping), `actors/policy.ContextConfig` (policy-written compaction, segments), `World.stream_trace`, linear token storage in `train/rollout.py`; toy `longhorizon/` (backlog world, `xl` > 1M tokens, gate).
+- **Long horizons (DESIGN §10.4):** `verify/progress.py` (online dense progress over the grader's subgoals, telescoping), `actors/policy.ContextConfig` (policy-written compaction, segments), `World.stream_trace`, linear token storage in `core/schema/rollout.py`; toy `longhorizon/` (backlog world, `xl` > 1M tokens, gate).
 - **Takes** (revised after research m9-m10/02):
   - DEPEND: Harbor Job / Trial / regrade and installed agents (through `harness/harbor.py`); verifiers interception proxy for tokens.
   - PORT: Repo2RLEnv `campaigns/budget.py` (reserve/settle ledger) and `EventJournal`; verifiers `RetryRule` and error classes; FineEnvs `evaluate` identity; Karotte limit policy (limits stop, never score); our `run_agent.sh` fixes (collect hook, cost-tracking tolerance, `--init`).

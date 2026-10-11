@@ -34,8 +34,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.engine import GenResult
-from crucible.train.rollout import RolloutRecord, Turn
 
 
 def env_rollout(env_factory: Callable[[], Any], *, top_p: float = 1.0) -> Callable:

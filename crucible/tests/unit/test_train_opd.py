@@ -9,10 +9,10 @@ import math
 import pytest
 import torch
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.engine import EnginePool, TinyPolicy, TorchEngine
 from crucible.train.envs import CopyTask
 from crucible.train.mismatch import Correction
-from crucible.train.rollout import RolloutRecord, Turn
 from crucible.train.runtime import Runtime, RuntimeConfig
 from crucible.train.scheduler import SchedulerConfig
 from crucible.train.teachers import TeacherPool, TorchTeacher, VLLMTeacher

@@ -1,0 +1,49 @@
+# Crucible CI: lint, the import-layer contracts (M0 audit D3) and the CPU test suite on every push and pull request.
+# GPU, Docker-daemon, paid-LLM and agentenv tests are skipped here (agentenv is not a public dependency); they run on the
+# lab hosts. Harbor is checked out at the commit THIRD_PARTY.md pins, where crucible's path source expects it.
+name: crucible
+
+on:
+  push:
+    branches: [main]
+    paths: ["crucible/**", ".github/workflows/crucible.yml"]
+  pull_request:
+    paths: ["crucible/**", ".github/workflows/crucible.yml"]
+
+concurrency:
+  group: crucible-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: crucible
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Harbor (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: harbor-framework/harbor
+          ref: a2fafbcfaa457e15043dd83eee356c1b036270ed
+          path: RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen --group packs --extra dev --extra mcp --extra llm --extra harbor --extra train --extra analysis
+
+      - name: Lint
+        run: uv run --frozen ruff check src tests packs
+
+      - name: Import-layer contracts
+        run: uv run --frozen lint-imports
+
+      - name: Unit and end-to-end tests (CPU)
+        run: uv run --frozen pytest -q tests/unit tests/toy_e2e -p no:cacheprovider

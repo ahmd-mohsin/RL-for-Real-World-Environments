@@ -4,7 +4,7 @@ One trajectory per policy actor, validated by Harbor's own pydantic models: the 
 message / event delivered to the actor are ``user`` steps; each action is an ``agent`` step (tool calls
 carry their observation results, matched by ``tool_call_id``; messages to other actors carry
 ``extra.to``). Every step generated from a trace event carries ``extra.crucible_seq`` (the event's seq), the key that
-joins ATIF steps to M5 steps, ``steps.jsonl`` rows and model calls (``crucible.runtime.trajectories``). Virtual timestamps are kept. The result plugs into Harbor's viewer, trace exporters
+joins ATIF steps to M5 steps, ``steps.jsonl`` rows and model calls (``crucible.interop.harbor.trajectories``). Virtual timestamps are kept. The result plugs into Harbor's viewer, trace exporters
 (ShareGPT / HF) and anything else that reads ATIF.
 """
 
@@ -59,3 +59,8 @@ def episode_to_atif(trace: Trace, actor: str, *, instruction: str | None = None,
         add(source="system", message="(empty episode)")
     return Trajectory(session_id=session_id or trace.trace_id, agent=Agent(name=agent_name, version=agent_version, model_name=model_name),
                       steps=steps, extra={"world": trace.family, "crucible_trace": trace.trace_id, "actor": actor})
+
+
+def parse_trajectory(text: str) -> Trajectory:
+    """An ATIF trajectory from its JSON text (``runtime.run`` resolves this through a pointer)."""
+    return Trajectory.model_validate_json(text)

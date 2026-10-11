@@ -3,9 +3,9 @@ advantages, versions), and each trainer adapter produces its framework's fields 
 
 from __future__ import annotations
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.bridges.adapters import rllm_steps, skyrl_generator_output, trl_rollout, verl_agent_loop_output
 from crucible.train.bridges.common import flatten
-from crucible.train.rollout import RolloutRecord, Turn
 
 
 def record() -> RolloutRecord:

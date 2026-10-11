@@ -15,23 +15,12 @@ Adapter capabilities used (all optional; a check whose capability is missing fai
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from crucible.accept.checks.base import AcceptContext, Out, need, register
 from crucible.accept.model import Need, Status
-
-
-@dataclass
-class Attack:
-    id: str
-    family: str
-    solution: Any
-    expect_gate: str | None = None
-    effect: Callable[[], Awaitable[bool]] | None = None  # did the attack's side effect happen (A13: must; A6: must not)
-    description: str = ""
+from crucible.forge.schema import Attack  # noqa: F401 - moved to forge.schema (M0 audit D3); re-exported here
 
 
 def _caps(t: Any, name: str) -> Any:

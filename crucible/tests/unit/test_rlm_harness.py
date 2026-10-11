@@ -59,10 +59,10 @@ def _config():
 
 
 async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
+    from crucible.core.schema.rollout import RolloutRecord
     from crucible.runtime.harness.native import PolicyRef
     from crucible.runtime.harness.rlm import RLMConfig, RLMHarness
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.train.rollout import RolloutRecord
     from crucible.train.world_env import EngineLLM
 
     task = BacklogTask(seed=0, n=12)

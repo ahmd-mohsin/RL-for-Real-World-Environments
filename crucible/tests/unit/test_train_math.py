@@ -160,8 +160,8 @@ def test_dp_balance_and_micro_batches():
 
 
 def test_token_credit_masks_frozen_and_masked():
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.credit import token_credit
-    from crucible.train.rollout import RolloutRecord, Turn
 
     ro = RolloutRecord(rollout_id="r", sample="s", task="t", harness="h", policy="p", reward=1.0,
                        turns=[Turn(call_id="a:c1", actor="agent", completion_token_ids=[1, 2], logprobs=[-0.1, -0.2], policy_version=3, advantage=0.25),
@@ -173,7 +173,7 @@ def test_token_credit_masks_frozen_and_masked():
 
 
 def test_version_spans_validation():
-    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.core.schema.rollout import RolloutRecord, Turn
 
     base = {"call_id": "c", "actor": "a", "prompt_token_ids": [1], "completion_token_ids": [5, 6, 7, 8], "logprobs": [-1.0] * 4, "policy_version": 3}
     ok = Turn(**base, version_spans=[(0, 3), (2, 4)])
@@ -190,8 +190,8 @@ def test_micro_batch_budget_counts_forward_tokens_not_just_completions():
     one 40-token micro batch (placement by completion length alone said they did: 4 tokens)."""
     import torch
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.engine import TinyPolicy
-    from crucible.train.rollout import RolloutRecord, Turn
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     recs = [RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i),
@@ -208,9 +208,9 @@ def test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts():
     spans versions needs an explicit old_logprob_source."""
     import pytest
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.engine import TinyPolicy
     from crucible.train.mismatch import Correction
-    from crucible.train.rollout import RolloutRecord, Turn
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     def rec(i, versions):
@@ -234,8 +234,8 @@ def test_top_p_candidates_renormalize_training_logprobs_to_the_engine():
 
     import torch
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.engine import GenRequest, TinyPolicy, TorchEngine
-    from crucible.train.rollout import RolloutRecord, Turn
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     model = TinyPolicy(32, 16, seed=3)
@@ -272,8 +272,8 @@ def test_r3_routing_replay_removes_the_moe_routing_mismatch():
     import pytest
     import torch
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.engine import GenRequest, TinyMoEPolicy, TorchEngine
-    from crucible.train.rollout import RolloutRecord, Turn
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     model = TinyMoEPolicy(32, 16, seed=2, experts=4, k=1, router_scale=0.02)

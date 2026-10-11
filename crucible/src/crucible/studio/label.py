@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from crucible.credit import datasets as ds
+from crucible.studio import datasets as ds
 
 
 def _paths(v: Any, pack_dir: Path) -> Any:

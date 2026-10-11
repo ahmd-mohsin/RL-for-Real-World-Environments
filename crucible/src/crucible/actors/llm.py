@@ -275,24 +275,10 @@ class LLMClient:
         """``LLMProvider.tito``: ``train.world_env.EngineLLM`` over the engine's token-id completions endpoint. Prompts
         extend the served conversation token for token; the record is exactly what the engine sampled."""
         if getattr(self, "_tito", None) is None:
-            from transformers import AutoTokenizer
+            # the engine stack lives in ``crucible.train`` (above actors): resolved through a pointer, never imported here
+            from crucible.core.registry import load_impl
 
-            from crucible.train.chat import HFChatCodec
-            from crucible.train.engine import GenRequest
-            from crucible.train.vllm_http import VLLMServerEngine
-            from crucible.train.world_env import EngineLLM
-
-            codec = HFChatCodec(AutoTokenizer.from_pretrained(self.model), template_kwargs=self.provider.template_kwargs)
-            eng = VLLMServerEngine(self.provider.base_url.rstrip("/").removesuffix("/v1"), self.model, timeout_s=self.timeout_s,
-                                   api_key=resolve_secret(self.provider.api_key) or None)
-            calls = [0]
-
-            async def gen(prompt: list[int], n: int, temp: float):
-                calls[0] += 1
-                return await eng.generate(GenRequest(rid="llm", call_id=f"c{calls[0]}", prompt_ids=prompt, max_tokens=n, temperature=temp,
-                                                     stop_ids=codec.eos_ids, seed=seed))
-
-            self._tito = EngineLLM(codec, gen, model=self.model)
+            self._tito = load_impl("crucible.train.world_env:tito_llm")(self.provider, self.model, timeout_s=self.timeout_s, seed=seed)
         t0 = time.monotonic()
         try:
             r = await self._tito.complete(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)

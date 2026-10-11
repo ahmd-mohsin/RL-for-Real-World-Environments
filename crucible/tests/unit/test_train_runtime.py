@@ -77,9 +77,9 @@ async def test_world_episodes_through_the_runtime_with_exact_tito():
     from crucible_pack_toy.verify import GOLD
 
     from crucible.core.schema.actions import openai_name
+    from crucible.core.schema.rollout import full_prompts
     from crucible.train.chat import ByteChatCodec
     from crucible.train.engine import ScriptedEngine
-    from crucible.train.rollout import full_prompts
     from crucible.train.world_env import world_rollout
 
     codec = ByteChatCodec()
@@ -122,8 +122,8 @@ async def test_hf_policy_batched_logprobs_training_and_checkpoint_publish(tmp_pa
     import torch as _t
     from safetensors.torch import load_file
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.hf import HFPolicy
-    from crucible.train.rollout import RolloutRecord, Turn
     from crucible.train.weights import CheckpointPublisher
 
     pol = HFPolicy(_tiny_qwen(), lm_head_fp32=True)
@@ -192,8 +192,8 @@ def test_prefix_sharing_equals_the_unpacked_step(kind):
 
     import torch as _t
 
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.hf import HFPolicy
-    from crucible.train.rollout import RolloutRecord, Turn
 
     base = TinyPolicy(64, 16, seed=4) if kind == "tiny" else HFPolicy(_tiny_qwen(), lm_head_fp32=True)
     g = _t.Generator().manual_seed(0)

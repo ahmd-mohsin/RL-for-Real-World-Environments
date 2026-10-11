@@ -202,11 +202,11 @@ class Runner:
     @staticmethod
     def _rollout(spec: RunSpec, sk: SampleKey, rec: RunRecord, hr: HarnessResult, adir: Path) -> None:
         """Write ``rollout.json`` (crucible.rollout/v1). In train mode an incomplete token record masks the attempt."""
-        from harbor.models.trajectories import Trajectory
-
+        from crucible.core.registry import load_impl
         from crucible.runtime.record import build
 
-        trajs = {a: Trajectory.model_validate_json((adir / f).read_text()) for k, f in hr.artifacts.items()
+        parse = load_impl("crucible.interop.harbor.atif:parse_trajectory")  # ATIF models are Harbor's: an interop concern
+        trajs = {a: parse((adir / f).read_text()) for k, f in hr.artifacts.items()
                  if k.startswith("trajectory.") and (a := k.split(".", 1)[1]) and (adir / f).exists()}
         prog = adir / "progress.jsonl"
         ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,

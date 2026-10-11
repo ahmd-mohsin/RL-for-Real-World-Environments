@@ -44,7 +44,7 @@ async def m10() -> dict:
                        k=4, concurrency=4, rollout_mode=mode, sampling={"temperature": 0.7})
         s = await Runner(root / mode).run(spec)
         rolls = list((root / mode).rglob("rollout.json"))
-        from crucible.train.rollout import RolloutRecord
+        from crucible.core.schema.rollout import RolloutRecord
 
         valid, why = 0, {}
         for p in rolls:  # the trainer's own test, not a looser one (eval-mode records are checked the same way)
@@ -117,9 +117,9 @@ async def tito() -> dict:
     from transformers import AutoTokenizer
 
     from crucible.actors.llm import LLMClient
+    from crucible.core.schema.rollout import RolloutRecord
     from crucible.runtime.harness.native import NativeHarness
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.train.rollout import RolloutRecord
     from crucible_pack_toy.runtime import HelpdeskTask, llm_policy
 
     root = Path(tempfile.mkdtemp(prefix="labstack-tito-"))

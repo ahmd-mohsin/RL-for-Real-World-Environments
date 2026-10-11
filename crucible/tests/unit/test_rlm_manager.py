@@ -72,7 +72,7 @@ def _rebuild(task, checks):
 
 
 def workspace(weak_t2, tmp_path):
-    from crucible.actors.rlm.manager import ForgeWorkspace
+    from crucible.accept.repair import ForgeWorkspace
 
     weak = _rebuild(weak_t2, [c for c in weak_t2.cs.checks if c.id != "policy/approval_given_in_episode"])
     return ForgeWorkspace({"t2": weak}, rebuild=_rebuild, checks=("A1", "A16"), cache_root=tmp_path / "accept")
@@ -91,7 +91,7 @@ def implementer_llm():
 
 
 async def test_fsm_repairs_b15_with_a_loop_back(weak_t2, tmp_path):
-    from crucible.actors.rlm.manager import TaskFSM, llm_reviewer, rlm_implementer
+    from crucible.accept.repair import TaskFSM, llm_reviewer, rlm_implementer
 
     ws = workspace(weak_t2, tmp_path)
     plans = []
@@ -114,7 +114,7 @@ async def test_fsm_repairs_b15_with_a_loop_back(weak_t2, tmp_path):
 
 
 async def test_commit_refuses_unverified_and_fsm_resumes(weak_t2, tmp_path):
-    from crucible.actors.rlm.manager import TaskFSM, rlm_implementer
+    from crucible.accept.repair import TaskFSM, rlm_implementer
 
     ws = workspace(weak_t2, tmp_path)
     v = await ws.add_check("t2", RIGHT)
@@ -144,7 +144,7 @@ async def test_commit_refuses_unverified_and_fsm_resumes(weak_t2, tmp_path):
 
 
 async def test_manager_rlm_drives_the_repair(weak_t2, tmp_path):
-    from crucible.actors.rlm.manager import RLMTaskManager, TaskFSM, rlm_implementer
+    from crucible.accept.repair import RLMTaskManager, TaskFSM, rlm_implementer
 
     ws = workspace(weak_t2, tmp_path)
 
@@ -173,7 +173,7 @@ async def test_candidates_cannot_weaken_their_audit_and_must_conform(weak_t2, tm
     grammar does not understand."""
     from crucible_pack_toy.forge.vocabulary import VOCABULARY
 
-    from crucible.actors.rlm.manager import ForgeWorkspace
+    from crucible.accept.repair import ForgeWorkspace
 
     ws = ForgeWorkspace({"t2": weak_t2}, rebuild=_rebuild, checks=("A1", "A16"), cache_root=tmp_path / "accept", vocabulary=VOCABULARY)
     assert (await ws.verify("t2"))["passed"]  # the fixed task passes
@@ -200,7 +200,7 @@ async def test_approval_is_bound_to_its_request_and_used_once(weak_t2, tmp_path)
     workspace also shows the seeded start state, so a reviewer can tell a final-state check from a delta check."""
     from crucible_pack_toy.forge.vocabulary import VOCABULARY
 
-    from crucible.actors.rlm.manager import ForgeWorkspace
+    from crucible.accept.repair import ForgeWorkspace
 
     t = weak_t2
     rep, _ = await t.grade(t.oracle)

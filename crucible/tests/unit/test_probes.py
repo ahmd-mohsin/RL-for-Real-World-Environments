@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from crucible.actors.policy import ScriptedPolicy, run_episode
-from crucible.connectors.agent_events import annotate_probes, exposed, probes_of
+from crucible.core.agent_events import annotate_probes, exposed, probes_of
 from crucible.core.schema.actions import Done, ToolCall
 from crucible.core.schema.trace import TraceEvent
 from crucible.core.schema.world import WorldSpec

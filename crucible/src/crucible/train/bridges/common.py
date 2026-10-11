@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from itertools import pairwise
 
-from crucible.train.rollout import RolloutRecord, full_prompts
+from crucible.core.schema.rollout import RolloutRecord, full_prompts
 
 
 @dataclass

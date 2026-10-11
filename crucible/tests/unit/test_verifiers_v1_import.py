@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
+from crucible.core.schema.rollout import full_prompts
 from crucible.interop.verifiers.v1_import import VF_PY, run_vf_eval, trace_to_record, vf_rollout
 from crucible.train.engine import EnginePool, ScriptedEngine
-from crucible.train.rollout import full_prompts
 
 pytestmark = pytest.mark.skipif(not (VF_PY / "vf-eval").exists(), reason="needs crucible/.envs/verifiers with the glossary env installed")
 

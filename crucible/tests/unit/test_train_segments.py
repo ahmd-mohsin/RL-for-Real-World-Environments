@@ -9,10 +9,10 @@ import copy
 import pytest
 import torch
 
+from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.critic import CriticConfig, TinyValue
 from crucible.train.engine import TinyPolicy
 from crucible.train.mismatch import Correction
-from crucible.train.rollout import RolloutRecord, Turn
 from crucible.train.trainer import TorchTrainer, TrainerConfig
 
 

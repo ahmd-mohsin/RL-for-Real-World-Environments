@@ -85,7 +85,7 @@ async def test_runtime_applies_gar_through_the_group_stage():
 
 
 def test_trainer_uses_the_stage_advantage():
-    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.core.schema.rollout import RolloutRecord, Turn
 
     tr = TorchTrainer(TinyPolicy(32, 16, seed=0), TrainerConfig(item_unit="call"))
     mk = lambda rid, rw, adv: RolloutRecord(rollout_id=rid, sample=rid, task="t", harness="h", policy="p", reward=rw, advantage=adv,

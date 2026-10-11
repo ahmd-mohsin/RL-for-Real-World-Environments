@@ -40,8 +40,8 @@ from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
 from crucible.credit.compose import compose
 from crucible.credit.judge import judge, render_prefix
-from crucible.credit.operators.potential import potential
 from crucible.workflow.milestones.evaluate import evaluate
+from crucible.workflow.potential import potential
 from crucible.workflow.steps import segment
 from crucible.world.audit import audit_world
 from crucible.world.world import World

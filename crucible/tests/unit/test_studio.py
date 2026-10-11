@@ -16,7 +16,7 @@ import pytest
 from click.testing import CliRunner
 
 from crucible.cli.main import cli
-from crucible.credit import datasets as ds
+from crucible.studio import datasets as ds
 
 
 def run(*args):

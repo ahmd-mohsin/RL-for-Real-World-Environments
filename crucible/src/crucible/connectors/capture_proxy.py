@@ -32,8 +32,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from crucible.connectors.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.connectors.base import RawRecord, SourceRef
+from crucible.core.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 
 SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # becomes a file name: no separators, no leading dot

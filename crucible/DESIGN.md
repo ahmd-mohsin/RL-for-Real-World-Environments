@@ -737,7 +737,7 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
   - **Real data:** terminal-bench 2.1 `adaptive-rejection-sampler` grades oracle 1.0 and no-op 0.0 through the in-place
     path (`docs/modules/reports/m13_tb21_inplace.json`).
 - **Patch mode details.** `interop/harbor/verify_dir.HarborDirTask` grades a patch with the task's own `[verifier].command` in a fresh container of the pinned task image, with Harbor's layout (`/tests`, `/logs/artifacts`, `/logs/verifier`), declared network, limits and GPU, on any Docker host (the lab over `DOCKER_HOST=ssh://`). It can pin the task to a git ref, so a historical run is graded by the grader it was graded with. `ImportedHarness` turns a recorded run's patch into an attempt, so historical runs and dataset submissions pass through the same journal, classification and re-grading as live ones.
-- **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `train/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
+- **Every attempt writes `rollout.json`** (`crucible.rollout/v1`, schema in `core/schema/rollout.py`): per call, token ids, behaviour logprobs, policy version (stamped by `LLMClient.policy_version` at capture time), sampling, and the call's credit; per rollout, reward (None when masked), gates, truncation, failure and blame. In `rollout_mode="train"` a rollout without complete token records is masked, never guessed. Blank usage in tolerant mode books a worst-case estimate as uncertain spend instead of $0.
 
 **As built, M11 part 1 (2026-10-10; research `docs/research/m11-m12/05`).**
 - `interop/canonical.py`: canonical JSON, derived `call_id`s, one tool naming across runtimes.
@@ -1293,7 +1293,7 @@ What the study found:
 - dynamic benchmarks: HMAC item seeds with commit–reveal and a validation chain;
 - a deterministic single-file HTML report.
 
-**M15 (`src/crucible/studio/`, `credit/datasets.py`, `cli/`):**
+**M15 (`src/crucible/studio/`, `studio/datasets.py`, `cli/`):**
 - `crucible label`: pack or run → TRL-canonical SFT (with prime-rl `message_loss_mask` and Φ weights), DPO (best vs
   worst; correction pivots) and KTO, with a closed curation grammar;
 - `crucible build`: ingest → forge → M9 model-free checks → M11 canonical export → M13 bench;

@@ -11,10 +11,10 @@ from crucible_pack_toy.longhorizon.task import BacklogTask, oracle_policy
 from crucible_pack_toy.longhorizon.world import diligent
 
 from crucible.actors.policy import ContextConfig, EpisodeLimits, LLMToolPolicy, ScriptedPolicy
+from crucible.core.schema.rollout import RolloutRecord
 from crucible.runtime.harness.native import NativeHarness, PolicyRef
 from crucible.runtime.inject import ReplayLLM
 from crucible.runtime.run import Runner, RunSpec
-from crucible.train.rollout import RolloutRecord
 from crucible.verify.progress import read_rows
 
 LIMITS = EpisodeLimits(max_steps=100_000, max_tool_errors=None)

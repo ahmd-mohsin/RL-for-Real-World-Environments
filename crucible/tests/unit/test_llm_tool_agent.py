@@ -14,11 +14,11 @@ pytest.importorskip("agent_env")
 from crucible_pack_toy.runtime import FibWorldTask
 
 from crucible.connectors.capture_proxy import CaptureProxy, Upstream
+from crucible.core.schema.rollout import RolloutRecord
 from crucible.interop.agentenv.agents import LLMToolAgent
 from crucible.interop.agentenv.harness import A2AHarness
 from crucible.runtime.harness.native import PolicyRef
 from crucible.runtime.run import Runner, RunSpec
-from crucible.train.rollout import RolloutRecord
 
 FIB = "a, b = 0, 1\nfor _ in range(10):\n    print(a)\n    a, b = b, a + b\n"
 

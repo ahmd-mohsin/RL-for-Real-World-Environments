@@ -106,7 +106,7 @@ async def test_same_records_give_the_same_loss_under_every_topology():
     """#6: loss / credit / record code does not depend on the topology (golden: one batch through each runtime's _train)."""
     import copy
 
-    from crucible.train.rollout import RolloutRecord, Turn
+    from crucible.core.schema.rollout import RolloutRecord, Turn
     from crucible.train.scheduler import Selection
 
     base = TinyPolicy(32, 16, seed=5)

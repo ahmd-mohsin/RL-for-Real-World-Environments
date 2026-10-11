@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from crucible.core.schema.reward import StepRow
-from crucible.credit.operators.potential import PotentialStep
+from crucible.workflow.potential import PotentialStep
 from crucible.workflow.steps import Step
 
 

@@ -18,10 +18,10 @@ import time
 from pathlib import Path
 
 from crucible.actors.policy import ContextConfig, EpisodeLimits, LLMToolPolicy
+from crucible.core.schema.rollout import RolloutRecord
 from crucible.runtime.harness.native import NativeHarness, PolicyRef
 from crucible.runtime.inject import ReplayLLM
 from crucible.runtime.run import Runner, RunSpec
-from crucible.train.rollout import RolloutRecord
 from crucible_pack_toy import PACK_ROOT
 from crucible_pack_toy.longhorizon.task import BacklogTask
 from crucible_pack_toy.longhorizon.world import PRESETS, diligent

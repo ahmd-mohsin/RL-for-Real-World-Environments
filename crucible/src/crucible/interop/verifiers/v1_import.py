@@ -26,7 +26,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from crucible.train.rollout import RolloutRecord, Turn
+from crucible.core.schema.rollout import RolloutRecord, Turn
 
 VF_PY = Path(__file__).resolve().parents[4] / ".envs" / "verifiers" / "bin"
 

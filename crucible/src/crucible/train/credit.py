@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from crucible.train.rollout import RolloutRecord
+from crucible.core.schema.rollout import RolloutRecord
 
 
 @dataclass

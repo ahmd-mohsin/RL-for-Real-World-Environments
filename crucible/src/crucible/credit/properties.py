@@ -21,7 +21,7 @@ from typing import Any
 
 from crucible.core.schema.milestone import Milestone
 from crucible.core.schema.reward import RewardJson
-from crucible.credit.operators.potential import potential, shaping, trajectory
+from crucible.workflow.potential import potential, shaping, trajectory
 
 TOL = 1e-9
 

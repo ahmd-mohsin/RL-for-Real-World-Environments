@@ -16,9 +16,9 @@ async def test_explorer_routes(tmp_path):
     from fastapi.testclient import TestClient
 
     from crucible.actors.policy import ScriptedPolicy
-    from crucible.interop.agentenv.explorer import CrucibleExplorerPlugin
     from crucible.runtime.harness.native import NativeHarness, PolicyRef
     from crucible.runtime.run import Runner, RunSpec
+    from crucible.studio.explorer import CrucibleExplorerPlugin
 
     await Runner(tmp_path / "runs").run(RunSpec(run_id="demo-run", tasks=[HelpdeskTask()], policies=[PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", list(GOLD))})],
                                                 harnesses=[NativeHarness()], k=2))

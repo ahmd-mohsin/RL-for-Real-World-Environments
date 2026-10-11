@@ -29,7 +29,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol, Self, runtime_checkable
 
-from crucible.connectors.agent_events import annotate_probes, writes_of
+from crucible.core.agent_events import annotate_probes, writes_of
 from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec

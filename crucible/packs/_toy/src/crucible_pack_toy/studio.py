@@ -12,7 +12,7 @@ async def credit(traces: list) -> dict[str, dict[str, Any]]:
     """Milestones mined from the good dev tickets (M5), then per ticket: Φ after every event (M6 C1), the gated reward
     (no unapproved refund over 50, no closure without a retention offer; outcome resolved) and the outcome label (CSAT /
     reopen rule)."""
-    from crucible.credit.operators.potential import trajectory
+    from crucible.workflow.potential import trajectory
     from crucible_pack_toy.m56 import pipeline as p
 
     dev = sorted((t for t in traces if t.source.ref in p.DEV), key=lambda t: t.source.ref)  # mined on dev only; test tickets are held out

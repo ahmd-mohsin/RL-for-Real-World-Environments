@@ -68,12 +68,27 @@ async def _drive(n_workers: int, n_jobs: int, cpu_s: float) -> float:
         await lc.stop()
 
 
+def _cores() -> int:
+    import os
+
+    return len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+
+
 async def test_throughput_scales_with_worker_processes():
+    """CPU-bound rollouts scale with worker processes up to the cores available. The bar is 75% of the ideal speedup
+    min(4, cores): 3.0x on a machine with 4+ cores (audit target 3.2x; measured 3.7x on the dev machine), 1.5x on a
+    2-core CI runner. A single core cannot show scaling."""
+    import pytest
+
+    cores = _cores()
+    if cores < 2:
+        pytest.skip("one core: process scaling cannot be measured")
     one = await _drive(1, 120, 0.02)
     four = await _drive(4, 120, 0.02)
     ratio = one / four
-    print(f"worker scaling 1 -> 4: {ratio:.2f}x ({one:.2f}s -> {four:.2f}s)")
-    assert ratio >= 3.0, ratio  # audit target 3.2x (measured 3.7x here); a little slack for a busy machine
+    bar = 0.75 * min(4, cores)
+    print(f"worker scaling 1 -> 4 on {cores} cores: {ratio:.2f}x (bar {bar:.2f}x; {one:.2f}s -> {four:.2f}s)")
+    assert ratio >= bar, ratio
 
 
 async def test_runtime_survives_a_killed_worker_without_double_training():

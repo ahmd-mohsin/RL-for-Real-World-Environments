@@ -7,7 +7,7 @@
 
 - **Code:** `src/crucible/runtime/`:
   - `keys.py`, `infra.py`, `journal.py`, `budget.py`, `run.py`, `collect.py`, `remote.py`, `gpu.py`, `perf_guard.py`, `trajectories.py`, `record.py`, `inject.py`;
-  - `train/rollout.py` (the `crucible.rollout/v1` schema, owned by M12);
+  - `core/schema/rollout.py` (the `crucible.rollout/v1` schema, owned by M12);
   - `harness/` (`base.py`, `native.py`, `workspace.py`);
   - `verify/stage.py` (docker grading hygiene);
   - toy pack `runtime.py` (`HelpdeskTask`, `FibTask`, scripted and LLM policies).
@@ -30,7 +30,7 @@
 | `verify/stage.py` `docker_grade` | Pins the image digest (`expected_image` mismatch → masked `stale image` before grading); named, labelled container; timeout → `docker rm -f` + masked `verifier_timeout`; no reward file → masked `no_reward_json` | Harbor verifier behaviour |
 | `perf_guard.py` | One perf grade per host (lock); host check before the grade (foreign GPU compute memory, GPU utilization, load per core); waits, then `node_contention` (masked) if never quiet | grader-side `LoadGuard`; Harbor regrade |
 | `trajectories.py` | ATIF v1.8 per actor joined to model calls (`call_id`, `llm_call_count`, per-call `Metrics` with token ids/logprobs), `no_action` steps for blank calls, `FinalMetrics`; `align` sets `StepRow.atif_step_id`/`call_id`; `cross_check` against a proxy capture | Harbor ATIF models (DEPEND); OpenEnv proxy-vs-ATIF check |
-| `record.py` + `train/rollout.py` | `crucible.rollout/v1` per attempt (`rollout.json`): turns with token ids, behaviour logprobs, policy version, sampling, credit; `valid_for_training`; train mode masks incomplete token records as `crucible:capture_incomplete` | verl `TokenTrace` shape with per-span versions |
+| `record.py` + `core/schema/rollout.py` | `crucible.rollout/v1` per attempt (`rollout.json`): turns with token ids, behaviour logprobs, policy version, sampling, credit; `valid_for_training`; train mode masks incomplete token records as `crucible:capture_incomplete` | verl `TokenTrace` shape with per-span versions |
 | `Runner.regrade` + grade-only retries | A masked grade is retried by re-grading the stored patch (no agent re-run); exhausted samples are re-graded later from artifacts | Harbor regrade-from-artifacts |
 | `interop/harbor/verify_dir.py` | `HarborDirTask`: a Harbor task dir (optionally at a git ref) graded with its own verifier command in the pinned image on any Docker host; Harbor reward files; masked on no reward, timeout, stale image | Harbor task layout (DEPEND) |
 | `harness/imported.py` | A recorded run's patch as an attempt (R1, dataset submissions) | — |

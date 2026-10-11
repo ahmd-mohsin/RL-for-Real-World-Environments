@@ -1,4 +1,4 @@
-"""The producer side of ``crucible.rollout/v1`` (schema: ``crucible.train.rollout``). M10 writes one record per attempt
+"""The producer side of ``crucible.rollout/v1`` (schema: ``crucible.core.schema.rollout``). M10 writes one record per attempt
 from the harness result, the policy's model calls, the ATIF trajectory and the dense ``steps.jsonl`` rows.
 
 ``mode="train"``: a rollout whose token record is incomplete is masked as ``crucible:capture_incomplete`` (infra) —
@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from crucible.core.schema.reward import StepRow
+from crucible.core.schema.rollout import RolloutRecord, Segment, Turn
 from crucible.core.schema.run import RunRecord
-from crucible.train.rollout import RolloutRecord, Segment, Turn
 
 if TYPE_CHECKING:  # annotation only: in-process rollouts (M12) must not require Harbor installed
     from harbor.models.trajectories import Trajectory

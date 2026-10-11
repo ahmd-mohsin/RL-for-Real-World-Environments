@@ -14,9 +14,9 @@ from crucible.core.schema.state import Query
 from crucible.credit import steps as steps_mod
 from crucible.credit.compose import Coefficients, Episode, compose, scalar, turn_advantages
 from crucible.credit.operators.infra_mask import mask_for
-from crucible.credit.operators.potential import potential, shaping, trajectory
 from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only
 from crucible.credit.validity import auc, paired_bootstrap, time_split, validate
+from crucible.workflow.potential import potential, shaping, trajectory
 from crucible.workflow.steps import Step
 
 

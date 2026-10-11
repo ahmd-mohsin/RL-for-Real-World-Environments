@@ -11,11 +11,11 @@ from crucible_pack_toy.runtime import HelpdeskTask
 from crucible.actors.llm import LLMResponse, token_record
 from crucible.actors.policy import LLMToolPolicy
 from crucible.core.schema.reward import StepRow
+from crucible.core.schema.rollout import RolloutRecord
+from crucible.interop.harbor.trajectories import align, cross_check, to_atif
 from crucible.runtime.harness.native import NativeHarness, PolicyRef
 from crucible.runtime.inject import FakeLLM
 from crucible.runtime.run import Runner, RunSpec
-from crucible.runtime.trajectories import align, cross_check, to_atif
-from crucible.train.rollout import RolloutRecord
 from crucible.workflow.steps import segment
 
 TOK = {"prompt_token_ids": [1, 2, 3], "completion_token_ids": [7, 8], "logprobs": [-0.1, -0.2], "policy_version": 3}
@@ -142,7 +142,7 @@ def test_provider_policy_version_and_named_gaps(tmp_path):
     external vLLM had no version stamp), and an invalid record names what is missing."""
     from crucible.actors.llm import LLMClient
     from crucible.core.config import Config, LLMProvider
-    from crucible.train.rollout import Turn
+    from crucible.core.schema.rollout import Turn
 
     cfg = Config(llm_providers={"lab": LLMProvider(base_url="http://127.0.0.1:1/v1", policy_version=0)}, models={"p": "lab:m"}, data_dir=str(tmp_path))
     assert LLMClient("p", config=cfg, cache_mode="off").policy_version == 0

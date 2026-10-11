@@ -17,7 +17,7 @@ finding below was reproduced, not inferred.
 | R6 | Versioned documents for every persisted format (ARCH: trace, signal, world, state, milestone, task, reward, card, bench, run) | partial | 7 versioned documents; `crucible_reward.json`, `steps.jsonl`, `RunRecord`, signals and bench reports carry no version (D8) |
 | R7 | Validation catches spec mistakes | partial | 7 planted cases rejected; 9 further mistakes accepted (D5) |
 | R8 | Seed tasks and the toy world validate | live | `test_core` |
-| R9 | Import-linter contracts active in CI (ARCH exit gate) | **missing / wrong** | no CI exists; `lint-imports` reports 1 broken contract (actors → train/accept/runtime → interop, Harbor) (D3) |
+| R9 | Import-linter contracts active in CI (ARCH exit gate) | **fixed (D3)**; was missing / wrong | no CI exists; `lint-imports` reports 1 broken contract (actors → train/accept/runtime → interop, Harbor) (D3) |
 | R10 | Content-addressed store: immutable, deduplicated, corruption detected | **wrong** | `put_file` stores a blob under a hash that does not match its bytes when the source changes during the copy; concurrent `put_file` of one new file crashes (D4) |
 | R11 | Store index lists documents by kind and name | partial | a document stored a second time under a new name keeps only the first name; the second provenance is dropped (D10) |
 | R12 | Registry: lazy pointers, duplicate registration fails, plugins via entry points | partial | all 61 builtin pointers resolve; a plugin that fails to load is logged and then reported as "known: none", with no cause (D7) |
@@ -88,7 +88,22 @@ model with blame, stage, delivery and masking, and `scored_reward()` returning `
 invariants (a failed gate forces 0); trace validation of sequence order and reply targets; Harbor-compatible directory
 hashing; live-only image bytes; a typed tool fault field; seeded per-name randomness.
 
-## 5. Pending results
+## 5. Coverage
 
-- Full unit suite coverage of `crucible.core`.
-- Framework comparison findings, ranked.
+Full unit suite (566 tests before the fixes): `crucible.core` statement coverage 93%. Lowest: `ids.py` 81%,
+`schema/base.py` 83%, `triggers.py` 88%. The audit's 50 regression tests add the round-trip, canonical-form, store-race,
+validation and redaction cases that were uncovered.
+
+### 4.4 Found by running the suite from a clean checkout (the CI rehearsal)
+
+| ID | Severity | Defect | Fix |
+|---|---|---|---|
+| D19 | P1 | 23 forge, ladder, compose and repair tests depended on toy traces ingested by hand into `data/m3/store`, which is not in the repository: the suite passed only on machines where someone had run the ingest | a session fixture builds the store from the committed toy logs when it is absent (`tests/conftest.py`) |
+| D20 | P2 | `test_throughput_scales_with_worker_processes` required a 3.0x speedup from 4 CPU-bound workers, impossible on a 2-core CI runner | the bar is 75% of `min(4, cores)` |
+
+## 6. Resolution (2026-10-12)
+
+All defects D1–D18 are fixed except D17's typed `attempt` field (deferred: free-form ids are in use across stored runs).
+Commits: the correctness fixes (D1, D2, D4–D16, D18) and the layering fix (D3). After D3 the package graph has no cycles;
+four import contracts pass; CI runs lint, the contracts and the CPU suite. Full unit + end-to-end suite after both commits: 615 passed locally (agentenv installed); 561 passed and 42 skipped
+(GPU, Docker, agentenv) in a clean checkout installed the way CI installs it.

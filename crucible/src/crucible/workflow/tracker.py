@@ -13,9 +13,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from crucible.credit.operators.potential import credited, potential
 from crucible.workflow.graph import WorkflowGraph
 from crucible.workflow.milestones.evaluate import StateView, evaluate
+from crucible.workflow.potential import credited, potential
 from crucible.workflow.stages import stage_of
 from crucible.workflow.steps import Step
 

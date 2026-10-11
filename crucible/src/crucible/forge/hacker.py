@@ -123,7 +123,9 @@ class SandboxedHacker:
     async def propose(self, view: dict[str, Any]) -> list[HackAttempt]:
         import json
 
-        from crucible.interop.harbor.role_runner import HarborRole
+        from crucible.core.registry import load_impl
+
+        HarborRole = load_impl("crucible.interop.harbor.role_runner:HarborRole")  # interop plugin, resolved lazily
 
         role = HarborRole("hacker", HackerProposal, HACKER_PROMPT.format(n=self.max_attempts), agent=self.agent, model=self.model,
                           forbidden=self.forbidden, **self.role_kwargs)
@@ -170,7 +172,7 @@ async def red_team(attempts: Sequence[HackAttempt], grade: Callable, audit: Call
 
 def promote(hacks: Sequence[Classified], *, task_id: str, expect_gate: str | None = None, date: str = "") -> tuple[list[Any], list[dict]]:
     """Confirmed hacks as replayable A13 attacks and registry defect candidates."""
-    from crucible.accept.checks.extended import Attack
+    from crucible.forge.schema import Attack
 
     attacks, defects = [], []
     for h in hacks:

@@ -30,9 +30,9 @@ async def _mine(task: str):
 
 
 async def _phi(task: str, patch: str | None) -> float:
-    from crucible.credit.operators.potential import potential
     from crucible.workflow.filestate import FileState
     from crucible.workflow.milestones.evaluate import FileStateView, evaluate
+    from crucible.workflow.potential import potential
     from crucible_pack_coding.m56.task_properties import base_reader
 
     ms = await _mine_cached(task)

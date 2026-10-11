@@ -29,10 +29,10 @@ from crucible_pack_toy.runtime import HelpdeskTask
 from crucible_pack_toy.verify import GOLD
 
 from crucible.connectors.capture_proxy import CaptureProxy, Upstream
+from crucible.core.schema.rollout import RolloutRecord
 from crucible.interop.agentenv.harness import A2AHarness, token_record
 from crucible.runtime.harness.native import PolicyRef
 from crucible.runtime.run import Runner, RunSpec
-from crucible.train.rollout import RolloutRecord
 
 
 class ToolAgentConfig(AgentConfig):

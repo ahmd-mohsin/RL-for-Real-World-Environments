@@ -41,8 +41,13 @@ The typed contracts every other module is written against. It contains no domain
   `Config.redacted()` masks secret-shaped values (NeMo-Gym rules) and keeps `env:` references.
 - **Failure kinds:** packs register `<pack>:<kind>` with a default blame; failure reasons are bounded at 2,000 characters.
 
-Open from the audit: D3 (the layer contract; one broken import contract and an import cycle across 13 packages) and the
-ranked features in the audit's §4.2.
+- **Layering (D3):** 18 upward imports had tied 13 packages into one import cycle. Seven modules moved to their layer
+  (`core/agent_events.py`, `core/schema/rollout.py`, `workflow/potential.py`, `studio/datasets.py`, `accept/repair.py`,
+  `interop/harbor/trajectories.py`, `studio/explorer.py`; the old paths of the first three remain as re-exports), `Attack`
+  moved into `forge/schema.py`, and three adapters are reached through pointers. The full layer order is an import-linter
+  contract (ARCHITECTURE §1.5); framework imports are forbidden below `interop`. CI: `.github/workflows/crucible.yml`.
+
+Open from the audit: the ranked features in the audit's §4.2.
 
 ## Exit gate
 

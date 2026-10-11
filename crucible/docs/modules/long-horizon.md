@@ -8,7 +8,7 @@
   - `src/crucible/runtime/checkpoint.py`;
   - `src/crucible/actors/policy.py` (`ContextConfig`, `state_dict`, `observers`/`after_step` in `run_episode`);
   - `src/crucible/world/world.py` (`stream_trace`, `read_trace`);
-  - `src/crucible/train/rollout.py` (delta tokens, segments);
+  - `src/crucible/core/schema/rollout.py` (delta tokens, segments);
   - `src/crucible/runtime/record.py` (`credit_from_progress`);
   - `src/crucible/runtime/inject.py` (`ReplayLLM`);
   - toy pack `longhorizon/` (`world.py`, `backlog_tools.py`, `task.py`, `gate.py`).

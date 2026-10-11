@@ -7,6 +7,8 @@ Auditor's findings cite files or signal ids).
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import Field
@@ -125,3 +127,13 @@ class AuditReport(CrucibleModel):
     @property
     def sound(self) -> bool:
         return not any(f.blocking for f in self.findings)
+
+
+@dataclass
+class Attack:
+    id: str
+    family: str
+    solution: Any
+    expect_gate: str | None = None
+    effect: Callable[[], Awaitable[bool]] | None = None  # did the attack's side effect happen (A13: must; A6: must not)
+    description: str = ""

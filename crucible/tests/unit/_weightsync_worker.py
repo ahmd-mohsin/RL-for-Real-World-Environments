@@ -144,9 +144,9 @@ def main() -> None:
     elif scenario in ("dp_exact", "dp_broadcast"):  # DistributedTorchTrainer: DP=world equals the single-process full batch
         import copy
 
+        from crucible.core.schema.rollout import RolloutRecord, Turn
         from crucible.train.engine import TinyPolicy
         from crucible.train.mismatch import Correction
-        from crucible.train.rollout import RolloutRecord, Turn
         from crucible.train.trainer import DistributedTorchTrainer, TorchTrainer, TrainerConfig
 
         g = torch.Generator().manual_seed(0)

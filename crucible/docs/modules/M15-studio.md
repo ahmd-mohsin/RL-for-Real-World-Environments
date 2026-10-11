@@ -4,7 +4,7 @@
 
 **Code:**
 - `src/crucible/studio/{pack,label,build}.py`
-- `src/crucible/credit/datasets.py`
+- `src/crucible/studio/datasets.py`
 - `src/crucible/core/schema/pack.py`
 - `src/crucible/cli/{main,studio}.py`
 - `packs/_template/`
@@ -109,7 +109,7 @@ and the row shapes.
     - ATIF trajectories validated by Harbor's validator;
     - a NeMo-Gym server launcher (the app is built to prove the tasks load);
     - an OpenEnv environment module (it builds and resets in `.envs/openenv`);
-  - the agentenv explorer plugin (`crucible.interop.agentenv.explorer:CrucibleExplorerPlugin`, entry point
+  - the agentenv explorer plugin (`crucible.studio.explorer:CrucibleExplorerPlugin`, entry point
     `agent_env.explorer_plugins`), serving packs, pack checks, runs, M13 summaries and reports, episodes and label
     datasets under `/api/v1/crucible`. Run ids are validated and resolved inside the data root;
   - `pack check --level fixture` (see `M14-packs.md`).

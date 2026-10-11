@@ -25,10 +25,10 @@ from typing import Any, Protocol
 
 import torch
 
+from crucible.core.schema.rollout import RolloutRecord, full_prompts
 from crucible.train.batching import balance_partitions, micro_batches
 from crucible.train.mismatch import NEEDS_OLD, Correction, correct
 from crucible.train.objectives import aggregate, group_advantages
-from crucible.train.rollout import RolloutRecord, full_prompts
 
 
 class TrainerBackend(Protocol):
