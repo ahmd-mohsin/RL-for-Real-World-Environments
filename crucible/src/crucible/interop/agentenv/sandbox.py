@@ -155,5 +155,9 @@ def open_sandbox(sb: SandboxSpec, spec: WorldSpec, *, pids_limit: int | None = N
     if sb.provider == "docker":
         from crucible.world.sandbox import DockerSandbox
 
+        if sb.pool > 0:
+            from crucible.world.pool import PooledSandbox, pool_for
+
+            return PooledSandbox(pool_for(sb, spec, pids_limit=pids_limit, memory=memory))
         return DockerSandbox(sb, spec, pids_limit=pids_limit, memory=memory)
     return AgentEnvSandbox(sb, spec)

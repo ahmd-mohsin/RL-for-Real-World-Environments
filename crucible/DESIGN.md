@@ -1120,6 +1120,24 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**S10 (2026-10-10): the sandbox warm pool.** `world/pool.py` keeps `SandboxSpec.pool` pre-started containers per
+launch signature: image plus every hardening flag (network, pids, GPUs, cpus, memory, capabilities). It refills in the
+background, and `open_sandbox` returns a `PooledSandbox` when `pool > 0`.
+- **Fresh mode (default):** a released container is destroyed and replaced, so no rollout inherits another's
+  processes, files or the guard's policy user.
+- **Reuse mode (`pool_reuse`):** hygiene runs in Python inside the container. It kills every process except PID 1,
+  the `sleep infinity` keeper and its own exec session's tree; empties `/tmp`, `/var/tmp`, `/dev/shm` and the
+  workdir; removes added users and homes; and clears System V IPC. A verify step must then report
+  `procs=0 files=0 users=0`; otherwise the container is destroyed.
+- **Shell-hygiene finding:** a first shell version killed its own `docker exec` wrapper (exit 137), and its verify
+  step counted its own processes. The session-tree rule fixes both.
+- **Measured on the Mac:** cold `docker run` p50 0.16 s vs warm acquire p50 about 20 µs.
+- **Tests:**
+  - the warm acquire is under 10% of cold, fresh mode never repeats a container, and the refill keeps up;
+  - in reuse mode, a planted process, file and user are all gone, and a container that cannot be verified clean is
+    destroyed;
+  - `open_sandbox` shares one pool per signature.
+
 **G-13 / G-14 (2026-10-10): the Judge and family specialists.**
 - **`forge/judge.py:select`** ranks only M9-accepted variants. Its output is an order, so no verdict can change; a
   property test over 200 random pools checks this.

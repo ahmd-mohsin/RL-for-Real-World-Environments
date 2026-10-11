@@ -46,6 +46,8 @@ class SandboxSpec(CrucibleModel):
     memory_mb: int | None = None
     timeout_s: int = 7200
     workdir: str = "/crucible"  # where relative App paths live inside the sandbox
+    pool: int = 0  # docker: keep this many pre-started containers per launch signature (world/pool.py, m13 S10)
+    pool_reuse: bool = False  # reuse released containers after verified hygiene (default: destroy, start fresh)
 
 
 class StateSpec(CrucibleModel):
