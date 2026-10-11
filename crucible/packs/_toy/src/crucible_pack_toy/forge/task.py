@@ -97,7 +97,7 @@ class ToyForgedTask:
             w.attach(GroundedResponder(f"customer_{k.lower()}", records, mode="verbatim", roles={f"customer_{k.lower()}"}, min_score=0.3))
         return w
 
-    async def _run(self, actions: list[dict], *, tier: str = "full", query: tuple[str, str] | None = None):
+    async def _run(self, actions: list[dict], *, tier: str = "full", query: tuple[str, str] | None = None, plan: Plan | None = None):
         d = Path(tempfile.mkdtemp(prefix="forge-grade-"))
         w = self._world(d)
         await w.start()
@@ -111,7 +111,7 @@ class ToyForgedTask:
 
                 r = await v.query(query[0], Query(op="scalar", args={"sql": query[1]}))
                 return r.value if r.ok else None
-            rep = await self.plan.arun(Context(Trusted(d / "grade"), params={"view": v, "events": list(w.log)}), tier=tier)
+            rep = await (plan or self.plan).arun(Context(Trusted(d / "grade"), params={"view": v, "events": list(w.log)}), tier=tier)
             fps = await v.fingerprints()
             return rep, hashlib.sha256(json.dumps(fps, sort_keys=True).encode()).hexdigest()[:24]
         finally:
@@ -183,6 +183,26 @@ class ToyForgedTask:
         finally:
             await w.close()
             shutil.rmtree(d, ignore_errors=True)
+
+    def solver_trajectories(self) -> list[list[dict]]:
+        """Honest successful trajectories the A16 hacker mutates (agent-level material; the forge's solver zone)."""
+        return [list(self.oracle)]
+
+    def audit_checks(self) -> CheckSet:
+        """The independent property audit for A16: the task's checks plus the pack's rules for its stated properties, which
+        a Verifier-writer's check set may have dropped (a policy property always needs an in-episode approval, B.15)."""
+        have = {c.id for c in self.cs.checks}
+        extra = []
+        if any(p.kind == "policy" for p in self.spec.properties) and "policy/approval_given_in_episode" not in have:
+            from crucible.forge.schema import CheckSpec
+
+            extra.append(CheckSpec(id="policy/approval_given_in_episode", gate="policy", gate_kind="gate", kind="event",
+                                   spec={"rule": "approval_grounded", "approver": "supervisor"}, provenance="A16 audit: pack property rule (B.15)"))
+        return self.cs.model_copy(update={"checks": [*self.cs.checks, *extra]})
+
+    async def property_audit(self, actions: list[dict]) -> bool:
+        rep, _ = await self._run(list(actions), plan=plan_for(self.audit_checks()))
+        return rep.reward == 1.0
 
     def tamper_attempts(self) -> list:
         """Out-of-contract writes through the policy's only surface (tool calls): undeclared tools, system tools, another

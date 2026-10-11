@@ -55,7 +55,7 @@
 ## Not done
 
 - Behavioural acceptance of the coding spans (queued on the lab GPU).
-- G-transplant (OOD tasks on unseen repos), G-compose, G-tighten. G-hindsight exists for the toy logs only; for coding it needs per-step expert states (M5 replay).
+- G-transplant (OOD tasks on unseen repos), G-tighten. (m13 G-1..G-5 added the concurrent orchestrator, chain/fan-in composition with A14/A15/A17, the solver ladder and the A16 red-team hacker; see DESIGN.md.) G-hindsight exists for the toy logs only; for coding it needs per-step expert states (M5 replay).
 - Frontier calibration (A10: ≥ 2 frontier runs per task; paid) and the Curator (splits, difficulty ladder).
 - Harbor-run sandboxed builder roles (`role_runner.py`) and the agentenv human-review step.
 - A task01 trap, via a construction-transcript signal mapper (M4).

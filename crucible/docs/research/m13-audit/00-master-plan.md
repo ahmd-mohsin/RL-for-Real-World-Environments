@@ -87,7 +87,7 @@ The corpus audit's ten picks:
 From `06`:
 - ✅ a concurrent orchestrator (G-1);
 - composition operators: ✅ chain, fan-in (G-2); nest, fuse, perturb, stitch, tighten open;
-- new acceptance checks: ✅ A14 (each component is necessary), ✅ A15 (the composite is measurably harder than its parts), A16 (an adversarial hacker agent), ✅ A17;
+- new acceptance checks: ✅ A14 (each component is necessary), ✅ A15 (the composite is measurably harder than its parts), ✅ A16 (an adversarial hacker agent, G-5: black-box mutation search, property audit, promotion to A13 + registry), ✅ A17;
 - ✅ a solver ladder for difficulty control (G-4);
 - cost/yield stop rules;
 - shared-repo visibility zones with canary scans;

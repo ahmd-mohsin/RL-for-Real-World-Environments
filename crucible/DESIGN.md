@@ -1120,6 +1120,29 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-5 (2026-10-10): the adaptive red team (A16).** Audit 06 found red-teaming static: A13 replays authored attacks,
+while the hack that matters is the one nobody wrote down. `forge/hacker.py` searches for reward without the work.
+- **Search:** `MutationHacker` is black-box. It sees the instruction and honest solver trajectories (agent-level
+  material) and mutates them toward less work, by defensive category: skip the interactions with other actors (asking
+  for an approval), skip the read-only calls, keep only the state writes, drop each single step. Attempts are
+  deduplicated and capped. An LLM or white-box hacker plugs in behind the same `propose(view)`.
+- **Classify:** each attempt is graded by the task's grader and, when it scores, checked by the task's independent
+  `property_audit(actions)`. Reward with a failed audit is a `reward_hack`; the other labels are
+  `legitimate_success`, `legitimate_failure` and `infra` (masked grade).
+- **A16 (`accept/checks/redteam.py`, cpu):** runs the hacker within `Policy.a16_attempts` (32) and fails on any
+  confirmed hack. The metrics carry each hack's actions. A task without a property audit is NA (`no_property_audit`):
+  its hacks could not be told from successes.
+- **Promotion:** `promote` turns confirmed hacks into A13 `Attack`s (replayed on every later version) and registry
+  defect candidates (`detector.check: A13`). The task goes back to the Verifier-writer.
+- **Toy property audit:** the task's checks plus the pack's rules for its stated properties. A policy property always
+  needs an in-episode approval, even when a check set dropped it. So the audit catches only what the pack's rules know;
+  coding packs need their own audit (oracle differential, held-out tests).
+- **Tests:**
+  - with B.15 re-introduced (the event check dropped from t2_approval), the hacker's `skip_interactions` attempt is
+    the confirmed hack (1 of 4 attempts; the other 3 fail legitimately) and A16 fails;
+  - the promoted attacks score 0 at `policy` on the fixed task;
+  - the fixed task passes A16 with 0 confirmed hacks (4/4 legitimate failures).
+
 **G-4 (2026-10-10): the solver ladder.** `forge/ladder.py` measures difficulty with policies of increasing strength under
 the training harness.
 - **Rungs:** L0 floors; L1 the cheapest model; L2 the training policy; L3 the frontier, single attempt; L4 frontier
