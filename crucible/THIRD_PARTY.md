@@ -46,6 +46,8 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | `core/triggers.py` (`eval_predicate`, `apply_path`, `apply_extract`, `template`, `where_value`, `validate_check`) | agentenv-framework `env/gateway/triggers.py` (`_eval_predicate`, `_apply_path`, `_apply_extract`, `_template`, `_where_value`, `_validate_check`) | 041afd7 (2026-10-08) | Apache-2.0 | the trigger language's pure helpers, so step-mode events mean what delegated ones mean; `exp_interval` re-derives the k-th draw of agentenv's seeded `expovariate` stream |
 | `interop/harbor/role_runner.py` (`assemble_role_task`, `run_role_job`, `extract_role_result`) | Harbor `src/harbor/analyze/checker.py` (`assemble_check_task`, `_run_check_job`, `_extract_check_result`) | a2fafbc (2026-10-03) | Apache-2.0 | the wrapper-task structure (prebuilt image, `environment/` uploaded to the workdir, artifact + stdlib validator, one job per batch, reward-1 parse); changed: role-scoped visible files with a leak refusal, per-phase network policy (agent = model API only), pydantic parse with feedback, orchestrator Role adapter |
 
+| `world/turns.py` | pattern only: OpenSpiel `rl_environment` as wrapped by OpenEnv `envs/openspiel_env/server/openspiel_environment.py` (current player, per-player legal actions, simultaneous steps with one action per player, per-player rewards) and Crucible's own OpenEnv seat handling (`interop/openenv/import_env.py`) | 2026-10 | BSD-3-Clause (OpenEnv) | semantics only, no code copied |
+
 ## Frameworks we call (DEPEND), added in the hardening pass
 
 | Framework piece | Where | What for |

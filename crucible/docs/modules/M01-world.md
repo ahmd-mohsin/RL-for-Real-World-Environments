@@ -337,6 +337,32 @@ Source: taxonomy primitive P14. Ports the Harbor healthcheck (Apache-2.0); patte
   - serial worlds run one after the other while non-serial worlds overlap;
   - the lock holds across processes.
 
+## M1 build item 7 (2026-10-12): native turn order for multi-agent tasks
+
+Source: taxonomy family 11 and primitive P7. Follows OpenSpiel and OpenEnv game semantics (no code copied).
+
+- **`TurnSpec{mode: sequential|simultaneous|app, seats, app, per_turn}`** sits on `WorldSpec.turns`. Validation catches seats that are not policy actors, duplicate seats, app mode without an app, and an unknown app.
+- **`TurnManager`**:
+  - tracks to-move, legal actions per seat, rewards, terminal state, the round buffer and deferred results, and saves and restores them through `WorldRef.turns`. The fingerprints of non-turn worlds are unchanged.
+  - The App protocol is `turn_state()` and an optional `resolve_round(actions)`.
+- **World**:
+  - the gate in `_step` refuses moves out of turn (`not_your_turn`) and illegal moves (`illegal_action`);
+  - `_simultaneous` buffers moves and resolves the round;
+  - `_end_if_terminal` ends every seat with `game_over` and the rewards;
+  - observations carry `to_move` and `legal`.
+- **`run_episode`** asks only the seats that may move, and hands a simultaneous round's deferred results to each seat on its next turn.
+- **Harness**: `meta.seat_rewards` in run records.
+- **Tests** (`tests/unit/test_turns.py`, 6):
+  - sequential seats, including a message counting as a move and Done leaving the rotation;
+  - Nim with App rules: legal actions, out-of-turn refusal, a seeded first mover (chance), terminal rewards, snapshot and restore mid-game;
+  - a full Nim game through `run_episode`;
+  - simultaneous rock-paper-scissors, both through direct steps and a whole episode;
+  - seat rewards reach the run record.
+- **Open:**
+  - per-seat credit for training (one record per seat, M12);
+  - imperfect-information observation views beyond per-actor observations (the App filters what each seat sees);
+  - an OpenSpiel adapter App (M11).
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.

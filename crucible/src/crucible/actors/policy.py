@@ -447,6 +447,14 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
             for a in order:
                 if a in world.done:
                     continue
+                turns = getattr(world, "turns", None)
+                if turns is not None:
+                    if not turns.may_act(a):
+                        continue
+                    late = turns.take_deferred(a)  # a simultaneous round's results this seat has not seen
+                    if late:
+                        current[a] = current[a].model_copy(update={"tool_results": [*current[a].tool_results, *late]})
+                        log.setdefault(a, []).append(current[a])
                 action = await policies[a].act(current[a])
                 res = await world.step(a, action)
                 current[a] = res.observation

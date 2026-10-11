@@ -103,4 +103,5 @@ class WorldRef(CrucibleModel):
     done: list[str] = Field(default_factory=list)  # actors that declared done
     tool_counts: dict[str, int] = Field(default_factory=dict)  # LimitsSpec.tool_quota pattern -> calls used this episode
     backend: dict[str, Any] = Field(default_factory=dict)  # backend-held runtime state (e.g. agentenv gateway clock/triggers)
+    turns: dict[str, Any] | None = None  # turn order state (whose move, the round buffer, seat rewards; M1 item 7)
     fingerprint: str = ""  # hash over everything above except `step` (same state reached in different #steps is the same state)

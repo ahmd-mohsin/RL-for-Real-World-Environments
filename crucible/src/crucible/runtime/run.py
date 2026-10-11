@@ -230,6 +230,7 @@ class Runner:
                               "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
+                              **({"seat_rewards": hr.grade["seat_rewards"]} if hr.grade.get("seat_rewards") else {}),
                               **({"trajectory_tokens": hr.trajectory_tokens} if hr.trajectory_tokens else {})})
         if hr.failure is not None:
             rec.mark_failure(hr.failure)

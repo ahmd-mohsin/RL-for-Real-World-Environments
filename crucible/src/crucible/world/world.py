@@ -114,6 +114,10 @@ class VerifierView:
         fps = await asyncio.gather(*(a.state.fingerprint() for a in apps.values()))
         return dict(zip(apps, fps, strict=True))
 
+    def seat_rewards(self) -> dict[str, float]:
+        """Per-seat rewards of a turn-based World (the rules App's, or empty)."""
+        return dict(self._world.turns.rewards) if self._world.turns is not None else {}
+
     @property
     def start(self) -> WorldRef:
         """The WorldRef the episode started from (the reset target; the initial snapshot before any reset)."""
@@ -199,6 +203,11 @@ class World:
         self._started = False
         self._closed = False
         self.health: dict[str, Any] = {}  # app id -> last health check report (M1 item 6)
+        self.turns = None  # TurnManager when the spec has turns (M1 item 7)
+        if spec.turns is not None:
+            from crucible.world.turns import TurnManager
+
+            self.turns = TurnManager(self, spec.turns)
         self._serial = None  # SerialLock while a serial world runs
 
     # ------------------------------------------------------------------ lifecycle
@@ -251,6 +260,8 @@ class World:
         if delegated:
             self.scheduler = EventScheduler([e for e in self.spec.events if e.id not in delegated], self.clock)
         self._started = True
+        if self.turns is not None:
+            await self.turns.begin()
         self.initial = await self.snapshot()
         return self.initial
 
@@ -490,6 +501,8 @@ class World:
                 self.clock.reset()
             await self.backend.on_reset(self)
             await self._reset_hooks_and_health()
+            if self.turns is not None:
+                await self.turns.begin()
         self.log = []
         if self.trace_sink is not None:
             self.trace_sink.write_text("")
@@ -564,6 +577,14 @@ class World:
             raise WorldError(f"{actor!r} already declared done")
         self.step_index += 1
         results: list[ToolResult] = []
+        if self.turns is not None and isinstance(action, ToolCall | Message):
+            refused = self.turns.refusal(actor, action)
+            if refused is not None:  # not this seat's move, or not a legal one: the policy's error, never executed
+                self._log("observation", actor, "tool_result", text=refused.content,
+                          data={"function": refused.function_name, "ok": False, "error": refused.error, "id": refused.tool_call_id, "fault": "policy"})
+                return StepResult(observation=self._observe(actor, [refused]), done=False, info={"step": self.step_index, "refused": refused.error})
+            if self.turns.mode == "simultaneous" and actor in self.turns.seats:
+                return await self._simultaneous(actor, action)
         if isinstance(action, ToolCall):
             self._log("action", actor, "tool_call", data={"function": action.function_name, "arguments": action.arguments, "id": action.tool_call_id})
             res = await self._call_tool(actor, action)
@@ -588,6 +609,9 @@ class World:
         elif isinstance(action, Done):
             self.done.add(actor)
             self._log("action", actor, "done", text=action.reason, data={"answer": action.answer} if action.answer is not None else None)
+        if self.turns is not None:
+            await (self.turns.on_done(actor) if isinstance(action, Done) else self.turns.after_action(actor))
+            self._end_if_terminal()
         self.clock.on_step()
         await self._fire_due()
         await self.backend.after_step(self)
@@ -596,6 +620,59 @@ class World:
         obs = self._observe(actor, results)
         all_done = all(a.id in self.done for a in self.spec.policy_actors)
         return StepResult(observation=obs, done=all_done, info={"step": self.step_index, "time": obs.time, "finished": dict(self.finished)})
+
+    def _end_if_terminal(self) -> None:
+        if self.turns is not None and self.turns.terminal:
+            for seat in self.turns.seats:
+                if seat not in self.done:
+                    self.done.add(seat)
+                    self._log("action", seat, "done", text="game_over", data={"rewards": dict(self.turns.rewards)})
+
+    async def _simultaneous(self, actor: str, action: ToolCall | Message) -> StepResult:
+        """A simultaneous round: buffer this seat's move; when every seat to move has moved, resolve the round (the
+        rules App's ``resolve_round`` or the calls in seat order) and hand each seat its results."""
+        assert self.turns is not None
+        self._log("action", actor, "move_submitted", data={"round": self.turns.round, "kind": action.kind})
+        if not self.turns.submit(actor, action):
+            return StepResult(observation=self._observe(actor, []), done=False, info={"step": self.step_index, "waiting": True})
+        moves = self.turns.take_round()
+        app = self.apps.get(self.spec.turns.app or "") if self.spec.turns else None
+        by_seat: dict[str, list[ToolResult]] = {}
+        if app is not None and hasattr(app, "resolve_round"):
+            calls = {s: m for s, m in moves.items() if m.get("kind") == "tool_call"}
+            for s, m in moves.items():
+                if m.get("kind") == "tool_call":
+                    self._log("action", s, "tool_call", data={"function": m["function_name"], "arguments": m.get("arguments", {}), "id": m["tool_call_id"]})
+            out = await app.resolve_round(calls)
+            for s, r in out.items():
+                by_seat[s] = [r]
+                self._log("observation", s, "tool_result", text=r.content, data={"function": r.function_name, "ok": r.ok, "error": r.error, "id": r.tool_call_id})
+            for s, m in moves.items():
+                if m.get("kind") == "message":
+                    await self._send(s, Message.model_validate(m))
+        else:
+            for s, m in moves.items():
+                if m.get("kind") == "tool_call":
+                    call = ToolCall.model_validate(m)
+                    self._log("action", s, "tool_call", data={"function": call.function_name, "arguments": call.arguments, "id": call.tool_call_id})
+                    r = await self._call_tool(s, call)
+                    self._log("observation", s, "tool_result", text=r.content, data={"function": r.function_name, "ok": r.ok, "error": r.error, "id": r.tool_call_id})
+                    by_seat[s] = [r]
+                else:
+                    await self._send(s, Message.model_validate(m))
+        self.turns.end_round()
+        if self.turns.mode == "simultaneous" and self.spec.turns and self.spec.turns.app:
+            await self.turns.pull()
+        for s, rs in by_seat.items():
+            if s != actor:
+                self.turns.defer(s, rs)
+        self._end_if_terminal()
+        self.clock.on_step()
+        await self._fire_due()
+        await self.backend.after_step(self)
+        obs = self._observe(actor, by_seat.get(actor, []))
+        all_done = all(a.id in self.done for a in self.spec.policy_actors)
+        return StepResult(observation=obs, done=all_done, info={"step": self.step_index, "round": self.turns.round})
 
     def _observe(self, actor: str, results: list[ToolResult], *, first: bool = False) -> Observation:
         inbox, self.inboxes[actor] = self.inboxes.get(actor, []), []
@@ -611,6 +688,8 @@ class World:
             inbox=inbox,
             instruction=self.instructions.get(actor) if first else None,
             tools=self.tools_for(actor) if send_tools else [],
+            to_move=list(self.turns.to_move) if self.turns is not None else None,
+            legal=self.turns.legal.get(actor) if self.turns is not None else None,
         )
 
     async def _send(self, frm: str, msg: Message) -> None:
@@ -791,6 +870,7 @@ class World:
             done=sorted(self.done),
             tool_counts=dict(sorted(self.tool_counts.items())),
             backend=await self.backend.snapshot_state(),
+            turns=self.turns.state() if self.turns is not None else None,
         )
         ref.fingerprint = self._fingerprint(ref)
         return ref
@@ -800,6 +880,8 @@ class World:
         body["apps"] = {k: v["fingerprint"] for k, v in body["apps"].items()}
         if not body.get("tool_counts"):
             body.pop("tool_counts", None)  # no quotas: fingerprints stay identical to refs captured before tool_count existed
+        if body.get("turns") is None:
+            body.pop("turns", None)  # not turn-based: fingerprints of earlier refs are unchanged
         if ref.clock.mode == "wall":
             body["clock"] = {k: v for k, v in body["clock"].items() if k != "now"}  # wall time always moves
         return sha256_text(json.dumps(body, sort_keys=True, separators=(",", ":")))
@@ -827,6 +909,8 @@ class World:
             if a in self.responders:
                 self.responders[a].load_state_dict(st)
         await self.backend.restore_state(ref.backend)
+        if self.turns is not None:
+            self.turns.restore(ref.turns)
         self.step_index = ref.step
         self._acl_changed = set()
 

@@ -302,6 +302,13 @@ events:
 
 **Readiness, resets and serial worlds (M1 build item 6, 2026-10-12; `world/health.py`; Harbor healthchecks, TheAgentCompany resets).** `AppSpec.healthcheck` (a command in the App's exec, or an HTTP probe made from inside it, with Docker HEALTHCHECK semantics) runs after the App starts and after every fresh reset. A task step can add its own check (`TaskStep.healthcheck`). `AppSpec.reset_hook` calls a live service's reset on every fresh reset, but not on a mid-episode restore, for state that no adapter captures. Either failure is `crucible:backend_error`: masked, never the policy's 0. `WorldSpec.serial` takes an exclusive host lock per world name from `start` to `close`, so episodes over one shared live service never overlap, across processes.
 
+**Native turn order (M1 build item 7, 2026-10-12; `world/turns.py`; OpenSpiel and OpenEnv game semantics).** `WorldSpec.turns` gives a World with several policy actors one of three modes:
+- `sequential`: seats move in order, `per_turn` actions each;
+- `simultaneous`: one action per seat per round, buffered until the round is complete, so no seat sees another's move first. The rules App's `resolve_round` resolves the round when it has one, otherwise the calls run in seat order;
+- `app`: an App's `turn_state()` returns who moves, the legal actions, whether the game is over, and the per-seat rewards. Chance (a dealt card, a die) belongs to the App and comes from its seed.
+
+A move out of turn is refused (`not_your_turn`), and so is a move outside the legal list (`illegal_action`). Both are the policy's errors and neither executes. `Done` is always accepted and takes the seat out of the rotation. Observations carry `to_move` and the seat's `legal` list. Turn state is part of every `WorldRef`. A finished game ends every seat. Seat rewards reach graders (`VerifierView.seat_rewards()`) and run records (`meta.seat_rewards`).
+
 `ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
 
 ---

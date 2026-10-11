@@ -371,6 +371,17 @@ class IsolationSpec(CrucibleModel):
         return 0 if v is None else v
 
 
+class TurnSpec(CrucibleModel):
+    """Native turn order for several policy actors (M1 item 7; ``world/turns.py``). ``mode``: ``sequential`` (seats in
+    order, ``per_turn`` actions each), ``simultaneous`` (one action per seat per round, resolved together; ``app``, if
+    set, resolves the round), ``app`` (the ``app`` App's ``turn_state()`` says who moves and what is legal)."""
+
+    mode: Literal["sequential", "simultaneous", "app"] = "sequential"
+    seats: list[str] = Field(default_factory=list)  # default: every policy actor, in spec order
+    app: str | None = None
+    per_turn: int = Field(default=1, ge=1)
+
+
 class VerifierSpec(CrucibleModel):
     """Where and how the World is graded (M1; Harbor's separate verifier environment, Karotte's submission custody).
 
@@ -433,6 +444,7 @@ class WorldSpec(VersionedDocument):
     verifier: VerifierSpec | None = None  # None: graded in the live World (``in_world``); hashes of older specs unchanged
     rbac: dict[str, RoleSpec] | None = None  # role -> tool rights, enforced for actors with an identity (M1 item 3)
     serial: bool | None = None  # True: one episode of this world at a time on this host (shared live services; M1 item 6)
+    turns: TurnSpec | None = None  # native turn order for several policy actors (M1 item 7)
     seed: int = 0
 
     @model_validator(mode="after")
@@ -489,6 +501,17 @@ class WorldSpec(VersionedDocument):
             for pat in [*rs.allow, *rs.deny]:
                 if not known_app(pat):
                     raise ValueError(f"rbac role {role!r} names a pattern of unknown app: {pat!r}")
+        if self.turns is not None:
+            policy_ids = [a.id for a in self.actors if a.kind == "policy"]
+            bad = sorted(set(self.turns.seats) - set(policy_ids))
+            if bad:
+                raise ValueError(f"turns: seats {bad} are not policy actors")
+            if len(set(self.turns.seats)) != len(self.turns.seats):
+                raise ValueError("turns: duplicate seats")
+            if self.turns.mode == "app" and not self.turns.app:
+                raise ValueError("turns: mode 'app' needs the app that owns the rules")
+            if self.turns.app and self.turns.app not in app_ids:
+                raise ValueError(f"turns: unknown app {self.turns.app!r}")
         if self.verifier is not None:
             for pat in [*self.verifier.artifacts, *self.verifier.protected]:
                 app = pat.partition(":")[0]

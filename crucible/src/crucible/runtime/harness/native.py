@@ -267,6 +267,8 @@ class NativeHarness:
             res.flags = rule_flags(trace)  # m13 C-4 level 1 (intercepts, tampering rules)
             res.format_errors = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: charged to the issuing call's tokens
             save_episode(attempt, ep, res, self.id, policies)
+            if getattr(world, "turns", None) is not None and world.turns.rewards:  # per-seat outcomes of a turn-based World (M1 item 7)
+                res.grade["seat_rewards"] = dict(world.turns.rewards)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))

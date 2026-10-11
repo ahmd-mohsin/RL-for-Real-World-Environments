@@ -120,6 +120,8 @@ class Observation(CrucibleModel):
     inbox: list[Inbound] = Field(default_factory=list)
     instruction: str | None = None  # only on reset
     tools: list[ToolSpec] = Field(default_factory=list)  # only on reset or when permissions change
+    to_move: list[str] | None = None  # turn-based worlds: the seats whose move it is (M1 item 7)
+    legal: list[Any] | None = None  # turn-based worlds: this seat's legal actions, when the rules restrict them
 
 
 class StepResult(CrucibleModel):
