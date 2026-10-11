@@ -23,6 +23,27 @@ The typed contracts every other module is written against. It contains no domain
 | `config.py` | `crucible.toml` discovery; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
 | `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index, tags |
 
+## Audit (2026-10-12)
+
+`docs/audit/2026-10-12/M00-core.md` reproduced 18 defects. Fixed here (regression tests in
+`tests/unit/test_core_audit.py`; reference hashes pinned in `tests/unit/golden_hashes.json`):
+- **Round trip and identity:** no nullable field has a non-`None` default (`IsolationSpec.pids_limit` uses 0 for no limit,
+  `CrucibleTask.milestones` uses `""` for none; `None` is still read); canonical JSON lives in `core/canonical.py`
+  (finite floats, `-0.0` folded, NFC strings), shared with the interop identity gate; `HASH_SCHEME = 1` in `core/ids.py`.
+- **Versions:** `crucible.reward/v1` and `crucible.run/v1` are versioned; `VersionedDocument` explains a newer minor
+  version, upgrades older majors through `register_upcaster`, and rejects an unknown major on assignment.
+- **Validation:** the world spec rejects allowlists without hosts, hosts without an allowlist, negative time steps,
+  malformed `t0`, non-positive tool limits, negative quotas, and events or grants naming unknown apps; `StepRow.phi` is in
+  [0, 1]; `RunRecord` rejects contradictory masks and malformed timestamps; `validate_id` (agentenv rules).
+- **Store:** staged, fsynced writes under flock, hashed from the copied bytes; corrupt blobs repaired on put; WAL with a
+  busy timeout; files of dead writers swept on open; every name and provenance a document is stored under is kept.
+- **Registry and config:** plugin load failures are recorded and cited in lookups and `crucible registry`;
+  `Config.redacted()` masks secret-shaped values (NeMo-Gym rules) and keeps `env:` references.
+- **Failure kinds:** packs register `<pack>:<kind>` with a default blame; failure reasons are bounded at 2,000 characters.
+
+Open from the audit: D3 (the layer contract; one broken import contract and an import cycle across 13 packages) and the
+ranked features in the audit's §4.2.
+
 ## Exit gate
 
 | Requirement | Result |

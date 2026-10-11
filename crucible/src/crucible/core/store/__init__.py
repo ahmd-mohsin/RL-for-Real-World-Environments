@@ -6,19 +6,26 @@
   ``(kind, key, name, created_at, provenance)`` in SQLite, so they can be listed by kind and name.
 - **Tags** are mutable names pointing at keys (``latest``, ``task04@v3``) — the only mutable thing.
 
+Writes are safe across threads and processes (PORT of agentenv ``store/object_store/local/store.py`` and
+``store/document_store/sqlite_document_store.py``, Apache-2.0): a blob is written to a unique staged file held under
+``flock``, fsynced, hashed *from the staged bytes*, and only then renamed into place (the directory fsynced after). A
+staged file whose writer died is swept when a store opens. An existing blob whose bytes no longer match its key is
+rewritten by the next put of that content. The index runs in WAL mode with a busy timeout.
+
 The interface is deliberately small so an agentenv-backed or object-store-backed implementation can
 replace it (``crucible.interop.agentenv`` mirrors artifacts into agentenv's versioned stores).
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +44,63 @@ CREATE TABLE IF NOT EXISTS docs (
 );
 CREATE INDEX IF NOT EXISTS docs_name ON docs(kind, name);
 CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY, key TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS doc_names (
+  kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT,
+  PRIMARY KEY (kind, key, name)
+);
+CREATE INDEX IF NOT EXISTS doc_names_name ON doc_names(kind, name);
 """
+_STAGING = "staging"
+_STAGED_PREFIX = "blob-"
+_STAGED_GRACE_S = 3600.0  # a staged file this old whose lock no one holds belongs to a dead writer
+_BUSY_TIMEOUT_S = 5.0
+
+
+def _fsync_dir(path: Path) -> None:
+    with contextlib.suppress(OSError):  # not every filesystem lets a directory be opened
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Switch to WAL; concurrent first opens race for the exclusive lock, so retry while SQLite reports busy."""
+    deadline = time.monotonic() + _BUSY_TIMEOUT_S
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e) and "busy" not in str(e).lower() or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
+def _sweep(root: Path) -> None:
+    """Remove staged files of dead writers (a live writer holds an flock on its file) and temp files the pre-audit
+    store left inside blob directories."""
+    cutoff = time.time() - _STAGED_GRACE_S
+    for staged in (root / _STAGING).glob(f"{_STAGED_PREFIX}*"):
+        with contextlib.suppress(OSError):
+            if staged.stat().st_mtime > cutoff:
+                continue
+            with staged.open("rb") as f:
+                try:
+                    import fcntl
+
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except ImportError:  # no flock (Windows): age alone decides
+                    pass
+                staged.unlink()
+    for leftover in (root / "blobs").glob("*/*"):
+        if len(leftover.name) == 64 and all(c in "0123456789abcdef" for c in leftover.name):
+            continue
+        with contextlib.suppress(OSError):
+            if leftover.is_file() and leftover.stat().st_mtime <= cutoff:
+                leftover.unlink()
+
 
 
 @dataclass(frozen=True)
@@ -58,8 +121,12 @@ class Store:
     def __init__(self, root: str | Path):
         self.root = Path(root)
         (self.root / "blobs").mkdir(parents=True, exist_ok=True)
+        (self.root / _STAGING).mkdir(parents=True, exist_ok=True)
+        _sweep(self.root)
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(self.root / "index.sqlite", check_same_thread=False)
+        self._db = sqlite3.connect(self.root / "index.sqlite", check_same_thread=False, timeout=_BUSY_TIMEOUT_S)
+        _enable_wal(self._db)
+        self._db.execute(f"PRAGMA busy_timeout={int(_BUSY_TIMEOUT_S * 1000)}")
         self._db.executescript(_SCHEMA)
         self._db.commit()
 
@@ -72,32 +139,58 @@ class Store:
             raise StoreError(f"malformed blob key: {key!r}")
         return self.root / "blobs" / h[:2] / h
 
-    def put_bytes(self, data: bytes) -> str:
-        key = HASH_PREFIX + hashlib.sha256(data).hexdigest()
+    @contextlib.contextmanager
+    def _staged(self):
+        """A unique empty file to write a blob into, held under flock so a sweep never takes it; removed unless
+        committed."""
+        fd, name = tempfile.mkstemp(dir=self.root / _STAGING, prefix=_STAGED_PREFIX)
+        staged = Path(name)
+        try:
+            with contextlib.suppress(ImportError):
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield fd, staged
+        finally:
+            os.close(fd)
+            staged.unlink(missing_ok=True)
+
+    def _commit(self, staged: Path, key: str) -> str:
+        """Put a staged, fsynced file at its key. An existing blob with the right bytes is kept; one whose bytes no
+        longer match the key (a crash, bit rot) is replaced."""
         path = self._blob_path(key)
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
-                tmp.write(data)
-            os.replace(tmp.name, path)
-            os.chmod(path, 0o444)
+        if path.exists():
+            try:
+                with path.open("rb") as f:
+                    ok = HASH_PREFIX + _hash_stream(f) == key
+            except OSError:
+                ok = False
+            if ok:
+                return key
+            with contextlib.suppress(OSError):
+                path.chmod(0o644)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(staged, 0o444)
+        os.replace(staged, path)
+        _fsync_dir(path.parent)
         return key
 
+    def put_bytes(self, data: bytes) -> str:
+        with self._staged() as (fd, staged):
+            os.write(fd, data)
+            os.fsync(fd)
+            return self._commit(staged, HASH_PREFIX + hashlib.sha256(data).hexdigest())
+
     def put_file(self, src: str | Path) -> str:
-        src = Path(src)
+        """Copy ``src`` into the store. The key is the hash of the bytes actually copied, so a source that changes
+        during the copy can never be stored under a hash that does not match."""
         h = hashlib.sha256()
-        with src.open("rb") as f:
+        with self._staged() as (fd, staged), Path(src).open("rb") as f:
             for block in iter(lambda: f.read(1 << 20), b""):
                 h.update(block)
-        key = HASH_PREFIX + h.hexdigest()
-        path = self._blob_path(key)
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp" + str(os.getpid()))
-            shutil.copyfile(src, tmp)
-            os.replace(tmp, path)
-            os.chmod(path, 0o444)
-        return key
+                os.write(fd, block)
+            os.fsync(fd)
+            return self._commit(staged, HASH_PREFIX + h.hexdigest())
 
     def has(self, key: str) -> bool:
         return self._blob_path(key).exists()
@@ -118,13 +211,19 @@ class Store:
     def put_doc(self, kind: str, doc: CrucibleModel, *, name: str | None = None, prov: Provenance | None = None) -> str:
         data = doc.canonical_json().encode("utf-8")
         key = self.put_bytes(data)
+        now, p = utc_now(), prov.model_dump_json() if prov else None
         with self._lock:
             self._db.execute(
                 "INSERT OR IGNORE INTO docs(kind, key, name, created_at, provenance, size) VALUES (?,?,?,?,?,?)",
-                (kind, key, name, utc_now(), prov.model_dump_json() if prov else None, len(data)),
+                (kind, key, name, now, p, len(data)),
             )
             if name is not None:
                 self._db.execute("UPDATE docs SET name=? WHERE kind=? AND key=? AND name IS NULL", (name, kind, key))
+                # every name a document is stored under, each with its own provenance
+                self._db.execute(
+                    "INSERT OR IGNORE INTO doc_names(kind, key, name, created_at, provenance) VALUES (?,?,?,?,?)",
+                    (kind, key, name, now, p),
+                )
             self._db.commit()
         return key
 
@@ -135,12 +234,16 @@ class Store:
         return json.loads(self.get_bytes(key))
 
     def list_docs(self, kind: str, name: str | None = None) -> list[DocRow]:
-        q = "SELECT kind, key, name, created_at, provenance, size FROM docs WHERE kind=?"
-        args: list[str] = [kind]
-        if name is not None:
-            q += " AND name=?"
-            args.append(name)
-        q += " ORDER BY created_at, rowid"  # rowid: two versions stored within one second keep their order
+        if name is None:
+            q = "SELECT kind, key, name, created_at, provenance, size FROM docs WHERE kind=? ORDER BY created_at, rowid"
+            args: list[str] = [kind]
+        else:  # by any name the document was stored under (doc_names), falling back to rows indexed before that table
+            q = ("SELECT n.kind, n.key, n.name, n.created_at, n.provenance, d.size FROM doc_names n "
+                 "JOIN docs d ON d.kind = n.kind AND d.key = n.key WHERE n.kind=? AND n.name=? "
+                 "UNION SELECT kind, key, name, created_at, provenance, size FROM docs WHERE kind=? AND name=? "
+                 "AND NOT EXISTS (SELECT 1 FROM doc_names m WHERE m.kind = docs.kind AND m.key = docs.key AND m.name = docs.name) "
+                 "ORDER BY 4")
+            args = [kind, name, kind, name]
         with self._lock:
             rows = self._db.execute(q, args).fetchall()
         return [
@@ -174,6 +277,13 @@ class Store:
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+
+def _hash_stream(f) -> str:
+    h = hashlib.sha256()
+    for block in iter(lambda: f.read(1 << 20), b""):
+        h.update(block)
+    return h.hexdigest()
 
 
 _STORE: Store | None = None

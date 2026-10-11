@@ -104,6 +104,9 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
 
     async def rollout(rid: str, prompt: str, seed: int, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, temperature: float = 1.0,
                       harness: str = harness_id):
+        from crucible.core.prov import utc_now
+
+        started_at = utc_now()
         task = task_for(prompt)
         d = Path(tempfile.mkdtemp(prefix="m12-world-", dir=workroot))
         world = await task.open(d / "work")
@@ -124,7 +127,7 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             pen = limit_policy.penalty(ep.stop_condition) if limit_policy is not None else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty
                 reward = pen
-            rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at="", steps=ep.steps,
+            rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at=started_at, steps=ep.steps,
                             outcome="completed", reward=reward, attempt=f"{rid}-a1",
                             meta={"harness": harness, "stop": ep.stop_condition, "truncated": ep.truncated, "gates": rep.gate_bits()})
             ro = build(rec, calls=ep.model_calls, segments={"agent": list(pol.segments)} if pol.segments else None, sampling={"temperature": temperature})

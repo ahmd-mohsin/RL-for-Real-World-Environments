@@ -63,6 +63,8 @@ class _Entry:
 class Registry:
     _kinds: dict[str, dict[str, _Entry]] = field(default_factory=dict)
     _plugins_loaded: bool = False
+    # entry point name -> why it did not load (agentenv ``plugins/_registration.py:merge`` records every skip the same way)
+    failures: dict[str, str] = field(default_factory=dict)
 
     def register(self, kind: str, name: str, impl: str | Any, *, source: str = "builtin", replace: bool = False) -> None:
         table = self._kinds.setdefault(kind, {})
@@ -76,7 +78,8 @@ class Registry:
         table = self._kinds.get(kind, {})
         if name not in table:
             known = ", ".join(sorted(table)) or "none"
-            raise RegistryError(f"no {kind} named {name!r} (known: {known})")
+            why = "".join(f"; plugin {ep!r} failed to load: {reason}" for ep, reason in sorted(self.failures.items()))
+            raise RegistryError(f"no {kind} named {name!r} (known: {known}){why}")
         return table[name].resolve()
 
     def has(self, kind: str, name: str) -> bool:
@@ -89,19 +92,23 @@ class Registry:
 
     def describe(self) -> dict[str, dict[str, str]]:
         self.load_plugins()
-        return {k: {n: (e.pointer or repr(e.obj)) + f"  [{e.source}]" for n, e in sorted(t.items())} for k, t in sorted(self._kinds.items())}
+        out = {k: {n: (e.pointer or repr(e.obj)) + f"  [{e.source}]" for n, e in sorted(t.items())} for k, t in sorted(self._kinds.items())}
+        if self.failures:
+            out["failed_plugins"] = dict(sorted(self.failures.items()))
+        return out
 
     def load_plugins(self) -> None:
         if self._plugins_loaded:
             return
         self._plugins_loaded = True
+        # Each entry point loads on its own: one broken or conflicting plugin is recorded and skipped, every other one
+        # still loads, and a later lookup names the failure instead of "known: none".
         for ep in entry_points(group=ENTRY_POINT_GROUP):
             try:
                 fn: Callable[[Registry], None] = ep.load()
                 fn(self)
-            except RegistryError:
-                raise
             except Exception as e:  # noqa: BLE001 - a broken plugin must not take the core down
+                self.failures[ep.name] = f"{type(e).__name__}: {e}"[:500]
                 logger.warning("crucible plugin %s failed to load: %s", ep.name, e)
 
 

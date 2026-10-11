@@ -8,11 +8,13 @@ NeMo-Gym allows. The rule (DESIGN P16): an infrastructure failure is *masked*, n
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, VersionedDocument
 
 # --- NeMo-Gym shared names (verbatim) ---
 NEMO_GYM_FAILURE_KINDS = frozenset(
@@ -66,8 +68,36 @@ DEFAULT_BLAME: dict[str, str] = {
 }
 
 
+# Pack-registered kinds (``<pack>:<kind>``, NeMo-Gym's namespaced extension form, ``nemo_gym/failure_kinds.py``):
+# a pack names its own environment failures without editing core, each with a default blame.
+_NAMESPACED = re.compile(r"^[a-z0-9_]+:[a-z0-9_]+$")
+_REGISTERED: dict[str, str] = {}
+MAX_REASON_CHARS = 2000  # NeMo-Gym caps failure_reason at 2000 characters
+
+
+def register_failure_kind(name: str, *, blame: str) -> None:
+    """Register a pack's failure kind ``<pack>:<kind>`` with its default blame (policy => scored, else masked)."""
+    if not _NAMESPACED.match(name) or name.startswith("crucible:"):
+        raise ValueError(f"a pack failure kind is '<pack>:<kind>' outside the crucible namespace, got {name!r}")
+    if blame not in ("infra", "harness", "task", "policy", "unknown"):
+        raise ValueError(f"unknown blame {blame!r}")
+    if name in _REGISTERED and _REGISTERED[name] != blame:
+        raise ValueError(f"failure kind {name!r} is already registered with blame {_REGISTERED[name]!r}")
+    _REGISTERED[name] = blame
+
+
 def is_failure_kind(name: str) -> bool:
-    return name in FAILURE_KINDS
+    return name in FAILURE_KINDS or name in _REGISTERED
+
+
+def default_blame(name: str) -> str:
+    return DEFAULT_BLAME.get(name) or _REGISTERED.get(name, "unknown")
+
+
+def _iso(v: str | None) -> str | None:
+    if v is not None:
+        datetime.fromisoformat(v)  # raises ValueError on a malformed timestamp
+    return v
 
 
 class Failure(CrucibleModel):
@@ -80,9 +110,14 @@ class Failure(CrucibleModel):
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
     detail: str | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
 
+    @field_validator("reason")
+    @classmethod
+    def _bounded(cls, v: str) -> str:
+        return v if len(v) <= MAX_REASON_CHARS else v[: MAX_REASON_CHARS - 14] + " …[truncated]"
+
     @property
     def who(self) -> str:
-        return self.blame or DEFAULT_BLAME.get(self.kind, "unknown")
+        return self.blame or default_blame(self.kind)
 
     @property
     def masks(self) -> bool:
@@ -91,8 +126,10 @@ class Failure(CrucibleModel):
         return self.who != "policy"
 
 
-class RunRecord(CrucibleModel):
+class RunRecord(VersionedDocument):
     """One episode of one policy on one task/world."""
+
+    SCHEMA = "crucible.run/v1"
 
     run_id: str
     task: str | None = None  # task content hash
@@ -115,16 +152,27 @@ class RunRecord(CrucibleModel):
     attempt: str | None = None  # "<sample_id>-a<N>"
     meta: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("started_at", "ended_at")
+    @classmethod
+    def _timestamps(cls, v: str | None) -> str | None:
+        return _iso(v)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> RunRecord:
+        if (self.outcome == "masked") != self.mask_sample:
+            raise ValueError(f"outcome={self.outcome!r} contradicts mask_sample={self.mask_sample}")
+        if self.mask_sample and self.reward is not None:
+            raise ValueError("a masked sample has no reward")
+        return self
+
     def mark_failure(self, failure: Failure) -> None:
         if not is_failure_kind(failure.kind):
             raise ValueError(f"unknown failure kind {failure.kind!r}")
-        self.failure = failure
-        self.outcome = "masked" if failure.masks else "failed"
-        self.mask_sample = failure.masks
-        if failure.masks:
-            self.reward = None  # a masked sample has no reward: no aggregate may read it as 0
-        elif self.reward is None:
-            self.reward = 0.0  # a policy-caused failure is scored
+        # one consistent update: per-field assignment would pass through states the validator rightly rejects
+        reward = None if failure.masks else (0.0 if self.reward is None else self.reward)  # masked: no reward; policy: scored
+        for k, v in (("failure", failure), ("outcome", "masked" if failure.masks else "failed"),
+                     ("mask_sample", failure.masks), ("reward", reward)):
+            object.__setattr__(self, k, v)
 
     def scored_reward(self) -> float | None:
         """The only accessor aggregates use: None for masked samples."""

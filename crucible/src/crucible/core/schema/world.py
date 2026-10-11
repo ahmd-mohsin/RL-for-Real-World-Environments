@@ -109,6 +109,21 @@ class ClockSpec(CrucibleModel):
     rate: float = 1.0  # wall mode: virtual seconds per real second (max 86400)
     step_dt_s: float = 60.0  # step mode: virtual seconds per world step
 
+    @field_validator("t0")
+    @classmethod
+    def _t0(cls, v: str) -> str:
+        from datetime import datetime
+
+        datetime.fromisoformat(v)  # raises ValueError on a malformed timestamp
+        return v
+
+    @field_validator("step_dt_s")
+    @classmethod
+    def _step_dt(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("step_dt_s must be >= 0 (time never runs backwards)")
+        return v
+
     @field_validator("rate")
     @classmethod
     def _rate(cls, v: float) -> float:
@@ -233,6 +248,16 @@ class LimitsSpec(CrucibleModel):
     # None (not {}) by default: canonical JSON drops None, so specs without quotas keep their content hash
     tool_quota: dict[str, int] | None = None
 
+    @model_validator(mode="after")
+    def _bounds(self) -> LimitsSpec:
+        if self.tool_timeout_s <= 0:
+            raise ValueError("tool_timeout_s must be > 0")
+        if self.max_tool_output_chars <= 0:
+            raise ValueError("max_tool_output_chars must be > 0")
+        if self.tool_quota and any(n < 0 for n in self.tool_quota.values()):
+            raise ValueError("tool_quota counts must be >= 0")
+        return self
+
 
 class IsolationSpec(CrucibleModel):
     """How the World protects itself from the policy (DESIGN P17; Karotte / Repo2RLEnv lessons).
@@ -255,8 +280,13 @@ class IsolationSpec(CrucibleModel):
     policy_uid: int | None = None  # None: the guard allocates a free uid (image accounts are never reused)
     quiesce: bool = True
     egress_probe: bool = True
-    pids_limit: int | None = 4096
+    pids_limit: int = Field(default=4096, ge=0)  # 0 = no limit (None was the pre-audit spelling and did not round-trip)
     memory: str | None = None
+
+    @field_validator("pids_limit", mode="before")
+    @classmethod
+    def _no_limit(cls, v: Any) -> Any:
+        return 0 if v is None else v
 
 
 class WorldSpec(VersionedDocument):
@@ -306,6 +336,20 @@ class WorldSpec(VersionedDocument):
             timed = ev.when.at or ev.when.after or ev.when.after_event or (ev.when.every and not ev.when.on_tool and not ev.when.state)
             if timed and self.clock is None:
                 raise ValueError(f"event {ev.id!r} is time-scheduled but the world has no clock")
+        def known_app(pattern: str) -> bool:
+            app = pattern.split(".", 1)[0]
+            return app in app_ids or any(fnmatch.fnmatchcase(a, app) for a in app_ids)
+
+        for ev in self.events:
+            if ev.action.tool and not known_app(ev.action.tool):
+                raise ValueError(f"event {ev.id!r} runs a tool of unknown app: {ev.action.tool!r}")
+            for pat in [*ev.action.grant, *ev.action.revoke]:
+                if not known_app(pat):
+                    raise ValueError(f"event {ev.id!r} grants or revokes a pattern of unknown app: {pat!r}")
+        if self.network == "allowlist" and not self.allowed_hosts:
+            raise ValueError("network 'allowlist' needs allowed_hosts")
+        if self.network != "allowlist" and self.allowed_hosts:
+            raise ValueError(f"allowed_hosts is only meaningful with network 'allowlist', not {self.network!r}")
         for pol in self.policies:
             if pol.app not in app_ids:
                 raise ValueError(f"policy {pol.id!r} lives in unknown app {pol.app!r}")

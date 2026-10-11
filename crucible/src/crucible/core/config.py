@@ -82,7 +82,30 @@ class Config(CrucibleModel):
         return self.llm_providers[provider_name], model_id
 
     def redacted(self) -> dict[str, Any]:
-        return self.model_dump(mode="json")
+        """The config with every secret masked: secret-shaped keys keep only ``env:NAME`` references."""
+        return _redact(self.model_dump(mode="json"))
+
+
+# PORT of NeMo-Gym ``secret_utils.py`` (Apache-2.0): a key is secret-shaped when its name contains one of these, matched
+# case-insensitively (``authorization``, not ``auth``, so ``author`` stays visible).
+MASKED_VALUE = "****"
+_SECRET_KEY_SUBSTRINGS = ("token", "key", "header", "password", "passwd", "secret", "credential", "bearer", "cookie",
+                          "authorization")
+
+
+def looks_like_secret_key(key: object) -> bool:
+    lowered = str(key).lower()
+    return any(s in lowered for s in _SECRET_KEY_SUBSTRINGS)
+
+
+def _redact(node: Any, secret: bool = False) -> Any:
+    if isinstance(node, dict):
+        return {k: _redact(v, secret or looks_like_secret_key(k)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_redact(v, secret) for v in node]
+    if secret and isinstance(node, str) and node and not node.startswith("env:"):
+        return MASKED_VALUE
+    return node
 
 
 def resolve_secret(value: str, *, search_from: Path | None = None) -> str:

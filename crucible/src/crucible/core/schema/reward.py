@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, VersionedDocument
 
 
 class InfraStatus(CrucibleModel):
@@ -21,7 +21,8 @@ class InfraStatus(CrucibleModel):
     reason: str | None = None
 
 
-class RewardJson(CrucibleModel):
+class RewardJson(VersionedDocument):
+    SCHEMA = "crucible.reward/v1"
     reward: float
     gates: dict[str, int] = Field(default_factory=dict)  # gate -> 0/1
     outcome: float = 0.0
@@ -72,3 +73,9 @@ class StepRow(CrucibleModel):
     violations: list[str] = Field(default_factory=list)
     cost_s: float | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _potential(self) -> StepRow:
+        if not 0 <= self.phi <= 1:
+            raise ValueError("phi is a potential in [0, 1]")
+        return self

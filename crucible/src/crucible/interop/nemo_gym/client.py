@@ -112,13 +112,16 @@ def remote_world_rollout(urls: list[str], task_for: Any, codec: Any, *, max_step
     client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0), limits=httpx.Limits(max_connections=512))
 
     async def rollout(rid: str, prompt: str, seed: int, gen: Any, *, temperature: float = 1.0, harness: str = "nemo-gym:remote@1"):
+        from crucible.core.prov import utc_now
+
+        started_at = utc_now()
         tid = task_for(prompt)
         pol = LLMToolPolicy("agent", EngineLLM(codec, gen), max_tokens=max_tokens, temperature=temperature, context=context)
         t0 = time.monotonic()
         ep = await remote_episode(urls, tid, pol, rid=rid, max_steps=max_steps, client=client)
         if ep.masked:
             return None
-        rec = RunRecord(run_id=rid, task=tid, world=ep.server, policy="engine", started_at="", steps=ep.steps, outcome="completed", reward=ep.reward,
+        rec = RunRecord(run_id=rid, task=tid, world=ep.server, policy="engine", started_at=started_at, steps=ep.steps, outcome="completed", reward=ep.reward,
                         attempt=f"{rid}-a1", meta={"harness": harness, "stop": ep.stop, "truncated": ep.stop == "max_steps",
                                                    "gates": {k[5:]: bool(v) for k, v in ep.verify.items() if k.startswith("gate/")}})
         ro = build(rec, calls={"agent": pol.model_calls}, segments={"agent": list(pol.segments)} if pol.segments else None,

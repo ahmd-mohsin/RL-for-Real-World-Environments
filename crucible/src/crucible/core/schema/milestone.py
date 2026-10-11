@@ -29,7 +29,7 @@ class MilestoneCheck(CrucibleModel):
     expect: Expectation = Field(default_factory=Expectation)
 
 
-class Provenance(CrucibleModel):
+class MilestoneProvenance(CrucibleModel):
     signal: str | None = None  # signal id or "<trace>#<seq>"
     source: str | None = None  # "expert_end_state", "reference_differential", "policy:<doc>"
     note: str | None = None
@@ -42,8 +42,11 @@ class Milestone(CrucibleModel):
     weight: float = 1.0
     cost: Literal["cheap", "medium", "expensive"] = "cheap"
     gate: bool = False  # a gate milestone zeroes reward when unmet at the terminal state
-    provenance: list[Provenance] = Field(default_factory=list)
+    provenance: list[MilestoneProvenance] = Field(default_factory=list)
     states: list[str] = Field(default_factory=list)  # instruction property ids this milestone grades (A7 coverage)
+
+
+Provenance = MilestoneProvenance  # the pre-audit name; ``crucible.core.prov.Provenance`` is the artifact provenance
 
 
 class MilestoneSet(VersionedDocument):

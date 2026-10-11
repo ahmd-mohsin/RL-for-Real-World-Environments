@@ -23,7 +23,7 @@ from crucible.runtime.run import Runner, RunSpec
 
 
 def rec(reward=None, fail: Failure | None = None, task="t", idx=0) -> RunRecord:
-    r = RunRecord(run_id="r", world="w", policy="p", started_at="x", reward=reward, outcome="completed",
+    r = RunRecord(run_id="r", world="w", policy="p", started_at="2026-01-01T00:00:00Z", reward=reward, outcome="completed",
                   sample={"task": task, "policy": "p", "harness": "h", "sample_idx": idx})
     if fail:
         r.mark_failure(fail)

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from crucible.core.schema.base import CrucibleModel, VersionedDocument
 
@@ -42,7 +42,12 @@ class CrucibleTask(VersionedDocument):
     family: str
     horizon: Horizon
     world: str = "crucible/world.yaml"
-    milestones: str | None = "crucible/milestones.yaml"
+    milestones: str = "crucible/milestones.yaml"  # "" = the task has no milestone file
+
+    @field_validator("milestones", mode="before")
+    @classmethod
+    def _no_milestones(cls, v: Any) -> Any:
+        return "" if v is None else v  # None was the pre-audit spelling; canonical JSON dropped it (lossy)
     card: str = "crucible/card.yaml"
     negatives: list[Negative] = Field(default_factory=list)
     oracle: str = "solution/solution.patch"

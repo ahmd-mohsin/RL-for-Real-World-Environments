@@ -48,7 +48,7 @@ def test_capture_is_linear_and_rebuilds_exactly():
     full = sum(100 + 7 * i for i in range(25))  # what full-prompt capture stored
     assert calls[0]["tokens"]["prompt_token_ids"] is not None and all(c["tokens"]["prompt_token_ids"] is None for c in calls[1:])
     assert stored == 100 + 4 * 24 and stored * 10 < full  # first prompt + each observation tail
-    rec = RunRecord(run_id="r", task="t", world="w", policy="p", started_at="", steps=25, outcome="completed", reward=1.0, attempt="r-a1")
+    rec = RunRecord(run_id="r", task="t", world="w", policy="p", started_at="2026-01-01T00:00:00Z", steps=25, outcome="completed", reward=1.0, attempt="r-a1")
     ro = build(rec, calls={"agent": calls})
     expanded = [{**c, "tokens": {**c["tokens"], "prompt_token_ids": list(range(100)) + [7, 8, 9, 1, 2, 3, 4] * i}} for i, c in enumerate(calls)]
     ref = build(rec, calls={"agent": expanded})

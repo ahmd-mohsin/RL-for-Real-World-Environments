@@ -17,24 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+
+from crucible.core.canonical import normalize
 
 VOLATILE_ROW_KEYS = {"cost_s", "extra", "atif_step_id"}
 
 
 def _norm(o: Any) -> Any:
-    if isinstance(o, float):
-        if not math.isfinite(o):
-            raise ValueError("non-finite float in a canonical document")
-        return 0.0 if o == 0 else o  # -0.0 -> 0.0
-    if isinstance(o, dict):
-        return {str(k): _norm(v) for k, v in o.items()}
-    if isinstance(o, (list, tuple)):
-        return [_norm(v) for v in o]
-    return o
+    """The core normalizer (finite floats, ``-0.0`` folded, NFC strings): one canonical form for every hash."""
+    return normalize(o)
 
 
 def jcs(obj: Any) -> str:

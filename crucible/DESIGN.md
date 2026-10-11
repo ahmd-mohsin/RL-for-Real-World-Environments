@@ -2537,6 +2537,13 @@ Compute estimate: the fast-tier grade is GPU-minutes per rollout, so GRPO with n
 
 ---
 
+**M0 audit (2026-10-12).** Canonical JSON is one function (`core/canonical.py`: finite floats, `-0.0` folded, NFC);
+content hashes carry a scheme number (`core/ids.py:HASH_SCHEME`) and reference ids are pinned by a test, so a schema edit
+that would silently change existing ids fails CI. Every persisted document is versioned and migrates through upcasters;
+no nullable field may carry a non-`None` default (a property test enforces it), because canonical JSON drops `None`. The
+store is multi-process safe (staged, fsynced writes under flock, WAL) and self-repairing. Details:
+`docs/audit/2026-10-12/M00-core.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
