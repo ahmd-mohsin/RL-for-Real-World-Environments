@@ -103,7 +103,7 @@ const STATIONS = [
   { id: 'm10', code: 'M10', name: 'runtime', at: [3.5, 1.4] },
   { id: 'm12', code: 'M12', name: 'train', at: [2.05, 1.4] },
   { id: 'm13', code: 'M13', name: 'bench', at: [0.6, 1.4] },
-  { id: 'm11', code: 'M11', name: 'interop', at: [-0.85, 1.4] },
+  { id: 'm11', code: 'M11', name: 'export', at: [-0.85, 1.4] },
   { id: 'm14', code: 'M14', name: 'packs', at: [-2.3, 1.4] },
   { id: 'use', code: 'M15', name: 'studio', at: [-3.75, 1.4] },
 ];
@@ -179,7 +179,7 @@ export const pipeline = () => ({
       { say: 'Tasks. New frontier-hard tasks are forged solution-first and must pass the eighteen-check acceptance contract.', go: seg(5, 6) },
       { say: 'Run. Agents act in live worlds with grounded actors; every model call and world step is recorded.', go: seg(7, 9) },
       { say: 'Learn and measure. Asynchronous RL trains on exact tokens; step-level benchmarks show where agents fail.', go: seg(10, 11) },
-      { say: 'Ship. Exports reach any runtime, domains plug in as packs, and two commands drive the whole path.', go: seg(12, 14) },
+      { say: 'Ship. Every episode exports with its exact reward, domains plug in as packs, and two commands drive the whole path.', go: seg(12, 14) },
     ];
   })(),
 });

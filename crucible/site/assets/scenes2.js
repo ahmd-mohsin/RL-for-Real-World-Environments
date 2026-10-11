@@ -452,43 +452,45 @@ export const m11 = () => ({
   setup(v) {
     const s = v.s = {};
     v.add(dotGrid(7, 4.6, 0.32, { size: 1.8 }));
-    s.ico = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), mat('gloss', PAL.cardinal)); s.ico.castShadow = true; s.ico.position.set(0, 1.25, 0); v.add(s.ico);
-    const ped = cyl(0.5, 0.5, { seg: 40 }); v.add(ped);
-    v.label('one reward producer', anchor(s.ico, 0, 0.75, 0), { cls: 'tag' });
-    const names = ['trajectory files', 'environment server', 'trainer dataset', 'reward + steps', 'replay check'];
-    s.portals = names.map((n, i) => {
-      const a = -0.95 + i * 0.475;
-      const p = new THREE.Group(); p.position.set(Math.cos(a) * 2.6, 0.95, Math.sin(a) * 2.6); v.add(p);
-      const r = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.035, 10, 48), mat('clay')); r.castShadow = true; p.add(r); p.lookAt(0, 0.95, 0);
-      const sheets = sheetStack(1, 0.34, 0.42); sheets.position.set(p.position.x * 1.22, 0, p.position.z * 1.22); v.add(sheets);
-      v.label(n, anchor(p, 0, 0.55, 0), { cls: 'code' });
-      const f = v.flow(arc(V(0, 1.25, 0), p.position.clone(), 0.2), { count: 3, speed: 0.3, r: 0.05, offset: i * 0.15 }); f.target = 0;
-      return { p, sheets, f };
+    // recorded episodes arrive as capsules; each is normalized, replayed in a fresh world and graded once
+    const tray = block(1.1, 0.06, 1.3); tray.position.set(-2.7, 0, 0.1); v.add(tray);
+    v.label('recorded episodes', anchor(tray, 0, 0.1, 0.85), { cls: '' });
+    s.caps = [0, 1, 2].map(i => {
+      const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.26, 6, 14), mat('gloss', i === 1 ? PAL.cardinal : 0xffffff)); own(c);
+      c.rotation.z = Math.PI / 2; c.castShadow = true; c.position.set(-2.7, 0.16, -0.35 + i * 0.35); c.userData.home = c.position.clone(); v.add(c); return c;
     });
-    const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.12, 0.6, 32, 1, true), mat('clay')); own(funnel).side = THREE.DoubleSide; funnel.castShadow = true; funnel.position.set(-2.4, 1.0, 0.4); v.add(funnel);
-    v.label('import', anchor(funnel, 0, 0.6, 0), { cls: 'code' });
-    s.foreign = [new THREE.OctahedronGeometry(0.14), new THREE.TorusGeometry(0.1, 0.04, 8, 20), new THREE.ConeGeometry(0.12, 0.24, 6)].map((g, i) => {
-      const m = new THREE.Mesh(g, mat('clay', 0xe9e4e1)); m.castShadow = true; m.position.set(-3.1 + i * 0.3, 1.9, 0.2 + i * 0.2); v.add(m); return m;
+    const norm = arch(0.7, 0.62, 0.06); norm.rotation.y = Math.PI / 2; norm.position.set(-1.5, 0, 0.1); v.add(norm);
+    v.label('canonical actions', anchor(norm, 0, 0.85, 0), { cls: 'code' });
+    s.ids = v.label('call ids derived', anchor(norm, 0, 1.15, 0), { cls: 'red' }); s.ids.opacity = 0;
+    s.world = block(0.9, 0.7, 0.9, { kind: 'glass', edge: PAL.cardinal }); s.world.position.set(-0.2, 0, 0.1); v.add(s.world);
+    [[-0.2, -0.18, 0.3], [0.18, 0.2, 0.2], [0.2, -0.2, 0.42]].forEach(([x, z, h]) => { const b = block(0.2, h, 0.2); b.position.set(-0.2 + x, 0.02, 0.1 + z); v.add(b); });
+    v.label('fresh world', anchor(s.world, 0, 1.0, 0));
+    s.ico = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 0), mat('gloss', PAL.cardinal)); s.ico.castShadow = true; s.ico.position.set(1.25, 1.05, 0.1); v.add(s.ico);
+    const ped = cyl(0.45, 0.45, { seg: 40 }); ped.position.set(1.25, 0, 0.1); v.add(ped);
+    v.label('one reward producer', anchor(s.ico, 0, 0.7, 0), { cls: 'tag' });
+    const names = ['reward.json', 'steps.jsonl', 'training rows'];
+    s.outs = names.map((n, i) => {
+      const st = sheetStack(1, 0.42, 0.52); st.position.set(2.9, 0, -0.95 + i * 0.95); v.add(st);
+      const l = v.label(n, V(2.9, 0.05, -0.95 + i * 0.95), { cls: 'code', align: 'left', dx: 34 });
+      const f = v.flow(arc(V(1.55, 0.9, 0.1), V(2.75, 0.2, -0.95 + i * 0.95), 0.4), { count: 3, speed: 0.32, r: 0.045, offset: i * 0.2 }); f.target = 0;
+      return { st, l, f };
     });
-    s.worldCubes = [0, 1, 2].map(i => { const c = cube(0.2, { kind: 'glass', edge: PAL.cardinal }); c.position.set(-2.4 + (i - 1) * 0.3, 0, 1.25); v.add(c); c.scale.setScalar(0.001); return c; });
-    s.same = v.label('byte-identical', V(1.9, 0.25, 0.2), { cls: 'pass' }); s.same.opacity = 0;
-    s.normL = v.label('canonical actions', V(0, 2.3, 0), { cls: 'code' }); s.normL.opacity = 0;
-    s.in = v.flow(arc(V(-3.4, 1.3, 0.2), V(-0.5, 1.2, 0), 0.6), { count: 3, speed: 0.3, r: 0.05, color: PAL.ink }); s.in.target = 0;
+    s.inF = v.flow(arc(V(-2.5, 0.3, 0.1), V(-0.55, 0.45, 0.1), 0.5), { count: 3, speed: 0.3, r: 0.05, color: PAL.ink }); s.inF.target = 0;
+    s.toG = v.flow(arc(V(0.2, 0.6, 0.1), V(0.95, 0.9, 0.1), 0.3), { count: 3, speed: 0.35, r: 0.05 }); s.toG.target = 0;
+    s.same = v.label('byte-identical on every replay', V(2.9, 1.25, 0), { cls: 'pass' }); s.same.opacity = 0;
+    s.mask = v.label('masked · never written as 0', V(-1.5, 1.45, 0.1), { cls: 'code' }); s.mask.opacity = 0;
   },
   update(v, t) { v.s.ico.rotation.y = t * 0.4; v.s.ico.rotation.x = t * 0.2; },
   steps: (() => {
-    const base = (v, s) => { s.portals.forEach(p => p.f.target = 0); [s.same, s.normL].forEach(l => show(v, l, false)); s.in.target = 0; };
+    const base = (v, s) => { s.outs.forEach(o => { o.f.target = 0; v.tw.to(o.st, 'scale', V(1, 1, 1), 0.4); }); [s.same, s.ids, s.mask].forEach(l => show(v, l, false)); s.inF.target = 0; s.toG.target = 0; };
     return [
-      { say: 'Transcript. An episode arrives from any runtime.', go(v) { const s = v.s; base(v, s); s.in.target = 1; s.worldCubes.forEach(c => scaleTo(v, c, 0.001)); s.foreign.forEach((m, i) => moveTo(v, m, [-3.1 + i * 0.3, 1.9, 0.2 + i * 0.2])); } },
-      { say: 'Normalize. It becomes canonical actions with derived call ids.', go(v) { show(v, v.s.normL, true); } },
-      { say: 'Replay. The actions run again in a fresh world.', go(v) { const s = v.s; s.in.target = 0; v.tw.to(s.ico.scale, 'x', 1.25, 0.4); v.later(() => v.tw.to(s.ico.scale, 'x', 1, 0.4), 450); } },
-      { say: 'Grade. One reward producer grades every runtime, dense channel included.', go(v) { const s = v.s; show(v, s.normL, false); s.portals.slice(3).forEach(p => p.f.target = 1); } },
-      { say: 'Emit. The reward and step files come out byte-identical, whichever runtime ran the episode.', go(v) { const s = v.s; show(v, s.same, true); s.portals.forEach(p => { v.tw.to(p.sheets, 'scale', V(1, 2.6, 1), 0.6); }); } },
-      { say: 'Adapt. Adapters speak the standard trajectory format, environment servers and trainer datasets.', go(v) { const s = v.s; show(v, s.same, false); s.portals.forEach(p => p.f.target = 1); } },
-      { say: 'Import. Existing environment suites come in as worlds, with snapshots and dense reward.', go(v) {
-        const s = v.s; s.portals.forEach(p => p.f.target = 0);
-        s.foreign.forEach((m, i) => { moveTo(v, m, [-2.4, 1.0, 0.4], 0.8 + i * 0.2); v.later(() => scaleTo(v, s.worldCubes[i], 1, 0.5), 900 + i * 200); });
-      } },
+      { say: 'Record. An episode arrives as a recorded transcript of actions.', go(v) { const s = v.s; base(v, s); s.caps.forEach(c => { moveTo(v, c, c.userData.home.toArray(), 0.6); own(c).color.set(c === s.caps[1] ? PAL.cardinal : 0xffffff); }); } },
+      { say: 'Normalize. It becomes canonical actions; call ids are derived, never trusted from the transcript.', go(v) { const s = v.s; s.inF.target = 1; show(v, s.ids, true); moveTo(v, s.caps[1], [-1.5, 0.3, 0.1], 0.8); } },
+      { say: 'Replay. The actions run again against a fresh world, not a saved answer.', go(v) { const s = v.s; show(v, s.ids, false); moveTo(v, s.caps[1], [-0.2, 0.85, 0.1], 0.8); } },
+      { say: 'Grade. One reward producer grades the replay, dense channel included.', go(v) { const s = v.s; s.inF.target = 0; s.toG.target = 1; v.tw.to(s.ico.scale, 'x', 1.25, 0.4); v.later(() => v.tw.to(s.ico.scale, 'x', 1, 0.4), 450); } },
+      { say: 'Emit. A reward file and a step file per episode, byte-identical every time it is replayed.', go(v) { const s = v.s; s.outs.slice(0, 2).forEach(o => { o.f.target = 1; v.tw.to(o.st, 'scale', V(1, 2.6, 1), 0.6); }); show(v, s.same, true); } },
+      { say: 'Package. The same graded steps become training rows with their credit attached.', go(v) { const s = v.s; show(v, s.same, false); s.outs[2].f.target = 1; v.tw.to(s.outs[2].st, 'scale', V(1, 2.6, 1), 0.6); } },
+      { say: 'Mask. An episode the infrastructure broke is marked masked and is never written as a zero.', go(v) { const s = v.s; s.toG.target = 0; s.outs.forEach(o => o.f.target = 0); own(s.caps[2]).color.set(0xb7b2ae); moveTo(v, s.caps[2], [-1.5, 0.3, 0.1], 0.8); show(v, s.mask, true); } },
     ];
   })(),
 });

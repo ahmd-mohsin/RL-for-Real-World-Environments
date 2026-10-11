@@ -348,7 +348,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       <a href="#m3"><b>M3</b>Connectors</a><a href="#m4"><b>M4</b>Signals</a><a href="#m5"><b>M5</b>Workflow</a><a href="#m6"><b>M6</b>Credit</a>
       <a href="#m7"><b>M7</b>Verify</a><a href="#m8"><b>M8</b>Forge</a><a href="#m9"><b>M9</b>Accept</a><a href="#m1"><b>M1</b>World</a>
       <a href="#m2"><b>M2</b>Actors</a><a href="#m10"><b>M10</b>Runtime</a><a href="#m12"><b>M12</b>Train</a><a href="#m13"><b>M13</b>Bench</a>
-      <a href="#m11"><b>M11</b>Interop</a><a href="#m14"><b>M14</b>Packs</a><a href="#use"><b>M15</b>Studio</a><a href="#m0"><b>M0</b>Core</a>
+      <a href="#m11"><b>M11</b>Export</a><a href="#m14"><b>M14</b>Packs</a><a href="#use"><b>M15</b>Studio</a><a href="#m0"><b>M0</b>Core</a>
     </div>
   </div>
 </section>
@@ -374,7 +374,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
         <div class="grp">Run and learn</div>
         <nav><a href="#m10"><span>M10</span>Runtime</a><a href="#m12"><span>M12</span>Training</a><a href="#lh"><span>LH</span>Long horizons</a><a href="#rlm"><span>RLM</span>Recursive agent</a></nav>
         <div class="grp">Measure and ship</div>
-        <nav><a href="#m13"><span>M13</span>Benchmarks</a><a href="#m11"><span>M11</span>Interop</a><a href="#m14"><span>M14</span>Packs</a><a href="#use"><span>M15</span>Studio</a></nav>
+        <nav><a href="#m13"><span>M13</span>Benchmarks</a><a href="#m11"><span>M11</span>Export</a><a href="#m14"><span>M14</span>Packs</a><a href="#use"><span>M15</span>Studio</a></nav>
       </aside>
 
       <div class="mod-list">
@@ -391,7 +391,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Worlds, traces, signals, milestones, rewards, tasks and runs are versioned documents, serialized as canonical JSON and content-hashed. The core holds no domain logic and imports no framework.</p>
+              <p class="what">Worlds, traces, signals, milestones, rewards, tasks and runs are versioned documents, serialized as canonical JSON and content-hashed. The core holds no domain logic.</p>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -423,9 +423,9 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>One choke point.</b> Every tool call is validated, permissioned and bounded.</span></li>
               <li><span><b>Exact restore.</b> Fingerprints of every app prove the rewind.</span></li>
               <li><span><b>Hardened sandbox.</b> Demoted user, no way out to the network.</span></li>
-              <li><span><b>Any environment.</b> Existing suites import as worlds.</span></li>
+              <li><span><b>Virtual clock.</b> Replies and rule changes fire on world time, so runs replay exactly.</span></li>
             </ul>
-              <div class="stats"><div><b>15 / 15</b><span>GPU restores bit-identical</span></div><div><b>266 / 266</b><span>imported environments pass</span></div><div><b>&lt; 5 ms</b><span>step overhead</span></div></div>
+              <div class="stats"><div><b>15 / 15</b><span>GPU restores bit-identical</span></div><div><b>5 / 5</b><span>seed worlds, 3 of 3 runs on GPU</span></div><div><b>&lt; 5 ms</b><span>step overhead</span></div></div>
             </div>
           </div>
         </article>
@@ -682,7 +682,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <ul class="ideas">
               <li><span><b>Token in, token out.</b> Output is never re-tokenized.</span></li>
               <li><span><b>Three topologies.</b> Colocated sync, partial, disaggregated.</span></li>
-              <li><span><b>Off-policy corrections.</b> DIS by default, with TIS, IcePop, GSPO, CISPO.</span></li>
+              <li><span><b>Off-policy corrections.</b> Token-level importance weights, clipped and masked.</span></li>
               <li><span><b>Dense turn credit.</b> Mapped onto each call’s tokens.</span></li>
             </ul>
               <div class="stats"><div><b>0.44 → 1.00</b><span>held-out reward, 0.6B model on one GPU</span></div><div><b>≤ 2</b><span>versions stale, on GPU</span></div><div><b>6e-7</b><span>data-parallel match</span></div></div>
@@ -793,25 +793,25 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
 
         <article class="mod" id="m11">
           <header class="mod-head">
-            <div class="mod-code">M11 <i>Interop</i></div>
-            <h4>One task, any runtime</h4>
-            <p class="tl">Identical rewards wherever the episode ran.</p>
+            <div class="mod-code">M11 <i>Export</i></div>
+            <h4>One episode, one reward</h4>
+            <p class="tl">Every episode replays into the same reward and step files.</p>
           </header>
           <div class="fig"><div class="view" data-scene="m11"><span class="hint">Drag to turn</span></div>
             <div class="stepper"><button class="st-play">Pause</button><button class="st-prev" aria-label="Previous step">←</button><button class="st-next" aria-label="Next step">→</button><span class="st-count"></span><span class="st-dots"></span><p class="st-say"></p></div></div>
           <div class="mod-body">
             <div class="mod-l">
-              <p class="what">Tasks and episodes export to a standard trajectory format, to environment servers and to trainer datasets, and existing environment suites import as worlds. One reward producer grades every runtime.</p>
+              <p class="what">An episode is normalized into canonical actions and replayed in a fresh world. One reward producer grades the replay, so its reward and step files come out byte-identical every time, ready for training or for audit.</p>
               <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible export --to canonical --pack finance_ap</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
-              <li><span><b>Canonical actions.</b> Transcripts normalized, then replayed fresh.</span></li>
-              <li><span><b>Byte-identical.</b> The same reward file from every runtime.</span></li>
-              <li><span><b>Strict edge.</b> Framework code lives only at the boundary.</span></li>
+              <li><span><b>Canonical actions.</b> Call ids derived, never trusted from the transcript.</span></li>
+              <li><span><b>Fresh replay.</b> Actions rerun against a new world, not a saved answer.</span></li>
+              <li><span><b>Byte-identical.</b> The same reward file on every replay.</span></li>
               <li><span><b>Masks survive.</b> A masked grade is never written as zero.</span></li>
             </ul>
-              <div class="stats"><div><b>5</b><span>runtimes, identical rewards</span></div><div><b>100 / 100</b><span>generated suites import</span></div><div><b>1,050</b><span>imported training tasks</span></div></div>
+              <div class="stats"><div><b>5 / 5</b><span>forged tasks replay at reward 1.0</span></div><div><b>2</b><span>files per episode: reward and steps</span></div><div><b>0</b><span>masked grades written as zero</span></div></div>
             </div>
           </div>
         </article>
@@ -867,7 +867,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div><code>crucible bench</code><span>run, report and compare benchmarks</span></div>
           <div><code>crucible pack</code><span>scaffold and check a domain pack</span></div>
           <div><code>crucible model</code><span>the workflow model of a pack’s logs</span></div>
-          <div><code>crucible export</code><span>canonical replays, trajectories, servers</span></div>
+          <div><code>crucible export</code><span>canonical replays: reward and step files</span></div>
         </div>
       </div>
     </div>
