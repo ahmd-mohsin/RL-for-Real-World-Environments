@@ -82,6 +82,7 @@ class ForgeRepo:
         self.path, self.family, self.min_line = Path(path), family, min_line
         self.reads = {k: set(v) for k, v in (reads or DEFAULT_READS).items()}
         self._lock = threading.Lock()
+        self._trees: dict[str, dict[str, str]] = {}
         self.breaches: list[dict] = []
         self._ix_path = self.path / ".git" / "forge-index.json"
         if not (self.path / ".git").exists():
@@ -106,10 +107,24 @@ class ForgeRepo:
         return r.stdout.decode(errors="replace").strip()
 
     def _tree_files(self, sha: str) -> dict[str, str]:
-        out = {}
-        for path in self._git("ls-tree", "-r", "--name-only", sha).splitlines():
-            out[path] = self._git("show", f"{sha}:{path}")
-        return out
+        """Every file of a commit's tree: one ``ls-tree`` plus one ``cat-file --batch`` (commits are immutable: cached)."""
+        hit = self._trees.get(sha)
+        if hit is not None:
+            return dict(hit)
+        entries = [ln.split("\t", 1) for ln in self._git("ls-tree", "-r", sha).splitlines()]
+        blobs = [(meta.split()[2], path) for meta, path in entries]
+        out: dict[str, str] = {}
+        if blobs:
+            r = subprocess.run(["git", "-C", str(self.path), "cat-file", "--batch"], input="\n".join(b for b, _ in blobs).encode() + b"\n",
+                               capture_output=True, check=True)
+            buf, i = r.stdout, 0
+            for _, path in blobs:
+                nl = buf.index(b"\n", i)
+                size = int(buf[i:nl].split()[2])
+                out[path] = buf[nl + 1:nl + 1 + size].decode(errors="replace")
+                i = nl + 1 + size + 1
+        self._trees[sha] = out
+        return dict(out)
 
     def _write_commit(self, files: dict[str, str], *, parent: str | None, type_: str, author: str, informed_by: list[str], summary: str) -> str:
         """Builds the commit with plumbing (no worktree, no checkout): parent tree + files -> tree -> commit."""

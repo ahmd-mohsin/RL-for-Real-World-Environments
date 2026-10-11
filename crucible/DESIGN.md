@@ -1120,6 +1120,30 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-8 (2026-10-10): the swarm stage runner.** `forge/swarm.py` runs one role's homogeneous workers against the zoned
+repo, GitSwarm-style.
+- **Scheduling:** at most C in flight (default 5), with replacement on exit, until B charged episodes are spent. An
+  episode is never started if the budget could not pay for every episode in flight.
+  - Charged: a contribution (committed, invalid, or a zone breach) or a nomination.
+  - A voluntary abstention is free. `max_episodes` (4·B) bounds a stage whose workers keep abstaining.
+- **Announce:** `Gap | Deliverable | Success | Abort` before editing. Same key, or gap-token Jaccard ≥ 0.8 against an
+  in-flight or contributed announcement, is a collision. The worker is cancelled before it edits, and a collision is
+  counted but not charged.
+- **Episode end:** `Contribute`, `Nominate` or `Abstain`. A contribution passes the publication validator
+  (requirements, not correctness) and the repo's zone rule.
+- **Dashboard:** budget, in-flight announcements, contributions, collisions, and the nomination tally labelled "not
+  correctness evidence". It assigns no work.
+- **Readout (`winner`):** most nominations; ties go to the smallest sha; no valid nomination means the root.
+- **Repo speed-up:** tree reads are now one `ls-tree` plus one `cat-file --batch`, cached per immutable commit. This
+  took the swarm test from 49 s to 3.5 s.
+- **Tests:**
+  - a Proposer swarm at C=5, B=30 over 8 seed tasks gives 30 distinct chain plans, 0 collisions out of 30
+    announcements, and 8 free abstentions (38 episodes);
+  - workers that ignore the dashboard and all want one plan: 1 commit, 19 collisions cancelled, 1 charged;
+  - breach and invalid contributions are charged and rejected;
+  - nominations of unknown commits are rejected, and ties break on the smallest sha;
+  - an abstain-only stage stops at 40 episodes with nothing charged.
+
 **G-7 (2026-10-10): the zoned forge repo.** GitSwarm's memory is a git DAG that every worker reads. A forge cannot
 have that hole: a Verifier-writer that reads the oracle writes checks that encode it. `forge/repo.py` keeps one git
 repo per family, split into visibility zones.
