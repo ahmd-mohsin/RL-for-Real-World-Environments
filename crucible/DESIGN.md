@@ -1120,6 +1120,22 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-13 / G-14 (2026-10-10): the Judge and family specialists.**
+- **`forge/judge.py:select`** ranks only M9-accepted variants. Its output is an order, so no verdict can change; a
+  property test over 200 random pools checks this.
+  - Quality: L2's closeness to the middle of the train band, plus small terms for graded gates and composition depth.
+  - Diversity: MMR against the picks so far (same operator or seed costs 0.5), and picks that would break the
+    YieldBook quota are skipped. This follows GitSwarm, where a selector gained and a synthesizer lost.
+- **`forge/specialists.py`:**
+  - `FamilyMemory` (jsonl) keeps the strategies of confirmed A16 hacks per family. Strategies are kept, not actions,
+    which are task-specific.
+  - `SpecialistHacker` first replays the known strategies over the new task's solver trajectories, at zero hacker
+    episodes. Only when the replay has nothing to try does it call the expensive hacker.
+- **Tests:**
+  - the Judge never changes verdicts, prefers a diverse pick over a near-duplicate, and respects the quota;
+  - on B.15-weakened t2 the specialist spends one fallback episode and finds `skip_interactions`; remembered, it
+    re-finds the hack on t4 with 0 episodes.
+
 **Perturb and G-tighten (2026-10-10).**
 - **`forge/perturb.py`:** a perturbation changes the task (World or start state), not the solution. Kinds:
   distractor, decoy, policy_amendment, clock_event, injected_bug.

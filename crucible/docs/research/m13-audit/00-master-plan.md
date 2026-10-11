@@ -90,6 +90,7 @@ From `06`:
 - new acceptance checks: ✅ A14 (each component is necessary), ✅ A15 (the composite is measurably harder than its parts), ✅ A18 (perturbation effect), ✅ A16 (an adversarial hacker agent, G-5: black-box mutation search, property audit, promotion to A13 + registry), ✅ A17;
 - ✅ a solver ladder for difficulty control (G-4);
 - ✅ sandboxed builder/hacker roles as Harbor wrapper tasks (visible files only, network = model API; G-11);
+- ✅ Judge (selection only, quota-aware) and per-family specialists with hack memory (G-13 / G-14);
 - ✅ the Curator: dedup, ladder placement, lineage sealing, retirement → re-composition (G-12);
 - ✅ cost/yield stop rules, $ per accepted task per operator, diversity quota (G-6);
 - ✅ swarm stage runner: C/B scheduling, announce dedup, Contribute/Nominate/Abstain, dashboard, readout (G-8);
