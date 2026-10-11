@@ -189,3 +189,62 @@ def test_dedup_layers():
     d = Candidate("d", instruction="other words", footprint=["x"], checks=["sql:a", "sql:b", "sql:c", "sql:d", "sql:e"], content="x1")
     out = dedup([a, b, c, d])
     assert out["kept"] == ["a", "c"] and out["dropped"]["b"]["layer"] == "L1_fingerprint" and out["dropped"]["d"]["layer"] == "L0_content"
+
+
+async def test_concurrent_plans_equal_sequential_and_late_breach_is_revoked(tmp_path):
+    """m13 G-1: level-parallel nodes and concurrent plans give the sequential results; per-plan canaries; a same-level
+    leak is caught after the level finishes and its cached output is revoked (a resume never reuses it); concurrent
+    reservations never exceed the ledger cap."""
+    import asyncio
+    import time
+
+    class Slow:
+        name, version = "slow", "1"
+
+        async def run(self, staged, *, feedback, knobs):
+            await asyncio.sleep(0.05)
+            return Doc(value=sorted(staged))
+
+    def plans(k):
+        return [Plan(f"t{i}", "g", [Node("a", "slow", {"seed": f"={i}"}), Node("b", "slow", {"seed": f"={i}x"}), Node("c", "slow", {"x": "@a", "y": "@b"})])
+                for i in range(k)]
+
+    from crucible.core.store import Store
+    from crucible.forge.budget import Ledger as _L
+    from crucible.forge.orchestrator import Journal as _J
+    from crucible.forge.orchestrator import Orchestrator as _O
+
+    seq = _O(Store(tmp_path / "seq" / "s"), _J(tmp_path / "seq" / "j.jsonl"), _L(1.0), {"slow": Slow()}, node_concurrency=1)  # the old one-node-at-a-time
+    t0 = time.perf_counter()
+    rs = [await seq.run_plan(p) for p in plans(5)]
+    t_seq = time.perf_counter() - t0
+    par = orch(tmp_path / "par", {"slow": Slow()})
+    t0 = time.perf_counter()
+    rp = await par.run_plans(plans(5), concurrency=5)
+    t_par = time.perf_counter() - t0
+    assert [r.state for r in rp] == [r.state for r in rs] == ["constructed"] * 5
+    assert [r.outputs["c"] for r in rp] == [r.outputs["c"] for r in rs]
+    assert t_par < 0.5 * t_seq, (t_par, t_seq)
+
+    echo = Echo()
+    o = orch(tmp_path / "leak", {"echo": echo, "leaky": Leaky()})
+    nodes = [Node("oracle", "echo", {"seed": "=1"}, canary_out=True), Node("checks", "leaky", {"spec": "=2"})]  # same level
+    first = await o.run_plan(Plan("p0", "g", nodes[:1]))
+    Leaky.canary = o.canaries["oracle"]
+    r = await o.run_plan(Plan("p1", "g", nodes))
+    assert first.state == "constructed" and r.nodes["checks"].status == "breach"
+    o2 = orch(tmp_path / "leak", {"echo": echo, "leaky": Leaky()})  # resume on the same journal: the leaked output is not reused
+    r2 = await o2.run_plan(Plan("p1", "g", nodes))
+    assert r2.nodes["checks"].status == "breach" and not r2.nodes["checks"].reused
+
+    class Costly:
+        name, version = "costly", "1"
+
+        async def run(self, staged, *, feedback, knobs):
+            await asyncio.sleep(0.01)
+            return Doc(value=1)
+
+    led_o = orch(tmp_path / "cap", {"costly": Costly()}, cap=0.25)
+    ps = [Plan(f"c{i}", "g", [Node("n", "costly", {"s": f"={i}"}, estimate_usd=0.05)]) for i in range(20)]
+    res = await led_o.run_plans(ps, concurrency=20)
+    assert sum(r.state == "constructed" for r in res) == 5 and led_o.ledger.committed <= 0.25 + 1e-9  # 20 reservations, cap holds

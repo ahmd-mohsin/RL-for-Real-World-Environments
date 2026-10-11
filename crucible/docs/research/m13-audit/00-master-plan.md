@@ -85,13 +85,13 @@ The corpus audit's ten picks:
 ### G. Swarm Forge (P0 core on CPU first, then the swarm)
 
 From `06`:
-- a concurrent orchestrator;
+- ✅ a concurrent orchestrator (G-1);
 - composition operators (chain, fan-in, nest, fuse, perturb, stitch, tighten);
 - new acceptance checks: A14 (each component is necessary), A15 (the composite is measurably harder than its parts), A16 (an adversarial hacker agent), A17;
 - a solver ladder for difficulty control;
 - cost/yield stop rules;
 - shared-repo visibility zones with canary scans;
-- the G-tighten headroom fix (15%).
+- ✅ the G-tighten headroom fix (15%).
 
 ### H. Sandboxes (P1/P2)
 

@@ -79,19 +79,23 @@ class Plan:
     knobs: dict[str, Any] = field(default_factory=dict)
 
     def order(self) -> list[Node]:
+        return [n for level in self.levels() for n in level]
+
+    def levels(self) -> list[list[Node]]:
+        """Dependency levels: every node of a level depends only on earlier levels (those run concurrently)."""
         by = {n.id: n for n in self.nodes}
         missing = {d for n in self.nodes for d in n.needs()} - set(by)
         if missing:
             raise ValueError(f"plan {self.task_id}: unknown upstream nodes {sorted(missing)}")
-        done: list[Node] = []
+        levels: list[list[Node]] = []
         seen: set[str] = set()
-        while len(done) < len(self.nodes):
+        while len(seen) < len(self.nodes):
             level = sorted((n for n in self.nodes if n.id not in seen and set(n.needs()) <= seen), key=lambda n: n.id)
             if not level:
                 raise ValueError(f"plan {self.task_id}: cycle among {sorted(set(by) - seen)}")
-            done += level
+            levels.append(level)
             seen |= {n.id for n in level}
-        return done
+        return levels
 
 
 @dataclass
@@ -131,6 +135,8 @@ class Journal:
     def _index(self, ev: dict) -> None:
         if ev.get("event") == "node" and ev.get("status") == "done":
             self._done[ev["input_hash"]] = ev
+        elif ev.get("event") == "node" and ev.get("status") == "breach" and ev.get("input_hash"):
+            self._done.pop(ev["input_hash"], None)  # a late breach revokes the cached output: a resume never reuses it
         if ev.get("event") == "state":
             self._states.setdefault(ev["task_id"], []).append(ev)
 
@@ -163,10 +169,19 @@ def content_hash(obj: Any) -> str:
 
 
 class Orchestrator:
-    def __init__(self, store: Store, journal: Journal, ledger: Ledger, roles: dict[str, Role], *, run_id: str = "forge"):
+    def __init__(self, store: Store, journal: Journal, ledger: Ledger, roles: dict[str, Role], *, run_id: str = "forge", node_concurrency: int = 8):
         self.store, self.journal, self.ledger, self.roles, self.run_id = store, journal, ledger, roles, run_id
-        self.canaries: dict[str, str] = {}  # node id -> canary planted in its output
-        self.sees: dict[str, set[str]] = {}  # node id -> upstream nodes whose outputs reach it through visible inputs (transitively)
+        # per plan (task id): node id -> canary planted in its output / upstream nodes reaching it through visible inputs.
+        # Keyed per plan: concurrent plans reuse node ids ("oracle", "tests"), and one plan's canary must never be checked
+        # (or overwritten) in another's
+        self._canaries: dict[str, dict[str, str]] = {}
+        self._sees: dict[str, dict[str, set[str]]] = {}
+        self._node_slots = asyncio.Semaphore(node_concurrency)
+
+    @property
+    def canaries(self) -> dict[str, str]:
+        """All canaries (node id -> canary) of the plans run so far, flattened (last plan wins on a reused node id)."""
+        return {k: v for c in self._canaries.values() for k, v in c.items()}
 
     def set_state(self, task_id: str, state: str, *, reason: str | None = None, task_hash: str | None = None) -> None:
         self.journal.append({"event": "state", "task_id": task_id, "state": state, "reason": reason, "task_hash": task_hash})
@@ -196,18 +211,19 @@ class Orchestrator:
                 staged[name] = raw.decode("utf-8", "replace")
         return staged
 
-    def _sees(self, node: Node) -> set[str]:
+    def _sees_of(self, plan: Plan, node: Node) -> set[str]:
         visible = set(node.inputs.keys() if node.visible is None else node.visible)
         direct = {ref[1:] for name, ref in node.inputs.items() if ref.startswith("@") and name in visible}
         out = set(direct)
+        sees = self._sees.setdefault(plan.task_id, {})
         for d in direct:
-            out |= self.sees.get(d, set())
+            out |= sees.get(d, set())
         return out
 
-    def _breach(self, node: Node, text: str) -> list[str]:
+    def _breach(self, plan: Plan, node: Node, text: str) -> list[str]:
         """Canaries of upstream outputs that cannot reach this node through visible inputs must not appear in it."""
-        allowed = self._sees(node)
-        return sorted(nid for nid, c in self.canaries.items() if nid not in allowed and nid != node.id and c in text)
+        allowed = self._sees_of(plan, node)
+        return sorted(nid for nid, c in self._canaries.get(plan.task_id, {}).items() if nid not in allowed and nid != node.id and c in text)
 
     async def run_plan(self, plan: Plan) -> ForgeResult:
         outputs: dict[str, str] = {}
@@ -215,15 +231,33 @@ class Orchestrator:
         prior = self.journal.state(plan.task_id)
         if prior is None:
             self.set_state(plan.task_id, "draft")
-        for node in plan.order():
-            failed_up = [d for d in node.needs() if results.get(d) and results[d].status != "done"]
-            if failed_up:
-                results[node.id] = NodeResult(node.id, "skipped", findings=[f"upstream did not finish: {failed_up}"])
-                continue
-            res = await self._run_node(plan, node, outputs)
-            results[node.id] = res
-            if res.status == "done":
-                outputs[node.id] = res.output_key
+        for level in plan.levels():  # a level's nodes are independent: they run concurrently (bounded by node_concurrency)
+            runnable = []
+            for node in level:
+                failed_up = [d for d in node.needs() if results.get(d) and results[d].status != "done"]
+                if failed_up:
+                    results[node.id] = NodeResult(node.id, "skipped", findings=[f"upstream did not finish: {failed_up}"])
+                else:
+                    runnable.append(node)
+
+            async def one(node: Node) -> tuple[Node, NodeResult]:
+                async with self._node_slots:
+                    return node, await self._run_node(plan, node, outputs)
+
+            for node, res in await asyncio.gather(*(one(n) for n in runnable)):
+                if res.status == "done" and not res.reused:
+                    # a same-level node's canary may exist only now: re-scan the output against every canary this plan knows
+                    breached = self._breach(plan, node, self.store.get_bytes(res.output_key).decode(errors="replace"))
+                    if breached:
+                        ih = next((h for h, ev in self.journal._done.items() if ev.get("task_id") == plan.task_id and ev.get("node") == node.id
+                                   and ev.get("output_key") == res.output_key), None)
+                        self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "breach", "sources": breached,
+                                             "late": True, "input_hash": ih})
+                        res = NodeResult(node.id, "breach", findings=[f"output contains material from {breached} it was not allowed to see"],
+                                         attempts=res.attempts)
+                results[node.id] = res
+                if res.status == "done":
+                    outputs[node.id] = res.output_key
         bad = [r for r in results.values() if r.status != "done"]
         # a content failure or breach rejects the task; budget or infra exhaustion abandons it (it may be retried later)
         state = "constructed" if not bad else ("rejected" if any(r.status in ("failed", "breach") for r in bad) else "abandoned")
@@ -232,16 +266,27 @@ class Orchestrator:
         docs = {nid: self.store.get_json(k) for nid, k in outputs.items()}
         return ForgeResult(plan.task_id, state, results, docs, reason)
 
+    async def run_plans(self, plans: list[Plan], *, concurrency: int = 5) -> list[ForgeResult]:
+        """Many plans at once (the swarm knob C; GitSwarm's default 5), each still level-parallel inside; results in plan
+        order. The ledger is shared, so concurrent reservations still never exceed the cap."""
+        sem = asyncio.Semaphore(concurrency)
+
+        async def one(p: Plan) -> ForgeResult:
+            async with sem:
+                return await self.run_plan(p)
+
+        return list(await asyncio.gather(*(one(p) for p in plans)))
+
     async def _run_node(self, plan: Plan, node: Node, outputs: dict[str, str]) -> NodeResult:
         role = self.roles[node.role]
-        self.sees[node.id] = self._sees(node)
+        self._sees.setdefault(plan.task_id, {})[node.id] = self._sees_of(plan, node)
         keys = self._resolve(plan, node, outputs)
         visible = node.inputs.keys() if node.visible is None else node.visible
         ih = _hash(node.role, getattr(role, "version", "0"), {k: keys[k] for k in sorted(visible)}, plan.knobs, node.id)
         hit = self.journal.reusable(ih)
         if hit is not None and self.store.has(hit["output_key"]):
             if node.canary_out and hit.get("canary"):
-                self.canaries[node.id] = hit["canary"]
+                self._canaries.setdefault(plan.task_id, {})[node.id] = hit["canary"]
             return NodeResult(node.id, "done", hit["output_key"], 0, reused=True)
         staged = self._stage(node, keys)
         feedback: list[str] = []
@@ -275,7 +320,7 @@ class Orchestrator:
             self.ledger.settle(f"{plan.task_id}/{node.id}", cost)
             attempts += 1
             text = out.model_dump_json()
-            breached = self._breach(node, text)
+            breached = self._breach(plan, node, text)
             if breached:
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "breach", "sources": breached})
                 return NodeResult(node.id, "breach", findings=[f"output contains material from {breached} it was not allowed to see"], attempts=attempts)
@@ -286,7 +331,7 @@ class Orchestrator:
                 if node.canary_out:
                     canary = "CRUCIBLE-CANARY-" + _hash(plan.task_id, node.id, ih)[:16]
                     payload = {**payload, "_canary": canary}
-                    self.canaries[node.id] = canary
+                    self._canaries.setdefault(plan.task_id, {})[node.id] = canary
                 key = self.store.put_bytes(json.dumps(payload, sort_keys=True).encode())
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "role": node.role, "status": "done", "input_hash": ih,
                                      "output_key": key, "attempts": attempts, "cost_usd": round(cost, 6), "canary": canary,

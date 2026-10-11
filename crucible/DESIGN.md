@@ -547,7 +547,7 @@ These follow Frontier Learning's procedural-generator idea: each generator's par
 - **G-trap:** inject a review-derived trap into the task's surface. Example: the task's consumer exercises the boundary condition a reviewer caught.
 - **G-transplant:** apply the family's migration pattern to a *different* repo that has the same legacy construct, found by static search. The oracle is built and verified by the oracle builder against the original. This is the main source of **OOD** tasks.
 - **G-compose:** union of compatible subtasks; harder through interactions (SWE-smith `bug_gen/combine/`).
-- **G-tighten:** raise the verification strictness of a solved task. Examples: add perf bars, concurrency bars or sanitizer tools, which is what took task 04 from v1 to v3. Raising the bar is only allowed if the oracle still has ≥10% headroom.
+- **G-tighten:** raise the verification strictness of a solved task. Examples: add perf bars, concurrency bars or sanitizer tools, which is what took task 04 from v1 to v3. Raising the bar is only allowed if the oracle still has the A1 headroom (`accept.policy.a1_headroom`, ≥15%; m13 audit 06 found the 10% here inconsistent with A1).
 
 **Learnability steering.** When generating RL training tasks, target a pass rate p ∈ [0.1, 0.7] for the *policy being trained*, using a proposer reward of 4p(1−p) as in verifiers `environments/proposer_solver`. When generating benchmark tasks, target frontier pass@1 ≤ 20%. Difficulty is adjusted with the generator knobs, never by making the instruction more obscure.
 
@@ -1119,6 +1119,25 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the CLI seed test skips when the seeds' Harbor side is not staged;
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
+
+**G-1 (2026-10-10): the concurrent forge orchestrator.** `Orchestrator.run_plan` awaited nodes one at a time, and one
+plan ran at a time (audit 06: "a swarm in name only").
+- **Concurrency:** nodes of the same dependency level (`Plan.levels()`) run concurrently under `node_concurrency`.
+  `run_plans(plans, concurrency=C)` runs many plans at once (C defaults to 5, as in GitSwarm). The shared reserve /
+  settle ledger is synchronous between awaits, so concurrent reservations still never exceed the cap.
+- **Per-plan state:** canaries and visibility are kept per plan. Concurrent plans reuse node ids (`oracle`, `checks`),
+  and a global map would have checked, or overwritten, another plan's canary.
+- **Found while testing:** with level parallelism, a node can finish before a *same-level* canaried node registers its
+  canary, so the in-node breach scan missed a leak the sequential order had caught.
+  - After each level, every finished node's output is re-scanned against all canaries the plan now knows from nodes
+    it cannot see. A late breach fails the node.
+  - It also revokes the node's journal entry (a `breach` event carrying the input hash), so a resumed run never reuses
+    the leaked output.
+- **Tests:**
+  - 5 concurrent plans give the same states and outputs as one-node-at-a-time, in under half the wall time;
+  - a same-level leak is caught and stays caught on resume;
+  - 20 concurrent reservations under a $0.25 cap construct exactly 5 tasks, with committed spend ≤ cap.
+- **Also:** the G-tighten text now requires A1's 15% headroom, not 10%.
 
 **F-3 / F-4 (2026-10-10): SGLang engine; top-p candidate sets over vLLM.**
 - **`train/sglang_http.SGLangServerEngine`:** SGLang's native API, as slime drives it.
