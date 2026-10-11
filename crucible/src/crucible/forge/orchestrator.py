@@ -14,6 +14,8 @@ retries that carry feedback, and asymmetric information enforced by what is stag
   counts as a content attempt whose feedback is the parse error: one bad completion never aborts the plan.
 - **Budgets**: a reserve/settle ledger per forge run (``budget.py``); a node that cannot reserve its estimate is
   ``abandoned(budget)``, never half-run.
+- **Economics** (m13 G-6, ``economy.py``): with a ``YieldBook``, every plan run is recorded (generator, operator, seed,
+  family, construction state, spend), and a plan whose generator the stop rules paused is not run (state ``paused``).
 - **Canaries**: oracle material can be planted with a canary string; any later node whose output contains it fails
   (an asymmetric-information breach is a hard error, not a warning).
 - **Task states** (journaled): ``draft -> constructed -> audited -> accepted | rejected(reason) | abandoned(reason)``.
@@ -77,6 +79,9 @@ class Plan:
     generator: str
     nodes: list[Node]
     knobs: dict[str, Any] = field(default_factory=dict)
+    operator: str = ""  # the composition operator / derivation that made it (yield, quota)
+    seed: str = ""  # the seed task it derives from (quota)
+    family: str = ""  # the task family (cost cap, quota)
 
     def order(self) -> list[Node]:
         return [n for level in self.levels() for n in level]
@@ -169,8 +174,10 @@ def content_hash(obj: Any) -> str:
 
 
 class Orchestrator:
-    def __init__(self, store: Store, journal: Journal, ledger: Ledger, roles: dict[str, Role], *, run_id: str = "forge", node_concurrency: int = 8):
+    def __init__(self, store: Store, journal: Journal, ledger: Ledger, roles: dict[str, Role], *, run_id: str = "forge", node_concurrency: int = 8,
+                 book: Any = None):
         self.store, self.journal, self.ledger, self.roles, self.run_id = store, journal, ledger, roles, run_id
+        self.book = book  # forge.economy.YieldBook (m13 G-6)
         # per plan (task id): node id -> canary planted in its output / upstream nodes reaching it through visible inputs.
         # Keyed per plan: concurrent plans reuse node ids ("oracle", "tests"), and one plan's canary must never be checked
         # (or overwritten) in another's
@@ -226,6 +233,16 @@ class Orchestrator:
         return sorted(nid for nid, c in self._canaries.get(plan.task_id, {}).items() if nid not in allowed and nid != node.id and c in text)
 
     async def run_plan(self, plan: Plan) -> ForgeResult:
+        why = self.book.paused(plan.generator) if self.book is not None else None
+        if why:
+            return ForgeResult(plan.task_id, "paused", {}, {}, f"generator {plan.generator} paused: {why}")
+        r = await self._run_plan(plan)
+        if self.book is not None:
+            self.book.record_construction(plan.task_id, plan.generator, operator=plan.operator, seed=plan.seed, family=plan.family, state=r.state,
+                                          cost_usd=sum(n.cost_usd for n in r.nodes.values() if not n.reused))
+        return r
+
+    async def _run_plan(self, plan: Plan) -> ForgeResult:
         outputs: dict[str, str] = {}
         results: dict[str, NodeResult] = {}
         prior = self.journal.state(plan.task_id)
@@ -292,38 +309,42 @@ class Orchestrator:
         feedback: list[str] = []
         t0 = time.time()
         attempts = infra = 0
+        total = 0.0  # every attempt's spend, retries and failures included (G-6: $ per accepted task)
         while attempts < node.max_attempts:
             try:
                 self.ledger.reserve(f"{plan.task_id}/{node.id}", node.estimate_usd)
             except BudgetExhausted as ex:
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "abandoned", "reason": str(ex)})
-                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts)
+                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts, cost_usd=total)
             spent0 = self.ledger.observed()
             try:
                 out = await role.run(staged, feedback=list(feedback), knobs=dict(plan.knobs))
             except RoleInfraError as ex:
+                total += self.ledger.observed() - spent0
                 self.ledger.settle(f"{plan.task_id}/{node.id}", self.ledger.observed() - spent0)
                 infra += 1
                 if infra >= 3:
-                    return NodeResult(node.id, "abandoned", findings=[f"infra: {ex}"], attempts=attempts)
+                    return NodeResult(node.id, "abandoned", findings=[f"infra: {ex}"], attempts=attempts, cost_usd=total)
                 await asyncio.sleep(0)
                 continue
             except BudgetExhausted as ex:
-                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts)
+                return NodeResult(node.id, "abandoned", findings=[str(ex)], attempts=attempts, cost_usd=total)
             except (LLMOutputError, ValidationError) as ex:
+                total += self.ledger.observed() - spent0
                 self.ledger.settle(f"{plan.task_id}/{node.id}", self.ledger.observed() - spent0)
                 attempts += 1
                 feedback = [f"your previous output could not be parsed: {str(ex)[:500]}"]
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "retry", "attempt": attempts, "findings": feedback})
                 continue
             cost = self.ledger.observed() - spent0
+            total += cost
             self.ledger.settle(f"{plan.task_id}/{node.id}", cost)
             attempts += 1
             text = out.model_dump_json()
             breached = self._breach(plan, node, text)
             if breached:
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "breach", "sources": breached})
-                return NodeResult(node.id, "breach", findings=[f"output contains material from {breached} it was not allowed to see"], attempts=attempts)
+                return NodeResult(node.id, "breach", findings=[f"output contains material from {breached} it was not allowed to see"], attempts=attempts, cost_usd=total)
             findings = [f for v in node.validators for f in v(out, staged)]
             if not findings:
                 payload = out.model_dump(mode="json")
@@ -334,9 +355,9 @@ class Orchestrator:
                     self._canaries.setdefault(plan.task_id, {})[node.id] = canary
                 key = self.store.put_bytes(json.dumps(payload, sort_keys=True).encode())
                 self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "role": node.role, "status": "done", "input_hash": ih,
-                                     "output_key": key, "attempts": attempts, "cost_usd": round(cost, 6), "canary": canary,
+                                     "output_key": key, "attempts": attempts, "cost_usd": round(total, 6), "canary": canary,
                                      "visible": sorted(visible), "input_keys": {k: keys[k] for k in sorted(visible)}})
-                return NodeResult(node.id, "done", key, attempts, cost_usd=cost, seconds=round(time.time() - t0, 3))
+                return NodeResult(node.id, "done", key, attempts, cost_usd=total, seconds=round(time.time() - t0, 3))
             feedback = findings
             self.journal.append({"event": "node", "task_id": plan.task_id, "node": node.id, "status": "retry", "attempt": attempts, "findings": findings[:10]})
-        return NodeResult(node.id, "failed", findings=feedback, attempts=attempts, seconds=round(time.time() - t0, 3))
+        return NodeResult(node.id, "failed", findings=feedback, attempts=attempts, cost_usd=total, seconds=round(time.time() - t0, 3))

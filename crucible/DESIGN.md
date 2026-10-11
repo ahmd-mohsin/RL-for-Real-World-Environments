@@ -1120,6 +1120,35 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-6 (2026-10-10): forge economics.** The ledger caps spend but says nothing about what the spend buys.
+`forge/economy.py` tracks dollars per *accepted* task, which is Repo2RLEnv's reference number.
+- **Book:** `YieldBook` keeps one row per plan run (generator, operator, seed, family, construction state, spend).
+  M9 resolves each row later (accepted, confirmed A16 hacks). The book persists to `economy.jsonl`, so a resumed forge
+  keeps its counts and its pauses.
+- **Orchestrator:** with `book=`, `run_plan` records every run. A plan of a paused generator is not run (state
+  `paused`). `Plan` gains `operator`, `seed` and `family`.
+- **Node cost fix:** a node's cost now sums every attempt, including retries, parse failures and infra errors.
+  Previously only the successful attempt counted, which understated $/accepted.
+- **Yield** counts decided attempts only: rejected at construction, or decided by M9. A task pending M9 or abandoned
+  (budget, infra) does not count against its generator.
+- **Stop rules:** a generator is paused when its yield is below 10% after 20 decided attempts. It is also paused when
+  its $/accepted exceeds its family's cap; with nothing accepted, once its spend exceeds the cap. Each pause files one
+  issue. `resume` (a person, after fixing the generator) starts its counts over.
+- **Diversity quota:** `admit` defers an accepted task that would put its operator or its seed above 30% of the
+  family. The quota is enforced once the family has 10 accepted tasks. `release` admits deferred tasks once the family
+  has diversified.
+- **Report:** per operator, generator and family: attempts, decided, accepted, yield, $, $/accepted and hack-found
+  rate; per-stage yield; the paused generators and the deferred tasks.
+- **Tests:**
+  - a 0%-yield generator runs exactly 20 plans (concurrency 1), the remaining 10 come back `paused`, and one issue is
+    filed;
+  - the report gives `chain` 0.02 $/accepted and a 1/6 hack-found rate, and `fuse` ∞ (60 paid attempts);
+  - the book reloads with its pause intact;
+  - pending and abandoned rows do not count against yield;
+  - both forms of the cost cap pause;
+  - the quota defers a 4th `chain` at 31% and releases it at 25%;
+  - a 3-attempt rejected node costs 0.03.
+
 **G-5 (2026-10-10): the adaptive red team (A16).** Audit 06 found red-teaming static: A13 replays authored attacks,
 while the hack that matters is the one nobody wrote down. `forge/hacker.py` searches for reward without the work.
 - **Search:** `MutationHacker` is black-box. It sees the instruction and honest solver trajectories (agent-level
