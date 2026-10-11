@@ -289,6 +289,46 @@ class IsolationSpec(CrucibleModel):
         return 0 if v is None else v
 
 
+class VerifierSpec(CrucibleModel):
+    """Where and how the World is graded (M1; Harbor's separate verifier environment, Karotte's submission custody).
+
+    - ``mode``: ``in_world`` grades the live World the policy acted in (the pre-M1 behaviour). ``separate`` quiesces
+      the policy's World, snapshots it, closes it, and restores the snapshot into a fresh World built from the same
+      spec, where the grader runs: nothing the policy left running, and no file it can still change, reaches the grader;
+    - ``backend`` / ``backend_params``: the verifier World's backend (default: the World's own), e.g. a verifier image
+      that carries the hidden tests the policy's image never had;
+    - ``artifacts``: ``"<app>:<glob>"`` patterns naming what the policy hands in. Custody rules apply to them
+      (``world/custody.py``): no symlinks (unless ``allow_symlinks``), no FIFOs, sockets or devices, no oversize file,
+      at most ``max_entries`` entries and ``max_depth`` levels, at most ``max_total_bytes`` in all;
+    - ``protected``: ``"<app>:<glob>"`` patterns the policy must not change (hidden tests, graders, fixtures): the
+      snapshot's entries must equal the episode start's, and no new entry may appear under them.
+
+    A custody violation is the policy's outcome (``crucible:policy_misbehavior``): scored 0, never masked.
+    """
+
+    mode: Literal["in_world", "separate"] = "in_world"
+    backend: str | None = None
+    backend_params: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[str] = Field(default_factory=list)
+    protected: list[str] = Field(default_factory=list)
+    allow_symlinks: bool = False
+    max_file_bytes: int = Field(default=256 * 1024**2, gt=0)
+    max_total_bytes: int = Field(default=1024**3, gt=0)
+    max_entries: int = Field(default=10_000, gt=0)
+    max_depth: int = Field(default=32, gt=0)
+
+    @field_validator("artifacts", "protected")
+    @classmethod
+    def _app_glob(cls, v: list[str]) -> list[str]:
+        for pat in v:
+            app, sep, glob = pat.partition(":")
+            if not sep or not app or not glob:
+                raise ValueError(f"custody pattern {pat!r} must be '<app>:<glob>'")
+            if glob.startswith("/") or ".." in glob.split("/"):
+                raise ValueError(f"custody pattern {pat!r}: the glob is relative to the app's state root and stays inside it")
+        return v
+
+
 class WorldSpec(VersionedDocument):
     SCHEMA = "crucible.world/v1"
     world: str  # "<pack>/<name>"
@@ -308,6 +348,7 @@ class WorldSpec(VersionedDocument):
     intercept: list[str] | None = None
     isolation: IsolationSpec = Field(default_factory=IsolationSpec)
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
+    verifier: VerifierSpec | None = None  # None: graded in the live World (``in_world``); hashes of older specs unchanged
     seed: int = 0
 
     @model_validator(mode="after")
@@ -353,6 +394,13 @@ class WorldSpec(VersionedDocument):
         for pol in self.policies:
             if pol.app not in app_ids:
                 raise ValueError(f"policy {pol.id!r} lives in unknown app {pol.app!r}")
+        if self.verifier is not None:
+            for pat in [*self.verifier.artifacts, *self.verifier.protected]:
+                app = pat.partition(":")[0]
+                if app not in app_ids:
+                    raise ValueError(f"verifier custody pattern {pat!r} names unknown app {app!r}")
+                if self.app(app).state.adapter not in ("fs", "fs_git"):
+                    raise ValueError(f"verifier custody pattern {pat!r}: app {app!r} holds {self.app(app).state.adapter!r} state; custody covers file trees (fs, fs_git)")
         return self
 
     def app(self, app_id: str) -> AppSpec:

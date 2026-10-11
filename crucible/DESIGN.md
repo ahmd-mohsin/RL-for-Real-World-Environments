@@ -247,6 +247,15 @@ value_proof:
 splits: {train: false, bench: true, ood_axes: [repo, api_family]}
 ```
 
+**Single-turn tasks (M1 build item 2, 2026-10-12; `runtime/single_turn.py`, `verify/answers.py`).** The largest family by count in the surveyed frameworks consists of a prompt, one completion and a checker, with no tools. A `SingleTurnTask` is a `RunTask` whose World has no Apps and one tool-less policy actor. The prompt is the instruction and the completion ends the episode. The full reply is kept on the `done` trace event even when longer than the 2000-character `reason`. Single-turn data therefore uses the same harness, traces, ATIF export, token capture and run records as agentic data.
+
+The grade has two steps:
+
+1. A **parser** reads the answer: full text, last `\boxed{}`, `Answer:` payload, XML tag, fenced code, JSON, multiple choice (four NeMo-Gym modes), regex or last line. Unless the parser keeps it, the text after the last `</think>` is read, and an unclosed `<think>` is no answer.
+2. A **weighted rubric of checkers** scores it: exact, numeric with tolerances, symbolic math (math-verify in a killable child process), multiple choice, contains, regex, sequence similarity, JSON subset, any-of, or a named judge.
+
+Gate `format` records whether an answer was found. Outcome `answer` requires every criterion to reach its threshold. The reward is the weighted score. A checker that cannot decide (a judge outage or an absent library) masks the sample (`check_infra`) instead of scoring 0 (P16). Rows load from NeMo-Gym (`responses_create_params`, `expected_answer`, `options`, `template_metadata`), verifiers (`prompt` or `question`, `answer`, `info`) and plain JSONL.
+
 ### 4.4 World spec (`crucible.world/v1`): open-ended environments
 
 A task names a World. The same schema describes the smallest coding task and a multi-department workflow; only the parts listed change.
@@ -616,6 +625,18 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Episode hygiene | quiesce before restore; restore through directory fds, owned by the policy; `.git` reset; `/tmp`, `/dev/shm`, home, SysV IPC emptied; App-owned state root `0600` | a symlinked parent redirecting a root write; stashing state for the next episode; reading other people's mail from the database file |
 | Egress self-test, answer sources | 17 code hosts, registries and mirrors (GitHub incl. `codeload`/`raw`, GitLab, PyPI incl. `files.pythonhosted.org`, npm, crates, Go proxy, conda, Hugging Face, `web.archive.org`, …) probed as the policy uid with a TLS/SNI handshake (a transparent egress proxy accepts every TCP connect); allowlisted hosts are excluded and checked as working lanes; audit `network.answer_sources` fails any allowlist that opens one of them (added 2026-10-09) | `pip download` of the fixed release through an allowlisted index; a mirror or archive after GitHub is blocked |
 | Answer-key probes (P27) | every policy tool call is scanned for history, registry, code-host, grader-file, root and `/proc` probes; an exposure masks the episode (`crucible:answer_exposed`) | a pass reached by reading the published fix |
+
+**Built in M1 build item 1 (2026-10-12): a separate verifier World for every World task (`WorldSpec.verifier`, `world/verifier.py`, `world/custody.py`).** Layer 4 previously held only for the coding kit (patch graded in a verifier image). Any World can now set `verifier.mode: separate`. The harness then quiesces and snapshots the policy's World, checks custody of the snapshot from the store, closes the policy's World, restores the snapshot into a fresh World built from the same spec (an optional verifier backend or image, no responders, no interceptors) and grades there. The fingerprints must match. Tested by `tests/unit/test_verifier_separate.py`.
+
+| Mechanism | Attack it defeats |
+|---|---|
+| Grading in a restored copy, after the policy's World is closed | a process left behind that rewrites the answer during grading (shown to beat the in-place grader on the local backend) |
+| Artifact custody over the snapshot's tar (`artifacts: ["<app>:<glob>"]`): regular files and directories only, symlinks only with `allow_symlinks` and only inside the tree, no hard links, FIFOs, sockets or devices, size, count and depth limits | a symlinked answer to a host file, a FIFO that blocks the grader, an oversize or deeply nested hand-in |
+| Protected paths (`protected: ["<app>:<glob>"]`) must equal the episode-start snapshot: no change, no removal, no new entry | rewriting or deleting a hidden test; planting a `conftest.py` next to it |
+| Artifacts extracted into the attempt dir with root-only modes, `O_EXCL`/`O_NOFOLLOW` and an openat walk, with a Harbor-style `manifest.json` | a hand-off that writes outside its directory |
+| Shared state roots refused: two worlds on one host whose App state resolves to one absolute path | separation in name only |
+
+A custody violation, like an unkillable process at quiesce, is `crucible:policy_misbehavior`: scored 0, never masked, and the grader never runs.
 
 **Built in M7 (2026-10-09): the grader-side trusted channels (layer 7), `crucible.verify.runtime`, standard library only, staged read-only into any verifier image and run as root with `--network none`. Tested by `tests/redteam/test_grader_attacks.py`: the honest solution scores 1, 11 cheat mutants score 0 at their intended gate, and 6 of them are shown to beat a seed-style grader (exit-code verdicts, candidate-first `PYTHONPATH`, one shared HOME, no sealing):**
 

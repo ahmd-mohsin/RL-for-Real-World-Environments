@@ -346,7 +346,7 @@ class LLMToolPolicy(Policy):
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})
             self.stop = "agent_done"
             call["actions"] = ["done"]
-            return Done(reason=r.text[:2000])
+            return Done(reason=r.text[:2000], answer=r.text if len(r.text) > 2000 else None)
         compact = next((tc for tc in r.tool_calls if tc["name"] == "context_compact"), None)
         if compact is not None and self.context is not None and self.context.mode == "action":
             # m13 C-7 (A2-47): the policy compacts by its own decision; the summary is this (recorded, trained) call's output

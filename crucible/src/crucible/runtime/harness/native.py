@@ -29,6 +29,8 @@ from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.core.schema.run import Failure
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier, failure
+from crucible.world.custody import CustodyViolation
+from crucible.world.verifier import hand_off, verifier_world, wants_separate
 
 LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
 
@@ -142,10 +144,23 @@ class NativeHarness:
             if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
                 raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=ep.stop_condition, mask=True, blame="harness"))
             t0 = time.monotonic()
-            with boundary("verification"):
-                rep = await attempt.task.grade(world, attempt.dir / "grade")
-            t["verification"] = time.monotonic() - t0
             (attempt.dir / "verifier").mkdir(exist_ok=True)
+            if wants_separate(world):  # M1: grade a restored copy in a fresh World; the policy's World is closed first
+                with boundary("verification"):
+                    try:
+                        final, handoff = await hand_off(world, artifacts_dir=attempt.dir / "artifacts")
+                    except CustodyViolation as e:  # the policy handed in what the verifier must not touch: scored 0, never masked
+                        (attempt.dir / "verifier" / "custody.json").write_text(json.dumps({"problems": e.problems}, indent=1))
+                        raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="verification", reason=str(e)[:400], blame="policy", mask=False)) from e
+                (attempt.dir / "verifier" / "handoff.json").write_text(json.dumps(handoff.to_dict(), indent=1))
+                with boundary("verification"):
+                    async with verifier_world(world, final, workdir=attempt.dir / "verifier" / "world") as vworld:
+                        rep = await attempt.task.grade(vworld, attempt.dir / "grade")
+                res.artifacts["handoff"] = "verifier/handoff.json"
+            else:
+                with boundary("verification"):
+                    rep = await attempt.task.grade(world, attempt.dir / "grade")
+            t["verification"] = time.monotonic() - t0
             (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
             res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
             if rep.infra.get("status") == "masked":

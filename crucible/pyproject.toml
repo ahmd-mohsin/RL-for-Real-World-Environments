@@ -30,6 +30,8 @@ llm = ["openai>=1.60"]
 train = ["torch>=2.5", "numpy>=1.26", "safetensors>=0.4", "transformers>=4.56", "httpx>=0.27"]
 # Evaluating workflow models and credit on public trajectory corpora (parquet), M5/M6 gates.
 analysis = ["pyarrow>=15"]
+# Single-turn answer checking (M1 item 2): symbolic math equivalence (Hugging Face math-verify, as NeMo-Gym and verifiers use).
+answers = ["math-verify>=0.7"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
 verifiers = ["verifiers"]
 dev = [
@@ -97,6 +99,7 @@ extend-exclude = [".playwright-mcp", "data/cache", "packs/_template"]  # the tem
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # tests import shared helpers as ``tests.unit.<module>`` under plain ``pytest`` too (not only ``python -m pytest``)
 asyncio_mode = "auto"
 addopts = "-rfE"  # always name failing / erroring tests in the summary (a one-off flake must be identifiable)
 asyncio_default_fixture_loop_scope = "function"

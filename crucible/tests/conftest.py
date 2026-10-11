@@ -15,7 +15,7 @@ import pytest
 # Optional frameworks: a test module that imports one at top level is not collected where it is not installed (CI runs
 # without the agentenv checkout). Detected from the source, so a new test needs no list update.
 _OPTIONAL = ("agent_env", "agentenv_protocol", "verifiers", "openenv", "nemo_gym", "torch", "transformers")
-_TOP_IMPORT = re.compile(r"^(?:from|import)\s+(" + "|".join(_OPTIONAL) + r")\b", re.M)
+_TOP_IMPORT = re.compile(r"^(?:from|import)\s+(" + "|".join(_OPTIONAL) + r")\b", re.MULTILINE)
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
@@ -45,9 +45,10 @@ def _toy_traces_ingested() -> None:
     logs when it is absent, so the suite never depends on a manual ``crucible ingest toy`` (CI starts from a clean
     checkout). Idempotent: the ingest is content-addressed."""
     try:
+        from crucible_pack_toy.forge.world_synth import M3
+
         from crucible.studio.label import ingest
         from crucible.studio.pack import find_pack, load_manifest
-        from crucible_pack_toy.forge.world_synth import M3
     except ImportError:  # the toy pack is not installed: the tests that need it are not collected either
         return
     if any(M3.glob("blobs/*/*")):

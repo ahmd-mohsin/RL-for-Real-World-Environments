@@ -497,6 +497,9 @@ agentenv = [
 analysis = [
     { name = "pyarrow" },
 ]
+answers = [
+    { name = "math-verify" },
+]
 dev = [
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -553,6 +556,7 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'openenv-awm'", specifier = ">=0.24" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.1" },
+    { name = "math-verify", marker = "extra == 'answers'", specifier = ">=0.7" },
     { name = "mcp", marker = "extra == 'agentenv'", specifier = ">=1.10,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10,<2" },
     { name = "mcp", marker = "extra == 'openenv-awm'", specifier = ">=1.10,<2" },
@@ -576,7 +580,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'openenv-awm'", specifier = ">=0.30" },
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },
 ]
-provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "verifiers", "dev"]
+provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "answers", "verifiers", "dev"]
 
 [package.metadata.requires-dev]
 packs = [

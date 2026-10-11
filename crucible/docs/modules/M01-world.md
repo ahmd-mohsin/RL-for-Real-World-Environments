@@ -186,6 +186,62 @@ Tests: `tests/unit/test_world_diversity.py`, `tests/unit/test_openenv_import.py`
   - M12 token-in-token-out training is text-only for now (a multimodal processor codec is open).
 - **Step overhead:** `World.step` on an in-process App stays under 5 ms on average (tested).
 
+## M1 build item 1 (2026-10-12): a separate verifier World and submission custody
+
+Source: the M1 taxonomy (`docs/research/m1-taxonomy/07-capability-matrix.md`, primitive "separate verifier environment").
+Ports Karotte `save_submission.py` and `untrusted_paths.py` (MIT) and the Harbor `ArtifactHandler` manifest (Apache-2.0); see THIRD_PARTY.md.
+
+- **`WorldSpec.verifier`** (`VerifierSpec`):
+  - `mode` is `in_world` (default, the previous behaviour) or `separate`;
+  - `backend` and `backend_params` select the verifier World's backend or image;
+  - `artifacts` and `protected` take `"<app>:<glob>"` patterns over fs/fs_git Apps;
+  - Karotte's limits apply: `allow_symlinks`, `max_file_bytes`, `max_total_bytes`, `max_entries`, `max_depth`.
+  - A spec without `verifier` hashes exactly as before.
+- **Hand-off** (`world/verifier.py`):
+  - `hand_off` runs quiesce (a surviving process counts as misbehaviour), then snapshot, then `check_snapshot`, then `collect_artifacts` into `attempt/artifacts/<app>/` with `manifest.json`.
+  - `verifier_world` closes the policy's World, starts a fresh one from the same spec, refuses shared absolute state roots, restores, checks every App fingerprint, then copies in the trace and the episode-start ref. `VerifierView.unchanged` and trace checks therefore work as they do in place.
+- **Harness** (`runtime/harness/native.py`):
+  - With `mode: separate`, the grade phase runs in the verifier World.
+  - It writes `verifier/handoff.json`, or `verifier/custody.json` with the problems found.
+  - A violation is `crucible:policy_misbehavior` with policy blame: scored 0 and never masked.
+- **World**: `close()` is idempotent, and `World.episode_start` records the ref the episode was reset to. That ref is the baseline for protected paths.
+- **Tests** (`tests/unit/test_verifier_separate.py`, 13):
+  - a clean hand-off graded in a different World, with the policy's World already closed;
+  - six attacks (symlink, FIFO, tampered, added and deleted hidden test, nesting depth) plus an oversize file. Each ends as misbehaviour, and the grader never runs;
+  - symlinks inside the tree are allowed with the flag; symlinks leaving the tree are refused;
+  - a late writer beats the in-place grader but not the separate one;
+  - shared roots are refused;
+  - spec validation;
+  - the Karotte copy rules on host paths.
+- **Open:** item 1 is verified on the local backend. A run on a container backend (verifier image without the policy's tools, `network none`) belongs on the lab GPU node with the M1 container suite.
+
+## M1 build item 2 (2026-10-12): single-turn tasks with output parsers
+
+Source: taxonomy family 1 and primitive P1 (single-turn task type), plus the parser half of P16.
+Ports NeMo-Gym `mcqa`, `equivalence_rule` and `math_with_judge`, and verifiers v1 `utils/score.py`; see THIRD_PARTY.md.
+
+- **`runtime/single_turn.py`**:
+  - `SingleTurnTask(id, prompt, answer, parser, criteria, options, system, judges)` is a `RunTask` with a World of no Apps and one tool-less actor.
+  - `completion(world)` reads the full final reply. `Done.answer` keeps it when `reason` is cut at 2000 characters; the World logs it on the `done` event.
+  - `single_turn_policy(llm)` sends the system prompt and few-shot turns, exposes no tools and never nudges. `answer_policy(fn)` gives scripted completions.
+  - `load_tasks(rows | path, dataset=...)` reads NeMo-Gym, verifiers and plain rows, with row-level `parser` and `criteria`.
+- **`verify/answers.py`**:
+  - `ParserSpec` kinds: full, boxed, answer_colon, xml, code, json, mcq, regex, last_line. Each takes the `think` handling and `fallback_full`.
+  - `CheckerSpec` kinds: exact, exact_raw, numeric, math, mcq, contains, regex, seq_match, weighted_seq_match, json_subset, any_of, judge. Each takes a `threshold`.
+  - `Criterion` is one weighted rubric line. `score_answer` runs the rubric. `parse_judge_choice` reads a judge model's verdict.
+  - `CheckerUnavailable` masks a sample instead of scoring it 0.
+- **Extra:** `crucible[answers]` installs `math-verify`. Without it, the `math` checker masks unless both sides are numbers.
+- **Tests** (`tests/unit/test_single_turn.py`):
+  - parsers and multiple-choice modes, including ambiguity refusal and letter folding;
+  - checkers, judge verdicts, row shapes and validation;
+  - end to end, gold scores 1, wrong answers 0 and unformatted replies fail the gate;
+  - a 12,000-character reasoning reply keeps its answer;
+  - weighted rubric thresholds;
+  - a judge outage masks the sample;
+  - the LLM policy sees the system prompt and few-shot turns, gets no tools and makes exactly one call;
+  - a blank reply is the answer.
+- **Open:** a code-execution checker (taxonomy family 2: single-turn code with hidden tests) belongs with the verify trusted runner (M7). Image prompts depend on item 8.
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.

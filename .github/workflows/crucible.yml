@@ -37,7 +37,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --frozen --group packs --extra dev --extra mcp --extra llm --extra harbor --extra train --extra analysis
+        run: uv sync --frozen --group packs --extra dev --extra mcp --extra llm --extra harbor --extra train --extra analysis --extra answers
 
       - name: Lint
         run: uv run --frozen ruff check src tests packs

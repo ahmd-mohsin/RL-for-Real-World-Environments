@@ -174,12 +174,14 @@ class World:
         self.trace_sink: Path | None = None  # stream every trace event here as it happens (long episodes: a crash loses nothing)
         self.episode_id = new_id("ep")
         self.initial: WorldRef | None = None
+        self.episode_start: WorldRef | None = None  # the WorldRef the current episode was reset to (protected-path baseline)
         self._tools: dict[str, list[ToolSpec]] = {}
         self._step_lock = asyncio.Lock()
         self.finished: dict[str, str] = {}  # non-policy actors that ended their part (user_stop, out_of_scope, ...)
         self.failures: list[Failure] = []  # infrastructure faults this episode (cleared by reset)
         self._acl_changed: set[str] = set()
         self._started = False
+        self._closed = False
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> WorldRef:
@@ -276,6 +278,9 @@ class World:
         self.clock.resume()
 
     async def close(self) -> None:
+        if self._closed:  # idempotent: a separate verifier closes the policy's World before the harness's cleanup does
+            return
+        self._closed = True
         for app in self.apps.values():
             try:
                 await app.stop()
@@ -405,6 +410,7 @@ class World:
         ref = start or self.initial
         assert ref is not None
         await self.restore(ref)
+        self.episode_start = ref
         if start is None:
             # A fresh episode, not a mid-episode restore: wall clocks restart at t0 (a wall-clock
             # snapshot is necessarily taken a little after t0) and backends reset what they hold.
@@ -471,7 +477,7 @@ class World:
             await self._send(actor, action)
         elif isinstance(action, Done):
             self.done.add(actor)
-            self._log("action", actor, "done", text=action.reason)
+            self._log("action", actor, "done", text=action.reason, data={"answer": action.answer} if action.answer is not None else None)
         self.clock.on_step()
         await self._fire_due()
         await self.backend.after_step(self)
@@ -716,6 +722,10 @@ class World:
 
     def verifier_view(self) -> VerifierView:
         return VerifierView(self)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     # ------------------------------------------------------------------ export
     def to_trace(self) -> Trace:

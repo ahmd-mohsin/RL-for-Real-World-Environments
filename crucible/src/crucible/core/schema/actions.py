@@ -67,6 +67,7 @@ class Message(CrucibleModel):
 class Done(CrucibleModel):
     kind: Literal["done"] = "done"
     reason: str = ""
+    answer: str | None = None  # the full final reply when ``reason`` is a cut of it (single-turn tasks grade the answer)
 
 
 Action = Annotated[ToolCall | Message | Done, Field(discriminator="kind")]
