@@ -1,0 +1,27 @@
+# The toy pack's manifest (schema: crucible.core.schema.pack.PackManifest). Every studio command reads it.
+schema_version: 1
+name: toy
+version: 0.1.0
+description: A small helpdesk domain (tickets, a knowledge base, grounded customers, a supervisor) that keeps the core domain-agnostic; every module gate runs on it on CPU with no paid calls.
+license: Apache-2.0
+authors: [crucible]
+kind: toy
+package: crucible_pack_toy
+entry_point: crucible_pack_toy:register
+reward:
+  range: [0.0, 1.0]
+  higher_is_better: true
+determinism: seeded
+ingest:
+  # exported ticket logs (dev T1001-T1012, test T1013-T1024): the workflow `crucible label` mines and `crucible build` forges from
+  - {connector: file_drop, family: toy/support_ticket, glob: data/ticket_logs/*.jsonl, extra: [status, team, score, amount, rule, sla, plan]}
+label:
+  policy_roles: [agent]
+  threshold: 1.0
+hooks:
+  credit: crucible_pack_toy.studio:credit          # milestones mined from good dev tickets -> Φ per event, gated reward per ticket
+  tasks: crucible_pack_toy.studio:tasks            # the helpdesk task with its gold actions
+  generator: crucible_pack_toy.studio:generate     # seed -> a 12-ticket backlog (long-horizon, Φ per step)
+  stages: crucible_pack_toy.studio:stages
+  forge: crucible_pack_toy.studio:forge            # world_synth (scripted roles, no paid calls) -> constructed tasks
+  policies: crucible_pack_toy.studio:policies      # scripted oracle / half / no-op for a model-free benchmark

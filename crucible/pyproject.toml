@@ -84,7 +84,7 @@ verifiers = { path = "../RL-Environments/06-frameworks-and-env-code/primeintelle
 [tool.ruff]
 target-version = "py312"
 line-length = 200
-extend-exclude = [".playwright-mcp", "data/cache"]
+extend-exclude = [".playwright-mcp", "data/cache", "packs/_template"]  # the template holds __PACK_PKG__ tokens
 
 [tool.ruff.lint.per-file-ignores]
 # ported code is kept as close to upstream as possible (THIRD_PARTY.md); only our [crucible]-tagged lines change

@@ -3,7 +3,7 @@
 Workflow traces with expert signal → dense-reward RL environments, frontier-hard tasks, step-level benchmarks.
 `DESIGN.md` covers what and why; `ARCHITECTURE.md` covers how (modules M0–M15). `docs/modules/` holds each built module's spec and gate report; `THIRD_PARTY.md` lists what we build on.
 
-**Built so far: M0 core, M1 world, M2 actors.**
+**Status:** every module, M0–M15, has code. Not every exit gate passes in full: `ARCHITECTURE.md` lists each gate, and `docs/modules/` holds the reports.
 
 ## Install
 ```bash
@@ -11,7 +11,49 @@ uv sync --python 3.12 --extra mcp --extra harbor --extra agentenv --extra llm --
 ```
 `verifiers` (the prime-rl path) pins `mcp==2.0.0` and cannot share this environment with agentenv; it gets its own environment.
 
-## A World in 20 lines
+## Quickstart: no model, no Docker, no API key
+
+Each command prints the next one. Everything below runs on CPU in a couple of minutes.
+
+```bash
+# 1. Make a domain pack and validate it: static checks, then gold passes and the untouched task fails
+crucible pack new demo --dir ./demo
+crucible pack check ./demo --level semantic
+
+# 2. Benchmark it with scripted policies: every step metric, plus an HTML report
+crucible bench run ./demo --out runs
+open runs/bench-demo-bench/bench/report.html
+
+# 3. label: workflow logs -> traces with dense rewards + SFT / DPO / KTO datasets (TRL formats)
+crucible label --pack toy --out label        # the toy pack's 24 helpdesk ticket logs
+head -c 600 label/sft.jsonl                  # messages, message_loss_mask, per-turn Φ weights, provenance
+
+# 4. build: workflow logs -> RL tasks (forge, accept, export) + a benchmark of anchors and fresh items
+crucible build toy --out build
+open build/runs/bench-toy-build/bench/report.html
+
+# 5. Datasets and comparisons from any run
+crucible label --run build/runs/bench-toy-build --out label_run          # best-vs-worst DPO pairs per task
+crucible bench compare build/runs/bench-toy-build build/runs/bench-toy-build \
+    --base-policy scripted:oracle --cand-policy scripted:half              # flips, exact McNemar, paired CI
+```
+
+What each command does:
+
+| Command | Modules | Output |
+|---|---|---|
+| `crucible label --pack P` | M3 ingest → M4 signals → M5 milestones → M6 credit | `traces.jsonl`, `rewards.jsonl` (Φ per event), `sft.jsonl`, `dpo.jsonl`, `kto.jsonl`, `summary.json` |
+| `crucible label --run DIR` | M10 run → datasets | SFT from solved episodes; DPO from best vs worst of k |
+| `crucible build P` | M3 → M8 forge → M9 accept (model-free checks) → M11 canonical export → M13 bench | task dirs, `accept.json`, `export/`, `report.html` |
+| `crucible bench run / report / compare` | M13 | pass@k, pass^k, gate profile, progress AUC, stage reach, regressions, cost, IRT, flips |
+| `crucible pack new / check` | M14 | a pack from `packs/_template`; a check report (exit 1 on failure) |
+| `crucible ingest / signals / forge / accept / train` | one module each | |
+
+Options are listed under `crucible <command> --help`. `--json` prints the full result. `--dry-run` (`label`, `build`)
+shows what would run. To make a pack your own, edit `src/<package>/studio.py` and `pack.yaml` (its hooks), then rerun
+`crucible pack check`.
+
+## Library: a World in 20 lines
 ```python
 import asyncio
 from crucible.actors.policy import ScriptedPolicy, run_episode
@@ -37,7 +79,7 @@ async def main():
 asyncio.run(main())
 ```
 
-## What else is there
+## Library tour
 - **Seed coding worlds** (tasks 01–04) on a GPU host through Harbor: `packs/coding/families/legacy_gpu_migration/seeds/*/crucible/world.yaml`. Gate: `CRUCIBLE_GPU=1 pytest tests/gpu -m gpu`.
 - **Import any MiMo env or AgentWorldModel-1K scenario as a World:** `crucible.interop.mimo.importer.import_mimo_env`, `crucible.interop.openenv.awm.awm_world`. Sweeps: `python -m crucible.interop.mimo.check <envs_dir>`, `python -m crucible.interop.openenv.awm_check 100`.
 - **GPU sandboxes:** the lab GPU host through Harbor (`backend_params: {gpu_host: lab5090}`) or agentenv (`sandbox: {provider: docker, image, gpu_host: lab5090}`); cloud GPUs through Harbor (`environment_type: modal`) or agentenv (`sandbox: {provider: modal, image}` with `resources.gpu_type: H100`). Gates: `CRUCIBLE_GPU=1 pytest tests/gpu -m gpu`; `CRUCIBLE_MODAL=1` for Modal.

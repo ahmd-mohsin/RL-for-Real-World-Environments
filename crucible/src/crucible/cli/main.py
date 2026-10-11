@@ -1,24 +1,77 @@
-"""``crucible`` command line (grows with each module; M15 makes it the enterprise-facing tool).
+"""``crucible`` command line: the enterprise-facing tool (ARCHITECTURE §4 M15).
 
-    crucible registry                         plugins, templates, backends, actors
-    crucible task show <dir>                  Harbor validation + Crucible overlay summary
-    crucible seeds                            the coding pack's seed tasks and their calibration
-    crucible world check-mimo <envs> [--transport mcp] [--backend agentenv] [--stride N] [--out f]
-    crucible world check-awm [N] [--out f]
+    crucible label --pack toy                 workflows -> traces with dense rewards + SFT / DPO / KTO datasets
+    crucible build toy                        workflows -> RL tasks (forge, accept, export) + a benchmark report
+    crucible pack new <name> | pack check     scaffold / validate a domain pack
+    crucible bench run|report|compare         M13 benchmarks
+    crucible ingest | signals | forge | accept | train      the module steps one at a time
+    crucible registry | task show | seeds | world ...       inspection and World audits
+
+Subcommands are imported only when invoked (rLLM's ``_LazyGroup``, NeMo-Gym's command table), so ``crucible --help``
+stays fast. A user error (bad input, missing pack, scaffold conflict) prints one line; ``--verbose`` shows the
+traceback (agentenv's ``_UserErrorsAreNotCrashes``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 from pathlib import Path
 
 import click
 
+LAZY = {  # name -> (module:attr, short help)
+    "label": ("crucible.cli.studio:label", "Workflows -> dense-reward traces + SFT / DPO / KTO datasets."),
+    "build": ("crucible.cli.studio:build", "Workflows -> RL tasks and a benchmark (ingest, forge, accept, export, bench)."),
+    "pack": ("crucible.cli.studio:pack", "Create and validate domain packs."),
+    "bench": ("crucible.cli.studio:bench", "Run, report and compare benchmarks."),
+    "ingest": ("crucible.cli.studio:ingest", "M3: ingest a pack's workflow sources."),
+    "signals": ("crucible.cli.studio:signals", "M4: signals, outcomes and pivots of a pack's traces."),
+    "forge": ("crucible.cli.studio:forge", "M8: construct tasks from a pack's workflows."),
+    "accept": ("crucible.cli.studio:accept", "M9: model-free acceptance checks on a pack's forged tasks."),
+    "train": ("crucible.cli.studio:train", "M12: run a training job spec."),
+}
+USER_ERRORS = (ValueError, LookupError, FileNotFoundError, FileExistsError, PermissionError)
 
-@click.group()
-def cli() -> None:
-    """Crucible: workflow traces -> dense-reward RL environments, tasks and benchmarks."""
+
+class CrucibleGroup(click.Group):
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return sorted(set(super().list_commands(ctx)) | set(LAZY))
+
+    def get_command(self, ctx: click.Context, name: str) -> click.Command | None:
+        if name in LAZY:
+            mod, attr = LAZY[name][0].split(":")
+            return getattr(importlib.import_module(mod), attr)
+        return super().get_command(ctx, name)
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        rows = [(n, LAZY[n][1]) for n in sorted(LAZY)]
+        rows += [(n, (c.get_short_help_str(60) if c else "")) for n, c in ((n, super(CrucibleGroup, self).get_command(ctx, n)) for n in super().list_commands(ctx))]
+        with formatter.section("Commands"):
+            formatter.write_dl(sorted(rows))
+
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except USER_ERRORS as e:
+            if ctx.obj and ctx.obj.get("verbose"):
+                raise
+            raise click.ClickException(f"{type(e).__name__}: {e}") from None
+        except Exception as e:
+            from crucible.studio.pack import ScaffoldConflict
+
+            if isinstance(e, ScaffoldConflict) and not (ctx.obj and ctx.obj.get("verbose")):
+                raise click.ClickException(str(e)) from None
+            raise
+
+
+@click.group(cls=CrucibleGroup)
+@click.option("--verbose", is_flag=True, help="show tracebacks for user errors")
+@click.pass_context
+def cli(ctx: click.Context, verbose: bool) -> None:
+    """Crucible: workflow traces -> dense-reward RL environments, tasks, datasets and benchmarks."""
+    ctx.obj = {"verbose": verbose}
 
 
 @cli.command()

@@ -1273,6 +1273,44 @@ inside the RLM scaffold:
   - Also found: vLLM 0.11 breaks on transformers 5 (pinned in `scripts/modal_vllm.py`).
 - **Tests:** `tests/unit/test_rlm_harness.py` (4; the docker test checks the sandbox from inside the kernel).
 
+**M13 bench and M15 studio (2026-10-11).**
+
+The user asked for both, after a study of every local framework (`docs/research/bench-studio/01-framework-study.md`).
+
+What the study found:
+- **Missing everywhere.** No checkout implements progress AUC, first irrecoverable step, recovery rate, paired
+  significance tests, per-step heatmaps, 2PL IRT, MinHash/n-gram decontamination, per-model temporal cutoffs, or DPO
+  pairs from agent traces. Those are built here.
+- **Errors scored as 0.** Harbor, verl, rLLM, SWE-smith, EnterpriseOps-Gym and NeMo-RL score infra errors as 0;
+  NeMo-Gym alone masks correctly, and Crucible follows it.
+
+**M13 (`src/crucible/bench/`):**
+- every §11.1 metric from an M10 run, plus pass^k and max@k;
+- paired comparison (exact McNemar, paired bootstrap; NeMo-Gym's Welch interval is unpaired);
+- lineage-keyed HMAC splits with a seal;
+- 2PL MAP IRT with fixed-anchor calibration (the gdpval anchored-BT idea, item-level) and drift quarantine;
+- contamination: canary, 13-gram, code substring, MinHash LSH, tree fingerprint, leak regex;
+- dynamic benchmarks: HMAC item seeds with commit–reveal and a validation chain;
+- a deterministic single-file HTML report.
+
+**M15 (`src/crucible/studio/`, `credit/datasets.py`, `cli/`):**
+- `crucible label`: pack or run → TRL-canonical SFT (with prime-rl `message_loss_mask` and Φ weights), DPO (best vs
+  worst; correction pivots) and KTO, with a closed curation grammar;
+- `crucible build`: ingest → forge → M9 model-free checks → M11 canonical export → M13 bench;
+- `pack.yaml` (`PackManifest`), `crucible pack new` (a conflict-safe scaffold) and `pack check` (static + model-free
+  semantic, severity policy);
+- a lazy click CLI;
+- the README quickstart.
+
+**Findings:**
+- the toy forge read a hard-coded M3 store path (`mine_signals(store)` now);
+- forged World tasks are not Harbor-native directories, so build's export is the canonical replay;
+- ATIF tool names needed `openai_name` in dataset rows;
+- the toy logs' correction pivots were all fixed by non-policy actors.
+
+**Tests:** `test_bench.py` (4), `test_studio.py` (3). The module docs are `docs/modules/M13-bench.md` and
+`M15-studio.md`.
+
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
 `core/triggers.py` (Apache-2.0); core may not import agentenv.

@@ -46,9 +46,10 @@ M3 = CRUCIBLE / "data" / "m3" / "store"
 REPORT = CRUCIBLE / "docs" / "modules" / "reports"
 
 
-def mine_signals() -> tuple[dict[str, str], set[str]]:
-    """The Miner: signal ids the Architect may build traps on, plus every resolvable toy signal id (for A8)."""
-    ts = TraceStore(Store(M3))
+def mine_signals(store: Path | None = None) -> tuple[dict[str, str], set[str]]:
+    """The Miner: signal ids the Architect may build traps on, plus every resolvable toy signal id (for A8). ``store``:
+    the M3 trace store (default ``data/m3/store``; ``crucible build`` passes its own)."""
+    ts = TraceStore(Store(Path(store) if store else M3))
     approval, known = [], set()
     for tid in sorted(i for i in ts.ids() if i.startswith("toy/support_ticket:")):
         for s in extract(ts.get(tid)).signals:
@@ -121,8 +122,8 @@ def assemble(out_root: Path, arch: Architecture, env: EnvBuild, oracles: OracleS
 
 
 async def forge(seed: int = 7, *, llm_model: str | None = None, budget: float = 0.05, out: Path | None = None, world_id: str = "toy/helpdesk_v2",
-                collect: list | None = None) -> dict:
-    signals, known = mine_signals()
+                collect: list | None = None, store: Path | None = None) -> dict:
+    signals, known = mine_signals(store)
     out = Path(out or CRUCIBLE / "data" / "forge" / f"{world_id.replace('/', '_')}_s{seed}{'_llm' if llm_model else ''}")
     out.mkdir(parents=True, exist_ok=True)
     store = Store(out / "store")

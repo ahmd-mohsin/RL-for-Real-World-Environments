@@ -1,0 +1,24 @@
+# The manifest every studio command reads (schema: crucible.core.schema.pack.PackManifest).
+schema_version: 1
+name: __PACK_NAME__
+version: 0.1.0
+description: A Crucible domain pack with one workspace task (edit this description).
+license: Apache-2.0
+authors: []
+kind: domain
+package: __PACK_PKG__
+entry_point: __PACK_PKG__:register
+template_version: __TEMPLATE_VERSION__
+reward:
+  range: [0.0, 1.0]
+  higher_is_better: true
+determinism: seeded
+# ingest:                       # workflow logs for `crucible label` (file_drop JSONL; see packs/_toy/pack.yaml)
+#   - {connector: file_drop, family: __PACK_NAME__/case, glob: data/logs/*.jsonl}
+label:
+  policy_roles: [agent]
+  threshold: 1.0
+hooks:
+  tasks: __PACK_PKG__.studio:tasks          # [(RunTask, gold actions)]: `pack check --level semantic` runs gold and no-op
+  generator: __PACK_PKG__.studio:generate   # seed -> RunTask: fresh benchmark items
+  policies: __PACK_PKG__.studio:policies    # scripted policies for a model-free `crucible bench run`
