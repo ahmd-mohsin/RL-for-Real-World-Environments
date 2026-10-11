@@ -42,7 +42,8 @@ NA_REASONS = frozenset({
     "no_agent_surface",  # A13: nothing the policy can submit reaches the grader except World tool calls (covered by A6)
     "not_composite",  # A14 / A15 / A17: the task is not a composition (m13 G-3)
     "dependent_composite",
-    "no_property_audit",  # A16: no independent audit of the stated properties, so a hack cannot be told from a success  # A17: later components read state earlier ones produce, so parts are not independent
+    "no_property_audit",
+    "not_perturbed",  # A18: the task is not a perturbation of another  # A16: no independent audit of the stated properties, so a hack cannot be told from a success  # A17: later components read state earlier ones produce, so parts are not independent
 })
 
 

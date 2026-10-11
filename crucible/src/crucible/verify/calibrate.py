@@ -6,7 +6,7 @@
   induced bifurcations (semantics-preserving perturbations), each with a margin; the relaxed tier must still kill
   every negative (Appendix B.2: KinFu-LS shift threshold 0.79 vs 0.8);
 - ``bifurcations``: split one-dimensional deviations into clusters at the largest gap (is the spread bimodal?);
-- ``perf_headroom``: the oracle's margin under each perf bar; A1 requires >= 15%, G-tighten requires >= 10%;
+- ``perf_headroom``: the oracle's margin under each perf bar; A1 and G-tighten both require >= 15% (m13 audit 06);
 - ``self_consistency``: identical reference fingerprints across repeated runs (Appendix B.2, the Haar truncation).
 """
 

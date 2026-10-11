@@ -1120,6 +1120,27 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**Perturb and G-tighten (2026-10-10).**
+- **`forge/perturb.py`:** a perturbation changes the task (World or start state), not the solution. Kinds:
+  distractor, decoy, policy_amendment, clock_event, injected_bug.
+  - Cosmetic: the unperturbed oracle must still pass.
+  - Semantic: the oracle is re-derived (A1 again), the instruction gets the new property sentence (A7), and the
+    unperturbed oracle must fail, at the perturbation's gate when named.
+  - **A18 perturbation effect** decides this, and catches mislabels in both directions. NA reason `not_perturbed`.
+- **Toy (`crucible_pack_toy.forge.perturbed`):**
+  - a distractor ticket (cosmetic): the World's fingerprint changes, the old oracle passes;
+  - the FIN-7a amendment, "duplicate-charge refunds need approval whatever the amount" (semantic): the re-derived
+    oracle asks the supervisor and records the approver, a new invariant grades it, and the old oracle fails at
+    `policy`.
+- **`forge/tighten.py`:** a tightened bar must be fair and separating.
+  - Fair: the oracle keeps A1's 15% headroom. `calibrate.py` still said 10%; that is fixed.
+  - Separating: the solution that solved the task before fails it.
+  - `tightest_bar` = oracle / (1 − 0.15), rounded up. `add_gate` handles categorical gates (concurrency, sanitizer
+    tools): the oracle passes every run (≥ 3), and the frontier solution fails one.
+- **Tests:**
+  - A1 and A18 pass on both toy perturbations, and both mislabels are caught;
+  - the tighten fairness, separation and "not stricter" refusals.
+
 **Forge GPU run (2026-10-10): two structural findings, built into G-span.** The span grades on the lab gave 21/23.
 The failures were not kit bugs; they were derivation bugs.
 - **Closure under the grader's dependencies.** The KinFu-LS oracle failed `consumers`. The pristine `kinfu_replay`

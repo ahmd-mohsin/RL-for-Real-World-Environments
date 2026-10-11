@@ -8,6 +8,9 @@
   with the same frontier runs A10 uses. Otherwise the composite is "decomposable": no interaction, just a longer list. At
   the bench frontier (every component at p ≈ 0) the gain must show in the failure taxonomy instead: the composite fails a
   gate no component run fails. Pending until both sides have ``a10_min_runs`` scored runs.
+- **A18 perturbation effect** (tasks that expose ``perturbation``: a ``forge.perturb.Perturbation`` and
+  ``unperturbed_oracle()``): a semantic perturbation makes the unperturbed oracle fail the perturbed task (at its gate
+  when named); a cosmetic one leaves it passing. NA (``not_perturbed``) otherwise.
 - **A17 non-interference** (independent components only: ``Composite.dependent`` is False): each component's own oracle
   actions, run alone inside the composite, still pass every gate that component owns. Fusing must not break a part.
 """
@@ -97,3 +100,21 @@ async def a17_non_interference(t: Any, ctx: AcceptContext) -> Out:
         if broken:
             reasons.append(f"component {c.id} ({c.source}) no longer passes its own gates {broken} inside the composite: interference")
     return Out.verdict(reasons, {"components": rows})
+
+
+@register("A18", 1, cost_class="cpu", depends_on=("A1",), detectors=("G-perturb-mislabelled",))
+async def a18_perturbation_effect(t: Any, ctx: AcceptContext) -> Out:
+    """Perturbation effect: semantic perturbations break the unperturbed oracle, cosmetic ones do not."""
+    p = getattr(t, "perturbation", None)
+    if p is None:
+        return Out(Status.NA, {}, [], na_reason="not_perturbed")
+    r, _ = await ctx.grade(t, "A18:unperturbed_oracle", t.unperturbed_oracle(), run=0)
+    failing = r.failing_gates()
+    m = {"perturbation": {"id": p.id, "kind": p.kind, "semantic": p.semantic, "gate": p.gate}, "unperturbed_reward": r.reward, "failing": failing}
+    if p.semantic:
+        if r.reward > 0:
+            return Out.verdict([f"semantic perturbation {p.id} ({p.kind}): the unperturbed oracle still scores {r.reward}: it changed nothing the grader sees"], m)
+        if p.gate and p.gate not in failing:
+            return Out.verdict([f"semantic perturbation {p.id}: the unperturbed oracle fails at {failing}, not at the perturbation's gate {p.gate}"], m)
+        return Out.verdict([], m)
+    return Out.verdict([] if r.reward == 1.0 else [f"cosmetic perturbation {p.id} ({p.kind}) changed the verdict of the unperturbed oracle (failing {failing})"], m)

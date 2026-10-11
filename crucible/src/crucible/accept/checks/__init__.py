@@ -1,4 +1,4 @@
-"""Acceptance checks A1-A17 and S1 (DESIGN §9; A14/A15/A17 for composite tasks, m13 G-3; A16 adaptive red team, m13 G-5). Importing this package registers them
+"""Acceptance checks A1-A17 and S1 (DESIGN §9; A14/A15/A17 for composite tasks, m13 G-3; A16 adaptive red team, m13 G-5; A18 perturbation effect). Importing this package registers them
 in ``base.REGISTRY``."""
 
 from crucible.accept.checks import composition, core, extended, redteam  # noqa: F401

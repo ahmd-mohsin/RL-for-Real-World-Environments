@@ -86,8 +86,8 @@ The corpus audit's ten picks:
 
 From `06`:
 - ✅ a concurrent orchestrator (G-1);
-- composition operators: ✅ chain, fan-in (G-2); ✅ fuse (cross-World, cross-App checks), nest (G-9); ✅ stitch (G-10: task04 spans → v3, 56/56 files, 11 gates); perturb, tighten open;
-- new acceptance checks: ✅ A14 (each component is necessary), ✅ A15 (the composite is measurably harder than its parts), ✅ A16 (an adversarial hacker agent, G-5: black-box mutation search, property audit, promotion to A13 + registry), ✅ A17;
+- composition operators: ✅ chain, fan-in (G-2); ✅ fuse (cross-World, cross-App checks), nest (G-9); ✅ stitch (G-10: task04 spans → v3, 56/56 files, 11 gates); ✅ perturb (A18) and tighten (fair + separating);
+- new acceptance checks: ✅ A14 (each component is necessary), ✅ A15 (the composite is measurably harder than its parts), ✅ A18 (perturbation effect), ✅ A16 (an adversarial hacker agent, G-5: black-box mutation search, property audit, promotion to A13 + registry), ✅ A17;
 - ✅ a solver ladder for difficulty control (G-4);
 - ✅ sandboxed builder/hacker roles as Harbor wrapper tasks (visible files only, network = model API; G-11);
 - ✅ the Curator: dedup, ladder placement, lineage sealing, retirement → re-composition (G-12);
