@@ -2,7 +2,7 @@
 
     python -m crucible_pack_coding.forge.stitch_task04
 
-The spans (people, ncv, kinfu, kinfu_large_scale; ``derive.py``) are stitched with ``forge.stitch`` (residual shared
+The spans (people, ncv, kinfu_family; ``derive.py``) are stitched with ``forge.stitch`` (residual shared
 helpers back into the oracle). The stitched task reproduces v3 when its files equal v3's oracle file for file and its
 gates equal the seed grader's (``verify/task04.py:GATES``): the same end state under the same grader (scope ``full``)
 gives the same verdicts, so the golden runner's v3 verdicts carry over without a GPU grade. Writes
@@ -19,7 +19,7 @@ from crucible.forge.stitch import Span, stitch
 from crucible_pack_coding.forge.derive import CRUCIBLE, OUT, oracle_patch, split_patch
 
 SPANS = OUT / "task04_spans"
-SCOPES = ("people", "ncv", "kinfu", "kinfu_large_scale")
+SCOPES = ("people", "ncv", "kinfu_family")
 REPORT = CRUCIBLE / "docs" / "modules" / "reports" / "m13_stitch.json"
 
 

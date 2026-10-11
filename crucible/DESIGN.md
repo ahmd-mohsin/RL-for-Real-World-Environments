@@ -1120,6 +1120,26 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**Forge GPU run (2026-10-10): two structural findings, built into G-span.** The span grades on the lab gave 21/23.
+The failures were not kit bugs; they were derivation bugs.
+- **Closure under the grader's dependencies.** The KinFu-LS oracle failed `consumers`. The pristine `kinfu_replay`
+  consumer links both forks (`find_package(PCL COMPONENTS gpu_kinfu gpu_kinfu_large_scale)`), while each KinFu span
+  left its fork sibling unported, so no solution could pass.
+  - The KinFu span's grades were masked in this run, but it has the same defect.
+  - `derive.py:closure_violations` reads every consumer's required components and flags a span that leaves one
+    unported (CPU acceptance row `closure_consumers`).
+  - The fork pair becomes one span, `kinfu_family`, with a new grader scope in `verify/task04.py` (both roots, both
+    workload sets, both perf bars).
+- **Alternatives must share the span start's outside state.** Astra's people/NCV ports failed `build`: they depend
+  on Astra's own shared-helper changes (`texture_binder.hpp`, `initialization.h`), not the oracle's helpers that the
+  span start carries. `alternative_admissible` excludes an alternative whose changes outside the span differ from the
+  oracle's, recorded under `excluded_alternatives`. This also removes Astra's KinFu "slower than the bars" mutant,
+  which could never have reached `perf`.
+- **Re-derivation:** people and ncv are byte-identical (their 17 verdicts stand). The spans are now people, ncv and
+  kinfu_family, all CPU-ok. The 3-span stitch still reproduces v3 (56/56).
+- **Lab runner:** keeps verdicts of unchanged spans, drops masked grades and unstaged spans, and waits for the task03
+  runner. The 4 `kinfu_family` grades are queued.
+
 **G-11 (2026-10-10): sandboxed roles and the sandboxed hacker.** `interop/harbor/role_runner.py` runs a forge role
 as a Harbor installed agent inside a wrapper task. It DEPENDs on Harbor and PORTs the structure of
 `analyze/checker.py` (Apache-2.0, credited in THIRD_PARTY.md).
@@ -1180,7 +1200,7 @@ as a Harbor installed agent inside a wrapper task. It DEPENDs on Harbor and PORT
 - **Reproduction claim:** a stitched task whose files equal the seed oracle's, under the seed's grader, has the seed's
   verdicts.
 - **task04 (`crucible_pack_coding.forge.stitch_task04`, report `docs/modules/reports/m13_stitch.json`):** people,
-  ncv, kinfu and kinfu_large_scale stitch back to task04 v3:
+  ncv and kinfu_family (originally the 4 spans incl. kinfu / kinfu_large_scale) stitch back to task04 v3:
   - 56/56 files with identical diffs, an empty start, and the seed's 11 gates in its order;
   - NCV is nested in People;
   - 7 shared helpers (gpu/containers, gpu/utils) are taught by no span and return to the oracle.

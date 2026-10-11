@@ -75,12 +75,6 @@
      "kind": "trap_reversion",
      "expected_gate": "ncv",
      "c2_checks_pass": false
-    },
-    "astra_v3_module": {
-     "applies": true,
-     "kind": "valid_alternative",
-     "expected_gate": null,
-     "c2_checks_pass": false
     }
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
@@ -109,6 +103,7 @@
     "A5_no_oracle_lines_in_span_start": true,
     "A5_no_hidden_paths_in_start": true,
     "A5_start_does_not_reveal_via_siblings": true,
+    "closure_consumers": true,
     "A7_all_properties_graded": true,
     "A7_no_unstated_gate": true,
     "A8_provenance": true,
@@ -116,6 +111,31 @@
     "A3_cpu_negatives": true
    },
    "cpu_ok": true,
+   "closure_violations": [],
+   "excluded_alternatives": {
+    "astra_v3_module": [
+     "cmake/pcl_find_cuda.cmake",
+     "gpu/CUDA12.md",
+     "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+     "gpu/containers/include/pcl/gpu/containers/initialization.h",
+     "gpu/containers/src/device_memory.cpp",
+     "gpu/containers/src/initialization.cpp",
+     "gpu/containers/src/repacks.cu",
+     "gpu/features/src/fpfh.cu",
+     "gpu/features/src/normal_3d.cu",
+     "gpu/features/src/pfh.cu",
+     "gpu/features/src/ppf.cu",
+     "gpu/features/src/principal_curvatures.cu",
+     "gpu/features/src/spinimages.cu",
+     "gpu/features/src/uniq_inds.cu",
+     "gpu/features/src/vfh.cu",
+     "gpu/kinfu/CMakeLists.txt",
+     "gpu/kinfu/include/pcl/gpu/kinfu/marching_cubes.h",
+     "gpu/kinfu/include/pcl/gpu/kinfu/tsdf_volume.h",
+     "gpu/kinfu/src/cuda/colors.cu",
+     "gpu/kinfu/src/cuda/coresp.cu"
+    ]
+   },
    "sibling_overlap": {
     "novel_oracle_lines": 171,
     "also_in_sibling_modules_of_the_start": 2,
@@ -178,12 +198,6 @@
      "kind": "trap_reversion",
      "expected_gate": "ncv",
      "c2_checks_pass": false
-    },
-    "astra_v3_module": {
-     "applies": true,
-     "kind": "valid_alternative",
-     "expected_gate": null,
-     "c2_checks_pass": false
     }
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
@@ -208,6 +222,7 @@
     "A5_no_oracle_lines_in_span_start": true,
     "A5_no_hidden_paths_in_start": true,
     "A5_start_does_not_reveal_via_siblings": true,
+    "closure_consumers": true,
     "A7_all_properties_graded": true,
     "A7_no_unstated_gate": true,
     "A8_provenance": true,
@@ -215,6 +230,31 @@
     "A3_cpu_negatives": true
    },
    "cpu_ok": true,
+   "closure_violations": [],
+   "excluded_alternatives": {
+    "astra_v3_module": [
+     "cmake/pcl_find_cuda.cmake",
+     "gpu/CUDA12.md",
+     "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+     "gpu/containers/include/pcl/gpu/containers/initialization.h",
+     "gpu/containers/src/device_memory.cpp",
+     "gpu/containers/src/initialization.cpp",
+     "gpu/containers/src/repacks.cu",
+     "gpu/features/src/fpfh.cu",
+     "gpu/features/src/normal_3d.cu",
+     "gpu/features/src/pfh.cu",
+     "gpu/features/src/ppf.cu",
+     "gpu/features/src/principal_curvatures.cu",
+     "gpu/features/src/spinimages.cu",
+     "gpu/features/src/uniq_inds.cu",
+     "gpu/features/src/vfh.cu",
+     "gpu/kinfu/CMakeLists.txt",
+     "gpu/kinfu/include/pcl/gpu/kinfu/marching_cubes.h",
+     "gpu/kinfu/include/pcl/gpu/kinfu/tsdf_volume.h",
+     "gpu/kinfu/src/cuda/colors.cu",
+     "gpu/kinfu/src/cuda/coresp.cu"
+    ]
+   },
    "sibling_overlap": {
     "novel_oracle_lines": 89,
     "also_in_sibling_modules_of_the_start": 2,
@@ -227,11 +267,11 @@
     "valid alternative passes behaviourally"
    ]
   },
-  "kinfu": {
-   "title": "Bring PCL's GPU KinectFusion (gpu/kinfu) to CUDA 12.8 (RTX 5090)",
+  "kinfu_family": {
+   "title": "Bring PCL's GPU KinectFusion (gpu/kinfu) and its large-scale fork (gpu/kinfu_large_scale) to CUDA 12.8 (RTX 5090)",
    "horizon": "H3",
    "start_files": 15,
-   "span_files": 20,
+   "span_files": 41,
    "checks": [
     "suite/static",
     "suite/build",
@@ -243,7 +283,7 @@
     "suite/sanitizer",
     "suite/perf"
    ],
-   "milestones_for_phi": 126,
+   "milestones_for_phi": 261,
    "negatives": {
     "start": {
      "applies": true,
@@ -257,10 +297,11 @@
      "expected_gate": "static",
      "static_fails": true
     },
-    "astra_v3_module": {
+    "unported_1": {
      "applies": true,
      "kind": "defect_mutant",
-     "expected_gate": "perf"
+     "expected_gate": "static",
+     "static_fails": true
     }
    },
    "trap": null,
@@ -273,6 +314,7 @@
     "A5_no_oracle_lines_in_span_start": true,
     "A5_no_hidden_paths_in_start": true,
     "A5_start_does_not_reveal_via_siblings": true,
+    "closure_consumers": true,
     "A7_all_properties_graded": true,
     "A7_no_unstated_gate": true,
     "A8_provenance": true,
@@ -280,73 +322,33 @@
     "A3_cpu_negatives": true
    },
    "cpu_ok": true,
+   "closure_violations": [],
+   "excluded_alternatives": {
+    "astra_v3_module": [
+     "cmake/pcl_find_cuda.cmake",
+     "gpu/CUDA12.md",
+     "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+     "gpu/containers/include/pcl/gpu/containers/initialization.h",
+     "gpu/containers/src/device_memory.cpp",
+     "gpu/containers/src/initialization.cpp",
+     "gpu/containers/src/repacks.cu",
+     "gpu/features/src/fpfh.cu",
+     "gpu/features/src/normal_3d.cu",
+     "gpu/features/src/pfh.cu",
+     "gpu/features/src/ppf.cu",
+     "gpu/features/src/principal_curvatures.cu",
+     "gpu/features/src/spinimages.cu",
+     "gpu/features/src/uniq_inds.cu",
+     "gpu/features/src/vfh.cu",
+     "gpu/octree/src/cuda/approx_nsearch.cu",
+     "gpu/octree/src/cuda/knn_search.cu",
+     "gpu/octree/src/cuda/octree_builder.cu",
+     "gpu/octree/src/cuda/radius_search.cu",
+     "gpu/octree/src/utils/bitonic_sort.hpp"
+    ]
+   },
    "sibling_overlap": {
-    "novel_oracle_lines": 168,
-    "also_in_sibling_modules_of_the_start": 11,
-    "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
-   },
-   "gpu_pending": [
-    "A1 behaviour (3 grades in the verifier image)",
-    "A2 start/naive behaviour",
-    "A3 negatives at their behavioural gates",
-    "valid alternative passes behaviourally"
-   ]
-  },
-  "kinfu_large_scale": {
-   "title": "Bring PCL's GPU KinectFusion large scale (gpu/kinfu_large_scale) to CUDA 12.8 (RTX 5090)",
-   "horizon": "H3",
-   "start_files": 15,
-   "span_files": 21,
-   "checks": [
-    "suite/static",
-    "suite/build",
-    "suite/binary",
-    "suite/consumers",
-    "suite/kinfu",
-    "suite/concurrency",
-    "suite/fresh",
-    "suite/sanitizer",
-    "suite/perf"
-   ],
-   "milestones_for_phi": 135,
-   "negatives": {
-    "start": {
-     "applies": true,
-     "kind": "floor",
-     "expected_gate": "static",
-     "static_fails": true
-    },
-    "unported_0": {
-     "applies": true,
-     "kind": "defect_mutant",
-     "expected_gate": "static",
-     "static_fails": true
-    },
-    "astra_v3_module": {
-     "applies": true,
-     "kind": "defect_mutant",
-     "expected_gate": "perf"
-    }
-   },
-   "trap": null,
-   "trap_signals": [],
-   "c2": null,
-   "cpu": {
-    "A1_static_oracle": true,
-    "A2_static_start_fails": true,
-    "A5_instruction_clean": true,
-    "A5_no_oracle_lines_in_span_start": true,
-    "A5_no_hidden_paths_in_start": true,
-    "A5_start_does_not_reveal_via_siblings": true,
-    "A7_all_properties_graded": true,
-    "A7_no_unstated_gate": true,
-    "A8_provenance": true,
-    "A8_trap_signal_resolves": true,
-    "A3_cpu_negatives": true
-   },
-   "cpu_ok": true,
-   "sibling_overlap": {
-    "novel_oracle_lines": 157,
+    "novel_oracle_lines": 215,
     "also_in_sibling_modules_of_the_start": 13,
     "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"
    },

@@ -32,6 +32,7 @@ cd ~/REMOTE
 echo $$ > runner.pid
 while kill -0 $(cat ~/rlenv/crucible_golden/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the golden runner" > status.txt; sleep 300; done
 while kill -0 $(cat ~/rlenv/crucible_labstack/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the labstack campaign" > status.txt; sleep 300; done
+while kill -0 $(cat ~/rlenv/crucible_golden_t3/runner.pid 2>/dev/null) 2>/dev/null; do echo "$(date -Is) waiting for the task03 golden runner" > status.txt; sleep 300; done
 while read SPAN SOL FILE; do
   N=${SPAN}__${SOL}
   [ -f out/$N/crucible_reward.json ] && continue
@@ -93,7 +94,11 @@ def stage() -> None:
         tar = subprocess.run(["tar", "-czf", "-", "--no-xattrs", "-C", str(d), "bundle", "spans", "queue.txt", "run.sh"], capture_output=True, check=True,
                              env={**os.environ, "COPYFILE_DISABLE": "1"}).stdout  # no macOS AppleDouble ._ files
         unpack = (f"mkdir -p ~/{REMOTE} && cd ~/{REMOTE} && rm -rf bundle spans && tar xzf - && chmod +x run.sh && find . -name '._*' -delete && "
-                  "test -z \"$(find spans -maxdepth 2 -name '*.patch' -size 0)\" && rm -rf out && echo staged-ok")  # out/: masked results of the bad staging
+                  "test -z \"$(find spans -maxdepth 2 -name '*.patch' -size 0)\" && mkdir -p out && "
+                  # keep verdicts of unchanged spans (the runner skips graded entries); drop masked grades (infra, never a
+                  # verdict) and results of spans no longer staged
+                  "for d in out/*/; do n=$(basename $d); s=${n%%__*}; [ -d spans/$s ] || rm -rf out/$n out/$n.console; "
+                  "grep -q '\"masked\"' $d/crucible_reward.json 2>/dev/null && rm -rf out/$n out/$n.console; done; echo staged-ok")
         r = subprocess.run([*LAB, unpack], input=tar, capture_output=True, check=False, timeout=300)
         if r.returncode or b"staged-ok" not in r.stdout:
             raise SystemExit("staging failed or a patch arrived empty: " + (r.stderr or r.stdout).decode()[-500:])

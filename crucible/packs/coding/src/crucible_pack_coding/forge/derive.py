@@ -124,6 +124,11 @@ SPAN_TEXT = {
                "Several KinfuTracker and MarchingCubes instances may run at the same time from different host threads, and every result must then be bitwise identical to running each alone.",
                "Per-frame KinFu processing may take at most 0.65x of the original's time, marching cubes 0.55x, zero-crossing cloud extraction 0.75x, and four KinFu trackers on four host threads (kinfu_replay --throughput --concurrent) 0.42x."],
               "H3"),
+    "kinfu_family": ("Bring PCL's GPU KinectFusion (gpu/kinfu) and its large-scale fork (gpu/kinfu_large_scale) to CUDA 12.8 (RTX 5090)",
+                     ["KinFu and KinFu large scale must track and reconstruct as well as the originals, measured against ground truth; their TSDF volumes, meshes and extracted clouds must agree with the originals' to within floating-point noise.",
+                      "Several KinfuTracker, kinfuLS::KinfuTracker and MarchingCubes instances may run at the same time from different host threads, and every result must then be bitwise identical to running each alone.",
+                      "Per-frame KinFu processing may take at most 0.65x of the original's time, marching cubes 0.55x, zero-crossing cloud extraction 0.75x, four KinFu trackers on four host threads (kinfu_replay --throughput --concurrent) 0.42x, and per-frame KinFu large-scale processing 0.66x."],
+                     "H3"),
     "kinfu_large_scale": ("Bring PCL's GPU KinectFusion large scale (gpu/kinfu_large_scale) to CUDA 12.8 (RTX 5090)",
                           ["KinFu large scale must track and reconstruct as well as the original, measured against ground truth, to within floating-point noise.",
                            "Several kinfuLS::KinfuTracker instances may run at the same time from different host threads, and every result must then be bitwise identical to running each alone.",
@@ -146,10 +151,10 @@ def suite_checks(scope: str, props: list[StatedProperty], provenance: dict[str, 
 
     sc = SCOPES[scope]
     measured = {"static", "build", "binary", "consumers", "sanitizer"} | ({"fresh"} if scope != "full" else set())
-    measured |= {"kinfu"} if scope in ("kinfu", "kinfu_large_scale") else set()
+    measured |= {"kinfu"} if scope in ("kinfu", "kinfu_large_scale", "kinfu_family") else set()
     measured |= {"people"} if sc["people"] else set()
     measured |= {"ncv"} if sc["ncv"] else set()
-    measured |= {"concurrency"} if sc["people_threads"] or scope in ("kinfu", "kinfu_large_scale") else set()
+    measured |= {"concurrency"} if sc["people_threads"] or scope in ("kinfu", "kinfu_large_scale", "kinfu_family") else set()
     measured |= {"perf"} if sc["perf"] else set()
     out = []
     for g in [x for x in task04.GATES if x in measured]:
@@ -164,6 +169,39 @@ def suite_checks(scope: str, props: list[StatedProperty], provenance: dict[str, 
 # sibling forks stay unported in a span's start: KinFu-LS is a fork of KinFu, so the expert's port of one is most of the other
 SIBLINGS = {"kinfu": ("gpu/kinfu_large_scale",), "kinfu_large_scale": ("gpu/kinfu",)}
 MAX_SIBLING_OVERLAP = 0.2
+SPAN_SCOPES = ("people", "ncv", "kinfu_family")
+# PCL components -> source roots, for the consumer closure below
+COMPONENT_ROOTS = {"gpu_containers": "gpu/containers", "gpu_utils": "gpu/utils", "gpu_kinfu": "gpu/kinfu", "gpu_kinfu_large_scale": "gpu/kinfu_large_scale",
+                   "gpu_people": "gpu/people"}
+
+
+def consumer_needs() -> dict[str, set[str]]:
+    """Source roots each pristine consumer of the grader needs installed (its ``find_package(PCL ... COMPONENTS ...)``)."""
+    out = {}
+    for c in ("kinfu_replay", "people_eval"):
+        f = TASKS / "task04_pcl_gpu_cuda12" / "repos" / c / "CMakeLists.txt"
+        m = re.search(r"find_package\(PCL[^)]*COMPONENTS([^)]*)\)", f.read_text()) if f.exists() else None
+        out[c] = {COMPONENT_ROOTS[x] for x in (m.group(1).split() if m else []) if x in COMPONENT_ROOTS}
+    return out
+
+
+def closure_violations(scope: str, needs: dict[str, set[str]] | None = None) -> list[str]:
+    """A span must be closed under the grader's dependencies: every root a consumer the grader always builds needs is
+    either ported in the span's start or part of the span. A sibling left unported in both breaks the consumer, so the
+    span's oracle can never pass ``consumers`` (m13: the KinFu / KinFu-LS spans)."""
+    needs = consumer_needs() if needs is None else needs
+    unported = set(SIBLINGS.get(scope, ()))
+    return [f"{c} needs {r}, which the {scope} span neither ports in its start (an unported sibling) nor includes" for c, rs in sorted(needs.items())
+            for r in sorted(rs & unported)]
+
+
+def alternative_admissible(alt_patch: str, files: dict[str, str], inside) -> tuple[bool, list[str]]:
+    """A recorded alternative is evidence about a span only if it depends on the same outside state as the span's start:
+    its changes outside the span must equal the oracle's (an alternative built on its own helper changes, e.g. a
+    different TextureBinder API, cannot build against the oracle's helpers in the span start)."""
+    alt = split_patch(alt_patch)
+    diff = sorted(p for p in set(alt) | set(files) if not inside(p) and alt.get(p) != files.get(p) and p in alt)
+    return not diff, diff
 
 
 async def derive_span(scope: str, files: dict[str, str], base, signals: list[dict]) -> dict[str, Any]:
@@ -206,7 +244,11 @@ async def derive_span(scope: str, files: dict[str, str], base, signals: list[dic
             negs.append(tasks_extra["negative"])
             checks += tasks_extra["checks"]
     astra = HIST / "task04" / "patches" / "astra_v3b.patch"
-    if astra.exists():
+    excluded: dict[str, list[str]] = {}
+    admissible, outside_diff = alternative_admissible(astra.read_text(errors="replace"), files, inside) if astra.exists() else (False, [])
+    if astra.exists() and not admissible:
+        excluded["astra_v3_module"] = outside_diff[:20]
+    if astra.exists() and admissible:
         alt = join(split_patch(astra.read_text(errors="replace")), inside)
         kind, exp, gate = ("valid_alternative", "pass", None) if scope in ("people", "ncv") else ("defect_mutant", "fail", "perf")
         negs.append(NegativeSpec(id="astra_v3_module", task_id=scope, kind=kind, patch=alt, expected=exp, expected_gate=gate,
@@ -216,7 +258,7 @@ async def derive_span(scope: str, files: dict[str, str], base, signals: list[dic
     return {"scope": scope, "title": title, "horizon": horizon, "instruction": render_instruction(title, sentences), "properties": props,
             "checks": checks, "milestones": ms, "negatives": negs, "start_patch": start_patch, "oracle_patch": agent_oracle, "span_files": sorted(span_files),
             "trap": tasks_extra.get("trap"), "provenance": [s["id"] for s in trap_sigs], "c2": tasks_extra.get("c2"),
-            "start": start, "oracle": oracle}
+            "start": start, "oracle": oracle, "excluded_alternatives": excluded, "closure_violations": closure_violations(scope)}
 
 
 def render_instruction(title: str, sentences: list[str]) -> str:
@@ -345,6 +387,7 @@ async def cpu_accept_span(d: dict[str, Any], known: set[str]) -> dict[str, Any]:
     others = {ln[1:].strip() for v in split_patch(d["start_patch"]).values() for ln in v.splitlines() if ln.startswith("+")}
     sibling = len(novel & others)
     rows["A5_start_does_not_reveal_via_siblings"] = sibling <= MAX_SIBLING_OVERLAP * max(1, len(novel))
+    rows["closure_consumers"] = not d.get("closure_violations")
     rows["A7_all_properties_graded"] = props <= graded
     rows["A7_no_unstated_gate"] = all(c.states or c.kind == "milestone" for c in d["checks"])
     rows["A8_provenance"] = all(c.provenance for c in d["checks"])
@@ -352,7 +395,8 @@ async def cpu_accept_span(d: dict[str, Any], known: set[str]) -> dict[str, Any]:
     ok_negs = all(r.get("applies") and r.get("static_fails", True) and not (r.get("c2_checks_pass") and r["kind"] == "trap_reversion")
                   for r in neg_rows.values() if r.get("kind") != "valid_alternative")
     rows["A3_cpu_negatives"] = ok_negs
-    return {"cpu": rows, "negatives": neg_rows, "cpu_ok": all(rows.values()),
+    return {"cpu": rows, "negatives": neg_rows, "cpu_ok": all(rows.values()), "closure_violations": d.get("closure_violations"),
+            "excluded_alternatives": d.get("excluded_alternatives"),
             "sibling_overlap": {"novel_oracle_lines": len(novel), "also_in_sibling_modules_of_the_start": sibling,
                                 "note": "the start state holds the expert's port of sibling modules; similar code there weakens asymmetry 1 (a difficulty metric, not hidden material)"},
             "gpu_pending": ["A1 behaviour (3 grades in the verifier image)", "A2 start/naive behaviour", "A3 negatives at their behavioural gates",
@@ -392,7 +436,7 @@ async def main_async() -> dict[str, Any]:
     files = split_patch(oracle_patch("task04_pcl_gpu_cuda12"))
     t4sigs = signals.get(("task04_pcl_gpu_cuda12", "gpt-5.6-sol-v3-run1"), [])
     spans = {}
-    for scope in ("people", "ncv", "kinfu", "kinfu_large_scale"):
+    for scope in SPAN_SCOPES:
         d = await derive_span(scope, files, base, t4sigs)
         write_task(d, OUT / "task04_spans", family="legacy_gpu_migration", seed_id=f"task04_span_{scope}", derived_from="task04_pcl_gpu_cuda12@v3",
                    generator="span" if not d["trap"] else "span+trap")

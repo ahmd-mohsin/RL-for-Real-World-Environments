@@ -83,8 +83,15 @@ SCOPES = {
                           "conc": lambda n: n.endswith("_kinfuls"), "people_threads": False, "fresh": lambda n: n.startswith("kinfuls"),
                           "sanitize": lambda n: n == "kinfuls", "perf": ("kinfuls",)},
 }
+# one span for the fork pair (m13 G-span closure): the pristine kinfu_replay consumer links both KinFu and KinFu-LS
+# (find_package(PCL COMPONENTS gpu_kinfu gpu_kinfu_large_scale)), so a span that leaves either sibling unported can
+# never pass ``consumers`` (found by the forge GPU run: the KinFu-LS oracle failed there)
+SCOPES["kinfu_family"] = {"roots": ("gpu/kinfu", "gpu/kinfu_large_scale"), "kinfu": lambda n: n.startswith(("kinfu_", "kinfuls_")), "people": False,
+                          "ncv": False, "conc": lambda n: n.endswith(("_kinfu", "_kinfuls")), "people_threads": False,
+                          "fresh": lambda n: n.startswith("kinfu"), "sanitize": lambda n: n in ("kinfu", "kinfuls"), "perf": ("kinfu", "kinfuls", "kinfu4")}
 SCOPE_LIBS = {"full": None, "people": ("pcl_gpu_containers", "pcl_gpu_people"), "ncv": ("pcl_gpu_containers", "pcl_gpu_people"),
-              "kinfu": ("pcl_gpu_containers", "pcl_gpu_kinfu"), "kinfu_large_scale": ("pcl_gpu_containers", "pcl_gpu_kinfu_large_scale")}
+              "kinfu": ("pcl_gpu_containers", "pcl_gpu_kinfu"), "kinfu_large_scale": ("pcl_gpu_containers", "pcl_gpu_kinfu_large_scale"),
+              "kinfu_family": ("pcl_gpu_containers", "pcl_gpu_kinfu", "pcl_gpu_kinfu_large_scale")}
 PERF_METRICS = {"kinfu": ("kinfu_frame_ms", "marching_cubes_ms", "cloud_ms"), "kinfuls": ("kinfuls_frame_ms",), "people": ("people_ms",),
                 "kinfu4": ("kinfu_concurrent_wall_ms",)}
 
