@@ -111,38 +111,83 @@ class AgentEnvSandbox:
     def __init__(self, sb: SandboxSpec, spec: WorldSpec):
         self.sb, self.spec = sb, spec
         self.gpus, self.gpu_type = gpu_request(spec)
-        self.gpu = modal_gpu_spec(sb, spec) if sb.provider == "modal" else None
+        self.gpu = modal_gpu_spec(sb, spec) if "modal" in [n.strip() for n in sb.provider.split(",")] else None
         self._sandbox: Any = None
         self.exec: Exec | None = None
+        self.served_by: str | None = None
+        self.chain_errors: list[str] = []
         self.description = f"agentenv:{sb.provider} {sb.image}" + (f", gpu={self.gpu}" if self.gpu else (f", {self.gpus} GPU(s)" if self.gpus else ""))
 
-    def provider(self) -> Any:
-        if self.sb.provider == "modal":
-            from agent_env.providers.sandbox_providers.modal_sandbox import ModalSandboxProvider
+    def overrides(self, name: str) -> dict[str, Any]:
+        """Per-provider config overrides on top of agentenv's ``[sandbox.providers.<name>]`` section."""
+        if name == "modal" and self.gpu:
+            return {"gpu": self.gpu}
+        if name == "sail_vm" and self.sb.auto_sleep_idle_s:
+            return {"auto_sleep_min_idle_seconds": int(self.sb.auto_sleep_idle_s)}
+        return {}
 
-            return ModalSandboxProvider(gpu=self.gpu)
-        if self.gpus:
-            raise RuntimeError(f"agentenv provider {self.sb.provider!r} has no GPU path; use provider 'modal' or a docker GPU host")
-        from agent_env.providers.sandbox_providers.sandbox_provider import build_sandbox_provider
+    def _one(self, name: str) -> Any:
+        """One provider through agentenv's registry (``from_config`` with the section's config plus our overrides, e.g.
+        Modal's GPU). DEPEND on agentenv's registry internals: the public ``build_sandbox_provider`` takes no overrides."""
+        from agent_env.providers.sandbox_providers.sandbox_provider import _build_sandbox_provider_from_section, _get_sandbox_registry
 
-        return build_sandbox_provider(self.sb.provider)
+        reg = _get_sandbox_registry()
+        if name not in reg:
+            raise ValueError(f"unknown agentenv sandbox provider {name!r} (known: {sorted(reg)})")
+        section = dict(reg[name])
+        section["config"] = {**(section.get("config") or {}), **self.overrides(name)}
+        return _build_sandbox_provider_from_section(name, section)
 
-    async def start(self) -> None:
-        from agent_env.providers.sandbox_providers.sandbox import VmSandbox
+    def providers(self) -> list[tuple[str, Any]]:
+        names = [n.strip() for n in self.sb.provider.split(",") if n.strip()]
+        if self.gpus and any(n != "modal" for n in names):
+            raise RuntimeError(f"agentenv providers {names} include one without a GPU path; use 'modal' or a docker GPU host")
+        return [(n, self._one(n)) for n in names]
 
-        provider = self.provider()
+    def attribution(self) -> dict[str, str]:
+        return {"world": self.spec.world, **{k: str(v) for k, v in (self.sb.attribution or {}).items()}}
+
+    async def _create(self, provider: Any) -> Any:
+        """``create_container`` when the provider has its own (the image runs as the container); otherwise
+        ``create_sandbox`` (the image is the sandbox)."""
+        from agent_env.providers.sandbox_providers.sandbox_provider import SandboxProvider
+
         kwargs: dict[str, Any] = {
             "image_name": self.sb.image, "port": 8080, "env": {}, "cpu": self.sb.cpus or 2.0, "memory": self.sb.memory_mb or 8192,
-            "timeout": self.sb.timeout_s, "attribution": {"crucible_world": self.spec.world}, "network_policy": network_policy(self.spec),
+            "timeout": self.sb.timeout_s, "attribution": self.attribution(), "network_policy": network_policy(self.spec),
         }
-        params = inspect.signature(provider.create_container).parameters
+        own_container = type(provider).create_container is not SandboxProvider.create_container
+        fn = provider.create_container if own_container else provider.create_sandbox
+        params = inspect.signature(fn).parameters
         if "command" in params:
             kwargs["command"] = ["sleep", "infinity"]
         if "expose_externally" in params:
             kwargs["expose_externally"] = False
-        self._sandbox = await provider.create_container(**kwargs)
-        prefix = ("sudo", "docker", "exec", "-u", "0", self._sandbox.container_name) if isinstance(self._sandbox, VmSandbox) else ()
+        return await fn(**{k: v for k, v in kwargs.items() if k in params or any(x.kind == x.VAR_KEYWORD for x in params.values())})
+
+    async def start(self) -> None:
+        from agent_env.providers.sandbox_providers.sandbox import VmSandbox
+
+        errors: list[str] = []
+        pol = network_policy(self.spec)
+        for name, provider in self.providers():  # a fallback chain: the first provider that serves the World wins
+            if pol is not None and hasattr(provider, "supports_network_policy") and not provider.supports_network_policy(pol):
+                errors.append(f"{name}: cannot enforce network mode {pol.mode.value}")
+                continue
+            try:
+                self._sandbox = await self._create(provider)
+            except Exception as ex:  # noqa: BLE001 (any provider failure moves to the next one)
+                errors.append(f"{name}: {type(ex).__name__}: {ex}")
+                continue
+            self.served_by = name
+            break
+        if self._sandbox is None:
+            raise RuntimeError(f"no agentenv provider could serve the World: {errors}")
+        self.chain_errors = errors
+        in_container = isinstance(self._sandbox, VmSandbox) and getattr(self._sandbox, "mode", None) == "container"
+        prefix = ("sudo", "docker", "exec", "-u", "0", self._sandbox.container_name) if in_container else ()
         self.exec = AgentEnvSandboxExec(self._sandbox, prefix)
+        self.description += f" (served by {self.served_by})"
 
     async def close(self) -> None:
         if self._sandbox is not None:

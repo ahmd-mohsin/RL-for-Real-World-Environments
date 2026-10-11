@@ -36,7 +36,7 @@ class SandboxSpec(CrucibleModel):
     (count, ``gpu_type``); ``gpu`` overrides with a provider spec such as ``"H100:2"``.
     """
 
-    provider: str = "docker"
+    provider: str = "docker"  # or agentenv providers, a comma-separated fallback chain ("modal,e2b")
     image: str
     gpu_host: str | None = None  # crucible.toml [gpu_hosts.<name>]
     docker_host: str | None = None
@@ -44,7 +44,9 @@ class SandboxSpec(CrucibleModel):
     gpu_mode: Literal["runtime", "devices"] = "runtime"  # docker: nvidia runtime (lab 5090) or --gpus
     cpus: float | None = None
     memory_mb: int | None = None
-    timeout_s: int = 7200
+    timeout_s: int = Field(7200, ge=60, le=86400)  # sandbox lifetime; long-horizon worlds go above 2 h (up to 24 h)
+    attribution: dict[str, str] = Field(default_factory=dict)  # provider tags (run_id, sample_key, harness); "world" is always set
+    auto_sleep_idle_s: int | None = None  # Sail: sleep the VM after this idle time (human waits), resume on the next exec
     workdir: str = "/crucible"  # where relative App paths live inside the sandbox
     # docker: runc (default), runsc (a daemon with gVisor registered), or runsc-in-container (gVisor inside a privileged
     # container: no daemon change, m13 S5)

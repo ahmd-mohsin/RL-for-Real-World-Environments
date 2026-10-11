@@ -114,32 +114,102 @@ async def test_agentenv_sandbox_exec_adapter(tmp_path: Path):
 
 
 async def test_agentenv_sandbox_uses_agentenv_providers(monkeypatch):
-    """Modal gets agentenv's own ModalSandboxProvider with the World's GPU spec and an enforced empty allowlist."""
+    """Modal is built through agentenv's registry with the World's GPU spec as a config override, and gets an enforced
+    empty allowlist."""
     pytest.importorskip("agent_env")
-    from agent_env.providers.sandbox_providers import modal_sandbox
     from agent_env.providers.sandbox_providers.sandbox import NetworkMode
+    from agent_env.providers.sandbox_providers.sandbox_provider import SandboxProvider
 
+    from crucible.interop.agentenv import sandbox as mod
     from crucible.interop.agentenv.sandbox import AgentEnvSandbox
 
     seen: dict = {}
 
-    class FakeModal:
+    class FakeModal(SandboxProvider):
+        def supports_network_policy(self, policy):
+            return True
+
         def __init__(self, gpu=None, **kw):
             seen["gpu"] = gpu
 
+        async def create_sandbox(self, **kw):
+            raise AssertionError("modal has its own create_container")
+
         async def create_container(self, *, image_name, port, env, cpu=1.0, memory=8192, disk_size_gb=10, timeout=7200, attribution=None,
                                    network_policy=None, command=None, expose_externally=True, **kw):
-            seen.update(image=image_name, policy=network_policy, command=command, expose=expose_externally, memory=memory)
+            seen.update(image=image_name, policy=network_policy, command=command, expose=expose_externally, memory=memory, attribution=attribution)
             return FakeProviderSandbox(Path("/tmp"))
 
-    monkeypatch.setattr(modal_sandbox, "ModalSandboxProvider", FakeModal)
+    def one(self, name):
+        assert name == "modal"
+        return FakeModal(**self.overrides(name))
+
+    monkeypatch.setattr(mod.AgentEnvSandbox, "_one", one)
     sbx = AgentEnvSandbox(SandboxSpec(provider="modal", image="ghcr.io/acme/world:1", memory_mb=32768), world(gpus=1, gpu_type="H100"))
     await sbx.start()
     assert seen["gpu"] == "H100" and seen["image"] == "ghcr.io/acme/world:1" and seen["command"] == ["sleep", "infinity"] and seen["memory"] == 32768
     assert seen["policy"].mode == NetworkMode.ALLOWLIST and not seen["policy"].allow_hosts and seen["expose"] is False
-    assert "gpu=H100" in sbx.description
-    with pytest.raises(RuntimeError, match="no GPU path"):
-        AgentEnvSandbox(SandboxSpec(provider="e2b", image="x"), world(gpus=1)).provider()
+    assert "gpu=H100" in sbx.description and sbx.served_by == "modal"
+    with pytest.raises(RuntimeError, match="without a GPU path"):
+        AgentEnvSandbox(SandboxSpec(provider="e2b", image="x"), world(gpus=1)).providers()
+
+
+async def test_agentenv_provider_chain_attribution_and_overrides(monkeypatch):
+    """m13 C5: in "modal,e2b" the first provider raises and the second serves the World; a provider without its own
+    create_container is reached through create_sandbox; attribution tags reach the provider; Sail gets auto-sleep."""
+    pytest.importorskip("agent_env")
+    from agent_env.providers.sandbox_providers.sandbox_provider import SandboxProvider
+
+    from crucible.interop.agentenv import sandbox as mod
+    from crucible.interop.agentenv.sandbox import AgentEnvSandbox
+
+    calls: list = []
+
+    class Broken(SandboxProvider):
+        def supports_network_policy(self, policy):
+            return True
+
+        async def create_sandbox(self, **kw):
+            raise AssertionError
+
+        async def create_container(self, **kw):
+            calls.append(("modal", kw.get("attribution")))
+            raise RuntimeError("quota exceeded")
+
+    class SandboxOnly(SandboxProvider):  # no create_container of its own: the image is the sandbox
+        def supports_network_policy(self, policy):
+            return True
+
+        async def create_sandbox(self, *, image_name, port, env, cpu=1.0, memory=8192, disk_size_gb=10, timeout=7200, attribution=None, network_policy=None):
+            calls.append(("e2b", attribution, timeout))
+            return FakeProviderSandbox(Path("/tmp"))
+
+    built: dict = {}
+
+    def one(self, name):
+        built[name] = self.overrides(name)
+        return {"modal": Broken, "e2b": SandboxOnly, "sail_vm": SandboxOnly}[name]()
+
+    monkeypatch.setattr(mod.AgentEnvSandbox, "_one", one)
+    sb = SandboxSpec(provider="modal,e2b", image="img:1", timeout_s=8 * 3600, attribution={"run_id": "r7", "sample_key": "t1#3", "harness": "native"})
+    sbx = AgentEnvSandbox(sb, world(gpus=0))
+    await sbx.start()
+    tags = {"world": "test/sbx", "run_id": "r7", "sample_key": "t1#3", "harness": "native"}
+    assert [c[0] for c in calls] == ["modal", "e2b"] and calls[0][1] == tags and calls[1][1] == tags and calls[1][2] == 8 * 3600
+    assert sbx.served_by == "e2b" and "quota exceeded" in sbx.chain_errors[0]
+    sail = AgentEnvSandbox(SandboxSpec(provider="sail_vm", image="img:1", auto_sleep_idle_s=600), world(gpus=0))
+    await sail.start()
+    assert built["sail_vm"] == {"auto_sleep_min_idle_seconds": 600}
+    calls.clear()
+
+    def all_broken(self, name):
+        return Broken()
+
+    monkeypatch.setattr(mod.AgentEnvSandbox, "_one", all_broken)
+    with pytest.raises(RuntimeError, match="no agentenv provider could serve"):
+        await AgentEnvSandbox(SandboxSpec(provider="modal,e2b", image="x"), world(gpus=0)).start()
+    with pytest.raises(ValueError):
+        SandboxSpec(image="x", timeout_s=100000)
 
 
 async def test_harbor_backend_passes_gpu_types_and_network_to_cloud_providers(monkeypatch, tmp_path: Path):

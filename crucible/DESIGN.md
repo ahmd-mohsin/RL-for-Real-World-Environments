@@ -1120,6 +1120,23 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C5 (2026-10-10): agentenv sandbox adapter breadth.**
+- **Provider building:** each provider is built through agentenv's registry, `from_config` with the
+  `[sandbox.providers.<name>]` config plus our overrides: Modal's GPU, and Sail's `auto_sleep_min_idle_seconds` from
+  `SandboxSpec.auto_sleep_idle_s` for human waits.
+- **Fallback chains:** `provider: "modal,e2b"` is a chain. The first provider that can enforce the network policy and
+  serves the World wins; the others' errors are kept in `chain_errors`.
+- **Create path:** `create_container` when the provider has its own (the image runs as the container); otherwise
+  `create_sandbox` (the image is the sandbox).
+- **Attribution and lifetime:** attribution is `{world, …SandboxSpec.attribution}` (run_id, sample_key, harness).
+  `timeout_s` is validated in [60 s, 24 h], so long-horizon Worlds can go above 2 h.
+- **Tests:**
+  - with fakes, "modal,e2b": modal raises quota-exceeded and e2b serves through `create_sandbox`, with the full tags
+    and an 8 h timeout;
+  - Sail gets its auto-sleep override; an all-broken chain raises; a GPU World refuses non-Modal providers;
+    `timeout_s` above 24 h is rejected.
+- **Pending:** the Sail 30-minute idle sleep and resume needs Sail credentials.
+
 **S4 (2026-10-10): the `ssh_exec` backend.** For Docker-less GPU hosts: a Runpod pod is itself a container, with no
 user namespaces, so no container runtime can run there.
 - **`world/exec.py:SSHExec`:** one multiplexed SSH connection (`ControlMaster`/`ControlPersist`), files by `scp`, the
