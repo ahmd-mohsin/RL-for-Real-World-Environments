@@ -120,3 +120,33 @@ async def test_runtime_offloads_the_trainer_before_the_kv_cache_wakes():
     steps = [o for o in order if o in ("publish", "offload", "resume")]
     first = steps.index("publish")
     assert steps[first:first + 3] == ["publish", "offload", "resume"], steps
+
+
+async def test_top_p_candidates_rebuilt_from_top_k_logprobs():
+    """m13 F-4: the nucleus per position from vLLM's top-k processed logprobs; insufficient top-k mass fails the call."""
+    import math
+
+    import pytest
+
+    def server(top_mass):
+        async def handler(req: httpx.Request) -> httpx.Response:
+            body = json.loads(req.content)
+            assert body["logprobs"] == 4 and body["return_tokens_as_token_ids"] and body["top_p"] == 0.8
+            top = [{"token_id:10": math.log(0.6), "token_id:11": math.log(0.25), "token_id:12": math.log(top_mass), "token_id:13": math.log(0.01)}] * 2
+            return httpx.Response(200, json={"choices": [{"token_ids": [10, 11], "finish_reason": "length", "logprobs": {"token_logprobs": [-0.5, -1.4],
+                                                                                                                        "top_logprobs": top}}]})
+        eng = VLLMServerEngine("http://vllm", "m", nucleus_k=4)
+        eng.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return eng
+
+    r = await server(0.1).generate(GenRequest(rid="r", call_id="c", prompt_ids=[1], max_tokens=2, top_p=0.8))
+    assert r.candidates == [[10, 11], [10, 11]]  # 0.6 + 0.25 >= 0.8
+    eng = VLLMServerEngine("http://vllm", "m")
+    with pytest.raises(NotImplementedError):  # no nucleus_k: top-p refused, as before
+        await eng.generate(GenRequest(rid="r", call_id="c", prompt_ids=[1], max_tokens=2, top_p=0.8))
+    from crucible.train.vllm_http import _nuclei
+
+    with pytest.raises(ValueError, match="raise nucleus_k"):
+        _nuclei([10], [{"token_id:10": math.log(0.3), "token_id:11": math.log(0.2)}], 0.8)
+    with pytest.raises(ValueError, match="outside"):
+        _nuclei([12], [{"token_id:10": math.log(0.6), "token_id:11": math.log(0.3)}], 0.8)

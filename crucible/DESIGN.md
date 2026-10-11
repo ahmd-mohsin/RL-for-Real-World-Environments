@@ -1120,6 +1120,27 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**F-3 / F-4 (2026-10-10): SGLang engine; top-p candidate sets over vLLM.**
+- **`train/sglang_http.SGLangServerEngine`:** SGLang's native API, as slime drives it.
+  - **Generation:** `/generate` with `input_ids` and `return_logprob` gives token ids and behaviour logprobs from
+    `meta_info.output_token_logprobs`. With `routed_experts=True` (`--enable-return-routed-experts`), the per-token,
+    per-layer top-k experts become `GenResult.routing` for R3 replay.
+  - **Control:** per-call abort through the call's SGLang `rid`; `/pause_generation` / `/continue_generation`;
+    `/release_memory_occupation` / `/resume_memory_occupation`, with the vLLM engine's order (a publish wakes only the
+    weights; the KV cache wakes at `resume`).
+  - **Weights:** `/update_weights_from_disk` with `success` checked (a refused load raises and keeps the version),
+    then `/flush_cache`.
+  - Token-level resume re-sends prompt plus kept tokens and records version spans.
+- **`VLLMServerEngine(nucleus_k=K)`:** top-p sampling over vLLM was refused, since vLLM returns no nucleus. Each
+  position's nucleus is now rebuilt from the top-K processed logprobs (`return_tokens_as_token_ids`): the smallest
+  probability-sorted prefix reaching `top_p`. That is exact whenever the top-K mass reaches `top_p`. When it doesn't,
+  or the sampled token falls outside the rebuilt nucleus (raw logprobs on the server), the call fails rather than guess.
+- **Not built:** vLLM routed experts over HTTP (the capability says `routing: False`; SGLang provides it).
+- **Tests (mock servers):**
+  - SGLang: request fields, token ids, logprobs, routing flattening, resume spans, the abort `rid`, the full lifecycle
+    order, refused weights;
+  - vLLM: nucleus reconstruction, refusal without `nucleus_k`, insufficient top-K mass, and an out-of-nucleus sample.
+
 **F-1 / F-2 (2026-10-10): engine capabilities and a real HF engine.**
 - **`train/hf_engine.HFGenerateEngine`:** serves a Hugging Face causal LM (CPU / MPS / CUDA) with `TorchEngine`'s
   contract:
