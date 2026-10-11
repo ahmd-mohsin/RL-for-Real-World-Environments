@@ -1120,6 +1120,24 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-12 (2026-10-10): the Curator.** `forge/curator.py`.
+- **Dedup:** the `forge/dedup.py` layers run against every kept task.
+- **Placement from the ladder:** an inversion rejects (`fix_grader`); `bench` when the frontier's upper bound is
+  ≤ 0.2; `train` when L2 is in [0.1, 0.7]; otherwise `hold`, with the ladder's steer.
+- **Lineage sealing:** every task carries its seeds, and a composite carries all of its components' seeds. A
+  lineage's first placement seals it to that split; a task whose lineage is sealed to the other split is held
+  (`lineage_sealed`). Bench material therefore never reaches training through a sibling or a composite.
+- **`recompose`:** a task whose training L2 rises above 0.7 is retired and becomes a seed. `compose(task, round)`
+  builds one more composition and measures it; the Curator places it, up to `max_rounds`, until a composite lands in
+  the band.
+- **Tests:**
+  - t1 at L2 0.92 is held (`compose_one_more`), then retired;
+  - round 0 (t1 + t3, both easy) is still above the band and held;
+  - round 1 (t1 + t5) lands in the band and goes to train. Its L2 comes from a simulated policy solving each component
+    with its own skill, graded by the real grader;
+  - bench sealing holds a train task that shares a bench lineage;
+  - duplicates, too-hard tasks and inversions are placed as specified.
+
 **G-10 (2026-10-10): stitch.** `forge/stitch.py` inverts G-span, file by file (`path -> diff`).
 - **Owned files:** each span's oracle files. Two spans may own one file only with the identical diff; that is a
   nested span, recorded.
