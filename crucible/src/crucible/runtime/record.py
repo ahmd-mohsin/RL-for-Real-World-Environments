@@ -64,6 +64,12 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
             tok = c.get("tokens") or {}
             full = tok.get("prompt_token_ids")
             seg = int(c.get("segment") or 0)
+            if c.get("kind") == "sub":  # an RLM sub-LLM call (m14) is its own sequence: a tree node, not a link of the actor's chain
+                turns.append(Turn(call_id=c["call_id"], actor=actor, kind="sub", segment=seg, world_step=c.get("step"), prompt_is_delta=False,
+                                  prefix_break=False, prompt_token_ids=full, completion_token_ids=tok.get("completion_token_ids"),
+                                  logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"), sampling=dict(sampling or {}),
+                                  finish=c.get("finish"), advantage=adv.get(c.get("parent") or c["call_id"]), atif_step_ids=[]))
+                continue
             chained = prev_full is not None and seg == prev_seg and len(prev_full) == tok.get("prompt_prefix_len")
             if full is None and tok.get("prompt_delta") is not None and chained:  # linear capture (policy._compress): rebuild from the chain
                 full = prev_full + list(tok["prompt_delta"])

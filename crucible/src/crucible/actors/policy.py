@@ -491,6 +491,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     if state["stop"] == "running":
         if "context_overflow" in stops:
             state["stop"] = "context_overflow"
+        elif "too_many_errors" in stops:  # a policy that detected its own stall (RLMPolicy): truncated, not done
+            state["stop"] = "too_many_errors"
         elif failures and any(_masks(f) for f in failures):
             state["stop"] = next(f["kind"] for f in failures if _masks(f))
         elif state["done"]:

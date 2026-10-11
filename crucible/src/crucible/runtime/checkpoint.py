@@ -61,6 +61,8 @@ async def resume(world: Any, policies: dict[str, Any], observers: list[Any], ckp
     for a, st in ckpt.get("policies", {}).items():
         if a in policies and hasattr(policies[a], "load_state_dict"):
             policies[a].load_state_dict(st)
+            if hasattr(policies[a], "recover"):  # a policy waiting on an action stepped before the checkpoint (RLMPolicy) finds its result
+                policies[a].recover(world)
     for o, st in zip(observers, ckpt.get("observers") or [], strict=False):
         if st is not None and hasattr(o, "load_state_dict"):
             o.load_state_dict(st, prev_dir=Path(prev_dir), log_len=ckpt["log_len"])

@@ -1161,6 +1161,56 @@ image as one loopback-published container per World.
   - agentenv's core-protocol probe sees `data/get` and `data/add` supported;
   - the container is removed at close, and `card_tools_only` hides uncarded tools.
 
+**M14 (2026-10-10): the RLM agent.** The user asked for an RLM agent "that manages and improves the tasks, especially
+for very long horizon", after studying Prime Agent. The study is in `docs/research/m14-rlm/01`, the design in `02`, the
+module doc in `docs/modules/M14-rlm.md`, and the code in `src/crucible/actors/rlm/`.
+- **Kernel.**
+  - A stdlib-only REPL process, with an NDJSON protocol in the pattern of Prime's v3.
+  - **A per-cell deadline**, and a wedged kernel is killed (Prime has neither).
+  - Every effect goes through one host bridge.
+  - **Exact restore by replaying the journal.** Cells are re-executed with their recorded host replies, the namespace
+    digest is checked, and a divergence raises. Prime pickles the namespace with dill (best effort) and loses its
+    factory state.
+  - Runs locally with a credential-free environment, or inside the World's sandbox (`docker exec -i`).
+- **`RLMPolicy`.**
+  - Prompt-as-variable, for real: `TASK`, `TOOLS`, `OBS`, `INBOX` live in the kernel. Output is capped at 8192
+    characters.
+  - **Each `world.call` is one World step**, through a coroutine bridge between `act()` and the model loop.
+  - `rlm.query/batch` sub-LLMs are recorded as `kind="sub"` model calls with `parent`.
+  - `rlm.finish`, a goal continuation, and compaction with Prime's kernel note plus the live names.
+  - Stall signatures from Continual Harness, and timeout restore.
+  - A mid-cell checkpoint resumes through `checkpoint.resume` → `policy.recover(world)`, which finds the result of the
+    already-stepped call in the trace.
+  - `run_episode` now honors a policy's own `too_many_errors` stop.
+- **Training-record finding.** `runtime.record.build` treated every call of an actor as one linear token chain, so an
+  RLM sub-call (a fresh prompt) was a "prefix break" and masked the whole train rollout. Sub-calls are now separate tree
+  nodes that share their parent turn's advantage (`build`, `full_prompts`).
+- **Continual harness.**
+  - Prime's five typed kinds, with whole-state versions and `rollback_to`.
+  - **Edits are kept only after a same-seed A/B** (primary metric with a margin, guards with a tolerance). Prime stores
+    `expectedOutcome` and never checks it.
+  - A ranked digest, usage counters, and retirement of entries that never help.
+  - Base-prompt edits and skills that do not compile are refused.
+- **Task manager.**
+  - `RLMAgent` (proxy objects with `help()`, `rlm.spawn` with a depth limit, a budget wrap-up).
+  - `ForgeWorkspace`: versioned tasks; the verifier is M9 and reports its evidence; commit needs a passing
+    verification; the pack supplies the vocabulary and the policy documents.
+  - `TaskFSM`: Planner → Implementer (child RLM) → Reviewer (a different model, given the check meanings and the rule
+    semantics) → objective Verifier. It loops back with findings, and its state is journaled and resumable.
+  - `RLMTaskManager` drives it through its `forge` proxy.
+- **Tests:** kernel 3, policy 8, manager 5. They cover the B.15 repair with a loop-back, a crash mid-cell → the same
+  final fingerprint, a train rollout complete with sub-calls, and the kernel in a no-network container.
+- **Soundness finding (live).** A candidate that dropped checks passed A16, because the property audit is built from
+  the task's own checks. Now `ForgeWorkspace.verify` sets the committed version's checks as an **audit floor**
+  (`ToyForgedTask.audit_checks`), so a candidate can only strengthen its audit.
+- **Vocabulary conformance.** `add_check` now rejects kinds, rules and spec keys the pack grammar does not understand
+  (the implementer had invented fields that the grader silently ignored), and rejects duplicate ids.
+- **Live smoke (about $0.15).**
+  - The policy works mechanically: 0 on the toy helpdesk, the same as native function calling with GPT-6 Luna.
+  - Six live FSM runs exposed and fixed: reasoning budgets, reviewer error vs. rejection, a lossy `show`, evidence-free
+    findings, opaque proxies, the vocabulary's actor-id rule, a reviewer without grounding, and an implementer out of
+    turns.
+
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
 `core/triggers.py` (Apache-2.0); core may not import agentenv.

@@ -197,7 +197,10 @@ class ToyForgedTask:
         """The independent property audit for A16: the task's checks plus the pack's rules for its stated properties, which
         a Verifier-writer's check set may have dropped (a policy property always needs an in-episode approval, B.15)."""
         have = {c.id for c in self.cs.checks}
-        extra = []
+        # a candidate version is audited against the committed version's checks too (``audit_floor``, set by the RLM manager's
+        # workspace): a candidate that drops checks cannot weaken its own A16 audit (m14 live run)
+        extra = [c for c in getattr(self, "audit_floor", []) if c.id not in have]
+        have |= {c.id for c in extra}
         if any(p.kind == "policy" for p in self.spec.properties) and "policy/approval_given_in_episode" not in have:
             from crucible.forge.schema import CheckSpec
 

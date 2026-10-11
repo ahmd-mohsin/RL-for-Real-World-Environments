@@ -50,6 +50,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 
 | Pattern | Source | Where in Crucible |
 |---|---|---|
+| RLM harness: persistent REPL kernel over NDJSON with a single host bridge, top-level await, compaction kernel note + live names, goal continuation, budget wrap-up, typed continual-harness entries, ranked digest, factory-style FSM of subagents | Prime Agent (`prime-agent-runtime/src/rlm/{repl.py,repl.md,harness.py,factory.py}`, `crates/pa-core/src/{session_engine/compaction.rs,goals.rs,refinement/*}`, 2ee7e623a, MIT); Prime Intellect RLM blog (`llm_batch`, answer-as-variable, 8192-char output cap); Rust-rewrite blog (Planner/Implementer/Reviewer/Verifier FSM) | `actors/rlm/{repl,kernel,policy,harness_state,manager}.py` (re-implemented: replay-based restore, per-cell deadline, token records for sub-calls, measured harness edits) |
 | failure vocabulary (names reused verbatim for compatibility) | NeMo-Gym `nemo_gym/failure_kinds.py` | `core/schema/run.py` |
 | content hash of a task directory (`rel\0sha256\n`) | Harbor `publisher/packager.py` | `core/ids.py` |
 | `module:Class` registries, `env:` secret references, fail-loud duplicate registration | agentenv `config/runtime.py` | `core/registry.py`, `core/config.py` |

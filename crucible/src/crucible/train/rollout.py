@@ -159,6 +159,9 @@ def full_prompts(ro: RolloutRecord) -> dict[str, list[int]]:
     out: dict[str, list[int]] = {}
     prev: dict[tuple[str, int], list[int]] = {}
     for t in ro.turns:
+        if t.kind == "sub":  # RLM sub-LLM calls are stand-alone sequences (m14): never part of the actor's linear chain
+            out[t.call_id] = list(t.prompt_token_ids or [])
+            continue
         key = (t.actor, t.segment)
         if t.prompt_is_delta and key in prev:
             full = prev[key] + list(t.prompt_token_ids or [])
