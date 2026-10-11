@@ -103,7 +103,7 @@ From `06`:
 - ✅ gVisor (S5: runsc-in-container, no daemon change; Mac + lab amd64), Kata open;
 - ✅ warm pools (S10: fresh by default, verified hygiene for reuse);
 - ✅ pause/resume (S6: docker freezer, frozen virtual clock); fork through providers that have them (Smol `fork_batch`, OpenSandbox pause);
-- ✅ agentenv C5 (fallback chains, attribution, >2 h lifetimes, Sail auto-sleep override); C6–C10 ( the native Env, the gateway inside the sandbox, the full trigger language, agentenv env images as Apps).
+- ✅ agentenv C5 (fallback chains, attribution, >2 h lifetimes, Sail auto-sleep override); ✅ C8 (the full trigger language: where, templating, state checks, seeded arrivals, anchoring, until, verify, barrier); C6, C7, C9, C10 ( the native Env, the gateway inside the sandbox, the full trigger language, agentenv env images as Apps).
 
 ## Working rules
 

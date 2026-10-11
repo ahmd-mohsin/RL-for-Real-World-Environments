@@ -85,6 +85,7 @@ class PendingEvent(CrucibleModel):
     due: str  # RFC 3339 virtual time
     spec_index: int
     fired_count: int = 0
+    draws: int | None = None  # stochastic `every`: inter-arrival draws consumed from the seeded stream (None = 0; keeps old WorldRef hashes)
 
 
 class WorldRef(CrucibleModel):

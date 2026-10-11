@@ -13,8 +13,9 @@ from __future__ import annotations
 import fnmatch
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from crucible.core.schema.state import ClockState, PendingEvent
 from crucible.core.schema.world import ClockSpec, EventSpec
@@ -123,6 +124,8 @@ class Fired:
     event: EventSpec
     index: int
     at: datetime
+    ctx: dict | None = None  # on_tool: the provoking call {"args", "result"} (templating, where)
+    bindings: dict = field(default_factory=dict)  # state: the check pipeline's bindings
 
 
 class EventScheduler:
@@ -137,21 +140,39 @@ class EventScheduler:
         self.pending = {}
         self.fired_counts = {e.id: 0 for e in self.events}
         for i, ev in enumerate(self.events):
-            due = self._first_due(ev)
+            due, draws = self._first_due(ev)
             if due is not None:
-                self.pending[ev.id] = PendingEvent(id=ev.id, due=iso(due), spec_index=i)
+                self.pending[ev.id] = PendingEvent(id=ev.id, due=iso(due), spec_index=i, draws=draws or None)
 
-    def _first_due(self, ev: EventSpec) -> datetime | None:
+    def _interval(self, ev: EventSpec, k: int) -> timedelta:
+        """The k-th interval of a recurring event: fixed, or the k-th draw of its seeded exponential stream."""
+        from crucible.core.schema.world import EveryDist
+        from crucible.core.triggers import exp_interval
+
+        every = ev.when.every
+        if isinstance(every, EveryDist):
+            return timedelta(seconds=exp_interval(int(ev.when.seed or 0), parse_duration(every.mean).total_seconds(), k))
+        return parse_duration(every)
+
+    def _mark(self, text: str) -> datetime:
+        return self.clock.t0 + parse_duration(text) if text.startswith("P") else parse_time(text)
+
+    def _first_due(self, ev: EventSpec) -> tuple[datetime | None, int]:
         w = ev.when
         if w.at:
-            if w.at.startswith("P"):
-                return self.clock.t0 + parse_duration(w.at)
-            return parse_time(w.at)
+            return self._mark(w.at), 0
         if w.after:
-            return self.clock.t0 + parse_duration(w.after)
-        return None
+            return self.clock.t0 + parse_duration(w.after), 0
+        if w.every and not (w.on_tool or w.state or w.after_event):  # recurring with no start: one interval after t0
+            return self.clock.t0 + self._interval(ev, 0), 1
+        return None, 0
+
+    def _until(self, ev: EventSpec) -> datetime | None:
+        return self._mark(ev.when.until) if ev.when.until else None
 
     def pop_due(self) -> list[Fired]:
+        from crucible.core.schema.world import EveryDist
+
         now = self.clock.now()
         fired: list[Fired] = []
         # Fire in due-time order (then spec order) so the log is deterministic.
@@ -160,16 +181,38 @@ class EventScheduler:
             if due > now:
                 continue
             ev = self.events[pe.spec_index]
+            until = self._until(ev)
+            if until is not None and due > until:  # retired without firing
+                del self.pending[ev.id]
+                continue
             fired.append(Fired(ev, pe.spec_index, due))
             self.fired_counts[ev.id] = self.fired_counts.get(ev.id, 0) + 1
-            if ev.when.every and (ev.when.count is None or self.fired_counts[ev.id] < ev.when.count):
-                pe.due = iso(due + parse_duration(ev.when.every))
-                pe.fired_count = self.fired_counts[ev.id]
+            if ev.when.every and not ev.when.on_tool and (ev.when.count is None or self.fired_counts[ev.id] < ev.when.count):
+                nxt = due + self._interval(ev, pe.draws or 0)
+                pe.draws = (pe.draws or 0) + 1 if isinstance(ev.when.every, EveryDist) else None
+                if until is not None and nxt > until:
+                    del self.pending[ev.id]
+                else:
+                    pe.due = iso(nxt)
+                    pe.fired_count = self.fired_counts[ev.id]
             else:
                 del self.pending[ev.id]
         return fired
 
-    def on_tool(self, qualified_tool: str, actor: str) -> list[Fired]:
+    def anchor(self, event_id: str) -> list[str]:
+        """``event_id`` fired: events anchored on it (``after_event`` + ``offset``) get their mark, now + offset, once."""
+        now = self.clock.now()
+        out = []
+        for i, ev in enumerate(self.events):
+            if ev.when.after_event == event_id and ev.id not in self.pending and not self.fired_counts.get(ev.id):
+                self.pending[ev.id] = PendingEvent(id=ev.id, due=iso(now + parse_duration(ev.when.offset or "0s")), spec_index=i)
+                out.append(ev.id)
+        return out
+
+    def on_tool(self, qualified_tool: str, actor: str, args: dict | None = None, result: Any = None) -> list[Fired]:
+        from crucible.core.triggers import where_matches
+
+        ctx = {"args": args or {}, "result": result}
         out: list[Fired] = []
         for i, ev in enumerate(self.events):
             w = ev.when
@@ -180,9 +223,18 @@ class EventScheduler:
             limit = w.count if w.count is not None else (None if (w.every or w.repeat) else 1)
             if limit is not None and self.fired_counts.get(ev.id, 0) >= limit:
                 continue
+            if w.where and not where_matches(w.where, ctx):
+                continue
             self.fired_counts[ev.id] = self.fired_counts.get(ev.id, 0) + 1
-            out.append(Fired(ev, i, self.clock.now()))
+            out.append(Fired(ev, i, self.clock.now(), ctx=ctx))
         return out
+
+    def state_events(self) -> list[tuple[int, EventSpec]]:
+        """Armed state triggers (they fire once, when their check first passes)."""
+        return [(i, ev) for i, ev in enumerate(self.events) if ev.when.state and not self.fired_counts.get(ev.id)]
+
+    def mark_fired(self, event_id: str) -> None:
+        self.fired_counts[event_id] = self.fired_counts.get(event_id, 0) + 1
 
     def state(self) -> list[PendingEvent]:
         return [p.model_copy() for p in sorted(self.pending.values(), key=lambda p: p.spec_index)]

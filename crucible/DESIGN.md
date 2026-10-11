@@ -1120,6 +1120,37 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
+Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
+`core/triggers.py` (Apache-2.0); core may not import agentenv.
+- **Language:**
+  - `where` predicates (regex, equals, exists over `args.*`, `result.*` or bare argument names);
+  - `${args.*}` / `${result.*}` / `${binding}` templating of tool-action args, where an optional `?` drops the key and a
+    missing required value fails the action;
+  - `state` triggers: check pipelines (tool, args, extract with match/take, bind, predicate), evaluated after every
+    policy tool call, firing once;
+  - `after_event` + `offset` anchoring (the mark is the anchor's firing instant plus the offset);
+  - `every` as a duration or `{dist: exp, mean}` with a required `seed`. The k-th draw is recomputed from the seed,
+    and `PendingEvent.draws` records how many were used, so arrivals reproduce after any restore;
+  - `until`, `count`, per-action `verify` (logged as `event_verify`), and `barrier: provoking_call`.
+- **Semantics change:** an errored tool call provokes no `on_tool` event, as in agentenv.
+- **Hash neutrality:** the new fields default to `None` (`where`, `PendingEvent.draws`). Canonical JSON drops `None`,
+  so existing specs and WorldRefs keep their content hashes. The suite's frozen helpdesk hash caught a `{}` default.
+- **Barrier in step mode:** on_tool events always run before the step's observation, so the barrier holds by
+  construction there; in wall mode it is delegated.
+- **Translation:** `AgentEnvBackend._trigger` maps every feature to the gateway's JSON (tool names, check steps, ISO
+  durations, absolute `until`). `World.firing_log()` gives id, due instant and type for each firing.
+- **Tests:**
+  - helper parity;
+  - in step mode: `where`, templating with `${result.id}`, `verify`, the barrier, a state trigger with a binding that
+    fires once, an anchored follow-up exactly 10 min after its anchor, and about 24 seeded arrivals in 2 h that stop
+    at `until`, are exponential, and replay identically after a restore at minute 40;
+  - every spec is accepted by agentenv's own `TriggerEngine._normalize_trigger`;
+  - live, the same acknowledgement event on a real agentenv gateway produces the same inbox as step mode, with
+    `fired` and `verify_ok` in the gateway's log.
+- **Open:** the full 20-spec firing-log conformance across clocks. Wall-mode instants depend on the 1 s driver poll,
+  so time triggers are compared by spec acceptance and marks, not by live instants.
+
 **C5 (2026-10-10): agentenv sandbox adapter breadth.**
 - **Provider building:** each provider is built through agentenv's registry, `from_config` with the
   `[sandbox.providers.<name>]` config plus our overrides: Modal's GPU, and Sail's `auto_sleep_min_idle_seconds` from

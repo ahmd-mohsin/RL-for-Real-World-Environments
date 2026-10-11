@@ -321,33 +321,57 @@ class AgentEnvBackend(Backend):
         r = await self.http.get("/clock/time")
         return r.json().get("virtual_time") if r.status_code == 200 else None
 
+    @staticmethod
+    def _iso_dur(text: str) -> str:
+        return f"PT{int(parse_duration(text).total_seconds())}S"
+
+    @staticmethod
+    def _gw_tool(qualified: str) -> str:
+        app, _, tool = qualified.partition(".")
+        return gw_name(app, tool)
+
+    def _gw_check(self, check: dict) -> dict:
+        return {"steps": [{**st, "tool": self._gw_tool(st["tool"])} for st in check["steps"]]}
+
     def _trigger(self, world: World, ev: EventSpec) -> dict[str, Any] | None:
+        """An EventSpec as an agentenv trigger (the whole urn:agentenv:triggers/v1 language, m13 C8). None keeps the event
+        in Crucible's scheduler (per-actor watches, glob tools, time triggers without a wall clock)."""
+        from crucible.core.schema.world import EveryDist
+        from crucible.world.clock import parse_time
+
         w, a = ev.when, ev.action
         if w.on_actor:  # agentenv watches roles globally, not per trigger: keep it in Crucible's scheduler
             return None
         if w.on_tool:
-            app, _, tool = w.on_tool.partition(".")
             if "*" in w.on_tool or "?" in w.on_tool:
                 return None
-            when: dict[str, Any] = {"type": "action", "tool": gw_name(app, tool), "repeat": bool(w.repeat or w.every)}
+            when: dict[str, Any] = {"type": "action", "tool": self._gw_tool(w.on_tool), "repeat": bool(w.repeat or w.every)}
+            if w.where:
+                when["where"] = dict(w.where)
+        elif w.state:
+            when = {"type": "state", "check": self._gw_check(w.state)}
         else:
             if world.spec.clock is None or world.spec.clock.mode != "wall":
                 return None  # time triggers need the gateway clock armed
+            t0 = parse_time(world.spec.clock.t0)
             when = {"type": "time"}
-            if w.at:
+            if w.after_event:
+                when["after"], when["offset"] = w.after_event, self._iso_dur(w.offset or "0s")
+            elif w.at:
                 when["at"] = w.at
-            else:  # absolute: a relative mark would re-anchor to whatever time a restore sets the clock to
-                from crucible.world.clock import parse_time
-
-                t0 = parse_time(world.spec.clock.t0)
-                when["at"] = (t0 + parse_duration(w.after or "0s")).isoformat().replace("+00:00", "Z")
-            if w.every:
-                when["every"] = f"PT{int(parse_duration(w.every).total_seconds())}S"
+            elif w.after:  # absolute: a relative mark would re-anchor to whatever time a restore sets the clock to
+                when["at"] = (t0 + parse_duration(w.after)).isoformat().replace("+00:00", "Z")
+            if isinstance(w.every, EveryDist):
+                when["every"], when["seed"] = {"dist": "exp", "mean": self._iso_dur(w.every.mean)}, w.seed
+            elif w.every:
+                when["every"] = self._iso_dur(w.every)
             if w.count:
                 when["count"] = w.count
+            if w.until:
+                when["until"] = w.until if not w.until.startswith("P") else (t0 + parse_duration(w.until)).isoformat().replace("+00:00", "Z")
+        extra: dict[str, Any] = {"verify": self._gw_check(a.verify)} if a.verify else {}
         if a.type == "tool":
-            app, _, tool = (a.tool or "").partition(".")
-            action = {"type": "tool", "tool": gw_name(app, tool), "args": a.args}
+            actions = [{"type": "tool", "tool": self._gw_tool(a.tool or ""), "args": a.args, **extra}]
         elif a.type == "permission":
             target = a.to or ev.actor
             actions = []
@@ -355,10 +379,14 @@ class AgentEnvBackend(Backend):
                 actions.append({"type": "permission", "action": "enable", "role": target, "tools": self._expand(world, a.grant)})
             if a.revoke:
                 actions.append({"type": "permission", "action": "disable", "role": target, "tools": self._expand(world, a.revoke)})
-            return {"id": ev.id, "when": when, "actions": actions}
+            if actions and extra:
+                actions[-1].update(extra)
         else:
-            action = {"type": "nl", "instruction": json.dumps({"to": a.to, "from": ev.actor, "text": a.text, "event": ev.id})}
-        return {"id": ev.id, "when": when, "actions": [action]}
+            actions = [{"type": "nl", "instruction": json.dumps({"to": a.to, "from": ev.actor, "text": a.text, "event": ev.id}), **extra}]
+        spec: dict[str, Any] = {"id": ev.id, "when": when, "actions": actions}
+        if ev.barrier:
+            spec["barrier"] = {"at": ev.barrier}
+        return spec
 
     async def _register_triggers(self, world: World) -> None:
         from crucible.interop.agentenv.a2a import ServedAgent, make_relay_agent

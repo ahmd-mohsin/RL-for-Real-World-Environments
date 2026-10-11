@@ -117,24 +117,59 @@ class ClockSpec(CrucibleModel):
         return v
 
 
-class EventWhen(CrucibleModel):
-    """When an event fires (subset of urn:agentenv:triggers/v1 schedules)."""
+class EveryDist(CrucibleModel):
+    """A stochastic recurrence: exponential inter-arrivals with ``mean`` (agentenv ``every: {dist: exp, mean}``)."""
 
-    at: str | None = None  # absolute RFC 3339 virtual time
+    dist: Literal["exp"] = "exp"
+    mean: str  # duration
+
+
+class EventWhen(CrucibleModel):
+    """When an event fires: the urn:agentenv:triggers/v1 schedules (m13 C8: the whole language).
+
+    Exactly one anchor: ``at``, ``after`` (a duration from t0), ``on_tool`` (an action trigger, with ``where``
+    predicates over ``args.*`` / ``result.*``), ``state`` (a check pipeline evaluated after each tool call), or
+    ``after_event`` + ``offset`` (anchored to another event's firing). ``every`` alone recurs from t0. ``every`` is a
+    duration or ``EveryDist`` (seeded, so arrivals reproduce after a restore); ``count`` and ``until`` bound it.
+    """
+
+    at: str | None = None  # absolute RFC 3339 virtual time (or a P-duration from t0)
     after: str | None = None  # duration from t0, e.g. "2d", "90m", "30s"
-    every: str | None = None  # repeat interval
+    every: str | EveryDist | None = None  # repeat interval
     count: int | None = None  # max firings for `every`
-    on_tool: str | None = None  # fire after a call to "<app>.<tool>" (by any actor, unless on_actor)
+    until: str | None = None  # no recurrence after this instant (RFC 3339 or a P-duration from t0)
+    seed: int | None = None  # stochastic `every`
+    on_tool: str | None = None  # fire after a successful call to "<app>.<tool>" (by any actor, unless on_actor)
     on_actor: str | None = None
     repeat: bool = False  # on_tool: fire on every matching call (agentenv action-trigger "repeat"); default once
+    # on_tool: {"args.x" | "result.y" | "x": {regex|equals|exists}}. New fields default to None: canonical JSON drops None,
+    # so specs that do not use them keep their content hash (acceptance keys, WorldRefs)
+    where: dict[str, dict[str, Any]] | None = None
+    state: dict[str, Any] | None = None  # a check pipeline {steps: [{tool, args, extract, bind, predicate}]}
+    after_event: str | None = None  # anchor: another event's id
+    offset: str | None = None  # after_event: fire this long after the anchor fired
 
     @model_validator(mode="after")
     def _one_anchor(self) -> EventWhen:
-        anchors = [x for x in (self.at, self.after, self.on_tool) if x]
-        if len(anchors) != 1:
-            raise ValueError("event `when` needs exactly one of at / after / on_tool")
-        if self.count is not None and not self.every:
-            raise ValueError("`count` requires `every`")
+        from crucible.core.triggers import validate_check, validate_predicate
+
+        anchors = [x for x in (self.at, self.after, self.on_tool, self.state, self.after_event) if x]
+        if len(anchors) > 1 or (not anchors and not self.every):
+            raise ValueError("event `when` needs exactly one of at / after / on_tool / state / after_event (or a recurring `every` alone)")
+        if (self.count is not None or self.until) and not self.every:
+            raise ValueError("`count` and `until` require `every`")
+        if self.seed is not None and not isinstance(self.every, EveryDist):
+            raise ValueError("`seed` is only valid with a stochastic `every`")
+        if isinstance(self.every, EveryDist) and self.seed is None:
+            raise ValueError("a stochastic `every` requires a `seed` (reproducible arrivals)")
+        if bool(self.after_event) != bool(self.offset):
+            raise ValueError("`after_event` and `offset` go together")
+        if self.where and not self.on_tool:
+            raise ValueError("`where` is only valid on on_tool events")
+        for f, pred in (self.where or {}).items():
+            validate_predicate(pred, f"where.{f}")
+        if self.state is not None:
+            object.__setattr__(self, "state", validate_check(self.state, "when.state"))
         return self
 
 
@@ -148,6 +183,7 @@ class EventAction(CrucibleModel):
     args: dict[str, Any] = Field(default_factory=dict)
     grant: list[str] = Field(default_factory=list)  # permission: tool patterns granted to `actor`
     revoke: list[str] = Field(default_factory=list)
+    verify: dict[str, Any] | None = None  # a check pipeline the action's effect must pass (logged verify_ok / verify_failed)
 
     @model_validator(mode="after")
     def _fields(self) -> EventAction:
@@ -157,6 +193,10 @@ class EventAction(CrucibleModel):
             raise ValueError("tool action needs tool")
         if self.type == "permission" and not (self.grant or self.revoke):
             raise ValueError("permission action needs grant or revoke")
+        if self.verify is not None:
+            from crucible.core.triggers import validate_check
+
+            object.__setattr__(self, "verify", validate_check(self.verify, "action.verify"))
         return self
 
 
@@ -165,6 +205,15 @@ class EventSpec(CrucibleModel):
     when: EventWhen
     actor: str  # the actor in whose name the event acts (system actors included)
     action: EventAction
+    # on_tool events: hold the provoking call's response until the action ran, so the caller observes its effect. In
+    # step mode Crucible always runs on_tool events before the step's observation; the field is delegated in wall mode.
+    barrier: Literal["provoking_call"] | None = None
+
+    @model_validator(mode="after")
+    def _barrier(self) -> EventSpec:
+        if self.barrier and not self.when.on_tool:
+            raise ValueError("a provoking_call barrier needs an on_tool event")
+        return self
 
 
 class PolicyDoc(CrucibleModel):
@@ -246,12 +295,16 @@ class WorldSpec(VersionedDocument):
                 app = pat.split(".", 1)[0]
                 if app not in app_ids and not any(fnmatch.fnmatchcase(a, app) for a in app_ids):
                     raise ValueError(f"actor {actor.id!r} tool pattern {pat!r} names unknown app {app!r}")
+        event_ids = [e.id for e in self.events]
         for ev in self.events:
+            if ev.when.after_event and ev.when.after_event not in event_ids:
+                raise ValueError(f"event {ev.id!r} is anchored on unknown event {ev.when.after_event!r}")
             if ev.actor not in actor_ids:
                 raise ValueError(f"event {ev.id!r} acts as unknown actor {ev.actor!r}")
             if ev.action.to and ev.action.to not in actor_ids:
                 raise ValueError(f"event {ev.id!r} messages unknown actor {ev.action.to!r}")
-            if (ev.when.at or ev.when.after) and self.clock is None:
+            timed = ev.when.at or ev.when.after or ev.when.after_event or (ev.when.every and not ev.when.on_tool and not ev.when.state)
+            if timed and self.clock is None:
                 raise ValueError(f"event {ev.id!r} is time-scheduled but the world has no clock")
         for pol in self.policies:
             if pol.app not in app_ids:

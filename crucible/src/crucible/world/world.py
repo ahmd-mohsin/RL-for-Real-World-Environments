@@ -457,7 +457,11 @@ class World:
             if res.images:  # store refs only: pixels never enter the trace
                 data["images"] = [{"mime": i.mime, "ref": i.ref} for i in res.images]
             self._log("observation", actor, "tool_result", text=res.content, data=data)
-            await self._run_fired(self.scheduler.on_tool(res.function_name, actor))
+            if res.ok:  # an errored call provokes nothing (agentenv's action-trigger semantics)
+                from crucible.core.triggers import result_data
+
+                await self._run_fired(self.scheduler.on_tool(res.function_name, actor, action.arguments, result_data(res.content)))
+            await self._eval_state_events()
             if res.ends_episode:  # the environment terminated the episode (imported OpenEnv / Gym environments)
                 for a in res.ends_for or [actor]:
                     if a not in self.done:
@@ -547,11 +551,43 @@ class World:
                 return
             await self._run_fired(fired)
 
+    async def _run_check(self, check: dict, ctx: dict | None, actor: str) -> tuple[bool, dict]:
+        """A trigger check pipeline (agentenv semantics): each step calls a tool as the system, extracts a value, binds
+        or tests it; the last step's predicate decides."""
+        from crucible.core.triggers import apply_extract, eval_predicate, result_data, template
+
+        bindings: dict[str, Any] = {}
+        for k, step in enumerate(check["steps"]):
+            args = template(step.get("args", {}), bindings, ctx)
+            res = await self._call_tool(actor, ToolCall(tool_call_id=f"check-{self.step_index}-{k}-{time.monotonic_ns()}", function_name=step["tool"],
+                                                        arguments=args), system=True)
+            if not res.ok:
+                return False, bindings
+            data = result_data(res.content)
+            value = apply_extract(step.get("extract"), data if not isinstance(data, str) else None, res.content or "")
+            if step.get("bind") is not None:
+                if value in (None, "", []):
+                    return False, bindings
+                bindings[step["bind"]] = value
+            if "predicate" in step and not eval_predicate(step["predicate"], value):
+                return False, bindings
+        return True, bindings
+
+    async def _eval_state_events(self) -> None:
+        for i, ev in self.scheduler.state_events():
+            ok, bindings = await self._run_check(ev.when.state or {}, None, ev.actor)
+            if ok:
+                self.scheduler.mark_fired(ev.id)
+                await self._run_fired([Fired(ev, i, self.clock.now(), bindings=bindings)])
+
     async def _run_fired(self, fired: list[Fired]) -> None:
+        from crucible.core.triggers import TemplateError, template
+
         for f in fired:
             ev: EventSpec = f.event
             act = ev.action
             self._log("action", ev.actor, f"event:{act.type}", text=act.text, data={"event": ev.id, "due": f.at.isoformat()})
+            ok = True
             if act.type == "nl":
                 targets = [act.to] if act.to else [a.id for a in self.spec.policy_actors]
                 for t in targets:
@@ -559,8 +595,14 @@ class World:
                     if t in self.responders:
                         await self._run_responder(t)
             elif act.type == "tool":
-                res = await self._call_tool(ev.actor, ToolCall(tool_call_id=f"event-{ev.id}-{self.step_index}", function_name=act.tool or "", arguments=act.args), system=True)
+                try:
+                    args = template(act.args, f.bindings, f.ctx)
+                except TemplateError as e:
+                    self._log("state", ev.actor, "event_failed", text=str(e), data={"event": ev.id})
+                    continue
+                res = await self._call_tool(ev.actor, ToolCall(tool_call_id=f"event-{ev.id}-{self.step_index}", function_name=act.tool or "", arguments=args), system=True)
                 self._log("observation", ev.actor, "tool_result", text=res.content[:4000], data={"function": res.function_name, "ok": res.ok, "event": ev.id})
+                ok = res.ok
             elif act.type == "permission":
                 target = act.to or ev.actor
                 if act.grant:
@@ -568,6 +610,17 @@ class World:
                 if act.revoke:
                     self.acl.revoke(target, act.revoke)
                 self._acl_changed.add(target)
+            if ok and act.verify is not None:
+                vok, _ = await self._run_check(act.verify, f.ctx, ev.actor)
+                self._log("state", ev.actor, "event_verify", data={"event": ev.id, "ok": vok})
+                ok = vok
+            if ok:
+                self.scheduler.anchor(ev.id)  # events anchored on this one get their mark (after_event + offset)
+
+    def firing_log(self) -> list[dict[str, Any]]:
+        """Every event firing in order: id, the virtual instant it was due at, its action type (the conformance view)."""
+        return [{"event": e.data["event"], "at": e.data.get("due"), "type": e.type.split(":", 1)[1]} for e in self.log
+                if e.kind == "action" and e.type.startswith("event:")]
 
     def _now(self) -> str | None:
         return self.clock.now_iso() if self.spec.clock else None
