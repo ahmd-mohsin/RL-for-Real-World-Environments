@@ -1120,6 +1120,26 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-4 (2026-10-10): the solver ladder.** `forge/ladder.py` measures difficulty with policies of increasing strength under
+the training harness.
+- **Rungs:** L0 floors; L1 the cheapest model; L2 the training policy; L3 the frontier, single attempt; L4 frontier
+  pass@k; L5 a frontier swarm (optional). Each `Rung(name, run, k)` is sampled sequentially with
+  `learnability.measure` (4 → 8 → 16, Wilson, stop when decided). pass@k uses the unbiased estimator
+  `1 − C(n−c, k)/C(n, k)`.
+- **Monotonicity:** a weaker rung's lower bound above a stronger rung's upper bound is an inversion, meaning a flaky
+  grader or a check that grades style. A10 records the ladder of a task that provides one (`ladder()`), and an
+  inversion fails A10.
+- **Decisions:**
+  - `accept`: train needs L2 in [0.1, 0.7]; bench needs L3's upper bound ≤ 0.2;
+  - `steer`: `compose_one_more` (too easy), `drop_outermost` (too hard), `fix_grader` (inversion); instruction
+    obscurity is never a knob;
+  - `retire`: L2 above 0.7 in training sends the task back as a seed for one more composition.
+- **Tests:**
+  - pass@k matches the closed form;
+  - a ladder on a real forged toy task (rungs solve with probability p, graded by the real grader) is monotone, accepts
+    by L2's band, and steers too-easy and too-hard tasks;
+  - an always-passing cheap rung against a failing frontier rung is an inversion that blocks bench acceptance and A10.
+
 **G-2 / G-3 (2026-10-10): composition operators and the composition rigor checks.** Audit 06's first finding: no
 source shows that swarms make tasks "exponentially" harder. Composition multiplies *candidates*, so every composite has
 to prove that it is real.

@@ -130,6 +130,13 @@ async def a10_calibration(t: Any, ctx: AcceptContext) -> Out:
             break
         scored, rate = more, rate_of(more)
     m.update({"split": split, "band": [band.lo, band.hi], "p": rate.p, "interval": [rate.lo, rate.hi], "n": rate.n, "topup_rounds": rounds})
+    lad = getattr(t, "ladder", None)  # m13 G-4: a solver-ladder report; an inversion (a weaker rung clearly above a stronger) blocks
+    if callable(lad):
+        rep = lad()
+        rep = await rep if inspect.isawaitable(rep) else rep
+        if rep is not None:
+            m["ladder"] = {k: {"p": v.p, "interval": [v.lo, v.hi], "n": v.n} for k, v in rep.rates.items()}
+            reasons += [f"solver ladder inversion: {x}" for x in rep.inversions]
     if not band.lo <= rate.p <= band.hi:
         clear = rate.hi < band.lo or rate.lo > band.hi
         how = "interval clear of the band" if clear else f"interval still overlaps it at the sampling cap (n={rate.n})"
