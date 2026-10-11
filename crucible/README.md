@@ -95,7 +95,7 @@ asyncio.run(main())
 - **Grounded actors:** `GroundedResponder` (verbatim / quote / llm), and the coding pack's `ReviewerActor`, which replays real review comments. Fidelity: `python -m crucible_pack_coding.reviewer_fidelity`.
 
 ## Website
-`site/` is a single-page tour of every module as live 3D figures (three.js, no build step). `page.html` is the page body, `assets/*.js` the engine and scenes. Preview: `python site/build.py && python -m http.server -d site` (writes the standalone `site/index.html`).
+`site/` is a single-page tour of every module as live 3D figures (three.js, no build step). `page.html` is the page body, `assets/*.js` the engine and scenes. Preview: `python site/build.py && python -m http.server -d site` (writes the standalone `site/index.html`). Publish: `site/publish.sh "what changed"` pushes it to https://ahmd-mohsin.github.io/crucible/.
 
 ## Tests
 `pytest tests/unit tests/toy_e2e` (CPU, under a minute, no paid calls). `-m docker` needs Docker; GPU gates need `CRUCIBLE_GPU=1` and a `[gpu_hosts]` entry in `crucible.toml`. `lint-imports` checks the layering contracts.
