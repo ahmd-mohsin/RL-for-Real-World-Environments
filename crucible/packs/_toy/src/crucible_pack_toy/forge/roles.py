@@ -23,6 +23,7 @@ import re
 import sqlite3
 from typing import Any
 
+from crucible.forge.compose import render_scope
 from crucible.forge.schema import (
     Architecture,
     CheckSet,
@@ -117,15 +118,18 @@ def compile_checks(t: TaskSpec, sc: dict[str, Any], signals: dict[str, str], ext
         elif p.kind == "collateral":
             mine = a["tickets"]
             orders = [q.args["order"] for q in t.properties if q.kind in ("refund", "no_refund") and "order" in q.args]
-            out += [CheckSpec(id="scope/other_tickets_status", gate="scope", gate_kind="gate", kind="invariant", app="tickets",
-                              sql=f"SELECT id, status FROM tickets WHERE id NOT IN ({_ids(mine)}) AND status != 'open'", states=[p.id], provenance="instruction:scope"),
-                    CheckSpec(id="scope/other_tickets_refunds", gate="scope", gate_kind="gate", kind="invariant", app="tickets",
-                              sql=f"SELECT id, ticket_id FROM refunds WHERE ticket_id NOT IN ({_ids(mine)})", states=[p.id], provenance="instruction:scope"),
-                    CheckSpec(id="scope/other_tickets_notes", gate="scope", gate_kind="gate", kind="invariant", app="tickets",
-                              sql=f"SELECT id, ticket_id FROM notes WHERE ticket_id NOT IN ({_ids(mine)})", states=[p.id], provenance="instruction:scope"),
-                    CheckSpec(id="scope/other_orders_refunded", gate="scope", gate_kind="gate", kind="invariant", app="tickets",
-                              sql=f"SELECT id, order_id FROM refunds WHERE order_id NOT IN ({', '.join(_q(o) for o in orders) or _q('-')})",
-                              states=[p.id], provenance="instruction:scope")]
+            # the scope structure rides along (``spec.scope``: template + allow list), so a composition can widen every
+            # component's scope to what the other components legitimately touch (m13 G-2: forge.compose)
+            tick = {"allow": [int(x) for x in mine], "quote": False}
+            ords = {"allow": list(orders), "quote": True, "empty": "-"}
+            scopes = [("scope/other_tickets_status", "SELECT id, status FROM tickets WHERE id NOT IN ({allow}) AND status != 'open'", tick),
+                      ("scope/other_tickets_refunds", "SELECT id, ticket_id FROM refunds WHERE ticket_id NOT IN ({allow})", tick),
+                      ("scope/other_tickets_notes", "SELECT id, ticket_id FROM notes WHERE ticket_id NOT IN ({allow})", tick),
+                      ("scope/other_orders_refunded", "SELECT id, order_id FROM refunds WHERE order_id NOT IN ({allow})", ords)]
+            for cid, tpl, sc_ in scopes:
+                scope = {"template": tpl, **sc_}
+                out.append(CheckSpec(id=cid, gate="scope", gate_kind="gate", kind="invariant", app="tickets", sql=render_scope(scope), states=[p.id],
+                                     provenance="instruction:scope", spec={"scope": scope}))
         elif p.kind == "refund":
             amt = float(a["amount"])
             out.append(CheckSpec(id=f"outcome/refund_{a['ticket']}", gate="outcome", app="tickets", states=[p.id], provenance=t.provenance[0],
@@ -147,7 +151,7 @@ def compile_checks(t: TaskSpec, sc: dict[str, Any], signals: dict[str, str], ext
 
 
 class ScriptedTestWriter:
-    name, version = "test_writer", "toy-2"
+    name, version = "test_writer", "toy-3"  # toy-3: scope checks carry their structure (m13 G-2)
 
     async def run(self, staged: dict[str, Any], *, feedback: list[str], knobs: dict[str, Any]) -> CheckSets:
         arch = staged["architecture"]

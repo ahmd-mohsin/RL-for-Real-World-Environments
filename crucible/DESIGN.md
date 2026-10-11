@@ -1120,6 +1120,37 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-2 / G-3 (2026-10-10): composition operators and the composition rigor checks.** Audit 06's first finding: no
+source shows that swarms make tasks "exponentially" harder. Composition multiplies *candidates*, so every composite has
+to prove that it is real.
+
+- **Composites (`forge/compose.py`):** a composite is a task (TaskSpec, CheckSet, oracle, negatives) plus its component
+  map: which oracle actions and which namespaced gates (`c1.<gate>`) each component owns, and the component's source
+  hash. Composites therefore compose again (`depth`).
+  - `chain(T1, T2, …)` runs the parts in order (`dependent` declares state flow).
+  - `fan_in([T1..Tk], J)` adds an integration task.
+  - Each operator emits a drop-component negative per component (A3 then keeps proving every part matters) and carries
+    the components' own negatives inside the composite.
+- **Found on the first toy chain:** each component's scope gate ("nothing else changed") failed the other component's
+  legitimate actions, so the composite oracle scored 0.
+  - Scope checks now carry their structure (`CheckSpec.spec["scope"]`: template plus allow list; the toy Test writer is
+    `toy-3`).
+  - Composition widens every scope to the union of the components' allow lists per template (`render_scope`).
+  - Scope checks without structure (the LLM Test writer's, for now) leave the composite oracle failing A1, so such a
+    composite is rejected, never silently wrong.
+- **Checks (`accept/checks/composition.py`):** not applicable (`not_composite`) to ordinary tasks.
+  - **A14 necessity:** the composite oracle without a component's actions must fail a gate that component owns.
+  - **A15 complexity gain:** `p_composite ≤ min_i p_i − a15_delta` (0.1) on the frontier runs A10 uses. At the bench
+    frontier (parts at p ≈ 0), a failing gate no component run fails is required instead. Pending without runs.
+  - **A17 non-interference** (independent composites): each component's own actions still pass its own gates inside
+    the composite.
+- **Tests (forged toy/helpdesk_v2 tasks):**
+  - a real chain: the composite oracle scores 1, A14 and A17 pass, and the drop-component negatives are killed at the
+    dropped component's gate;
+  - a padded component (only "nothing else changed" checks) is rejected by A14;
+  - A15 passes a harder composite, rejects an equally hard one as decomposable, and is pending without runs;
+  - ordinary tasks are not applicable, and a chain of a chain composes (depth 2).
+
 **G-1 (2026-10-10): the concurrent forge orchestrator.** `Orchestrator.run_plan` awaited nodes one at a time, and one
 plan ran at a time (audit 06: "a swarm in name only").
 - **Concurrency:** nodes of the same dependency level (`Plan.levels()`) run concurrently under `node_concurrency`.
