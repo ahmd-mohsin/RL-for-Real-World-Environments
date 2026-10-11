@@ -14,7 +14,7 @@ from pydantic import Field
 from crucible.core.schema.base import CrucibleModel
 
 # "browser" and "http_mock" are reserved for packs that need them (no built-in adapter yet).
-AdapterKind = Literal["fs", "fs_git", "sql", "postgres", "json_doc", "process", "http_mock", "browser"]
+AdapterKind = Literal["fs", "fs_git", "sql", "postgres", "json_doc", "process", "http_mock", "browser", "agentenv_data"]
 
 
 class StateRef(CrucibleModel):

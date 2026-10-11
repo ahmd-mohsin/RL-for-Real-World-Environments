@@ -130,6 +130,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("state_adapter", "json_doc", "crucible.world.state.json_doc:JsonDocAdapter")
     r.register("state_adapter", "browser", "crucible.world.apps.browser:BrowserStateAdapter")
     r.register("state_adapter", "process", "crucible.world.state.process:ProcessAdapter")
+    r.register("state_adapter", "agentenv_data", "crucible.interop.agentenv.mcp_env:AgentEnvDataAdapter")
     # App templates (generic; packs add their own)
     r.register("app_template", "common/workspace", "crucible.world.apps.workspace:WorkspaceApp")
     r.register("app_template", "common/git_repo", "crucible.world.apps.workspace:GitRepoApp")
@@ -148,6 +149,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("ci_runner", "docker", "crucible.world.apps.ci:DockerCiRunner")
     r.register("app_template", "openenv/awm_service", "crucible.interop.openenv.awm:AwmServiceApp")
     r.register("app_template", "openenv/env", "crucible.interop.openenv.import_env:OpenEnvApp")
+    r.register("app_template", "agentenv/mcp_env", "crucible.interop.agentenv.mcp_env:AgentEnvMcpApp")
     r.register("app_template", "harbor/terminal", "crucible.interop.harbor.inplace:TerminalApp")
     r.register("app_template", "nemo_gym/resources", "crucible.interop.nemo_gym.import_server:NemoGymApp")
     # World backends: core ships `local`; framework backends live in interop and load lazily.

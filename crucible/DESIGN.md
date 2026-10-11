@@ -1120,6 +1120,24 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C9 (2026-10-10): agentenv env images as Apps.** App template `agentenv/mcp_env`
+(`interop/agentenv/mcp_env.py`, which DEPENDs on `agentenv_protocol`'s data-plane client) runs an agentenv-protocol env
+image as one loopback-published container per World.
+- **Tools:** they come from the MCP interface the card names. Every tool the card advertises must be served (a
+  drifted image fails at start). Served but uncarded tools are reported, and hidden with `card_tools_only`.
+- **State (adapter `agentenv_data`):** the fingerprint and snapshot are `data/get`'s parts as canonical JSON.
+  Restore is `data/reset` + `data/add` of those parts, verified by fingerprint. The env must advertise all three
+  operations.
+- **Seed:** `seed` parts or `seed_file`, loaded at start.
+- **Not covered:** the legacy `base_mcp` images (`slack_mcp`, `email_mcp`) have no v1 card or data plane. Their
+  `/api/reset` can only reload a mock file, not restore a snapshot, so they are not loadable as snapshot-capable Apps.
+- **Tests (agentenv's own v1 test env, built from its sources):**
+  - card tools are served and `list_items` is reported as uncarded;
+  - the seed loads, and reset → mutate → snapshot → mutate → restore gives equal fingerprints; reset returns to the
+    seed;
+  - agentenv's core-protocol probe sees `data/get` and `data/add` supported;
+  - the container is removed at close, and `card_tools_only` hides uncarded tools.
+
 **C8 (2026-10-10): the full trigger language.** `EventSpec` now expresses the rest of urn:agentenv:triggers/v1, and
 Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpers are ported from the gateway into
 `core/triggers.py` (Apache-2.0); core may not import agentenv.
