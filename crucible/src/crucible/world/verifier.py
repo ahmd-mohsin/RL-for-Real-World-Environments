@@ -84,13 +84,15 @@ def _shared_roots(a: World, b: World) -> list[str]:
 
 
 @asynccontextmanager
-async def verifier_world(world: World, final: WorldRef, *, workdir: Path) -> AsyncIterator[World]:
-    """A fresh World holding ``final`` for the grader. Closes the policy's ``world`` first."""
+async def verifier_world(world: World, final: WorldRef, *, workdir: Path, close_source: bool = True) -> AsyncIterator[World]:
+    """A fresh World holding ``final`` for the grader. Closes the policy's ``world`` first, except between the steps
+    of a multi-step task (``close_source=False``): the policy is quiesced and the grader still reads only the copy."""
     spec = world.spec.verifier
     if spec is None:
         raise WorldError("verifier_world needs WorldSpec.verifier")
     log, start, episode = list(world.log), world.episode_start or world.initial, world.episode_id
-    await world.close()
+    if close_source:
+        await world.close()
     vw = World(world.spec, store=world.store, workdir=Path(workdir), pack_root=world.pack_root,
                backend=spec.backend or world.spec.backend, backend_params=spec.backend_params or None, interceptors=[])
     try:

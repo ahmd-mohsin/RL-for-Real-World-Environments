@@ -35,7 +35,7 @@ from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
 from crucible.core.schema.run import Failure
 from crucible.core.schema.signal import SignalTarget
-from crucible.core.schema.state import Query, QueryResult, StateRef, WorldRef
+from crucible.core.schema.state import Query, QueryResult, StateDiff, StateRef, WorldRef
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
@@ -114,6 +114,20 @@ class VerifierView:
         fps = await asyncio.gather(*(a.state.fingerprint() for a in apps.values()))
         return dict(zip(apps, fps, strict=True))
 
+    @property
+    def start(self) -> WorldRef:
+        """The WorldRef the episode started from (the reset target; the initial snapshot before any reset)."""
+        ref = self._world.episode_start or self._world.initial
+        if ref is None:
+            raise WorldError("no episode-start WorldRef: start() the world first")
+        return ref
+
+    async def changes(self, app: str) -> StateDiff:
+        """What the episode changed in one App: its episode-start state against a snapshot taken now (rows inserted and
+        deleted per table for databases, files for trees); collateral-damage checks read this."""
+        adapter = self.adapter(app)
+        return await adapter.diff(self.start.apps[app], await adapter.snapshot())
+
     async def unchanged(self, *apps: str) -> dict[str, bool]:
         """Whether each App (default: all) still has its episode-start state: the check for infeasible requests, where
         the right outcome is to refuse and touch nothing (EnterpriseOps' refusal subset, MiMo ``act: none``)."""
@@ -164,6 +178,8 @@ class World:
         self.clock = VirtualClock(spec.clock)
         self.scheduler = EventScheduler(spec.events, self.clock)
         self.acl = AccessControl({a.id: a.tools for a in spec.actors})
+        self.identities = {a.id: a.identity for a in spec.actors if a.identity is not None}  # M1 item 3: who each actor is
+        self._exposed: dict[str, frozenset[str]] = {}  # actor -> tools its catalog shows (actors with a CatalogSpec only)
         self.apps: dict[str, App] = {}
         self.responders: dict[str, Responder] = {}
         self.inboxes: dict[str, list[Inbound]] = {a.id: [] for a in spec.actors}
@@ -182,6 +198,8 @@ class World:
         self._acl_changed: set[str] = set()
         self._started = False
         self._closed = False
+        self.health: dict[str, Any] = {}  # app id -> last health check report (M1 item 6)
+        self._serial = None  # SerialLock while a serial world runs
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> WorldRef:
@@ -189,6 +207,13 @@ class World:
         if problems:
             raise WorldError("; ".join(problems))
         try:
+            if self.spec.serial:  # one episode of this world at a time on this host (shared live services)
+                from crucible.world.health import SerialLock
+
+                self._serial = SerialLock(self.spec.world)
+                waited = await self._serial.acquire()
+                if waited > 1:
+                    logger.info("world %s: waited %.1fs for the serial lock", self.spec.world, waited)
             return await self._start()
         except BaseException:
             # A failed start must not leak containers, gateways or servers (found: a crashed App.provision
@@ -208,7 +233,7 @@ class World:
                 host_workdir=self.workdir,
                 clock=self.clock,
                 pack_root=self.pack_root,
-                extra={"peers": self.apps, "seed": self.spec.seed},  # peers: live dict (a browser reaches a website's URL)
+                extra={"peers": self.apps, "seed": self.spec.seed, "identities": self.identities},  # peers: live dict (a browser reaches a website's URL)
                 seed=derive_seed(self.spec.seed, app_spec.id),
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
@@ -216,8 +241,11 @@ class World:
             await app.provision()
         for app in self.apps.values():  # spec order: dependencies first (a browser after the sites it opens)
             await app.start()
+            if app.spec.healthcheck is not None:  # ready before anything depends on it (Harbor: before agent setup)
+                await self.check_health(app.id)
         for app_id, app in self.apps.items():
             self._tools[app_id] = await app.list_tools()
+        self._exposed = self._catalogs()
         await self.backend.after_apps_started(self)
         delegated = self.backend.delegated_events()
         if delegated:
@@ -281,6 +309,14 @@ class World:
         if self._closed:  # idempotent: a separate verifier closes the policy's World before the harness's cleanup does
             return
         self._closed = True
+        try:
+            await self._close()
+        finally:
+            if self._serial is not None:
+                self._serial.release()
+                self._serial = None
+
+    async def _close(self) -> None:
         for app in self.apps.values():
             try:
                 await app.stop()
@@ -311,8 +347,40 @@ class World:
 
     def tools_for(self, actor: str) -> list[ToolSpec]:
         if self.backend.capabilities.native_acl:
-            return self.backend.allowed_tools(actor)  # type: ignore[attr-defined]
-        return [t for t in self.all_tools() if self.acl.allows(actor, t.qualified)]
+            tools = self.backend.allowed_tools(actor)  # type: ignore[attr-defined]
+        else:
+            tools = [t for t in self.all_tools() if self.acl.allows(actor, t.qualified)]
+        shown = self._exposed.get(actor)
+        return tools if shown is None else [t for t in tools if t.qualified in shown]
+
+    def _catalogs(self) -> dict[str, frozenset[str]]:
+        """Each catalogued actor's shown tools: its oracle tools plus ``distractors`` drawn from the rest of the World's
+        tools with a seed derived from the World seed and the actor (EnterpriseOps-Gym ``plus_N_tools``), minus ``hide``.
+        Drawn over every tool, not the ACL's current grants, so a later grant cannot change which distractors exist."""
+        import random
+
+        out: dict[str, frozenset[str]] = {}
+        names = sorted(t.qualified for t in self.all_tools())
+        for a in self.spec.actors:
+            c = a.catalog
+            if c is None:
+                continue
+            hidden = {n for n in names if any(fnmatch.fnmatchcase(n, p) for p in c.hide)}
+            oracle = {n for n in names if n not in hidden and any(fnmatch.fnmatchcase(n, p) for p in c.oracle)}
+            pool = [n for n in names if n not in hidden and n not in oracle]
+            k = len(pool) if c.distractors < 0 else min(c.distractors, len(pool))
+            out[a.id] = frozenset(oracle | set(random.Random(derive_seed(self.spec.seed, f"catalog:{a.id}")).sample(pool, k)))
+        return out
+
+    def _rbac_denies(self, actor: str, qualified: str) -> list[str] | None:
+        """The actor's roles when RBAC refuses this call, else None (no identity or no rbac: not RBAC's concern)."""
+        ident = self.identities.get(actor)
+        if self.spec.rbac is None or ident is None:
+            return None
+        roles = [self.spec.rbac[r] for r in ident.roles]
+        allowed = any(any(fnmatch.fnmatchcase(qualified, p) for p in r.allow) for r in roles)
+        denied = any(any(fnmatch.fnmatchcase(qualified, p) for p in r.deny) for r in roles)
+        return None if allowed and not denied else list(ident.roles)
 
     @staticmethod
     def _split(function_name: str) -> tuple[str, str]:
@@ -340,11 +408,15 @@ class World:
         if app_id not in self.apps:
             return fail(qualified, f"Unknown app: {app_id}", "unknown_app")
         spec = next((t for t in self._tools.get(app_id, []) if t.name == tool), None)
+        if spec is not None and not system and actor in self._exposed and qualified not in self._exposed[actor]:
+            spec = None  # outside the actor's catalog: the tool does not exist for it
         if spec is None:
             near = difflib.get_close_matches(qualified, [t.qualified for t in self.tools_for(actor)], n=3, cutoff=0.6)
             return fail(qualified, f"Unknown tool: {qualified}" + (f". Did you mean: {', '.join(near)}?" if near else ""), "unknown_tool")
         if not system and not self.backend.capabilities.native_acl and not self.acl.allows(actor, qualified):
             return fail(qualified, f"Permission denied: {qualified}", "permission_denied")
+        if not system and (roles := self._rbac_denies(actor, qualified)) is not None:
+            return fail(qualified, f"Permission denied: role(s) {', '.join(roles) or '(none)'} may not call {qualified}", "permission_denied")
         problem = _argument_problem(call.arguments, spec.input_schema)
         if problem:
             return fail(qualified, f"Invalid arguments for {qualified}: {problem}. Resend the call with a JSON object matching the tool's schema.", "invalid_arguments")
@@ -417,6 +489,7 @@ class World:
             if self.clock.mode == "wall":
                 self.clock.reset()
             await self.backend.on_reset(self)
+            await self._reset_hooks_and_health()
         self.log = []
         if self.trace_sink is not None:
             self.trace_sink.write_text("")
@@ -437,6 +510,43 @@ class World:
         # Events due at t0 (e.g. an opening email) fire before the first observation.
         await self._fire_due()
         return {a.id: self._observe(a.id, [], first=True) for a in self.spec.policy_actors}
+
+    async def begin_task_step(self, name: str, index: int, instruction: str | dict[str, str]) -> dict[str, Observation]:
+        """Open the next step of a multi-step task in the running episode (M1 item 4; Harbor multi-step trials): policy
+        actors leave ``done``, the step boundary goes into the trace, and each policy actor's next observation carries
+        the step's instruction (and its tools again). State, clock, inboxes and the trace continue."""
+        if not self._started:
+            raise WorldError("call start() first")
+        texts = instruction if isinstance(instruction, dict) else {a.id: instruction for a in self.spec.policy_actors}
+        for a in self.spec.policy_actors:
+            self.done.discard(a.id)
+        self.instructions.update(texts)
+        self._log("state", None, "task_step", data={"name": name, "index": index})
+        return {a.id: self._observe(a.id, [], first=True) for a in self.spec.policy_actors}
+
+    async def check_health(self, app_id: str, spec: Any = None) -> dict[str, Any]:
+        """Run an App's health check (or ``spec``, e.g. a task step's); raises ``HealthcheckError`` when it fails."""
+        from crucible.world.health import run_healthcheck
+
+        app = self.apps[app_id]
+        hc = spec or app.spec.healthcheck
+        if hc is None:
+            return {"healthy": True, "attempts": 0}
+        rep = await run_healthcheck(app.ctx.exec, hc, what=f"app {app_id!r}")
+        self.health[app_id] = rep
+        return rep
+
+    async def _reset_hooks_and_health(self) -> None:
+        """Fresh episodes only: reset hooks of live services no adapter restores, then health checks, in spec order."""
+        from crucible.world.health import ResetHookError, run_probe
+
+        for app in self.apps.values():
+            if app.spec.reset_hook is not None:
+                ok, detail = await run_probe(app.ctx.exec, app.spec.reset_hook)
+                if not ok:
+                    raise ResetHookError(f"app {app.id!r}: reset hook failed: {detail}")
+            if app.spec.healthcheck is not None:
+                await self.check_health(app.id)
 
     async def step(self, actor: str, action: Action | dict[str, Any]) -> StepResult:
         async with self._step_lock:  # concurrent callers (several harnesses on one World) are serialized

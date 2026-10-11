@@ -229,6 +229,7 @@ class Runner:
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates, "timings": hr.timings,
                               "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
+                              **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
                               **({"trajectory_tokens": hr.trajectory_tokens} if hr.trajectory_tokens else {})})
         if hr.failure is not None:
             rec.mark_failure(hr.failure)

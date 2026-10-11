@@ -6,7 +6,7 @@ an egress self-test, non-following file access. Git-history scrubbing follows Hu
 (Apache-2.0) and adds what it lacks: every ref is removed and unreachability is *verified*.
 
 Usage: ``python3 -I guard.py <op> < args.json``; prints one JSON line prefixed ``__GUARD__``.
-Ops: setup, run, quiesce, egress, audit, git_scrub, git_audit, git_trust, git_reset, own, reclaim.
+Ops: setup, run, quiesce, egress, firewall, firewall_lift, audit, git_scrub, git_audit, git_trust, git_reset, own, reclaim.
 """
 
 import errno
@@ -437,6 +437,138 @@ def _udp_dns_answers(server, timeout):
         return False
 
 
+# ----------------------------------------------------------------------------------------- per-uid firewall (Karotte confinement)
+GVISOR_SENTRY_PROC = "/proc/sentry-meminfo"  # Karotte container.is_gvisor
+
+
+def _own_addresses():
+    """The sandbox's own non-loopback, non-link-local addresses (Karotte ``_own_addresses``, read from /proc, no psutil)."""
+    import ipaddress
+
+    v4, v6 = set(), set()
+    try:
+        with open("/proc/net/fib_trie") as f:
+            last = None
+            for line in f:
+                t = line.strip()
+                if t.startswith(("|--", "+--")):
+                    last = t.split()[-1]
+                elif t.startswith("/32 host LOCAL") and last:
+                    v4.add(last)
+    except OSError:
+        pass
+    try:
+        with open("/proc/net/if_inet6") as f:
+            for line in f:
+                h = line.split()[0]
+                v6.add(str(ipaddress.ip_address(":".join(h[i:i + 4] for i in range(0, 32, 4)))))
+    except OSError:
+        pass
+
+    def keep(a):
+        ip = ipaddress.ip_address(a)
+        return not (ip.is_loopback or ip.is_link_local)
+
+    return sorted(a for a in v4 if keep(a)), sorted(a for a in v6 if keep(a))
+
+
+def _resolve(hosts):
+    """IPs of allowlisted names (resolved once, at setup, as root; ``*.suffix`` wildcards cannot be resolved and are
+    reported), plus literal IPs and CIDRs as given."""
+    import ipaddress
+
+    v4, v6, unresolved = set(), set(), []
+    for h in hosts or []:
+        h = str(h).strip()
+        try:
+            net = ipaddress.ip_network(h, strict=False)
+            (v4 if net.version == 4 else v6).add(str(net) if "/" in h else str(net.network_address))
+            continue
+        except ValueError:
+            pass
+        if h.startswith("*."):
+            unresolved.append(h)
+            continue
+        try:
+            for fam, _, _, _, sa in socket.getaddrinfo(h, None):
+                (v4 if fam == socket.AF_INET else v6).add(sa[0].split("%", 1)[0])
+        except OSError:
+            unresolved.append(h)
+    return sorted(v4), sorted(v6), unresolved
+
+
+def _fw_bins():
+    if os.path.exists(GVISOR_SENTRY_PROC):  # gVisor: iptables-legacy, no RST/ICMP; its rules are accepted and not enforced
+        return "iptables-legacy", "ip6tables-legacy", "DROP", True
+    return "iptables", "ip6tables", "REJECT", False
+
+
+def _fw_apply(binary, rules):
+    for rule in rules:
+        r = _run_root([binary, *rule], timeout=30)
+        if r.returncode != 0:
+            return f"{binary} {' '.join(rule)}: {(r.stderr or r.stdout).strip()[-300:]}"
+    return None
+
+
+def firewall(a):
+    """Per-uid egress rules for the policy (Karotte ``restrict_to_internal_network`` / ``deny_all_network``):
+    ``blocked_ports`` on localhost are dropped first (App servers the policy must reach only through tools); then, for
+    ``mode`` ``allowlist``, the uid may reach localhost, the sandbox's own addresses and the allowlisted IPs and nothing
+    else; ``deny`` keeps it off every address but localhost; ``ports`` only blocks the ports. Rules take effect for new
+    connections and need CAP_NET_ADMIN. ``took`` is False where they cannot be enforced (gVisor accepts and ignores them)."""
+    uid = str(int(a["uid"]))
+    mode = a.get("mode", "allowlist")
+    if mode not in ("allowlist", "deny", "ports"):
+        raise ValueError(f"unknown firewall mode {mode!r}")
+    ipt, ip6t, reject, gvisor = _fw_bins()
+    try:
+        ipt, ip6t = _trusted(ipt), _trusted(ip6t)
+    except FileNotFoundError as e:
+        return {"took": False, "error": str(e), "rules": 0}
+    own4, own6 = _own_addresses()
+    al4, al6, unresolved = _resolve(a.get("allowed") if mode == "allowlist" else [])
+    who = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", uid]
+    ports = [int(p) for p in a.get("blocked_ports") or []]
+    v4 = [[*who, "-p", proto, "--dport", str(p), "-d", "127.0.0.0/8", "-j", "DROP"] for p in ports for proto in ("tcp", "udp")]
+    v6 = [[*who, "-p", proto, "--dport", str(p), "-d", "::1", "-j", "DROP"] for p in ports for proto in ("tcp", "udp")]
+    v4 += [[*who, "-p", proto, "--dport", str(p), "-d", ip, "-j", "DROP"] for p in ports for proto in ("tcp", "udp") for ip in own4]
+    if mode != "ports":
+        v4 += [[*who, "-d", "127.0.0.0/8", "-j", "ACCEPT"], *[[*who, "-d", ip, "-j", "ACCEPT"] for ip in [*own4, *al4]], [*who, "-j", reject]]
+        v6 += [[*who, "-d", "::1", "-j", "ACCEPT"], *[[*who, "-d", ip, "-j", "ACCEPT"] for ip in [*own6, *al6]], [*who, "-j", reject]]
+    err = _fw_apply(ipt, v4)
+    err6 = None if err else _fw_apply(ip6t, v6)
+    if err6 and "ip6tables" in err6 and ("not supported" in err6 or "Address family" in err6 or "can't initialize" in err6.lower()):
+        err6 = None  # no IPv6 stack in this sandbox: nothing to filter
+    took = err is None and err6 is None and not gvisor
+    return {"took": took, "error": err or err6, "gvisor": gvisor, "rules": len(v4) + len(v6), "own": own4 + own6, "allowed_ips": al4 + al6,
+            "unresolved": unresolved, "blocked_ports": ports, "mode": mode}
+
+
+def firewall_lift(a):
+    """Delete every OUTPUT rule owned by ``uid`` (Karotte ``lift_network_rules``); a reused sandbox starts clean."""
+    import itertools
+    import shlex
+
+    uid = str(int(a["uid"]))
+    ipt, ip6t, _, _ = _fw_bins()
+    left = 0
+    for name in (ipt, ip6t):
+        try:
+            binary = _trusted(name)
+        except FileNotFoundError:
+            continue
+        listing = _run_root([binary, "-S", "OUTPUT"], timeout=30)
+        if listing.returncode != 0:
+            continue
+        for line in listing.stdout.splitlines():
+            words = shlex.split(line)
+            owned = words[:2] == ["-A", "OUTPUT"] and any(w == "--uid-owner" and v == uid for w, v in itertools.pairwise(words))
+            if owned and _run_root([binary, "-D", *words[1:]], timeout=30).returncode != 0:
+                left += 1
+    return {"clean": left == 0, "left": left}
+
+
 # ----------------------------------------------------------------------------------------- reset hygiene (Karotte reclaim)
 def own(a):
     """Re-own the policy's roots after a restore (directories and files written by root), never following links."""
@@ -661,7 +793,7 @@ def git_audit(a):
 
 
 OPS = {"setup": setup, "run": run, "quiesce": quiesce, "egress": egress, "audit": audit, "git_scrub": git_scrub, "git_audit": git_audit,
-       "own": own, "reclaim": reclaim, "git_trust": git_trust, "git_reset": git_reset}
+       "own": own, "reclaim": reclaim, "git_trust": git_trust, "git_reset": git_reset, "firewall": firewall, "firewall_lift": firewall_lift}
 
 
 def main():

@@ -32,6 +32,8 @@ NORMALIZE = {
     "RewardFileNotFoundError": ("verifier_error", "RewardFileNotFoundError"), "RewardFileEmptyError": ("verifier_error", "RewardFileEmptyError"),
     "VerifierOutputParseError": ("verifier_error", "VerifierOutputParseError"), "VerifierTimeoutError": ("verifier_error", "VerifierTimeoutError"),
     "AgentTimeoutError": ("agent_timeout", "AgentTimeoutError"), "EnvironmentStartTimeoutError": ("crucible:backend_error", "EnvironmentStartTimeoutError"),
+    # Crucible World readiness (M1 item 6)
+    "HealthcheckError": ("crucible:backend_error", "HealthcheckError"), "ResetHookError": ("crucible:backend_error", "ResetHookError"),
     "ApiInternalServerError": ("provider_unavailable", "ApiInternalServerError"), "ApiOverloadedError": ("provider_unavailable", "ApiOverloadedError"),
     # MiMo verl categories
     "setup/failed": ("crucible:backend_error", "mimo:setup/failed"), "rollout/pod_conn_timeout": ("transport_peer_drop", "mimo:pod_conn_timeout"),

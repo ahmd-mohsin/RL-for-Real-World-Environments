@@ -293,6 +293,15 @@ events:
 - Simulated Actors must be **grounded**: they answer only from recorded history or written policy, and say "no record" otherwise (§5.1, grounded responders).
 - Worlds snapshot and restore as a unit. That is what makes branch-rollout values (C3), replay (§5.3) and sub-span tasks (§7.3) possible in any domain.
 
+**Record-world primitives (M1 build item 3, 2026-10-12; ported from EnterpriseOps-Gym).**
+- *Identity.* `ActorSpec.identity` (user id, name, email, roles, attributes, headers) states who an actor is inside the World's systems. Every App sees it (`App.identity(actor)`). An HTTP MCP server receives it as `x-user-*` headers through a session per identity, so the server applies its own permissions and row visibility.
+- *RBAC.* `WorldSpec.rbac` maps a role to allow and deny patterns. A call that no role of the caller allows, or that a role denies, is refused as `permission_denied`. The refusal is the policy's error, and the tool stays visible, as with a 403 response.
+- *Tool catalogs.* `ActorSpec.catalog` sets which permitted tools an actor is shown. The oracle tools are always shown. `distractors` more are drawn from the rest with a seed derived from the World seed and the actor (EnterpriseOps `plus_N_tools`; `-1` shows all), and `hide` removes tools. A tool outside the catalog does not exist for that actor.
+- *Deterministic seeding.* SQLite Apps run `schema_sql` and `seed_sql` with SQLite's `now` pinned to the clock's `t0`, so dumps that call `datetime('now')` seed identical bytes on every provision.
+- *State checks.* `verify/sql_checks.py` provides `SqlAssertion`, the EnterpriseOps `database_state` verifier with its result reduction and comparisons. It also provides `Collateral`, which requires that every row change found by `VerifierView.changes(app)` (episode start against now, with updates paired by key) is admitted by a per-table allowance. Assertions check what should have happened, and the collateral check catches what should not have: the test task's sloppy policy passes every assertion and fails only the collateral check.
+
+**Readiness, resets and serial worlds (M1 build item 6, 2026-10-12; `world/health.py`; Harbor healthchecks, TheAgentCompany resets).** `AppSpec.healthcheck` (a command in the App's exec, or an HTTP probe made from inside it, with Docker HEALTHCHECK semantics) runs after the App starts and after every fresh reset. A task step can add its own check (`TaskStep.healthcheck`). `AppSpec.reset_hook` calls a live service's reset on every fresh reset, but not on a mid-episode restore, for state that no adapter captures. Either failure is `crucible:backend_error`: masked, never the policy's 0. `WorldSpec.serial` takes an exclusive host lock per world name from `start` to `close`, so episodes over one shared live service never overlap, across processes.
+
 `ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
 
 ---
@@ -618,6 +627,7 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Resource caps | `pids_limit`, `mem_limit`; the policy runs at `oom_score_adj=1000`, written by root with `CAP_SYS_RESOURCE` so it is also the policy's floor | fork bombs, memory exhaustion of the grader, the policy opting out of being the OOM victim |
 | Git history | refs, remotes, reflogs and unreachable objects are removed, then **verified**: `rev-list --all` ⊆ ancestry of the base, `fsck --unreachable` empty, forbidden SHAs absent | `git log --all`, `git show <future-fix>` |
 | Network | `network_mode: none`, plus an egress self-test run as the policy uid that refuses to start the world if anything is reachable | `pip download` of the fixed version, following a PR link |
+| Per-uid firewall (M1 item 5, 2026-10-12) | root sets iptables owner-match rules for the policy uid (Karotte): in allowlist worlds only localhost, the sandbox's own addresses and the allowlisted hosts' IPs; in every world the localhost ports of App servers and `blocked_ports` are closed to it; `firewall: required` refuses sandboxes that cannot enforce them (no CAP_NET_ADMIN, gVisor) | an allowlist world whose provider has no egress proxy; calling an App's server directly to bypass the tool gate, its ACL and RBAC |
 | Text | instructions, simulated colleagues' replies and CI output are leak-scrubbed (Repo2RLEnv patterns + ours); actors' citations are kept in the trace but hidden from the policy | PR links, fix commits, "fixed in 1.2.3" in a reply |
 | Hidden CI | checks live in a separate runner sandbox, run unprivileged by default, re-staged every run, leftovers killed; the policy gets `name: PASS/FAIL` only, under a run budget that is world state | reading, overfitting or rewriting the hidden tests |
 | Trusted git | verifier-side git reads only a root-owned copy of `.git` taken before the policy ran; refs are validated and quoted | git-ref shell injection; hooks, filters, fsmonitor, external diff or `info/exclude` planted to run code as root or hide files |
@@ -707,6 +717,22 @@ The external test bed is the paired Terminal-Lego sets, whose re-validation labe
 ## 10. Layer 5: runtime, adapters, training
 
 ### 10.1 Runtime and adapters
+
+**Multi-step tasks (M1 build item 4, 2026-10-12; `TaskStep`, `NativeHarness._run_steps`; ported from Harbor multi-step trials).** A task may declare `steps`, which all run in one World and one trace. Each step:
+
+1. runs an optional `setup(world)` (new records arrive, for example);
+2. opens with its instruction (`World.begin_task_step`, which marks the trace with a `task_step` event);
+3. gives the policy a segment of the episode, with the same policy objects (and so the same context) unless `fresh_context` is set;
+4. is graded by its own grader, in place or in a separate verifier World (the policy's World stays open between steps and closes only for the last one);
+5. passes or fails its `min_reward` gate. A float gates `reward`; a dict gates keys of the flat reward, and a missing key counts as below. A step below its gate ends the task.
+
+The reward (`step_reward`) is one of:
+- `mean` over every declared step, the default. A step never reached scores 0, so stopping early cannot raise the mean. Harbor's own mean excludes steps that never ran.
+- `final`: the last declared step.
+- `mean_executed`: Harbor-compatible.
+
+Run records carry `task_steps` (per-step reward, gate and abort reason) and `step/<name>` gate bits.
+
 - **Canonical format:** a Harbor task directory plus `crucible/` (§4.3).
 - **Execution:**
   - **agentenv-framework** gives sandboxes, A2A agents, `eval run --k`, artifact versioning, trajectories, and the Harbor-style verifier step `run_container_unit_tests_verifier` with `reward_path`.

@@ -242,10 +242,105 @@ Ports NeMo-Gym `mcqa`, `equivalence_rule` and `math_with_judge`, and verifiers v
   - a blank reply is the answer.
 - **Open:** a code-execution checker (taxonomy family 2: single-turn code with hidden tests) belongs with the verify trusted runner (M7). Image prompts depend on item 8.
 
+## M1 build item 3 (2026-10-12): enterprise record-world primitives
+
+Source: taxonomy family 6 and primitives P4–P6. Ports EnterpriseOps-Gym `benchmark/` (Apache-2.0).
+
+- **Identity** (`ActorSpec.identity`, `IdentitySpec`):
+  - `App.identity(actor)` gives Apps the caller's identity.
+  - `common/mcp_server` over HTTP opens one session per identity carrying `x-user-id`, `x-user-email`, `x-user-name`, `x-user-roles` and `x-<header>`. It also accepts static `headers`, and `identity: required` refuses stdio servers.
+- **RBAC** (`WorldSpec.rbac: {role: {allow, deny}}`):
+  - enforced in `World._call_tool` for actors with an identity;
+  - a refused call is `permission_denied` (policy fault), and the tool stays visible;
+  - spec validation catches unknown roles, roles without rbac, and patterns over unknown apps.
+- **Catalogs** (`ActorSpec.catalog`, `CatalogSpec{oracle, distractors, hide}`):
+  - `World._catalogs()` draws distractors with `derive_seed(world seed, "catalog:<actor>")` over every tool;
+  - `tools_for` filters to the catalog, and a call outside it is `unknown_tool`;
+  - actors without a catalog, and system calls, are unaffected.
+- **Seeding** (`common/sqlite_app`):
+  - `seed_sql` (one or more data scripts) runs after `schema_sql` and may extend a `seed_db`;
+  - `pin_now` overrides `datetime`/`date`/`time`/`julianday`/`unixepoch`/`strftime` so that `now` is the clock's `t0`;
+  - the sql adapter's snapshots carry column names (`meta.columns`) for row diffs.
+- **Verifier side**:
+  - `VerifierView.start` gives the episode-start WorldRef;
+  - `VerifierView.changes(app)` diffs the start against a snapshot taken now;
+  - `verify/sql_checks.py` provides `SqlAssertion` and `Collateral` (allowances per table with `match` and `ops`; updates paired by `key`). Both become M7 `Check`s, load from task data, and convert from EnterpriseOps-Gym.
+- **Tests** (`tests/unit/test_enterprise_primitives.py`, 9):
+  - `pin_now`, and byte-identical seeding;
+  - catalog modes: oracle, +2, all with hide;
+  - RBAC refusals, identity reaching an App, identity validation and headers;
+  - identity headers reaching a live HTTP MCP server, with one session per identity;
+  - SQL assertions and collateral on a service-desk World: a policy that also closes an unrelated case passes every assertion and fails only the collateral check;
+  - all 102 verifiers of the 13 local EnterpriseOps-Gym tasks convert.
+- **Open:** an EnterpriseOps-Gym importer (its MCP servers ship as Docker images) is M11, and needs the lab node. The `response_check` (LLM judge over a SQL result) and `tool_execution` verifier types are not ported yet.
+
+## M1 build item 4 (2026-10-12): multi-step tasks with per-step gating
+
+Source: taxonomy primitive "multi-step tasks with per-step gating". Ports Harbor `trial/multi_step.py` and `StepConfig` (Apache-2.0).
+
+- **`TaskStep(name, instruction, grade, min_reward, max_steps, fresh_context, setup)`**: a `RunTask` with `steps` (and `step_reward`: mean | final | mean_executed) runs them in one World.
+- **`World.begin_task_step(name, index, instruction)`** opens the next step in the running episode:
+  - policy actors leave `done`;
+  - a `task_step` trace event marks the boundary;
+  - the next observation carries the step's instruction and tools.
+- **`run_episode(..., start_obs=...)`** continues an episode from given observations.
+- **Harness**:
+  - every step is graded under `steps/NN-name/` and its gate is checked;
+  - masked segments, policy misbehaviour, limit masks and a broken environment are judged per step;
+  - model calls from all policy objects (fresh contexts included) are merged into the attempt's evidence;
+  - `verifier_world(close_source=False)` gives intermediate steps a separate verifier while the policy's World stays open.
+- **Records**: `meta.task_steps` and `meta.step_reward`, with gates `step/<name>`.
+- **Tests** (`tests/unit/test_multistep.py`, 8):
+  - three steps with a setup hook carry state and context, with trace markers and per-step reports;
+  - a gate stops the remaining steps, under each reward strategy;
+  - with no gate, every step runs;
+  - dict gates, including a missing key;
+  - a fresh context per step;
+  - separate verification at every step: three copies, and the World is closed after the last step.
+- **Open:**
+  - dense progress from step boundaries (each passed step is a natural milestone) goes to M6;
+  - importing Harbor multi-step task directories (`steps/<name>/instruction.md`, per-step `tests/`) goes to M11.
+
+## M1 build item 5 (2026-10-12): the per-uid egress firewall
+
+Source: taxonomy primitive "per-user egress firewall". Ports Karotte `confinement.py` (MIT).
+
+- **Guard ops**:
+  - `firewall {uid, mode: allowlist|deny|ports, allowed, blocked_ports}` installs iptables/ip6tables OUTPUT owner-match rules. Blocked localhost ports (TCP and UDP) are dropped first. Then come localhost, the sandbox's own addresses (from `/proc/net/fib_trie` and `if_inet6`) and the allowlisted IPs (names resolved at setup; wildcards reported). Everything else is rejected.
+  - On gVisor it uses iptables-legacy with DROP and reports `took: false`.
+  - `firewall_lift {uid}` removes the uid's rules so that a reused sandbox starts clean.
+- **`IsolationSpec.firewall`** (None = auto | off | required) and **`blocked_ports`**:
+  - `isolate_world` applies the rules after the policy account exists and before the egress probe;
+  - `app_ports(world)` adds the localhost ports of App servers (`url`, `mcp_url`);
+  - `DockerSandbox` adds `--cap-add NET_ADMIN` for root when a policy user is set.
+- **Tests** (`tests/unit/test_firewall.py`, Docker, 2):
+  - in a real container with internet, the policy uid keeps localhost and the allowlisted 1.0.0.1, and loses 1.1.1.1 and an App's blocked localhost port;
+  - root is unaffected;
+  - the egress probe reports isolated;
+  - lifting restores the uid's network;
+  - `ports` mode leaves a public world's internet, and `deny` mode keeps only localhost.
+
+## M1 build item 6 (2026-10-12): health checks, reset hooks, run-serially
+
+Source: taxonomy primitive P14. Ports the Harbor healthcheck (Apache-2.0); patterns from TheAgentCompany (`init.sh`, `-j 1`) and OpenEnv `SUPPORTS_CONCURRENT_SESSIONS`.
+
+- **`ProbeSpec`** is a `command` or an `http` probe (method, body, `expect_status`, `timeout_s`). **`HealthcheckSpec`** adds interval, start period, start interval and retries.
+- **`AppSpec.healthcheck`** runs after the App starts (spec order, so dependants start after it is healthy) and after every fresh reset. `World.check_health(app, spec)` is public, and `TaskStep.healthcheck = (app, spec)` runs before a step opens.
+- **`AppSpec.reset_hook`** runs on every fresh `reset()`, never on `reset(start=ref)`.
+- **`HealthcheckError` and `ResetHookError`** map to `crucible:backend_error` (masked) in `runtime/infra.NORMALIZE`.
+- **`WorldSpec.serial`**: `SerialLock` (`flock` under `$CRUCIBLE_LOCK_DIR`, default `~/.crucible/locks`) is held from `World.start` to `World.close`, waiting up to an hour. `World.close` releases it even when teardown fails.
+- **Tests** (`tests/unit/test_health.py`, 6):
+  - the start period absorbs early failures;
+  - an unhealthy World does not start and its attempt is masked;
+  - HTTP probes, including expected status, an unreachable server and spec validation;
+  - reset hooks run on fresh resets only, and a failing hook raises;
+  - serial worlds run one after the other while non-serial worlds overlap;
+  - the lock holds across processes.
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.
-- **Per-uid firewall** (Karotte `iptables --uid-owner`, needs `NET_ADMIN`) for allowlist worlds where root keeps network; Harbor's allowlist sidecar for the same. Today allowlist worlds rely on the provider's policy and the egress probe.
+- ~~**Per-uid firewall**~~: built in M1 item 5 (below). Harbor compose environments still need `cap_add: [NET_ADMIN]` in their compose file for `firewall: required`.
 - **agentenv driver lifetime:** an external MCP client that connects and disconnects stops the gateway's trigger driver even while Crucible's keepalive session is open. External harnesses must keep their session open for the episode.
 - **Harbor and `DOCKER_HOST`:** Harbor's compose subprocesses read `DOCKER_HOST` from the process environment, so one process cannot drive worlds on two different Docker hosts at once (the backend refuses rather than racing).
 - **Baked world images** (SWE-smith / Repo2RLEnv): provision once, commit, start from the image, so the 68 MB task04 seed push disappears. M10 runtime.

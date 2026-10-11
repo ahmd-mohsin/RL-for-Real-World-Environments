@@ -91,6 +91,10 @@ class App(ABC):
 
         return ImageRef(mime=mime, ref=self.ctx.store.put_bytes(data), data_b64=base64.b64encode(data).decode())
 
+    def identity(self, actor: str):
+        """The calling actor's ``IdentitySpec`` (None for actors without one, and for system calls)."""
+        return self.ctx.extra.get("identities", {}).get(actor)
+
     @property
     def policy_exec(self):
         """Exec for tools that touch policy-owned files: the guard's demoted Exec in isolated worlds, else ctx.exec.

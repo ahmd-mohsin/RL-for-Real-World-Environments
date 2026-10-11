@@ -413,12 +413,16 @@ class EpisodeResult:
 
 async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
                       limits: EpisodeLimits | None = None, observers: Sequence[Any] = (), start_steps: int = 0,
-                      after_step: Any = None) -> EpisodeResult:
+                      after_step: Any = None, start_obs: dict[str, Observation] | None = None) -> EpisodeResult:
     """``observers``: objects with ``on_start(world)``, ``on_step(world, step, actor, action, result)`` and ``on_end(world)``
     (``verify.progress.ProgressTracker``). ``start_steps``/``reset=False`` continue an episode restored from a checkpoint;
-    ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``)."""
+    ``start_obs`` (with ``reset=False``) are the first observations, e.g. a multi-step task's next instruction
+    (``World.begin_task_step``); ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``)."""
     limits = limits or EpisodeLimits(max_steps=max_steps)
-    obs = await world.reset() if reset else {a: Observation(actor=a, step=world.step_index) for a in policies}
+    if reset:
+        obs = await world.reset()
+    else:
+        obs = dict(start_obs) if start_obs else {a: Observation(actor=a, step=world.step_index) for a in policies}
     for o in observers:
         await o.on_start(world)
     for p in policies.values():

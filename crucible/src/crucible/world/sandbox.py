@@ -91,6 +91,8 @@ class DockerSandbox:
             a += ["--pids-limit", str(self.pids_limit)]
         if self.spec.isolation.policy_user:
             a += ["--cap-add", "SYS_RESOURCE"]
+            if (self.spec.isolation.firewall or "auto") != "off":  # root sets per-uid iptables rules; the demoted policy has no caps
+                a += ["--cap-add", "NET_ADMIN"]
         if self.sb.runtime == "runsc":
             if self.gpus:
                 raise RuntimeError("runtime runsc with GPUs needs gVisor's nvproxy, which this sandbox does not configure")

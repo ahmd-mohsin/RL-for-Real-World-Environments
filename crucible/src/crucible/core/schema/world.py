@@ -61,6 +61,34 @@ class StateSpec(CrucibleModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProbeSpec(CrucibleModel):
+    """A shell ``command`` run in the App's exec (exit 0 = success), or an HTTP request to ``http`` (a status in
+    ``expect_status``, default 2xx/3xx, = success). Used for health checks and reset hooks (M1 item 6)."""
+
+    command: str | None = None
+    http: str | None = None
+    method: Literal["GET", "POST", "PUT", "DELETE"] = "GET"
+    body: dict[str, Any] | None = None
+    expect_status: list[int] | None = None
+    timeout_s: float = Field(default=30.0, gt=0)
+
+    @model_validator(mode="after")
+    def _one(self) -> ProbeSpec:
+        if bool(self.command) == bool(self.http):
+            raise ValueError("give exactly one of command or http")
+        return self
+
+
+class HealthcheckSpec(ProbeSpec):
+    """Docker HEALTHCHECK semantics (Harbor ``HealthcheckConfig``): during ``start_period_s`` failures do not count and
+    checks repeat every ``start_interval_s``; after it, ``retries`` consecutive failures fail the check."""
+
+    interval_s: float = Field(default=5.0, ge=0)
+    start_period_s: float = Field(default=0.0, ge=0)
+    start_interval_s: float = Field(default=5.0, ge=0)
+    retries: int = Field(default=3, ge=1)
+
+
 class AppSpec(CrucibleModel):
     id: str
     template: str  # registry key, e.g. "common/sqlite_app", "coding/git_repo", "mimo/sidecar"
@@ -69,6 +97,8 @@ class AppSpec(CrucibleModel):
     resources: Resources = Field(default_factory=Resources)
     container: str | None = None  # which backend container hosts it (None = backend default)
     description: str | None = None
+    healthcheck: HealthcheckSpec | None = None  # run after the App starts and after every fresh reset (M1 item 6)
+    reset_hook: ProbeSpec | None = None  # run on every fresh reset: a live service whose state no adapter captures (M1 item 6)
 
     @field_validator("id")
     @classmethod
@@ -76,6 +106,49 @@ class AppSpec(CrucibleModel):
         if not v or not all(c.isalnum() or c in "_-" for c in v):
             raise ValueError(f"app id must be [A-Za-z0-9_-]+, got {v!r}")
         return v
+
+
+class IdentitySpec(CrucibleModel):
+    """Who an actor is inside the World's systems (M1 item 3; EnterpriseOps-Gym ``context`` / ``user_info``).
+
+    ``roles`` name ``WorldSpec.rbac`` entries; the World refuses a tool call no role allows (``permission_denied``, the
+    policy's error, visible like a 403). Apps receive the identity on every call (``App.identity(actor)``); servers
+    reached over HTTP get it as headers: ``x-user-id``, ``x-user-email``, ``x-user-name``, ``x-user-roles`` plus
+    ``headers`` (EnterpriseOps converts every context key ``k`` to ``x-k``)."""
+
+    user_id: str | int | None = None
+    name: str | None = None
+    email: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    attrs: dict[str, Any] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+
+    def http_headers(self) -> dict[str, str]:
+        out = {k: str(v) for k, v in (("x-user-id", self.user_id), ("x-user-email", self.email), ("x-user-name", self.name)) if v is not None}
+        if self.roles:
+            out["x-user-roles"] = ",".join(self.roles)
+        for k, v in self.headers.items():
+            out[k if k.lower().startswith("x-") else "x-" + k.lower().replace("_", "-")] = str(v)
+        return out
+
+
+class RoleSpec(CrucibleModel):
+    """A role's tool rights: ``allow`` and ``deny`` patterns over ``<app>.<tool>``; deny wins."""
+
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+
+
+class CatalogSpec(CrucibleModel):
+    """Which of its permitted tools an actor is shown (M1 item 3; EnterpriseOps-Gym modes ``oracle``, ``plus_N_tools``).
+
+    ``oracle`` patterns are always shown; ``distractors`` more are drawn, reproducibly from the World seed, from the
+    other tools (``-1``: all of them); ``hide`` patterns are never shown (``restricted_tools``). A tool outside the
+    catalog does not exist for the actor: calling it is ``unknown_tool``. Simulated actors and events are unaffected."""
+
+    oracle: list[str] = Field(default_factory=list)
+    distractors: int = Field(default=0, ge=-1)
+    hide: list[str] = Field(default_factory=list)
 
 
 class ActorSpec(CrucibleModel):
@@ -89,6 +162,8 @@ class ActorSpec(CrucibleModel):
     policy_doc: str | None = None  # path within an App (e.g. "policy:approval_matrix.md")
     transport: str | None = None  # human/peer: "a2a", "file_queue", "console"
     params: dict[str, Any] = Field(default_factory=dict)
+    identity: IdentitySpec | None = None
+    catalog: CatalogSpec | None = None
 
     def allows(self, qualified_tool: str) -> bool:
         return any(fnmatch.fnmatchcase(qualified_tool, pat) for pat in self.tools)
@@ -271,7 +346,12 @@ class IsolationSpec(CrucibleModel):
     - ``quiesce``: before any snapshot or verification, kill every process the policy user left behind;
     - ``egress_probe``: for ``no-network`` / ``allowlist`` worlds, refuse to start if the policy user can
       reach the internet (Karotte's self-test);
-    - ``pids_limit`` / ``memory``: resource caps for the policy's sandbox (fork bombs, memory floods).
+    - ``pids_limit`` / ``memory``: resource caps for the policy's sandbox (fork bombs, memory floods);
+    - ``firewall`` (None = ``auto``, ``off``, ``required``): per-uid iptables rules for the policy (Karotte): in
+      ``allowlist`` worlds it may reach only localhost, the sandbox's own addresses and the allowlisted hosts' IPs;
+      in every world the localhost ports of App servers and ``blocked_ports`` are closed to it, so it cannot reach an
+      App except through the World's tool gate. ``auto`` applies the rules where the sandbox allows (CAP_NET_ADMIN)
+      and leans on the provider and the egress probe otherwise; ``required`` refuses to start without them.
     """
 
     scrub_messages: bool = True
@@ -282,6 +362,8 @@ class IsolationSpec(CrucibleModel):
     egress_probe: bool = True
     pids_limit: int = Field(default=4096, ge=0)  # 0 = no limit (None was the pre-audit spelling and did not round-trip)
     memory: str | None = None
+    firewall: Literal["auto", "off", "required"] | None = None  # None: auto (keeps the hashes of specs written before M1 item 5)
+    blocked_ports: list[int] | None = None
 
     @field_validator("pids_limit", mode="before")
     @classmethod
@@ -349,6 +431,8 @@ class WorldSpec(VersionedDocument):
     isolation: IsolationSpec = Field(default_factory=IsolationSpec)
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
     verifier: VerifierSpec | None = None  # None: graded in the live World (``in_world``); hashes of older specs unchanged
+    rbac: dict[str, RoleSpec] | None = None  # role -> tool rights, enforced for actors with an identity (M1 item 3)
+    serial: bool | None = None  # True: one episode of this world at a time on this host (shared live services; M1 item 6)
     seed: int = 0
 
     @model_validator(mode="after")
@@ -394,6 +478,17 @@ class WorldSpec(VersionedDocument):
         for pol in self.policies:
             if pol.app not in app_ids:
                 raise ValueError(f"policy {pol.id!r} lives in unknown app {pol.app!r}")
+        for actor in self.actors:
+            roles = actor.identity.roles if actor.identity else []
+            if roles and self.rbac is None:
+                raise ValueError(f"actor {actor.id!r} has roles {roles} but the world defines no rbac")
+            unknown = sorted(set(roles) - set(self.rbac or {}))
+            if unknown:
+                raise ValueError(f"actor {actor.id!r} has unknown roles {unknown} (rbac defines {sorted(self.rbac or {})})")
+        for role, rs in (self.rbac or {}).items():
+            for pat in [*rs.allow, *rs.deny]:
+                if not known_app(pat):
+                    raise ValueError(f"rbac role {role!r} names a pattern of unknown app: {pat!r}")
         if self.verifier is not None:
             for pat in [*self.verifier.artifacts, *self.verifier.protected]:
                 app = pat.partition(":")[0]

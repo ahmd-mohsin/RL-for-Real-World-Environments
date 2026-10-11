@@ -60,7 +60,8 @@ class SqliteAdapter(StateAdapter):
             fingerprint=d["fingerprint"],
             blob=key,
             size_bytes=size,
-            meta={"tables": {t: v["count"] for t, v in d["tables"].items()}, "manifest": manifest_key},
+            meta={"tables": {t: v["count"] for t, v in d["tables"].items()}, "manifest": manifest_key,
+                  "columns": {t: v.get("columns", []) for t, v in rows["tables"].items()}},  # names for the row diff (collateral checks)
         )
 
     async def restore(self, ref: StateRef) -> None:

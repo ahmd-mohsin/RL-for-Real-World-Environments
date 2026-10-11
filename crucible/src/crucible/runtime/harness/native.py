@@ -18,6 +18,7 @@ masked failure; a limit stop follows the limit policy; a grade whose report is m
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import time
 from collections.abc import Callable
@@ -33,6 +34,33 @@ from crucible.world.custody import CustodyViolation
 from crucible.world.verifier import hand_off, verifier_world, wants_separate
 
 LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
+
+
+@dataclass
+class TaskStep:
+    """One step of a multi-step task (M1 item 4; Harbor ``StepConfig``). ``min_reward``: a float gates the step's
+    ``reward``; a dict gates each key of its flat reward (``reward``, ``outcome``, ``gate/<g>``, ``check/<c>``), a
+    missing key counting as below. ``setup(world)`` runs before the step opens (new records arrive, a file changes)."""
+
+    name: str
+    instruction: str | dict[str, str]
+    grade: Callable[[Any, Path], Any]
+    min_reward: float | dict[str, float] | None = None
+    max_steps: int | None = None
+    fresh_context: bool = False
+    setup: Callable[[Any], Any] | None = None
+    healthcheck: tuple[str, Any] | None = None  # (app id, HealthcheckSpec) checked after setup, before the step opens
+
+
+def _below(flat: dict[str, float], gate: float | dict[str, float] | None) -> str | None:
+    """Why a step's flat reward fails its gate, or None (Harbor ``_min_reward_failure``)."""
+    if gate is None:
+        return None
+    for key, threshold in ({"reward": gate} if isinstance(gate, int | float) else gate).items():
+        actual = flat.get(key, float("-inf"))
+        if actual < threshold:
+            return f"{key}={actual} below min_reward {threshold}"
+    return None
 
 
 def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str, policies: dict[str, Any] | None = None) -> None:
@@ -91,6 +119,107 @@ class NativeHarness:
         r = json.loads(rec.read_text())
         return (prev, ck) if r.get("mask_sample") and (r.get("failure") or {}).get("stage") == "agent" else None
 
+    async def _grade(self, attempt: Attempt, world: Any, grade_fn: Callable, vdir: Path, gdir: Path, artifacts_dir: Path, res: HarnessResult,
+                     *, close_source: bool = True) -> Any:
+        """Grade ``world`` with ``grade_fn(world, gdir)``: in place, or (``verifier.mode: separate``) in a fresh World
+        restored from a quiesced, custody-checked snapshot. Writes ``vdir/report.json`` (and ``handoff.json``)."""
+        vdir.mkdir(parents=True, exist_ok=True)
+        if wants_separate(world):  # M1: grade a restored copy in a fresh World; the policy's World is closed first
+            with boundary("verification"):
+                try:
+                    final, handoff = await hand_off(world, artifacts_dir=artifacts_dir)
+                except CustodyViolation as e:  # the policy handed in what the verifier must not touch: scored 0, never masked
+                    (vdir / "custody.json").write_text(json.dumps({"problems": e.problems}, indent=1))
+                    raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="verification", reason=str(e)[:400], blame="policy", mask=False)) from e
+            (vdir / "handoff.json").write_text(json.dumps(handoff.to_dict(), indent=1))
+            with boundary("verification"):
+                async with verifier_world(world, final, workdir=vdir / "world", close_source=close_source) as vworld:
+                    rep = await grade_fn(vworld, gdir)
+            res.artifacts[f"handoff:{vdir.relative_to(attempt.dir)}"] = str((vdir / "handoff.json").relative_to(attempt.dir))
+        else:
+            with boundary("verification"):
+                rep = await grade_fn(world, gdir)
+        (vdir / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
+        return rep
+
+    async def _run_steps(self, attempt: Attempt, world: Any, policies: dict[str, Any], res: HarnessResult) -> tuple[Any, dict[str, Any]]:
+        """A multi-step task in one World (M1 item 4; Harbor ``trial/multi_step.py``). Each ``TaskStep``: optional setup,
+        its instruction opened in the running episode (``World.begin_task_step``), a policy segment (the same policy
+        objects, so the same context, unless ``fresh_context``), its own grade, and its ``min_reward`` gate: a step
+        below its gate ends the task. Reward (``task.step_reward``): ``mean`` over every declared step (a step never
+        reached scores 0: stopping early cannot raise the mean), ``final`` (the last declared step; 0 if not reached),
+        or ``mean_executed`` (Harbor's mean over the steps that ran)."""
+        from crucible.verify.runtime.plan import flat_reward
+
+        steps = list(attempt.task.steps)
+        strategy = getattr(attempt.task, "step_reward", "mean")
+        if strategy not in ("mean", "final", "mean_executed"):
+            raise StageFailure(Failure(kind="verifier_error", stage="agent", reason=f"unknown step_reward {strategy!r}", blame="task"))
+        names = [st.name for st in steps]
+        if len(set(names)) != len(names):
+            raise StageFailure(Failure(kind="verifier_error", stage="agent", reason=f"duplicate step names {names}", blame="task"))
+        results: list[dict[str, Any]] = []
+        used = [policies]
+        total_steps = 0
+        ep = None
+        for i, st in enumerate(steps):
+            sdir = attempt.dir / "steps" / f"{i:02d}-{st.name}"
+            sdir.mkdir(parents=True, exist_ok=True)
+            with boundary("agent"):
+                if i == 0:
+                    await world.reset()
+                if st.setup is not None:
+                    await st.setup(world)
+                if st.healthcheck is not None:
+                    await world.check_health(st.healthcheck[0], st.healthcheck[1])
+                obs = await world.begin_task_step(st.name, i, st.instruction)
+                if i > 0 and st.fresh_context:
+                    policies = attempt.policy.make(attempt)
+                    for p in policies.values():
+                        if hasattr(p, "begin_episode"):
+                            p.begin_episode(attempt.id)
+                    used.append(policies)
+                limits = dataclasses.replace(self.limits, max_steps=st.max_steps) if st.max_steps else self.limits
+                ep = await run_episode(world, policies, limits=limits, reset=False, start_obs=obs)
+            total_steps += ep.steps
+            if ep.masked:
+                f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
+                raise StageFailure(failure(f["kind"], "agent", f"step {st.name}: {f.get('reason', '')}"))
+            if any(f.get("kind") == "crucible:policy_misbehavior" for f in ep.failures):
+                raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="agent", reason=f"step {st.name}", blame="policy", mask=False))
+            if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
+                raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=f"step {st.name}: {ep.stop_condition}", mask=True, blame="harness"))
+            broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
+            if broken:  # the policy broke its environment: its own outcome, scored 0, never masked
+                raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason=f"step {st.name}: " + "; ".join(broken)[:400]))
+            t0 = time.monotonic()
+            rep = await self._grade(attempt, world, st.grade, sdir / "verifier", sdir / "grade", sdir / "artifacts", res,
+                                    close_source=i == len(steps) - 1)
+            if rep.infra.get("status") == "masked":
+                raise StageFailure(classify_verifier(rep.infra))
+            flat = flat_reward(rep.reward_json()) or {"reward": rep.reward}
+            why = _below(flat, st.min_reward)
+            results.append({"name": st.name, "reward": rep.reward, "outcome": rep.outcome, "gates": rep.gate_bits(), "stop": ep.stop_condition,
+                            "steps": ep.steps, "passed_gate": why is None, "verification_s": round(time.monotonic() - t0, 3), **({"abort": why} if why else {})})
+            if why is not None:
+                break
+        rewards = [r["reward"] for r in results]
+        if strategy == "final":
+            reward = rewards[-1] if len(results) == len(steps) else 0.0
+        elif strategy == "mean_executed":
+            reward = sum(rewards) / len(rewards)
+        else:
+            reward = sum(rewards) / len(steps)
+        res.grade.update({"steps": results, "step_reward": strategy, "reward": round(reward, 6), "completed_steps": len(results),
+                          "gates": {f"step/{r['name']}": int(r["passed_gate"]) for r in results}})
+        assert ep is not None
+        merged: dict[str, list] = {}
+        for pols in used:
+            for a, p in pols.items():
+                merged.setdefault(a, []).extend(getattr(p, "model_calls", []))
+        ep = dataclasses.replace(ep, steps=total_steps, model_calls=merged, trace=world.to_trace())
+        return ep, policies
+
     async def run(self, attempt: Attempt) -> HarnessResult:
         from crucible.runtime import checkpoint
 
@@ -121,9 +250,12 @@ class NativeHarness:
                 if resume:
                     start = await checkpoint.resume(world, policies, observers, resume[1], prev_dir=resume[0], new_dir=attempt.dir)
                     res.artifacts["resumed_from"] = f"{resume[0].name}@step{start}"
-                ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every) if self.checkpoint_every else None
-                ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
-                                       after_step=ckpt)
+                if getattr(attempt.task, "steps", None):  # M1 item 4: a multi-step task (Harbor multi-step trials)
+                    ep, policies = await self._run_steps(attempt, world, policies, res)
+                else:
+                    ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every) if self.checkpoint_every else None
+                    ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
+                                           after_step=ckpt)
                 if observers:
                     res.grade["progress"] = ep.observed[0]
             t["agent"] = time.monotonic() - t0
@@ -138,34 +270,22 @@ class NativeHarness:
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))
-            broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
+            broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") and res.grade.get("steps") is None else []
             if broken:  # the policy broke its environment: its own outcome, scored 0, never masked
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
             if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
                 raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=ep.stop_condition, mask=True, blame="harness"))
             t0 = time.monotonic()
-            (attempt.dir / "verifier").mkdir(exist_ok=True)
-            if wants_separate(world):  # M1: grade a restored copy in a fresh World; the policy's World is closed first
-                with boundary("verification"):
-                    try:
-                        final, handoff = await hand_off(world, artifacts_dir=attempt.dir / "artifacts")
-                    except CustodyViolation as e:  # the policy handed in what the verifier must not touch: scored 0, never masked
-                        (attempt.dir / "verifier" / "custody.json").write_text(json.dumps({"problems": e.problems}, indent=1))
-                        raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="verification", reason=str(e)[:400], blame="policy", mask=False)) from e
-                (attempt.dir / "verifier" / "handoff.json").write_text(json.dumps(handoff.to_dict(), indent=1))
-                with boundary("verification"):
-                    async with verifier_world(world, final, workdir=attempt.dir / "verifier" / "world") as vworld:
-                        rep = await attempt.task.grade(vworld, attempt.dir / "grade")
-                res.artifacts["handoff"] = "verifier/handoff.json"
+            if res.grade.get("steps") is not None:  # graded step by step inside _run_steps
+                t["verification"] = sum(r.get("verification_s", 0.0) for r in res.grade["steps"])
+                res.reward, res.gates = res.grade["reward"], res.grade.get("gates", {})
             else:
-                with boundary("verification"):
-                    rep = await attempt.task.grade(world, attempt.dir / "grade")
-            t["verification"] = time.monotonic() - t0
-            (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
-            res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
-            if rep.infra.get("status") == "masked":
-                raise StageFailure(classify_verifier(rep.infra))
-            res.reward, res.gates = rep.reward, rep.gate_bits()
+                rep = await self._grade(attempt, world, attempt.task.grade, attempt.dir / "verifier", attempt.dir / "grade", attempt.dir / "artifacts", res)
+                t["verification"] = time.monotonic() - t0
+                res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
+                if rep.infra.get("status") == "masked":
+                    raise StageFailure(classify_verifier(rep.infra))
+                res.reward, res.gates = rep.reward, rep.gate_bits()
             pen = self.limit_policy.penalty(ep.stop_condition) if ep.stop_condition in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty, not its partial grade
                 res.grade["limit_penalty"] = pen

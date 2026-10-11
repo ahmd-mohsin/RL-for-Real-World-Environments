@@ -7,13 +7,19 @@ Tool surface, in order of preference:
 2. ``sql_tools: true``: generic ``sql_query`` (read-only) and, if ``sql_write`` is true, ``sql_execute``.
 
 Params: ``tools_module``, ``transport``, ``schema_sql`` / ``seed_db`` (host files copied in at
-provision), ``sql_tools``, ``sql_write``, ``env`` (extra env for the server process).
+provision), ``seed_sql`` (one or more host SQL files of data statements run after the schema, e.g. EnterpriseOps-Gym
+seed dumps), ``sql_tools``, ``sql_write``, ``env`` (extra env for the server process).
 State: ``sql`` adapter with ``path``.
+
+Seeding is deterministic: while the schema and seed scripts run, SQLite's ``now`` (``datetime('now')``, ``date()``,
+``strftime(fmt)``, ...) is the World clock's ``t0`` (else ``virtual_epoch``), so two provisions of one spec hold the same
+bytes (EnterpriseOps-Gym seed dumps call ``datetime('now')`` throughout).
 """
 
 from __future__ import annotations
 
 import shlex
+import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -24,6 +30,27 @@ from crucible.world.apps.base import App, ToolError
 from crucible.world.state.base import snippet
 
 SQL_SNIPPET = snippet("sql")
+
+
+def pin_now(con: sqlite3.Connection, now: str) -> None:
+    """Make SQLite's ``now`` a fixed instant on ``con``: the date/time functions are overridden by wrappers that swap a
+    ``'now'`` time value (or a missing one) for ``now`` and evaluate the built-in on a private in-memory connection."""
+    aux = sqlite3.connect(":memory:", check_same_thread=False)
+
+    def wrap(name: str, at: int):
+        def f(*args):
+            a = list(args)
+            if len(a) <= at:
+                a.append(now)
+            elif isinstance(a[at], str) and a[at].strip().lower() == "now":
+                a[at] = now
+            return aux.execute(f"SELECT {name}({','.join('?' * len(a))})", a).fetchone()[0]
+
+        return f
+
+    for name in ("datetime", "date", "time", "julianday", "unixepoch"):
+        con.create_function(name, -1, wrap(name, 0), deterministic=True)
+    con.create_function("strftime", -1, wrap("strftime", 1), deterministic=True)
 
 
 class SqliteApp(App):
@@ -41,20 +68,36 @@ class SqliteApp(App):
     def db_path(self) -> str:
         return self.state_params["path"]
 
+    def _seed_now(self) -> str:
+        from crucible.world.clock import parse_time
+
+        clock = self.ctx.clock
+        t0 = clock.spec.t0 if clock is not None and clock.spec is not None else self.spec.params.get("virtual_epoch", "2026-01-05T09:00:00Z")
+        return parse_time(t0).strftime("%Y-%m-%d %H:%M:%S")
+
     async def provision(self) -> None:
         p = self.spec.params
-        if p.get("seed_db"):
+        seeds = p.get("seed_sql") or []
+        seeds = [seeds] if isinstance(seeds, str) else list(seeds)
+        if p.get("seed_db") and not seeds:
             src = self.ctx.host_seed(p["seed_db"])
             await self.ctx.exec.run(f"mkdir -p {shlex.quote(str(Path(self.db_path).parent))}")
             await self.ctx.exec.push_file(src, self.db_path)
-        elif p.get("schema_sql"):
-            sql = self.ctx.host_seed(p["schema_sql"]).read_text()
+        elif p.get("schema_sql") or seeds:
             with tempfile.TemporaryDirectory() as d:
                 local = Path(d) / "seed.db"
+                if p.get("seed_db"):
+                    shutil.copyfile(self.ctx.host_seed(p["seed_db"]), local)
                 con = sqlite3.connect(local)
-                con.executescript(sql)
-                con.commit()
-                con.close()
+                try:
+                    pin_now(con, self._seed_now())
+                    if p.get("schema_sql"):
+                        con.executescript(self.ctx.host_seed(p["schema_sql"]).read_text())
+                    for f in seeds:
+                        con.executescript(self.ctx.host_seed(f).read_text())
+                    con.commit()
+                finally:
+                    con.close()
                 await self.ctx.exec.run(f"mkdir -p {shlex.quote(str(Path(self.db_path).parent))}")
                 await self.ctx.exec.push_file(local, self.db_path)
 

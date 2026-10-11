@@ -52,6 +52,7 @@ class Isolation:
     private: list[str] = field(default_factory=list)  # App-owned state files: root 0600 (re-applied after restores)
     egress: dict[str, Any] | None = None
     root_exec: Exec | None = None
+    firewall: dict[str, Any] | None = None
 
 
 def _abs(root: str, base: str) -> str:
@@ -117,6 +118,7 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
     await _seal(out)
     if base_path != "/":
         await root_exec.run(f"chmod 711 {shlex.quote(base_path)}")  # traversable to reach App roots, not listable
+    out.firewall = await _firewall(world, guard, uid)
     if iso.egress_probe and spec.network in ("no-network", "allowlist"):
         allow = list(spec.allowed_hosts) if spec.network == "allowlist" else []
         probe = await guard.call("egress", {"uid": uid, "extra_targets": egress_targets or [], "allowed": allow})
@@ -126,6 +128,44 @@ async def isolate_world(world: World, root_exec: Exec, *, base_path: str = "/", 
         if probe.get("lanes_ok") is False:  # the allowlist is enforced but too narrow: the agent would fail for the environment's reasons
             log.warning("allowlisted hosts unreachable from the policy user: %s", {k: v for k, v in probe["allowed_reachable"].items() if not v})
     return out
+
+
+def app_ports(world: World) -> list[int]:
+    """Localhost ports of the World's App servers (websites, MCP sidecars): the policy reaches Apps through tools only."""
+    from urllib.parse import urlsplit
+
+    ports = set()
+    for app in world.apps.values():
+        for attr in ("url", "mcp_url"):
+            try:
+                u = getattr(app, attr, None)
+            except Exception:  # noqa: BLE001, S112 -- a property that needs a started server
+                continue
+            if isinstance(u, str) and u:
+                parts = urlsplit(u)
+                if parts.hostname in ("127.0.0.1", "localhost", "::1", "0.0.0.0") and parts.port:
+                    ports.add(parts.port)
+    return sorted(ports)
+
+
+async def _firewall(world: World, guard: Guard, uid: int) -> dict[str, Any] | None:
+    """Per-uid firewall (``IsolationSpec.firewall``; guard op ``firewall``, ported from Karotte)."""
+    spec, iso = world.spec, world.spec.isolation
+    want = iso.firewall or "auto"
+    if want == "off":
+        return None
+    ports = sorted(set(iso.blocked_ports or []) | set(app_ports(world)))
+    mode = "allowlist" if spec.network == "allowlist" else "ports"
+    if mode == "ports" and not ports:
+        return None
+    rep = await guard.call("firewall", {"uid": uid, "mode": mode, "allowed": list(spec.allowed_hosts), "blocked_ports": ports})
+    if not rep.get("took"):
+        if want == "required":
+            raise IsolationError(f"firewall required but not enforced: {rep.get('error') or ('gVisor ignores iptables' if rep.get('gvisor') else rep)}")
+        log.warning("per-uid firewall not applied (%s); relying on the provider's network policy and the egress probe", rep.get("error"))
+    if rep.get("unresolved"):
+        log.warning("allowlisted names the firewall could not resolve to IPs (wildcards stay closed to the policy): %s", rep["unresolved"])
+    return rep
 
 
 async def before_restore(iso: Isolation) -> None:
