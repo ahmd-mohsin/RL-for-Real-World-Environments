@@ -297,7 +297,7 @@ export const m0 = () => ({
     }
     s.vaultSlots = Array.from({ length: 8 }, (_, i) => V(2.3 - 0.24 + (i % 2) * 0.48, 0.24 + Math.floor(i / 2) * 0.34, 0.55));
     v.label('record store', anchor(vault, 0, 1.75, 0), { cls: '' });
-    s.carts = ['toy', 'coding', 'finance_ap'].map((n, i) => {
+    s.carts = ['coding', 'accounts payable', 'your domain'].map((n, i) => {
       const c = cart(0.5, 0.12, 0.62, i === 2 ? PAL.cardinal : undefined); c.position.set(-1.6 + i * 0.9, 0.12, 2.3); v.add(c);
       const lb = v.label(n, anchor(c, 0, 0.3, 0), { cls: 'code' }); lb.opacity = 0;
       return { c, lb };

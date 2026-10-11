@@ -8,18 +8,18 @@ const $ = (q, el = document) => el.querySelector(q);
 const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 
 // ------------------------------------------------------------------------------------------------- studio terminal
-// Real output of the CLI on the toy pack (CPU only, no model calls).
+// Real output of the CLI on the accounts payable and coding packs (CPU only, no model calls).
 const SESSION = [
-  [['$', 'crucible pack check toy --level semantic'],
-    ['o', '  pass  static.hooks       credit, tasks, forge, policies, fixtures'], ['o', '  pass  fixture.cases      8 case(s) graded exactly as expected'],
-    ['g', '  pass  semantic.gold      gold reaches 1.0'], ['g', '  pass  semantic.noop      no-op stays below 1.0']],
-  [['$', 'crucible label --pack toy --out label'], ['k', 'labelled 24 traces -> label']],
-  [['o', "  outcomes {'good': 16, 'bad': 6, 'unknown': 2}  signals 34  credited 24"]],
-  [['o', '  sft 18  dpo 0 (best_vs_worst 0, correction_pivot 0)  kto 22'], ['c', '  next: crucible build toy']],
-  [['$', 'crucible build toy --out build'], ['k', 'ingested 24 traces; forged 5 tasks']],
-  [['g', '  accepted 5/5']],
-  [['o', '  exported 5 (canonical reward.json + steps.jsonl) -> build/export']],
-  [['o', "  bench {'anchor': 5, 'fresh': 2}"], ['g', '  oracle 1.0  ·  half 0.12  ·  noop 0.0'], ['c', '  report build/runs/bench-toy-build/bench/report.html']],
+  [['$', 'crucible pack check finance_ap --level semantic'],
+    ['o', '  pass  static.hooks       tasks, generator, stages, policies, fixtures'], ['o', '  pass  fixture.cases      9 case(s) graded exactly as expected'],
+    ['g', '  pass  semantic.gold      2 task(s): gold reaches 1.0'], ['g', '  pass  semantic.noop      2 task(s): no-op stays below 1.0']],
+  [['$', 'crucible label --pack coding --out label'], ['k', 'labelled 66 traces -> label']],
+  [['o', "  outcomes {'good': 49, 'bad': 13, 'unknown': 4}  signals 28  credited 11"]],
+  [['o', '  sft 3  dpo 0 (best_vs_worst 0, correction_pivot 0)  kto 62']],
+  [['$', 'crucible export --to canonical --pack finance_ap --out export'], ['o', '  "finance_ap/invoices/s1-n7@1": {']],
+  [['g', '    "reward": 1.0,'], ['o', '    "steps": 44,']],
+  [['o', '  "finance_ap/invoices/s2-n7@1": {'], ['g', '    "reward": 1.0,'], ['o', '    "steps": 44,']],
+  [['$', 'crucible bench run finance_ap --out runs'], ['o', 'scripted:approve_all: mean 0.0 pass@1 0.0'], ['o', 'scripted:noop: mean 0.0 pass@1 0.0'], ['g', 'scripted:oracle: mean 1.0 pass@1 1.0'], ['c', 'report runs/bench-finance_ap-bench/bench/report.html']],
 ];
 const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const term = $('#term-out');

@@ -400,8 +400,8 @@ export const fsm = () => ({
 });
 
 // ================================================================================================================= M13
-const SCORES = { 'frontier A': [0, 1, 0, 1, 1, 1, 1], 'frontier B': [0, 0.67, 1, 0.5, 1, 0.5, 1], 'open model': [0, 0.67, 1, 0, 1, 0, 1] };
-const TASKS = ['help desk', 'backlog', 'task 1', 'task 2', 'task 3', 'task 4', 'task 5'];
+const SCORES = { 'agent A': [0, 1, 0, 1, 1, 1, 1], 'agent B': [0, 0.67, 1, 0.5, 1, 0.5, 1], 'agent C': [0, 0.67, 1, 0, 1, 0, 1] };
+const TASKS = ['task 1', 'task 2', 'task 3', 'task 4', 'task 5', 'task 6', 'task 7'];
 export const m13 = () => ({
   size: 4.8, minWidth: 6.8, target: [0, 0.7, 0], az: 0.62, elev: 0.55,
   setup(v) {
@@ -419,7 +419,7 @@ export const m13 = () => ({
     s.seal = cyl(0.11, 0.03, { color: PAL.cardinal, kind: 'gloss', edge: null }); s.seal.position.set(0, 2.29, 0); v.add(s.seal);
     s.sealL = v.label('sealed test items', anchor(s.env, 0, 0.35, 0), { cls: 'red' });
     const ruler = block(5.0, 0.04, 0.08); ruler.position.set(0, 2.55, -1.3); v.add(ruler); s.ruler = ruler; v.setAlpha(ruler, 0);
-    s.marks = [['A +0.60', 0.6], ['B −0.01', -0.01], ['open −0.59', -0.59]].map(([n, th], i) => {
+    s.marks = [['A +0.60', 0.6], ['B −0.01', -0.01], ['C −0.59', -0.59]].map(([n, th], i) => {
       const m = sphere(0.09, { color: i === 2 ? PAL.grey : PAL.cardinal }); m.position.set(th * 2.6, 2.62, -1.3); v.add(m); v.setAlpha(m, 0);
       const l = v.label(n, anchor(m, 0, 0.28, 0), { cls: 'code' }); l.opacity = 0; return { m, l };
     });
@@ -502,7 +502,7 @@ export const m14 = () => ({
     const s = v.s = {};
     const con = block(4.6, 0.3, 1.5); con.position.set(-0.4, 0, -0.9); v.add(con);
     v.label('shared base', anchor(con, -1.9, 0.45, 0.8), { cls: 'ghost', align: 'left' });
-    const names = ['template', 'help desk', 'coding', 'accounts payable'];
+    const names = ['template', 'coding', 'accounts payable', 'your domain'];
     s.carts = names.map((n, i) => {
       const c = cart(0.62, 0.16, 0.8, i === 3 ? PAL.cardinal : undefined); c.position.set(-2.0 + i * 1.07, 1.6, 0.6); v.add(c);
       const l = v.label(n, anchor(c, 0, 0.32, 0), { cls: 'code' }); c.userData.slot = V(-2.0 + i * 1.07, 0.3, -0.9);
@@ -568,14 +568,14 @@ export const studio = () => ({
   steps: (() => {
     const hi = (v, s, list) => { [...s.A, ...s.B].forEach(x => { const on = list.includes(x); x.l.el.classList.toggle('tag', on); v.tw.to(x.o.position, 'y', on ? 0.22 : 0.05, 0.5); }); };
     return [
-      { say: 'Start with the workflow logs of a pack. Crucible checks the pack at all levels.', go(v) { const s = v.s; s.fa.target = 0; s.fb.target = 0; hi(v, s, []); } },
+      { say: 'Start with the workflow logs of your domain. Crucible checks the pack at all levels.', go(v) { const s = v.s; s.fa.target = 0; s.fb.target = 0; hi(v, s, []); } },
       { say: 'The label command reads the logs, removes secrets and finds the expert feedback.', go(v) { const s = v.s; s.fa.target = 1; s.fb.target = 0; hi(v, s, [s.A[0]]); } },
       { say: 'Milestones and progress give each agent turn its step score.', go(v) { const s = v.s; hi(v, s, [s.A[1]]); } },
       { say: 'It writes training rows with their scores, preference pairs and good or bad examples.', go(v) { const s = v.s; hi(v, s, [s.A[2]]); } },
       { say: 'The build command makes new tasks from the same logs. It does not use paid models.', go(v) { const s = v.s; s.fa.target = 0; s.fb.target = 1; hi(v, s, [s.B[0]]); } },
       { say: 'Each new task must pass the quality checks. No model takes part in them.', go(v) { const s = v.s; hi(v, s, [s.B[1]]); } },
-      { say: 'The solution replays into standard reward and step files.', go(v) { const s = v.s; hi(v, s, [s.B[2]]); } },
-      { say: 'The accepted tasks and new items run as a benchmark with a full report.', go(v) { const s = v.s; hi(v, s, [s.B[3]]); } },
+      { say: 'The export step replays each solution into a reward file and a step file.', go(v) { const s = v.s; hi(v, s, [s.B[2]]); } },
+      { say: 'The benchmark runs the accepted tasks and writes a full report.', go(v) { const s = v.s; hi(v, s, [s.B[3]]); } },
     ];
   })(),
 });

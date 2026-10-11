@@ -247,7 +247,7 @@ section { padding-block: clamp(64px, 9vw, 120px); }
 .note { font: 400 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--muted); }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0; box-shadow: var(--ring); margin-top: 6px; }
 .checks div { padding: 9px 11px; box-shadow: inset -1px -1px 0 var(--hair); font-size: 13px; line-height: 1.35; color: var(--ink-2); display: grid; gap: 2px; }
-.checks b { font: 600 10px var(--mono); color: var(--cardinal); letter-spacing: .06em; }
+.checks div::before { content: ""; display: block; width: 7px; height: 7px; margin-bottom: 8px; background: var(--cardinal); transform: rotate(45deg); }
 
 /* -------------------------------------------------------------------------------------------------------- footer */
 footer { padding-block: 48px 64px; border-top: 1px solid var(--hair); }
@@ -429,7 +429,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Clear source.</b> Each record names the records it came from.</span></li>
               <li><span><b>Pack registry.</b> Packs add themselves. The base does not depend on them.</span></li>
             </ul>
-              <div class="stats"><div><b>11</b><span>record types pass a round trip</span></div><div><b>7 / 7</b><span>planted errors rejected</span></div><div><b>13</b><span>feedback types</span></div></div>
             </div>
           </div>
         </article>
@@ -454,7 +453,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Locked sandbox.</b> The agent cannot get out to the network.</span></li>
               <li><span><b>World clock.</b> Replies and rule changes occur on world time, so runs repeat exactly.</span></li>
             </ul>
-              <div class="stats"><div><b>15 / 15</b><span>GPU restores identical</span></div><div><b>5 / 5</b><span>seed worlds pass 3 of 3 runs</span></div><div><b>&lt; 5 ms</b><span>time added to each step</span></div></div>
             </div>
           </div>
         </article>
@@ -478,7 +476,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Checked facts.</b> Numbers and dates must match exactly.</span></li>
               <li><span><b>Real reviewers.</b> Crucible replays real review comments at the matching code.</span></li>
             </ul>
-              <div class="stats"><div><b>0 / 225</b><span>made up sentences</span></div><div><b>0.977</b><span>reviewer location precision</span></div><div><b>30 / 30</b><span>unknown questions get “no record”</span></div></div>
             </div>
           </div>
         </article>
@@ -496,7 +493,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">Crucible reads ticket and ERP exports, audit logs, model traffic, code history, test reports and policy documents. It turns them into one record format. It removes secrets before it stores anything.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible ingest toy</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible ingest my_pack</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -505,7 +502,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Same input, same result.</b> A second import gives identical records.</span></li>
               <li><span><b>Answer lookups marked.</b> Crucible marks lookups of the answer key and does not score them.</span></li>
             </ul>
-              <div class="stats"><div><b>20 / 20</b><span>planted secrets removed</span></div><div><b>106 / 106</b><span>records in the correct format</span></div><div><b>9,684</b><span>events from one session</span></div></div>
             </div>
           </div>
         </article>
@@ -521,7 +517,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">Crucible finds expert feedback in the records. It links each item to the step that it judges. It gives more weight to feedback that predicts what happens next.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible signals toy</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible signals my_pack</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -530,7 +526,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Learned trust.</b> Crucible gives less weight to weak feedback.</span></li>
               <li><span><b>Before and after pairs.</b> Each corrected error becomes a wrong and fixed pair.</span></li>
             </ul>
-              <div class="stats"><div><b>1.0</b><span>type accuracy on test labels</span></div><div><b>0.987</b><span>trust in corrections</span></div><div><b>0.043</b><span>weight of rejections</span></div></div>
             </div>
           </div>
         </article>
@@ -546,7 +541,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">Crucible splits each record into steps and rebuilds the state after each step. It finds milestones that it can check in changes, test results and reviews. A tracker tells an agent how far it is.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible model toy</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible model my_pack</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -555,7 +550,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Stages from data.</b> “A before B” must occur in 90% of records or more.</span></li>
               <li><span><b>No guesses.</b> Crucible sets aside records that do not replay.</span></li>
             </ul>
-              <div class="stats"><div><b>94.9%</b><span>attempts replayed exactly</span></div><div><b>κ 0.87</b><span>tracker agrees with people</span></div><div><b>31 / 31</b><span>recorded checks repeated</span></div></div>
             </div>
           </div>
         </article>
@@ -582,7 +576,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Capped partial credit.</b> Partial work always scores below success.</span></li>
               <li><span><b>Branch values.</b> Crucible estimates them from restored snapshots.</span></li>
             </ul>
-              <div class="stats"><div><b>6 / 6</b><span>reward safety tests pass</span></div><div><b>0.72</b><span>progress accuracy, judge 0.67</span></div><div><b>1 and 0</b><span>score of the solution and of the start</span></div></div>
             </div>
           </div>
         </article>
@@ -606,7 +599,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Fair timing.</b> Crucible marks noisy runs and does not fail them.</span></li>
               <li><span><b>Cheat tests.</b> Control runs prove that each defense works.</span></li>
             </ul>
-              <div class="stats"><div><b>11 / 11</b><span>cheats score zero</span></div><div><b>8 / 8</b><span>past GPU grades repeated</span></div><div><b>36 / 36</b><span>recorded results match</span></div></div>
             </div>
           </div>
         </article>
@@ -624,7 +616,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">Special roles turn work records into new worlds and tasks. The solution and the hidden checks exist before an agent tries the task. Each role sees only the inputs that it needs.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible forge toy</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible forge my_pack</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -633,7 +625,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Traps from real errors.</b> Each trap comes from real expert feedback.</span></li>
               <li><span><b>Correct difficulty.</b> Crucible aims for a training pass rate from 0.1 to 0.7.</span></li>
             </ul>
-              <div class="stats"><div><b>5 / 5</b><span>new tasks accepted</span></div><div><b>1.0</b><span>planted errors caught</span></div><div><b>56 / 56</b><span>files rebuilt from parts</span></div></div>
             </div>
           </div>
         </article>
@@ -649,7 +640,7 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">The gate proves that the solution passes and that empty attempts fail. It proves that the checks catch planted errors, that no answer leaks and that the checks resist attacks. No model decides a gate. Each new error type becomes a new check.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible accept toy</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible accept my_pack</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -658,7 +649,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Only changes again.</b> An edit checks again only the parts that it changed.</span></li>
               <li><span><b>A growing list.</b> Each new check runs on all tasks again.</span></li>
             </ul>
-              <div class="stats"><div><b>18</b><span>checks that run</span></div><div><b>23</b><span>error types on file</span></div><div><b>32</b><span>attack attempts for each task</span></div></div>
             </div>
           </div>
         </article>
@@ -684,7 +674,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Continue from any point.</b> Crucible does not run finished work again.</span></li>
               <li><span><b>Score again from results.</b> Crucible scores a run again without a new agent run.</span></li>
             </ul>
-              <div class="stats"><div><b>8 / 8</b><span>fault types removed</span></div><div><b>1.0000</b><span>progress total after a crash</span></div><div><b>$0</b><span>to score a run again</span></div></div>
             </div>
           </div>
         </article>
@@ -709,7 +698,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Corrections for old data.</b> Crucible changes the weight of each token for its age.</span></li>
               <li><span><b>A score for each turn.</b> The step scores go onto the tokens of each turn.</span></li>
             </ul>
-              <div class="stats"><div><b>0.44 → 1.00</b><span>test reward, small model on one GPU</span></div><div><b>2</b><span>versions old at most</span></div><div><b>6e-7</b><span>difference across GPUs</span></div></div>
             </div>
           </div>
         </article>
@@ -733,7 +721,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Exact total.</b> The step scores add up to the final reward.</span></li>
               <li><span><b>Small storage.</b> Crucible stores only the new tokens of each step.</span></li>
             </ul>
-              <div class="stats"><div><b>1,114,725</b><span>tokens in one task</span></div><div><b>7,623</b><span>steps and 4 summaries</span></div><div><b>1.0000</b><span>score total after a crash</span></div></div>
             </div>
           </div>
         </article>
@@ -757,7 +744,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Helpers get credit.</b> Helper calls share the credit of the call that made them.</span></li>
               <li><span><b>Exact restore.</b> Crucible replays the memory log and checks it.</span></li>
             </ul>
-              <div class="stats"><div><b>1.0</b><span>backlog of 12 tickets solved</span></div><div><b>$0.35</b><span>cost of that task</span></div><div><b>0.67</b><span>same model in a simple tool loop</span></div></div>
             </div>
           </div>
         </article>
@@ -781,7 +767,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>No weaker checks.</b> A change can only make the checks stronger.</span></li>
               <li><span><b>Run log.</b> A stopped loop continues from where it stopped.</span></li>
             </ul>
-              <div class="stats"><div><b>3 / 3</b><span>changes verified</span></div><div><b>2</b><span>real check errors found</span></div><div><b>$0.46</b><span>cost of the full run</span></div></div>
             </div>
           </div>
         </article>
@@ -808,7 +793,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>One scale.</b> Crucible puts models and items on one scale.</span></li>
               <li><span><b>Paired tests.</b> Crucible compares two versions on the same items.</span></li>
             </ul>
-              <div class="stats"><div><b>Identical</b><span>report on each run</span></div><div><b>&gt; 0.9</b><span>scale finds the true ranks</span></div><div><b>p &lt; 0.001</b><span>paired test for regressions</span></div></div>
             </div>
           </div>
         </article>
@@ -833,7 +817,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Same files.</b> Each replay gives the same reward file.</span></li>
               <li><span><b>Marks stay.</b> Crucible never writes a removed run as zero.</span></li>
             </ul>
-              <div class="stats"><div><b>5 / 5</b><span>new tasks replay at 1.0</span></div><div><b>2</b><span>files for each run</span></div><div><b>0</b><span>removed runs written as zero</span></div></div>
             </div>
           </div>
         </article>
@@ -849,8 +832,8 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
           <div class="mod-body">
             <div class="mod-l">
               <p class="what">A pack holds all parts that are specific to a domain. These are sources, scoring rules, task makers, agents and test cases. Crucible checks each pack at three levels before it uses it.</p>
-              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible pack new demo --dir ./demo
-<span class="p">$ </span>crucible pack check ./demo --level semantic</pre></div>
+              <div class="snip"><button class="copy">Copy</button><pre><span class="p">$ </span>crucible pack new my_pack --dir ./my_pack
+<span class="p">$ </span>crucible pack check ./my_pack --level semantic</pre></div>
             </div>
             <div class="mod-r">
               <ul class="ideas">
@@ -859,7 +842,6 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
               <li><span><b>Meaning check.</b> The solution gets the top score. An untouched task does not.</span></li>
               <li><span><b>Accounts payable.</b> A three-way match with five fraud controls.</span></li>
             </ul>
-              <div class="stats"><div><b>3</b><span>levels of checks for each pack</span></div><div><b>1.0 and 0.0</b><span>correct clerk and approve all</span></div><div><b>9</b><span>accounts payable test cases</span></div></div>
             </div>
           </div>
         </article>
@@ -902,14 +884,14 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
         <p>All steps run on a laptop CPU in about two minutes. Each command shows the next command.</p>
       </div>
       <div class="snip" style="padding:16px 18px"><button class="copy">Copy</button><pre><span class="c"># make a domain pack and check it at all levels</span>
-<span class="p">$ </span>crucible pack new demo --dir ./demo
-<span class="p">$ </span>crucible pack check ./demo --level semantic
+<span class="p">$ </span>crucible pack new my_pack --dir ./my_pack
+<span class="p">$ </span>crucible pack check ./my_pack --level semantic
 
 <span class="c"># turn logs into scored records and training data</span>
-<span class="p">$ </span>crucible label --pack toy --out label
+<span class="p">$ </span>crucible label --pack my_pack --out label
 
 <span class="c"># turn logs into accepted tasks and a benchmark report</span>
-<span class="p">$ </span>crucible build toy --out build
+<span class="p">$ </span>crucible build my_pack --out build
 
 <span class="c"># run a real domain, accounts payable</span>
 <span class="p">$ </span>crucible bench run finance_ap --out runs</pre></div>
@@ -960,14 +942,14 @@ footer .links a { font: 400 11px var(--mono); letter-spacing: .12em; text-transf
       </div>
     </div>
     <div style="margin-top:clamp(28px,4vw,48px)">
-      <div class="eyebrow">The eighteen quality checks</div>
+      <div class="eyebrow">The quality checks</div>
       <div class="checks">
-        <div><b>1</b>The solution passes each time</div><div><b>2</b>Empty attempts score zero</div><div><b>3</b>Checks catch 90% of planted errors</div>
-        <div><b>4</b>Results do not change between runs</div><div><b>5</b>No answer leaks</div><div><b>6</b>Isolation resists tampering</div>
-        <div><b>7</b>Instructions match the checks</div><div><b>8</b>Checks come from real feedback</div><div><b>9</b>Builds are fixed and repeatable</div>
-        <div><b>10</b>The pass rate is in the target range</div><div><b>11</b>Each failure has a cause</div><div><b>12</b>Checks stay in their budget</div>
-        <div><b>13</b>Known attacks fail</div><div><b>14</b>Each part of a task is necessary</div><div><b>15</b>Combined tasks are harder</div>
-        <div><b>16</b>An adaptive attacker finds nothing</div><div><b>17</b>Parts do not interfere</div><div><b>18</b>Each change does what it claims</div>
+        <div>The solution passes each time</div><div>Empty attempts score zero</div><div>Checks catch 90% of planted errors</div>
+        <div>Results do not change between runs</div><div>No answer leaks</div><div>Isolation resists tampering</div>
+        <div>Instructions match the checks</div><div>Checks come from real feedback</div><div>Builds are fixed and repeatable</div>
+        <div>The pass rate is in the target range</div><div>Each failure has a cause</div><div>Checks stay in their budget</div>
+        <div>Known attacks fail</div><div>Each part of a task is necessary</div><div>Combined tasks are harder</div>
+        <div>An adaptive attacker finds nothing</div><div>Parts do not interfere</div><div>Each change does what it claims</div>
       </div>
     </div>
   </div>
