@@ -1120,6 +1120,30 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**G-7 (2026-10-10): the zoned forge repo.** GitSwarm's memory is a git DAG that every worker reads. A forge cannot
+have that hole: a Verifier-writer that reads the oracle writes checks that encode it. `forge/repo.py` keeps one git
+repo per family, split into visibility zones.
+- **Zones:** `public/`, `oracle/`, `checks/` and `solver/`, with per-role read sets (the table in audit 06 §4.1).
+- **Commits:** GitSwarm's format, one parent plus a mandatory `informed_by` set, message
+  `[<type>|informed_by=<sha>,…] <summary>`. Commits are built with git plumbing (no worktree, so concurrent authors
+  are safe) and kept alive by `refs/forge/<sha>`.
+- **Breach scan:** runs before anything is written; a rejected commit leaves no object and is recorded in `breaches`.
+  It rejects:
+  - a write into a zone the author cannot read;
+  - an added line that carries a zone canary (`<zone>/CANARY`);
+  - an added line that quotes a line (≥ 20 characters, normalized) of a zone the author cannot read, indexed over every
+    commit ever made. A line that also appears in a readable zone is not evidence. Quoting the oracle is the leak
+    that matters, and it rarely carries a canary;
+  - an `informed_by` citation of an unknown commit, or of a commit that touched an unreadable zone.
+- **Views:** `view(role, sha)` and `materialize(role, sha, dir)` export only the readable zones, as read-only files
+  (the worker's mount). The index lives in `.git/forge-index.json`, so a reopened repo scans the same way.
+- **Tests:**
+  - a Verifier-writer quoting an oracle line, or the oracle canary, is a breach and nothing is written;
+  - a line the oracle shares with the public spec passes;
+  - citations into `oracle/` are rejected for the Verifier-writer and allowed for the Adversary;
+  - the black-box hacker's mount holds only `public/`, read-only;
+  - a reopened repo still catches the quote.
+
 **G-6 (2026-10-10): forge economics.** The ledger caps spend but says nothing about what the spend buys.
 `forge/economy.py` tracks dollars per *accepted* task, which is Repo2RLEnv's reference number.
 - **Book:** `YieldBook` keeps one row per plan run (generator, operator, seed, family, construction state, spend).
