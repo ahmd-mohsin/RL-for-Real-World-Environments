@@ -170,43 +170,85 @@ class _ObsView:
 
 
 class ClientEnv:
-    """OpenEnv's ``GenericEnvClient`` (HTTP / WebSocket to the environment's own server or Docker image, as OpenEnv's clients
-    connect) behind the in-process Environment surface: ``reset`` / ``step`` return observation views, actions are dicts."""
+    """A remote OpenEnv environment (its own server, a Docker image, a Hugging Face Space) behind the in-process
+    Environment surface, over Crucible's native WebSocket client (``world/remote.py``, OpenEnv's ``/ws`` protocol; no
+    OpenEnv import on this side). ``reset`` / ``step`` return observation views; actions are dicts. ``docker_image``
+    starts the image with its port published on 127.0.0.1 and waits for ``/health``."""
 
-    def __init__(self, base_url: str | None = None, *, docker_image: str | None = None, environment: dict | None = None):
-        from openenv.core.generic_client import GenericEnvClient
+    def __init__(self, base_url: str | None = None, *, docker_image: str | None = None, environment: dict | None = None,
+                 session_id: str | None = None, port: int = 8000, message_timeout_s: float = 300.0):
+        from crucible.world.remote import RemoteEnvClient
 
+        self.container: str | None = None
         if docker_image:
-            self.client = GenericEnvClient.from_docker_image(docker_image, environment=environment or {})
-        else:
-            self.client = GenericEnvClient(base_url=base_url)
-        self._open = False
+            base_url = self._start_container(docker_image, environment or {}, port)
+        if not base_url:
+            raise ValueError("client mode needs base_url or docker_image")
+        self.base_url = base_url
+        self.client = RemoteEnvClient(base_url, session_id=session_id, message_timeout_s=message_timeout_s)
 
-    async def _ensure(self) -> None:
-        if not self._open:
-            c = self.client
-            if hasattr(c, "__aenter__"):
-                await c.__aenter__()
-            self._open = True
+    def _start_container(self, image: str, env: dict, port: int) -> str:
+        import subprocess
+        import time
+        import urllib.request
+        import uuid
+
+        name = f"crucible-openenv-{uuid.uuid4().hex[:8]}"
+        argv = ["docker", "run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1::{port}", *[x for k, v in env.items() for x in ("-e", f"{k}={v}")], image]
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=600, check=False)
+        if r.returncode != 0:
+            raise RuntimeError(f"docker run {image} failed: {r.stderr[-500:]}")
+        self.container = name
+        out = subprocess.run(["docker", "port", name, f"{port}/tcp"], capture_output=True, text=True, timeout=60, check=False).stdout.split()
+        url = f"http://{out[0]}" if out else None
+        deadline = time.monotonic() + 300
+        while url and time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(f"{url}/health", timeout=2) as h:
+                    if h.status == 200:
+                        return url
+            except OSError:
+                time.sleep(1)
+        self._stop_container()
+        raise RuntimeError(f"{image} did not become healthy on {url}")
+
+    def _stop_container(self) -> None:
+        import subprocess
+
+        if self.container:
+            subprocess.run(["docker", "rm", "-f", self.container], capture_output=True, timeout=120, check=False)
+            self.container = None
 
     async def reset_async(self, **kw: Any) -> _ObsView:
-        await self._ensure()
-        r = await self.client.reset(**{k: v for k, v in kw.items() if v is not None})
-        return _ObsView(r.observation, r.reward, r.done)
+        r = await self.client.reset(**kw)
+        return _ObsView(r.get("observation") or {}, r.get("reward"), bool(r.get("done")))
 
     async def step_async(self, action: dict, **kw: Any) -> _ObsView:
         r = await self.client.step(action)
-        return _ObsView(r.observation, r.reward, r.done)
+        return _ObsView(r.get("observation") or {}, r.get("reward"), bool(r.get("done")))
+
+    async def aclose(self) -> None:
+        await self.client.close()
+        self._stop_container()
 
     def close(self) -> None:
         import asyncio as _a
 
-        c = self.client
-        if self._open and hasattr(c, "close"):
-            res = c.close()
-            if _a.iscoroutine(res):
-                with contextlib.suppress(Exception):
-                    _a.get_event_loop().create_task(res)
+        try:
+            loop = _a.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            task = loop.create_task(self.aclose())
+            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        else:
+            _a.run(self.aclose())
+
+
+def _err_type(err: Any) -> str:
+    """An MCP call's error type: in-process an object with an enum, over the wire a dict."""
+    t = err.get("error_type") if isinstance(err, dict) else getattr(err, "error_type", None)
+    return str(getattr(t, "value", t) or "")
 
 
 class OpenEnvApp(App):
@@ -250,10 +292,11 @@ class OpenEnvApp(App):
         if self.env is not None:
             self._close_env()
         p = self.spec.params
-        if p.get("client"):  # client mode (m13 E, G7): the environment's own server / Docker image, not an in-process object
+        if p.get("client"):  # client mode (M1 item 9): the environment's own server / Docker image / Space, over a WebSocket
             c = dict(p["client"])
-            self.env = ClientEnv(c.get("base_url"), docker_image=c.get("docker_image"), environment=c.get("environment"))
-            self.mcp = False
+            self.env = ClientEnv(c.get("base_url"), docker_image=c.get("docker_image"), environment=c.get("environment"),
+                                 session_id=c.get("session_id"), port=int(c.get("port", 8000)), message_timeout_s=float(c.get("message_timeout_s", 300)))
+            self.mcp = bool(c.get("mcp"))  # an MCPEnvironment server: tools come from list_tools, calls are call_tool steps
         else:
             self.env = load(p["factory"])(**(p.get("factory_kwargs") or {}))
             from openenv.core.env_server.mcp_environment import MCPEnvironment
@@ -296,7 +339,11 @@ class OpenEnvApp(App):
 
     async def _discover(self) -> list[ToolSpec]:
         p = self.spec.params
-        if self.mcp:
+        if self.mcp and isinstance(self.env, ClientEnv):
+            obs = await self._step({"type": "list_tools"})
+            tools = [ToolSpec(app=self.id, name=t["name"], description=t.get("description") or "",
+                              input_schema=t.get("input_schema") or t.get("inputSchema") or {"type": "object"}) for t in obs.tools]
+        elif self.mcp:
             from openenv.core.env_server.mcp_types import ListToolsAction
 
             obs = await self._step(ListToolsAction())
@@ -325,7 +372,9 @@ class OpenEnvApp(App):
     async def after_restore(self) -> None:
         """Rebuild the live Environment to the journal the adapter just restored: reset, then re-issue every call,
         verifying each result digest (a deterministic environment reproduces them exactly)."""
-        doc = json.loads(await self.ctx.exec.read_text(self.state_params["path"]))
+        await self._replay(json.loads(await self.ctx.exec.read_text(self.state_params["path"])))
+
+    async def _replay(self, doc: dict) -> None:
         obs = await self._fresh()
         if _digest(self._obs_text(obs, reset=True)) != doc["reset_digest"]:
             raise SnapshotMismatch(f"{self.id}: the environment's reset observation changed (non-deterministic reset)")
@@ -343,7 +392,8 @@ class OpenEnvApp(App):
     def _obs_text(self, obs: Any, *, reset: bool = False) -> str:
         if not reset and hasattr(obs, "tool_name"):  # CallToolObservation
             if obs.error is not None:
-                return f"{obs.error.error_type.value}: {obs.error.message}"
+                msg = obs.error.get("message") if isinstance(obs.error, dict) else obs.error.message
+                return f"{_err_type(obs.error)}: {msg}"
             return result_text(obs.result)
         d = obs.model_dump(mode="json") if hasattr(obs, "model_dump") else dict(obs)
         for k in ("reward", "done"):
@@ -356,7 +406,9 @@ class OpenEnvApp(App):
         return json.dumps(d, ensure_ascii=False, sort_keys=True, default=str)
 
     async def _issue(self, tool: str, args: dict) -> tuple[Any, str, float | None, bool]:
-        if self.mcp:
+        if self.mcp and isinstance(self.env, ClientEnv):
+            obs = await self._step({"type": "call_tool", "tool_name": tool, "arguments": dict(args)})
+        elif self.mcp:
             from openenv.core.env_server.mcp_types import CallToolAction
 
             obs = await self._step(CallToolAction(tool_name=tool, arguments=dict(args)))
@@ -392,7 +444,19 @@ class OpenEnvApp(App):
         if ends_for and self.turn is not None and actor != self.turn:  # not this seat's move: refused, never executed
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=f"It is not your turn ({self.turn} to move).", error="not_your_turn",
                               fault="policy")
-        obs, text, reward, done = await self._issue(name, args)
+        from crucible.world.remote import RemoteActionError, RemoteEnvError
+
+        try:
+            obs, text, reward, done = await self._issue(name, args)
+        except RemoteActionError as e:  # the server rejected the action itself: the policy's malformed call, not journaled
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=f"Invalid action: {e}", error="invalid_action", fault="policy")
+        except RemoteEnvError as e:
+            if e.code != "CONNECTION_LOST":
+                raise  # the environment failed: the World's gate records an infra fault and masks the episode
+            # The socket died, and with it the server session. Rebuild the state in a new session by replaying the
+            # journal (every digest verified), then issue the call once more.
+            await self._replay(json.loads(json.dumps(self.journal)))
+            obs, text, reward, done = await self._issue(name, args)
         self._update_turn(obs)
         self._sim_time(obs)
         err = getattr(obs, "error", None)
@@ -406,8 +470,9 @@ class OpenEnvApp(App):
             self.journal["final_metadata"] = json.loads(json.dumps(getattr(obs, "metadata", None) or {}, default=str))
         await self._write()
         if err is not None:
-            fault = {"invalid_args": "policy", "tool_not_found": "policy", "execution_error": "tool"}.get(err.error_type.value, "infra")
-            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=err.error_type.value, fault=fault, ends_episode=done,
+            et = _err_type(err)
+            fault = {"invalid_args": "policy", "tool_not_found": "policy", "execution_error": "tool"}.get(et, "infra")
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=et or "tool_error", fault=fault, ends_episode=done,
                               ends_for=ends_for)
         if self.mcp and _is_error(obs.result):
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error="tool_error", fault="tool", ends_episode=done, ends_for=ends_for)

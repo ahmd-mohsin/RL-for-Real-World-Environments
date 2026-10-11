@@ -48,6 +48,11 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 
 | `world/turns.py` | pattern only: OpenSpiel `rl_environment` as wrapped by OpenEnv `envs/openspiel_env/server/openspiel_environment.py` (current player, per-player legal actions, simultaneous steps with one action per player, per-player rewards) and Crucible's own OpenEnv seat handling (`interop/openenv/import_env.py`) | 2026-10 | BSD-3-Clause (OpenEnv) | semantics only, no code copied |
 
+| `world/remote.py`, `interop/openenv/import_env.py` (`ClientEnv`) | OpenEnv `src/openenv/core/env_client.py` (`EnvClient._send`, `_receive` desync guard, message shapes), `core/env_server/http_server.py` (`/ws` endpoint, `WSErrorCode`), `core/env_server/serialization.py` | 2026-10 | BSD-3-Clause (`LICENSES/BSD-3-Clause-openenv.txt`) | the wire protocol and its error codes; written anew against them (no OpenEnv import): error classes by code, desync guard, session attach, journal-replay recovery |
+
+| `core/schema/spaces.py`, `world/apps/control.py`, `world/gym.py` | pattern only: Gymnasium `spaces` and `Env`/vector API (MIT), dm_env specs as OpenEnv `envs/dm_control_env` exports them (`_get_action_spec_info`, `DMControlState.control_timestep`), CARLA `ticks_after_tool` (OpenEnv `carla_env/server/benchmark_scenarios/base.py`) | 2026-10 | MIT / BSD-3-Clause | semantics only; Gymnasium is an optional DEPEND (`crucible[control]`) |
+| `train/control.py` | pattern only: CleanRL `ppo.py` / `ppo_continuous_action.py`, Stable-Baselines3 PPO (MIT) | 2026-10 | MIT | the PPO recipe (orthogonal init, GAE, clipped surrogate, value loss, LR annealing, gradient clipping, observation normalization); written anew |
+
 ## Frameworks we call (DEPEND), added in the hardening pass
 
 | Framework piece | Where | What for |

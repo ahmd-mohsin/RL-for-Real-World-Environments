@@ -147,6 +147,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("app_template", "common/json_api", "crucible.world.apps.json_api:JsonApiApp")
     r.register("app_template", "common/toolchain", "crucible.world.apps.toolchain:ToolchainApp")
     r.register("app_template", "common/postgres_app", "crucible.world.apps.postgres_app:PostgresApp")
+    r.register("app_template", "common/control", "crucible.world.apps.control:ControlApp")
     r.register("app_template", "common/mcp_server", "crucible.world.apps.mcp_server:McpServerApp")
     r.register("app_template", "common/website", "crucible.world.apps.website:WebsiteApp")
     r.register("app_template", "common/browser", "crucible.world.apps.browser:BrowserApp")

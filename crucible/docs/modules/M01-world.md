@@ -363,6 +363,91 @@ Source: taxonomy family 11 and primitive P7. Follows OpenSpiel and OpenEnv game 
   - imperfect-information observation views beyond per-actor observations (the App filters what each seat sees);
   - an OpenSpiel adapter App (M11).
 
+## M1 build item 8 (2026-10-12): images and audio in messages and instructions
+
+Source: taxonomy observation gaps "images or audio in messages and instructions" (R19). Uses the OpenAI chat content-part formats.
+
+- **`MediaRef{kind: image|audio, mime, ref | url, data_b64 (excluded)}`** appears in `Message.attachments`, `Inbound.attachments` and `Observation.instruction_media`.
+- **World**:
+  - `put_media(kind, mime, bytes)` stores the bytes, and `hydrate(media)` attaches them to live observations;
+  - the `instruction_media` constructor argument and attribute hold the instruction's media;
+  - `_send` keeps references only, and the trace logs them;
+  - `_inbound_json` leaves `attachments` out of media-free snapshots, so their fingerprints are unchanged.
+- **LLM policy**:
+  - `media_parts(text, media, vision, audio)` renders the content;
+  - `LLMToolPolicy(audio=...)` is a new flag;
+  - `approx_tokens` counts `input_audio`, taking the clip length as 16 kHz, 16-bit mono.
+- **Single-turn**:
+  - `_split_prompt` returns the instruction's media;
+  - `_media_of` decodes data URLs and keeps remote URLs;
+  - `single_turn_policy(vision=, audio=)` passes the model's capabilities.
+- **Tests** (`tests/unit/test_media.py`, 5):
+  - instruction media and message attachments reach the policy with their bytes, while the trace and snapshot hold references only;
+  - media-free snapshots are unchanged;
+  - content parts, placeholders, token estimates and `MediaRef` validation;
+  - multimodal single-turn rows in chat, Responses and audio form score through the harness, with no bytes in any written file;
+  - a text model is told an image was there.
+- **Open:**
+  - M12's chat codec is still text only, so training vision or audio models needs a multimodal processor codec;
+  - a policy checkpoint (`state_dict`) holds the rendered data URLs of vision turns.
+
+## M1 build item 9 (2026-10-12): a WebSocket client for remote environments
+
+Source: taxonomy row "OpenEnv HTTP/WebSocket client mode absent". The earlier `ClientEnv` wrapped OpenEnv's own client, which needs OpenEnv installed. It had no test, dropped MCP tools, and did not recover from connection loss.
+
+- **`world/remote.py`**:
+  - `RemoteEnvClient(url, session_id=, message_timeout_s=, ping_interval_s=, max_message_bytes=100 MB, headers=)` provides `reset`, `step`, `state`, `rpc`, `list_tools`, `call_tool` and `close`;
+  - `ws_url()` normalizes http(s) and ws(s) URLs;
+  - `RemoteActionError` (policy) and `RemoteEnvError` (infrastructure) separate the blame;
+  - requests are serialized per socket, a socket is dropped on timeout or cancel, and `session_lost` is set after a reconnect.
+- **`ClientEnv`** (OpenEnv client mode):
+  - runs on `RemoteEnvClient`;
+  - `docker_image` starts the container itself (port on 127.0.0.1, `/health` wait) and removes it on close;
+  - takes `mcp` and `session_id`.
+- **`OpenEnvApp`**:
+  - client MCP discovery and calls go through `list_tools` / `call_tool` steps, and wire-format errors (dicts) are handled;
+  - `_replay(journal)` is shared by restore and connection recovery;
+  - a server-refused action becomes `invalid_action` (policy) and is not journaled.
+- **Extra:** `crucible[remote]` installs `websockets`.
+- **Tests** (`tests/unit/test_remote_ws.py`, 5):
+  - URL normalization;
+  - protocol errors and the desync guard after a timeout;
+  - a World over a remote counter environment: the schema check comes before the server's check, the server refusal counts as policy, restore makes a new replayed session, and a dropped socket mid-episode is recovered;
+  - an MCP-style remote environment;
+  - a real OpenEnv server (`create_app`) run from `.envs/openenv` and driven from the main venv, which has no OpenEnv installed.
+
+## M1 build item 10 (2026-10-12): continuous control and simulators, both styles
+
+Source: taxonomy families 10 and 12, now expressible. The user decided "both properly": LLM-driven simulators, and Gym-style tasks whose policies are neural networks, with their own trainer.
+
+- **10a `core/schema/spaces.py`**:
+  - `Space` covers box, discrete, multi_discrete, multi_binary, dict and tuple;
+  - methods: `problem` / `contains` / `clip` / `sample` / `flat_dim` / `flatten` / `json_schema`;
+  - readers: `from_gymnasium` and `from_spec_dict`.
+- **10a `world/apps/control.py`** (`ControlApp`, template `common/control`):
+  - sources are `env: gymnasium:<id>`, `factory` or `client`;
+  - time: `frame_skip`, `sim_dt_s`, `max_episode_ticks`, and the sim clock follows the simulator;
+  - `seed` (world or int) and `reseed(seed)`;
+  - state: the journal with digest-checked replay, `restore: replay|none`, and `journal: eager|lazy`;
+  - tools: `step` (schema from the action space), `wait` (`idle_action`), `macros` and `observe`;
+  - `act(tool, args)` is the shared entry point.
+- **App hook `before_snapshot`**: `World.flush()` calls it before snapshots and before `VerifierView` query, fingerprint and unchanged checks.
+- **10b, the LLM path**: tested through the native harness. An `LLMToolPolicy` makes three decisions over 40 simulator ticks, and the `ControlTask` grade is the normalized return.
+- **10c `world/gym.py`** (`WorldEnv`, `VectorWorldEnv`, `gym_spaces()`) and **`train/control.py`** (PPO, `evaluate`): the neural-network path.
+- **10d `RemoteControlEnv`**: dm_control-style servers over WebSocket. Actions go out as `values` and observations come back as `observations`; spaces and `control_timestep` come from the server's state. `done_is` defaults to truncated, since dm_control ends at a time limit.
+- **`runtime/control_task.py`**: `ControlTask(env | factory | client, return_range, success_return, ...)`.
+- **Extra:** `crucible[control]` installs Gymnasium.
+- **Tests**:
+  - `test_control.py` (6): spaces; Pendulum ticks, sim clock and replay restore; CartPole termination, truncation and reseeding; wait and macros; refusal of non-deterministic simulators; the LLM path through the harness;
+  - `test_worldenv_ppo.py` (4, one slow): the sync API and trace; vector auto-reset; PPO learning CartPole; PPO learning Pendulum;
+  - `test_remote_control.py` (2): a remote dm_control-style simulator in a World, including timestep, time limit and new-session replay; and a neural PD controller over `WorldEnv`.
+- **Open:**
+  - a real MuJoCo / dm_control run (the wheels are not installed here);
+  - CARLA and Unity need GPU hosts, which means the lab;
+  - SAC and other off-policy learners;
+  - vectorized simulators inside one World (thousands of environments per process), for speed beyond ~3k steps/s;
+  - wiring M12 records and checkpoints for control runs.
+
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.
 - **A cgroup just for the policy** (Karotte `cgroups.py`: `memory.max`, atomic `cgroup.kill`) and **disk quotas** (`file_quota.py`, needs `SYS_ADMIN`). For now, container-wide `pids_limit` / `mem_limit` plus `RLIMIT_NPROC` headroom.

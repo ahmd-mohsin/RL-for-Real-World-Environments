@@ -83,6 +83,10 @@ class App(ABC):
     async def after_restore(self) -> None:
         """Hook: the World just restored this App's state (and every other App's) from a WorldRef."""
 
+    async def before_snapshot(self) -> None:
+        """Hook: flush state held in memory to where the state adapter reads it (a snapshot, a fingerprint or a verifier
+        query follows). Apps that write their state on every change need nothing here."""
+
     def image(self, data: bytes, mime: str = "image/png"):
         """An image tool output: stored once (content-addressed) and attached to the live observation."""
         import base64

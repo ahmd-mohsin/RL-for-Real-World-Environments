@@ -1,0 +1,65 @@
+"""Control tasks (M1 item 10): a ``RunTask`` over one control App (``world/apps/control.py``), graded by the environment's
+own return.
+
+Grade: one ``score`` gate over the journal. The episode return (the sum of per-tick rewards) is normalized by
+``return_range`` (min, max) to [0, 1] (clipped); ``success_return`` (optional) sets the outcome. An episode the policy
+left before the simulator ended it still scores its return so far: control returns accumulate per tick, unlike a
+final answer. Per-tick rewards stay in the journal for dense credit (M6) and in each tool result's ``data``.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from crucible.verify.runtime.plan import CheckResult, GradeReport
+
+ACTOR = "agent"
+
+
+class ControlTask:
+    def __init__(self, id: str, *, env: str | None = None, factory: str | None = None, client: dict | None = None, env_kwargs: dict | None = None, app: str = "sim",
+                 return_range: tuple[float, float] = (0.0, 1.0), success_return: float | None = None, instruction: str = "", seed: int = 0,
+                 clock: bool = True, **params: Any):
+        if sum(bool(x) for x in (env, factory, client)) != 1:
+            raise ValueError("a control task needs exactly one of env, factory or client")
+        lo, hi = return_range
+        if not hi > lo:
+            raise ValueError("return_range needs max > min")
+        self.id, self.app, self.return_range, self.success_return = id, app, (float(lo), float(hi)), success_return
+        self.world_id = id.rsplit("@", 1)[0]
+        self.instruction, self.seed, self.clock = instruction or "Control the system to maximize its return.", seed, clock
+        self.params = {**({"env": env} if env else {}), **({"factory": factory} if factory else {}), **({"client": dict(client)} if client else {}),
+                       "env_kwargs": env_kwargs or {}, **params}
+
+    def spec(self):
+        from crucible.core.schema.world import WorldSpec
+
+        d = {"world": self.world_id, "seed": self.seed,
+             "apps": [{"id": self.app, "template": "common/control", "state": {"adapter": "json_doc", "params": {"path": f"{self.app}.json"}}, "params": self.params}],
+             "actors": [{"id": ACTOR, "kind": "policy", "tools": [f"{self.app}.*"]}]}
+        if self.clock:
+            d["clock"] = {"mode": "sim", "t0": "2026-01-05T09:00:00Z"}
+        return WorldSpec.model_validate(d)
+
+    async def open(self, workdir: Path):
+        from crucible.core.store import Store
+        from crucible.world.world import World
+
+        w = World(self.spec(), instructions={ACTOR: self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
+        await w.start()
+        await w.reset()
+        return w
+
+    def score(self, ret: float) -> float:
+        lo, hi = self.return_range
+        return max(0.0, min(1.0, (ret - lo) / (hi - lo)))
+
+    async def grade(self, world, workdir: Path) -> GradeReport:
+        j = world.apps[self.app].journal
+        ret = float(j.get("return", 0.0))
+        s = self.score(ret)
+        ok = self.success_return is None or ret >= self.success_return
+        detail = {"return": round(ret, 6), "normalized_reward": round(s, 6), "ticks": j.get("tick", 0), "done": j.get("done", False), "score": ret}
+        return GradeReport(self.id, "full", [CheckResult("return", "return", "pass" if s > 0 else "fail", detail)], {"return": "pass" if s > 0 else "fail"},
+                           round(s, 6), float(ok), {"status": "ok"}, True, 0.0, meta={"kinds": {"return": "score"}, **detail})

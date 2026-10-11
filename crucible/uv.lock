@@ -453,6 +453,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cloudpickle"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228 },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -500,6 +509,10 @@ analysis = [
 answers = [
     { name = "math-verify" },
 ]
+control = [
+    { name = "gymnasium" },
+    { name = "numpy" },
+]
 dev = [
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -526,6 +539,9 @@ openenv-awm = [
     { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
+remote = [
+    { name = "websockets" },
+]
 train = [
     { name = "httpx" },
     { name = "numpy" },
@@ -550,6 +566,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "fastapi", marker = "extra == 'openenv-awm'", specifier = ">=0.110" },
     { name = "fastapi-mcp", marker = "extra == 'openenv-awm'", specifier = ">=0.3" },
+    { name = "gymnasium", marker = "extra == 'control'", specifier = ">=1.0" },
     { name = "harbor", marker = "extra == 'harbor'", editable = "../RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'train'", specifier = ">=0.27" },
@@ -560,6 +577,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'agentenv'", specifier = ">=1.10,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10,<2" },
     { name = "mcp", marker = "extra == 'openenv-awm'", specifier = ">=1.10,<2" },
+    { name = "numpy", marker = "extra == 'control'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'train'", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.60" },
     { name = "psycopg2-binary", marker = "extra == 'agentenv'", specifier = ">=2.9" },
@@ -579,8 +597,9 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'openenv-awm'", specifier = ">=0.30" },
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },
+    { name = "websockets", marker = "extra == 'remote'", specifier = ">=12" },
 ]
-provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "answers", "verifiers", "dev"]
+provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "control", "remote", "answers", "verifiers", "dev"]
 
 [package.metadata.requires-dev]
 packs = [
@@ -804,6 +823,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7d/04/3e7d3ca8abaeffcfc41d36b9d6fe3aa055cecf3b56234e051991de848b2d/e2b-2.46.4.tar.gz", hash = "sha256:777d35beb00194b401a6c4ac2498aa836628839649f17aae86e85920382c8f6c", size = 228801 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/b5/585a30223d9ee95bc94f32f8d5358b147bf93832e37b809545a3ab7892a0/e2b-2.46.4-py3-none-any.whl", hash = "sha256:5d77e9fee8571a0d24a179f14244984127d18bd93a99a5e90226c876087035b5", size = 403067 },
+]
+
+[[package]]
+name = "farama-notifications"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/91/14397890dde30adc4bee6462158933806207bc5dd10d7b4d09d5c33845cf/farama_notifications-0.0.6.tar.gz", hash = "sha256:b19acac4bb41d76e59e03394b5dd165f4761c86fa327f56307a35cbee3b60158", size = 2517 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/f0/21f81892e4ed10f4ec3ef2e7cf8635fb76e7c0907c55d0da66be50094760/farama_notifications-0.0.6-py3-none-any.whl", hash = "sha256:f84839188efa1ce5bb361c2a84881b2dc2c0d0d7fb661ff00421820170930935", size = 2897 },
 ]
 
 [[package]]
@@ -1049,6 +1077,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5b/28/5a2c299ec82a876a252c5919aa895a6f1d1d35c96417c5ce4a4660dc3a80/grpclib-0.4.9.tar.gz", hash = "sha256:cc589c330fa81004c6400a52a566407574498cb5b055fa927013361e21466c46", size = 84798 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5c/90/b0cbbd9efcc82816c58f31a34963071aa19fb792a212a5d9caf8e0fc3097/grpclib-0.4.9-py3-none-any.whl", hash = "sha256:7762ec1c8ed94dfad597475152dd35cbd11aecaaca2f243e29702435ca24cf0e", size = 77063 },
+]
+
+[[package]]
+name = "gymnasium"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudpickle" },
+    { name = "farama-notifications" },
+    { name = "numpy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fb/3a/6713c8a92c259fd7619dc93ff19e6e435463f20d3d7b180b14ce99074c10/gymnasium-1.4.0.tar.gz", hash = "sha256:9754f630a32abfdbb76386abe1bc1e706c982db2d62dfa119c9952eb2de7697d", size = 350436 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/4e/6a51be94ae8e9dc8eaddd6ea74a6dde754448c4c746b51a232681f81e41c/gymnasium-1.4.0-py3-none-any.whl", hash = "sha256:1cb947c59e7c72d8eabb2c2274c00cd20948e69f8452a9ef4092223be24fdf0e", size = 476306 },
 ]
 
 [[package]]

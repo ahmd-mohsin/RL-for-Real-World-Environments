@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.ids import sha256_text
+from crucible.core.schema.actions import MediaRef
 from crucible.verify.answers import CheckerSpec, CheckerUnavailable, Criterion, Judge, ParserSpec, score_answer
 from crucible.verify.runtime.plan import CheckResult, GradeReport
 
@@ -60,7 +61,7 @@ class SingleTurnTask:
         for c in self.criteria:
             if c.checker.kind == "judge" and c.checker.judge not in self.judges:
                 raise ValueError(f"{self.id}: criterion {c.id!r} names judge {c.checker.judge!r}, which the task does not configure")
-        self.system, self.history, self.instruction = _split_prompt(self.prompt, self.system)
+        self.system, self.history, self.instruction, self.media = _split_prompt(self.prompt, self.system)
 
     # ---- RunTask ---------------------------------------------------------------------------------------------------
     def spec(self):
@@ -74,6 +75,9 @@ class SingleTurnTask:
         from crucible.world.world import World
 
         w = World(self.spec(), instructions={ACTOR: self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
+        if self.media:  # images / audio with the question: stored once, attached to the first observation (M1 item 8)
+            w.instruction_media[ACTOR] = [w.put_media(m["kind"], m["mime"], m["data"]) if "data" in m else MediaRef(kind=m["kind"], mime=m["mime"], url=m["url"])
+                                          for m in self.media]
         await w.start()
         await w.reset()
         return w
@@ -110,31 +114,82 @@ class SingleTurnTask:
                            round(time.monotonic() - t0, 3), meta={"kinds": kinds, "parsed": parsed, "score": s.score, "correct": s.correct})
 
 
-def _split_prompt(prompt: str | list[dict[str, Any]], system: str | None) -> tuple[str | None, list[dict[str, Any]], str]:
+def _split_prompt(prompt: str | list[dict[str, Any]], system: str | None) -> tuple[str | None, list[dict[str, Any]], str, list[dict[str, Any]]]:
+    """(system, few-shot history as chat messages, instruction text, instruction media). Media parts (``image_url``,
+    ``input_image``, ``input_audio``) in the last user message become the instruction's media; in earlier turns they
+    stay as chat content parts."""
     if isinstance(prompt, str):
-        return system, [], prompt
-    msgs = [{"role": m["role"], "content": _content_text(m.get("content"))} for m in prompt]
-    sys_msgs = [m["content"] for m in msgs if m["role"] in ("system", "developer")]
-    rest = [m for m in msgs if m["role"] not in ("system", "developer")]
+        return system, [], prompt, []
+    sys_msgs = [_content(m.get("content"))[0] for m in prompt if m["role"] in ("system", "developer")]
+    rest = [m for m in prompt if m["role"] not in ("system", "developer")]
     if not rest or rest[-1]["role"] != "user":
         raise ValueError("a chat prompt must end with a user message")
     sys_text = "\n\n".join([*([system] if system else []), *sys_msgs]) or None
-    return sys_text, rest[:-1], rest[-1]["content"]
+    history = [{"role": m["role"], "content": _chat_content(m.get("content"))} for m in rest[:-1]]
+    text, media = _content(rest[-1].get("content"))
+    return sys_text, history, text, media
 
 
-def _content_text(c: Any) -> str:
+def _media_of(part: dict[str, Any]) -> dict[str, Any] | None:
+    """One OpenAI chat / Responses media part -> {kind, mime, data (bytes) | url}."""
+    import base64
+
+    t = part.get("type")
+    if t in ("image_url", "input_image"):
+        url = part.get("image_url")
+        url = url.get("url") if isinstance(url, dict) else url
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"image part without a url: {part}")
+        if url.startswith("data:"):
+            head, _, b64 = url.partition(",")
+            return {"kind": "image", "mime": head[5:].split(";")[0] or "image/png", "data": base64.b64decode(b64)}
+        return {"kind": "image", "mime": "image/*", "url": url}
+    if t == "input_audio":
+        a = part.get("input_audio") or {}
+        fmt = a.get("format", "wav")
+        return {"kind": "audio", "mime": f"audio/{'mpeg' if fmt == 'mp3' else fmt}", "data": base64.b64decode(a.get("data", ""))}
+    return None
+
+
+def _content(c: Any) -> tuple[str, list[dict[str, Any]]]:
     if isinstance(c, str):
-        return c
-    if isinstance(c, list):  # OpenAI / Responses content parts: text only here (images are M1 item 8)
-        parts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") in ("text", "input_text", "output_text")]
-        if len(parts) != len(c):
-            raise ValueError("non-text prompt parts are not supported by single-turn tasks yet")
-        return "".join(parts)
+        return c, []
+    if isinstance(c, list):
+        texts, media = [], []
+        for part in c:
+            if not isinstance(part, dict):
+                raise TypeError(f"unsupported content part {part!r}")
+            if part.get("type") in ("text", "input_text", "output_text"):
+                texts.append(part.get("text", ""))
+            elif (m := _media_of(part)) is not None:
+                media.append(m)
+            else:
+                raise ValueError(f"unsupported content part type {part.get('type')!r}")
+        return "".join(texts), media
     raise ValueError(f"unsupported message content {type(c).__name__}")
 
 
+def _chat_content(c: Any) -> Any:
+    """Few-shot turns keep their media as OpenAI chat parts (``input_image`` normalized to ``image_url``)."""
+    if not isinstance(c, list):
+        return _content(c)[0]
+    out = []
+    for part in c:
+        t = part.get("type")
+        if t in ("text", "input_text", "output_text"):
+            out.append({"type": "text", "text": part.get("text", "")})
+        elif t in ("image_url", "input_image"):
+            url = part.get("image_url")
+            out.append({"type": "image_url", "image_url": {"url": url.get("url") if isinstance(url, dict) else url}})
+        elif t == "input_audio":
+            out.append({"type": "input_audio", "input_audio": dict(part.get("input_audio") or {})})
+        else:
+            raise ValueError(f"unsupported content part type {t!r}")
+    return out
+
+
 # ------------------------------------------------------------------------------------------------- policies
-def single_turn_policy(llm, *, temperature: float = 0.7, max_tokens: int = 4096, name: str | None = None):
+def single_turn_policy(llm, *, temperature: float = 0.7, max_tokens: int = 4096, name: str | None = None, vision: bool = False, audio: bool = False):
     """A ``PolicyRef`` that answers in one completion: the task's system prompt and few-shot turns, no tools, no nudges
     (a blank or cut-off reply is the answer, as in every single-turn framework)."""
     from crucible.actors.policy import LLMToolPolicy
@@ -142,7 +197,7 @@ def single_turn_policy(llm, *, temperature: float = 0.7, max_tokens: int = 4096,
 
     def make(attempt):
         t = attempt.task
-        p = LLMToolPolicy(ACTOR, llm, system=t.system or "", max_nudges=0, max_tokens=max_tokens, temperature=temperature)
+        p = LLMToolPolicy(ACTOR, llm, system=t.system or "", max_nudges=0, max_tokens=max_tokens, temperature=temperature, vision=vision, audio=audio)
         p.messages = [*([{"role": "system", "content": t.system}] if t.system else []), *t.history]
         return {ACTOR: p}
 

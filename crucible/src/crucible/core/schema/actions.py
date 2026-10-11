@@ -11,7 +11,7 @@ import hashlib
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from crucible.core.schema.base import CrucibleModel
 
@@ -57,11 +57,30 @@ class ToolCall(CrucibleModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class MediaRef(CrucibleModel):
+    """An image or an audio clip in a message or an instruction (M1 item 8). The bytes live in the World's store under
+    ``ref`` (content-addressed), or at a remote ``url``; ``data_b64`` rides only on the live observation handed to the
+    policy, never in traces, snapshots or records."""
+
+    kind: Literal["image", "audio"]
+    mime: str
+    ref: str | None = None
+    url: str | None = None
+    data_b64: str | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _where(self) -> MediaRef:
+        if bool(self.ref) == bool(self.url):
+            raise ValueError("a MediaRef needs exactly one of ref (store key) or url")
+        return self
+
+
 class Message(CrucibleModel):
     kind: Literal["message"] = "message"
     to: str  # actor id
     text: str
     citations: list[str] = Field(default_factory=list)  # record span ids (grounded actors)
+    attachments: list[MediaRef] | None = None  # images / audio sent with the message (M1 item 8)
 
 
 class Done(CrucibleModel):
@@ -110,6 +129,7 @@ class Inbound(CrucibleModel):
     text: str
     at: str | None = None  # virtual time
     citations: list[str] = Field(default_factory=list)
+    attachments: list[MediaRef] | None = None
 
 
 class Observation(CrucibleModel):
@@ -120,6 +140,7 @@ class Observation(CrucibleModel):
     inbox: list[Inbound] = Field(default_factory=list)
     instruction: str | None = None  # only on reset
     tools: list[ToolSpec] = Field(default_factory=list)  # only on reset or when permissions change
+    instruction_media: list[MediaRef] | None = None  # images / audio that come with the instruction (M1 item 8)
     to_move: list[str] | None = None  # turn-based worlds: the seats whose move it is (M1 item 7)
     legal: list[Any] | None = None  # turn-based worlds: this seat's legal actions, when the rules restrict them
 

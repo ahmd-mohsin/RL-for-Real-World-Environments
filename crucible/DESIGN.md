@@ -309,6 +309,34 @@ events:
 
 A move out of turn is refused (`not_your_turn`), and so is a move outside the legal list (`illegal_action`). Both are the policy's errors and neither executes. `Done` is always accepted and takes the seat out of the rotation. Observations carry `to_move` and the seat's `legal` list. Turn state is part of every `WorldRef`. A finished game ends every seat. Seat rewards reach graders (`VerifierView.seat_rewards()`) and run records (`meta.seat_rewards`).
 
+**Images and audio in messages (M1 build item 8, 2026-10-12).** A `MediaRef` (image or audio) holds its bytes in the World's store (content-addressed) or at a remote URL. Instructions (`World.instruction_media`), messages between actors (`Message.attachments`) and inbox entries carry them. The World attaches the bytes (`data_b64`, never serialized) only to the live observation, so traces, snapshots and records hold references only. A snapshot of a media-free World is byte-identical to one taken before this change.
+
+The LLM policy sends images as `image_url` parts (a data URL or the remote URL) when `vision` is on, and audio as `input_audio` parts when `audio` is on. A model that cannot take a part gets a placeholder line naming it. Token estimates count an image as a fixed tile and audio by clip length.
+
+Single-turn rows with chat `image_url`, Responses `input_image` or `input_audio` parts deliver their media to the model. Few-shot turns keep theirs as chat parts.
+
+**Remote environments over WebSocket (M1 build item 9, 2026-10-12; `world/remote.py`).** `RemoteEnvClient` speaks OpenEnv's `/ws` session protocol (reset, step, state, mcp, close; one socket is one server session) and is written against the protocol, so the Crucible side needs only `websockets`. Errors are classified:
+- `VALIDATION_ERROR`, `INVALID_JSON` and `UNKNOWN_TYPE` mean the action was malformed: the policy's error;
+- `EXECUTION_ERROR`, capacity limits, a lost connection or a timeout mean infrastructure, and the episode is masked.
+
+A request that times out drops its socket, so a late reply is never paired with the next request (OpenEnv's own desync guard). OpenEnv client mode (`params.client`: `base_url` or `docker_image`, `mcp`, `session_id`) runs on this client:
+- MCP-style servers expose their tools through `list_tools` / `call_tool` steps;
+- restore rebuilds a new server session by replaying the journal and checking every digest;
+- a connection dropped mid-episode is recovered by the same replay, followed by a single retry of the call.
+
+**Control and simulators, for both language-model and neural-network policies (M1 build item 10, 2026-10-12).**
+- *Spaces* (`core/schema/spaces.py`). Box, discrete, multi-discrete, multi-binary, dict and tuple are JSON data. Each space validates and clips values, samples, flattens to a float vector, and exports a JSON schema for tool calls. They read from Gymnasium spaces and from the dm_env spec dicts OpenEnv exports. Unbounded box entries are `null`, because infinities are not canonical JSON.
+- *Control App* (`common/control`). Sources are `gymnasium:<id>`, a factory with the Gymnasium API, or a simulator served over WebSocket (`RemoteControlEnv`: OpenEnv's dm_control, Unity and FinRL servers, with spaces and `control_timestep` taken from the server's state). The simulator owns time:
+  - one action holds for `frame_skip` ticks;
+  - `sim_dt_s` (by default the environment's own dt) moves a sim-clock World, so events fire on simulation time;
+  - `max_episode_ticks` truncates, and terminated and truncated are kept apart;
+  - observations are numeric (exact in `data`, rounded JSON in `content`) and every tick's reward is journaled.
+- *State* is the journal of seed plus actions. Restore rebuilds the simulator and replays it, checking every observation digest, so a non-deterministic simulator fails loudly. `restore: none` restores the episode start only and refuses mid-episode restores. `journal: lazy` writes the journal only when a snapshot, fingerprint or verifier query needs it (the new `App.before_snapshot` hook).
+- *Language models* get a `step` tool whose schema comes from the action space, `wait` (ticks under `idle_action`) and `macros` (a named action held for N ticks): a few decisions over many simulator ticks, CARLA's tool-call-to-time policy.
+- *Neural policies* use `world/gym.py`: `WorldEnv` (Gymnasium API) and `VectorWorldEnv` (auto-reset on fresh seeds), where every action is a World step. `train/control.py` is the non-token trainer path: PPO with GAE, the clipped objective, observation normalization, and categorical or Gaussian heads.
+- *Measured through Worlds:* CartPole goes from 15 to about 200 return (greedy 174–203) in 50k steps, and Pendulum from −1310 to about −200 in 150k steps, at about 2,400–2,800 World steps/s on one CPU.
+- `ControlTask` grades by the normalized environment return.
+
 `ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
 
 ---

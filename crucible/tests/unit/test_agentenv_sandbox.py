@@ -121,7 +121,7 @@ async def test_pause_resume_keeps_state_and_virtual_time(image: str, tmp_path: P
         await w.resume()
         assert await w.verifier_view().fingerprints() == fp0
         gw = await w.backend.gateway_time()
-        assert gw is not None and abs(parse_time(gw) - t_paused) < timedelta(minutes=5), (gw, t_paused)
+        assert gw is not None and abs(parse_time(gw) - t_paused) < timedelta(minutes=10), (gw, t_paused)  # 1 real s of slack; a leak is 30 min
         assert (await call(w, "mail.list_sent")).ok  # the World works after resume
     finally:
         await w.close()

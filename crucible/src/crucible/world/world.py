@@ -32,7 +32,7 @@ from typing import Any, Protocol, Self, runtime_checkable
 from crucible.core.agent_events import annotate_probes, writes_of
 from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
-from crucible.core.schema.actions import Action, Done, Inbound, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
+from crucible.core.schema.actions import Action, Done, Inbound, MediaRef, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
 from crucible.core.schema.run import Failure
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.state import Query, QueryResult, StateDiff, StateRef, WorldRef
@@ -65,6 +65,13 @@ def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
     if not errors:
         return None
     return "; ".join(f"{'/'.join(map(str, e.path)) or '(arguments)'}: {e.message}" for e in errors[:5])
+
+
+def _inbound_json(m: Inbound) -> dict[str, Any]:
+    d = m.model_dump(mode="json", by_alias=True)
+    if d.get("attachments") is None:
+        d.pop("attachments", None)  # no media: the snapshot (and its fingerprint) is what it was before attachments existed
+    return d
 
 
 class WorldError(RuntimeError):
@@ -107,9 +114,11 @@ class VerifierView:
         return self._world.apps[app].state
 
     async def query(self, app: str, q: Query | dict[str, Any]) -> QueryResult:
+        await self._world.apps[app].before_snapshot()
         return await self.adapter(app).query(q if isinstance(q, Query) else Query.model_validate(q))
 
     async def fingerprints(self) -> dict[str, str]:
+        await self._world.flush()
         apps = self._world.apps
         fps = await asyncio.gather(*(a.state.fingerprint() for a in apps.values()))
         return dict(zip(apps, fps, strict=True))
@@ -138,6 +147,7 @@ class VerifierView:
         start = self._world.initial
         if start is None:
             raise WorldError("no initial WorldRef: start() the world first")
+        await self._world.flush()
         names = apps or tuple(self._world.apps)
         fps = await asyncio.gather(*(self._world.apps[a].state.fingerprint() for a in names))
         return {a: fp == start.apps[a].fingerprint for a, fp in zip(names, fps, strict=True)}
@@ -155,6 +165,7 @@ class World:
         backend: str | None = None,
         backend_params: dict[str, Any] | None = None,
         interceptors: list | None = None,
+        instruction_media: dict[str, list[MediaRef]] | None = None,
     ):
         self.spec = spec
         if interceptors is None:  # m13 C-4: the spec's rules (default: remote code fetch, verifier paths); its allowlist passes
@@ -169,6 +180,7 @@ class World:
         self.interceptors = list(interceptors)
         self.spec_hash = spec.content_hash()
         self.instructions = dict(instructions or {})
+        self.instruction_media = {a: list(m) for a, m in (instruction_media or {}).items()}  # actor -> media with its instruction
         self.store = store or get_store()
         self._own_workdir = workdir is None
         self.workdir = (workdir or Path(tempfile.mkdtemp(prefix="crucible-world-"))).resolve()
@@ -678,6 +690,8 @@ class World:
         inbox, self.inboxes[actor] = self.inboxes.get(actor, []), []
         if self.spec.isolation.hide_citations:  # citations (record ids name repos / PRs) stay in the trace only
             inbox = [m.model_copy(update={"citations": []}) if m.citations else m for m in inbox]
+        inbox = [m.model_copy(update={"attachments": self.hydrate(m.attachments)}) if m.attachments else m for m in inbox]
+        media = self.hydrate(self.instruction_media.get(actor)) if first else None
         send_tools = first or actor in self._acl_changed
         self._acl_changed.discard(actor)
         return Observation(
@@ -687,6 +701,7 @@ class World:
             tool_results=results,
             inbox=inbox,
             instruction=self.instructions.get(actor) if first else None,
+            instruction_media=media or None,
             tools=self.tools_for(actor) if send_tools else [],
             to_move=list(self.turns.to_move) if self.turns is not None else None,
             legal=self.turns.legal.get(actor) if self.turns is not None else None,
@@ -699,8 +714,11 @@ class World:
             self._log("message", frm, "message_undeliverable", text=msg.text, data={"to": msg.to})
             self.inboxes.setdefault(frm, []).append(Inbound(**{"from": "world", "text": f"No such recipient: {msg.to}", "at": self._now()}))
             return
-        self._log("message", frm, "message", text=msg.text, data={"to": msg.to, "citations": msg.citations})
-        self.inboxes.setdefault(msg.to, []).append(Inbound(**{"from": frm, "text": msg.text, "at": self._now(), "citations": msg.citations}))
+        att = [a.model_copy(update={"data_b64": None}) for a in msg.attachments] if msg.attachments else None  # refs only from here on
+        self._log("message", frm, "message", text=msg.text,
+                  data={"to": msg.to, "citations": msg.citations, **({"attachments": [a.model_dump(mode="json") for a in att]} if att else {})})
+        self.inboxes.setdefault(msg.to, []).append(Inbound(**{"from": frm, "text": msg.text, "at": self._now(), "citations": msg.citations,
+                                                               **({"attachments": att} if att else {})}))
         if msg.to in self.responders:
             await self._run_responder(msg.to)
 
@@ -852,9 +870,15 @@ class World:
                 raise WorldError(f"policy processes survived quiesce: {rep}")
         return rep
 
+    async def flush(self) -> None:
+        """Every App's in-memory state to its adapter's storage (``App.before_snapshot``)."""
+        for app in self.apps.values():
+            await app.before_snapshot()
+
     async def snapshot(self, *, quiesce: bool = False) -> WorldRef:
         if quiesce:
             await self.quiesce()
+        await self.flush()
         names = list(self.apps)
         refs: list[StateRef] = list(await asyncio.gather(*(self.apps[n].state.snapshot() for n in names)))
         ref = WorldRef(
@@ -866,7 +890,7 @@ class World:
             actors={a: r.state_dict() for a, r in sorted(self.responders.items())},
             fired_counts=dict(sorted(self.scheduler.fired_counts.items())),
             acl_rules=self.acl.state(),
-            inboxes={a: [m.model_dump(mode="json", by_alias=True) for m in msgs] for a, msgs in sorted(self.inboxes.items()) if msgs},
+            inboxes={a: [_inbound_json(m) for m in msgs] for a, msgs in sorted(self.inboxes.items()) if msgs},
             done=sorted(self.done),
             tool_counts=dict(sorted(self.tool_counts.items())),
             backend=await self.backend.snapshot_state(),
@@ -916,6 +940,19 @@ class World:
 
     def verifier_view(self) -> VerifierView:
         return VerifierView(self)
+
+    def put_media(self, kind: str, mime: str, data: bytes) -> MediaRef:
+        """Store an image or audio clip (content-addressed) and return its reference (M1 item 8)."""
+        return MediaRef(kind=kind, mime=mime, ref=self.store.put_bytes(data))  # type: ignore[arg-type]
+
+    def hydrate(self, media: list[MediaRef] | None) -> list[MediaRef] | None:
+        """The live copy of stored media: bytes attached for the policy (never serialized: ``data_b64`` is excluded)."""
+        import base64
+
+        if not media:
+            return media
+        return [m.model_copy(update={"data_b64": base64.b64encode(self.store.get_bytes(m.ref)).decode()}) if m.ref and m.data_b64 is None else m
+                for m in media]
 
     @property
     def closed(self) -> bool:

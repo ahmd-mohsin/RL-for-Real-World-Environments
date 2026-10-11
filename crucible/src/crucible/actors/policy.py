@@ -102,6 +102,26 @@ class ContextConfig:
 
 
 IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
+AUDIO_TOKENS_PER_S = 25  # estimate for audio input parts; the clip length is read as 16 kHz 16-bit mono (32 kB/s)
+
+
+def media_parts(text: str, media: list[Any] | None, *, vision: bool, audio: bool) -> str | list[dict[str, Any]]:
+    """A user turn's content: plain text, or OpenAI chat content parts when media comes with it (M1 item 8). Images
+    become ``image_url`` parts (a data URL, or the remote URL) for vision models; audio becomes ``input_audio`` parts for
+    audio models; media a model cannot take is named in a placeholder line, so the text still says it was there."""
+    if not media:
+        return text
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}] if text else []
+    for m in media:
+        if m.kind == "image" and vision and (m.data_b64 or m.url):
+            parts.append({"type": "image_url", "image_url": {"url": m.url or f"data:{m.mime};base64,{m.data_b64}"}})
+        elif m.kind == "audio" and audio and m.data_b64:
+            fmt = m.mime.split("/")[-1].replace("mpeg", "mp3").replace("x-wav", "wav")
+            parts.append({"type": "input_audio", "input_audio": {"data": m.data_b64, "format": fmt}})
+        else:
+            why = "this model receives text only" if not (vision if m.kind == "image" else audio) else "no data available"
+            parts.append({"type": "text", "text": f"[{m.kind} {m.mime} omitted: {why}]"})
+    return parts
 
 
 def approx_tokens(messages: list[dict[str, Any]]) -> int:
@@ -112,7 +132,13 @@ def approx_tokens(messages: list[dict[str, Any]]) -> int:
         c = m.get("content")
         if isinstance(c, list):
             for part in c:
-                n += IMAGE_TOKENS * 4 if isinstance(part, dict) and part.get("type") == "image_url" else len(json.dumps(part, default=str))
+                kind = part.get("type") if isinstance(part, dict) else None
+                if kind == "image_url":
+                    n += IMAGE_TOKENS * 4
+                elif kind == "input_audio":
+                    n += int(len(part["input_audio"].get("data", "")) * 3 / 4 / 32000 * AUDIO_TOKENS_PER_S) * 4
+                else:
+                    n += len(json.dumps(part, default=str))
         else:
             n += len(c) if isinstance(c, str) else len(json.dumps(c, default=str)) if c else 0
         if m.get("tool_calls"):
@@ -128,9 +154,10 @@ class LLMToolPolicy(Policy):
     provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
 
     def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
-                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False):
+                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False, audio: bool = False):
         self.actor_id, self.llm, self.system = actor_id, llm, system
         self.vision = vision  # send tool images to the model (vision models); otherwise a placeholder line per image
+        self.audio = audio  # send audio parts (audio-input models); otherwise a placeholder line per clip
         self.max_tokens, self.max_tool_output, self.temperature = max_tokens, max_tool_output, temperature
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         self.tools: list[dict[str, Any]] = []
@@ -284,7 +311,7 @@ class LLMToolPolicy(Policy):
             if self.context is not None and self.context.mode == "action":
                 self.tools.append(CONTEXT_COMPACT)
         if obs.instruction:
-            self.messages.append({"role": "user", "content": obs.instruction})
+            self.messages.append({"role": "user", "content": media_parts(obs.instruction, obs.instruction_media, vision=self.vision, audio=self.audio)})
         for tr in obs.tool_results:
             content = tr.content
             if self.max_tool_output and len(content) > self.max_tool_output:
@@ -302,7 +329,8 @@ class LLMToolPolicy(Policy):
             if m.frm == self.actor_id:  # its own line from a prefilled conversation
                 self._held.append({"role": "assistant", "content": m.text})
             else:
-                self._held.append({"role": "user", "content": f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}"})
+                self._held.append({"role": "user", "content": media_parts(f"[from {m.frm}{' at ' + m.at if m.at else ''}] {m.text}", m.attachments,
+                                                                          vision=self.vision, audio=self.audio)})
         if not self._pending:  # the batch is complete: now the messages that arrived during it
             self.messages += self._held
             self._held = []
