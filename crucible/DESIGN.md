@@ -1120,6 +1120,29 @@ RTX 5090 with a small locally served model, on the same environments as the CPU 
     - the offload test checks onload against parameters plus optimizer state, not the pre-offload peak, which also held
       the gradients and cuBLAS's workspace.
 
+**C7 (2026-10-10): any A2A agent as a harness.** `interop/agentenv/harness.py:A2AHarness` runs an agentenv A2A agent
+(served per attempt from a factory, or at a URL) against the task's World. The World must be served over MCP.
+- **mcp-config:** registers the World's MCP URL with `AgentEnv-Role: <actor>`.
+- **agent-config:** passes the agent's own fields. `${capture.base_url}` and `${capture.key}` are replaced by the
+  capture proxy and a per-attempt session key; the upstream key stays on the proxy.
+- **Prompt:** the task instruction as an A2A message. The agent is the policy, so its own `agent_error` is scored
+  (blame `policy`), while `infra_error`, `canceled` and `rejected` are masked (blame `infra`).
+- **Evidence:** the trajectory/v1 native trajectory is saved, and the capture log becomes the actor's model calls.
+- **Token records:** a call gets one only when the upstream returned prompt and completion token ids with logprobs
+  (vLLM style), stamped with the harness's `policy_version`. A train rollout without complete records is masked
+  `capture_incomplete` by the record builder.
+- **Grading:** the task's own, as in the native harness.
+- **Finding:** without `policy_version`, a train rollout is masked even when the token ids are complete. The builder
+  rightly refuses a token record that cannot say which checkpoint produced it.
+- **Tests:** a scripted A2A agent on the toy helpdesk behind a real agentenv gateway makes one model call through the
+  capture proxy (fake upstream) and the gold tool calls over MCP:
+  - with token ids, the train rollout is complete (turn tokens and logprobs present) and graded 1.0, and the proxy
+    log holds no upstream key;
+  - with a hosted upstream it is masked `capture_incomplete`;
+  - an agent-reported failure is `agent_run_error` with blame `policy`;
+  - token-record parsing (ids or `token_id:N`).
+- **Pending:** a real coding agent (LLM spend) and snapshot/v1 mid-episode restore.
+
 **C9 (2026-10-10): agentenv env images as Apps.** App template `agentenv/mcp_env`
 (`interop/agentenv/mcp_env.py`, which DEPENDs on `agentenv_protocol`'s data-plane client) runs an agentenv-protocol env
 image as one loopback-published container per World.
