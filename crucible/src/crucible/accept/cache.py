@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,11 @@ class Cache:
         p = self.root / key_digest / f"{check}@{version}.json"
         if not p.exists():
             return None
-        r = CheckResult.model_validate_json(p.read_text())
+        try:
+            r = CheckResult.model_validate_json(p.read_text())
+        except ValueError:  # a torn or stale-schema entry is a miss, never an abort of the whole run (M9 audit V12)
+            p.unlink(missing_ok=True)
+            return None
         for e in r.evidence:
             f = self.root / key_digest / e.path
             if not f.exists() or _sha(f) != e.sha256:
@@ -44,4 +49,7 @@ class Cache:
         return Evidence(path=rel, sha256=_sha(f), kind=kind)
 
     def put(self, key_digest: str, r: CheckResult) -> None:
-        (self.dir(key_digest) / f"{r.id}@{r.version}.json").write_text(r.model_dump_json(indent=1))
+        p = self.dir(key_digest) / f"{r.id}@{r.version}.json"
+        tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+        tmp.write_text(r.model_dump_json(indent=1))
+        os.replace(tmp, p)

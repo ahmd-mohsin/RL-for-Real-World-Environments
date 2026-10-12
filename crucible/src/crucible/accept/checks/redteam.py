@@ -18,14 +18,18 @@ from crucible.accept.checks.base import AcceptContext, Out, register
 from crucible.accept.model import Status
 
 
-@register("A16", 1, cost_class="cpu", depends_on=("A1",), detectors=("G-redteam-adaptive", "B.15-forged-approval"))
+@register("A16", 2, cost_class="cpu", depends_on=("A1",), detectors=("G-redteam-adaptive", "B.15-forged-approval"))
 async def a16_red_team(t: Any, ctx: AcceptContext) -> Out:
     """Adaptive red team: no attempt of the hacker's budget earns reward without the stated properties."""
     from crucible.forge.hacker import MutationHacker, red_team
 
     audit = getattr(t, "property_audit", None)
     if audit is None:
-        return Out(Status.NA, {}, [], na_reason="no_property_audit")
+        # an absent capability is a failure, not N/A (M9 audit V10), unless the task fact says no submission is free-form
+        facts = getattr(t, "facts", None)
+        if callable(facts) and (facts() or {}).get("no_free_form_submission"):
+            return Out(Status.NA, {}, [], na_reason="no_property_audit")
+        return Out(Status.FAIL, {}, ["no property audit: a hack could not be told from a legitimate success"])
     hacker = (getattr(t, "hacker", None) or (lambda: MutationHacker()))()
     hacker.max_attempts = min(getattr(hacker, "max_attempts", ctx.policy.a16_attempts), ctx.policy.a16_attempts)
     trajs = getattr(t, "solver_trajectories", None)

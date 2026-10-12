@@ -198,7 +198,10 @@ class ForgeWorkspace:
 
     # A7 belongs in the default set: in the m14 live run a candidate that dropped every scope check passed A1 + A16 (the hacker
     # never makes collateral edits); only "every stated property is graded" catches an ungraded property objectively
-    def __init__(self, tasks: dict[str, Any], *, rebuild: Callable[[Any, list[Any]], Any], checks: tuple[str, ...] = ("A1", "A7", "A16"),
+    # A2, A3 and A13 too (M9 audit V4: a repair that dropped the check guarding a stated bound passed A1 + A7 + A16 and was
+    # committed; A3's authored negative would have caught it)
+    def __init__(self, tasks: dict[str, Any], *, rebuild: Callable[[Any, list[Any]], Any],
+                 checks: tuple[str, ...] = ("A1", "A2", "A3", "A7", "A13", "A16"),
                  cache_root: Path | None = None, vocabulary: dict[str, Any] | None = None):
         self.versions: dict[str, list[Version]] = {k: [Version(t, None, "original")] for k, t in tasks.items()}
         self.vocab = dict(vocabulary or {})  # the pack's check grammar: kinds, event rules, examples (an implementer cannot guess them)

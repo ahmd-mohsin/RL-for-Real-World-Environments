@@ -2,24 +2,29 @@
 
 Each operator removes or corrupts one property of the oracle:
 
-- ``drop_step``: omit one call (a missing refund, note, status change or approval request);
+- ``drop_step``: omit one call that writes (a missing refund, note or status change);
+- ``drop_read``: omit one read-only call (``get``/``list``/``search``...): the only family that may be equivalent;
 - ``numeric_shift``: change one numeric argument by a small amount (wrong amount, wrong id);
 - ``enum_swap``: replace a string argument with another value the oracle uses for that argument name elsewhere
   (wrong status, wrong order id);
-- ``swap_target``: point a call at another entity id the oracle touches (refund on the wrong ticket);
 - ``drop_message``: omit one message to another actor (skipping the approval request);
 - ``reorder``: move a write before the message that should precede it (acting before the approval arrives).
 
-The validity and equivalence filters live in A3: a mutant whose end state equals the oracle's is equivalent (it changed
-nothing the task is about) and is excluded from the score.
+The validity and equivalence filters live in A3: a ``drop_read`` mutant whose end state equals the oracle's is equivalent
+and excluded from the score; no other family is (a dropped message leaves the state alone and still breaks the process,
+M9 audit V3). Truncation to ``limit`` takes the families in turn, so ``drop_step`` cannot crowd the others out (V18).
+Entity swaps of string ids are ``enum_swap``; numeric ids are ``numeric_shift``.
 """
 
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 from crucible.accept.mutation.base import Mutant
+
+READ = re.compile(r"^(get|list|read|search|find|view|show|lookup|describe|query|fetch|count)(_|$)", re.IGNORECASE)
 
 
 def _name(a: dict) -> str:
@@ -36,7 +41,8 @@ def generate(oracle: list[dict], *, limit: int = 40) -> list[Mutant]:
             if isinstance(v, str) and len(v) < 40:
                 values.setdefault(k, set()).add(v)
     for i in calls:
-        out.append(Mutant(f"drop_step/{i}", "drop_step", oracle[:i] + oracle[i + 1:], f"omit {_name(oracle[i])}"))
+        fam = "drop_read" if READ.match(_name(oracle[i]).split(".")[-1]) else "drop_step"
+        out.append(Mutant(f"{fam}/{i}", fam, oracle[:i] + oracle[i + 1:], f"omit {_name(oracle[i])}"))
     for i in msgs:
         out.append(Mutant(f"drop_message/{i}", "drop_message", oracle[:i] + oracle[i + 1:], f"omit the message to {oracle[i].get('to')}"))
     for i in calls:
@@ -65,7 +71,15 @@ def generate(oracle: list[dict], *, limit: int = 40) -> list[Mutant]:
         if k not in seen and x.solution != oracle:
             seen.add(k)
             uniq.append(x)
-    return uniq[:limit]
+    by: dict[str, list[Mutant]] = {}
+    for x in uniq:
+        by.setdefault(x.family, []).append(x)
+    picked: list[Mutant] = []
+    while len(picked) < min(limit, len(uniq)):
+        for fam in list(by):
+            if by[fam] and len(picked) < limit:
+                picked.append(by[fam].pop(0))
+    return picked
 
 
 def is_actions(x: Any) -> bool:

@@ -73,3 +73,21 @@ async def accept_task(task, *, policy: Policy = DEFAULT, needs: Sequence[Need] =
         cache.evidence(kd, "grades", f"log-{int(time.time())}.json", ctx.log, kind="grades")
     report.stats = {"new_grades": ctx.new_grades, "grade_env": genv}  # grades actually run (not reused from the grade store)
     return report
+
+
+def verdict(report: AcceptanceReport) -> dict:
+    """The one acceptance verdict every user path reports (M9 audit V2: ``crucible accept`` and ``crucible build`` ran the
+    model-free M8 subset and called its pass "accepted", shipping tasks the full contract rejects):
+
+    - ``accepted``: every required check passes (or is N/A) on the full contract;
+    - ``provisional``: nothing failed or errored; the only blockers are checks pending on a need this run did not have
+      (Docker, paid calls, a GPU, a human). Usable for demos and smoke runs, never reported as accepted;
+    - ``rejected``: a required check failed, errored, or has no evidence."""
+    blocking = report.blocking()
+    if not blocking:
+        state = "accepted"
+    elif all(v == str(Status.PENDING) for v in blocking.values()):
+        state = "provisional"
+    else:
+        state = "rejected"
+    return {"state": state, "blocking": blocking}

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -31,7 +32,9 @@ from crucible.verify.runtime.plan import GradeReport
 
 
 class InfraUnavailable(RuntimeError):
-    pass
+    def __init__(self, msg: str, infra: dict | None = None):
+        super().__init__(msg)
+        self.infra = infra or {}  # the last grade's infra record: ``failure_kind`` tells the task's grader from the node
 
 
 class MissingCapability(RuntimeError):
@@ -78,7 +81,7 @@ class AcceptContext:
     def _stored(self, solution: Any, run: int, variant: str) -> Path | None:
         if self.grade_store is None:
             return None
-        h = hashlib.sha256(json.dumps([solution, run, variant], sort_keys=True, default=repr).encode()).hexdigest()[:32]
+        h = hashlib.sha256(json.dumps([_content(solution), run, variant], sort_keys=True).encode()).hexdigest()[:32]
         return self.grade_store / f"{h}.json"
 
     async def grade(self, t: Any, sol_id: str, solution: Any, *, run: int = 0, variant: str = "", call: Callable[..., Awaitable] | None = None):
@@ -86,8 +89,13 @@ class AcceptContext:
         if k in self.grades:
             return self.grades[k]
         sp = self._stored(solution, run, variant)
+        d = None
         if sp is not None and sp.exists():
-            d = json.loads(sp.read_text())
+            try:
+                d = json.loads(sp.read_text())
+            except (json.JSONDecodeError, UnicodeDecodeError):  # a torn write: a miss, re-graded (M9 audit V12)
+                sp.unlink(missing_ok=True)
+        if d is not None:
             rep = GradeReport(task=d["task"], tier=d["tier"], checks=[], gates=d["gates"], reward=d["reward"], outcome=d["outcome"], infra=d["infra"],
                               trusted=d["trusted"], elapsed_s=d["elapsed_s"], meta=d.get("meta") or {})
             self.grades[k] = (rep, d["fingerprint"])
@@ -105,11 +113,36 @@ class AcceptContext:
                 self.new_grades += 1
                 if sp is not None:
                     sp.parent.mkdir(parents=True, exist_ok=True)
-                    sp.write_text(json.dumps({"task": rep.task, "tier": rep.tier, "gates": rep.gates, "reward": rep.reward, "outcome": rep.outcome,
+                    _atomic_write(sp, json.dumps({"task": rep.task, "tier": rep.tier, "gates": rep.gates, "reward": rep.reward, "outcome": rep.outcome,
                                               "infra": rep.infra, "trusted": rep.trusted, "elapsed_s": rep.elapsed_s, "fingerprint": fp,
                                               "meta": rep.meta, "failing": rep.failing_gates()}, default=str))
                 return rep, fp
-        raise InfraUnavailable(f"grade of {sol_id} stayed infrastructure-masked after {1 + self.policy.infra_retries} tries: {last.infra if last else None}")
+        raise InfraUnavailable(f"grade of {sol_id} stayed infrastructure-masked after {1 + self.policy.infra_retries} tries: {last.infra if last else None}",
+                               last.infra if last else None)
+
+
+def _atomic_write(p: Path, text: str) -> None:
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, p)
+
+
+def _content(solution: Any) -> Any:
+    """What a solution *is*, for the grade store key (M9 audit V8: a ``Path`` was keyed by its repr, so an edited patch
+    file reused the old grade): file and directory content is hashed; other non-JSON solutions are refused."""
+    if isinstance(solution, Path):
+        if solution.is_dir():
+            h = hashlib.sha256()
+            for f in sorted(x for x in solution.rglob("*") if x.is_file()):
+                h.update(str(f.relative_to(solution)).encode())
+                h.update(f.read_bytes())
+            return {"dir": h.hexdigest()}
+        return {"file": hashlib.sha256(solution.read_bytes()).hexdigest() if solution.exists() else None}
+    try:
+        json.dumps(solution, sort_keys=True)
+    except TypeError as e:
+        raise TypeError(f"a solution must be JSON or a Path to be stored by content: {type(solution).__name__}") from e
+    return solution
 
 
 @dataclass

@@ -8,15 +8,22 @@
  },
  "tasks": {
   "toy/helpdesk_v2/t1_duplicate": {
-   "accepted": true,
-   "blocking": {},
-   "key": "54a5245bbb4afbc9b1fc6e60",
+   "accepted": false,
+   "blocking": {
+    "A10": "pending"
+   },
+   "key": "8fa3d37b0d5973f1319d56c9",
    "statuses": {
     "A1": "pass",
-    "A10": "pass",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -27,7 +34,11 @@
     "A9": "pass",
     "S1": "not_applicable"
    },
-   "reasons": {},
+   "reasons": {
+    "A10": [
+     "needs paid frontier runs (no budget in this run)"
+    ]
+   },
    "mutation": {
     "score": 1.0,
     "killed": 7,
@@ -84,32 +95,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 0.5,
-    "interval": [
-     0.0945,
-     0.9055
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 29
   },
   "toy/helpdesk_v2/t2_approval": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "3c798dd68678532f44eaac08",
+   "key": "873961ac92b69f5d2fdc49cd",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -122,7 +132,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -200,32 +210,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 34
   },
   "toy/helpdesk_v2/t3_in_transit": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "1be7218b4494b291d4de2d16",
+   "key": "27a3358718e2902f7f493fbf",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -238,7 +247,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -289,32 +298,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 23
   },
   "toy/helpdesk_v2/t4_decoy": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "94bc3b14477ca12a8d0a42c3",
+   "key": "51940ab4fc4c3f34d788f785",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -327,7 +335,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -405,32 +413,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 33
   },
   "toy/helpdesk_v2/t5_compose": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "570d2af32c875710fefc5d5f",
+   "key": "e15817502374d06f85a68a78",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -443,7 +450,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -508,32 +515,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 36
   },
   "toy/helpdesk_hindsight/t1001": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "924b41350fd8f80ab124df0c",
+   "key": "8533ca4859c6196402ac012e",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -546,7 +552,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -605,30 +611,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 29
   },
   "toy/helpdesk_hindsight/t1003": {
-   "accepted": true,
-   "blocking": {},
-   "key": "0493e6e92b54d8cc1cb9b8d6",
+   "accepted": false,
+   "blocking": {
+    "A10": "pending"
+   },
+   "key": "3279a00859d3f430ca74649c",
    "statuses": {
     "A1": "pass",
-    "A10": "pass",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -639,7 +646,11 @@
     "A9": "pass",
     "S1": "not_applicable"
    },
-   "reasons": {},
+   "reasons": {
+    "A10": [
+     "needs paid frontier runs (no budget in this run)"
+    ]
+   },
    "mutation": {
     "score": 1.0,
     "killed": 9,
@@ -715,32 +726,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 0.5,
-    "interval": [
-     0.0945,
-     0.9055
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 33
   },
   "toy/helpdesk_hindsight/t1013": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "d12ef3fc41054275fd9d777e",
+   "key": "52ff2ddc9e969847f275c210",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -753,7 +763,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 0.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -812,32 +822,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 0.0,
-    "interval": [
-     0.0,
-     0.6576
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 29
   },
   "toy/helpdesk_hindsight/t1015": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "a0e7b63f28daad29a3260680",
+   "key": "7c5f6f8af3dda3c7c49b23d2",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -850,7 +859,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 0.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -928,32 +937,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 0.0,
-    "interval": [
-     0.0,
-     0.6576
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 33
   },
   "toy/helpdesk_hindsight/t1018": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "eccb696167094ab4a5a4c257",
+   "key": "af5c686591e70ba9b0fc9836",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -966,7 +974,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -1025,32 +1033,31 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 28
   },
   "toy/helpdesk_hindsight/t1021": {
    "accepted": false,
    "blocking": {
-    "A10": "fail"
+    "A10": "pending"
    },
-   "key": "36c904e347bb3d66054470ff",
+   "key": "1de87b09eacb5b61ae4590cd",
    "statuses": {
     "A1": "pass",
-    "A10": "fail",
+    "A10": "pending",
     "A11": "pass",
     "A12": "pass",
     "A13": "pass",
+    "A14": "not_applicable",
+    "A15": "not_applicable",
+    "A16": "pass",
+    "A17": "not_applicable",
+    "A18": "not_applicable",
     "A2": "pass",
     "A3": "pass",
     "A4": "pass",
@@ -1063,7 +1070,7 @@
    },
    "reasons": {
     "A10": [
-     "pass rate 1.00 outside the train band [0.1, 0.7]"
+     "needs paid frontier runs (no budget in this run)"
     ]
    },
    "mutation": {
@@ -1113,22 +1120,16 @@
     }
    },
    "a10": {
-    "split": "train",
-    "band": [
-     0.1,
-     0.7
-    ],
-    "p": 1.0,
-    "interval": [
-     0.3424,
-     1.0
-    ],
-    "n": 2
+    "split": null,
+    "band": null,
+    "p": null,
+    "interval": null,
+    "n": null
    },
-   "new_grades": 0
+   "new_grades": 24
   }
  },
- "accepted": 2,
+ "accepted": 0,
  "total": 11,
  "budget_per_task_usd": 0.02,
  "spend_usd": 0.0,

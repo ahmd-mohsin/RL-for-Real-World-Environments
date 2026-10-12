@@ -2,8 +2,9 @@
 
 - ``power_tests(registry)``: run every admitted per-task detector's re-injection; a detector must report the expected
   status on the clean fixture and on the defective one. Fixtures needing unavailable resources are reported, not run.
-- ``backfill(defect, reports, tasks)``: evaluate a new detector on every task whose current report is accepted; tasks it
-  fails move to ``quarantined`` (the pool refuses them), and every other cached result is reused.
+- ``backfill(defect, tasks)``: evaluate a new detector on every task passed in; a task it does not pass (fail, error,
+  pending, missing capability) moves to ``quarantined`` (M9 audit V7: an erroring detector kept the task), recorded in
+  ``<cache_root>/quarantine.jsonl`` that ``quarantined()`` reads; every other cached result is reused.
 """
 
 from __future__ import annotations
@@ -46,5 +47,26 @@ async def backfill(d: Defect, tasks: Sequence[Any], *, cache_root: Path, resolve
             continue
         rep = await accept_task(t, only=[check], cache_root=cache_root, resolve=resolve, **kw)
         st = str(rep.results[check].status)
-        out[t.task_id] = "quarantined" if st == "fail" else "kept"
+        out[t.task_id] = "kept" if st in ("pass", "not_applicable") else "quarantined"
+        if out[t.task_id] == "quarantined":
+            import json
+
+            Path(cache_root).mkdir(parents=True, exist_ok=True)
+            with (Path(cache_root) / "quarantine.jsonl").open("a") as f:
+                f.write(json.dumps({"task": t.task_id, "defect": d.id, "check": check, "status": st}) + "\n")
+    return out
+
+
+def quarantined(cache_root: Path) -> set[str]:
+    """Task ids a backfill quarantined (pool loaders refuse them until a new acceptance passes)."""
+    import json
+
+    p = Path(cache_root) / "quarantine.jsonl"
+    out: set[str] = set()
+    if p.exists():
+        for line in p.read_text().splitlines():
+            try:
+                out.add(json.loads(line)["task"])
+            except (json.JSONDecodeError, KeyError):
+                continue
     return out

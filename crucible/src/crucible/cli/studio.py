@@ -99,15 +99,22 @@ def label(pack_ref, run_dir, out, expr, select, max_per_task, threshold, margin,
 @click.option("--fresh", "n_fresh", type=int, default=2, show_default=True, help="fresh benchmark items from the pack's generator")
 @click.option("--k", type=int, default=1, show_default=True, help="samples per task and policy")
 @click.option("--dry-run", is_flag=True)
+@click.option("--docker", is_flag=True, help="Docker is available: run the acceptance checks that need it")
+@click.option("--paid", is_flag=True, help="allow the acceptance checks that make paid model calls")
 @click.option("--json", "as_json", is_flag=True)
-def build(pack_ref, out, n_fresh, k, dry_run, as_json) -> None:
-    """Workflows -> RL tasks and a benchmark: ingest, forge, accept, export, bench."""
+def build(pack_ref, out, n_fresh, k, dry_run, docker, paid, as_json) -> None:
+    """Workflows -> RL tasks and a benchmark: ingest, forge, accept (full contract), export, bench."""
+    from crucible.accept.model import Need
     from crucible.studio.build import build as run
 
-    s = asyncio.run(run(pack_ref, out=out, n_fresh=n_fresh, k=k, dry_run=dry_run))
+    needs = tuple(n for n, on in ((Need.DOCKER, docker), (Need.PAID, paid)) if on)
+    s = asyncio.run(run(pack_ref, out=out, n_fresh=n_fresh, k=k, dry_run=dry_run, needs=needs))
     if dry_run:
         return _emit(s, as_json, [json.dumps(s, indent=1, default=str)])
-    _emit(s, as_json, [f"ingested {s['ingest']['traces']} traces; forged {s['forge']['tasks']} tasks; accepted {s['accept']['accepted']}/{s['accept']['total']}",
+    a = s["accept"]
+    head = (f"ingested {s['ingest']['traces']} traces; forged {s['forge']['tasks']} tasks; accepted {a['accepted']}/{a['total']}, "
+            f"provisional {a['provisional']} (checks pending on needs this run lacks), rejected {a['rejected']}")
+    _emit(s, as_json, [head,
                        f"  exported {s['export']['canonical']} (canonical reward.json + steps.jsonl) -> {s['export']['dir']}",
                        f"  bench {s['bench']['items']}: " + ", ".join(f"{p} {r}" for p, r in s["bench"]["models"].items()),
                        f"  report {s['bench']['report']}"])
@@ -171,11 +178,14 @@ def forge(pack_ref, out, as_json) -> None:
 @click.command("accept")
 @click.argument("pack_ref")
 @click.option("--out", type=click.Path(path_type=Path), default=Path("data/forge"), show_default=True)
+@click.option("--docker", is_flag=True, help="Docker is available: run the checks that need it")
+@click.option("--paid", is_flag=True, help="allow the checks that make paid model calls")
 @click.option("--json", "as_json", is_flag=True)
-def accept(pack_ref, out, as_json) -> None:
-    """M9 (model-free checks A1, A2, A3, A4-lite, A5, A7, A8) on the pack's forged tasks. The full contract needs Docker and
-    paid calls: python -m crucible_pack_toy.accept_gate."""
-    from crucible.accept.contract import accept as run_accept
+def accept(pack_ref, out, docker, paid, as_json) -> None:
+    """M9: the full Acceptance Contract on the pack's forged tasks. Each task is accepted, provisional (nothing failed;
+    checks that need Docker or paid calls are pending without --docker/--paid) or rejected. Exit code 1 if any is rejected."""
+    from crucible.accept.model import Need
+    from crucible.accept.run import accept_task, verdict
     from crucible.studio.label import ingest as run
     from crucible.studio.pack import find_pack, load_manifest, resolve
 
@@ -183,11 +193,15 @@ def accept(pack_ref, out, as_json) -> None:
     m = load_manifest(d)
     run(d, m, Path(out) / "store")
     col = asyncio.run(resolve(d, m.hooks.forge)(Path(out) / "forge", Path(out) / "store"))
-    reps = {t.task_id: asyncio.run(run_accept(t, resolve=r)) for t, r in col}
-    res = {k: {"ok": v.ok, "checks": {c.id: c.status for c in v.checks}} for k, v in reps.items()}
-    _emit({"accepted": sum(v.ok for v in reps.values()), "total": len(reps), "tasks": res}, as_json,
-          [f"{k}: {'accepted' if v['ok'] else 'REJECTED'} {v['checks']}" for k, v in res.items()])
-    if not all(v.ok for v in reps.values()):
+    needs = [n for n, on in ((Need.DOCKER, docker), (Need.PAID, paid)) if on]
+    res = {}
+    for t, r in col:
+        rep = asyncio.run(accept_task(t, needs=needs, cache_root=Path(out) / "accept", resolve=r))
+        res[t.task_id] = {**verdict(rep), "checks": {c: str(x.status) for c, x in rep.results.items()}}
+    states = [v["state"] for v in res.values()]
+    _emit({"accepted": states.count("accepted"), "provisional": states.count("provisional"), "rejected": states.count("rejected"),
+           "total": len(res), "tasks": res}, as_json, [f"{k}: {v['state'].upper()} {v['blocking']}" for k, v in res.items()])
+    if "rejected" in states:
         raise SystemExit(1)
 
 

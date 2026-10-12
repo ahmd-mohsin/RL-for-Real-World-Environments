@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 from collections.abc import Callable, Hashable
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -30,13 +31,23 @@ VERDICTS = ("stable", "flaky", "broken", "infra")
 
 
 def _passed(v: Any) -> bool:
+    """A reference run passes with a full reward (M9 audit V13: a partial 0.5 counted as a pass, A4 requires 1)."""
     if isinstance(v, bool):
         return v
     if isinstance(v, int | float):
-        return v > 0
+        return v >= 1.0
     if isinstance(v, tuple) and v and isinstance(v[0], int | float):
-        return v[0] > 0  # (reward, gates...) as A4 builds them
+        return v[0] >= 1.0  # (reward, gates...) as A4 builds them
     return bool(v)
+
+
+def _frozen(v: Any) -> Hashable:
+    """A hashable form of a verdict (a dict verdict raised TypeError outside the try and aborted the screen: V13)."""
+    try:
+        hash(v)
+        return v
+    except TypeError:
+        return json.dumps(v, sort_keys=True, default=str)
 
 
 @dataclass
@@ -65,8 +76,10 @@ class ScreenReport:
         return [s for s in self.screens if s.verdict != "stable" and (verdict is None or s.verdict == verdict)]
 
     def flake_upper_95(self) -> float:
-        """Per-run flake probability bound for a kept task: 0 disagreements in ``k`` runs (Clopper–Pearson)."""
-        return clopper_pearson_upper(0, self.k)
+        """Per-run flake probability bound for a kept task: 0 disagreements over the *fewest* verdicts any kept task had
+        (Clopper–Pearson; M9 audit V13: a task with infra runs has fewer than ``k`` verdicts, the bound used ``k``)."""
+        n = min((s.runs - s.infra for s in self.screens if s.verdict == "stable"), default=self.k)
+        return clopper_pearson_upper(0, n)
 
     def to_dict(self) -> dict[str, Any]:
         return {"k": self.k, "counts": self.counts(), "flake_upper_95": self.flake_upper_95(), "kept": {s: len(p) for s, p in self.kept.items()},
@@ -98,6 +111,7 @@ async def screen(sources: dict[str, list[str]], rerun: Callable[[str, str, int],
 
     async def task(src: str, prompt: str) -> TaskScreen:
         seen: list[Hashable] = []
+        first: list[Any] = []  # the first verdict as returned (``seen`` holds hashable forms)
         infra = runs = 0
         if early_stop:  # sequential per prompt (prompts still run concurrently): stop at the first disagreement
             for i in range(k):
@@ -108,18 +122,20 @@ async def screen(sources: dict[str, list[str]], rerun: Callable[[str, str, int],
                     if infra > max_infra:
                         break
                     continue
-                seen.append(v)
+                first[:] = first or [v]
+                seen.append(_frozen(v))
                 if len(set(seen)) > 1:
                     break
         else:
             vs = await asyncio.gather(*(one(src, prompt, i) for i in range(k)))
-            runs, infra, seen = k, sum(v is None for v in vs), [v for v in vs if v is not None]
+            runs, infra, seen = k, sum(v is None for v in vs), [_frozen(v) for v in vs if v is not None]
+            first = [next(v for v in vs if v is not None)] if seen else []
         distinct = len(set(seen))
         if infra > max_infra:
             verdict = "infra"
         elif distinct > 1:
             verdict = "flaky"
-        elif not seen or not passed(seen[0]):
+        elif not seen or not passed(first[0]):
             verdict = "broken"
         else:
             verdict = "stable"

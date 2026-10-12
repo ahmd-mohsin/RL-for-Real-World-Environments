@@ -90,7 +90,11 @@ def test_readme_path_through_the_cli(tmp_path):
 
     r = run("build", "toy", "--out", str(tmp_path / "build"), "--fresh", "2", "--json")
     b = json.loads(r.output)
-    assert r.exit_code == 0 and b["forge"]["tasks"] == 5 and b["accept"]["accepted"] == 5 and b["export"]["canonical"] == 5
+    a = b["accept"]
+    # the full contract (M9 audit V2): without --docker/--paid the checks that need them are pending, so a sound task is
+    # provisional, never "accepted"; nothing here may be rejected, and what is not rejected is exported (labelled)
+    assert r.exit_code == 0 and b["forge"]["tasks"] == 5 and a["rejected"] == 0 and a["accepted"] + a["provisional"] == 5
+    assert b["export"]["canonical"] == 5
     assert set(b["export"]["oracle_rewards"].values()) == {1.0} and b["bench"]["items"] == {"anchor": 5, "fresh": 2}
     assert b["bench"]["models"]["scripted:oracle"] == 1.0 and b["bench"]["models"]["scripted:noop"] == 0.0
     run_dir = tmp_path / "build" / "runs" / "bench-toy-build"

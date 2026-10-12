@@ -10,7 +10,7 @@ from dataclasses import replace
 import pytest
 
 from crucible.accept.model import CheckResult, Need, Status
-from crucible.accept.registry.fixtures import FakeTask, Neg, good
+from crucible.accept.registry.fixtures import FakeTask, Neg, good, killed_mutant
 from crucible.accept.registry.model import Defect, load_registry
 from crucible.accept.registry.run import backfill, power_tests
 from crucible.accept.run import accept_task
@@ -42,11 +42,11 @@ def counting(fn):
 
 async def test_binding_reuses_grades_and_regrades_only_the_changed_negative(tmp_path):
     g, calls = counting(good)
-    t = FakeTask(grade_fn=g, negatives=negs(), extra={"mutants": list})
+    t = FakeTask(grade_fn=g, negatives=negs(), extra={"mutants": killed_mutant})
     r1 = await accept_task(t, only=["A1", "A2", "A3", "A4"], cache_root=tmp_path, reg_version="r")
     assert all(r1.results[c].status == Status.PASS for c in ("A1", "A2", "A3", "A4")), r1.summary()
     n1 = len(calls)
-    t2 = FakeTask(grade_fn=g, negatives=[replace(negs()[0], solution="bad1-edited"), *negs()[1:]], extra={"mutants": list})
+    t2 = FakeTask(grade_fn=g, negatives=[replace(negs()[0], solution="bad1-edited"), *negs()[1:]], extra={"mutants": killed_mutant})
     r2 = await accept_task(t2, only=["A1", "A2", "A3", "A4"], cache_root=tmp_path, reg_version="r")
     assert not r1.current_for(r2.key) and r1.key_digest != r2.key_digest  # an edited negative makes the old acceptance stale
     assert r2.stats["new_grades"] == 1 and len(calls) == n1 + 1  # only the edited negative was graded again
@@ -55,14 +55,14 @@ async def test_binding_reuses_grades_and_regrades_only_the_changed_negative(tmp_
 
 
 async def test_registry_version_is_part_of_the_key(tmp_path):
-    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": list})
+    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": killed_mutant})
     a = await accept_task(t, only=["A2"], cache_root=tmp_path, reg_version="reg:1")
     b = await accept_task(t, only=["A2"], cache_root=tmp_path, reg_version="reg:2")
     assert a.key_digest != b.key_digest  # a new defect makes every acceptance non-current until the backfill ran
 
 
 async def test_statuses_missing_capability_pending_and_na(tmp_path):
-    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": list})
+    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": killed_mutant})
     rep = await accept_task(t, cache_root=tmp_path, reg_version="r")
     st = {k: str(v.status) for k, v in rep.results.items()}
     assert st["A6"] == "fail" and "isolation_audit" in rep.results["A6"].reasons[0]  # absence never implies N/A
@@ -75,7 +75,7 @@ async def test_statuses_missing_capability_pending_and_na(tmp_path):
 
 
 async def test_dependency_failure_blocks_dependents(tmp_path):
-    t = FakeTask(grade_fn=lambda s, r: (0.0, {"g": "fail"}), negatives=negs(), extra={"mutants": list})
+    t = FakeTask(grade_fn=lambda s, r: (0.0, {"g": "fail"}), negatives=negs(), extra={"mutants": killed_mutant})
     rep = await accept_task(t, only=["A1", "A4"], cache_root=tmp_path, reg_version="r")
     assert rep.results["A1"].status == Status.FAIL and rep.results["A4"].status == Status.PENDING  # no flake measurement of a failing oracle
 
@@ -95,7 +95,7 @@ async def test_signoff_bound_to_key(tmp_path):
 
 
 async def test_tampered_evidence_is_not_reused(tmp_path):
-    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": list})
+    t = FakeTask(grade_fn=good, negatives=negs(), extra={"mutants": killed_mutant})
     rep = await accept_task(t, only=["A2"], cache_root=tmp_path, reg_version="r")
     ev = tmp_path / rep.key_digest / rep.results["A2"].evidence[0].path
     ev.write_text(json.dumps({"status": "pass", "forged": True}))
@@ -169,16 +169,16 @@ async def _a10(task, *, paid=True):
 
 
 async def test_a10_samples_more_before_rejecting_on_thin_evidence():
-    # 0/2 overlaps the band ([0, 0.66]): top up 2 -> 4; 2/4 lands in the band, so the task is accepted
+    # the sample size is fixed in advance (M9 audit V15: stopping as soon as the estimate entered the band biased A10
+    # toward acceptance): 2 -> 4 -> 8 whatever the first draws say, then the decision on n = 8
     t = _Calib([0, 0, 1, 1, 0, 0, 0, 0])
     out = await _a10(t)
-    assert str(out.status) == "pass" and t.calls == [2, 4] and out.measured["n"] == 4
-    # never passes: top up to the cap, then rejected with the reason saying so
+    assert str(out.status) == "pass" and t.calls == [2, 4, 8] and out.measured["n"] == 8  # 2/8 = 0.25, inside [0.1, 0.7]
     t = _Calib([0] * 8)
     out = await _a10(t)
     assert str(out.status) == "fail" and t.calls == [2, 4, 8] and "sampling cap (n=8)" in out.reasons[0]
-    # inside the band on the first two: no extra spend
-    t = _Calib([1, 0])
-    assert str((await _a10(t)).status) == "pass" and t.calls == [2]
+    t = _Calib([1, 1, 1, 1, 1, 1, 1, 1])  # 2/2 alone would look "too easy" and 0.5-ish after a lucky stop: n = 8 decides
+    out = await _a10(t)
+    assert str(out.status) == "fail" and t.calls == [2, 4, 8]
     # no budget to sample: the first runs never happen, A10 is pending (unchanged)
     assert str((await _a10(_Calib([0, 0]), paid=False)).status) == "pending"

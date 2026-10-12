@@ -99,6 +99,14 @@ class FakeTask:
         return {"overlay_hash": self.task_hash, "images": self.extra.get("images_ref", {})}
 
 
+def killed_mutant() -> list:
+    """One defect mutant every fixture grader scores 0 (an empty list would leave A3's mutation score unmeasured, which
+    now fails A3: M9 audit V3)."""
+    from crucible.accept.mutation.base import Mutant
+
+    return [Mutant("drop_step/0", "drop_step", "mutant-drop-0", "omit the write")]
+
+
 def good(sol: Any, run: int) -> tuple[float, dict[str, str]]:
     return (1.0, {"g": "pass"}) if sol in ("oracle", "alt") else (0.0, {"g": "fail"})
 
@@ -172,7 +180,7 @@ async def weak_negative() -> dict[str, str]:
             return 0.0, {"g": "fail"}
 
         negs = [Neg("oob", family="bounds"), Neg("n2"), Neg("n3"), Neg("n4"), Neg("alt", kind="valid_alternative", expected="pass", expected_gate=None)]
-        return FakeTask(grade_fn=g, negatives=negs, extra={"mutants": list})
+        return FakeTask(grade_fn=g, negatives=negs, extra={"mutants": killed_mutant})
 
     return await statuses(make, "A3")
 
@@ -187,7 +195,7 @@ async def family_coverage() -> dict[str, str]:
 
         negs = [Neg("n1"), Neg("alt", kind="valid_alternative", expected="pass", expected_gate=None)] + ([] if bad else [Neg("p", expected_gate="policy")])
         checks = [Chk("c1", "g", ["p1"]), Chk("c2", "policy", ["p1"])]
-        return FakeTask(grade_fn=g, negatives=negs, checks=checks, extra={"mutants": list})
+        return FakeTask(grade_fn=g, negatives=negs, checks=checks, extra={"mutants": killed_mutant})
 
     return await statuses(make, "A3")
 

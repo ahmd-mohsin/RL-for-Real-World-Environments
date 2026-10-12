@@ -28,7 +28,7 @@ def _caps(t: Any, name: str) -> Any:
     return fn() if callable(fn) else None
 
 
-@register("A6", 1, cost_class="docker", depends_on=("A1",), detectors=("B.9-policy-root", "B.8-verifier-staging"))
+@register("A6", 2, cost_class="docker", depends_on=("A1",), detectors=("B.9-policy-root", "B.8-verifier-staging"))
 async def a6_isolation(t: Any, ctx: AcceptContext) -> Out:
     """Isolation: the containment audit passes in the declared environment and every tamper attempt is blocked."""
     reasons, m = [], {}
@@ -37,12 +37,16 @@ async def a6_isolation(t: Any, ctx: AcceptContext) -> Out:
     bad = {k: v for k, v in audit.items() if v not in ("pass", "skip")}
     if bad:
         reasons.append(f"containment audit failures: {bad}")
+    if not any(v == "pass" for v in audit.values()):  # an audit of skips proved nothing (M9 audit V9)
+        reasons.append(f"the containment audit passed no item ({len(audit)} items, all skipped)")
     rows = {}
     for a in need(t, "tamper_attempts")():
         r, _ = await ctx.grade(t, f"tamper:{a.id}", a.solution, run=0)
         took = await a.effect() if a.effect else None
         rows[a.id] = {"family": a.family, "reward": r.reward, "took_effect": took}
-        if r.reward != 0.0 or took:
+        if a.effect is None:  # without a control a blocked tamper and a tamper that never ran look the same (V9)
+            reasons.append(f"tamper {a.id} has no effect probe: it cannot show it was blocked")
+        elif r.reward != 0.0 or took:
             reasons.append(f"tamper {a.id} not blocked (reward {r.reward}, effect {took})")
     if not rows:
         reasons.append("no tamper attempt was run (A6 needs at least one: write grader state, plant a reward)")
@@ -50,7 +54,7 @@ async def a6_isolation(t: Any, ctx: AcceptContext) -> Out:
     return Out.verdict(reasons, m)
 
 
-@register("A9", 1, cost_class="static", detectors=("B.5-stale-verifier-image", "B.7-harbor-taskconfig"))
+@register("A9", 2, cost_class="static", detectors=("B.5-stale-verifier-image", "B.7-harbor-taskconfig"))
 async def a9_repro(t: Any, ctx: AcceptContext) -> Out:
     """Reproducibility: images pinned by digest, reference fingerprints reproduce the recorded ones, static task lint clean."""
     reasons, m = [], {}
@@ -59,6 +63,9 @@ async def a9_repro(t: Any, ctx: AcceptContext) -> Out:
     if unresolved:
         reasons.append(f"image references that do not resolve to a digest: {unresolved}")
     pinned = _caps(t, "pinned_images") or {}
+    unpinned = sorted(r for r in images if r not in pinned)
+    if unpinned:  # an image with no pinned digest cannot show it is not stale (M9 audit V6: the detector failed open)
+        reasons.append(f"images with no pinned digest (stale-image check impossible): {unpinned}")
     drift = {r: {"pinned": d, "actual": images.get(r)} for r, d in pinned.items() if images.get(r) != d}
     if drift:
         reasons.append(f"images differ from the pinned digests (stale image): {drift}")
@@ -81,10 +88,10 @@ async def a9_repro(t: Any, ctx: AcceptContext) -> Out:
     return Out.verdict(reasons, m)
 
 
-@register("A10", 1, cost_class="paid", depends_on=("A1",))
+@register("A10", 2, cost_class="paid", depends_on=("A1",))
 async def a10_calibration(t: Any, ctx: AcceptContext) -> Out:
     """Calibration: >= 2 frontier runs with a failure taxonomy; the pass rate is inside the band of the task's split."""
-    from crucible.forge.learnability import Band, estimate
+    from crucible.forge.learnability import BANDS, estimate
 
     runs = list(_caps(t, "calibration_runs") or [])
     if len([r for r in runs if not r.get("masked")]) < ctx.policy.a10_min_runs and callable(getattr(t, "calibrate", None)):
@@ -99,26 +106,26 @@ async def a10_calibration(t: Any, ctx: AcceptContext) -> Out:
     if untaxed:
         reasons.append(f"failed runs without a failure taxonomy (failing gates): {untaxed}")
     split = getattr(t, "split", "train")
-    band = Band(lo=0.0, hi=0.2) if split == "bench" else Band(lo=0.1, hi=0.7)
+    band = BANDS["bench" if split == "bench" else "train"]  # one band definition with the ladder (sweep G4 D15)
 
     def rate_of(rs: list[dict]):
-        return estimate([r.get("reward", 0) == 1.0 for r in rs], model=",".join(sorted({r.get("policy", "?") for r in rs})), harness="mixed")
+        # success is the task's own: a record-relative score above 1 is a success (sweep G2 D11: 1.3 counted as a failure)
+        return estimate([(r.get("reward") or 0) >= 1.0 for r in rs], model=",".join(sorted({r.get("policy", "?") for r in rs})), harness="mixed")
 
-    # Sequential: a point estimate outside the band whose interval still overlaps it is not evidence (0/2 has a Wilson
-    # interval of [0, 0.66]); sample more, doubling, up to ``a10_max_runs``, when the task can (lab M9: every 0/2 task
-    # was rejected on two samples). Inside the band, or an interval clear of it, decides at once.
+    # The sample size is fixed in advance (``a10_max_runs`` when the task can sample): stopping as soon as the estimate
+    # entered the band biased the check toward acceptance (M9 audit V15). Without paid sampling it decides on what exists.
     rate = rate_of(scored)
     can_sample = callable(getattr(t, "calibrate", None)) and Need.PAID in ctx.needs and ctx.budget_usd > 0 \
         and "k" in inspect.signature(t.calibrate).parameters
     rounds = 0
-    while not band.lo <= rate.p <= band.hi and rate.hi >= band.lo and rate.lo <= band.hi and can_sample and len(scored) < ctx.policy.a10_max_runs:
+    while can_sample and len(scored) < ctx.policy.a10_max_runs:
         target = min(ctx.policy.a10_max_runs, 2 * len(scored))
         more = [r for r in await t.calibrate(ctx.budget_usd, k=target) if not r.get("masked")]
         rounds += 1
         if len(more) <= len(scored):  # no new evidence (budget gone, runs masked): decide on what there is
             break
         scored, rate = more, rate_of(more)
-    m.update({"split": split, "band": [band.lo, band.hi], "p": rate.p, "interval": [rate.lo, rate.hi], "n": rate.n, "topup_rounds": rounds})
+    m.update({"split": split, "band": [band.lo, band.hi, band.on], "p": rate.p, "interval": [rate.lo, rate.hi], "n": rate.n, "topup_rounds": rounds})
     lad = getattr(t, "ladder", None)  # m13 G-4: a solver-ladder report; an inversion (a weaker rung clearly above a stronger) blocks
     if callable(lad):
         rep = lad()
@@ -126,8 +133,11 @@ async def a10_calibration(t: Any, ctx: AcceptContext) -> Out:
         if rep is not None:
             m["ladder"] = {k: {"p": v.p, "interval": [v.lo, v.hi], "n": v.n} for k, v in rep.rates.items()}
             reasons += [f"solver ladder inversion: {x}" for x in rep.inversions]
-    if not band.lo <= rate.p <= band.hi:
-        clear = rate.hi < band.lo or rate.lo > band.hi
+    if band.on == "hi":  # bench: the frontier's upper bound must be below the band (0/2 has an upper bound of 0.66)
+        if rate.hi > (band.hi or 1.0):
+            reasons.append(f"frontier pass-rate upper bound {rate.hi:.2f} > {band.hi} (n={rate.n}): not shown hard enough for bench")
+    elif not (band.lo or 0.0) <= rate.p <= (band.hi or 1.0):
+        clear = rate.hi < (band.lo or 0.0) or rate.lo > (band.hi or 1.0)
         how = "interval clear of the band" if clear else f"interval still overlaps it at the sampling cap (n={rate.n})"
         reasons.append(f"pass rate {rate.p:.2f} outside the {split} band [{band.lo}, {band.hi}] ({how})")
     return Out.verdict(reasons, m)
@@ -204,13 +214,17 @@ def _oracle_script(oracle: list[dict]):
     return out
 
 
-@register("A12", 1, cost_class="cpu", depends_on=("A1", "A3"))
+@register("A12", 2, cost_class="cpu", depends_on=("A1", "A3"))
 async def a12_cost_tiers(t: Any, ctx: AcceptContext) -> Out:
     """Cost and tiers: the slowest full grade fits the verifier timeout with margin; the fast tier agrees with the full tier
     (Spearman >= 0.8) on a graded calibration set and kills every negative the full tier kills."""
     from crucible.verify.tiers import agreement
 
     reasons, m = [], {}
+    # grade through the store itself: with A1/A3 reused from the cache ``ctx.grades`` is empty (M9 audit V11)
+    await ctx.grade(t, "oracle", t.oracle, run=0)
+    for n in t.negatives:
+        await ctx.grade(t, n.id, need(t, "solution_of")(n), run=0)
     secs = [r.elapsed_s for (sid, _run, var), (r, _) in ctx.grades.items() if var == "" and sid == "oracle"]
     timeout = float(getattr(t, "verifier_timeout_s", 3600.0))
     m["full_grade_s"] = {"max": max(secs) if secs else None, "timeout": timeout, "margin": ctx.policy.a12_timeout_margin}
@@ -245,13 +259,15 @@ async def a12_cost_tiers(t: Any, ctx: AcceptContext) -> Out:
     return Out.verdict(reasons, m)
 
 
-@register("A13", 1, cost_class="docker", depends_on=("A1",), detectors=("B.10-doctest-disable", "B.10-os-exit", "B.12-racecheck-first-summary"))
+@register("A13", 2, cost_class="docker", depends_on=("A1",), detectors=("B.10-doctest-disable", "B.10-os-exit", "B.12-racecheck-first-summary"))
 async def a13_attacks(t: Any, ctx: AcceptContext) -> Out:
     """Grader attack suite: every attack the task's grading path is exposed to takes effect (its control) and still scores 0
     at its gate, with a clean (non-masked) grade."""
     attacks = need(t, "attacks")()
     if not attacks:
-        if getattr(t, "attack_surface", None) == "none":
+        kind = (_caps(t, "declared_env") or {}).get("kind")
+        # a World or container task always has an agent surface, whatever the adapter asserts (M9 audit V10)
+        if getattr(t, "attack_surface", None) == "none" and kind not in ("world", "container", "harbor"):
             return Out(Status.NA, {}, [], na_reason="no_agent_surface")
         return Out(Status.FAIL, {}, ["no attacks instantiated for this task"])
     rows, reasons = {}, []
@@ -260,7 +276,9 @@ async def a13_attacks(t: Any, ctx: AcceptContext) -> Out:
         took = await a.effect() if a.effect else None
         failing = r.failing_gates()
         rows[a.id] = {"family": a.family, "reward": r.reward, "took_effect": took, "failing": failing, "expect_gate": a.expect_gate}
-        if took is False:
+        if a.effect is None:  # no control: a wrong solution looks like a caught attack (M9 audit V9)
+            reasons.append(f"attack {a.id} has no control (effect probe): it cannot show the attack took effect")
+        elif took is False:
             reasons.append(f"attack {a.id} did not take effect: the test proves nothing (fix the attack)")
         elif r.reward != 0.0 or (a.expect_gate and a.expect_gate not in failing):
             reasons.append(f"attack {a.id} ({a.family}) not caught at {a.expect_gate}: reward {r.reward}, failing {failing}")

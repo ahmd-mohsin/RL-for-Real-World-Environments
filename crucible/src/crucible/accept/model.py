@@ -110,9 +110,11 @@ class Override(CrucibleModel):
     by: str
     reason: str
     date: str
+    key_digest: str | None = None  # the acceptance key it was granted for: an override of another key does not apply (V16)
 
 
-NO_OVERRIDE = frozenset({"A1", "A2", "A3", "A4", "A5", "A6", "A13"})
+# a human sign-off and the composite checks cannot be overridden either (M9 audit V16)
+NO_OVERRIDE = frozenset({"A1", "A2", "A3", "A4", "A5", "A6", "A13", "A14", "A15", "A16", "A17", "A18", "S1"})
 
 
 class AcceptanceReport(CrucibleModel):
@@ -127,7 +129,8 @@ class AcceptanceReport(CrucibleModel):
 
     def blocking(self) -> dict[str, str]:
         """Required checks that keep the task out of the pool, with their status."""
-        over = {o.check for o in self.overrides if o.check not in NO_OVERRIDE}
+        over = {o.check for o in self.overrides if o.check not in NO_OVERRIDE and o.by.strip() and o.date.strip()
+                and o.key_digest in (None, self.key_digest)}
         out = {}
         for c in self.required:
             r = self.results.get(c)

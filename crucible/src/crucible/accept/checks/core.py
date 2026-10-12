@@ -12,13 +12,15 @@ from crucible.accept.model import Need, Status
 from crucible.verify import calibrate
 from crucible.world.leaks import leak_tokens
 
+EQUIVALENT_FAMILIES = frozenset({"drop_read"})  # operators that can leave a task's meaning untouched
+
 
 def _caps(t: Any, name: str) -> Any:
     fn = getattr(t, name, None)
     return fn() if callable(fn) else None
 
 
-@register("A1", 2, cost_class="gpu", detectors=("B.12-kinfu-headroom", "B.10-fresh-cases-crash"))
+@register("A1", 3, cost_class="gpu", detectors=("B.12-kinfu-headroom", "B.10-fresh-cases-crash"))
 async def a1_oracle(t: Any, ctx: AcceptContext) -> Out:
     """Oracle: reward 1 on >= 3 grades in the declared environment, replay-identical, gold check, perf headroom, fresh no-crash."""
     p = ctx.policy
@@ -40,6 +42,10 @@ async def a1_oracle(t: Any, ctx: AcceptContext) -> Out:
         reasons.append("no outcome gate is false at the start state (gold check)")
     m: dict = {"rewards": rewards, "replay_identical": len(set(fps)) == 1, "outcome_gates_false_at_start": false_at_start,
                "declared_env": _caps(t, "declared_env"), "grade_seconds": [r.elapsed_s for r, _ in grades]}
+    facts = _caps(t, "facts") or {}
+    for fact, cap in (("perf_bars", "perf_bars"), ("fresh_gates", "fresh_gates")):
+        if facts.get(fact) and not callable(getattr(t, cap, None)):
+            raise MissingCapability(f"the task has {fact} but no {cap} capability (M9 audit V6)")
     bars = _caps(t, "perf_bars") or {}
     if bars:
         ratios: dict[str, float] = {}
@@ -58,8 +64,10 @@ async def a1_oracle(t: Any, ctx: AcceptContext) -> Out:
             seed = 7000 + i
             try:
                 r, _ = await ctx.grade(t, "oracle", t.oracle, run=seed, variant="fresh", call=lambda s, seed=seed: grade_fresh(t.oracle, seed=seed))
-            except InfraUnavailable as e:  # the same seed crashes the grader on every retry: the task's grader, not the node
-                bad.append({"seed": seed, "grader_crash": str(e)[:200]})
+            except InfraUnavailable as e:
+                if (e.infra or {}).get("failure_kind") != "grader_exception":
+                    raise  # a node problem (contention, OOM) on every retry: unmeasured, never the task's failure (M9 audit V14)
+                bad.append({"seed": seed, "grader_crash": str(e)[:200]})  # the same seed crashes the task's grader every time
                 continue
             if r.reward != 1.0:
                 bad.append({"seed": seed, "reward": r.reward, "failing": r.failing_gates()})
@@ -70,22 +78,27 @@ async def a1_oracle(t: Any, ctx: AcceptContext) -> Out:
     return Out.verdict(reasons, m)
 
 
-@register("A2", 2, cost_class="cpu", depends_on=())
+@register("A2", 3, cost_class="cpu", depends_on=())
 async def a2_floors(t: Any, ctx: AcceptContext) -> Out:
     """Floors: no-op, unmodified original and a naive solution score 0 on every channel, with a clean (non-infra) grade."""
     rows, bad = {}, {}
     sols = [("noop", t.noop())] + [(n.id, need(t, "solution_of")(n)) for n in t.negatives if n.kind == "floor"]
+    import math
+
     for sid, sol in sols:
         r, _ = await ctx.grade(t, sid, sol, run=0)
         rows[sid] = {"reward": r.reward, "outcome": r.outcome}
-        if r.reward != 0.0 or (ctx.policy.a2_exact_zero and r.outcome not in (0.0, None)):
+        # a floor's reward must be a finite 0 (NeMo-Gym verifier fixtures: NaN and out-of-range rewards pass a `!= 0` test
+        # on some paths and train as signal)
+        if not isinstance(r.reward, (int, float)) or not math.isfinite(r.reward) or r.reward != 0.0 \
+                or (ctx.policy.a2_exact_zero and r.outcome not in (0.0, None)):
             bad[sid] = rows[sid]
     naive = [n.id for n in t.negatives if n.kind == "floor" and "naive" in n.id]
     reasons = ([f"floors above 0: {bad}"] if bad else []) + ([] if naive else ["no naive floor"])
     return Out.verdict(reasons, {"floors": rows})
 
 
-@register("A3", 2, cost_class="gpu", depends_on=("A1",), detectors=("B.4-weak-negatives", "B.13-family-coverage"))
+@register("A3", 3, cost_class="gpu", depends_on=("A1",), detectors=("B.4-weak-negatives", "B.13-family-coverage"))
 async def a3_mutation(t: Any, ctx: AcceptContext) -> Out:
     """Negatives and mutation score: authored negatives fail their gate, valid alternatives pass, every gate family is covered,
     generated defect-class mutants are killed (score over valid, non-equivalent mutants >= 0.9)."""
@@ -118,6 +131,13 @@ async def a3_mutation(t: Any, ctx: AcceptContext) -> Out:
         reasons.append(f"{n_neg} negatives, need >= {need_n} for {t.horizon}")
     if not any(n.kind == "valid_alternative" for n in t.negatives):
         reasons.append("no valid alternative (a different correct solution that must pass)")
+    gen = getattr(t, "generated_alternatives", None)
+    for gid, sol in (gen() if callable(gen) else []):  # built by the contract, not the author (M8 audit V8)
+        r, _ = await ctx.grade(t, gid, sol, run=0)
+        ok = r.reward == 1.0
+        rows[gid] = {"kind": "valid_alternative", "generated": True, "reward": r.reward, "failing": r.failing_gates(), "ok": ok}
+        if not ok:
+            reasons.append(f"generated alternative {gid} fails {r.failing_gates()}: a check grades wording the instruction does not state")
     if hasattr(t, "mutants"):
         mutants = t.mutants()
     elif actions.is_actions(t.oracle):
@@ -132,8 +152,11 @@ async def a3_mutation(t: Any, ctx: AcceptContext) -> Out:
         if r.reward == 0.0:
             killed += 1
             st = "killed"
-        elif fp == oracle_fp:
-            equivalent.append(mu.id)  # same end state as the oracle: the operator changed nothing the task is about
+        elif fp == oracle_fp and mu.family in EQUIVALENT_FAMILIES:
+            # same end state and an operator that can only be inert (dropping a read): changed nothing the task is about.
+            # A dropped message or a reordering also leaves the state alone but breaks a process rule (B.15 forged
+            # approval), so those families are never "equivalent" (M9 audit V3)
+            equivalent.append(mu.id)
             st = "equivalent"
         else:
             survivors.append({"id": mu.id, "family": mu.family, "what": mu.description, "reward": r.reward})
@@ -141,6 +164,8 @@ async def a3_mutation(t: Any, ctx: AcceptContext) -> Out:
         table[mu.id] = {"family": mu.family, "status": st, "reward": r.reward}
     scored = killed + len(survivors)
     score = killed / scored if scored else None
+    if mutants is not None and not scored:  # zero scored mutants is no evidence, never a pass (M9 audit V3)
+        reasons.append(f"no scored mutant ({len(mutants)} generated, {len(equivalent)} equivalent): the mutation score is unmeasured")
     if mutants is not None and scored and score < p.a3_mutation_min:
         reasons.append(f"mutation score {score:.2f} < {p.a3_mutation_min}; survivors (weak checks): {survivors[:5]}")
     per_family: dict[str, dict] = {}
@@ -148,10 +173,11 @@ async def a3_mutation(t: Any, ctx: AcceptContext) -> Out:
         f = per_family.setdefault(v["family"], {"killed": 0, "survived": 0, "equivalent": 0})
         f[v["status"]] += 1
     return Out.verdict(reasons, {"negatives": rows, "families": families, "mutation": {"score": score, "killed": killed, "survivors": survivors,
-                                                                                         "equivalent": equivalent, "per_family": per_family, "table": table}})
+                                                                                         "equivalent": equivalent, "equivalent_share": round(len(equivalent) / len(table), 3) if table else None,
+                                                                                         "per_family": per_family, "table": table}})
 
 
-@register("A4", 2, cost_class="gpu", depends_on=("A1",), detectors=("B.2-kinfu-bifurcation", "B.2-haar-reference-nondeterminism"))
+@register("A4", 3, cost_class="gpu", depends_on=("A1",), detectors=("B.2-kinfu-bifurcation", "B.2-haar-reference-nondeterminism"))
 async def a4_flake(t: Any, ctx: AcceptContext) -> Out:
     """Flakiness: identical full verdicts on >= 8 oracle grades, zero false negatives over fresh-gate draws (+ induced), and
     reference self-consistency over >= 3 reference runs."""
@@ -183,6 +209,10 @@ async def a4_flake(t: Any, ctx: AcceptContext) -> Out:
         m["flake"] = est.to_dict()
         if not est.ok:
             reasons.append(f"{est.false_negatives} false negatives over {est.draws} draws (upper 95% {est.upper_95})")
+    if (_caps(t, "facts") or {}).get("reference_build") and not callable(getattr(t, "reference_fingerprints", None)):
+        # the task has a reference build, so its self-consistency must be measured (M9 audit V6: the Haar detector
+        # failed open on every real adapter)
+        raise MissingCapability("the task has a reference build but no reference_fingerprints (A4 self-consistency)")
     if callable(getattr(t, "reference_fingerprints", None)):
         fps = [await t.reference_fingerprints(i) for i in range(p.a4_reference_runs)]
         sc = calibrate.self_consistency(fps)
@@ -192,12 +222,14 @@ async def a4_flake(t: Any, ctx: AcceptContext) -> Out:
     return Out.verdict(reasons, m)
 
 
-@register("A5", 2, cost_class="cpu", detectors=("B.13-sibling-overlap",))
+@register("A5", 3, cost_class="cpu", detectors=("B.13-sibling-overlap",))
 async def a5_leak(t: Any, ctx: AcceptContext) -> Out:
     """Leak audit: no hidden string or canary in anything the agent can read (text, workspace, agent image)."""
     visible = need(t, "agent_visible")()
     hidden = need(t, "hidden_strings")()
-    hits = [{"string": s[:60], "in": name} for s in hidden if len(s) >= 4 for name, text in visible.items() if s in text]
+    flat = {name: " ".join(text.split()) for name, text in visible.items()}
+    hits = [{"string": s[:60], "in": name} for s in hidden if len(s) >= 4 for name, text in visible.items()
+            if s in text or " ".join(s.split()) in flat[name]]
     tokens = leak_tokens(t.instruction)
     reasons = ([f"hidden material readable by the agent: {hits[:5]}"] if hits else []) + ([f"instruction leak tokens: {tokens}"] if tokens else [])
     m: dict = {"scanned": sorted(visible), "hits": hits[:20], "hidden_strings": len(hidden)}
@@ -216,13 +248,14 @@ async def a5_leak(t: Any, ctx: AcceptContext) -> Out:
         from crucible.verify.leak_audit import audit_image
 
         rep = audit_image(imgs["agent"], canaries=[canary] if canary else [], strings=hidden)
-        m["image"] = {"hits": len(rep.hits), "first": rep.hits[:5]} if hasattr(rep, "hits") else str(rep)[:500]
-        if getattr(rep, "hits", None):
-            reasons.append(f"hidden material in the agent image: {rep.hits[:3]}")
+        # ``LeakReport.findings`` (M9 audit V1: the check read a ``hits`` attribute that does not exist, so it never failed)
+        m["image"] = {"findings": len(rep.findings), "first": rep.findings[:5], "scanned_files": rep.scanned_files}
+        if rep.findings:
+            reasons.append(f"hidden material in the agent image: {rep.findings[:3]}")
     return Out.verdict(reasons, m)
 
 
-@register("A7", 1, cost_class="static")
+@register("A7", 2, cost_class="static")
 async def a7_coverage(t: Any, ctx: AcceptContext) -> Out:
     """Instruction <-> check coverage: every graded property is stated, every stated property is graded."""
     if not isinstance(getattr(t, "properties", None), list):
@@ -232,14 +265,15 @@ async def a7_coverage(t: Any, ctx: AcceptContext) -> Out:
     graded = {s for c in checks for s in c.states}
     unstated = [c.id for c in checks if not c.states or not set(c.states) <= props]
     ungraded = sorted(props - graded)
-    missing = [p.id for p in t.properties if p.text.strip() and p.text.strip()[:40] not in t.instruction]
+    flat = " ".join(t.instruction.split())
+    missing = [p.id for p in t.properties if p.text.strip() and " ".join(p.text.split()) not in flat]  # the whole sentence (M8 audit V8)
     reasons = ([f"checks grading nothing the instruction states: {unstated}"] if unstated else []) + \
               ([f"stated properties no check grades: {ungraded}"] if ungraded else []) + \
               ([f"property sentences missing from the instruction: {missing}"] if missing else [])
     return Out.verdict(reasons, {"properties": sorted(props), "graded": sorted(graded)})
 
 
-@register("A8", 1, cost_class="static")
+@register("A8", 2, cost_class="static")
 async def a8_grounding(t: Any, ctx: AcceptContext) -> Out:
     """Grounding: >= 80% of checks have provenance that resolves; a trap cites its signal and has a trap-reversion negative."""
     from crucible.accept.contract import a8_grounding as legacy

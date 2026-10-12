@@ -4,10 +4,10 @@ Steps, each recorded in ``summary.json``:
 1. **Ingest** the pack's workflow sources into ``out/store`` (M3; idempotent).
 2. **Forge** tasks from them with the pack's ``forge`` hook (M8; the toy pack uses scripted roles and makes no paid
    calls). Tasks are written as Harbor-style directories with the Crucible overlay.
-3. **Accept** each task with the M9 contract's model-free checks: A1 oracle, A2 floors, A3 negatives, A4-lite, A5 leak,
-   A7 coverage and A8 grounding. The full contract (``accept_task``, A1–A13) needs Docker and paid calls; run it
-   with ``crucible accept``.
-4. **Export** (M11): each accepted task's oracle is replayed into canonical ``reward.json`` + ``steps.jsonl``, the outputs
+3. **Accept** each task with the full M9 contract (``accept_task``). With the needs this run has (``needs``: Docker, paid
+   calls, ...), a task is ``accepted``, ``provisional`` (nothing failed; only checks that need what this run lacks are
+   pending) or ``rejected`` (M9 audit V2: build used to run the model-free subset and call it accepted).
+4. **Export** (M11): each accepted or provisional task's oracle (provisional ones labelled so) is replayed into canonical ``reward.json`` + ``steps.jsonl``, the outputs
    every runtime adapter (OpenEnv, NeMo-Gym, verifiers, Harbor through ATIF replay) must reproduce. A World task is not
    a Harbor-native directory (it has no Dockerfile or ``tests/``); Harbor reaches it through ATIF replay.
 5. **Bench** (M13): the accepted tasks are the anchors, plus ``n_fresh`` items from the pack's generator under an HMAC
@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Any
 
 
-async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, key: bytes = b"crucible-build-v1", dry_run: bool = False) -> dict[str, Any]:
-    from crucible.accept.contract import accept
+async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, key: bytes = b"crucible-build-v1", dry_run: bool = False,
+                needs: tuple = ()) -> dict[str, Any]:
+    from crucible.accept.run import accept_task, verdict
     from crucible.actors.policy import EpisodeLimits
     from crucible.bench import dynamic
     from crucible.bench.run import run_bench
@@ -48,13 +49,16 @@ async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, ke
     reports = {}
     accepted = []
     for t, res in forged:
-        rep = await accept(t, resolve=res)
-        reports[t.task_id] = {c.id: c.status for c in rep.checks}
-        if rep.ok:
+        rep = await accept_task(t, needs=list(needs), cache_root=out / "accept", resolve=res)
+        v = verdict(rep)
+        reports[t.task_id] = {"state": v["state"], "blocking": v["blocking"], "checks": {c: str(r.status) for c, r in rep.results.items()}}
+        if v["state"] in ("accepted", "provisional"):
             accepted.append(t)
     (out / "accept.json").write_text(json.dumps(reports, indent=1, sort_keys=True) + "\n")
-    summary["accept"] = {"accepted": len(accepted), "total": len(forged), "failing": {k: [c for c, s in v.items() if s == "fail"] for k, v in reports.items()
-                                                                                       if any(s == "fail" for s in v.values())}}
+    states = [r["state"] for r in reports.values()]
+    summary["accept"] = {"accepted": states.count("accepted"), "provisional": states.count("provisional"), "rejected": states.count("rejected"),
+                         "total": len(forged), "needs": sorted(str(n) for n in needs),
+                         "blocking": {k: v["blocking"] for k, v in reports.items() if v["blocking"]}}
     from crucible.interop.replay import Action, replay
 
     exported, export_errors = {}, {}
@@ -64,7 +68,7 @@ async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, ke
         d = out / "export" / t.task_id.replace("/", "_").replace("@", "_")
         try:
             r = await replay(t.runtime_task(), acts, d, episode_key=f"{t.task_id}|oracle", plan=t.plan)
-            exported[t.task_id] = {"reward": r["reward"], "steps": r["steps"], "dir": str(d)}
+            exported[t.task_id] = {"reward": r["reward"], "steps": r["steps"], "dir": str(d), "acceptance": reports[t.task_id]["state"]}
         except Exception as e:  # noqa: BLE001 - reported per task
             export_errors[t.task_id] = f"{type(e).__name__}: {e}"[:300]
     summary["export"] = {"canonical": len(exported), "oracle_rewards": {k: v["reward"] for k, v in sorted(exported.items())}, "errors": export_errors,

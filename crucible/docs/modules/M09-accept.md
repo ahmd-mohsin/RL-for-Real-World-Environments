@@ -1,6 +1,10 @@
 # M9 `accept` — the Acceptance Contract and the defect registry
 
-**Status: core built (2026-10-09); seed (GPU) gates pending.**
+**Status: core built (2026-10-09); audited 2026-10-12 (`docs/audit/2026-10-12/M09-accept.md`); seed (GPU) gates pending.**
+- **Audit:** 18 reproduced defects fixed. `crucible accept` and `crucible build` now run the full contract and report
+  accepted, provisional (only checks needing Docker or paid calls are pending) or rejected. After the audit, every check
+  but A10 passes on the 11 toy tasks; A10 is pending because calibration runs are now bound to the task's grading
+  environment and the recorded ones predate this audit's adapter changes. The G1 line below is the pre-audit result.
 - **G1 (toy, full contract):** every check runs on all 11 toy tasks; A1–A9, A11–A13 pass on all 11. **2/11 accepted.** A10 (frontier calibration, `gpt-6-luna`, k = 2, $0.0385 total) puts 7 tasks at p = 1.0 and 2 at p = 0.0, outside the train band [0.1, 0.7]. That is a correct rejection: those tasks do not train that policy.
 - **G4c/G4d/G5/G6 (CPU) ✅:** all 13 per-task detectors are proven by re-injection (clean fixture passes, defective fixture fails); 10 per-kit detectors point at their red-team/unit tests; backfill quarantines only failing tasks; editing one negative changes the key and re-grades only that negative.
 - **G2/G3/G4a/G4b ⏳:** need the seed adapters on the lab GPU.
@@ -12,7 +16,7 @@
   - `registry/` (`model.py`, `defects/*.yaml`, `fixtures.py`, `run.py`);
   - `contract.py` (the M8 subset, kept for the forge).
 - **Toy:** `crucible_pack_toy/forge/task.py` capabilities, `crucible_pack_toy/accept_gate.py`. **Coding:** `crucible_pack_coding/accept_fixtures.py`.
-- **Tests:** `tests/unit/test_accept.py` (9 tests).
+- **Tests:** `tests/unit/test_accept.py`, `tests/unit/test_m9_audit.py` (16 audit regressions).
 - **Report:** `reports/m9_toy_g1.json`.
 - **Research:** `docs/research/m9-m10/01-acceptance.md`, `03-hf-rl-env-datasets.md`.
 
@@ -20,8 +24,8 @@
 
 | Piece | What | Built on |
 |---|---|---|
-| `model.py` | `Status` pass/fail/not_applicable/pending/error; N/A only from a closed vocabulary of task facts; pass/fail need evidence; `AcceptanceReport.accepted` derived on every read (no stored boolean); overrides never on A1–A6/A13 | OpenEnv grader protocol; Repo2RLEnv `report.py`; agentenv skip policy |
-| `key.py` | Acceptance key = Harbor hash ⊕ overlay hash ⊕ image digests ⊕ kit hash (`verify/runtime` + the plan module) ⊕ contract, policy and registry versions | research §15.7 (Harbor's hash excludes `crucible/`) |
+| `model.py` | `Status` pass/fail/not_applicable/pending/error; N/A only from a closed vocabulary of task facts; pass/fail need evidence; `AcceptanceReport.accepted` derived on every read (no stored boolean); overrides never on A1–A6, A13–A18 or S1, and bound to the key | OpenEnv grader protocol; Repo2RLEnv `report.py`; agentenv skip policy |
+| `key.py` | Acceptance key = Harbor hash ⊕ overlay hash ⊕ image digests ⊕ kit hash (every verdict-deciding module: `accept`, `verify`, the forge's learnability, ladder and hacker, `world/leaks`; + the plan module) ⊕ contract, policy and registry versions | research §15.7 (Harbor's hash excludes `crucible/`) |
 | `cache.py` + grade store | Check results cached per (key, check, version), reused only if their evidence still hashes; grades stored per (grading environment, solution content), so a key change re-grades only what changed | `vf-validate` resume-by-hash |
 | `plan.py`, `run.py` | Dependencies, then cost class (static → cpu → docker → gpu → paid → human); missing need → pending; failed dependency → pending; missing adapter capability → fail (absence never implies N/A); crash/infra → error | NeMo-Gym TE-6 |
 | A1 | ≥ 3 oracle grades = 1, replay identity, gold check (state changes; an outcome gate false at start), perf headroom ≥ 15%, ≥ 10 fresh-seed grades without a grader crash | R2E controls; H OracleAgent |

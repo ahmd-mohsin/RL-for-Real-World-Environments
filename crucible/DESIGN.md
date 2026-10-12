@@ -2809,6 +2809,17 @@ failure ends only its node or episode. Masked rollouts leave learnability, the l
 requirement and are gated by the seed grader's behavioural gate; C2 checks are Φ milestones only, kept when they
 separate code, not comments. Details: `docs/audit/2026-10-12/M08-forge.md`.
 
+**M9 audit (2026-10-12).** Acceptance is one verdict on every path: `crucible accept` and `crucible build` run the full
+contract (`accept_task`) and report accepted, provisional (nothing failed; only checks that need what the run lacks are
+pending) or rejected; the model-free subset is never called acceptance. The agent-image leak check reads the leak
+report's findings (it could never fail). A3 fails with zero scored mutants, and only a dropped read may be "equivalent"
+(a dropped approval message leaves the state alone and still breaks the process). The acceptance key hashes every
+module that decides a verdict. Task facts require their capabilities (a reference build needs self-consistency, an
+image needs a pinned digest); red-team checks need controls; N/A comes from facts, not adapter assertions. Repair
+verifies A2, A3 and A13 too. A10 samples a fixed n, counts record-beating runs as successes, shares the ladder's bench
+band, and only counts calibration runs bound to the task's current grading environment. Grade store and cache writes
+are atomic and keyed by content; backfill quarantines anything but a pass. Details: `docs/audit/2026-10-12/M09-accept.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.

@@ -2,7 +2,8 @@
 Harbor's packager hash alone (which excludes ``crucible/``).
 
 key = Harbor hash ⊕ overlay hash (the task's own inputs: world, checks, negatives, properties, minus outputs)
-      ⊕ image digests ⊕ kit hash (``crucible.verify.runtime`` + the task's plan module) ⊕ contract, policy and
+      ⊕ image digests ⊕ kit hash (every module that decides a verdict: ``accept``, ``verify``, the forge's learnability,
+      ladder and hacker, ``world/leaks``; + the task's plan module) ⊕ contract, policy and
       registry versions.
 
 Adapters provide ``key_inputs() -> {"harbor_hash"?, "overlay_hash", "images"?: {role: ref}, "plan_files"?: [paths]}``;
@@ -21,6 +22,10 @@ from crucible.accept.model import AcceptanceKey
 from crucible.accept.policy import Policy
 
 KIT_ROOT = Path(__file__).resolve().parent.parent / "verify" / "runtime"
+PKG = Path(__file__).resolve().parent.parent  # src/crucible
+# Every module that decides a verdict (M9 audit V5: only ``verify/runtime`` was hashed, so a changed check, calibration,
+# leak audit, mutation operator or hacker reused cached verdicts, and the manual ``@register`` versions were not bumped):
+DECIDING = ("accept", "verify", "forge/learnability.py", "forge/ladder.py", "forge/hacker.py", "forge/specialists.py", "world/leaks.py")
 
 
 def sha256_files(paths: list[Path], root: Path | None = None) -> str:
@@ -32,8 +37,11 @@ def sha256_files(paths: list[Path], root: Path | None = None) -> str:
 
 
 def kit_hash(plan_files: list[Path] = ()) -> str:
-    files = [p for p in KIT_ROOT.rglob("*.py") if "__pycache__" not in p.parts]
-    return sha256_files(files, KIT_ROOT.parent.parent) + (":" + sha256_files([Path(p) for p in plan_files]) if plan_files else "")
+    files: list[Path] = []
+    for rel in DECIDING:
+        p = PKG / rel
+        files += [p] if p.is_file() else [x for x in p.rglob("*.py") if "__pycache__" not in x.parts]
+    return sha256_files(files, PKG.parent) + (":" + sha256_files([Path(p) for p in plan_files]) if plan_files else "")
 
 
 def docker_digest(ref: str, docker_host: str | None = None) -> str:

@@ -100,4 +100,5 @@ async def test_a16_not_applicable_without_property_audit(approval_task):
             return getattr(self._t, k)
 
     r = await _accept(NoAudit(approval_task), ["A16"])
-    assert r.results["A16"].na_reason == "no_property_audit"
+    # an absent capability fails (M9 audit V10); N/A only for a task whose facts say no submission is free-form
+    assert str(r.results["A16"].status) == "fail" and "no property audit" in r.results["A16"].reasons[0]

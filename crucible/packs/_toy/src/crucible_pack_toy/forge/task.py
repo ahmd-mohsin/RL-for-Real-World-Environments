@@ -385,11 +385,21 @@ class ToyForgedTask:
         return _RT()
 
     def calibration_runs(self) -> list[dict]:
-        """Recorded M10 runs of this task (``data/runs/*/results.jsonl``); masked runs are kept and excluded by A10."""
+        """Recorded M10 runs of this task *as it is now* (``data/runs/*/results.jsonl``); masked runs are kept and excluded by
+        A10. Only runs whose ``crucible_calibration.json`` names this task's grading environment count (M9 audit V15: runs
+        of earlier versions of the task were counted too)."""
         from crucible_pack_toy import PACK_ROOT
 
         rows = []
+        genv = self.grade_env()
         for f in sorted((PACK_ROOT.parent.parent / "data" / "runs").glob("*/results.jsonl")):
+            man = f.parent / "crucible_calibration.json"
+            try:
+                bound = json.loads(man.read_text()).get("grade_env") == genv if man.exists() else False
+            except json.JSONDecodeError:
+                bound = False
+            if not bound:
+                continue
             for line in f.read_text().splitlines():
                 r = json.loads(line)
                 if r.get("task") == self.task_id and str(r.get("policy", "")).startswith("llm:"):
@@ -414,7 +424,9 @@ class ToyForgedTask:
         have = [r for r in self.calibration_runs() if r["policy"] == mine]
         if len(have) >= k:
             return have[-k:]
-        rid = "m9-a10-" + self.task_id.replace("/", "_") + (f"-n{len(have)}" if have else "")
+        rid = "m9-a10-" + self.task_id.replace("/", "_") + "-" + self.grade_env()[:8] + (f"-n{len(have)}" if have else "")
+        (root / rid).mkdir(parents=True, exist_ok=True)
+        (root / rid / "crucible_calibration.json").write_text(json.dumps({"task": self.task_id, "grade_env": self.grade_env()}) + "\n")
         await Runner(root).run(RunSpec(run_id=rid, tasks=[self.runtime_task()], policies=[llm_policy(llm)], harnesses=[NativeHarness()], k=k - len(have),
                                        budget_usd=budget_usd))
         return [r for r in self.calibration_runs() if r["policy"] == f"llm:{llm.model}"][-k:]
