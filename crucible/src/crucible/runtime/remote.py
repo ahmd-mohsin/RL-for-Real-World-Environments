@@ -29,6 +29,8 @@ def control(cmd: str, *, timeout: float = 60.0, ssh: list[str] | None = None) ->
     r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
     if SENTINEL in r.stdout:
         return r, None
+    if ssh and r.returncode == 255:  # ssh's own connection failure, not a kill (M10 audit V15)
+        return r, Failure(kind="transport_unreachable", stage="cleanup", reason=f"ssh failed (rc 255): {r.stderr.strip()[-200:]}")
     killed = r.returncode < 0 or r.returncode in (128 + signal.SIGTERM, 128 + signal.SIGKILL, 255)
     if killed:
         return r, Failure(kind="crucible:harness_self_kill", stage="cleanup", reason=f"control channel died (rc {r.returncode}) before finishing: {cmd[:120]}")
@@ -44,7 +46,11 @@ def kill_by_pidfile(pidfile: Path, sig: int = signal.SIGTERM) -> bool:
         return False
 
 
-SELF_MATCH = re.compile(r"\b(pkill|pgrep)\s+(-\w+\s+)*-f\s+['\"]?(?!\[)")
+# pkill/pgrep matching the full command line (any short-flag cluster with ``f``: -f, -af, -fl, -9f; or --full) on a
+# pattern that is not bracket-guarded ("[f]oo" never matches its own command line). M10 audit V15: ``pgrep -af`` (the
+# B.10 incident's common form) and ``--full`` were missed, and the quoted safe form was flagged.
+SELF_MATCH = re.compile(r"\b(?:pkill|pgrep)\b(?:\s+(?:-\w*f\w*|--full)\b)(?:\s+-\S+)*\s+(?!['\"]?\[)['\"]?[^\s'\"\[]"
+                        r"|\b(?:pkill|pgrep)\b(?:\s+-\S+)+\s+(?:-\w*f\w*|--full)\b(?:\s+-\S+)*\s+(?!['\"]?\[)['\"]?[^\s'\"\[]")
 
 
 def lint_self_matching(paths: list[Path]) -> list[str]:

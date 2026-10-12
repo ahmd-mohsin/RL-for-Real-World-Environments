@@ -153,10 +153,12 @@ _WAITERS = ThreadPoolExecutor(max_workers=256, thread_name_prefix="crucible-exec
 
 
 def _blocking_run(argv: list[str], cwd: str | None, env: dict[str, str], timeout_s: float | None, stdin: bytes | None,
-                  started: list[subprocess.Popen]) -> tuple[int, bytes, bytes, bool]:
+                  started: list[subprocess.Popen], sessions: set[int] | None = None) -> tuple[int, bytes, bytes, bool]:
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, start_new_session=True)
     started.append(p)
+    if sessions is not None:
+        sessions.add(p.pid)  # the session (and process group) id: what the command leaves behind is killed with it
     try:
         out, err = p.communicate(stdin, timeout=timeout_s)
         return p.returncode or 0, out, err, False
@@ -173,7 +175,8 @@ def _killpg(p: subprocess.Popen) -> None:
         pass
 
 
-async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None) -> ExecOut:
+async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None,
+                          sessions: set[int] | None = None) -> ExecOut:
     t0 = time.monotonic()
     started: list[subprocess.Popen] = []
     full_env = safe_environ(env)
@@ -181,7 +184,7 @@ async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, st
         from crucible.world.docker_tunnel import rewrite_env  # one shared SSH tunnel per remote daemon (sshd throttles per-call SSH)
 
         full_env = await asyncio.get_running_loop().run_in_executor(_WAITERS, rewrite_env, argv, full_env)
-    fut = asyncio.get_running_loop().run_in_executor(_WAITERS, _blocking_run, argv, cwd, full_env, timeout_s, stdin, started)
+    fut = asyncio.get_running_loop().run_in_executor(_WAITERS, _blocking_run, argv, cwd, full_env, timeout_s, stdin, started, sessions)
     try:
         rc, out, err, timed_out = await asyncio.shield(fut)
     except asyncio.CancelledError:  # the caller gave up: kill the command's session (no orphan keeps running)
@@ -201,11 +204,25 @@ class LocalExec(Exec):
         import sys
 
         self.python = python or sys.executable
+        self.sessions: set[int] = set()  # every command's session: ``kill_sessions`` ends what they left running
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None) -> ExecOut:
         if user is not None:
             raise ExecError("LocalExec cannot switch users")
-        return await _run_subprocess(["bash", "-c", cmd], cwd=cwd, env=env, timeout_s=timeout_s, stdin=stdin)
+        return await _run_subprocess(["bash", "-c", cmd], cwd=cwd, env=env, timeout_s=timeout_s, stdin=stdin, sessions=self.sessions)
+
+    def kill_sessions(self) -> int:
+        """Kill every process group a command of this executor started (background jobs a policy left: M10 audit V5,
+        a ``nohup ... &`` outlived the World and masked the next perf grade). Returns how many groups were alive."""
+        alive = 0
+        for pid in list(self.sessions):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                alive += 1
+            except (ProcessLookupError, PermissionError):
+                pass
+            self.sessions.discard(pid)
+        return alive
 
     async def push_file(self, src: Path, dest: str) -> None:
         Path(dest).parent.mkdir(parents=True, exist_ok=True)

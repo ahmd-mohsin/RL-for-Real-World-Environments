@@ -48,12 +48,19 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:harness_self_kill",  # the harness's own control channel killed itself (self-matching pkill -f, B.5)
         "crucible:capture_incomplete",  # a training rollout lacks token ids / behaviour logprobs (crucible.rollout/v1)
         "crucible:agent_broke_env",  # the policy broke its environment (deleted the repo, killed services): scored 0, never masked
+        # added with the M10 audit (2026-10-12)
+        "crucible:policy_error",  # the policy's own code or output raised inside the episode (bad tool arguments): scored 0
+        "crucible:harness_unsupported",  # the harness cannot run this task (configuration): masked, never retried
     }
 )
+# Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
+NON_RETRYABLE_KINDS = frozenset({"crucible:stale_image", "crucible:stale_build", "crucible:harness_unsupported", "crucible:credits_exhausted", "agent_request_failed",
+                                 "crucible:answer_exposed"})
 
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
 # Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
-POLICY_OUTCOME_KINDS = frozenset({"agent_timeout", "agent_command_not_allowed", "crucible:policy_misbehavior", "crucible:agent_broke_env"})
+POLICY_OUTCOME_KINDS = frozenset({"agent_timeout", "agent_command_not_allowed", "crucible:policy_misbehavior", "crucible:agent_broke_env",
+                                  "crucible:policy_error"})
 FailureStage = Literal["admission", "seed", "agent", "collect", "verification", "cleanup"]
 Blame = Literal["infra", "harness", "task", "policy", "unknown"]
 # The blame a kind carries by default (M10 taxonomy; research m9-m10/02 §3.3). policy => scored; everything else => masked.
@@ -65,6 +72,7 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:stale_image": "infra", "crucible:node_contention": "infra", "crucible:snapshot_mismatch": "infra", "crucible:backend_error": "infra",
     "crucible:sim_failure": "task", "crucible:answer_exposed": "task", "crucible:tool_crashed": "task", "crucible:policy_misbehavior": "policy",
     "crucible:stale_build": "task", "crucible:harness_self_kill": "harness", "crucible:capture_incomplete": "infra", "crucible:agent_broke_env": "policy",
+    "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness",
 }
 
 
@@ -113,6 +121,9 @@ class Failure(CrucibleModel):
     @field_validator("reason")
     @classmethod
     def _bounded(cls, v: str) -> str:
+        from crucible.core.secrets import scrub_secrets
+
+        v = scrub_secrets(v)  # a reason is stored in records and journals: never a credential (M10 audit V12)
         return v if len(v) <= MAX_REASON_CHARS else v[: MAX_REASON_CHARS - 14] + " …[truncated]"
 
     @property

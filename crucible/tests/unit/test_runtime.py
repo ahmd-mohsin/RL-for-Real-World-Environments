@@ -131,7 +131,10 @@ async def test_inject_tool_crash_masked_and_retried(tmp_path):
 async def test_inject_verifier_infra_classes(tmp_path, reason, kind):
     _s, fails, res = await _one(tmp_path, FlakyGradeTask(HelpdeskTask(), reason), ORACLE, NativeHarness("native:scripted"))
     assert fails[0]["failure"]["kind"] == kind and fails[0]["reward"] is None
-    assert res[0]["reward"] == 1.0 and res[0]["attempt"].endswith("-a2")  # the regrade in a fresh attempt scores the oracle
+    if kind == "crucible:node_contention":
+        assert res[0]["reward"] == 1.0 and res[0]["attempt"].endswith("-a2")  # the regrade in a fresh attempt scores the oracle
+    else:  # a stale image or build: masked and never retried (a retry cannot rebuild it; sweep G2 D3)
+        assert res[0]["reward"] is None and res[0]["mask_sample"] and res[0]["attempt"].endswith("-a1")
 
 
 async def test_inject_grader_exception(tmp_path):

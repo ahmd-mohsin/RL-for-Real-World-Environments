@@ -7,7 +7,6 @@ journaling, re-grading and rollout records are then exactly those of a live run 
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from crucible.core.schema.run import Failure
@@ -31,10 +30,12 @@ class ImportedHarness(WorkspaceHarness):
         src = self.patches.get(attempt.policy.id)
         try:
             if src is None or not src.exists():
-                raise StageFailure(Failure(kind="crucible:capture_incomplete", stage="collect", reason=f"no recorded patch for {attempt.policy.id}"))
+                # a configuration error (no such recorded run): masked once, never retried (M10 audit V17)
+                raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="collect", retryable=False,
+                                           reason=f"no recorded patch for {attempt.policy.id}"))
             res.artifacts["imported_from"] = str(src)
             await self._grade(attempt, Collected(patch=src.read_text(), mode="imported", tree_changed=True), res, t)
         except StageFailure as sf:
             res.failure = sf.failure
-        res.timings = {k: round(v, 3) for k, v in t.items()} | {"imported_at": round(time.time(), 0)}
+        res.timings = {k: round(v, 3) for k, v in t.items()}  # no wall-clock stamp: records stay byte-reproducible (V17)
         return res

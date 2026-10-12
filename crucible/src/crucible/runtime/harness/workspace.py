@@ -21,7 +21,7 @@ import time
 
 from crucible.actors.policy import run_episode
 from crucible.core.schema.run import Failure
-from crucible.runtime.collect import Collected, classify, collect
+from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, save_episode
 from crucible.runtime.infra import StageFailure, boundary, classify_verifier, failure
@@ -33,18 +33,41 @@ class WorkspaceHarness(NativeHarness):
         self.collect_mode, self.perf_guard, self.host = collect_mode, perf_guard, host
 
     def _prior(self, attempt: Attempt) -> tuple[str, object] | None:
-        """What the previous attempt of this sample left that a retry can reuse instead of re-running the agent."""
+        """What an earlier attempt of this sample left that a retry can reuse instead of re-running the agent. The latest
+        attempt decides *what* (re-collect or re-grade); the work itself is found by looking back to the attempt that ran
+        the agent (M10 audit V1/V3: a re-collect or a train-mode re-grade preserved nothing, so the next retry re-ran the
+        agent and silently replaced the solution being measured)."""
         prev = attempt.dir.parent / f"a{attempt.n - 1}"
         rec = prev / "record.json"
         if attempt.n <= 1 or not rec.exists():
             return None
         r = json.loads(rec.read_text())
         f = r.get("failure") or {}
-        if f.get("kind") == "crucible:empty_collection" and (prev / "preserved_ws").exists():
-            return "recollect", prev / "preserved_ws"
-        if r.get("mask_sample") and f.get("stage") == "verification" and (prev / "artifacts" / "model.patch").exists():
-            return "regrade", prev
+        if not r.get("mask_sample"):
+            return None
+        for k in range(attempt.n - 1, 0, -1):
+            d = attempt.dir.parent / f"a{k}"
+            if f.get("kind") == "crucible:empty_collection" and (d / "preserved_ws").exists():
+                return "recollect", d / "preserved_ws"
+            if f.get("stage") in ("verification", "collect") and f.get("kind") != "crucible:empty_collection" and (d / "artifacts" / "model.patch").exists():
+                return "regrade", d
         return None
+
+    @staticmethod
+    def _inherit_calls(res: HarnessResult, source: object) -> None:
+        """A re-grade or re-collect measures the source attempt's work: its rollout is that attempt's model calls (V3: in
+        train mode a call-less re-grade was masked ``capture_incomplete``)."""
+        from pathlib import Path
+
+        src = Path(str(source))
+        src = src.parent if src.name == "preserved_ws" else src
+        f = src / "calls.json"
+        if f.exists():
+            try:
+                res.calls = json.loads(f.read_text())
+                res.artifacts["calls_from"] = src.name
+            except json.JSONDecodeError:
+                pass
 
     async def regrade(self, attempt: Attempt, prior) -> HarnessResult:
         """Grade the patch stored by an earlier attempt (no agent, no spend)."""
@@ -56,6 +79,7 @@ class WorkspaceHarness(NativeHarness):
             await self._grade(attempt, Collected(patch=patch, mode="stored", tree_changed=bool(meta.get("tree_changed", True))), res, t)
         except StageFailure as sf:
             res.failure = sf.failure
+        self._inherit_calls(res, prior)
         res.artifacts["regraded_from"] = prior.name
         res.timings = {k: round(v, 3) for k, v in t.items()}
         return res
@@ -92,9 +116,15 @@ class WorkspaceHarness(NativeHarness):
             return await self.regrade(attempt, prior[1])
         try:
             if prior is not None:  # re-collect only: never re-run an agent whose work the harness lost
-                base_file = attempt.dir / "base_sha"
-                c = collect(prior[1], base=base_file.read_text().strip() if base_file.exists() else "base", mode="tolerant")
+                # the base recorded by the attempt that ran the agent (M10 audit V2: this read the *new* attempt's dir and
+                # fell back to the agent-movable ``base`` tag, so a committed fix collected as an empty patch)
+                base_file = prior[1].parent / "base_sha"
+                if not base_file.exists():
+                    raise StageFailure(Failure(kind="crucible:empty_collection", stage="collect", retryable=False,
+                                               reason="no recorded base commit for the preserved workspace"))
                 res.stop = "recollected"
+                self._inherit_calls(res, prior[1])
+                c = collect(prior[1], base=base_file.read_text().strip(), mode="tolerant")
                 f = classify(c)
                 if f:
                     raise StageFailure(f)
@@ -119,10 +149,14 @@ class WorkspaceHarness(NativeHarness):
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))
+            pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
+            if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
+                raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
+            ws = attempt.task.workspace(world)
+            broken += [b for b in repo_broken(ws, base_sha) if b not in broken]
             if broken:
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
-            ws = attempt.task.workspace(world)
             t0 = time.monotonic()
             c = collect(ws, base=base_sha or "base", mode=self.collect_mode)
             t["collect"] = time.monotonic() - t0
@@ -130,6 +164,13 @@ class WorkspaceHarness(NativeHarness):
             if f:  # keep the agent's tree as it is (a rename: unreadable files survive) for a re-collect-only retry
                 shutil.move(str(ws), str(attempt.dir / "preserved_ws"))
                 raise StageFailure(f)
+            # the policy's World is closed before grading: a perf grade must not count the attempt's own sandbox or the
+            # processes it started as foreign load (M10 audit V5: they masked the grade as node contention)
+            closing, world = world, None
+            try:
+                await closing.close()
+            except Exception:  # noqa: BLE001, S110 -- cleanup never overrides a result
+                pass
             await self._grade(attempt, c, res, t)
         except StageFailure as sf:
             res.failure = sf.failure

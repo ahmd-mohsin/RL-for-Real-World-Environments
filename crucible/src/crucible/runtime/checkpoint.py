@@ -29,8 +29,14 @@ NAME = "checkpoint.json"
 
 
 class Checkpointer:
-    def __init__(self, attempt_dir: Path, world: Any, policies: dict[str, Any], observers: list[Any], *, every: int = 200):
+    """``work_attempt``: the name of the attempt directory whose ``work/`` holds the World (after a resume, the World
+    stays in the first attempt's directory, where its snapshot blobs live; M10 audit V9: a second resume opened the
+    wrong store)."""
+
+    def __init__(self, attempt_dir: Path, world: Any, policies: dict[str, Any], observers: list[Any], *, every: int = 200,
+                 work_attempt: str | None = None):
         self.dir, self.world, self.policies, self.observers, self.every = Path(attempt_dir), world, policies, observers, every
+        self.work_attempt = work_attempt or Path(attempt_dir).name
         self.saved: list[int] = []
 
     async def __call__(self, step: int) -> None:
@@ -39,11 +45,17 @@ class Checkpointer:
 
     async def save(self, step: int) -> None:
         ref = await self.world.snapshot()
-        doc = {"step": step, "world_ref": ref.model_dump(mode="json"), "log_len": len(self.world.log),
+        doc = {"step": step, "work_attempt": self.work_attempt, "world_ref": ref.model_dump(mode="json"), "log_len": len(self.world.log),
                "policies": {a: p.state_dict() for a, p in self.policies.items() if hasattr(p, "state_dict")},
                "observers": [o.state_dict() if hasattr(o, "state_dict") else None for o in self.observers]}
         atomic_write(self.dir / NAME, json.dumps(doc, default=str))
         self.saved.append(step)
+
+
+def attempt_path(sample_dir: Path, name: str) -> Path:
+    """An attempt directory by name: live, or moved to ``aborted/`` after a process crash."""
+    live = Path(sample_dir) / name
+    return live if live.exists() else Path(sample_dir) / "aborted" / name
 
 
 def load(attempt_dir: Path) -> dict | None:

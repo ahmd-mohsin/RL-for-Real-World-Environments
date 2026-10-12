@@ -426,8 +426,21 @@ class LLMToolPolicy(Policy):
             # m13 C-7 (A2-47): the policy compacts by its own decision; the summary is this (recorded, trained) call's output
             before = approx_tokens(self.messages)
             call["kind"], call["actions"] = "compaction", ["context_compact"]
-            keep = int(compact["arguments"].get("keep_recent_turns", 0) or 0) if isinstance(compact["arguments"], dict) else 0
-            summary = str(compact["arguments"].get("summary", "")) if isinstance(compact["arguments"], dict) else ""
+            args = compact["arguments"] if isinstance(compact["arguments"], dict) else {}
+            try:
+                keep = int(args.get("keep_recent_turns", 0) or 0)
+            except (TypeError, ValueError):
+                # the model's malformed argument is a format error it is told about (M10 audit V6: int("all") raised out
+                # of the episode and the attempt was masked with unknown blame, which can halt a run)
+                if self._nudges >= self.max_nudges:
+                    self.stop = "format_error"
+                    call["actions"] = ["done"]
+                    return Done(reason="context_compact: keep_recent_turns must be an integer")
+                self._nudges += 1
+                self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(context_compact)"})
+                self.messages.append({"role": "user", "content": "context_compact failed: keep_recent_turns must be an integer number of turns."})
+                return await self.act(again)
+            summary = str(args.get("summary", ""))
             self._new_segment("action", before, self._rebuild(max(0, keep), summary), summary_call=call["call_id"])
             self._compactions_in_row = getattr(self, "_compactions_in_row", 0) + 1
             if self._compactions_in_row > 2:  # compacting again and again without acting is not progress
@@ -551,7 +564,26 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                     # the seat's last observation came from its own previous move, when another seat was to move: its turn
                     # and legal actions are the turn manager's now (found live: a stale legal=None made an LLM seat resign)
                     current[a] = current[a].model_copy(update={"to_move": list(turns.to_move), "legal": (turns.legal or {}).get(a)})
-                action = await policies[a].act(current[a])
+                try:
+                    action = await policies[a].act(current[a])
+                except asyncio.CancelledError:
+                    raise
+                except Exception as ex:  # noqa: BLE001 -- classified (M10 audit V6, V7)
+                    why = f"{a}: {type(ex).__name__}: {ex}"[:500]
+                    kind = getattr(ex, "failure_kind", None)
+                    if kind is None and isinstance(ex, TimeoutError):
+                        kind = "transport_timeout"  # an inference socket, not the episode clock: infra, masked
+                    elif kind is None and isinstance(ex, (ConnectionError, OSError)):
+                        kind = "transport_unreachable"  # a lost worker or endpoint: infra, masked
+                    if kind is not None:
+                        state["policy_failure"], state["stop"] = {"kind": kind, "reason": why}, "error"
+                    elif isinstance(ex, (ValueError, IndexError, KeyError, TypeError)):
+                        # the policy's own logic choked on its output (a malformed argument, an out-of-range action):
+                        # its outcome, scored 0 (it was masked with unknown blame, enough of which halts a run)
+                        state["policy_failure"], state["stop"] = {"kind": "crucible:policy_error", "reason": why, "mask": False}, "policy_error"
+                    else:  # anything else stays unclassified: masked and counted by the unknown-blame stop rule
+                        state["policy_failure"], state["stop"] = {"kind": "agent_run_error", "reason": why, "blame": "unknown"}, "error"
+                    return
                 res = await world.step(a, action)
                 current[a] = res.observation
                 log.setdefault(a, []).append(res.observation)
@@ -589,6 +621,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     observed = [await o.on_end(world) for o in observers]
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
     failures += [{"kind": p.failure_kind, "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
+    if state.get("policy_failure"):
+        failures.append(state["policy_failure"])
     failures += [f.model_dump() for f in world.failures]  # infra faults at the World's choke point (tool crashed, transport)
     try:
         final = await world.snapshot(quiesce=True)  # the episode is over: nothing the policy started may keep changing state

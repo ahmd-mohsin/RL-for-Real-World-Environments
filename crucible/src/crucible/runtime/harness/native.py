@@ -67,22 +67,23 @@ def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str,
     """The episode's evidence in the attempt dir: the World trace, the model calls, and one joined ATIF trajectory per
     policy actor (``interop.harbor.trajectories``)."""
     from crucible.core.registry import load_impl
+    from crucible.core.secrets import scrub_json  # records leave the process (M10 audit V12)
 
     to_atif = load_impl("crucible.interop.harbor.trajectories:to_atif")  # an interop exporter: runtime never imports Harbor
 
-    (attempt.dir / "trace.json").write_text(ep.trace.model_dump_json())
+    (attempt.dir / "trace.json").write_text(scrub_json(ep.trace.model_dump_json()))
     res.artifacts["trace"] = "trace.json"
     res.calls = {a: list(cs) for a, cs in (ep.model_calls or {}).items()}
     res.segments = {a: list(getattr(p, "segments", [])) for a, p in (policies or {}).items() if getattr(p, "segments", None)}
     res.trajectory_tokens = {a: int(getattr(p, "trajectory_tokens", 0)) for a, p in (policies or {}).items() if getattr(p, "trajectory_tokens", 0)}
     if any(res.calls.values()):
-        (attempt.dir / "calls.json").write_text(json.dumps(res.calls, default=str))
+        (attempt.dir / "calls.json").write_text(scrub_json(json.dumps(res.calls, default=str)))
         res.artifacts["calls"] = "calls.json"
     for actor, cs in res.calls.items():
         model = next((c.get("model") for c in cs if c.get("model")), None)
         traj = to_atif(ep.trace, actor, calls=cs, instruction=getattr(attempt.task, "instruction", None), harness=harness_id,
                        model_name=model, session_id=attempt.id)
-        (attempt.dir / f"trajectory.{actor}.json").write_text(traj.model_dump_json(exclude_none=True))
+        (attempt.dir / f"trajectory.{actor}.json").write_text(scrub_json(traj.model_dump_json(exclude_none=True)))
         res.artifacts[f"trajectory.{actor}"] = f"trajectory.{actor}.json"
 
 
@@ -107,15 +108,20 @@ class NativeHarness:
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
 
     def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
+        """(the previous attempt's dir, its checkpoint) when the previous attempt was masked mid-episode, or when the
+        process died (no record; the journal moved the dir to ``aborted/``: M10 audit V9, the "dies at step 3,000" case
+        never resumed). Multi-step tasks are not checkpointed (V14: a resume would reset the World at step 0)."""
         from crucible.runtime import checkpoint
 
-        if not self.checkpoint_every or attempt.n <= 1:
+        if not self.checkpoint_every or attempt.n <= 1 or getattr(attempt.task, "steps", None):
             return None
-        prev = attempt.dir.parent / f"a{attempt.n - 1}"
+        prev = checkpoint.attempt_path(attempt.dir.parent, f"a{attempt.n - 1}")
         rec = prev / "record.json"
         ck = checkpoint.load(prev)
-        if ck is None or not rec.exists():
+        if ck is None:
             return None
+        if not rec.exists():
+            return prev, ck  # a process crash: nothing was recorded, the checkpoint is the last word
         r = json.loads(rec.read_text())
         return (prev, ck) if r.get("mask_sample") and (r.get("failure") or {}).get("stage") == "agent" else None
 
@@ -224,12 +230,20 @@ class NativeHarness:
         world = None
         spend0 = attempt.policy.spend()
         res = HarnessResult()
+        restored: set[str] = set()
+        policies: dict[str, Any] = {}
         try:
             t0 = time.monotonic()
             resume = self._resumable(attempt)
+            work_attempt = attempt.dir.name
             with boundary("seed"):
-                # a resumed episode reopens the previous attempt's work dir: the checkpoint's snapshot blobs live in its store
-                world = await attempt.task.open((resume[0] if resume else attempt.dir) / "work")
+                # a resumed episode reopens the work dir that holds the World (the checkpoint names it): its snapshot blobs
+                # live in that store, however many resumes ago it was first opened
+                if resume:
+                    work_attempt = resume[1].get("work_attempt") or resume[0].name
+                    world = await attempt.task.open(checkpoint.attempt_path(attempt.dir.parent, work_attempt) / "work")
+                else:
+                    world = await attempt.task.open(attempt.dir / "work")
                 world.stream_trace(attempt.dir / "trace.jsonl")
             t["seed"] = time.monotonic() - t0
             t0 = time.monotonic()
@@ -244,10 +258,13 @@ class NativeHarness:
                 if resume:
                     start = await checkpoint.resume(world, policies, observers, resume[1], prev_dir=resume[0], new_dir=attempt.dir)
                     res.artifacts["resumed_from"] = f"{resume[0].name}@step{start}"
+                    # calls restored from the checkpoint were paid by an earlier attempt (M10 audit V8: re-charged)
+                    restored |= {c.get("call_id") for p in policies.values() for c in getattr(p, "model_calls", []) if c.get("call_id")}
                 if getattr(attempt.task, "steps", None):  # M1 item 4: a multi-step task (Harbor multi-step trials)
                     ep, policies = await self._run_steps(attempt, world, policies, res)
                 else:
-                    ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every) if self.checkpoint_every else None
+                    ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every,
+                                                   work_attempt=work_attempt) if self.checkpoint_every else None
                     ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
                                            after_step=ckpt, sample_key=attempt.id)  # per-attempt cache key: k samples never replay one completion
                 if observers:
@@ -266,6 +283,9 @@ class NativeHarness:
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
                 raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))
+            pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
+            if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
+                raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") and res.grade.get("steps") is None else []
             if broken:  # the policy broke its environment: its own outcome, scored 0, never masked
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
@@ -298,8 +318,11 @@ class NativeHarness:
             t["cleanup"] = time.monotonic() - t0
             usd, unc = attempt.policy.spend()
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
-            own = [c for cs in (res.calls or {}).values() for c in cs if c.get("cost_usd") is not None]
+            calls = res.calls or {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}  # a masked attempt paid too (V8)
+            own = [c for cs in calls.values() for c in cs if c.get("cost_usd") is not None and c.get("call_id") not in restored]
             if own:  # the attempt's own model calls: a client shared by concurrent attempts makes the spend delta count theirs too
                 res.cost_usd = round(sum(float(c["cost_usd"]) for c in own), 9)
+            elif restored:
+                res.cost_usd = 0.0
             res.timings = {k: round(v, 3) for k, v in t.items()}
         return res

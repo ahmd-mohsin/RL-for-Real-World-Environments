@@ -49,6 +49,8 @@ class RunSpec:
     min_terminal_for_health: int = 20
     rollout_mode: str = "eval"  # "train": a rollout without complete token records is masked as crucible:capture_incomplete
     sampling: dict = field(default_factory=dict)  # recorded on every rollout turn (temperature, top_p, max_tokens)
+    attempt_timeout_s: float | None = None  # a harness that runs past this is masked (harness blame); sweep G4 D3: a hang ignored every limit
+    retry_backoff_s: float = 0.25  # a retry waits backoff * 2**(n-1) outside the concurrency slot (sweep G2 D2: retries were immediate)
 
     def identity_doc(self) -> dict:
         return {"run_id": self.run_id, "tasks": [t.id for t in self.tasks], "policies": [p.id for p in self.policies],
@@ -96,7 +98,7 @@ class Runner:
         for r in done.values():
             health.add(r)
         journal.event("resume" if done else "planned", planned=len(plan), done=len(done))
-        state: dict[str, Any] = {"stopped": None, "attempts": 0}
+        state: dict[str, Any] = {"stopped": None, "attempts": 0, "max_cost": 0.0}
         t_start = time.monotonic()
         sem = asyncio.Semaphore(spec.concurrency)
 
@@ -105,6 +107,8 @@ class Runner:
                 return state["stopped"]
             if spec.wall_clock_s is not None and time.monotonic() - t_start > spec.wall_clock_s:
                 state["stopped"] = "wall_clock"
+            if not state["stopped"] and ledger.over_uncertain_tolerance():  # V4: never checked before
+                state["stopped"] = f"budget: uncertain spend above {ledger.uncertain_tolerance:.0%} of the run's spend"
             reason = health.stop_reason(max_mask_fraction=spec.max_mask_fraction, max_unknown_fraction=spec.max_unknown_fraction,
                                         min_terminal=spec.min_terminal_for_health)
             if reason:
@@ -113,48 +117,79 @@ class Runner:
                 journal.event("stop_rule", reason=state["stopped"])
             return state["stopped"]
 
-        async def one(sk: SampleKey, task, policy, harness) -> None:
+        async def attempt_once(sk: SampleKey, task, policy, harness) -> tuple[str, int]:
+            """One attempt: ("done" | "retry" | "stop", attempt index). Nothing raised by a harness, its record or its
+            rollout escapes (M10 audit V11: one exception aborted the whole run and left every reservation open)."""
             sid = sk.id()
-            async with sem:
-                while True:
-                    if stop_check():
-                        return
-                    n = journal.next_attempt(sid)
-                    aid = attempt_id(sid, n)
-                    adir = journal.attempt_dir(sid, n)
-                    adir.mkdir(parents=True, exist_ok=True)
-                    scopes = ["run", f"run/policy/{policy.id}", f"run/task/{task.id}"]
-                    try:
-                        ledger.reserve(aid, scopes, getattr(policy, "estimate_usd", 0.0))
-                    except Exhausted as ex:
-                        state["stopped"] = f"budget: {ex}"
-                        journal.event("stop_rule", reason=state["stopped"])
-                        import shutil
+            if stop_check():
+                return "stop", 0
+            n = journal.next_attempt(sid)
+            aid = attempt_id(sid, n)
+            adir = journal.attempt_dir(sid, n)
+            adir.mkdir(parents=True, exist_ok=True)
+            scopes = ["run", f"run/policy/{policy.id}", f"run/task/{task.id}"]
+            est = float(getattr(policy, "estimate_usd", 0.0) or 0.0)
+            if spec.budget_usd is not None:
+                # an unpriced policy holds its share of the cap, and every reservation is at least the dearest attempt
+                # settled so far (M10 audit V4: reservations of 0 let concurrent attempts spend 3x the cap). The first
+                # wave of an unpriced policy can still overrun by concurrency x (cost - share): declare ``estimate_usd``.
+                est = max(est if est > 0 else spec.budget_usd / max(1, spec.concurrency), state["max_cost"])
+            try:
+                ledger.reserve(aid, scopes, est)
+            except Exhausted as ex:
+                state["stopped"] = f"budget: {ex}"
+                journal.event("stop_rule", reason=state["stopped"])
+                import shutil
 
-                        shutil.rmtree(adir, ignore_errors=True)  # never dispatched: no attempt
-                        return
-                    journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed)
-                    state["attempts"] += 1
-                    attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes)
-                    hr: HarnessResult = await harness.run(attempt)
-                    ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
-                    rec = self._record(spec, sk, aid, task, policy, harness, hr)
-                    self._rollout(spec, sk, rec, hr, adir)
-                    retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
-                    if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
-                        state["stopped"] = "budget: provider credits exhausted"
-                        journal.event("stop_rule", reason=state["stopped"])
-                        retry = False
-                        terminal = False  # resumable: the sample stays owed
-                    else:
-                        terminal = not retry
-                    journal.finish(rec, terminal=terminal)
-                    if terminal:
-                        health.add(rec)
-                    if retry:
-                        journal.event("retry_scheduled", attempt=aid, kind=rec.failure.kind)  # type: ignore[union-attr]
-                        continue
+                shutil.rmtree(adir, ignore_errors=True)  # never dispatched: no attempt
+                return "stop", n
+            journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed)
+            state["attempts"] += 1
+            attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes)
+            try:
+                coro = harness.run(attempt)
+                hr: HarnessResult = await (asyncio.wait_for(coro, spec.attempt_timeout_s) if spec.attempt_timeout_s else coro)
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
+                hr = HarnessResult(failure=Failure(kind="agent_run_error", stage="agent", blame="harness",
+                                                   reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500]
+                                                   if not isinstance(ex, TimeoutError) else f"harness {harness.id} ran past {spec.attempt_timeout_s}s"),
+                                   cost_uncertain_usd=est)
+            if hr.failure is not None and hr.failure.delivery == "not_sent" and not hr.cost_usd:
+                ledger.release(aid)  # the request never left: it cost nothing
+            else:
+                ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
+            state["max_cost"] = max(state["max_cost"], hr.cost_usd + hr.cost_uncertain_usd)
+            try:
+                rec = self._record(spec, sk, aid, task, policy, harness, hr)
+                self._rollout(spec, sk, rec, hr, adir)
+            except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
+                rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
+                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])))
+            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
+            if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
+                state["stopped"] = "budget: provider credits exhausted"
+                journal.event("stop_rule", reason=state["stopped"])
+                retry = False
+                terminal = False  # resumable: the sample stays owed
+            else:
+                terminal = not retry
+            journal.finish(rec, terminal=terminal)
+            if terminal:
+                health.add(rec)
+            if retry:
+                journal.event("retry_scheduled", attempt=aid, kind=rec.failure.kind)  # type: ignore[union-attr]
+                return "retry", n
+            return "done", n
+
+        async def one(sk: SampleKey, task, policy, harness) -> None:
+            while True:
+                async with sem:
+                    what, n = await attempt_once(sk, task, policy, harness)
+                if what != "retry":
                     return
+                await asyncio.sleep(spec.retry_backoff_s * 2 ** max(0, n - 1))  # outside the slot: a backoff blocks no one
 
         await asyncio.gather(*(one(*row) for row in plan if row[0].id() not in done))
         recs = journal.records()

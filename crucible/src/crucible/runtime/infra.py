@@ -22,7 +22,7 @@ import math
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 
-from crucible.core.schema.run import DEFAULT_BLAME, FAILURE_KINDS, Failure, RunRecord
+from crucible.core.schema.run import DEFAULT_BLAME, NON_RETRYABLE_KINDS, Failure, RunRecord, is_failure_kind
 
 NORMALIZE = {
     # Crucible verifier kinds (M7)
@@ -44,8 +44,9 @@ NORMALIZE = {
 
 
 def normalize(kind: str) -> tuple[str, str | None]:
-    """Foreign or legacy name -> (shared kind, detail)."""
-    if kind in FAILURE_KINDS:
+    """Foreign or legacy name -> (shared kind, detail). A kind a pack registered keeps its name and blame (sweep G3 D5:
+    it was mapped to ``agent_run_error``, so a policy-blamed pack kind was masked and retried)."""
+    if is_failure_kind(kind):
         return kind, None
     if kind in NORMALIZE:
         return NORMALIZE[kind]
@@ -54,7 +55,10 @@ def normalize(kind: str) -> tuple[str, str | None]:
 
 def failure(kind: str, stage: str, reason: str = "", **kw) -> Failure:
     k, detail = normalize(kind)
-    return Failure(kind=k, stage=stage, reason=reason[:500], detail=kw.pop("detail", None) or detail, **kw)  # type: ignore[arg-type]
+    detail = kw.pop("detail", None) or detail
+    if detail and detail.startswith("unmapped:") and "blame" not in kw:
+        kw["blame"] = "unknown"  # an unmapped foreign name is unclassified: counted by the unknown-blame stop rule (sweep G5)
+    return Failure(kind=k, stage=stage, reason=reason[:500], detail=detail, **kw)  # type: ignore[arg-type]
 
 
 class StageFailure(Exception):
@@ -91,7 +95,9 @@ class RetryRule:
     max_attempts: int = 3
 
     def allows(self, f: Failure, attempt: int) -> bool:
-        if f.who == "policy" or not f.retryable or attempt >= self.max_attempts:
+        if f.who == "policy" or not f.retryable or attempt >= self.max_attempts or f.kind in NON_RETRYABLE_KINDS:
+            return False
+        if f.kind == "agent_timeout":  # a limit stop masked by LimitPolicy: re-running until it fits is survivorship (G3 D6)
             return False
         return f.who in self.blames and (not self.kinds or f.kind in self.kinds)
 

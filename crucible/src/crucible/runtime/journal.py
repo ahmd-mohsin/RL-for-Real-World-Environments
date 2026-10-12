@@ -27,8 +27,19 @@ from crucible.core.schema.run import RunRecord
 
 
 def _append(path: Path, obj: dict) -> None:
+    """Append one JSON line. A torn tail (a crash mid-write) is cut off first (NeMo-Gym's torn-tail truncation; M10 audit
+    V10: the next row was concatenated to the fragment and lost, so a finished sample ran again). Credentials are
+    scrubbed from the line (V12)."""
+    from crucible.core.secrets import scrub_obj
+
+    if path.exists() and path.stat().st_size:
+        with path.open("rb+") as f:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                data = path.read_bytes()
+                f.truncate(data.rfind(b"\n") + 1)
     with path.open("a") as f:
-        f.write(json.dumps(obj, default=str) + "\n")
+        f.write(json.dumps(scrub_obj(json.loads(json.dumps(obj, default=str)))) + "\n")
         f.flush()
         os.fsync(f.fileno())
 
@@ -80,7 +91,9 @@ class RunJournal:
 
     def finish(self, rec: RunRecord, *, terminal: bool) -> None:
         sid, n = rec.attempt.rsplit("-a", 1) if rec.attempt else (rec.run_id, "1")
-        atomic_write(self.attempt_dir(sid, int(n)) / "record.json", rec.model_dump_json(indent=1))
+        from crucible.core.secrets import scrub_json
+
+        atomic_write(self.attempt_dir(sid, int(n)) / "record.json", scrub_json(rec.model_dump_json(), indent=1))
         if rec.mask_sample:
             _append(self.failures, json.loads(rec.model_dump_json()))
         if terminal:

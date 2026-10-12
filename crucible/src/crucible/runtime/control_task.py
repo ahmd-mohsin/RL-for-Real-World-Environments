@@ -52,12 +52,23 @@ class ControlTask:
         return w
 
     def score(self, ret: float) -> float:
+        """The return mapped onto [0, 1]. A non-finite return raises: ``min(1, nan)`` is 1.0, so a simulator that blew up
+        scored full reward (M10 audit V13)."""
+        import math
+
+        if not math.isfinite(ret):
+            raise ValueError(f"non-finite return {ret}")
         lo, hi = self.return_range
         return max(0.0, min(1.0, (ret - lo) / (hi - lo)))
 
     async def grade(self, world, workdir: Path) -> GradeReport:
+        import math
+
         j = world.apps[self.app].journal
         ret = float(j.get("return", 0.0))
+        if not math.isfinite(ret):  # the simulator (or a remote environment) produced it: the environment's fault, masked
+            return GradeReport(self.id, "full", [], {}, 0.0, 0.0, {"status": "masked", "failure_kind": "verifier_error",
+                                                                  "reason": f"non-finite return {ret}"}, True, 0.0, meta={"return": str(ret)})
         s = self.score(ret)
         ok = self.success_return is None or ret >= self.success_return
         detail = {"return": round(ret, 6), "normalized_reward": round(s, 6), "ticks": j.get("tick", 0), "done": j.get("done", False), "score": ret}

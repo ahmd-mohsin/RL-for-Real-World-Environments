@@ -49,7 +49,9 @@ class GpuHost:
         """The absolute host path of a staging-relative path (bind mounts name host paths)."""
         if not self.ssh:
             return str((Path.home() / self.workroot / rel).resolve())
-        _, home = self.exec("echo $HOME")
+        rc, home = self.exec("echo $HOME")
+        if rc != 0 or not home.strip().startswith("/"):
+            raise RuntimeError(f"cannot resolve $HOME on {self.ssh} (rc {rc}): refusing to stage into /{self.workroot}")
         return f"{home.strip()}/{self.workroot}/{rel}"
 
     def put(self, local: Path, rel: str) -> str:
@@ -66,7 +68,9 @@ class GpuHost:
     def get(self, rel: str, local: Path) -> None:
         src = self.path(rel) + "/"
         Path(local).mkdir(parents=True, exist_ok=True)
-        subprocess.run(["rsync", "-a", f"{self.ssh}:{src}" if self.ssh else src, f"{Path(local).resolve()}/"], capture_output=True, check=False)
+        r = subprocess.run(["rsync", "-a", f"{self.ssh}:{src}" if self.ssh else src, f"{Path(local).resolve()}/"], capture_output=True, text=True, check=False)
+        if r.returncode:  # a silent failure left stale or missing results to be graded (M10 audit V17)
+            raise RuntimeError(f"fetching {src} failed: {r.stderr[-500:]}")
 
     def docker_gpu_flags(self) -> list[str]:
         return ["--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all"]  # `--gpus all` fails on the lab host (missing MPS control mount)
@@ -79,6 +83,6 @@ def preflight(run: Callable[[str], tuple[int, str]], *, gpu_arch: str | None = N
     if gpu_arch:
         rc, cap = run("nvidia-smi --query-gpu=compute_cap --format=csv,noheader")
         caps = {c.strip() for c in cap.split()} if rc == 0 else set()
-        if gpu_arch not in caps:
+        if not caps or caps != {gpu_arch}:  # every visible GPU must match, not any one of them (M10 audit V17)
             return Failure(kind="crucible:backend_error", stage="seed", reason=f"declared GPU arch {gpu_arch}, sandbox reports {sorted(caps) or 'no GPU'}")
     return None

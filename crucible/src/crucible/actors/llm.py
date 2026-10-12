@@ -68,6 +68,13 @@ class BudgetExceeded(RuntimeError):
 class LLMError(RuntimeError):
     failure_kind: str | None = "provider_unavailable"
 
+    def __init__(self, *args: object):
+        # provider errors can echo the request: a key, a signed URL (M10 audit V12: a credential reached 14 record and
+        # trace files). Scrubbed here, at the source, so no caller can store it
+        from crucible.core.secrets import scrub_secrets
+
+        super().__init__(*(scrub_secrets(a) if isinstance(a, str) else a for a in args))
+
 
 class LLMOutputError(LLMError):
     """The model answered, but not in the requested form (empty, not JSON, truncated): a content failure the caller may

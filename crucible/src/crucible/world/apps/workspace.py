@@ -44,6 +44,12 @@ def _last_error_line(text: str) -> str:
 class WorkspaceApp(App):
     template = "common/workspace"
 
+    async def stop(self) -> None:
+        """End what the policy's commands left running (local backend; a container backend ends with its container)."""
+        kill = getattr(getattr(self, "policy_exec", None), "kill_sessions", None)
+        if callable(kill):
+            kill()
+
     @property
     def root(self) -> str:
         return self.state_params["root"]

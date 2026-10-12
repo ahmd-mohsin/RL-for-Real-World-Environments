@@ -1,6 +1,10 @@
 # M10 `runtime` — running policies reliably
 
-**Status: core built (2026-10-09); exit gate in progress.**
+**Status: core built (2026-10-09); audited 2026-10-12 (`docs/audit/2026-10-12/M10-runtime.md`); exit gate in progress.**
+- **Audit:** 17 reproduced defects fixed. A policy could turn its own failure into a mask (a broken `.git`, an
+  unreadable file, a background job during perf grading, a raised exception); a credential echoed by a provider reached
+  14 record and trace files; one harness exception aborted a run; retries re-ran the agent; resume worked only once and
+  charged restored calls twice.
 - **B.5 injections ✅:** all 8 harness and infra classes are injected and masked (CPU in `tests/unit/test_runtime.py`, Linux-container classes in `tests/redteam/test_runtime_docker.py`).
 - **Policy controls ✅:** they are scored, not masked.
 - **Historical run reproduction ⏳:** R1 (re-grade), R2 (replay), R3 (live mini-swe-agent through Harbor) are pending.

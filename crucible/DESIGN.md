@@ -2820,6 +2820,18 @@ verifies A2, A3 and A13 too. A10 samples a fixed n, counts record-beating runs a
 band, and only counts calibration runs bound to the task's current grading environment. Grade store and cache writes
 are atomic and keyed by content; backfill quarantines anything but a pass. Details: `docs/audit/2026-10-12/M09-accept.md`.
 
+**M10 audit (2026-10-12).** A policy can no longer turn its own failure into a mask (P16): a repository it broke is
+`agent_broke_env`, files it made unreadable are its work product, a data error in its own code is
+`crucible:policy_error` (scored 0), and its background jobs die with its World, which closes before any grade. Socket
+and connection errors are transport (masked), and only the episode deadline is a scored `timeout`. Every attempt is
+contained (a harness, record or rollout exception is a masked harness failure), with an optional per-attempt deadline
+and backoff outside the concurrency slot. Retries re-grade or re-collect the work of the attempt that ran the agent,
+with its recorded base and its model calls; nothing re-runs the agent. Reservations hold real money (a share of the
+cap, at least the dearest settled attempt); uncertain spend above tolerance stops the run. Resume chains across
+crashes and process deaths and charges only new calls. Credentials are scrubbed at the source (`LLMError`) and at the
+record boundary (`core/secrets.py`). Registered pack kinds keep their blame; unmapped names are `unknown`; stale images,
+stale builds, 4xx rejections and masked limit stops are not retried. Details: `docs/audit/2026-10-12/M10-runtime.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
