@@ -24,7 +24,7 @@ image = (modal.Image.from_registry("vllm/vllm-openai:latest").entrypoint([])
          .add_local_file(ROOT / "pyproject.toml", "/root/crucible/pyproject.toml", copy=True)
          .add_local_file(ROOT / "README.md", "/root/crucible/README.md", copy=True)
          .run_commands("pip install -q -e /root/crucible -e /root/crucible/packs/_toy")
-         .env({"NCCL_CUMEM_ENABLE": "0", "HF_HUB_ENABLE_HF_TRANSFER": "0"}))
+         .env({"NCCL_CUMEM_ENABLE": "0", "HF_HUB_ENABLE_HF_TRANSFER": "0", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}))
 hf_cache = modal.Volume.from_name("crucible-hf-cache", create_if_missing=True)
 app = modal.App("crucible-gate-dist")
 
@@ -34,7 +34,7 @@ def run(argv: list[str]) -> dict:
     import subprocess
     import sys
 
-    p = subprocess.run([sys.executable, "-m", "crucible_pack_toy.m12.gate_dist", *argv, "--out", "/work/out"], capture_output=True, text=True)
+    p = subprocess.run([sys.executable, "-m", "crucible_pack_toy.m12.gate_dist", *argv, "--out", "/work/out"], capture_output=True, text=True, check=False)
     print(p.stdout[-4000:])
     if p.returncode:
         print(p.stderr[-6000:])

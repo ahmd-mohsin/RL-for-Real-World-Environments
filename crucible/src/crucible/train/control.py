@@ -8,6 +8,11 @@ a World step (tool gate, trace, events on simulation time), so what is learned h
 
 Follows the PPO recipe as CleanRL's ``ppo.py`` / ``ppo_continuous_action.py`` and Stable-Baselines3 implement it
 (pattern; no code copied).
+
+Records (optional, off by default): ``ppo(venv, cfg, recorder=ControlRecorder(sink=...))`` writes one
+``crucible.control_rollout/v1`` record per finished episode (``train.control_record``): executed and sampled actions, the
+joint log-prob and value of each sampled action, observation digests, rewards, terminated / truncated, ticks, seed and env
+id, so a run can be audited, replayed through a fresh ``ControlApp`` and streamed to the run's sinks.
 """
 
 from __future__ import annotations
@@ -123,10 +128,13 @@ class PPOResult:
     steps: int = 0
 
 
-async def ppo(venv: Any, cfg: PPOConfig) -> PPOResult:
-    """Train on a ``VectorWorldEnv`` (``cfg.n_envs`` must match it)."""
+async def ppo(venv: Any, cfg: PPOConfig, *, recorder: Any = None) -> PPOResult:
+    """Train on a ``VectorWorldEnv`` (``cfg.n_envs`` must match it). ``recorder``: a ``control_record.ControlRecorder``
+    (attached before the first reset; episodes still running at the end are flushed as ``stop="run_end"``)."""
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
+    if recorder is not None:
+        recorder.attach(venv)
     raw = np.asarray(await venv.areset(), dtype=np.float64)  # opens the Worlds: their spaces are known from here on
     obs_dim = venv.observation_space.flat_dim()
     model = ActorCritic(obs_dim, venv.action_space, cfg.hidden)
@@ -155,7 +163,10 @@ async def ppo(venv: Any, cfg: PPOConfig) -> PPOResult:
                 a = d.sample()
                 lp = d.log_prob(a) if model.kind == "discrete" else d.log_prob(a).sum(-1)
                 v = model.value(ot)
-            nxt, rew, term, trunc, infos = await venv.astep(model.to_env(a))
+            env_actions = model.to_env(a)
+            if recorder is not None:
+                recorder.annotate(env_actions if model.kind == "discrete" else a.tolist(), lp.tolist(), v.tolist(), version=u)
+            nxt, rew, term, trunc, infos = await venv.astep(env_actions)
             obs_b[t], act_b[t], logp_b[t], val_b[t] = o, a.numpy(), lp.numpy(), v.numpy()
             rew_b[t] = rew
             done_b[t] = [float(x or y) for x, y in zip(term, trunc, strict=True)]
@@ -206,6 +217,8 @@ async def ppo(venv: Any, cfg: PPOConfig) -> PPOResult:
         res.history.append({"update": u + 1, "steps": res.steps, "episodes": len(res.episodes),
                             "mean_return_20": float(np.mean(recent)) if recent else None, **stats})
     res.seconds = time.monotonic() - t0
+    if recorder is not None:
+        recorder.flush()
     return res
 
 
@@ -226,5 +239,5 @@ async def evaluate(env: Any, result: PPOResult, *, episodes: int = 5, seed: int 
     return out
 
 
-def run(venv: Any, cfg: PPOConfig) -> PPOResult:
-    return asyncio.run(ppo(venv, cfg))
+def run(venv: Any, cfg: PPOConfig, *, recorder: Any = None) -> PPOResult:
+    return asyncio.run(ppo(venv, cfg, recorder=recorder))

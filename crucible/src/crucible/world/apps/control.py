@@ -5,7 +5,7 @@ dm_control, MuJoCo, Unity ML-Agents, FinRL and the classic-control suite expose 
 **Source** (``params``): ``env: "gymnasium:<id>"`` (``gymnasium.make``) with ``env_kwargs``, or ``factory: "module:attr"``
 returning an object with ``reset(seed=) -> (obs, info)``, ``step(action) -> (obs, reward, terminated, truncated, info)``,
 ``action_space`` and ``observation_space`` (Gymnasium spaces, or ``Space`` data in ``params.action_space`` /
-``params.observation_space``), or ``client: {base_url, action_key, observation_key, done_is}``: a simulator served
+``params.observation_space``), or ``client: {base_url, action_key, observation_key, done_is, reset_kwargs}``: a simulator served
 elsewhere over WebSocket (``RemoteControlEnv``; OpenEnv's dm_control, Unity, FinRL servers), spaces from its state.
 
 **Time belongs to the simulator.** One agent action holds for ``frame_skip`` ticks (rewards summed; the episode can end
@@ -27,8 +27,9 @@ language models; ``data`` holds the exact values. ``terminated`` / ``truncated``
 observation, rewards, ticks. ``journal: lazy`` (high-rate control) keeps it in memory and writes it when a snapshot,
 a fingerprint or a verifier query needs it (``App.before_snapshot``), not on every tick. ``restore: replay`` (default) rebuilds the simulator from the seed and replays the actions,
 checking every digest (a non-deterministic simulator raises ``SnapshotMismatch``, never silently a different state);
-``restore: none`` restores the episode start only (a fresh reset with the seed) and refuses mid-episode restores, so
-branching and resume are off for that environment. ``reseed(seed)`` starts a new episode on another seed.
+``restore: none`` restores the episode start only (a fresh reset with the seed; a stochastic simulator's different
+start is accepted) and refuses mid-episode restores, so branching and resume are off for that environment. A remote
+simulator keeps one session for the App's life (servers cap sessions). ``reseed(seed)`` starts a new episode on another seed.
 """
 
 from __future__ import annotations
@@ -91,11 +92,15 @@ class RemoteControlEnv:
     ``terminated``; an observation's own ``terminated`` / ``truncated`` keys win."""
 
     def __init__(self, base_url: str, *, action_key: str | None = "values", observation_key: str | None = "observations", done_is: str = "truncated",
-                 session_id: str | None = None, message_timeout_s: float = 300.0):
+                 session_id: str | None = None, message_timeout_s: float = 300.0, reset_kwargs: dict[str, Any] | None = None,
+                 ping_interval_s: float | None = 20.0):
+        """``ping_interval_s``: WebSocket keepalive (None: off). A single-worker simulator server that blocks while it loads a
+        scene (Unity downloading and starting a binary at reset) cannot answer pings; found live on the lab with Unity."""
         from crucible.world.remote import RemoteEnvClient
 
-        self.client = RemoteEnvClient(base_url, session_id=session_id, message_timeout_s=message_timeout_s)
+        self.client = RemoteEnvClient(base_url, session_id=session_id, message_timeout_s=message_timeout_s, ping_interval_s=ping_interval_s)
         self.action_key, self.observation_key, self.done_is = action_key, observation_key, done_is
+        self.reset_kwargs = dict(reset_kwargs or {})  # sent with every reset (OpenEnv Unity: {"env_id": "3DBall"})
         self.state: dict[str, Any] = {}
 
     def _obs(self, data: dict[str, Any]) -> Any:
@@ -103,7 +108,7 @@ class RemoteControlEnv:
         return o.get(self.observation_key, o) if self.observation_key else o
 
     async def areset(self, seed: int | None = None) -> tuple[Any, dict[str, Any]]:
-        data = await self.client.reset(seed=seed)
+        data = await self.client.reset(seed=seed, **self.reset_kwargs)
         self.state = await self.client.state()
         return self._obs(data), {}
 
@@ -147,7 +152,8 @@ class ControlApp(App):
         if p.get("client"):
             c = dict(p["client"])
             return RemoteControlEnv(c["base_url"], action_key=c.get("action_key", "values"), observation_key=c.get("observation_key", "observations"),
-                                    done_is=c.get("done_is", "truncated"), session_id=c.get("session_id"), message_timeout_s=float(c.get("message_timeout_s", 300)))
+                                    done_is=c.get("done_is", "truncated"), session_id=c.get("session_id"), message_timeout_s=float(c.get("message_timeout_s", 300)),
+                                    reset_kwargs=c.get("reset_kwargs"), ping_interval_s=c.get("ping_interval_s", 20.0))
         if p.get("env"):
             src = str(p["env"])
             if not src.startswith("gymnasium:"):
@@ -215,9 +221,12 @@ class ControlApp(App):
         return action
 
     async def _fresh(self, seed: int) -> Any:
-        if self.env is not None and hasattr(self.env, "close"):
-            self.env.close()
-        self.env = self._make()
+        if isinstance(self.env, RemoteControlEnv):
+            pass  # one session for the App's life: a server with a session cap (OpenEnv Unity: 1) refuses a second one
+        else:  # (found live: closing asynchronously and reconnecting at every reset hit CAPACITY_REACHED)
+            if self.env is not None and hasattr(self.env, "close"):
+                self.env.close()
+            self.env = self._make()
         if hasattr(self.env, "areset"):
             obs, _info = await self.env.areset(seed=seed)
         else:
@@ -263,7 +272,9 @@ class ControlApp(App):
         return obs
 
     async def stop(self) -> None:
-        if self.env is not None and hasattr(self.env, "close"):
+        if isinstance(self.env, RemoteControlEnv):
+            await self.env.client.close()
+        elif self.env is not None and hasattr(self.env, "close"):
             self.env.close()
         self.env = None
 
@@ -279,7 +290,9 @@ class ControlApp(App):
             raise SnapshotMismatch(f"{self.id}: this simulator restores the episode start only (restore: none); a mid-episode state cannot be rebuilt")
         obs = await self._fresh(int(doc["seed"]))
         if obs_digest(obs) != doc["reset_digest"]:
-            raise SnapshotMismatch(f"{self.id}: reset on seed {doc['seed']} gave a different observation (non-deterministic reset)")
+            if self.spec.params.get("restore", "replay") != "none":
+                raise SnapshotMismatch(f"{self.id}: reset on seed {doc['seed']} gave a different observation (non-deterministic reset)")
+            doc = {**doc, "reset_digest": obs_digest(obs), "reset_nondeterministic": True}  # restore: none: a fresh start is the start
         self.journal = {**doc, "tick": 0}
         for i, s in enumerate(doc["steps"]):
             await self._tick(s["action"], int(s["ticks_requested"]))

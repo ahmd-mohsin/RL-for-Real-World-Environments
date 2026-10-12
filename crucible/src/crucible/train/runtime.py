@@ -203,6 +203,7 @@ class Runtime:
         self._teach_stats = {"scored": 0, "fallback": 0, "seconds": 0.0}
         self._started: dict[str, float] = {}
         self._group_stage: dict[str, tuple[float, asyncio.Task]] = {}
+        self._seats: dict[str, list[RolloutRecord]] = {}  # rid -> per-seat records of a game rollout (rollout_fn returned a list)
         self._audit_tasks: set[asyncio.Task] = set()
         self._step_audit = {"runs": 0, "fast_pass_full_fail": 0}
         self._blocked_since: float | None = None
@@ -300,6 +301,12 @@ class Runtime:
         except Exception as e:  # noqa: BLE001 -- masked (never scored 0), but a bug in the harness / record path, recorded
             self._failure(_blame(e), e)
             return await self._complete(rid, None, failed=True)
+        if isinstance(rec, list):  # a game: one record per trained seat (``train.seats``); the episode stays one pool rollout
+            seats = [r for r in rec if r is not None]
+            if not seats:
+                return await self._complete(rid, None)
+            self._seats[rid] = seats  # expanded into per-seat groups when the batch is built (``_train``)
+            rec = seats[0]
         await self._complete(rid, rec)
 
     def _failure(self, blame: str, e: BaseException, *, rollout: bool = True) -> None:
@@ -338,7 +345,7 @@ class Runtime:
                 rec.timings["active_s"] = time.monotonic() - t0  # rollout wall time (per-source active time, A2-55)
         else:
             self._started.pop(rid, None)
-        if rec is not None and (_per_source(self.reward_fn, src) is not None or _per_source(self.aux_fn, src) is not None):
+        if rec is not None and rid not in self._seats and (_per_source(self.reward_fn, src) is not None or _per_source(self.aux_fn, src) is not None):
             self.pool.grading(rid)
             self.changed.set()
             rec = await self._grade(rec)
@@ -572,6 +579,15 @@ class Runtime:
                 r = self.pool.values.get(t.rid)
                 if r is None:  # masked member (pad backfill): no value, excluded from statistics
                     continue
+                seats = self._seats.pop(t.rid, None)
+                if seats is not None:  # each seat's records form their own group: a zero-sum edge never becomes credit
+                    for sr in seats:
+                        if sr.reward is None:
+                            continue  # a seat without an outcome is masked, never scored 0
+                        sr.source, sr.timings = r.source, {**r.timings, **sr.timings}
+                        recs.append(sr)
+                        groups.append(f"{g.gid}#seat={sr.actor}")
+                    continue
                 recs.append(r)
                 groups.append(g.gid)
         if self.cfg.topology in ("disaggregated_stream", "elastic"):
@@ -704,6 +720,8 @@ class Runtime:
             train_s = time.monotonic() - t0
             self.sched.trained(sel)
             for g in list(sel.groups) + [self.pool.groups[x] for x in sel.evicted if x in self.pool.groups]:
+                for rid_ in g.members:
+                    self._seats.pop(rid_, None)
                 self.pool.release(g.gid)  # trained / evicted work leaves the pool: memory stays bounded over a long run
                 ent = self._group_stage.pop(g.gid, None)
                 if ent is not None:  # evicted while its group stage ran: the result would have nothing to apply to

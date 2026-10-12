@@ -53,6 +53,12 @@ class Turn(CrucibleModel):
     depends_on: list[str] | None = None  # call ids this call waited for (multi-agent DAG): critical-path latency (DeepSeek Agent Team)
     ref_logprobs: list[float] | None = None
     atif_step_ids: list[int] = Field(default_factory=list)
+    # vision-language prompts (``train.chat.HFVisionChatCodec``): the images whose placeholder runs this call's prompt adds
+    # (linear like the tokens: earlier images of the segment live on earlier calls), each ``{kind, mime, ref, offset,
+    # length, grid}``: ``ref`` is the content address of the bytes (``sha256:<hex>``, the World store's key), ``offset``/
+    # ``length`` locate the expanded placeholder run in the call's *full* prompt, ``grid`` is the processor's (t, h, w)
+    # patch grid. Pixels never enter the record: the trainer rebuilds them from the refs (``train.vision``).
+    media: list[dict[str, Any]] | None = None
 
     def versions(self) -> list[int]:
         if self.version_spans:
@@ -139,6 +145,9 @@ class RolloutRecord(CrucibleModel):
     source: str | None = None  # the scheduler source (domain) the prompt came from: routes teachers, selects per-source KL
     teacher_id: str | None = None
     opd_fallback: bool = False  # the teacher missed its deadline or failed: this record trains on the RL signal only
+    # per-seat records of a multi-agent game (``train.seats``): the seat whose turns (and only those) this record holds and
+    # whose outcome ``reward`` is; None for a single-actor episode or a combined trace
+    actor: str | None = None
 
     def oldest_version(self) -> int | str | None:
         vs = [v for t in self.turns for v in (t.versions() or ([t.policy_version] if t.policy_version is not None else []))]

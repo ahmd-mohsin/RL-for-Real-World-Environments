@@ -130,13 +130,17 @@ async def test_runtime_survives_a_killed_worker_without_double_training():
     assert any(r.timings.get("worker_attempts", 1) > 1 for r in rep.trained_records) or lc.stats["expired"] > 0
 
 
+def _orphan_worker(url: str) -> subprocess.Popen:
+    return subprocess.Popen([sys.executable, "-m", "crucible.train.workers", "--controller", url, "--rollout", "copy", "--orphan-after-s", "1.5", "--id", "orphan"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+
+
 async def test_worker_exits_when_its_controller_dies():
     """M12 open item: a worker whose controller died used to poll forever. It now exits (code 75) after
     ``--orphan-after-s`` without contact, so a supervisor restarts or reaps it."""
     lc = LeaseController(lease_s=30.0)
     url = await lc.start()
-    p = subprocess.Popen([sys.executable, "-m", "crucible.train.workers", "--controller", url, "--rollout", "copy", "--orphan-after-s", "1.5", "--id", "orphan"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+    p = _orphan_worker(url)
     try:
         await asyncio.sleep(3.0)  # past orphan_after_s: an empty queue still answers every lease, so the worker stays
         assert p.poll() is None  # alive while the controller is

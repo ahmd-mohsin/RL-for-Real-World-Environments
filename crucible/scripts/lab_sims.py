@@ -32,7 +32,7 @@ ENV MUJOCO_GL=osmesa
 
 
 def sh(cmd: str, check: bool = True) -> str:
-    p = subprocess.run([*LAB, cmd], capture_output=True, text=True)
+    p = subprocess.run([*LAB, cmd], capture_output=True, text=True, check=False)
     if check and p.returncode:
         raise SystemExit(f"lab command failed ({p.returncode}): {cmd}\n{p.stdout[-2000:]}\n{p.stderr[-2000:]}")
     return p.stdout

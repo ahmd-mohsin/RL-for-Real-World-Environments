@@ -2518,6 +2518,28 @@ Across 24 seed and topology runs, no trained rollout exceeds τ.
 - **B.27.** Instruction noise typo'd the exact word a task asked for, and the agent faithfully wrote the typo (live: GPT-6 Luna, 2 of 10 word-file episodes at full intensity). Value tokens are now never touched: words the task protects (`NoiseConfig.protect`), plus anything with digits or symbols, quoted text and capitalized names.
 - **Rollout workers** now exit (code 75) after `orphan_after_s` without contact with their controller, instead of polling forever. A controller restarted as a new process (a new id) makes them drop the dead leases and continue.
 
+**M12 records for games, control and vision (2026-10-11).**
+- **Games.** A turn-based multi-agent World trains as one `crucible.rollout/v1` record per trained seat (`train/seats.py`, `world_rollout(seats=SeatConfig)`).
+  - Each record holds that seat's turns only, with `RolloutRecord.actor` set and the seat's own outcome from the game App. A missing outcome is masked, never scored 0.
+  - The runtime keeps the episode as one pool rollout and expands its seat records into groups `<group>#seat=<id>` when it builds the batch. A zero-sum game's structural edge therefore never becomes credit (SPIRAL / prime-rl RAE).
+  - Opponents' executed moves reach a seat as inbox observations on its next turn (`MoveLog` + `SeatView`), in the exact-TITO suffix with mask 0. Simultaneous moves are revealed only after the round resolves.
+  - Frozen seats and fixed opponents play but emit nothing.
+- **Control episodes** get a sibling schema, `crucible.control_rollout/v1` (`train/control_record.py`). It keeps the rollout/v1 envelope, but its steps carry the executed and sampled action, joint log-prob, value, observation digest, reward, termination and ticks; token fields could not hold these without looking train-valid to the LM trainer. `ppo(recorder=)` writes them, `record_from_world` covers LLM runs, and `replay` re-runs a record through a fresh ControlApp, checking every digest.
+- **Vision-language models** use `HFVisionChatCodec`.
+  - The processor expands image placeholders exactly as the engine's does, and the sentinel-cut suffix keeps TITO exact across image turns.
+  - `Turn.media` stores content-addressed refs (offset, length, grid), never pixels.
+  - `VisionHFPolicy` rebuilds the pixel inputs and recomputes log-probs equal to the engine's forward. `TorchTrainer` segment items do not carry media yet.
+
+**M11 importers: EnterpriseOps-Gym and Harbor multi-step (2026-10-11).**
+- **EnterpriseOps-Gym.** `interop/eog` turns a task (a `data/revised` file or an HF row) into an `EogTask`.
+  - Each gym server becomes a `common/sqlite_app` seeded from its `gym_dbs.zip` dump. The dumps hold only INSERTs, so the schema is inferred from their column lists and the verifiers' queries; a unique integer `*_id` first column becomes `INTEGER PRIMARY KEY`, so new rows get the ids the verifiers hard-code.
+  - `now` is pinned to the task's timestamp. The policy gets `sql_query` / `sql_execute`, because the named tools ship only in the benchmark's Docker images, plus an identity from `user_info` / `context`.
+  - Each `database_state` verifier is a `SqlAssertion` in one outcome gate. All-zero-count or empty verifiers add a hard `unchanged` gate. `oracle_actions()` derives a witness from single-table verifiers.
+  - Of the 13 local tasks, 12 import, all score 0 for doing nothing, and the 7 with single-table verifiers score 1. `response_check` and `tool_execution` verifiers are refused.
+- **Harbor multi-step.** `interop/harbor/multi_step.py` maps each Harbor `[[steps]]` entry to a `TaskStep`.
+  - Setup is Harbor's step preparation, grading is Harbor's `Verifier(step_name=...)`, and the gate is Harbor's own `min_reward` rule.
+  - Steps that need a separate verifier environment are refused. Harbor's hello multi-step examples score 1 end to end on Docker.
+
 **M12-infra batch D (2026-10-11): environment noise.** Additions:
 - **Flaky-task admission** (`train/admission.py`, MiMo's rule, the same as acceptance check A4): `screen(sources, rerun, k=8)` reruns each prompt's reference k times and keeps only the stable ones. The verdicts are `flaky` (disagreeing), `broken` (identical and failing) and `infra` (too many infrastructure failures, retried later). It stops early at the first disagreement and reports the Clopper–Pearson bound for the kept set.
 - **World noise** (`world/noise.py`, `World(noise=...)`): instruction typos, dropout, case flips and distractors at the first observation. Retryable transient tool errors are scored, never masked. Successful results get truncation, typos, empty output, shuffled lines or a dropped JSON field. The noise changes only the policy's view, never state or the verifier's view. Each perturbation is a `noise` trace event, seeded per episode.

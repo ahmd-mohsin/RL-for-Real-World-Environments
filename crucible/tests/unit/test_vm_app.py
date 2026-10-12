@@ -26,6 +26,6 @@ def test_vm_pool_reset_isolation_and_ram_snapshots(tmp_path):
 
     script = Path(__file__).resolve().parents[1] / "live" / "vm_check.py"
     p = subprocess.run([sys.executable, str(script), "--pool", "2", "--resets", "6", "--out", str(tmp_path)], env={**os.environ, "DOCKER_HOST": HOST},
-                       capture_output=True, text=True, timeout=1800)
+                       capture_output=True, text=True, timeout=1800, check=False)
     res = json.loads((tmp_path / "vm_check.json").read_text())
     assert res.get("pass"), (res, p.stderr[-1500:])

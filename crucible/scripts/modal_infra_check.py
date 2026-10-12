@@ -121,7 +121,7 @@ def run(only: list[str], stress: int = 0) -> dict:
 
     import torch
 
-    smi = subprocess.run(["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"], capture_output=True, text=True).stdout
+    smi = subprocess.run(["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"], capture_output=True, text=True, check=False).stdout
     info = {"torch": torch.__version__, "cuda": torch.version.cuda, "nccl": ".".join(map(str, torch.cuda.nccl.version())),
             "gpus": torch.cuda.device_count(), "nvidia_smi": smi.strip().splitlines()}
     results = {}

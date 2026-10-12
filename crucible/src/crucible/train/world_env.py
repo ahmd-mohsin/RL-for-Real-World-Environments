@@ -12,7 +12,13 @@ chat API re-renders history through its tool parser and template, which is lossy
 
 ``world_rollout(...)`` returns the runtime's ``rollout_fn``: open the task's World, run the episode, grade it; a masked
 episode or masked grade returns ``None`` (the runtime masks the rollout, never scores it 0); an agent-caused failure is
-scored by the grader.
+scored by the grader. With ``seats=SeatConfig(...)`` (``train.seats``) it plays a turn-based game with every seat and
+returns one record per trained seat.
+
+Vision-language codecs (``chat.HFVisionChatCodec``) report the images each render / suffix expanded (``last_media``):
+``EngineLLM`` makes their placeholder offsets absolute in the full prompt, keeps every image of a served conversation
+(handed to the engine as ``gen(..., media=[...])``: an engine for a VL model needs all of them), and records the images a
+call adds in ``tokens["media"]`` (``Turn.media``).
 """
 
 from __future__ import annotations
@@ -51,38 +57,51 @@ class EngineLLM:
         self.rerenders = 0
         self._rerendered = False
         self.spend = _Spend()
-        # served conversations: (message list of a call without its reply, that call's prompt + completion (+EOS))
-        self._convs: list[tuple[list[dict[str, Any]], list[int]]] = []
+        # served conversations: (message list of a call without its reply, that call's prompt + completion (+EOS), every
+        # image in that prompt with absolute placeholder offsets)
+        self._convs: list[tuple[list[dict[str, Any]], list[int], list[dict[str, Any]]]] = []
+        self._media_new: list[dict[str, Any]] = []
+        self._media_all: list[dict[str, Any]] = []
         self.max_conversations = max_conversations
         self.prefix_breaks = 0
+
+    def _rendered(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
+        ids = self.codec.render(messages, tools)
+        self._media_new = list(getattr(self.codec, "last_media", None) or [])  # a whole render: offsets are already absolute
+        self._media_all = list(self._media_new)
+        return ids
 
     def _prompt(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
         self._rerendered = False
         best = None
-        for i, (s, _ids) in enumerate(self._convs):
+        for i, (s, _ids, _m) in enumerate(self._convs):
             if len(messages) > len(s) and messages[len(s)].get("role") == "assistant" and messages[: len(s)] == s and (best is None or len(s) > len(self._convs[best][0])):
                 best = i
         if best is not None:
-            s, ids = self._convs.pop(best)  # the conversation moves on: its next entry replaces this one
+            s, ids, media = self._convs.pop(best)  # the conversation moves on: its next entry replaces this one
             new = messages[len(s) + 1:]
             if self.thinking == "strip" or (self.thinking == "interleaved" and any(m.get("role") == "user" for m in new)):
                 self.rerenders += 1  # the deployed template re-renders (and drops) earlier reasoning here: so do we, in a new segment
                 self._rerendered = True
-                return self.codec.render(messages, tools)
-            return ids + self.codec.suffix(new, tools)
+                return self._rendered(messages, tools)
+            suf = self.codec.suffix(new, tools)
+            self._media_new = [{**m, "offset": int(m["offset"]) + len(ids)} for m in getattr(self.codec, "last_media", None) or []]
+            self._media_all = [*media, *self._media_new]
+            return ids + suf
         if any(m.get("role") == "assistant" for m in messages):
             self.prefix_breaks += 1  # mid-conversation but extends nothing served (compaction rewrote it): a new segment, rendered whole
-        return self.codec.render(messages, tools)
+        return self._rendered(messages, tools)
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 1.0,
                        max_tokens: int = 512, **_: Any) -> LLMResponse:
         prompt = self._prompt(messages, tools)
+        media_new, media_all = self._media_new, self._media_all
         t0 = time.monotonic()
-        res = await self.gen(prompt, max_tokens, temperature)
+        res = await (self.gen(prompt, max_tokens, temperature, media=media_all) if media_all else self.gen(prompt, max_tokens, temperature))
         self.spend.calls += 1
         comp = list(res.completion_ids)
         tail = comp if (comp and comp[-1] in self.codec.eos_ids) else comp + list(self.codec.eos_ids[:1])
-        self._convs.append(([dict(m) for m in messages], prompt + tail))
+        self._convs.append(([dict(m) for m in messages], prompt + tail, media_all))
         del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         text, calls = self.codec.parse(comp)
         finish = "stop" if res.finish == "stop" else ("length" if res.finish == "length" else res.finish)
@@ -90,17 +109,53 @@ class EngineLLM:
                            raw_finish=finish, latency_s=time.monotonic() - t0,
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
                                    "policy_version": res.version, "version_spans": res.version_spans,
-                                   **({"new_segment": True} if self._rerendered else {})})
+                                   **({"media": media_new} if media_new else {}), **({"new_segment": True} if self._rerendered else {})})
+
+
+def attach_call_fields(ro: Any, model_calls: dict[str, list[dict[str, Any]]]) -> None:
+    """Per-call fields ``runtime.record.build`` does not carry: the images a call's prompt added (``Turn.media``)."""
+    media = {c["call_id"]: (c.get("tokens") or {}).get("media") for cs in model_calls.values() for c in cs}
+    for t in ro.turns:
+        if media.get(t.call_id):
+            t.media = [dict(m) for m in media[t.call_id]]
 
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
                   workroot: Path | None = None, limit_policy: Any = None, make_policy: Callable[[Any, float], Any] | None = None,
-                  harness_id: str = "native:world@1") -> Callable:
+                  harness_id: str = "native:world@1", seats: Any = None) -> Callable:
     """``task_for(prompt) -> RunTask`` (M10 contract: ``open(workdir)``, ``grade(world, workdir)``). ``make_policy(llm,
-    temperature)`` replaces the default ``LLMToolPolicy`` (``rlm_world_rollout``: the RLM harness)."""
+    temperature)`` replaces the default ``LLMToolPolicy`` (``rlm_world_rollout``: the RLM harness).
+
+    ``seats`` (``train.seats.SeatConfig``): a multi-agent game. Every seat of the World's turn order plays (engine seats
+    each through their own ``EngineLLM``: two seats with the same opening messages must never extend each other's
+    conversation), opponents' moves reach each seat on its next observation, and the rollout returns
+    ``list[RolloutRecord]``, one per trained seat (``train.seats.split_seats``; group ``<prompt>#seat=<id>``), or None
+    when the episode or its grade is masked. ``train.seats.single_seat`` adapts it to the runtime."""
     from crucible.actors.policy import EpisodeLimits, LLMToolPolicy, run_episode
     from crucible.core.schema.run import RunRecord
     from crucible.runtime.record import build
+
+    def policies(world: Any, gen: Callable, temperature: float) -> tuple[dict[str, Any], list[Any], list[str]]:
+        if seats is None:
+            llm = EngineLLM(codec, gen)
+            pol = make_policy(llm, temperature) if make_policy else LLMToolPolicy("agent", llm, max_tokens=max_tokens, temperature=temperature, context=context)
+            return {"agent": pol}, [], ["agent"]
+        from crucible.train.seats import MoveLog, SeatView
+
+        game = getattr(world, "turns", None)
+        ids = list(game.seats) if game is not None else [a.id for a in world.spec.policy_actors]
+        trained = seats.trained_seats(ids)
+        log = MoveLog(ids)
+        out: dict[str, Any] = {}
+        for sid in ids:
+            if sid in seats.opponents:
+                inner = seats.opponents[sid](sid)
+            else:
+                llm = EngineLLM(codec, gen)
+                inner = seats.make_policy(sid, llm, temperature) if seats.make_policy else \
+                    LLMToolPolicy(sid, llm, max_tokens=max_tokens, temperature=temperature, context=context)
+            out[sid] = SeatView(inner, sid, log, reveal=seats.reveal, show_legal=seats.show_legal)
+        return out, [log], trained
 
     async def rollout(rid: str, prompt: str, seed: int, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, temperature: float = 1.0,
                       harness: str = harness_id):
@@ -111,13 +166,13 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
         d = Path(tempfile.mkdtemp(prefix="m12-world-", dir=workroot))
         world = await task.open(d / "work")
         try:
-            llm = EngineLLM(codec, gen)
-            pol = make_policy(llm, temperature) if make_policy else LLMToolPolicy("agent", llm, max_tokens=max_tokens, temperature=temperature, context=context)
+            pols, observers, trained = policies(world, gen, temperature)
             try:
-                ep = await run_episode(world, {"agent": pol}, limits=EpisodeLimits(max_steps=max_steps), reset=True)
+                ep = await run_episode(world, pols, limits=EpisodeLimits(max_steps=max_steps), reset=True, observers=observers)
             finally:
-                if hasattr(pol, "aclose"):
-                    await pol.aclose()
+                for pol in pols.values():
+                    if hasattr(pol, "aclose"):
+                        await pol.aclose()
             if ep.masked:
                 return None
             rep = await task.grade(world, d / "grade")
@@ -130,8 +185,10 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at=started_at, steps=ep.steps,
                             outcome="completed", reward=reward, attempt=f"{rid}-a1",
                             meta={"harness": harness, "stop": ep.stop_condition, "truncated": ep.truncated, "gates": rep.gate_bits()})
-            ro = build(rec, calls=ep.model_calls, segments={"agent": list(pol.segments)} if pol.segments else None, sampling={"temperature": temperature})
+            segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
+            ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature})
             ro.group = None
+            attach_call_fields(ro, ep.model_calls)
             trace = world.to_trace()
             from crucible.credit.hack_detector import rule_flags
 
@@ -147,7 +204,18 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             attempted = sum(int(v) for v in (probes.get("attempted") or {}).values()) if isinstance(probes.get("attempted"), dict) else 0
             if attempted:  # blocked shortcut attempts: the episode stays trainable (an *exposure* already masked it)
                 ro.reward_components["probe/attempted"] = float(attempted)
-            return ro
+            if seats is None:
+                return ro
+            from crucible.core.schema.rollout import Segment
+            from crucible.train.seats import game_rewards, split_seats
+
+            outcome = game_rewards(world)
+            rewards = {s: (seats.reward(world, rep, s) if seats.reward is not None else outcome.get(s)) for s in pols}
+            if pen is not None:  # the limit policy's penalty replaces every trained seat's outcome, as it replaces the reward
+                rewards = {s: (pen if s in trained else r) for s, r in rewards.items()}
+            per_seat = {a: [Segment(index=g["index"], summary_call=g.get("summary_call"), context_before=g.get("context_before"),
+                                    context_after=g.get("context_after")) for g in gs] for a, gs in segs.items()}
+            return split_seats(ro, rewards=rewards, trained=trained, group=prompt, segments=per_seat)
         finally:
             await world.close()
 

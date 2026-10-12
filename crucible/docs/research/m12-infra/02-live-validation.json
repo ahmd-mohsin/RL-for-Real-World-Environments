@@ -239,5 +239,581 @@
     "gpu": "L4:2"
    }
   }
- }
+ },
+ "modal_gate_dist": [
+  {
+   "gpu": "A10G:4",
+   "args": "--train-gpus 2 --steps 20 --eval 24",
+   "result": {
+    "placement": "disaggregated_stream: 2 engines \u00d7 1 GPUs (52 seqs each) on 2 GPUs; trainer 2 GPUs mesh (2, 1); elastic 0; env workers 104; rollout 76.8s, train 0.6s, publish 0.02s \u2192 step 76.8s",
+    "layout": [
+     [
+      "train:0",
+      "train:1",
+      "engine:0/0",
+      "engine:1/0"
+     ]
+    ],
+    "wall_s": 314.9,
+    "processes": [
+     {
+      "role": "driver",
+      "rank": 0,
+      "steps": 20,
+      "publishes": 20,
+      "wall_s": 171.9,
+      "stop_reason": "steps",
+      "max_staleness": 1,
+      "masked": 0,
+      "reward_first3": 0.5208333333333334,
+      "reward_last3": 1.0,
+      "eval": {
+       "before": {
+        "mean": 0.4375,
+        "n": 96,
+        "version": 0
+       },
+       "after": {
+        "mean": 1.0,
+        "n": 96,
+        "version": 20
+       }
+      },
+      "engine_versions": [
+       20,
+       20
+      ],
+      "checkpoints": [
+       "step-000010",
+       "step-000020"
+      ],
+      "spmd_calls": {
+       "step": 20,
+       "state_dict": 20,
+       "reset_optimizer": 0,
+       "offload": 0,
+       "onload": 0,
+       "save_sharded": 2,
+       "load_sharded": 0,
+       "stop": 1
+      },
+      "peak_mem_gb_rank0": 7.27,
+      "local_numel": {
+       "params": 298024960,
+       "moments": 596049920
+      },
+      "per_step": [
+       {
+        "step": 1,
+        "staleness/max": 0,
+        "train/loss": -0.0011916890669926112,
+        "train/grad_norm": 19.07034683227539,
+        "mismatch/rollout_probs_diff": 0.011206250804571192,
+        "reward/mean": 0.1875,
+        "step/wall_s": 14.82458246500002
+       },
+       {
+        "step": 2,
+        "staleness/max": 1,
+        "train/loss": -0.004591381886408356,
+        "train/grad_norm": 2.3194894790649414,
+        "mismatch/rollout_probs_diff": 0.01631826809333619,
+        "reward/mean": 0.4375,
+        "step/wall_s": 8.824075599999986
+       },
+       {
+        "step": 3,
+        "staleness/max": 1,
+        "train/loss": 0.0027020472455476533,
+        "train/grad_norm": 0.8884163498878479,
+        "mismatch/rollout_probs_diff": 0.007720699243773936,
+        "reward/mean": 0.9375,
+        "step/wall_s": 8.887074490999993
+       },
+       {
+        "step": 4,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006894673549894505,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.852079822000007
+       },
+       {
+        "step": 5,
+        "staleness/max": 1,
+        "train/loss": -0.006972457082892022,
+        "train/grad_norm": 1.887742042541504,
+        "mismatch/rollout_probs_diff": 0.0059895620654136,
+        "reward/mean": 0.90625,
+        "step/wall_s": 12.896781950000019
+       },
+       {
+        "step": 6,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.012234936695466506,
+        "reward/mean": 1.0,
+        "step/wall_s": 5.681616631999987
+       },
+       {
+        "step": 7,
+        "staleness/max": 1,
+        "train/loss": 0.0004768020721528563,
+        "train/grad_norm": 0.5114625692367554,
+        "mismatch/rollout_probs_diff": 0.006880957488458217,
+        "reward/mean": 0.96875,
+        "step/wall_s": 5.800270157999989
+       },
+       {
+        "step": 8,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.007168290252342272,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.372916129000004
+       },
+       {
+        "step": 9,
+        "staleness/max": 1,
+        "train/loss": -0.0016375242094637831,
+        "train/grad_norm": 1.0415863990783691,
+        "mismatch/rollout_probs_diff": 0.007364628959276991,
+        "reward/mean": 0.96875,
+        "step/wall_s": 8.533338842999996
+       },
+       {
+        "step": 10,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.007585800579855072,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.144515867000024
+       },
+       {
+        "step": 11,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.007966068519538919,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.662568792999991
+       },
+       {
+        "step": 12,
+        "staleness/max": 1,
+        "train/loss": -0.0015251148252522083,
+        "train/grad_norm": 1.0697064399719238,
+        "mismatch/rollout_probs_diff": 0.010025266857900929,
+        "reward/mean": 0.96875,
+        "step/wall_s": 8.349617225000003
+       },
+       {
+        "step": 13,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.010580293155559514,
+        "reward/mean": 1.0,
+        "step/wall_s": 10.432147200999992
+       },
+       {
+        "step": 14,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.008080418086633005,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.571716225999978
+       },
+       {
+        "step": 15,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006238954761954024,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.49217998100005
+       },
+       {
+        "step": 16,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.005826264207762514,
+        "reward/mean": 1.0,
+        "step/wall_s": 5.731578759000001
+       },
+       {
+        "step": 17,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.005359783579561212,
+        "reward/mean": 1.0,
+        "step/wall_s": 5.801846246999958
+       },
+       {
+        "step": 18,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.00496812802297605,
+        "reward/mean": 1.0,
+        "step/wall_s": 5.594593893000024
+       },
+       {
+        "step": 19,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.004850751811683944,
+        "reward/mean": 1.0,
+        "step/wall_s": 5.815679600999999
+       },
+       {
+        "step": 20,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.004684629908039768,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.667361260000007
+       }
+      ],
+      "pass": true
+     },
+     {
+      "role": "trainer",
+      "rank": 1,
+      "follow": {
+       "step": 20,
+       "state_dict": 20,
+       "reset_optimizer": 0,
+       "offload": 0,
+       "onload": 0,
+       "save_sharded": 2,
+       "load_sharded": 0,
+       "stop": 1
+      },
+      "local_numel": {
+       "params": 298024960,
+       "moments": 596049920
+      },
+      "peak_mem_gb": 7.2
+     },
+     {
+      "role": "engine",
+      "engine": 0,
+      "port": 8100,
+      "ok": true
+     },
+     {
+      "role": "engine",
+      "engine": 1,
+      "port": 8101,
+      "ok": true
+     }
+    ]
+   },
+   "returncode": 0,
+   "vllm_log_tails": {}
+  },
+  {
+   "gpu": "L4:4",
+   "args": "--train-gpus 2 --steps 20 --eval 24",
+   "result": {
+    "placement": "disaggregated_stream: 2 engines \u00d7 1 GPUs (52 seqs each) on 2 GPUs; trainer 2 GPUs mesh (2, 1); elastic 0; env workers 104; rollout 76.8s, train 0.6s, publish 0.02s \u2192 step 76.8s",
+    "layout": [
+     [
+      "train:0",
+      "train:1",
+      "engine:0/0",
+      "engine:1/0"
+     ]
+    ],
+    "wall_s": 505.4,
+    "processes": [
+     {
+      "role": "driver",
+      "rank": 0,
+      "steps": 20,
+      "publishes": 20,
+      "wall_s": 266.6,
+      "stop_reason": "steps",
+      "max_staleness": 1,
+      "masked": 0,
+      "reward_first3": 0.59375,
+      "reward_last3": 1.0,
+      "eval": {
+       "before": {
+        "mean": 0.375,
+        "n": 96,
+        "version": 0
+       },
+       "after": {
+        "mean": 0.9895833333333334,
+        "n": 96,
+        "version": 20
+       }
+      },
+      "engine_versions": [
+       20,
+       20
+      ],
+      "checkpoints": [
+       "step-000010",
+       "step-000020"
+      ],
+      "spmd_calls": {
+       "step": 20,
+       "state_dict": 20,
+       "reset_optimizer": 0,
+       "offload": 0,
+       "onload": 0,
+       "save_sharded": 2,
+       "load_sharded": 0,
+       "stop": 1
+      },
+      "peak_mem_gb_rank0": 7.22,
+      "local_numel": {
+       "params": 298024960,
+       "moments": 596049920
+      },
+      "per_step": [
+       {
+        "step": 1,
+        "staleness/max": 0,
+        "train/loss": 0.00020367102748105074,
+        "train/grad_norm": 17.37527847290039,
+        "mismatch/rollout_probs_diff": 0.010703124969322714,
+        "reward/mean": 0.21875,
+        "step/wall_s": 22.42758486699998
+       },
+       {
+        "step": 2,
+        "staleness/max": 1,
+        "train/loss": -0.000298876443734445,
+        "train/grad_norm": 2.2704362869262695,
+        "mismatch/rollout_probs_diff": 0.01620701929391031,
+        "reward/mean": 0.625,
+        "step/wall_s": 13.724838545000011
+       },
+       {
+        "step": 3,
+        "staleness/max": 1,
+        "train/loss": -0.0006968093703281714,
+        "train/grad_norm": 1.6356127262115479,
+        "mismatch/rollout_probs_diff": 0.0093432977725509,
+        "reward/mean": 0.9375,
+        "step/wall_s": 13.289549184000009
+       },
+       {
+        "step": 4,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.010587669616985415,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.227301012999988
+       },
+       {
+        "step": 5,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.008620078108580887,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.194916689000024
+       },
+       {
+        "step": 6,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.016715984054893523,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.141360996000003
+       },
+       {
+        "step": 7,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.0071871637518586134,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.118805183999996
+       },
+       {
+        "step": 8,
+        "staleness/max": 1,
+        "train/loss": -0.005485791019188612,
+        "train/grad_norm": 1.1193034648895264,
+        "mismatch/rollout_probs_diff": 0.006650200015566642,
+        "reward/mean": 0.96875,
+        "step/wall_s": 12.914761097999985
+       },
+       {
+        "step": 9,
+        "staleness/max": 1,
+        "train/loss": -0.0005659417200014555,
+        "train/grad_norm": 1.1825592517852783,
+        "mismatch/rollout_probs_diff": 0.007395395256362394,
+        "reward/mean": 0.96875,
+        "step/wall_s": 8.623002019000012
+       },
+       {
+        "step": 10,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.0065587312363527776,
+        "reward/mean": 1.0,
+        "step/wall_s": 14.944120987999952
+       },
+       {
+        "step": 11,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006044997978977572,
+        "reward/mean": 1.0,
+        "step/wall_s": 12.912604175000013
+       },
+       {
+        "step": 12,
+        "staleness/max": 1,
+        "train/loss": 0.0001518496807884867,
+        "train/grad_norm": 0.7047039270401001,
+        "mismatch/rollout_probs_diff": 0.006312484980921731,
+        "reward/mean": 0.96875,
+        "step/wall_s": 13.658611094000037
+       },
+       {
+        "step": 13,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.007735140160338726,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.081641298999955
+       },
+       {
+        "step": 14,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.007400929142979547,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.621647970000026
+       },
+       {
+        "step": 15,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.008010645271448513,
+        "reward/mean": 1.0,
+        "step/wall_s": 8.89897080899999
+       },
+       {
+        "step": 16,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006897532098586472,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.363373276000004
+       },
+       {
+        "step": 17,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.0066949647112023725,
+        "reward/mean": 1.0,
+        "step/wall_s": 12.992629109999996
+       },
+       {
+        "step": 18,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006128691699473474,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.156858800999998
+       },
+       {
+        "step": 19,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.005955801052577056,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.196661419999998
+       },
+       {
+        "step": 20,
+        "staleness/max": 1,
+        "train/loss": 0.0,
+        "train/grad_norm": 0.0,
+        "mismatch/rollout_probs_diff": 0.006171256642001407,
+        "reward/mean": 1.0,
+        "step/wall_s": 13.070776845000012
+       }
+      ],
+      "pass": true
+     },
+     {
+      "role": "trainer",
+      "rank": 1,
+      "follow": {
+       "step": 20,
+       "state_dict": 20,
+       "reset_optimizer": 0,
+       "offload": 0,
+       "onload": 0,
+       "save_sharded": 2,
+       "load_sharded": 0,
+       "stop": 1
+      },
+      "local_numel": {
+       "params": 298024960,
+       "moments": 596049920
+      },
+      "peak_mem_gb": 7.11
+     },
+     {
+      "role": "engine",
+      "engine": 0,
+      "port": 8100,
+      "ok": true
+     },
+     {
+      "role": "engine",
+      "engine": 1,
+      "port": 8101,
+      "ok": true
+     }
+    ]
+   },
+   "returncode": 0,
+   "vllm_log_tails": {}
+  },
+  {
+   "gpu": "A10G:4",
+   "args": "--model Qwen/Qwen3-1.7B --train-gpus 2 --steps 16 --eval 16 --mem 0.8",
+   "result": {
+    "error": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/root/crucible/packs/_toy/src/crucible_pack_toy/m12/gate_dist.py\", line 230, in <module>\n    main()\n  File \"/root/crucible/packs/_toy/src/crucible_pack_toy/m12/gate_dist.py\", line 220, in main\n    res = LocalLauncher(extra_env={ARGS_ENV: json.dumps(vars(a)), \"CRUCIBLE_ENGINE_PORTS\": \",\".join(map(str, ports))}, timeout_s=7200).run(\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/crucible/src/crucible/train/cluster.py\", line 119, in run\n    raise RuntimeError(\"launched processes failed:\\n\" + \"\\n\".join(errs))\nRuntimeError: launched processes failed:\ntrainer rank=0 engine=None: turn await loop.run_in_executor(None, func_call)\n[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank0]:   File \"/usr/lib/python3.12/concurrent/futures/thread.py\", line 58, in run\n[rank0]:     result = self.fn(*self.args, **self.kwargs)\n[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank0]:   File \"/root/crucible/src/crucible/train/spmd.py\", line 39, in step\n[rank0]:     return self.trainer.step(records, groups)\n[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank0]:   File \"/root/crucible/src/crucible/train/trainer.py\", line 699, in step\n[rank0]:     return super().step(records, groups)\n[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank0]:   File \"/root/crucible/src/crucible/train/trainer.py\", line 613, in step\n[rank0]:     loss.backward()\n[rank0]:   File \"/usr/local/lib/python3.12/dist-packages/torch/_tensor.py\", line 623, in backward\n[rank0]:     torch.autograd.backward(\n[rank0]:   File \"/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py\", line 395, in backward\n[rank0]:     _engine_run_backward(\n[rank0]:   File \"/usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py\", line 979, in _engine_run_backward\n[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass\n[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 504.00 MiB. GPU 0 has a total capacity of 22.06 GiB of which 139.38 MiB is free. Process 1 has 21.91 GiB memory in use. Of the allocated memory 17.55 GiB is allocated by PyTorch, and 3.97 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)\n\ntrainer rank=1 engine=None: ile \"<string>\", line 1, in <module>\n[rank1]:   File \"/root/crucible/src/crucible/train/cluster.py\", line 91, in run_entry\n[rank1]:     out = _resolve(sys.argv[1])(spec)\n[rank1]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank1]:   File \"/root/crucible/packs/_toy/src/crucible_pack_toy/m12/gate_dist.py\", line 158, in entry\n[rank1]:     counts = follow(tr)\n[rank1]:              ^^^^^^^^^^\n[rank1]:   File \"/root/crucible/src/crucible/train/spmd.py\", line 85, in follow\n[rank1]:     trainer.step([], [])\n[rank1]:   File \"/root/crucible/src/crucible/train/trainer.py\", line 699, in step\n[rank1]:     return super().step(records, groups)\n[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank1]:   File \"/root/crucible/src/crucible/train/trainer.py\", line 613, in step\n[rank1]:     loss.backward()\n[rank1]:   File \"/usr/local/lib/python3.12/dist-packages/torch/_tensor.py\", line 623, in backward\n[rank1]:     torch.autograd.backward(\n[rank1]:   File \"/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py\", line 395, in backward\n[rank1]:     _engine_run_backward(\n[rank1]:   File \"/usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py\", line 979, in _engine_run_backward\n[rank1]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass\n[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 500.00 MiB. GPU 0 has a total capacity of 22.06 GiB of which 271.00 MiB is free. Process 1 has 21.78 GiB memory in use. Of the allocated memory 17.52 GiB is allocated by PyTorch, and 3.87 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)\n\n"
+   },
+   "returncode": 1,
+   "vllm_log_tails": {
+    "vllm0.log": ".1:45031 - \"POST /v1/completions HTTP/1.1\" 200 OK\nINFO:     127.0.0.1:53320 - \"POST /v1/completions HTTP/1.1\" 200 OK\nINFO:     127.0.0.1:19364 - \"POST /v1/completions HTTP/1.1\" 200 OK\nINFO:     127.0.0.1:20781 - \"POST /v1/completions HTTP/1.1\" 200 OK\nINFO:     127.0.0.1:47390 - \"POST /v1/completions HTTP/1.1\" 200 OK\n(APIServer pid=9) INFO 10-12 02:48:30 [loggers.py:320] Engine 000: Avg prompt throughput: 189.4 tokens/s, Avg generation throughput: 150.8 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.0%, Prefix cache hit rate: 93.4%\n(APIServer pid=9) INFO 10-12 02:48:40 [loggers.py:320] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 0.0 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.0%, Prefix cache hit rate: 93.4%\n(APIServer pid=9) INFO 10-12 02:48:41 [launcher.py:128] [shutdown] API server: shutdown triggered\n(APIServer pid=9) INFO 10-12 02:48:41 [launcher.py:144] [shutdown] API server: stopping engine client mode=abort timeout=0s\n(APIServer pid=9) INFO 10-12 02:48:41 [core_client.py:762] [shutdown] MPClient: start timeout=0s\n(APIServer pid=9) INFO 10-12 02:48:41 [core_client.py:764] [shutdown] MPClient: stopping engine manager\n(APIServer pid=9) INFO 10-12 02:48:41 [utils.py:638] [shutdown] Process manager: send sigterm to process EngineCore\n(APIServer pid=9) WARNING 10-12 02:48:41 [utils.py:658] [shutdown] Process manager: force killing remaining processes count=1\n(APIServer pid=9) WARNING 10-12 02:48:41 [utils.py:663] [shutdown] Process manager: force killing remaining process EngineCore pid 232\n(EngineCore pid=232) INFO 10-12 02:48:41 [core.py:1409] [shutdown] EngineCore: trigger received signal=SIGTERM\n(EngineCore pid=232) INFO 10-12 02:48:41 [core.py:1558] [shutdown] EngineCore: start mode=abort timeout=0s\n(EngineCore pid=232) INFO 10-12 02:48:41 [core.py:1589] [shutdown] EngineCore: request processing complete; starting resource teardown\n(EngineCore pid=232) INFO 10-12 02:48:41 [core.py:1422] [shutdown] EngineCore: exiting busy loop\n(APIServer pid=9) INFO 10-12 02:48:41 [core_client.py:766] [shutdown] MPClient: engine manager stopped\n(APIServer pid=9) INFO 10-12 02:48:41 [core_client.py:767] [shutdown] MPClient: cleaning up background resources\n(APIServer pid=9) INFO 10-12 02:48:41 [core_client.py:769] [shutdown] MPClient: complete\n(APIServer pid=9) INFO 10-12 02:48:41 [launcher.py:153] [shutdown] API server: engine client stopped\n(APIServer pid=9) INFO 10-12 02:48:41 [launcher.py:156] [shutdown] API server: signalling HTTP server shutdown\n(APIServer pid=9) INFO 10-12 02:48:41 [launcher.py:178] [shutdown] API server: shutting down FastAPI HTTP server\nINFO:     Shutting down\nINFO:     Waiting for application shutdown.\nINFO:     Application shutdown complete.\n/usr/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown\n  warnings.warn('resource_tracker: There appear to be %d '\n",
+    "vllm1.log": " 02:48:41 [core_client.py:762] [shutdown] MPClient: start timeout=0s\n(APIServer pid=10) INFO 10-12 02:48:41 [core_client.py:764] [shutdown] MPClient: stopping engine manager\n(APIServer pid=10) INFO 10-12 02:48:41 [utils.py:638] [shutdown] Process manager: send sigterm to process EngineCore\n(APIServer pid=10) WARNING 10-12 02:48:41 [utils.py:658] [shutdown] Process manager: force killing remaining processes count=1\n(APIServer pid=10) WARNING 10-12 02:48:41 [utils.py:663] [shutdown] Process manager: force killing remaining process EngineCore pid 225\n(EngineCore pid=225) INFO 10-12 02:48:41 [core.py:1409] [shutdown] EngineCore: trigger received signal=SIGTERM\n(EngineCore pid=225) INFO 10-12 02:48:41 [core.py:1558] [shutdown] EngineCore: start mode=abort timeout=0s\n(EngineCore pid=225) INFO 10-12 02:48:41 [core.py:1589] [shutdown] EngineCore: request processing complete; starting resource teardown\n(EngineCore pid=225) INFO 10-12 02:48:41 [core.py:1422] [shutdown] EngineCore: exiting busy loop\n(APIServer pid=10) INFO 10-12 02:48:41 [core_client.py:766] [shutdown] MPClient: engine manager stopped\n(APIServer pid=10) INFO 10-12 02:48:41 [core_client.py:767] [shutdown] MPClient: cleaning up background resources\n(APIServer pid=10) INFO 10-12 02:48:41 [core_client.py:769] [shutdown] MPClient: complete\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871] AsyncLLM output_handler failed.\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871] Traceback (most recent call last):\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871]   File \"/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/async_llm.py\", line 817, in output_handler\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871]     outputs = await engine_core.get_output_async()\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871]   File \"/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/core_client.py\", line 1215, in get_output_async\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871]     raise self._format_exception(outputs) from None\n(APIServer pid=10) ERROR 10-12 02:48:41 [async_llm.py:871] vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue. See stack trace (above) for the root cause.\n(APIServer pid=10) INFO 10-12 02:48:41 [launcher.py:153] [shutdown] API server: engine client stopped\n(APIServer pid=10) INFO 10-12 02:48:41 [launcher.py:156] [shutdown] API server: signalling HTTP server shutdown\n(APIServer pid=10) INFO 10-12 02:48:41 [launcher.py:178] [shutdown] API server: shutting down FastAPI HTTP server\nINFO:     Shutting down\nINFO:     Waiting for application shutdown.\nINFO:     Application shutdown complete.\n/usr/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown\n  warnings.warn('resource_tracker: There appear to be %d '\n"
+   }
+  }
+ ]
 }
