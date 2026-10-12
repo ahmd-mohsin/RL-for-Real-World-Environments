@@ -61,6 +61,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 |---|---|---|
 | agentenv `providers/sandbox_providers` (`ModalSandboxProvider(gpu=...)`, `build_sandbox_provider`, `NetworkPolicy`) | `interop/agentenv/sandbox.py` | cloud GPU sandboxes (Modal H100/A100/L4, ...) and any registered agentenv provider for the agentenv backend |
 | Harbor `EnvironmentFactory.create_environment` + `NetworkPolicy` | `interop/harbor/world_backend.py` (`environment_type`) | any Harbor provider (Modal, Daytona, GKE, E2B, Runloop, ...) with `gpus`/`gpu_types` |
+| Ray `placement_group`, `PlacementGroupSchedulingStrategy` (optional extra `ray`) | `train/cluster.py` (`RayLauncher`) | multi-node placement of trainer ranks and engine groups |
 | Harbor ATIF models, `convert_mini_swe_agent_to_atif`, `ClaudeCode._convert_events_to_trajectory` | `interop/harbor/atif_import.py`, coding pack `agent_runs`, `claude_code_sessions` | agent transcripts → ATIF → traces (M3) |
 
 ## Attacks we test against (no code copied)
@@ -113,6 +114,11 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | superseded-document decoys; infeasible requests | MiMo v2.6 general envs, EnterpriseOps-Gym (Apache-2.0; pattern) | toy `forge/env.py`, `forge/scenario.py` |
 | journal resume by input hash; reserve/settle budget; hash-bound task states | RTS `publish.py` (CC-BY data, pattern), Repo2RLEnv `campaigns/budget.py`, FrontierSmith (Apache-2.0; pattern) | `forge/orchestrator.py`, `forge/budget.py` |
 | procedural defect mutants applied to an oracle; PR-mirror negatives | SWE-smith `bug_gen/procedural`, `bug_gen/mirror` (MIT; pattern) | toy `forge/roles.py`, M6 `defect_to_check.reverse_patch` |
+| Ray placement: GPU bundles in a pack placement group, actors pinned to bundle indices, TP groups kept inside a node | OpenRLHF `openrlhf/trainer/ray/launcher.py`, `vllm_engine.py`, `utils.get_bundle_indices` (Apache-2.0; pattern) | `train/cluster.py` (`RayLauncher`: one `STRICT_PACK` group per node instead of one group re-sorted by node id) |
+| sharded data parallelism with FSDP2 (`fully_shard`, `set_requires_gradient_sync`, `set_gradient_divide_factor`), sharded checkpoints with DCP | PyTorch `torch.distributed.fsdp` / `torch.distributed.checkpoint` (BSD-3; DEPEND, torch ≥ 2.6) | `train/fsdp.py` (`FSDPTrainer`) |
+| single controller over SPMD trainer ranks (driver broadcasts each call, workers mirror it) | verl single-controller design, OpenRLHF actor groups (Apache-2.0; pattern) | `train/spmd.py` |
+| flaky-task filter: reference reruns K = 8 times, any disagreement drops the task | MiMo-V2.6 RL report (pattern) | `train/admission.py` |
+| instruction and tool noise injected during RL with rising intensity | LongCat-Flash-Thinking-2601 report (pattern) | `world/noise.py`, `train/noise.py` |
 ## Data used for tests and gates (never in training or benchmark splits)
 
 | Data | Source | License / terms | Use |

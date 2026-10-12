@@ -37,7 +37,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from crucible.train.pool import LIVE, DataPool, Group
+from crucible.train.pool import DataPool, Group
 
 
 @dataclass
@@ -128,6 +128,8 @@ class Scheduler:
 
     # ---- selection at the sample barrier ------------------------------------------------------------------------
     def _backfill(self, version: int, evicted: dict[str, str]) -> None:
+        if not self.pool.has_masked():
+            return
         for g in self.pool.terminal_groups():
             ms = self.pool.members(g.gid)
             masked = [t for t in ms if t.status == "masked"]
@@ -162,11 +164,11 @@ class Scheduler:
                     evicted[g.gid] = "stale"
                     ev_st.append(gs)
                     self.counters["evicted_stale"] += 1
-        elif c.staleness_strategy == "wait":
+        elif c.staleness_strategy == "wait" and any((o := self.pool.min_live_oldest(s)) is not None and v_train - o >= c.tau(s)
+                                                    for s in self.pool.live_sources()):
             # a group's staleness counts its finished members too: they age while the group waits for its last runner
-            open_groups = {t.group for t in self.pool.live()}
-            if any(self.pool.group_staleness(gid, v_train) >= c.tau(self.pool.groups[gid].source) for gid in open_groups):
-                return Selection([], evicted, blocked="wait_stale")
+            # (per source: the oldest version over groups with a live member, from the pool's lazy heap, not a scan)
+            return Selection([], evicted, blocked="wait_stale")
         if c.filter_zero_variance and c.n > 1:
             for g in self.pool.terminal_groups():
                 rs = [t.reward for t in self.pool.members(g.gid, {"finished", "failure"})]
@@ -184,7 +186,8 @@ class Scheduler:
                     evicted[g.gid] = "early_short"
                     self.counters["evicted_short"] += 1
         cands = self.pool.terminal_groups()
-        done_at = {g.gid: max((t.done_at or 0.0) for t in self.pool.members(g.gid)) for g in cands}
+        done_at = ({g.gid: max((t.done_at or 0.0) for t in self.pool.members(g.gid)) for g in cands}
+                   if c.buffer_policy in ("greedy", "windowed_fifo") else {})
         if c.buffer_policy == "oldest_first":
             cands.sort(key=lambda g: g.submit_index)
         elif c.buffer_policy == "greedy":
@@ -250,7 +253,7 @@ class Scheduler:
         self.steps += 1
 
     def live_count(self) -> int:
-        return sum(1 for t in self.pool.tags.values() if t.status in LIVE)
+        return self.pool.live_count()
 
     def untrained_count(self) -> int:
         return self.pool.untrained_count()

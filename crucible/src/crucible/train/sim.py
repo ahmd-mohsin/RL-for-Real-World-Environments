@@ -54,6 +54,9 @@ def default_shapes(seed: int = 0, *, tail_frac: float = 0.2, tail_mult: float = 
 class SimConfig:
     topology: str = "colocated_partial"  # colocated_sync | colocated_partial | disaggregated_stream | elastic
     elastic_frac: float = 0.5  # elastic: share of the engine slots handed to the trainer at each barrier (DORA)
+    # elastic: the trainer's speed with the elastic group joined, relative to the dedicated trainer alone (DORA's gain:
+    # (trainer + elastic GPUs) / trainer GPUs; ``placement.Placement.sim_config`` sets it). 1.0 charges the cost only
+    elastic_train_speedup: float = 1.0
     partial_barrier: str = "groups"  # groups | completion_frac | token_budget (see runtime.RuntimeConfig)
     barrier_frac: float = 0.8
     barrier_tokens: int = 0
@@ -286,7 +289,8 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
         if sim.topology in ("colocated_partial", "elastic"):
             cut_live()
         sched.trained(sel)
-        push(now + sim.train_s_base + sim.train_s_per_ktok * tokens / 1000, "train_done")
+        dur = sim.train_s_base + sim.train_s_per_ktok * tokens / 1000
+        push(now + (dur / sim.elastic_train_speedup if sim.topology == "elastic" else dur), "train_done")
 
     push(0.0, "tick")
     while ev and now < sim.max_time and res.steps < sim.steps:

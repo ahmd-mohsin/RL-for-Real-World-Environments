@@ -539,6 +539,9 @@ openenv-awm = [
     { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
+ray = [
+    { name = "ray" },
+]
 remote = [
     { name = "websockets" },
 ]
@@ -586,6 +589,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ray", marker = "extra == 'ray'", specifier = ">=2.40" },
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16" },
     { name = "safetensors", marker = "extra == 'train'", specifier = ">=0.4" },
@@ -599,7 +603,7 @@ requires-dist = [
     { name = "verifiers", marker = "extra == 'verifiers'", editable = "../RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers" },
     { name = "websockets", marker = "extra == 'remote'", specifier = ">=12" },
 ]
-provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "control", "remote", "answers", "verifiers", "dev"]
+provides-extras = ["mcp", "harbor", "agentenv", "openenv-awm", "llm", "train", "analysis", "control", "remote", "answers", "ray", "verifiers", "dev"]
 
 [package.metadata.requires-dev]
 packs = [
@@ -2773,6 +2777,31 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/52/aa/3918b5ac7f9987bd9c421b065074fd7409ded88f856f2c704a24341877ec/pyzmq-27.2.0-cp312-abi3-win_arm64.whl", hash = "sha256:348d6fd3e4b81ae4580622ea8c2ea60224e84b2ac1b3be4482e6edc7de06e7a3", size = 556006 },
     { url = "https://files.pythonhosted.org/packages/83/5e/d0541596b48c5a19f85dcbea83d6673d8e91681cdf853eb194c31fc9766e/pyzmq-27.2.0-cp313-cp313-android_24_arm64_v8a.whl", hash = "sha256:c551b9e2f86dc625fcb1a032c0d68042678caf96a8dd7c28796766b673bd5b52", size = 1127193 },
     { url = "https://files.pythonhosted.org/packages/50/9f/8c7411bb283982d46e6d56dca6a095678c87eb0398daead12776d9881ac2/pyzmq-27.2.0-cp313-cp313-android_24_x86_64.whl", hash = "sha256:288cc790da0e3064a14a38ddc56ba169dada8c8af4cb86518db2bcbd380eedbb", size = 1166833 },
+]
+
+[[package]]
+name = "ray"
+version = "2.59.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "filelock" },
+    { name = "jsonschema" },
+    { name = "msgpack" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "pyyaml" },
+    { name = "requests" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/62/990cf9605814b8b29bdfefa5f009ae5c078b4746acbf39586030178ac8b6/ray-2.59.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:6a240b393819c0c8c03940d16faf952223003ab1d9736d5328cc5a5f71c95e1c", size = 67414852 },
+    { url = "https://files.pythonhosted.org/packages/15/dd/fd8d8e727241f809977c5f813ded0227c39cc59848b4a2db55c7db8cf310/ray-2.59.0-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:09e2dd8ba367f07f1829fc2e35f41e9c3fa9f6ec0babace13d70ebe14e8cf662", size = 77850115 },
+    { url = "https://files.pythonhosted.org/packages/47/09/914175e40868edbc2e5fddcb7ec9a85b755d2266a70d86ceee2effa09fa6/ray-2.59.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:4055a7a60293ffee41005ab9b3ed9933e0f9b5d8450b214f3c0a7b1de5503f0e", size = 78870190 },
+    { url = "https://files.pythonhosted.org/packages/68/73/1de47f6dba02a1f203e0c5697697003e95d4313836b52dbbd340de2906a5/ray-2.59.0-cp312-cp312-win_amd64.whl", hash = "sha256:71a8ff087739044a0d596daeccde33da02afd6d0dacfecae962c395cb3e90d78", size = 29057753 },
+    { url = "https://files.pythonhosted.org/packages/fa/b8/6a82f95c7987f6f660a35b73d5fdb28521cf2e3e3b680a777ef838c6b248/ray-2.59.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:843bf48f42722e0c143eba6846b5819716bb7e5e044b9e4779b1d3ac5933040b", size = 67360214 },
+    { url = "https://files.pythonhosted.org/packages/ef/d4/2b0dd44bd0c2e7f3350aad98731ab9aadb4d41f02819d872e058a75210a4/ray-2.59.0-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:583f26e1f1a04aefd230b908621dc3f3e1ca5e0d201ee09d5f040ca4b824e800", size = 77770538 },
+    { url = "https://files.pythonhosted.org/packages/ce/e2/e737527a7f9b16f2c890cf6f6582542e5f6ddb1608fa2390ea485a50d0dd/ray-2.59.0-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:70fdc5bec47cc33a4f4e0d9b081f66505e119abd8a8bc6cb2c5d4926427fce6d", size = 78796343 },
+    { url = "https://files.pythonhosted.org/packages/5a/60/32259117d228f5a6e740e0103d3f7ce6e2f2122cf9e562d4785d22aeb4d3/ray-2.59.0-cp313-cp313-win_amd64.whl", hash = "sha256:65288d38b5107a76f36965be1e9d7830613356e0c32d675a44410c30c714f495", size = 29009537 },
 ]
 
 [[package]]

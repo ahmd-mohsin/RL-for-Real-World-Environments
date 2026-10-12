@@ -1,0 +1,856 @@
+{
+ "control_plane": [
+  {
+   "engines": 128,
+   "slots": 2048,
+   "envs": 4096,
+   "B": 85,
+   "n": 16,
+   "topology": "colocated_sync",
+   "steps": 8,
+   "sim_s_per_step": 581.1523628463698,
+   "engine_util": 0.06875823461259437,
+   "trainer_idle_s": 3918.0295845648716,
+   "max_staleness": 0,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 1360,
+   "wall_s_per_step": 0.08068438549526036
+  },
+  {
+   "engines": 128,
+   "slots": 2048,
+   "envs": 4096,
+   "B": 85,
+   "n": 16,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 327.87812845422314,
+   "engine_util": 0.13657955664503404,
+   "trainer_idle_s": 1896.0775927101029,
+   "max_staleness": 2,
+   "wasted_decode_tok": 902858,
+   "reprefill_tok": 12106838,
+   "max_inflight": 2720,
+   "wall_s_per_step": 0.11162314575631171
+  },
+  {
+   "engines": 128,
+   "slots": 2048,
+   "envs": 4096,
+   "B": 85,
+   "n": 16,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 271.75092373376185,
+   "engine_util": 0.1732437856488152,
+   "trainer_idle_s": 1442.8180716640077,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 2720,
+   "wall_s_per_step": 0.05819942714879289
+  },
+  {
+   "engines": 128,
+   "slots": 2048,
+   "envs": 4096,
+   "B": 85,
+   "n": 16,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 259.9505937790386,
+   "engine_util": 0.17721205352282818,
+   "trainer_idle_s": 1714.0100911292652,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 2720,
+   "wall_s_per_step": 0.06040286447387189
+  },
+  {
+   "engines": 512,
+   "slots": 8192,
+   "envs": 16384,
+   "B": 341,
+   "n": 16,
+   "topology": "colocated_sync",
+   "steps": 8,
+   "sim_s_per_step": 583.456389592464,
+   "engine_util": 0.06984033078319002,
+   "trainer_idle_s": 3928.1954686568297,
+   "max_staleness": 0,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 5456,
+   "wall_s_per_step": 0.5869417968788184
+  },
+  {
+   "engines": 512,
+   "slots": 8192,
+   "envs": 16384,
+   "B": 341,
+   "n": 16,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 332.35244549915575,
+   "engine_util": 0.1373421396958182,
+   "trainer_idle_s": 1924.8159595208363,
+   "max_staleness": 2,
+   "wasted_decode_tok": 3672624,
+   "reprefill_tok": 48046950,
+   "max_inflight": 10912,
+   "wall_s_per_step": 0.8373851458309218
+  },
+  {
+   "engines": 512,
+   "slots": 8192,
+   "envs": 16384,
+   "B": 341,
+   "n": 16,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 268.93313705781014,
+   "engine_util": 0.17627496457618194,
+   "trainer_idle_s": 1412.009448379599,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 10912,
+   "wall_s_per_step": 0.3907994999899529
+  },
+  {
+   "engines": 512,
+   "slots": 8192,
+   "envs": 16384,
+   "B": 341,
+   "n": 16,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 257.5612841097478,
+   "engine_util": 0.1794422502331928,
+   "trainer_idle_s": 1690.7624488365411,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 10912,
+   "wall_s_per_step": 0.43440984888002276
+  },
+  {
+   "engines": 1024,
+   "slots": 16384,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "colocated_sync",
+   "steps": 8,
+   "sim_s_per_step": 585.9002203891547,
+   "engine_util": 0.06936980856780953,
+   "trainer_idle_s": 3949.0380520121244,
+   "max_staleness": 0,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 10912,
+   "wall_s_per_step": 1.7107075155945495
+  },
+  {
+   "engines": 1024,
+   "slots": 16384,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 331.62096289551886,
+   "engine_util": 0.13692761543343204,
+   "trainer_idle_s": 1920.9447484068094,
+   "max_staleness": 2,
+   "wasted_decode_tok": 7256656,
+   "reprefill_tok": 94151105,
+   "max_inflight": 21824,
+   "wall_s_per_step": 2.4990274947485887
+  },
+  {
+   "engines": 1024,
+   "slots": 16384,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 270.8412318365018,
+   "engine_util": 0.17436185533102563,
+   "trainer_idle_s": 1428.5661435909012,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 21824,
+   "wall_s_per_step": 1.0420868072542362
+  },
+  {
+   "engines": 1024,
+   "slots": 16384,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 259.4097380084719,
+   "engine_util": 0.17744732809847188,
+   "trainer_idle_s": 1706.1960485172187,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 21824,
+   "wall_s_per_step": 1.0876727448776364
+  },
+  {
+   "engines": 2048,
+   "slots": 32768,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "colocated_sync",
+   "steps": 8,
+   "sim_s_per_step": 585.9002203891547,
+   "engine_util": 0.03468490428390476,
+   "trainer_idle_s": 3949.0380520121244,
+   "max_staleness": 0,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 10912,
+   "wall_s_per_step": 1.5608402448706329
+  },
+  {
+   "engines": 2048,
+   "slots": 32768,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 331.50849133170703,
+   "engine_util": 0.06849211300076104,
+   "trainer_idle_s": 1920.0449758963152,
+   "max_staleness": 2,
+   "wasted_decode_tok": 7278052,
+   "reprefill_tok": 94219508,
+   "max_inflight": 21824,
+   "wall_s_per_step": 2.4490347603568807
+  },
+  {
+   "engines": 2048,
+   "slots": 32768,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 270.8410163750298,
+   "engine_util": 0.08719580299134592,
+   "trainer_idle_s": 1428.5644198991254,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 21824,
+   "wall_s_per_step": 1.025443437451031
+  },
+  {
+   "engines": 2048,
+   "slots": 32768,
+   "envs": 32768,
+   "B": 682,
+   "n": 16,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 259.4016889603727,
+   "engine_util": 0.08877974174261036,
+   "trainer_idle_s": 1706.1316561324254,
+   "max_staleness": 2,
+   "wasted_decode_tok": 0,
+   "reprefill_tok": 0,
+   "max_inflight": 21824,
+   "wall_s_per_step": 1.0801304947817698
+  }
+ ],
+ "staleness_window": [
+  {
+   "tau": 1,
+   "train_scale": 1.0,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 585.9002203891547,
+   "engine_util": 0.06936980856780953,
+   "trainer_idle_s_per_step": 493.62975650151554,
+   "max_staleness": 0,
+   "max_inflight": 10912,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.5699197187204845
+  },
+  {
+   "tau": 1,
+   "train_scale": 1.0,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 581.5252203891547,
+   "engine_util": 0.06989169979770596,
+   "trainer_idle_s_per_step": 489.2547565015156,
+   "max_staleness": 1,
+   "max_inflight": 10912,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 0.6941634896211326
+  },
+  {
+   "tau": 1,
+   "train_scale": 1.0,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 535.3899884453352,
+   "engine_util": 0.07591435590018351,
+   "trainer_idle_s_per_step": 489.25475650151566,
+   "max_staleness": 1,
+   "max_inflight": 10912,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 0.710109265637584
+  },
+  {
+   "tau": 2,
+   "train_scale": 1.0,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 331.62096289551886,
+   "engine_util": 0.13692761543343204,
+   "trainer_idle_s_per_step": 240.11809355085117,
+   "max_staleness": 2,
+   "max_inflight": 21824,
+   "reprefill_tok": 94151105,
+   "wall_s_per_step": 2.4455762916477397
+  },
+  {
+   "tau": 2,
+   "train_scale": 1.0,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 270.8412318365018,
+   "engine_util": 0.17436185533102563,
+   "trainer_idle_s_per_step": 178.57076794886265,
+   "max_staleness": 2,
+   "max_inflight": 21824,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.1210580260376446
+  },
+  {
+   "tau": 2,
+   "train_scale": 1.0,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 259.4097380084719,
+   "engine_util": 0.17744732809847188,
+   "trainer_idle_s_per_step": 213.27450606465234,
+   "max_staleness": 2,
+   "max_inflight": 21824,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.1508726666215807
+  },
+  {
+   "tau": 4,
+   "train_scale": 1.0,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 222.31917844269404,
+   "engine_util": 0.2436444297163615,
+   "trainer_idle_s_per_step": 130.50705548990985,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 279550375,
+   "wall_s_per_step": 3.331854432239197
+  },
+  {
+   "tau": 4,
+   "train_scale": 1.0,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 166.9645187701648,
+   "engine_util": 0.3637283206698641,
+   "trainer_idle_s_per_step": 69.46006135963346,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.3591617187485099
+  },
+  {
+   "tau": 4,
+   "train_scale": 1.0,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 155.28614832948344,
+   "engine_util": 0.39113352335113255,
+   "trainer_idle_s_per_step": 106.8357711462521,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 2.0569297499605455
+  },
+  {
+   "tau": 8,
+   "train_scale": 1.0,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 173.45650390611453,
+   "engine_util": 0.4066785023738753,
+   "trainer_idle_s_per_step": 85.27917041866633,
+   "max_staleness": 7,
+   "max_inflight": 87296,
+   "reprefill_tok": 687221004,
+   "wall_s_per_step": 7.985826651041862
+  },
+  {
+   "tau": 8,
+   "train_scale": 1.0,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 135.95361541079893,
+   "engine_util": 0.5630935801552732,
+   "trainer_idle_s_per_step": 43.683151523159765,
+   "max_staleness": 7,
+   "max_inflight": 87296,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 2.4394709896296263
+  },
+  {
+   "tau": 8,
+   "train_scale": 1.0,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 89.81838346697936,
+   "engine_util": 0.7716632268666268,
+   "trainer_idle_s_per_step": 43.683151523159765,
+   "max_staleness": 7,
+   "max_inflight": 87296,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 2.4420395416091196
+  }
+ ],
+ "train_bound": [
+  {
+   "tau": 4,
+   "train_scale": 4.0,
+   "topology": "colocated_partial",
+   "steps": 8,
+   "sim_s_per_step": 497.75554730104665,
+   "engine_util": 0.10882215123545837,
+   "trainer_idle_s_per_step": 130.5070554899099,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 279550375,
+   "wall_s_per_step": 3.3102684322511777
+  },
+  {
+   "tau": 4,
+   "train_scale": 4.0,
+   "topology": "disaggregated_stream",
+   "steps": 8,
+   "sim_s_per_step": 475.3973555594368,
+   "engine_util": 0.1490036875152764,
+   "trainer_idle_s_per_step": 44.751792876925926,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.3483263280941173
+  },
+  {
+   "tau": 4,
+   "train_scale": 4.0,
+   "topology": "elastic",
+   "steps": 8,
+   "sim_s_per_step": 253.77356170150455,
+   "engine_util": 0.266556101955254,
+   "trainer_idle_s_per_step": 44.751792876925926,
+   "max_staleness": 4,
+   "max_inflight": 43648,
+   "reprefill_tok": 0,
+   "wall_s_per_step": 1.7038569427095354
+  }
+ ],
+ "placement": [
+  {
+   "model": "8B dense",
+   "nodes": 8,
+   "gpus": 64,
+   "best": "colocated_partial",
+   "step_s": 392.6440610642026,
+   "engine_gpus": 1,
+   "engines": 64,
+   "train_gpus": 64,
+   "elastic_gpus": 0,
+   "mesh": [
+    16,
+    4
+   ],
+   "env_workers": 1536,
+   "alternatives": {
+    "colocated_sync": 1323.5531519732936,
+    "colocated_partial": 392.6440610642026,
+    "disaggregated_stream": 397.1878787878788,
+    "elastic": 392.92537977117496
+   },
+   "times": {
+    "rollout": 297.89090909090913,
+    "train": 90.87759641773798,
+    "publish": 0.035555555555555556,
+    "swap": 3.84,
+    "step": 392.6440610642026
+   }
+  },
+  {
+   "model": "8B dense",
+   "nodes": 32,
+   "gpus": 256,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 1,
+   "engines": 224,
+   "train_gpus": 32,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    4
+   ],
+   "env_workers": 6144,
+   "alternatives": {
+    "colocated_sync": 640.9949546599902,
+    "colocated_partial": 231.39495465999008,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 181.75519283547595,
+    "publish": 0.32,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "8B dense",
+   "nodes": 128,
+   "gpus": 1024,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 1,
+   "engines": 992,
+   "train_gpus": 32,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    4
+   ],
+   "env_workers": 24576,
+   "alternatives": {
+    "colocated_sync": 623.9554053316643,
+    "colocated_partial": 214.3554053316642,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 181.75519283547595,
+    "publish": 0.32,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "8B dense",
+   "nodes": 512,
+   "gpus": 4096,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 1,
+   "engines": 4064,
+   "train_gpus": 32,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    4
+   ],
+   "env_workers": 98304,
+   "alternatives": {
+    "colocated_sync": 619.6955179995829,
+    "colocated_partial": 210.09551799958274,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 181.75519283547595,
+    "publish": 0.32,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "8B dense",
+   "nodes": 1024,
+   "gpus": 8192,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 1,
+   "engines": 8160,
+   "train_gpus": 32,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    4
+   ],
+   "env_workers": 196608,
+   "alternatives": {
+    "colocated_sync": 618.9855367775692,
+    "colocated_partial": 209.38553677756914,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 181.75519283547595,
+    "publish": 0.32,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "70B dense",
+   "nodes": 8,
+   "gpus": 64,
+   "best": "colocated_partial",
+   "step_s": 1893.356746432985,
+   "engine_gpus": 4,
+   "engines": 16,
+   "train_gpus": 64,
+   "elastic_gpus": 0,
+   "mesh": [
+    2,
+    32
+   ],
+   "env_workers": 768,
+   "alternatives": {
+    "colocated_sync": 4487.4900797663195,
+    "colocated_partial": 1893.356746432985,
+    "disaggregated_stream": 2184.5333333333333,
+    "elastic": 1932.286735037797
+   },
+   "times": {
+    "rollout": 1092.2666666666667,
+    "train": 795.1789686552073,
+    "publish": 0.3111111111111111,
+    "swap": 5.6,
+    "step": 1893.356746432985
+   }
+  },
+  {
+   "model": "70B dense",
+   "nodes": 32,
+   "gpus": 256,
+   "best": "elastic",
+   "step_s": 476.96695478217384,
+   "engine_gpus": 4,
+   "engines": 62,
+   "train_gpus": 8,
+   "elastic_gpus": 120,
+   "mesh": [
+    4,
+    32
+   ],
+   "env_workers": 2976,
+   "alternatives": {
+    "colocated_sync": 1433.505853274913,
+    "colocated_partial": 477.7725199415796,
+    "disaggregated_stream": 532.9193124368048,
+    "elastic": 476.96695478217384
+   },
+   "times": {
+    "rollout": 476.96695478217384,
+    "train": 397.58948432760366,
+    "publish": 2.8,
+    "step": 476.96695478217384,
+    "swap": 5.6,
+    "elastic_roll_share": 0.1546804652080428
+   }
+  },
+  {
+   "model": "70B dense",
+   "nodes": 128,
+   "gpus": 1024,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 4,
+   "engines": 192,
+   "train_gpus": 256,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    32
+   ],
+   "env_workers": 9216,
+   "alternatives": {
+    "colocated_sync": 670.0097966520617,
+    "colocated_partial": 260.4097966520616,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 198.79474216380183,
+    "publish": 2.8,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "70B dense",
+   "nodes": 512,
+   "gpus": 4096,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 4,
+   "engines": 960,
+   "train_gpus": 256,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    32
+   ],
+   "env_workers": 46080,
+   "alternatives": {
+    "colocated_sync": 632.7357824963489,
+    "colocated_partial": 223.13578249634872,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 198.79474216380183,
+    "publish": 2.8,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "70B dense",
+   "nodes": 1024,
+   "gpus": 8192,
+   "best": "disaggregated_stream",
+   "step_s": 204.8,
+   "engine_gpus": 4,
+   "engines": 1984,
+   "train_gpus": 256,
+   "elastic_gpus": 0,
+   "mesh": [
+    8,
+    32
+   ],
+   "env_workers": 95232,
+   "alternatives": {
+    "colocated_sync": 626.52344680373,
+    "colocated_partial": 216.92344680372992,
+    "disaggregated_stream": 204.8,
+    "elastic": 204.8
+   },
+   "times": {
+    "rollout": 204.8,
+    "train": 198.79474216380183,
+    "publish": 2.8,
+    "step": 204.8
+   }
+  },
+  {
+   "model": "1T MoE (32B active)",
+   "nodes": 8,
+   "error": "no feasible placement on 8\u00d78 GPUs for 1000B"
+  },
+  {
+   "model": "1T MoE (32B active)",
+   "nodes": 32,
+   "error": "no feasible placement on 32\u00d78 GPUs for 1000B"
+  },
+  {
+   "model": "1T MoE (32B active)",
+   "nodes": 128,
+   "gpus": 1024,
+   "best": "colocated_partial",
+   "step_s": 959.5220408621825,
+   "engine_gpus": 64,
+   "engines": 16,
+   "train_gpus": 1024,
+   "elastic_gpus": 0,
+   "mesh": [
+    2,
+    512
+   ],
+   "env_workers": 4096,
+   "alternatives": {
+    "colocated_sync": 2597.9220408621827,
+    "colocated_partial": 959.5220408621825,
+    "disaggregated_stream": 1678.4,
+    "elastic": 1000.9657566565554
+   },
+   "times": {
+    "rollout": 859.2,
+    "train": 90.87759641773798,
+    "publish": 4.444444444444445,
+    "swap": 5.0,
+    "step": 959.5220408621825
+   }
+  },
+  {
+   "model": "1T MoE (32B active)",
+   "nodes": 512,
+   "gpus": 4096,
+   "best": "disaggregated_stream",
+   "step_s": 449.6,
+   "engine_gpus": 64,
+   "engines": 56,
+   "train_gpus": 512,
+   "elastic_gpus": 0,
+   "mesh": [
+    1,
+    512
+   ],
+   "env_workers": 14336,
+   "alternatives": {
+    "colocated_sync": 1300.963843548879,
+    "colocated_partial": 481.763843548879,
+    "disaggregated_stream": 449.6,
+    "elastic": 449.6
+   },
+   "times": {
+    "rollout": 449.6,
+    "train": 181.75519283547595,
+    "publish": 40.0,
+    "step": 449.6
+   }
+  },
+  {
+   "model": "1T MoE (32B active)",
+   "nodes": 1024,
+   "gpus": 8192,
+   "best": "disaggregated_stream",
+   "step_s": 449.6,
+   "engine_gpus": 64,
+   "engines": 120,
+   "train_gpus": 512,
+   "elastic_gpus": 0,
+   "mesh": [
+    1,
+    512
+   ],
+   "env_workers": 30720,
+   "alternatives": {
+    "colocated_sync": 1289.6041439966618,
+    "colocated_partial": 470.40414399666173,
+    "disaggregated_stream": 449.6,
+    "elastic": 449.6
+   },
+   "times": {
+    "rollout": 449.6,
+    "train": 181.75519283547595,
+    "publish": 40.0,
+    "step": 449.6
+   }
+  }
+ ]
+}

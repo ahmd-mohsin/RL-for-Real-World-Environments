@@ -506,6 +506,7 @@ class Runtime:
             g = self.pool.groups[tag.group]
             rec = RolloutRecord(rollout_id=rid, sample=rid, task=g.meta.get("prompt", ""), harness=_per_source(self.harness, tag.source), policy="native", group=tag.group,
                                 turns=turns, reward=reward, stop="done")
+            rec.reward_components.update(step.info.get("reward_components") or {})  # e.g. the noise curriculum's level (train.noise)
         except EnvInfraError as e:  # infrastructure: masked, never scored 0
             self._failure("infra", e)
             rec = None
@@ -515,8 +516,9 @@ class Runtime:
             self.changed.set()
 
     def _launch_pending(self) -> None:
-        for rid, t in self.pool.tags.items():
-            if t.status == "pending" and rid not in self.tasks:
+        for rid in self.pool.pending():  # indexed, creation order (was a scan over every tag per admission)
+            t = self.pool.tags[rid]
+            if rid not in self.tasks:
                 self.pool.start(rid)
                 g = self.pool.groups[t.group]
                 task = asyncio.create_task(self._rollout(rid, g.meta.get("prompt", ""), seed=self._seeds))
@@ -718,7 +720,7 @@ class Runtime:
             if self.cfg.checkpoint_every and step % self.cfg.checkpoint_every == 0 and self.cfg.checkpoint_dir:
                 from crucible.train import state
 
-                self.report.checkpoints.append(str(state.save(state.capture(self, step), self.cfg.checkpoint_dir)))
+                self.report.checkpoints.append(str(state.save(state.capture(self, step), self.cfg.checkpoint_dir, trainer=self.trainer)))
             if offload != "none":
                 self.trainer.offload(offload)  # after the publish (which read the weights): free the accelerator for rollouts
             if self.cfg.topology in ("colocated_partial", "colocated_sync"):

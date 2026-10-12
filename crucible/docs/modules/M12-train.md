@@ -140,6 +140,16 @@ Facts behind the table:
 - **Trainers:**
   - `TorchTrainer` over `TinyPolicy` or `HFPolicy` (fp32 master + bf16 autocast, batched logprobs);
   - bridges: verl (`crucible_delta` estimator through `register_adv_est`, with turn credit encoded in token rewards), TRL (`rollout_func` over colocated vLLM), SkyRL `GeneratorOutput`, rLLM `Step` with precomputed per-token advantages.
+  - `DistributedTorchTrainer` (DP replicas, all-reduce) and `FSDPTrainer` (M12-infra C: FSDP2 / HSDP shards; `reshard="step"` for any model path, `reshard="layer"` for ZeRO-3 peak memory with lockstep probe micro batches; DCP sharded checkpoints);
+  - `spmd.SPMDDriver` / `spmd.follow`: the single-controller runtime drives N trainer ranks.
+- **Scale-out** (M12-infra C):
+  - `placement.plan(ClusterSpec, ModelSpec, Workload)` picks the topology, engine size, split, mesh and env workers, and emits the layout, `runtime_overrides()`, `trainer_kwargs()` and `sim_config()`;
+  - `cluster.process_specs` → `LocalLauncher` / `RayLauncher` (per-node `STRICT_PACK` groups), with `cluster.smoke` as a pre-run check;
+  - control-plane indexes in `pool.py` (live groups, pending, masked, terminal, group oldest, a lazy per-source heap) keep the scheduler's decisions off full scans at 32k live rollouts.
+- **Environment noise** (M12-infra D):
+  - `admission.screen` (reference reruns k = 8: stable / flaky / broken / infra);
+  - `world.noise.WorldNoise` (instruction and tool noise, view only, traced);
+  - `noise.NoiseCurriculum` (clean control group, gap-driven intensity, a sink) with `token_env` and `world_noise` wrappers.
 
 ## 6a. Distributed weight sync (`weightsync.py`; checkpoint-engine PATTERN)
 
@@ -166,6 +176,10 @@ Facts behind the table:
 | Distributed weight sync | ✅ real processes over gloo: bitwise across dtypes and buckets, slow-reload pipeline, sharded owners, all-rank abort with no commit, subgroup + elastic plan, publisher → receiver |
 | Truncated and agent-broke-env cases | ✅ (M10 records; masked never trained, agent failures scored) |
 | CPU end to end | ✅ a real tiny policy learns under sync (0.08 → 0.37), partial call-level (0.09 → 0.61, 906 aborts re-issued), partial token-level (0.09 → 0.57, resumed with spans), disaggregated (0.07 → 0.51) |
+| Sharded training (M12-infra C) | ✅ FSDP2 on 2 gloo ranks (step and layer modes, dis and ppo, two updates, skewed batch with padding), HSDP 2×2 on 4 ranks, a 3-block HF Llama in layer mode: each equals the single-process update within 2e-6; half the parameters and moments per rank at rest |
+| Single controller over SPMD ranks | ✅ the real `Runtime` over 4 HSDP ranks: 16 steps, learns (0.05 → 0.24), staleness ≤ 2, DCP checkpoints at 8 and 16; a fresh runtime resumes at 8 with the version-8 weights exactly and runs 9–12 |
+| Placement and launch | ✅ layout invariants on 1–128 nodes for every topology; the disaggregated split equals brute force; the same 2-node placement runs as local processes and as Ray actors (gloo all-reduce across ranks) |
+| Control plane at DORA scale | ✅ simulator with the real scheduler at 1,024–2,048 engines and 32k environments (`docs/research/m12-infra/01-scale-sweeps.md`) |
 | One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ❌→⏳ first run (2026-10-10): 0 steps, 228k masked rollouts (transformers-5 chat-codec bug, swallowed silently); fixed + failure accounting + circuit breaker; re-staged. Second run (2026-10-11): ✅ learns, held-out 0.44 → 1.00, staleness ≤ 2, `rollout_probs_diff` on every step; stopped by the wall clock at step 22 of 60, so the strict flag reads false |
 
 ## 8. Remaining

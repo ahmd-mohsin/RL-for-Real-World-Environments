@@ -166,8 +166,12 @@ class World:
         backend_params: dict[str, Any] | None = None,
         interceptors: list | None = None,
         instruction_media: dict[str, list[MediaRef]] | None = None,
+        noise: Any = None,
     ):
+        """``noise``: a ``world.noise.WorldNoise`` (M12-infra D): perturbs the policy's view of instructions and tool
+        results (never state or the verifier's view); every perturbation is a ``noise`` trace event."""
         self.spec = spec
+        self.noise = noise
         if interceptors is None:  # m13 C-4: the spec's rules (default: remote code fetch, verifier paths); its allowlist passes
             from crucible.world.intercept import DEFAULT_RULES, RuleInterceptor
 
@@ -451,6 +455,9 @@ class World:
                 if hit.action == "dummy":
                     return ToolResult(tool_call_id=call.tool_call_id, function_name=qualified, ok=True, content="(no output)")
                 return fail(qualified, hit.message, "intercepted")
+        if not system and self.noise is not None and (nz := self.noise.before(qualified, call.tool_call_id)) is not None:
+            self._log("state", actor, "noise", data={"ops": ["tool_transient_error"], "tool": qualified})
+            return nz  # a retryable tool error, not executed (M12-infra D)
         if not system and self.spec.limits.tool_quota:
             hit = [pat for pat in self.spec.limits.tool_quota if fnmatch.fnmatchcase(qualified, pat)]
             spent = [pat for pat in hit if self.tool_counts.get(pat, 0) >= self.spec.limits.tool_quota[pat]]
@@ -478,6 +485,10 @@ class World:
             result.fault = "infra" if result.error in INFRA_ERRORS else ("tool" if result.error in ("tool_error",) else "policy")
         if result.fault == "infra":
             self._infra("transport_unreachable" if result.error in ("transport", "gateway_error") else "crucible:tool_crashed", f"{qualified}: {result.content[:300]}")
+        if not system and self.noise is not None:
+            result, ops = self.noise.after(qualified, result)
+            if ops:
+                self._log("state", actor, "noise", data={"ops": ops, "tool": qualified})
         return self._bound(result)
 
     def _infra(self, kind: str, reason: str, detail: str | None = None) -> None:
@@ -686,6 +697,15 @@ class World:
         all_done = all(a.id in self.done for a in self.spec.policy_actors)
         return StepResult(observation=obs, done=all_done, info={"step": self.step_index, "round": self.turns.round})
 
+    def _instruction(self, actor: str) -> str | None:
+        text = self.instructions.get(actor)
+        if self.noise is None:
+            return text
+        noisy, ops = self.noise.instruction(text)  # the stored instruction stays clean: the next reset perturbs afresh
+        if ops:
+            self._log("state", actor, "noise", data={"ops": ops, "instruction": True})
+        return noisy
+
     def _observe(self, actor: str, results: list[ToolResult], *, first: bool = False) -> Observation:
         inbox, self.inboxes[actor] = self.inboxes.get(actor, []), []
         if self.spec.isolation.hide_citations:  # citations (record ids name repos / PRs) stay in the trace only
@@ -700,7 +720,7 @@ class World:
             time=self.clock.now_iso() if self.spec.clock else None,
             tool_results=results,
             inbox=inbox,
-            instruction=self.instructions.get(actor) if first else None,
+            instruction=self._instruction(actor) if first else None,
             instruction_media=media or None,
             tools=self.tools_for(actor) if send_tools else [],
             to_move=list(self.turns.to_move) if self.turns is not None else None,

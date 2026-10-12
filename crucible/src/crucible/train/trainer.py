@@ -547,6 +547,22 @@ class TorchTrainer:
     def _reduce_scalars(self, vals: list[float]) -> list[float]:
         return vals
 
+    def _old_logprobs(self, items: list[_Item], mine: list[int], seq_lens: list[int], parts: list[list[int]]) -> dict[int, torch.Tensor]:
+        return {i: r.to(_loss_dtype(r.device)) for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
+
+    def _equalize(self, mbs: list[list[int]]) -> list[list[int]]:
+        """Pad this rank's micro batches with empty ones (``FSDPTrainer`` layer mode: every rank runs the same count)."""
+        return mbs
+
+    def _idle_micro_batch(self) -> None:
+        """A padding micro batch: a zero-loss forward and backward that joins the collectives."""
+
+    def _gather_params(self) -> None:
+        """Make the full parameters available for forwards (``FSDPTrainer``: one all-gather; idempotent)."""
+
+    def _release_params(self) -> None:
+        """After the optimizer step (``FSDPTrainer``: drop the gathered copy; the next gather sees the updated shards)."""
+
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
         if self.cfg.routing_replay not in ("none", "r3"):
             raise ValueError(f"routing_replay: none | r3 (got {self.cfg.routing_replay!r})")
@@ -569,15 +585,21 @@ class TorchTrainer:
                 raise ValueError(f"correction {self.cfg.correction.name!r} needs π_θold but rollouts {multi[:3]} span several policy versions; "
                                  "set old_logprob_source='recompute_current' (recompute with the current weights) or 'rollout'")
         if self.cfg.correction.name in NEEDS_OLD and src in (None, "recompute_current"):
+            self._gather_params()
             with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
-                old = {i: r.to(_loss_dtype(r.device)) for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
+                old = self._old_logprobs(items, mine, seq_lens, parts)
         metrics: dict[str, float] = {}
         for _ in range(self.cfg.updates_per_batch):
             self.opt.zero_grad()
+            self._gather_params()
             total_loss = 0.0
             mbs = [mb.indices for p in self._local_parts(parts) for mb in micro_batches(seq_lens, p, self.cfg.token_budget)] if not single else [mine]
+            mbs = self._equalize(mbs)
             agg_metrics: list[dict] = []
             for idx in mbs:
+                if not idx:  # padding: keeps per-forward collectives in lockstep across ranks (FSDPTrainer reshard="layer")
+                    self._idle_micro_batch()
+                    continue
                 lp, roll, adv, mask, old_t = self._padded(items, idx, old)
                 terms = correct(self.cfg.correction, logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t)
                 extra = self._extra_terms(items, idx, lp, mask)
@@ -596,11 +618,13 @@ class TorchTrainer:
                     if p.grad is None:
                         p.grad = torch.zeros_like(p)
             self._reduce_grads()
-            grad_norm = float(torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip))  # pre-clip: proves a step had signal
+            gn = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip)  # pre-clip: proves a step had signal
+            grad_norm = float(gn.full_tensor() if hasattr(gn, "full_tensor") else gn)  # sharded (DTensor) gradients: the global norm
             self.opt.step()
+            self._release_params()
             self.updates += 1
             keys = sorted({k for m in agg_metrics for k in m})
-            sums = self._reduce_scalars([total_loss, float(len(mbs))] + [sum(m.get(k, 0.0) for m in agg_metrics) for k in keys])
+            sums = self._reduce_scalars([total_loss, float(sum(1 for idx in mbs if idx))] + [sum(m.get(k, 0.0) for m in agg_metrics) for k in keys])
             n_mb = sums[1]
             metrics = {"train/loss": sums[0], "train/grad_norm": grad_norm, "train/lr": float(self.opt.param_groups[0]["lr"]),
                        "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),

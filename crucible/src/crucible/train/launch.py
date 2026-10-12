@@ -20,8 +20,8 @@ The job spec (TOML) — the toy policy (``TinyPolicy``) and token environments m
     [workers]  count, concurrency, rollout ("copy" | "module:factory" returning a rollout function), cpu_s
     [env_servers] count, tasks ("module:factory"), max_concurrent
 
-Ray (detached named engine actors, node-affinity workers) is the optional second launcher of the audit (item G); it is
-not built here.
+Ray is the optional second launcher of the audit (item G): ``train.cluster.RayLauncher`` places a ``placement.Placement``
+(SPMD trainer ranks, engine groups) with one placement group per node.
 """
 
 from __future__ import annotations

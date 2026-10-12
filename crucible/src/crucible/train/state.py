@@ -18,7 +18,8 @@ A checkpoint is taken at the sample barrier (after a step's publish), the one po
 - **monitors and report**: alarm history, length window, counters.
 
 Files: ``<dir>/step-<k>/state.pt`` written to a temp dir and renamed (atomic), plus ``manifest.json`` (sha256 of the
-state file, step, version). Loading verifies the hash. The file is a pickle: load only checkpoints this run wrote.
+state file, step, version). A sharded trainer (``FSDPTrainer``) writes ``trainer/`` there instead of weights in
+``state.pt``: every rank its own shards (``torch.distributed.checkpoint``), no gather. Loading verifies the hash. The file is a pickle: load only checkpoints this run wrote.
 """
 
 from __future__ import annotations
@@ -40,8 +41,11 @@ from crucible.train.pool import LIVE, Group, Tag
 
 def capture(rt: Any, step: int) -> dict:
     tr, sched, pool = rt.trainer, rt.sched, rt.pool
-    trainer: dict[str, Any] = {"model": {k: v.detach().cpu().clone() for k, v in tr.model.state_dict().items()},
-                               "opt": copy.deepcopy(tr.opt.state_dict()), "updates": tr.updates}
+    if getattr(tr, "sharded", False):  # a sharded trainer: each rank writes its shards beside state.pt (``save``)
+        trainer: dict[str, Any] = {"sharded": True, "updates": tr.updates}
+    else:
+        trainer = {"model": {k: v.detach().cpu().clone() for k, v in tr.model.state_dict().items()},
+                   "opt": copy.deepcopy(tr.opt.state_dict()), "updates": tr.updates}
     if getattr(tr, "critic", None) is not None:
         trainer.update(critic={k: v.detach().cpu().clone() for k, v in tr.critic.state_dict().items()}, critic_opt=copy.deepcopy(tr.critic_opt.state_dict()),
                        critic_updates=tr.critic_updates)
@@ -63,11 +67,17 @@ def capture(rt: Any, step: int) -> dict:
     }
 
 
-def save(blob: dict, root: Path) -> Path:
+def save(blob: dict, root: Path, trainer: Any = None) -> Path:
+    """``trainer``: required for a sharded trainer (``capture`` marked it): its collective ``save_sharded`` writes
+    ``trainer/`` into the same temp dir, so the rename publishes both at once (``root`` must be shared by the ranks)."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     final = root / f"step-{blob['step']:06d}"
     tmp = Path(tempfile.mkdtemp(prefix=".ckpt-", dir=root))
+    if blob.get("trainer", {}).get("sharded"):
+        if trainer is None:
+            raise ValueError("a sharded trainer's checkpoint needs save(blob, root, trainer=...)")
+        trainer.save_sharded(str(tmp / "trainer"))
     torch.save(blob, tmp / "state.pt")
     digest = hashlib.sha256((tmp / "state.pt").read_bytes()).hexdigest()
     (tmp / "manifest.json").write_text(json.dumps({"schema": blob["schema"], "step": blob["step"], "version": blob["version"], "sha256": digest}, indent=1))
@@ -88,7 +98,9 @@ def load(path: Path) -> dict:
     data = (path / "state.pt").read_bytes()
     if hashlib.sha256(data).hexdigest() != man["sha256"]:
         raise ValueError(f"checkpoint {path} is corrupt (sha256 mismatch)")
-    return torch.load(path / "state.pt", weights_only=False)  # our own pickle (records, monitor): trusted by construction
+    blob = torch.load(path / "state.pt", weights_only=False)  # our own pickle (records, monitor): trusted by construction
+    blob["_path"] = str(path)
+    return blob
 
 
 def restore(rt: Any, blob: dict) -> int:
@@ -97,8 +109,11 @@ def restore(rt: Any, blob: dict) -> int:
         raise ValueError(f"not a run checkpoint: {blob.get('schema')}")
     tr, sched, pool = rt.trainer, rt.sched, rt.pool
     t = blob["trainer"]
-    tr.model.load_state_dict(t["model"])
-    tr.opt.load_state_dict(t["opt"])
+    if t.get("sharded"):
+        tr.load_sharded(str(Path(blob["_path"]) / "trainer"))
+    else:
+        tr.model.load_state_dict(t["model"])
+        tr.opt.load_state_dict(t["opt"])
     tr.updates = t["updates"]
     if "critic" in t:
         tr.critic.load_state_dict(t["critic"])

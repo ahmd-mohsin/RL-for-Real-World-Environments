@@ -34,7 +34,7 @@ GPU time.
 | Weight plane: in-process, checkpoint dir, NCCL/gloo bucketed double-buffered broadcast, atomic commit, versions, elastic join, sharded owners | `train/weights.py`, `train/weightsync.py` | Have (validated gloo multi-process; NCCL on the lab only) |
 | Engines: TITO, version stamp, abort, pause, sticky routing, health, eviction, remote HTTP engines; vLLM / SGLang HTTP engines; HF engine | `train/engine.py`, `gateway.py`, `vllm_http.py`, `sglang_http.py`, `hf_engine.py` | Have |
 | Env off the GPU pool: env worker threads, remote env servers (NeMo-Gym protocol, OpenEnv WebSocket), rollout workers with leases | `train/envpool.py`, `train/workers.py`, `world/remote.py` | Have |
-| Launcher: processes, supervision, restarts (Ray-free) | `train/launch.py` | Have. **Gap**: Ray launcher, multi-node placement planner |
+| Launcher: processes, supervision, restarts (Ray-free); multi-node placement on local processes or Ray | `train/launch.py`, `train/cluster.py` (`LocalLauncher`, `RayLauncher`, `smoke`) | Have (C) |
 | Monitors: staleness, mismatch, length-bias KS, entropy, zero-variance share, hack rate, bubbles, pass-rate alarm, circuit breaker, sinks | `train/monitors.py`, `train/sinks.py`, `runtime.py` | Have |
 
 ### Placement and offload (art. §2.1, §3.1)
@@ -42,9 +42,9 @@ GPU time.
 |---|---|---|
 | Colocated: trainer state offload `cpu` / `nvme`; KV `discard` (sleep) / `cpu_pool` | `RuntimeConfig.train_state_on_rollout`, `kv_on_train`; `TorchTrainer.offload` | Have |
 | Memory-split single GPU (engine fraction + resident trainer) | runtime placement note; lab runner | Part (lab) |
-| Disaggregated pools with independent scaling | gateway + launcher + weightsync | Part (no planner for N nodes × G GPUs) |
+| Disaggregated pools with independent scaling | gateway + launcher + weightsync + `train/placement.py` (`plan`: topology, engine size, split, mesh, layout) | Have (C) |
 | Elastic co-card (DORA) | `topology=elastic` | Have (batch A) |
-| Trainer at scale: reference torch, DDP-style DP, bridges to verl / TRL | `train/trainer.py`, `bridges/` | Part. **Gap**: native FSDP2 backend (sharded params/grads/optimizer) |
+| Trainer at scale: reference torch, DDP-style DP, FSDP2 / HSDP shards with DCP checkpoints, a single controller over SPMD ranks, bridges to verl / TRL | `train/trainer.py`, `train/fsdp.py`, `train/spmd.py`, `bridges/` | Have (C; validated on gloo, NCCL on the lab) |
 
 ### Long tail, granularity, length bias (art. §3.2)
 | Option | Where | Status |
@@ -114,12 +114,17 @@ GPU time.
 | Full-tier audit sample; pass-rate jump alarm | `audit_rate`, `PassRateAlarm` | Have |
 | Sandbox hardening, firewall, custody, separate verifier | M1 items 1, 5; guard | Have |
 | Infra failure = masked; agent-broken env = 0 | M10 failure taxonomy | Have |
-| Flaky-task filter: reference reruns K times must agree (MiMo 8×) | M9 flake checks on oracles | Part → **Gap** (D: task admission filter in the training source) |
-| Noise-robust curriculum: instruction and tool noise with rising intensity (LongCat) | — | **Gap** (D) |
+| Flaky-task filter: reference reruns K times must agree (MiMo 8×) | M9 A4 on oracles; `train/admission.py` (`screen`) on training sources | Have (D) |
+| Noise-robust curriculum: instruction and tool noise with rising intensity (LongCat) | `world/noise.py` (`World(noise=...)`), `train/noise.py` (`NoiseCurriculum`, token and World wrappers) | Have (D) |
 | Pause / fork / snapshot of sandboxes (Kimi AgentENV) | World snapshot/restore, S6 pause | Have |
 | Context management as an RL action; compaction segments | `ContextConfig(mode=action)`, segments | Have |
 
-## Gap build plan (M12-infra)
+## Gap build plan (M12-infra): all four batches built
+
+A and B landed in commits ee1c40a and 648e5e4. C (`train/fsdp.py`, `spmd.py`, `placement.py`, `cluster.py`, the pool
+indexes) and D (`train/admission.py`, `world/noise.py`, `train/noise.py`) landed together after them. Scale results and
+what stays open: `01-scale-sweeps.md`.
+
 
 - **A. Scheduling and topology**
   - `elastic` topology (DORA): a resident generation group plus an elastic group that switches between generation and training each step.
