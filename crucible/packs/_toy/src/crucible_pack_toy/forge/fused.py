@@ -77,7 +77,9 @@ def warehouse_parts(helpdesk: ToyForgedTask, task_id: str) -> Parts:
 CROSS = CheckSpec(id="consistency/refunds_match_returns", gate="consistency", gate_kind="gate", kind="cross",
                   spec={"left": {"app": "tickets", "sql": "SELECT DISTINCT order_id FROM refunds"},
                         "right": {"app": "inventory", "sql": "SELECT DISTINCT order_id FROM returns"}, "relation": "equal"},
-                  provenance="fuse: a refund is matched by its return (cross-App)")
+                  states=["refunds_match_returns"], provenance="kb:warehouse_returns (a refund is matched by its logged return)")
+CROSS_PROP = StatedProperty(id="refunds_match_returns", kind="policy",
+                            text="Every refunded order must have its return logged in the warehouse, and every logged return must match a refund")
 
 
 class ToyFusedTask(ToyForgedTask):
@@ -106,5 +108,5 @@ def build_fused(helpdesk: ToyForgedTask, out: Path) -> ToyFusedTask:
     (out / wf).write_text(yaml.safe_dump(fw.model_dump(mode="json", exclude_none=True), sort_keys=False))
     tid = f"{helpdesk.task_id}+warehouse"
     wh = warehouse_parts(helpdesk, f"toy/warehouse/returns_for_{helpdesk.task_id.split('/')[-1]}")
-    comp = fuse(Parts.of(helpdesk), wh, task_id=tid, cross=[CROSS], renames=renames)
+    comp = fuse(Parts.of(helpdesk), wh, task_id=tid, cross=[CROSS], cross_props=[CROSS_PROP], renames=renames)
     return ToyFusedTask(comp, [helpdesk], pack_root=out, world_file=wf, scenario=helpdesk.sc)

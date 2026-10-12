@@ -2798,6 +2798,17 @@ masked-mean Harbor metric (stock `Mean` counts a mask as 0; wiring it into the M
 the base is the commit recorded before the agent ran, and only root-level build trees are dropped. Details:
 `docs/audit/2026-10-12/M07-verify.md`.
 
+**M8 audit (2026-10-12).** Asymmetric information now holds in the forge's own memory: the zoned repo enforces an
+information-flow rule (nothing written into a zone may come from a zone one of its readers cannot read), with
+shingle-based quote scans and a parent-tree exemption, so an adversary can no longer copy oracle lines into `public/`.
+The M9 subset's A5 sees the oracle-only values and the ticket data the agent reads; A7 needs the whole property
+sentence and A3 builds its own wording-only alternative, so a check on oracle wording fails; A8 has a closed provenance
+grammar. Spend is attributed per node (`actors/llm.SpendScope`), a settle never aborts a run, and one role's or worker's
+failure ends only its node or episode. Masked rollouts leave learnability, the ladder and calibration (outcomes
+`bool | None`). A16 needs measured evidence and searches past a specialist's memory. Coding trap tasks state the seed's
+requirement and are gated by the seed grader's behavioural gate; C2 checks are Φ milestones only, kept when they
+separate code, not comments. Details: `docs/audit/2026-10-12/M08-forge.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.

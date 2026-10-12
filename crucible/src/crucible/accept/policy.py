@@ -28,6 +28,7 @@ class Policy(CrucibleModel):
     a10_min_runs: int = 2
     a15_delta: float = 0.1  # A15: a composite must be this much harder than its hardest component (m13 G-3)
     a16_attempts: int = 32  # A16: the red-team hacker's attempt budget per task (m13 G-5)
+    a16_max_infra_share: float = 0.25  # A16: above this share of masked attempts the verdict is error, not pass (M8 audit V7)
     a10_max_runs: int = 8  # sequential top-up cap: a point estimate outside the band whose interval still overlaps it samples more first
     a12_spearman: float = 0.8
     a12_timeout_margin: float = 0.8  # the slowest full grade must fit within this share of the verifier timeout

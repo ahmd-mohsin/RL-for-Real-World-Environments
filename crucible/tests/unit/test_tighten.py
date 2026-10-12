@@ -23,7 +23,8 @@ def test_tighten_perf_fair_and_separating():
 
 
 def test_add_gate():
-    assert add_gate("concurrency", [True] * 3, [True, False]).ok
+    assert add_gate("concurrency", [True] * 3, [False, False, True]).ok
+    assert not add_gate("concurrency", [True] * 3, [True, False]).ok  # one failing run of two can be a flake (M8 audit V22)
     assert "not fair" in add_gate("concurrency", [True, False, True], [False]).reasons[0]
     assert "not separating" in add_gate("sanitizer", [True] * 3, [True, True]).reasons[0]
     assert "need >= 3" in add_gate("sanitizer", [True], [False]).reasons[0]

@@ -3,8 +3,8 @@
 A family's hacker remembers what worked. ``FamilyMemory`` keeps, per family, the *strategies* of confirmed A16 hacks
 (``memory.jsonl``), not their raw actions (actions are task-specific; the strategy re-applies to a new task's solver
 trajectories). ``SpecialistHacker`` replays the family's known strategies first (``MutationHacker`` restricted to them:
-no hacker episodes) and calls the expensive hacker (an LLM / sandboxed hacker) only when the replay finds nothing to try.
-So the second forge run of a family re-finds its known hacks at zero extra episodes; ``remember`` stores new ones after
+no hacker episodes) and calls the expensive hacker (an LLM / sandboxed hacker) when the replay finds nothing to try, or
+(``propose_more``, M8 audit V7) when A16 confirmed no hack from the replay. So a known hack costs zero extra episodes; ``remember`` stores new ones after
 A16 confirms them.
 """
 
@@ -46,16 +46,34 @@ class SpecialistHacker:
         self.source = ""
 
     async def propose(self, view: dict[str, Any]) -> list[HackAttempt]:
+        """Phase 1: the family's remembered strategies (no hacker episode); the fallback only when memory has nothing."""
+        self._proposed: set[tuple[str, str]] = set()
         known = set(self.memory.strategies(self.family))
         if known:
             replay = [a for a in MutationHacker(max_attempts=10 * self.max_attempts).propose(view) if a.strategy in known][: self.max_attempts]
             if replay:
                 self.source = "memory"
+                self._proposed = {_key(a) for a in replay}
                 return replay
+        return await self._fallback(view, "fallback")
+
+    async def propose_more(self, view: dict[str, Any]) -> list[HackAttempt]:
+        """Phase 2, called by A16 when phase 1 confirmed no hack: the fallback search too (M8 audit V7: a clean replay
+        used to end the search, so a hack a plain search finds was missed whenever memory held an unrelated strategy)."""
+        if self.source != "memory":
+            return []
+        return await self._fallback(view, "memory+fallback")
+
+    async def _fallback(self, view: dict[str, Any], source: str) -> list[HackAttempt]:
         if self.fallback is None:
-            self.source = "none"
+            self.source = self.source if source == "memory+fallback" else "none"
             return []
         self.episodes += 1
-        self.source = "fallback"
+        self.source = source
         out = self.fallback.propose(view)
-        return list(await out if inspect.isawaitable(out) else out)
+        seen = getattr(self, "_proposed", set())
+        return [a for a in list(await out if inspect.isawaitable(out) else out) if _key(a) not in seen][: self.max_attempts]
+
+
+def _key(a: HackAttempt) -> tuple[str, str]:
+    return (a.strategy, json.dumps(a.actions, sort_keys=True, default=str))

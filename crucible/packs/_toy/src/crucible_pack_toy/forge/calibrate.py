@@ -29,7 +29,7 @@ from crucible_pack_toy.forge.task import ToyForgedTask
 CRUCIBLE = PACK_ROOT.parent.parent
 
 
-async def attempt(task: ToyForgedTask, llm: LLMClient, k: int, sample: int) -> tuple[bool, dict]:
+async def attempt(task: ToyForgedTask, llm: LLMClient, k: int, sample: int) -> tuple[bool | None, dict]:
     d = Path(tempfile.mkdtemp(prefix="calib-"))
     w = task._world(d)
     await w.start()
@@ -39,7 +39,9 @@ async def attempt(task: ToyForgedTask, llm: LLMClient, k: int, sample: int) -> t
         pol.begin_episode(f"{task.task_id}#{sample}")  # separates samples in the record/replay cache
         res = await run_episode(w, {"agent": pol}, limits=EpisodeLimits(max_steps=24))
         rep = await task.plan.arun(Context(Trusted(d / "grade"), params={"view": w.verifier_view()}))
-        return rep.reward == 1.0, {"steps": res.steps, "stop": res.stop_condition, "failing": rep.failing_gates(), "masked": res.masked}
+        masked = bool(res.masked) or (rep.infra or {}).get("status") == "masked"
+        # a masked episode or grade is no verdict (None), never a failure (M8 audit: it lowered p and steered "easier")
+        return (None if masked else rep.reward == 1.0), {"steps": res.steps, "stop": res.stop_condition, "failing": rep.failing_gates(), "masked": masked}
     finally:
         await w.close()
 
@@ -64,7 +66,7 @@ async def calibrate(forge_dir: Path, model: str, k: int, budget: float) -> dict:
             logs.append(info)
         rate = estimate(outcomes, model=model, harness="crucible.LLMToolPolicy@1", task_hash=task.task_hash)
         moves = advise(rate, BANDS["train"], final=k >= 16)  # the 4 -> 8 -> 16 schedule: act on the point estimate only at 16
-        rows[td.name] = {"p": rate.p, "ci": [rate.lo, rate.hi], "n": rate.n, "learnability": round(learnability(rate.p), 3),
+        rows[td.name] = {"p": rate.p, "ci": [rate.lo, rate.hi], "n": rate.n, "masked": rate.masked, "learnability": round(learnability(rate.p), 3),
                          "advice": [m.__dict__ for m in moves], "attempts": logs}
     return {"model": model, "harness": "crucible.LLMToolPolicy@1", "k": k, "band": "train p in [0.1, 0.7]", "tasks": rows, "spend_usd": round(llm.spend.usd, 6)}
 

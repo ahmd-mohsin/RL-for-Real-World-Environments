@@ -94,6 +94,14 @@
      "status": "pass",
      "detail": {
       "negatives": {
+       "generated/stated_wording_only": {
+        "kind": "valid_alternative",
+        "generated": true,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
        "t1_duplicate/naive": {
         "kind": "floor",
         "expected_gate": "outcome",
@@ -197,10 +205,12 @@
      "detail": {
       "scanned": [
        "customers.jsonl",
+       "helpdesk/tools/tickets.py",
        "instruction",
        "kb/archive/refund_policy_2025-01.md",
        "kb/escalation.md",
-       "kb/refund_policy.md"
+       "kb/refund_policy.md",
+       "tickets.sql"
       ],
       "hits": [],
       "reasons": []
@@ -231,8 +241,9 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "12/12",
+      "checks_with_provenance": "6/6",
       "share": 1.0,
+      "stated_checks": 6,
       "trap_signals": [],
       "reasons": []
      }
@@ -325,6 +336,14 @@
      "status": "pass",
      "detail": {
       "negatives": {
+       "generated/stated_wording_only": {
+        "kind": "valid_alternative",
+        "generated": true,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
        "t2_approval/naive": {
         "kind": "floor",
         "expected_gate": "outcome",
@@ -450,10 +469,12 @@
      "detail": {
       "scanned": [
        "customers.jsonl",
+       "helpdesk/tools/tickets.py",
        "instruction",
        "kb/archive/refund_policy_2025-01.md",
        "kb/escalation.md",
-       "kb/refund_policy.md"
+       "kb/refund_policy.md",
+       "tickets.sql"
       ],
       "hits": [],
       "reasons": []
@@ -484,8 +505,9 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "12/12",
+      "checks_with_provenance": "6/6",
       "share": 1.0,
+      "stated_checks": 6,
       "trap_signals": [
        "sig_635e96ef7b4b8113"
       ],
@@ -580,6 +602,14 @@
      "status": "pass",
      "detail": {
       "negatives": {
+       "generated/stated_wording_only": {
+        "kind": "valid_alternative",
+        "generated": true,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
        "t3_in_transit/naive": {
         "kind": "floor",
         "expected_gate": "outcome",
@@ -664,10 +694,12 @@
      "detail": {
       "scanned": [
        "customers.jsonl",
+       "helpdesk/tools/tickets.py",
        "instruction",
        "kb/archive/refund_policy_2025-01.md",
        "kb/escalation.md",
-       "kb/refund_policy.md"
+       "kb/refund_policy.md",
+       "tickets.sql"
       ],
       "hits": [],
       "reasons": []
@@ -698,8 +730,9 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "12/12",
+      "checks_with_provenance": "7/7",
       "share": 1.0,
+      "stated_checks": 5,
       "trap_signals": [],
       "reasons": []
      }
@@ -792,6 +825,14 @@
      "status": "pass",
      "detail": {
       "negatives": {
+       "generated/stated_wording_only": {
+        "kind": "valid_alternative",
+        "generated": true,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
        "t4_decoy/naive": {
         "kind": "floor",
         "expected_gate": "outcome",
@@ -907,10 +948,12 @@
      "detail": {
       "scanned": [
        "customers.jsonl",
+       "helpdesk/tools/tickets.py",
        "instruction",
        "kb/archive/refund_policy_2025-01.md",
        "kb/escalation.md",
-       "kb/refund_policy.md"
+       "kb/refund_policy.md",
+       "tickets.sql"
       ],
       "hits": [],
       "reasons": []
@@ -941,8 +984,9 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "12/12",
+      "checks_with_provenance": "6/6",
       "share": 1.0,
+      "stated_checks": 6,
       "trap_signals": [
        "sig_635e96ef7b4b8113"
       ],
@@ -1037,6 +1081,14 @@
      "status": "pass",
      "detail": {
       "negatives": {
+       "generated/stated_wording_only": {
+        "kind": "valid_alternative",
+        "generated": true,
+        "expected": "pass",
+        "reward": 1.0,
+        "failing": [],
+        "ok": true
+       },
        "t5_compose/naive": {
         "kind": "floor",
         "expected_gate": "outcome",
@@ -1163,10 +1215,12 @@
      "detail": {
       "scanned": [
        "customers.jsonl",
+       "helpdesk/tools/tickets.py",
        "instruction",
        "kb/archive/refund_policy_2025-01.md",
        "kb/escalation.md",
-       "kb/refund_policy.md"
+       "kb/refund_policy.md",
+       "tickets.sql"
       ],
       "hits": [],
       "reasons": []
@@ -1199,8 +1253,9 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "15/15",
+      "checks_with_provenance": "8/8",
       "share": 1.0,
+      "stated_checks": 7,
       "trap_signals": [],
       "reasons": []
      }

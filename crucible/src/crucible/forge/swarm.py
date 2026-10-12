@@ -89,6 +89,8 @@ class Episode:
     def __init__(self, stage: SwarmStage, worker: str):
         self.stage, self.worker = stage, worker
         self.announced: Announcement | None = None
+        self.announcements: list[Announcement] = []  # every one, removed together at episode end (M8 audit V16)
+        self.collided = False  # the stage, not the worker, remembers a collision (a worker that catches Cancelled)
 
     def view(self, sha: str | None = None) -> dict[str, str]:
         return self.stage.repo.view(self.stage.role, sha)
@@ -107,9 +109,11 @@ class Episode:
         hit = next((o for o in [*b.in_flight, *b.contributed_gaps] if self.stage.collides(a, o)), None)
         if hit is not None:
             b.collisions += 1
+            self.collided = True
             raise Cancelled(f"gap matches {hit.worker}'s: {hit.gap}")
         b.in_flight.append(a)
         self.announced = a
+        self.announcements.append(a)
 
 
 class Worker(Protocol):
@@ -139,8 +143,10 @@ class StageResult:
 
 class SwarmStage:
     def __init__(self, repo: ForgeRepo, role: str, worker: Callable[[str], Worker], *, C: int = 5, B: int = 30, max_episodes: int | None = None,
-                 validate: Callable[[dict[str, str]], list[str]] | None = None, j_min: float = 0.8):
+                 validate: Callable[[dict[str, str]], list[str]] | None = None, j_min: float = 0.8, require_announce: bool = True):
         self.repo, self.role, self.make_worker, self.C, self.B = repo, role, worker, C, B
+        self.require_announce = require_announce  # GitSwarm: scope is announced before editing; enforced by the stage
+        self.authors: dict[str, str] = {}  # commit -> worker (a worker's nomination of its own commit is refused)
         self.max_episodes = max_episodes or 4 * B
         self.validate = validate or (lambda files: [])
         self.j_min = j_min
@@ -167,15 +173,28 @@ class SwarmStage:
                 out = await self.make_worker(wid)(ep)
             except Cancelled:
                 return
+            except Exception as ex:  # noqa: BLE001 -- one worker's failure is a charged failed episode, never the stage's end
+                async with lock:
+                    rejected.append({"worker": wid, "kind": "error", "reasons": [f"{type(ex).__name__}: {ex}"[:300]]})
+                    b.used += 1
+                return
             finally:
-                if ep.announced in b.in_flight:
-                    b.in_flight.remove(ep.announced)
+                for a in ep.announcements:
+                    if a in b.in_flight:
+                        b.in_flight.remove(a)
             async with lock:
+                if isinstance(out, Contribute) and (ep.collided or (self.require_announce and not ep.announcements)):
+                    why = "its announcement collided (the worker ignored Cancelled)" if ep.collided else "it announced no scope before editing"
+                    rejected.append({"worker": wid, "kind": "protocol", "reasons": [f"contribution refused: {why}"]})
+                    b.used += 1
+                    return
                 if isinstance(out, Abstain):
                     abst += 1
                 elif isinstance(out, Nominate):
                     charged = True
-                    if out.sha in self.repo._index["commits"]:
+                    if self.authors.get(out.sha) == wid:
+                        rejected.append({"worker": wid, "kind": "nominate", "reasons": ["a worker may not nominate its own commit"]})
+                    elif out.sha in self.repo._index["commits"]:
                         b.nominations[out.sha] = b.nominations.get(out.sha, 0) + 1
                     else:
                         rejected.append({"worker": wid, "kind": "nominate", "reasons": [f"unknown commit {out.sha[:10]}"]})
@@ -189,6 +208,7 @@ class SwarmStage:
                             c = self.repo.commit(self.role, out.files, type_=out.type, summary=out.summary, informed_by=out.informed_by, parent=out.parent)
                             commits.append(c.sha)
                             b.contributions.append(c.sha)
+                            self.authors[c.sha] = wid
                             if ep.announced is not None:
                                 b.contributed_gaps.append(ep.announced)
                         except ZoneBreach as ex:
@@ -207,8 +227,7 @@ class SwarmStage:
                 break
             done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in done:
-                if t.exception() is not None:
-                    raise t.exception()
+                t.result()  # episode() contains worker failures itself: only a bug in the stage reaches here
         return StageResult(commits, rejected, abst, b.collisions, b.announcements, b.used, episodes, dict(b.nominations), b.render())
 
 

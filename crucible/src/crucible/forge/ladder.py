@@ -34,7 +34,7 @@ ORDER = ("L0", "L1", "L2", "L3", "L4", "L5")
 @dataclass
 class Rung:
     name: str
-    run: Callable[[int], Awaitable[list[bool]]]
+    run: Callable[[int], Awaitable[list[bool | None]]]  # None = a masked draw (excluded, never a failure)
     k: int = 1  # pass@k (L4)
     model: str = ""
 
@@ -43,7 +43,7 @@ class Rung:
 class LadderReport:
     rates: dict[str, PassRate] = field(default_factory=dict)
     pass_at_k: dict[str, float] = field(default_factory=dict)
-    outcomes: dict[str, list[bool]] = field(default_factory=dict)
+    outcomes: dict[str, list[bool | None]] = field(default_factory=dict)
     inversions: list[str] = field(default_factory=list)
 
     def ok(self) -> bool:
@@ -62,24 +62,25 @@ def pass_at_k(n: int, c: int, k: int) -> float:
 async def run_ladder(rungs: Sequence[Rung], *, band: Band = BANDS["train"], steps: Sequence[int] = (4, 8, 16), task_hash: str | None = None) -> LadderReport:
     rep = LadderReport()
     for r in sorted(rungs, key=lambda x: ORDER.index(x.name) if x.name in ORDER else 99):
-        got: list[bool] = []
+        got: list[bool | None] = []
 
-        async def run(n: int, r: Rung = r, got: list[bool] = got) -> list[bool]:
+        async def run(n: int, r: Rung = r, got: list[bool | None] = got) -> list[bool | None]:
             out = list(await r.run(n))
             got += out
             return out
 
         rate = await measure(run, band, steps=steps, model=r.model or r.name, harness="ladder", task_hash=task_hash)
         rep.rates[r.name], rep.outcomes[r.name] = rate, got
-        if r.k > 1:
-            rep.pass_at_k[r.name] = pass_at_k(len(got), sum(got), r.k)
+        measured = [bool(x) for x in got if x is not None]
+        if r.k > 1 and measured:
+            rep.pass_at_k[r.name] = pass_at_k(len(measured), sum(measured), r.k)
     rep.inversions = monotonicity(rep.rates)
     return rep
 
 
 def monotonicity(rates: dict[str, PassRate]) -> list[str]:
     """Inversions beyond the intervals among the rated rungs (a weaker rung clearly above a stronger one)."""
-    names = [n for n in ORDER if n in rates and n != "L0"]
+    names = [n for n in ORDER if n in rates and n != "L0" and rates[n].n > 0]
     out = []
     for i, a in enumerate(names):
         for b in names[i + 1:]:
@@ -93,14 +94,14 @@ def accept(rep: LadderReport, *, split: str = "train") -> tuple[bool, list[str]]
     reasons = list(rep.inversions)
     if split == "train":
         r = rep.rates.get("L2")
-        if r is None:
-            reasons.append("no L2 (training policy) rate")
+        if r is None or r.n == 0:
+            reasons.append("no measured L2 (training policy) rate" + (f" ({r.masked} masked draws)" if r is not None else ""))
         elif not (BANDS["train"].lo <= r.p <= BANDS["train"].hi):
             reasons.append(f"L2 p={r.p:.2f} outside the train band [{BANDS['train'].lo}, {BANDS['train'].hi}]")
     else:
         r = rep.rates.get("L3")
-        if r is None:
-            reasons.append("no L3 (frontier) rate")
+        if r is None or r.n == 0:
+            reasons.append("no measured L3 (frontier) rate" + (f" ({r.masked} masked draws)" if r is not None else ""))
         elif r.hi > BANDS["bench"].hi:
             reasons.append(f"L3 upper bound {r.hi:.2f} > {BANDS['bench'].hi}: not a bench task")
     return not reasons, reasons
@@ -111,7 +112,7 @@ def steer(rep: LadderReport, *, split: str = "train") -> str:
     if rep.inversions:
         return "fix_grader"
     rung = rep.rates.get("L2" if split == "train" else "L3")
-    if rung is None:
+    if rung is None or rung.n == 0:  # nothing measured: never steer on masks
         return "keep"
     if split == "train":
         if rung.p > BANDS["train"].hi:
@@ -127,5 +128,5 @@ def retire(l2_training_rate: float) -> bool:
     return l2_training_rate > (BANDS["train"].hi or 0.7)
 
 
-def rate_of(outcomes: Sequence[bool], name: str) -> PassRate:
+def rate_of(outcomes: Sequence[bool | None], name: str) -> PassRate:
     return estimate(list(outcomes), model=name, harness="ladder")

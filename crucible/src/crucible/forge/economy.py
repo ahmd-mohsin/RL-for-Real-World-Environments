@@ -67,6 +67,10 @@ class YieldBook:
                 elif ev.get("event") == "pause":
                     self._paused[ev["generator"]] = ev["reason"]
                     self.issues.append(ev)
+                elif ev.get("event") == "resume":  # replayed like the live call (M8 audit V15: a reload re-paused the generator)
+                    self._paused.pop(ev["generator"], None)
+                    for k in [k for k, r in self.rows.items() if r.generator == ev["generator"]]:
+                        del self.rows[k]
 
     def _log(self, ev: dict) -> None:
         if self.path:
@@ -83,6 +87,10 @@ class YieldBook:
                             state: str = "constructed", cost_usd: float = 0.0) -> Attempt:
         prev = self.rows.get(task_id)
         row = Attempt(task_id, generator, operator or generator, seed, family, state, (prev.cost_usd if prev else 0.0) + cost_usd)
+        if prev is not None and state in ("audited", "accepted"):
+            # an unchanged task (the orchestrator kept its judged state): keep the M9 verdict, its hacks and its quota
+            # decision (M8 audit V15: a re-run wiped them, and yield counted an accepted task as pending)
+            row.accepted, row.hacks, row.admitted = prev.accepted, prev.hacks, prev.admitted
         self.rows[task_id] = row
         self._save(row)
         return row

@@ -11,6 +11,7 @@ task graded on reconstructed file states). The report is bound to the task's con
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
@@ -58,7 +59,7 @@ class AcceptTask(Protocol):
 @dataclass
 class CheckOutcome:
     id: str
-    status: str  # pass | fail | skip
+    status: str  # pass | fail | skip | error (a grade was masked: unmeasured, never a pass)
     detail: dict = field(default_factory=dict)
 
 
@@ -77,9 +78,10 @@ class AcceptReport:
 
 
 async def a1_oracle(t: AcceptTask, *, grades: int = 3) -> CheckOutcome:
-    rewards, fps, failing = [], [], []
+    rewards, fps, failing, reps = [], [], [], []
     for k in range(grades):
         rep, fp = await t.grade(t.oracle, run=k)
+        reps.append(rep)
         rewards.append(rep.reward)
         fps.append(fp)
         failing.append(rep.failing_gates())
@@ -88,6 +90,11 @@ async def a1_oracle(t: AcceptTask, *, grades: int = 3) -> CheckOutcome:
     outcome_checks = [c for c in t.checks if c.gate_kind in ("outcome", "score")]
     false_at_start = [c.gate for c in outcome_checks if noop_rep.gates.get(c.gate) != "pass"]
     reasons = []
+    masked = [k for k, r in enumerate(reps) if (r.infra or {}).get("status", "ok") != "ok"]
+    if masked or (noop_rep.infra or {}).get("status", "ok") != "ok":
+        # an unmeasured grade proves nothing (M9 audit V2: a masked no-op passed the gold check)
+        why = f"masked grades: oracle runs {masked}, no-op {(noop_rep.infra or {}).get('status', 'ok')}"
+        return CheckOutcome("A1", "error", {"rewards": rewards, "reasons": [why]})
     if any(r != 1.0 for r in rewards):
         reasons.append(f"oracle rewards {rewards} (failing {failing})")
     if len(set(fps)) != 1:
@@ -101,9 +108,13 @@ async def a1_oracle(t: AcceptTask, *, grades: int = 3) -> CheckOutcome:
 
 
 async def a2_floors(t: AcceptTask) -> CheckOutcome:
-    rows = {"noop": (await t.grade(t.noop(), run=200))[0].reward}
+    reps = {"noop": (await t.grade(t.noop(), run=200))[0]}
     for n in (n for n in t.negatives if n.kind == "floor"):
-        rows[n.id] = (await t.grade(t.solution_of(n), run=201))[0].reward
+        reps[n.id] = (await t.grade(t.solution_of(n), run=201))[0]
+    rows = {k: r.reward for k, r in reps.items()}
+    masked = sorted(k for k, r in reps.items() if (r.infra or {}).get("status", "ok") != "ok")
+    if masked:  # a masked floor scored 0 is not a measured floor (M9 audit V2)
+        return CheckOutcome("A2", "error", {"rewards": rows, "reasons": [f"masked floor grades: {masked}"]})
     bad = {k: v for k, v in rows.items() if v != 0.0}
     naive = [n.id for n in t.negatives if n.kind == "floor" and "naive" in n.id]
     reasons = ([f"floors score above 0: {bad}"] if bad else []) + ([] if naive else ["no naive floor"])
@@ -114,6 +125,13 @@ async def a3_negatives(t: AcceptTask, *, mutation_min: float = 0.9) -> CheckOutc
     rows, reasons = {}, []
     gates_hit: set[str] = set()
     mutants = killed = 0
+    gen = getattr(t, "generated_alternatives", None)
+    for gid, sol in (gen() if callable(gen) else []):
+        rep, _ = await t.grade(sol, run=301)
+        ok = rep.reward == 1.0
+        if not ok:
+            reasons.append(f"generated alternative {gid} fails {rep.failing_gates()}: a check grades wording the instruction does not state")
+        rows[gid] = {"kind": "valid_alternative", "generated": True, "expected": "pass", "reward": rep.reward, "failing": rep.failing_gates(), "ok": ok}
     for n in t.negatives:
         rep, _ = await t.grade(t.solution_of(n), run=300)
         failing = rep.failing_gates()
@@ -158,11 +176,13 @@ async def a4_lite(t: AcceptTask, *, k: int = 3) -> CheckOutcome:
 def a5_leak(t: AcceptTask) -> CheckOutcome:
     visible = t.agent_visible()
     hits = []
+    flat = {name: " ".join(text.split()) for name, text in visible.items()}
     for s in t.hidden_strings():
         if len(s) < 4:
             continue
+        n = " ".join(s.split())
         for name, text in visible.items():
-            if s in text:
+            if s in text or n in flat[name]:  # whitespace-normalized too: a re-wrapped paste is still the oracle
                 hits.append({"string": s[:60], "in": name})
     tokens = leak_tokens(t.instruction)
     reasons = ([f"hidden material readable by the agent: {hits[:5]}"] if hits else []) + ([f"instruction leak tokens: {tokens}"] if tokens else [])
@@ -174,7 +194,9 @@ def a7_coverage(t: AcceptTask) -> CheckOutcome:
     graded = {s for c in t.checks for s in c.states}
     unstated_checks = [c.id for c in t.checks if not c.states or not set(c.states) <= props]
     ungraded = sorted(props - graded)
-    missing_text = [p.id for p in t.properties if p.text.strip() and p.text.strip()[:40] not in t.instruction]
+    # the whole sentence, whitespace-normalized (M8 audit V8: the first 40 characters let a truncated property pass)
+    flat = " ".join(t.instruction.split())
+    missing_text = [p.id for p in t.properties if p.text.strip() and " ".join(p.text.split()) not in flat]
     reasons = []
     if unstated_checks:
         reasons.append(f"checks grading nothing the instruction states: {unstated_checks}")
@@ -185,15 +207,29 @@ def a7_coverage(t: AcceptTask) -> CheckOutcome:
     return CheckOutcome("A7", "fail" if reasons else "pass", {"properties": sorted(props), "graded": sorted(graded), "reasons": reasons})
 
 
+# A8's closed provenance grammar (M8 audit V11: any non-empty string, even "x", counted). Grounded: an expert signal
+# (``sig_*``, resolved by M4), a policy or knowledge document (``kb:``), a recorded run or trace, a reference-differential
+# check, or a registry defect (``defect:``, the M9 attack/audit ids). ``instruction:`` cites the stated property itself:
+# not hidden knowledge (A7 covers it), so it is reported apart and left out of the share.
+GROUNDED = re.compile(r"^(sig_\w+|kb:\S.*|reference_differential:\S.*|run:\S.*|trace:\S.*|defect:\S.*|M9 A1\d \S.*|A1\d audit:\s*\S.*)$")
+STATED = "instruction:"
+
+
 def a8_grounding(t: AcceptTask, resolve: Callable[[str], bool], *, min_share: float = 0.8) -> CheckOutcome:
-    with_prov = [c for c in t.checks if c.provenance]
-    share = len(with_prov) / len(t.checks) if t.checks else 0.0
-    dangling = sorted({c.provenance for c in with_prov if c.provenance.startswith("sig_") and not resolve(c.provenance)})
+    stated = [c for c in t.checks if (c.provenance or "").startswith(STATED)]
+    hidden = [c for c in t.checks if c not in stated]
+    grounded = [c for c in hidden if c.provenance and GROUNDED.match(c.provenance)]
+    unknown = sorted({c.provenance for c in hidden if c.provenance and not GROUNDED.match(c.provenance)})
+    share = len(grounded) / len(hidden) if hidden else 1.0
+    dangling = sorted({c.provenance for c in grounded if c.provenance.startswith("sig_") and not resolve(c.provenance)})
     reasons = []
     if share < min_share:
-        reasons.append(f"{share:.0%} of checks have provenance (< {min_share:.0%})")
+        reasons.append(f"{share:.0%} of hidden checks are grounded (< {min_share:.0%})")
+    if unknown:
+        reasons.append(f"provenance that names no signal, document, run or reference: {unknown[:5]}")
     if dangling:
         reasons.append(f"provenance ids that do not resolve: {dangling}")
+    with_prov = grounded
     if t.trap:
         sigs = [p for p in t.provenance if p.startswith("sig_")]
         if not sigs:
@@ -205,7 +241,8 @@ def a8_grounding(t: AcceptTask, resolve: Callable[[str], bool], *, min_share: fl
             reasons.append("a trap task needs a trap-reversion negative")
         elif not any(n.provenance in sigs for n in trap_negs):
             reasons.append("no trap-reversion negative cites the trap's signal")
-    return CheckOutcome("A8", "fail" if reasons else "pass", {"checks_with_provenance": f"{len(with_prov)}/{len(t.checks)}", "share": round(share, 3),
+    return CheckOutcome("A8", "fail" if reasons else "pass", {"checks_with_provenance": f"{len(with_prov)}/{len(hidden)}", "share": round(share, 3),
+                                                            "stated_checks": len(stated),
                                                             "trap_signals": [p for p in t.provenance if p.startswith("sig_")], "reasons": reasons})
 
 

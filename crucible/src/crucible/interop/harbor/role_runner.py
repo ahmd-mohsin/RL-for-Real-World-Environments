@@ -78,6 +78,32 @@ class LeakRefused(RuntimeError):
     pass
 
 
+class RoleTrialFailed(RuntimeError):
+    """The sandboxed trial failed; ``cost_usd`` is what the agent spent before failing (M8 audit V19: it was booked 0)."""
+
+    def __init__(self, msg: str, cost_usd: float = 0.0):
+        super().__init__(msg)
+        self.cost_usd = cost_usd
+
+
+def _ws(t: str) -> str:
+    return " ".join(t.split())
+
+
+def _leaks(text: str, forbidden: list[str]) -> list[str]:
+    """Forbidden strings in ``text``: raw, JSON-escaped (a staged dict is written as JSON, so an oracle line with quotes
+    appears as ``\\"...\\"``; M8 audit V10) or with whitespace collapsed."""
+    hay, flat = text, _ws(text)
+    out = []
+    for s in forbidden:
+        if not s:
+            continue
+        esc = json.dumps(s)[1:-1]
+        if s in hay or esc in hay or _ws(s) in flat or _ws(esc) in flat:
+            out.append(s)
+    return out
+
+
 def _toml_list(xs: list[str]) -> str:
     return "[" + ", ".join(json.dumps(x) for x in xs) + "]"
 
@@ -86,7 +112,7 @@ def assemble_role_task(role: str, visible: dict[str, str], prompt: str, output_m
                        model_hosts: list[str] | None = None, forbidden: list[str] = (), image: str = "python:3.13-slim",
                        agent_timeout_s: float = 1800.0, solution_sh: str | None = None) -> Path:
     """The wrapper task directory. ``solution_sh`` (tests only) lets Harbor's ``oracle`` agent produce the deliverable."""
-    leaks = sorted({f"{p}: {s[:24]}…" for p, v in [*visible.items(), ("instruction", prompt)] for s in forbidden if s and s in v})
+    leaks = sorted({f"{p}: {s[:24]}…" for p, v in [*visible.items(), ("instruction", prompt)] for s in _leaks(v, list(forbidden))})
     if leaks:
         raise LeakRefused(f"{role}: the wrapper would carry hidden material: {leaks[:5]}")
     for p in visible:
@@ -156,7 +182,7 @@ def extract_role_result(trial_result: Any, trial_dir: Path, role: str, output_mo
     except Exception:  # noqa: BLE001 (agents without token accounting)
         cost = 0.0
     if trial_result.exception_info is not None:
-        raise RuntimeError(f"{role} trial failed: {trial_result.exception_info.exception_type}: {trial_result.exception_info.exception_message}")
+        raise RoleTrialFailed(cost_usd=cost, msg=f"{role} trial failed: {trial_result.exception_info.exception_type}: {trial_result.exception_info.exception_message}")
     paths = TrialPaths(trial_dir)
     rewards = trial_result.verifier_result.rewards if trial_result.verifier_result else None
     f = paths.artifacts_dir / f"{role}-out.json"
@@ -196,7 +222,7 @@ async def run_role_job(wrappers: list[Path], role: str, output_model: type[BaseM
             out, fb, cost = extract_role_result(tr, job.job_dir / tr.trial_name, role, output_model)
             by[key] = {"output": out, "feedback": fb, "cost_usd": cost, "error": None}
         except RuntimeError as ex:
-            by[key] = {"output": None, "feedback": None, "cost_usd": 0.0, "error": str(ex)}
+            by[key] = {"output": None, "feedback": None, "cost_usd": float(getattr(ex, "cost_usd", 0.0)), "error": str(ex)}
     return [{"wrapper": w, **by.get(str(Path(w).resolve()), {"output": None, "feedback": None, "cost_usd": 0.0, "error": "no trial result"})} for w in wrappers]
 
 
@@ -225,6 +251,9 @@ class HarborRole:
         r = (await run_role_job([w], self.name, self.output_model, agent=self.agent, model=self.model, n_concurrent=1,
                                 jobs_dir=self.workdir / "jobs", agent_env=self.agent_env))[0]
         self.spend_usd += r["cost_usd"]
+        from crucible.actors.llm import book_scoped
+
+        book_scoped(r["cost_usd"])  # the orchestrator charges this node its own trial (M8 audit V3)
         if r["error"]:
             raise RoleInfraError(r["error"])
         if r["output"] is None:

@@ -146,8 +146,10 @@ async def test_budget_reservation_and_overrun(tmp_path):
     assert r.nodes["a"].status == "done" and r.nodes["b"].status == "abandoned" and r.state == "abandoned"
     led = Ledger(0.01)
     led.reserve("n", 0.005)
-    with pytest.raises(BudgetExhausted):
-        led.settle("n", 0.02)
+    led.settle("n", 0.02)  # an overrun is booked, never raised mid-node (M8 audit V4) ...
+    assert led.exhausted and led.committed == 0.02
+    with pytest.raises(BudgetExhausted):  # ... and no later work can start
+        led.reserve("m", 0.0)
 
 
 async def test_canary_breach_through_hidden_inputs(tmp_path):

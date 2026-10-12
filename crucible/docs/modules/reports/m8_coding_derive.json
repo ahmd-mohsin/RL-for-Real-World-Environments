@@ -16,65 +16,50 @@
     "suite/concurrency",
     "suite/fresh",
     "suite/sanitizer",
-    "suite/perf",
-    "trap/elec.cu:edgesTex#c72fca3ea9",
-    "trap/elec.cu:cudaTextureObject_t#efeaa0bdb4",
-    "trap/elec.cu:texture_binder#198a11d824",
-    "trap/elec.cu:TextureObject#5782ade6cb",
-    "trap/elec.cu:containers#c124700c35",
-    "trap/elec.cu:tex2D#6293663509",
-    "trap/elec.cu:impl#8a6bf9cd79",
-    "trap/multi_tree.cu:__float2int_rd#da4107133b"
+    "suite/perf"
    ],
-   "milestones_for_phi": 86,
+   "milestones_for_phi": 90,
    "negatives": {
     "start": {
      "applies": true,
      "kind": "floor",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": false
+     "static_fails": true
     },
     "unported_0": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": false
+     "static_fails": true
     },
     "unported_1": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": true
+     "static_fails": true
     },
     "unported_2": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": true
+     "static_fails": true
     },
     "unported_3": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": true
+     "static_fails": true
     },
     "unported_4": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": true
+     "static_fails": true
     },
     "trap_sol_v3": {
      "applies": true,
      "kind": "trap_reversion",
-     "expected_gate": "ncv",
-     "c2_checks_pass": false
+     "expected_gate": "ncv"
     }
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
@@ -85,6 +70,7 @@
     "proposed": 55,
     "separating": 55,
     "kept": 8,
+    "dropped_comment_only": [],
     "area": [
      "gpu/people/CMakeLists.txt",
      "gpu/people/src/cuda/elec.cu",
@@ -98,7 +84,6 @@
    "cpu": {
     "A1_static_oracle": true,
     "A2_static_start_fails": true,
-    "A1_c2_oracle": true,
     "A5_instruction_clean": true,
     "A5_no_oracle_lines_in_span_start": true,
     "A5_no_hidden_paths_in_start": true,
@@ -160,44 +145,32 @@
     "suite/consumers",
     "suite/ncv",
     "suite/fresh",
-    "suite/sanitizer",
-    "trap/NCVAlg.hpp:__activemask#654c865ea2",
-    "trap/NCVAlg.hpp:mask#037c60dd65",
-    "trap/NCVAlg.hpp:offset#17500e2eb9",
-    "trap/NCVAlg.hpp:pragma#eac537ece4",
-    "trap/NCVAlg.hpp:unroll#946336b65e",
-    "trap/NCVHaarObjectDetection.cu:__activemask#bec5d44eb4",
-    "trap/NCVHaarObjectDetection.cu:__ldg#0e77e4e7cd",
-    "trap/NCVHaarObjectDetection.cu:reinterpret_cast#c7748841dd"
+    "suite/sanitizer"
    ],
-   "milestones_for_phi": 36,
+   "milestones_for_phi": 44,
    "negatives": {
     "start": {
      "applies": true,
      "kind": "floor",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": false
+     "static_fails": true
     },
     "unported_0": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": false
+     "static_fails": true
     },
     "unported_1": {
      "applies": true,
      "kind": "defect_mutant",
      "expected_gate": "static",
-     "static_fails": true,
-     "c2_checks_pass": true
+     "static_fails": true
     },
     "trap_sol_v3": {
      "applies": true,
      "kind": "trap_reversion",
-     "expected_gate": "ncv",
-     "c2_checks_pass": false
+     "expected_gate": "ncv"
     }
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
@@ -208,6 +181,7 @@
     "proposed": 27,
     "separating": 27,
     "kept": 8,
+    "dropped_comment_only": [],
     "area": [
      "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
      "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
@@ -217,7 +191,6 @@
    "cpu": {
     "A1_static_oracle": true,
     "A2_static_start_fails": true,
-    "A1_c2_oracle": true,
     "A5_instruction_clean": true,
     "A5_no_oracle_lines_in_span_start": true,
     "A5_no_hidden_paths_in_start": true,
@@ -283,7 +256,7 @@
     "suite/sanitizer",
     "suite/perf"
    ],
-   "milestones_for_phi": 261,
+   "milestones_for_phi": 240,
    "negatives": {
     "start": {
      "applies": true,
@@ -436,9 +409,19 @@
     "src/sched/frame_scheduler.cpp"
    ],
    "c2": {
-    "proposed": 264,
-    "separating": 264,
+    "proposed": 273,
+    "separating": 273,
     "kept": 8,
+    "dropped_comment_only": [
+     "c2/sig_6271c58280f6c3f5/removed/tiles.h:implementation#5612a4c30b",
+     "c2/sig_6271c58280f6c3f5/removed/tiles.h:unspecified#8707d3ec58",
+     "c2/sig_6271c58280f6c3f5/removed/tiles.h:contents#28627ea41c",
+     "c2/sig_6271c58280f6c3f5/removed/tiles.h:scratch#e2b59e177a",
+     "c2/sig_6271c58280f6c3f5/added/tiles.h:unsorted#612aaf8ef9",
+     "c2/sig_6271c58280f6c3f5/added/tiles.h:index#7a824622d8",
+     "c2/sig_6271c58280f6c3f5/removed_call/tile_intersect.cpp:counts#9ea8ddd54a",
+     "c2/sig_6271c58280f6c3f5/removed_call/tile_intersect.cpp:cumsum#533bdb44ec"
+    ],
     "area": [
      "apps/tsr_render.cpp",
      "include/tsr/bin/mesh_bins.h",
@@ -507,21 +490,22 @@
      "src/sched/frame_scheduler.cpp"
     ]
    },
-   "checks": [
-    "trap/tiles.h:implementation#5612a4c30b",
-    "trap/tiles.h:unspecified#8707d3ec58",
-    "trap/tiles.h:contents#28627ea41c",
-    "trap/tiles.h:scratch#e2b59e177a",
-    "trap/tiles.h:unsorted#612aaf8ef9",
-    "trap/tiles.h:index#7a824622d8",
-    "trap/backend.h:device_synchronize#f890e105f5",
-    "trap/backend.h:static_assert#2c62d3f984"
+   "milestones_for_phi": [
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:device_synchronize#f890e105f5",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:static_assert#2c62d3f984",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:check_launch#db0b91a5ed",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:TSR_VEC2#db85ae8ee6",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:TSR_VEC3#644a8d8ac4",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:TSR_VEC4#3cb79376db",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:alignas#b72e208fa9",
+    "c2/sig_6271c58280f6c3f5/removed_call/backend.h:alignof#369fc8f1ba"
    ],
    "oracle_passes": true,
    "frontier_version_fails": true,
-   "start_fails": false,
+   "start_fails": true,
    "signal_resolves": true,
-   "cpu_ok": true
+   "cpu_ok": true,
+   "instruction_states_gate": true
   },
   "task02_pcops_triton": {
    "signal": "sig_f47a8fc4c411310f",
@@ -560,6 +544,14 @@
     "proposed": 25,
     "separating": 25,
     "kept": 8,
+    "dropped_comment_only": [
+     "c2/sig_f47a8fc4c411310f/removed/__init__.py:implementations#6f0999a77a",
+     "c2/sig_f47a8fc4c411310f/removed/__init__.py:defines#f256a78adb",
+     "c2/sig_f47a8fc4c411310f/removed/__init__.py:schemas#bd56f4d0c6",
+     "c2/sig_f47a8fc4c411310f/removed/__init__.py:tensors#e4703f11bb",
+     "c2/sig_f47a8fc4c411310f/added/__init__.py:registers#c26de942cb",
+     "c2/sig_f47a8fc4c411310f/added/__init__.py:kernels#2adae452a4"
+    ],
     "area": [
      "csrc/cluster/cuda/fps_cuda.cu",
      "csrc/cluster/cuda/fps_cuda.h",
@@ -590,21 +582,22 @@
      "setup.py"
     ]
    },
-   "checks": [
-    "trap/__init__.py:_implementation#fc05aeeeff",
-    "trap/__init__.py:implementations#6f0999a77a",
-    "trap/__init__.py:defines#f256a78adb",
-    "trap/__init__.py:schemas#bd56f4d0c6",
-    "trap/__init__.py:tensors#e4703f11bb",
-    "trap/__init__.py:registers#c26de942cb",
-    "trap/__init__.py:kernels#2adae452a4",
-    "trap/__init__.py:_ops#a54876c306"
+   "milestones_for_phi": [
+    "c2/sig_f47a8fc4c411310f/removed/__init__.py:_implementation#fc05aeeeff",
+    "c2/sig_f47a8fc4c411310f/added/__init__.py:_ops#a54876c306",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:interp_grad_deterministic#823917bc99",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:scatter_arg_finish_kernel#ecd8547e4c",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:group_grad_deterministic#19ec44025c",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:gather_grad_partitioned#fd01cbef4b",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:interp_grad_partitioned#c8eab070f5",
+    "c2/sig_f47a8fc4c411310f/removed_call/_kernels.py:group_grad_partitioned#768242a5af"
    ],
    "oracle_passes": true,
    "frontier_version_fails": true,
    "start_fails": true,
    "signal_resolves": true,
-   "cpu_ok": true
+   "cpu_ok": true,
+   "instruction_states_gate": true
   },
   "task03_mdlite_pallas": {
    "signal": "sig_5529226d9a57dd29",
@@ -638,6 +631,11 @@
     "proposed": 51,
     "separating": 51,
     "kept": 8,
+    "dropped_comment_only": [
+     "c2/sig_5529226d9a57dd29/removed/setup.py:packaging#843169af93",
+     "c2/sig_5529226d9a57dd29/removed/setup.py:Python#4a7704cc24",
+     "c2/sig_5529226d9a57dd29/removed/setup.py:Pure#fc7a91f534"
+    ],
     "area": [
      "mdlite/_lib.py",
      "mdlite/_rng.py",
@@ -663,21 +661,22 @@
      "src/system.h"
     ]
    },
-   "checks": [
-    "trap/_rng.py:jnp.full_like#688e8633bf",
-    "trap/_rng.py:self.uniform#4042ee1666",
-    "trap/_rng.py:gauss2_host#1a630f6189",
-    "trap/_rng.py:philox_host#3813ffb077",
-    "trap/_rng.py:gauss3_jax#fe9fd4258b",
-    "trap/_rng.py:jnp.uint32#f55e9f4dd6",
-    "trap/_rng.py:philox_jax#ecad7ef0e2",
-    "trap/_rng.py:self.block#3cb8d478e3"
+   "milestones_for_phi": [
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:jnp.full_like#688e8633bf",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:self.uniform#4042ee1666",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:gauss2_host#1a630f6189",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:philox_host#3813ffb077",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:gauss3_jax#fe9fd4258b",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:jnp.uint32#f55e9f4dd6",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:philox_jax#ecad7ef0e2",
+    "c2/sig_5529226d9a57dd29/removed_call/_rng.py:self.block#3cb8d478e3"
    ],
    "oracle_passes": true,
    "frontier_version_fails": true,
    "start_fails": false,
    "signal_resolves": true,
-   "cpu_ok": true
+   "cpu_ok": true,
+   "instruction_states_gate": true
   },
   "task04_pcl_gpu_cuda12": {
    "signal": "sig_0c14e210101c6cfb",
@@ -692,27 +691,29 @@
     "proposed": 27,
     "separating": 27,
     "kept": 8,
+    "dropped_comment_only": [],
     "area": [
      "gpu/people/src/cuda/nvidia/NCVAlg.hpp",
      "gpu/people/src/cuda/nvidia/NCVHaarObjectDetection.cu",
      "gpu/people/src/cuda/nvidia/NPP_staging.cu"
     ]
    },
-   "checks": [
-    "trap/NCVAlg.hpp:__activemask#654c865ea2",
-    "trap/NCVAlg.hpp:mask#037c60dd65",
-    "trap/NCVAlg.hpp:offset#17500e2eb9",
-    "trap/NCVAlg.hpp:pragma#eac537ece4",
-    "trap/NCVAlg.hpp:unroll#946336b65e",
-    "trap/NCVHaarObjectDetection.cu:__activemask#bec5d44eb4",
-    "trap/NCVHaarObjectDetection.cu:__ldg#0e77e4e7cd",
-    "trap/NCVHaarObjectDetection.cu:reinterpret_cast#c7748841dd"
+   "milestones_for_phi": [
+    "c2/sig_0c14e210101c6cfb/removed_call/NCVAlg.hpp:__activemask#654c865ea2",
+    "c2/sig_0c14e210101c6cfb/removed/NCVAlg.hpp:mask#037c60dd65",
+    "c2/sig_0c14e210101c6cfb/added/NCVAlg.hpp:offset#17500e2eb9",
+    "c2/sig_0c14e210101c6cfb/added/NCVAlg.hpp:pragma#eac537ece4",
+    "c2/sig_0c14e210101c6cfb/added/NCVAlg.hpp:unroll#946336b65e",
+    "c2/sig_0c14e210101c6cfb/removed_call/NCVHaarObjectDetection.cu:__activemask#bec5d44eb4",
+    "c2/sig_0c14e210101c6cfb/added_call/NCVHaarObjectDetection.cu:__ldg#0e77e4e7cd",
+    "c2/sig_0c14e210101c6cfb/added/NCVHaarObjectDetection.cu:reinterpret_cast#c7748841dd"
    ],
    "oracle_passes": true,
    "frontier_version_fails": true,
    "start_fails": true,
    "signal_resolves": true,
-   "cpu_ok": true
+   "cpu_ok": true,
+   "instruction_states_gate": true
   }
  },
  "span_cpu_ok": true,

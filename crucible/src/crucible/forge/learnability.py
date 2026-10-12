@@ -32,6 +32,7 @@ class PassRate:
     lo: float
     hi: float
     task_hash: str | None = None
+    masked: int = 0  # draws with no verdict (infrastructure): outside n, never failures
 
 
 @dataclass(frozen=True)
@@ -51,14 +52,19 @@ class KnobMove:
 BANDS = {"train": Band(lo=0.1, hi=0.7, on="p"), "bench": Band(hi=0.2, on="hi")}
 
 
-def estimate(outcomes: Sequence[bool], *, model: str, harness: str, task_hash: str | None = None) -> PassRate:
-    n, k = len(outcomes), sum(bool(x) for x in outcomes)
+def estimate(outcomes: Sequence[bool | None], *, model: str, harness: str, task_hash: str | None = None) -> PassRate:
+    """``None`` is a masked draw: excluded from n and counted apart (M8 audit, sweeps G2-G4: a masked episode counted as
+    a failure, so infrastructure noise lowered p and the advice said "easier"; MiMo's DAPO filter drops them)."""
+    measured = [bool(x) for x in outcomes if x is not None]
+    n, k = len(measured), sum(measured)
     lo, hi = wilson(k, n)
-    return PassRate(model, harness, n, k, k / n if n else 0.0, round(lo, 4), round(hi, 4), task_hash)
+    return PassRate(model, harness, n, k, k / n if n else 0.0, round(lo, 4), round(hi, 4), task_hash, masked=len(outcomes) - n)
 
 
 def decided(rate: PassRate, band: Band) -> bool:
-    """Whether the interval already says inside or outside the band (stop sampling)."""
+    """Whether the interval already says inside or outside the band (stop sampling). Nothing measured decides nothing."""
+    if rate.n == 0:
+        return False
     if band.on == "hi":
         return rate.hi <= (band.hi or 1.0) or rate.lo > (band.hi or 1.0)
     inside = (band.lo is None or rate.lo >= band.lo) and (band.hi is None or rate.hi <= band.hi)
@@ -66,15 +72,22 @@ def decided(rate: PassRate, band: Band) -> bool:
     return inside or outside
 
 
-async def measure(run: Callable[[int], Awaitable[list[bool]]], band: Band, *, steps: Sequence[int] = (4, 8, 16), model: str, harness: str,
+async def measure(run: Callable[[int], Awaitable[list[bool | None]]], band: Band, *, steps: Sequence[int] = (4, 8, 16), model: str, harness: str,
                   task_hash: str | None = None) -> PassRate:
-    """``run(n)`` returns n more binary outcomes. Samples in steps until the band is decided or the steps run out."""
-    outcomes: list[bool] = []
+    """``run(n)`` returns n more outcomes (``None`` = masked). Samples in steps of *measured* outcomes until the band is
+    decided or the steps run out; masked draws are re-drawn, up to twice the last step in all."""
+    outcomes: list[bool | None] = []
     rate = estimate([], model=model, harness=harness, task_hash=task_hash)
+    cap = 2 * (steps[-1] if steps else 0)
     for target in steps:
-        outcomes += await run(target - len(outcomes))
+        while len([x for x in outcomes if x is not None]) < target and len(outcomes) < cap:
+            need = min(target - len([x for x in outcomes if x is not None]), cap - len(outcomes))
+            got = list(await run(need))
+            if not got:
+                break
+            outcomes += got
         rate = estimate(outcomes, model=model, harness=harness, task_hash=task_hash)
-        if decided(rate, band):
+        if decided(rate, band) or len(outcomes) >= cap:
             break
     return rate
 
@@ -82,6 +95,8 @@ async def measure(run: Callable[[int], Awaitable[list[bool]]], band: Band, *, st
 def advise(rate: PassRate, band: Band, *, final: bool = True) -> list[KnobMove]:
     """``final=False`` (more samples are possible): while the interval does not decide the band, the advice is to
     sample more, never to move a knob on noise. ``final=True``: the sampling budget is spent; act on the point estimate."""
+    if rate.n == 0:  # every draw masked: no evidence to move a knob on
+        return [KnobMove("sample_more", f"no measured outcome ({rate.masked} masked draws): re-run when the infrastructure is healthy", ())]
     if not final and not decided(rate, band):
         return [KnobMove("sample_more", f"p = {rate.p:.2f}, interval [{rate.lo:.2f}, {rate.hi:.2f}] does not decide the band yet", ())]
     if band.on == "hi":

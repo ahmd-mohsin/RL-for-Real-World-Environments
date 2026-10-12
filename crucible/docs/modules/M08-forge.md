@@ -1,6 +1,10 @@
 # M8 `forge` — agent-swarm task synthesis
 
-**Status: built (2026-10-09).**
+**Status: built (2026-10-09); audited 2026-10-12 (`docs/audit/2026-10-12/M08-forge.md`).**
+- **Audit:** 22 reproduced defects fixed. The two P0s: oracle material could be written into `public/` in the zoned
+  repo, and A5 never looked for the oracle or scanned the ticket data. The coding trap tasks were reworked (stated
+  requirement, the seed grader's behavioural gate, C2 as Φ milestones only), so the trap claim below is CPU evidence
+  only until their behavioural M9 run on the GPU.
 - **Toy gate ✅:** the forged variant world's 5 tasks pass the M9 subset.
 - **Coding gate, CPU part ✅:** 4 span tasks from task04 v3; traps for 4 of 5 seeds.
 - **Coding gate, behavioural part ✅ (2026-10-11):** 17/17 grades on the lab RTX 5090 (`reports/m8_coding_gpu.json`). The 3 spans (people, ncv, kinfu_family): every solution scores 1.0 with all gates green; every start, unported mutant and trap scores 0.0 at its expected gate. The kinfu_family solution, masked earlier for contaminated perf rounds, regraded clean.
@@ -12,7 +16,7 @@
   - toy pack `forge/` (world_synth roles, task adapter, pipeline);
   - coding pack `forge/` (`derive.py`, `forge_gpu.py`);
   - M4 mappers: toy `signals.py`, coding `AgentRunSignalMapper`.
-- **Tests:** `tests/unit/test_forge.py` (7 tests: DAG order, staging, resume, feedback retries, infra vs content, budget, canary breach, learnability, dedup).
+- **Tests:** `tests/unit/test_forge.py` (DAG order, staging, resume, feedback retries, infra vs content, budget, canary breach, learnability, dedup), `tests/unit/test_m8_audit.py` (22 audit regressions).
 - **Reports:** `reports/m8_toy_world_synth.json`, `reports/m8_toy_world_synth_llm.json`, `reports/m8_coding_derive.json`, `reports/m8_coding_gpu.json` (written by `forge_gpu collect`), `reports/smoke_cheap.json`.
 - **Research:** `docs/research/m7-m8/02-forge-synthesis.md` (8 sources; no framework ships an M8).
 

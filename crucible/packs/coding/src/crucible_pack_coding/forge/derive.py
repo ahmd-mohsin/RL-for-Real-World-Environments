@@ -72,6 +72,43 @@ def state(base: Callable[[str], str | None], *patches: str) -> FileState:
     return fs
 
 
+class _CodeOnly:
+    """A file state read with comments and docstrings stripped (C-family and Python), for C2 separation: a check that
+    separates two versions only through their comments grades words, not code (M8 audit V12: trap gates required the
+    absence of ``defines`` and ``schemas`` from a module docstring)."""
+
+    def __init__(self, fs: FileState):
+        self._fs = fs
+
+    def __getattr__(self, k: str) -> Any:
+        return getattr(self._fs, k)
+
+    def read(self, path: str) -> str | None:
+        from crucible.verify.runtime.patterns.static import C_LIKE, PY, strip_c, strip_py
+
+        t = self._fs.read(path)
+        if t is None:
+            return None
+        suf = "." + path.rsplit(".", 1)[-1] if "." in path else ""
+        return strip_c(t) if suf in C_LIKE else strip_py(_drop_docstrings(t)) if suf in PY else t
+
+
+def _drop_docstrings(t: str) -> str:
+    """Blank every string-literal statement (module, class and function docstrings): prose, not code."""
+    import ast
+
+    try:
+        tree = ast.parse(t)
+    except (SyntaxError, ValueError):
+        return t
+    lines = t.split("\n")
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+            for i in range(n.lineno - 1, (n.end_lineno or n.lineno)):
+                lines[i] = ""
+    return "\n".join(lines)
+
+
 def unified(path: str, a: str | None, b: str | None) -> str:
     """A git-style unified diff of one file between two contents (None = absent)."""
     if a == b:
@@ -241,8 +278,8 @@ async def derive_span(scope: str, files: dict[str, str], base, signals: list[dic
     if trap_sigs:
         tasks_extra = await trap_from_run("task04_pcl_gpu_cuda12", "sol_v3", inside, base, start_patch, files, trap_sigs[0], gate="ncv")
         if tasks_extra.get("negative"):
-            negs.append(tasks_extra["negative"])
-            checks += tasks_extra["checks"]
+            negs.append(tasks_extra["negative"])  # caught by the span's behavioural gate (the frontier failed it in history)
+            ms += [m.model_copy(update={"states": [props[1].id]}) for m in tasks_extra.get("milestones", [])]
     astra = HIST / "task04" / "patches" / "astra_v3b.patch"
     excluded: dict[str, list[str]] = {}
     admissible, outside_diff = alternative_admissible(astra.read_text(errors="replace"), files, inside) if astra.exists() else (False, [])
@@ -285,18 +322,34 @@ async def trap_from_run(task: str, run_patch: str, inside: Callable[[str], bool]
     oracle_state = state(base, start_patch, join(oracle_files, lambda p: p in area or inside(p)))
     correction = diff_states(area, wrong_state, oracle_state)
     cand = await from_correction(sig["id"], correction, wrong_state.read, end_state=oracle_state.read)
-    checks = [CheckSpec(id=f"trap/{m.id.split('/')[-1]}", gate=gate, gate_kind="gate", kind="milestone", states=[], provenance=sig["id"],
-                        spec={"milestone": m.model_dump(mode="json")}) for m in cand.checks[:8]]
+    # C2 checks are Φ milestones, never gates (DESIGN §7.3; M8 audit V12/V13: as gates they graded the oracle's own
+    # tokens and docstring words, and no behavioural grader ran them); only those that still separate the oracle from
+    # the frontier version with comments and docstrings stripped are kept
+    on_o = await evaluate(list(cand.checks), FileStateView(_CodeOnly(oracle_state)))
+    on_w = await evaluate(list(cand.checks), FileStateView(_CodeOnly(wrong_state)))
+    separating = [m for m in cand.checks if on_o.get(m.id) == 1.0 and on_w.get(m.id) == 0.0]
+    milestones = separating[:8]
+    dropped = [m.id for m in cand.checks if m not in separating]
     neg = NegativeSpec(id=f"trap_{run_patch}", task_id=task, kind="trap_reversion", patch=diff_states(area, start, wrong_state), expected_gate=gate,
                        provenance=sig["id"], description=f"{sig['model']}'s version of {', '.join(area)} (it failed the hidden {sig['gate']} gate)")
-    return {"checks": checks, "negative": neg, "trap": f"a property the {sig['gate']} gate grades, which {sig['model']} broke",
-            "c2": {"proposed": cand.evidence.get("proposed"), "separating": cand.evidence.get("separating"), "kept": len(checks), "area": area}}
+    return {"milestones": milestones, "negative": neg, "trap": f"a property the {sig['gate']} gate grades, which {sig['model']} broke",
+            "c2": {"proposed": cand.evidence.get("proposed"), "separating": cand.evidence.get("separating"), "kept": len(milestones),
+                   "dropped_comment_only": dropped[:20], "area": area}}
 
 
 SEED_RUNS = {"task03_mdlite_pallas": "gpt-5.6-sol-run1", "task02_pcops_triton": "gpt-5.6-sol-run1", "task01v2_tessera_omp": "gpt-5.6-sol-run1",
              "task04_pcl_gpu_cuda12": "gpt-5.6-sol-v3-run1"}
 SRC = re.compile(r"\.(py|cu|cuh|cpp|cc|h|hpp|c|cxx)$")
 TEST = re.compile(r"(^|/)(tests?|testing|docs?)/|(^|/)test_[^/]*\.py$|_test\.py$|conftest\.py$")
+
+
+def trap_property(instruction: str, gate: str) -> StatedProperty:
+    """The seed's stated requirement its ``gate`` grades: the first requirement line that names the gate, else the whole
+    requirements section (every line of it is stated)."""
+    section = instruction.split("## Requirements", 1)[-1].split("\n## ", 1)[0]
+    req = [ln.strip().lstrip("-* ").strip() for ln in section.splitlines() if ln.strip()]
+    hit = next((x for x in req if re.search(rf"\b{re.escape(gate)}", x, re.IGNORECASE)), None)
+    return StatedProperty(id=f"trap_{gate}", kind="coding", text=hit or " ".join(section.split()))
 
 
 async def derive_seed_trap(task: str, signals: dict[tuple[str, str], list[dict]]) -> dict[str, Any]:
@@ -389,7 +442,7 @@ async def cpu_accept_span(d: dict[str, Any], known: set[str]) -> dict[str, Any]:
     rows["A5_start_does_not_reveal_via_siblings"] = sibling <= MAX_SIBLING_OVERLAP * max(1, len(novel))
     rows["closure_consumers"] = not d.get("closure_violations")
     rows["A7_all_properties_graded"] = props <= graded
-    rows["A7_no_unstated_gate"] = all(c.states or c.kind == "milestone" for c in d["checks"])
+    rows["A7_no_unstated_gate"] = all(c.states for c in d["checks"])  # no milestone exemption (M8 audit V8)
     rows["A8_provenance"] = all(c.provenance for c in d["checks"])
     rows["A8_trap_signal_resolves"] = (not d["trap"]) or all(s in known for s in d["provenance"])
     ok_negs = all(r.get("applies") and r.get("static_fails", True) and not (r.get("c2_checks_pass") and r["kind"] == "trap_reversion")
@@ -454,17 +507,23 @@ async def main_async() -> dict[str, Any]:
         start = state(base_t, r["start_patch"])
         oracle = state(base_t, r["start_patch"], r["oracle_patch"])
         wrong = state(base_t, r["start_patch"], r["negative"].patch)
-        from crucible.core.schema.milestone import Milestone
-
-        ms = [Milestone.model_validate(c.spec["milestone"]) for c in r["checks"]]
+        ms = list(r.get("milestones") or [])
         ph_o, ph_w, ph_s = [await evaluate(ms, FileStateView(x)) for x in (oracle, wrong, start)]
         traps[task] = {"signal": r["signal"]["id"], "gate": r["gate"], "model": r["signal"]["model"], "area": r["area"], "c2": r["c2"],
-                       "checks": [c.id for c in r["checks"]], "oracle_passes": all(v == 1.0 for v in ph_o.values()) and bool(ms),
+                       "milestones_for_phi": [m.id for m in ms], "oracle_passes": all(v == 1.0 for v in ph_o.values()) and bool(ms),
                        "frontier_version_fails": any(v == 0.0 for v in ph_w.values()), "start_fails": any(v == 0.0 for v in ph_s.values()),
                        "signal_resolves": r["signal"]["id"] in known}
         traps[task]["cpu_ok"] = traps[task]["oracle_passes"] and traps[task]["frontier_version_fails"] and traps[task]["signal_resolves"]
-        d = {"scope": "trap", "title": f"{task}: the {r['gate']} trap", "horizon": "H2", "instruction": "", "properties": [], "checks": r["checks"],
-             "negatives": [r["negative"]], "start_patch": r["start_patch"], "oracle_patch": r["oracle_patch"], "provenance": [r["signal"]["id"]], "trap": r["trap"]}
+        # the trap task states the seed's requirements (M8 audit V12: the instruction was empty and A7 failed), and its gate is
+        # the seed grader's behavioural gate the frontier failed; the C2 milestones are dense credit only
+        instruction = (TASKS / task / "instruction.md").read_text()
+        prop = trap_property(instruction, r["gate"])
+        gate_check = CheckSpec(id=f"trap/{r['gate']}", gate=r["gate"], gate_kind="gate", kind="suite", states=[prop.id], provenance=r["signal"]["id"],
+                               spec={"seed_gate": r["gate"], "grader": task})
+        traps[task]["instruction_states_gate"] = " ".join(prop.text.split()) in " ".join(instruction.split())
+        d = {"scope": "trap", "title": f"{task}: the {r['gate']} trap", "horizon": "H2", "instruction": instruction, "properties": [prop],
+             "checks": [gate_check], "milestones": ms, "negatives": [r["negative"]], "start_patch": r["start_patch"], "oracle_patch": r["oracle_patch"],
+             "provenance": [r["signal"]["id"]], "trap": r["trap"]}
         write_task(d, OUT / f"{task}_trap", family="legacy_gpu_migration", seed_id=f"{task}_trap", derived_from=f"{task}", generator="trap")
     rep = {"gate": "M8 coding: span + trap tasks (CPU acceptance; behavioural acceptance queued for the verifier image)", "spans": spans, "traps": traps}
     rep["span_cpu_ok"] = all(v["cpu_ok"] for v in spans.values())

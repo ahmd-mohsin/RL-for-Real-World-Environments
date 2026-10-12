@@ -124,7 +124,8 @@ def _depth(p: Parts) -> int:
 
 
 def _assemble(task_id: str, operator: str, parts: list[tuple[str, Parts]], *, steps: list[str], dependent: bool, title: str,
-              cross: list[CheckSpec] = (), order: list[int] | None = None, place: Any = None) -> Composite:
+              cross: list[CheckSpec] = (), order: list[int] | None = None, place: Any = None,
+              cross_props: list[StatedProperty] = ()) -> Composite:
     """``cross``: checks no single component owns (gate ``x.<gate>``: the fused interaction). ``order``: a permutation of
     the concatenated oracle (nest). ``place(cid, actions)``: a component's negative inside the composite (default: the
     other components' oracle around it)."""
@@ -150,7 +151,16 @@ def _assemble(task_id: str, operator: str, parts: list[tuple[str, Parts]], *, st
         oracle = [oracle[i] for i in order]
         for c in comps:
             c.actions = sorted(new_at[i] for i in c.actions)
-    checks = _widen_scopes(checks + [c.model_copy(update={"id": f"x.{c.id}", "gate": f"x.{c.gate}"}) for c in cross])
+    # a cross check grades a property the composite states (M8 audit V14: the fused task's cross check graded nothing
+    # the instruction said, so it could never pass A7): its sentence joins the instruction, its states are namespaced
+    stated = {p.id for p in cross_props}
+    missing = sorted({x for c in cross for x in (c.states or ["<none>"])} - stated)
+    if cross and missing:
+        raise ValueError(f"cross checks grade properties no cross property states: {missing}")
+    props += [p.model_copy(update={"id": f"x.{p.id}"}) for p in cross_props]
+    steps = [*steps, *(p.text if p.text.endswith(".") else p.text + "." for p in cross_props)]
+    checks = _widen_scopes(checks + [c.model_copy(update={"id": f"x.{c.id}", "gate": f"x.{c.gate}", "states": [f"x.{x}" for x in c.states]})
+                                     for c in cross])
     spec = TaskSpec(task_id=task_id, title=title, instruction="\n\n".join(steps), properties=props, literals=literals, provenance=provenance,
                     trap="; ".join(p.spec.trap for _, p in parts if p.spec.trap) or None, horizon=max((p.spec.horizon for _, p in parts), default="H1"),
                     difficulty={"composition": {"operator": operator, "components": [c for c, _ in parts]}})
@@ -224,17 +234,18 @@ def rename_apps(p: Parts, renames: dict[str, str]) -> Parts:
     return Parts(p.spec, cs, acts(p.oracle), negs, p.source_hash)
 
 
-def fuse(a: Parts, b: Parts, *, task_id: str, cross: list[CheckSpec] = (), renames: dict[str, str] | None = None) -> Composite:
+def fuse(a: Parts, b: Parts, *, task_id: str, cross: list[CheckSpec] = (), renames: dict[str, str] | None = None,
+         cross_props: list[StatedProperty] = ()) -> Composite:
     """Two tasks from different Worlds, in one episode of the fused World (``forge.fuse.fuse_worlds``). The components
     are independent (A17 applies); ``cross`` checks span both Apps (gate ``x.<gate>``): the interaction a fused task adds
     and neither part has."""
     b = rename_apps(b, renames or {})
-    return _assemble(task_id, "fuse", [("c1", a), ("c2", b)], dependent=False, cross=list(cross),
+    return _assemble(task_id, "fuse", [("c1", a), ("c2", b)], dependent=False, cross=list(cross), cross_props=list(cross_props),
                      steps=["Complete both of the following; they touch different systems.", f"Part 1: {a.spec.instruction}", f"Part 2: {b.spec.instruction}"],
                      title=f"{a.spec.title} (+) {b.spec.title}")
 
 
-def nest(outer: Parts, inner: Parts, *, task_id: str, at: int, cross: list[CheckSpec] = ()) -> Composite:
+def nest(outer: Parts, inner: Parts, *, task_id: str, at: int, cross: list[CheckSpec] = (), cross_props: list[StatedProperty] = ()) -> Composite:
     """``inner`` done in the middle of ``outer``: after outer's first ``at`` oracle steps (a subtask that interrupts a
     larger one). Dependent by construction; the outer component's actions are not contiguous."""
     if not 0 < at < len(outer.oracle):
@@ -251,5 +262,6 @@ def nest(outer: Parts, inner: Parts, *, task_id: str, at: int, cross: list[Check
         return outer_oracle[:at] + actions + outer_oracle[at:]
 
     return _assemble(task_id, "nest", [("outer", outer), ("inner", inner)], dependent=True, cross=list(cross), order=order, place=place,
+                     cross_props=list(cross_props),
                      steps=[f"Main task: {outer.spec.instruction}", f"Partway through (after the first {at} steps of the main task), also: {inner.spec.instruction}"],
                      title=f"{outer.spec.title} [{inner.spec.title}]")

@@ -60,14 +60,28 @@ def tighten_perf(bars: dict[str, float], oracle_ratios: dict[str, float], fronti
     return TightenDecision(not reasons, merged, reasons, h, sep)
 
 
-def add_gate(gate: str, oracle_runs: Sequence[bool], frontier_runs: Sequence[bool], *, min_oracle_runs: int = 3) -> TightenDecision:
-    """A new categorical gate (concurrency, a sanitizer tool): the oracle passes every run, the frontier solution fails one."""
+def _wilson_lower(k: int, n: int, z: float = 1.96) -> float:
+    if n == 0:
+        return 0.0
+    p = k / n
+    d = 1 + z * z / n
+    return max(0.0, (p + z * z / (2 * n) - z * ((p * (1 - p) + z * z / (4 * n)) / n) ** 0.5) / d)
+
+
+def add_gate(gate: str, oracle_runs: Sequence[bool], frontier_runs: Sequence[bool], *, min_oracle_runs: int = 3,
+             min_frontier_fail: float = 0.2) -> TightenDecision:
+    """A new categorical gate (concurrency, a sanitizer tool): the oracle passes every run, and the frontier solution
+    fails it at a rate whose Wilson lower bound is at least ``min_frontier_fail`` (M8 audit V22: one flaky failing run
+    made a gate "separating")."""
     reasons = []
     if len(oracle_runs) < min_oracle_runs:
         reasons.append(f"{gate}: {len(oracle_runs)} oracle runs, need >= {min_oracle_runs}")
     elif not all(oracle_runs):
         reasons.append(f"{gate}: the oracle fails {sum(not x for x in oracle_runs)}/{len(oracle_runs)} runs: not fair")
-    sep = not all(frontier_runs) if frontier_runs else False
+    fails = sum(not x for x in frontier_runs)
+    lb = _wilson_lower(fails, len(frontier_runs))
+    sep = lb >= min_frontier_fail
     if not sep:
-        reasons.append(f"{gate}: the frontier solution passes it: not separating")
+        reasons.append(f"{gate}: the frontier solution fails {fails}/{len(frontier_runs)} runs (Wilson lower bound {lb:.2f} < "
+                       f"{min_frontier_fail}): not separating")
     return TightenDecision(not reasons, {}, reasons, {}, {gate: sep})

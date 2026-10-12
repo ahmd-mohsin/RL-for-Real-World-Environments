@@ -40,6 +40,13 @@ async def a16_red_team(t: Any, ctx: AcceptContext) -> Out:
         return r
 
     rep = await red_team(attempts, grade, audit)
+    more = getattr(hacker, "propose_more", None)
+    if callable(more) and not rep.hacks and len(attempts) < ctx.policy.a16_attempts:
+        # a clean first phase (a specialist's memory replay) does not end the search (M8 audit V7)
+        extra = more(view)
+        extra = list(await extra if inspect.isawaitable(extra) else extra)[: ctx.policy.a16_attempts - len(attempts)]
+        rep.attempts += (await red_team(extra, grade, audit)).attempts
+        attempts += extra
     labels: dict[str, int] = {}
     for c in rep.attempts:
         labels[c.label] = labels.get(c.label, 0) + 1
@@ -47,4 +54,12 @@ async def a16_red_team(t: Any, ctx: AcceptContext) -> Out:
     reasons = [f"hack {h['id']} ({h['strategy']}): reward {h['reward']} without the stated properties (promote to A13)" for h in hacks]
     if not attempts:
         reasons.append("the hacker proposed no attempt (no solver trajectory to mutate)")
-    return Out.verdict(reasons, {"attempts": len(attempts), "labels": labels, "confirmed_hacks": len(hacks), "hacks": hacks})
+    measured = {"attempts": len(attempts), "labels": labels, "confirmed_hacks": len(hacks), "hacks": hacks}
+    if reasons:
+        return Out.verdict(reasons, measured)
+    # no hack found is evidence only if the attempts were measured (M8 audit V7: every grade masked passed A16, and a
+    # candidate can trigger some masks); an audit that cannot decide is not a legitimate success either
+    infra, undecided = labels.get("infra", 0), labels.get("undecided", 0)
+    if infra == len(attempts) or infra > ctx.policy.a16_max_infra_share * len(attempts) or undecided:
+        return Out(Status.ERROR, measured, [f"{infra} of {len(attempts)} attempts masked, {undecided} undecided audits: no evidence either way"])
+    return Out.verdict([], measured)

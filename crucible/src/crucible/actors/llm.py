@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 import time
@@ -25,6 +26,39 @@ import httpx
 
 from crucible.core.config import Config, get_config, resolve_secret
 from crucible.core.ids import sha256_text
+
+# Spend attribution per asyncio task (M8 audit V3): every booked cost is also added to the innermost open scope, so a
+# caller that runs many roles concurrently (the forge orchestrator) charges each node its own calls, not the global delta.
+_SPEND_SCOPE: contextvars.ContextVar[list[float] | None] = contextvars.ContextVar("crucible_spend_scope", default=None)
+
+
+def book_scoped(usd: float) -> None:
+    """Add ``usd`` to the spend scope of the running task (no-op outside one). Non-LLM spenders (sandboxed trials) call it."""
+    acc = _SPEND_SCOPE.get()
+    if acc is not None:
+        acc[0] += float(usd)
+        acc[1] += 1
+
+
+class SpendScope:
+    """``with SpendScope() as s: ...; s.usd``: the spend booked by code running in this task (and tasks it starts)
+    inside the block. ``s.booked`` is False when nothing booked into it (the caller then has no attribution)."""
+
+    def __enter__(self) -> SpendScope:  # noqa: PYI034
+        self._acc = [0.0, 0]
+        self._tok = _SPEND_SCOPE.set(self._acc)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        _SPEND_SCOPE.reset(self._tok)
+
+    @property
+    def usd(self) -> float:
+        return self._acc[0]
+
+    @property
+    def booked(self) -> bool:
+        return self._acc[1] > 0
 
 
 class BudgetExceeded(RuntimeError):
@@ -324,6 +358,7 @@ class LLMClient:
             cost = extra_u.get("cost")
         cost = float(cost) if cost is not None else self._price(usage)
         self.spend.usd += cost
+        book_scoped(cost)
         self._max_seen = max(self._max_seen, cost)
         self.spend.calls += 1
         self.spend.prompt_tokens += usage.get("prompt_tokens", 0)

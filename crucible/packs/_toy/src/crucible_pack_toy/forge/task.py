@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -27,6 +28,8 @@ from crucible.verify.runtime.plan import Check, Context, Gate, Plan
 from crucible.verify.runtime.trusted import Trusted
 from crucible.verify.state import Predicate, cross_check, invariant_check, predicate_check
 from crucible.world.world import World
+
+_WORDS = re.compile(r"[A-Za-z0-9][\w.-]*[A-Za-z0-9]|[A-Za-z0-9]")
 
 
 def approval_grounded(cid: str, gate: str, approver: str) -> Check:
@@ -155,15 +158,75 @@ class ToyForgedTask:
         return n.actions
 
     def agent_visible(self) -> dict[str, str]:
-        out = {"instruction": self.instruction}
+        """Everything the agent can read: the instruction, the documents, the customer records, and the ticket rows and
+        tool code behind the ``tickets.*`` tools (M8 audit V9: the ticket data was never scanned)."""
+        return {"instruction": self.instruction, **self._world_visible()}
+
+    def _world_visible(self) -> dict[str, str]:
+        out = {}
         for p in sorted((self.pack_root / "data" / "kb").rglob("*")):
             if p.is_file():
                 out[f"kb/{p.relative_to(self.pack_root / 'data' / 'kb')}"] = p.read_text()
-        out["customers.jsonl"] = (self.pack_root / "data" / "customers.jsonl").read_text()
+        for name in ("customers.jsonl", "tickets.sql", "helpdesk/tools/tickets.py"):
+            f = self.pack_root / "data" / name
+            if f.exists():
+                out[name] = f.read_text()
         return out
 
     def hidden_strings(self) -> list[str]:
-        return [self.sc["supervisor"], *([self.canary] if self.canary else [])]
+        """What the agent must not be able to read (M8 audit V9: only the supervisor's name and a canary that no file
+        held): the supervisor, the canary, every oracle-only value (a string argument of an oracle action that neither the
+        world's data nor a stated property contains: note bodies, the approval wording) and each serialized oracle action."""
+        base = "\n".join(self._world_visible().values()) + "\n" + "\n".join(p.text for p in self.properties)
+        flat = " ".join(base.split())
+        only: set[str] = set()
+
+        def walk(v: Any) -> None:
+            if isinstance(v, str):
+                t = " ".join(v.split())
+                if len(t) >= 8 and t not in flat:
+                    only.add(t)
+            elif isinstance(v, dict):
+                for x in v.values():
+                    walk(x)
+            elif isinstance(v, list):
+                for x in v:
+                    walk(x)
+
+        for a in self.oracle:
+            walk(a)
+        acts = [json.dumps(a, sort_keys=True) for a in self.oracle if isinstance(a, dict) and len(json.dumps(a)) >= 24]
+        return [self.sc["supervisor"], *([self.canary] if self.canary else []), *sorted(only), *acts]
+
+    def generated_alternatives(self) -> list[tuple[str, list]]:
+        """Valid alternatives the contract builds itself (M8 audit V8): the oracle with every oracle-only free text (a note
+        body) cut down to the words the instruction states. A check that grades wording the instruction never asked for
+        (the oracle's own policy reference) fails it, so A3 rejects the check instead of an honest solver scoring 0."""
+        said = {w.lower() for w in _WORDS.findall(self.instruction)}
+        data = " ".join("\n".join(self._world_visible().values()).split())
+        changed = False
+
+        def cut(v: Any) -> Any:
+            nonlocal changed
+            if isinstance(v, str):
+                t = " ".join(v.split())
+                # prose the oracle wrote (four or more words, not copied from the world): a name or id learned at run time
+                # (``approved_by``) is a value, not wording
+                if len(t.split()) >= 4 and t not in data:
+                    kept = [w for w in _WORDS.findall(t) if w.lower() in said]
+                    changed = True
+                    return (" ".join(kept) or "Done") + "."
+                return v
+            if isinstance(v, dict):
+                return {k: (cut(x) if k not in ("function_name", "kind", "tool_call_id", "name") else x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [cut(x) for x in v]
+            return v
+
+        # only what the oracle writes into state through tools; a message to an actor is functional (the supervisor
+        # parses the amount out of it), not graded wording
+        alt = [cut(a) if isinstance(a, dict) and a.get("kind") == "tool_call" else a for a in self.oracle]
+        return [("generated/stated_wording_only", alt)] if changed else []
 
     # ---- M9 acceptance capabilities (crucible.accept.checks) -------------------------------------------------------
     split = "train"

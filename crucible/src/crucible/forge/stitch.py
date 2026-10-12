@@ -53,6 +53,10 @@ def stitch(spans: Sequence[Span], *, residual: str = "oracle", gate_order: Seque
     owned: dict[str, str] = {}
     owners: dict[str, list[str]] = {}
     for s in spans:
+        both = sorted(set(s.start) & set(s.oracle))
+        if both:  # its oracle diff is relative to its own start, which stitching drops (M8 audit V20)
+            raise ValueError(f"{s.id} both pre-applies and owns {both[:5]}: its oracle diff is relative to its own start")
+    for s in spans:
         for p, d in s.oracle.items():
             if p in owned and owned[p] != d:
                 raise ValueError(f"spans {owners[p]} and {s.id} change {p} differently: cut from different end states")

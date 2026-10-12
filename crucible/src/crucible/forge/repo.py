@@ -13,10 +13,15 @@ oracle writes checks that encode it). Here there is one git repo per family, spl
 - **Commits** follow GitSwarm: one immutable commit with one parent and a mandatory ``informed_by`` set, message
   ``[<type>|informed_by=<sha>,…] <summary>``. Each commit is kept alive by ``refs/forge/<sha>``; there are no merges.
 - **Writes**: an author writes only into zones it can read (a zone it cannot read is one it would write blind).
-- **Breach scan** on every commit, before anything is written: a commit fails if an added line carries a zone canary
-  (each zone holds ``<zone>/CANARY``) or *quotes a line* of a zone the author cannot read (normalized lines of at
-  least ``min_line`` characters, indexed per zone over every commit ever made; a line that also appears in a zone
-  the author can read is not evidence). Quoting the oracle is the leak that matters, and it rarely carries a canary.
+- **Breach scan** on every commit, before anything is written. The material a commit adds to zone Z must not come
+  from a **protected** zone: one the author cannot read, or one that some reader of Z cannot read (information flow:
+  an adversary that reads ``oracle/`` must not copy it into ``public/``, which the black-box hacker reads; M8 audit
+  V1). A commit fails if the added text carries a protected zone's canary (each zone holds ``<zone>/CANARY``) or
+  *quotes* it: any run of ``shingle`` tokens of the added text (prefixes, splits and re-wrapping do not hide it; V2),
+  or a short line that carries a number or identifier, indexed per zone over every commit ever made. Material that is
+  already in the parent tree in a zone both the author and every reader of Z can read is not evidence (computed from
+  the parent, not a global index: a note on an unrelated branch unlocked quoting everywhere). Quoting the oracle is the
+  leak that matters, and it rarely carries a canary.
 - **Citations**: ``informed_by`` naming an unknown commit or a commit that touched a zone the author cannot read is
   rejected (citing it means it was read).
 - **Views**: ``view(role, sha)`` and ``materialize(role, sha, dir)`` export only the readable zones (read-only files),
@@ -77,9 +82,24 @@ def _h(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()[:20]
 
 
+_TOK = re.compile(r"\w+|[^\w\s]")
+
+
+def _marks(text: str, k: int) -> set[str]:
+    """Quote evidence of a text: hashes of every run of ``k`` tokens (across line breaks), plus each short line that
+    carries a number or an identifier (``amount: 97.31``, ``O-7213``) as one mark."""
+    toks = _TOK.findall(text)
+    out = {_h("s|" + " ".join(toks[i:i + k])) for i in range(len(toks) - k + 1)}
+    for line in text.splitlines():
+        lt = _TOK.findall(line)
+        if 0 < len(lt) < k and any(any(c.isdigit() for c in t) for t in lt) and len(_norm(line)) >= 5:
+            out.add(_h("l|" + " ".join(lt)))
+    return out
+
+
 class ForgeRepo:
-    def __init__(self, path: Path, *, family: str, reads: dict[str, set[str]] | None = None, min_line: int = 20):
-        self.path, self.family, self.min_line = Path(path), family, min_line
+    def __init__(self, path: Path, *, family: str, reads: dict[str, set[str]] | None = None, min_line: int = 20, shingle: int = 6):
+        self.path, self.family, self.min_line, self.shingle = Path(path), family, min_line, shingle
         self.reads = {k: set(v) for k, v in (reads or DEFAULT_READS).items()}
         self._lock = threading.Lock()
         self._trees: dict[str, dict[str, str]] = {}
@@ -88,7 +108,7 @@ class ForgeRepo:
         if not (self.path / ".git").exists():
             self.path.mkdir(parents=True, exist_ok=True)
             self._git("init", "-q")
-            self._index: dict = {"lines": {z: {} for z in ZONES}, "canaries": {}, "commits": {}}
+            self._index: dict = {"lines": {z: {} for z in ZONES}, "marks": {z: {} for z in ZONES}, "canaries": {}, "commits": {}}
             canaries = {z: f"CRUCIBLE-CANARY-{z}-{_h(family + z + os.urandom(8).hex())[:16]}" for z in ZONES}
             self._index["canaries"] = canaries
             self.root = self._write_commit({f"{z}/CANARY": canaries[z] + "\n" for z in ZONES}, parent=None, type_="root", author="forge",
@@ -96,6 +116,12 @@ class ForgeRepo:
         else:
             self._index = json.loads(self._ix_path.read_text())
             self.root = next(s for s, c in self._index["commits"].items() if c["type"] == "root")
+            if "marks" not in self._index:  # an index from before the shingle scan: rebuild the marks from every commit
+                self._index["marks"] = {z: {} for z in ZONES}
+                for sha in self._index["commits"]:
+                    for p, content in self._tree_files(sha).items():
+                        for m in _marks(content, self.shingle):
+                            self._index["marks"][p.split("/", 1)[0]].setdefault(m, sha)
 
     # ---- git ---------------------------------------------------------------------------------------------------------
     def _git(self, *args: str, input: bytes | None = None, env: dict | None = None) -> str:
@@ -151,7 +177,11 @@ class ForgeRepo:
                 n = _norm(line)
                 if len(n) >= self.min_line or (p.endswith("/CANARY") and n):
                     self._index["lines"][z][_h(n)] = sha
-        self._ix_path.write_text(json.dumps(self._index))
+            for m in _marks(content, self.shingle):
+                self._index["marks"].setdefault(z, {}).setdefault(m, sha)
+        tmp = self._ix_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self._index))
+        os.replace(tmp, self._ix_path)
         return sha
 
     # ---- the zone rule ---------------------------------------------------------------------------------------------
@@ -159,6 +189,21 @@ class ForgeRepo:
         if role not in self.reads:
             raise KeyError(f"unknown role {role!r} (zones: {sorted(self.reads)})")
         return self.reads[role] | {"public"}
+
+    def readers(self, zone: str) -> list[str]:
+        return sorted(r for r in self.reads if zone in self.readable(r))
+
+    def protected(self, role: str, zone: str) -> set[str]:
+        """Zones whose material must not appear in what ``role`` writes into ``zone``: the zones it cannot read, and the
+        zones some reader of ``zone`` cannot read."""
+        out = set(ZONES) - self.readable(role)
+        for r in self.readers(zone):
+            out |= set(ZONES) - self.readable(r)
+        return out - {zone} if zone in self.readable(role) else out
+
+    def _parent_marks(self, parent: str | None, zones: set[str]) -> set[str]:
+        files = self._tree_files(parent) if parent else {}
+        return {m for p, v in files.items() if p.split("/", 1)[0] in zones for m in _marks(v, self.shingle)}
 
     def scan(self, role: str, files: dict[str, str], informed_by: list[str], parent: str | None = None) -> list[str]:
         can = self.readable(role)
@@ -169,19 +214,31 @@ class ForgeRepo:
                 reasons.append(f"{p}: not in a zone ({', '.join(ZONES)})")
             elif z not in can:
                 reasons.append(f"{p}: {role} cannot read zone {z}/, so it cannot write there")
-        hidden = [z for z in ZONES if z not in can]
         old = self._tree_files(parent) if parent else {}
         for p, content in files.items():
+            z = p.split("/", 1)[0]
+            if z not in ZONES:
+                continue
+            prot = sorted(self.protected(role, z))
+            if not prot:
+                continue
             prev = {_norm(x) for x in old.get(p, "").splitlines()}
-            for i, line in enumerate(content.splitlines(), 1):
-                n = _norm(line)
-                if not n or n in prev:
+            added = "\n".join(x for x in content.splitlines() if _norm(x) and _norm(x) not in prev)
+            if not added:
+                continue
+            flat, squeezed = _norm(added), "".join(added.split())
+            # already readable by the author and by every reader of z, in the parent tree: not evidence of a leak
+            common = can.intersection(*(self.readable(r) for r in self.readers(z))) if self.readers(z) else can
+            exempt = self._parent_marks(parent, common)
+            for y in prot:
+                c = self._index["canaries"][y]
+                if c in flat or c in squeezed:
+                    reasons.append(f"{p}: carries the {y}/ canary")
                     continue
-                for z in hidden:
-                    if self._index["canaries"][z] in n:
-                        reasons.append(f"{p}:{i}: carries the {z}/ canary")
-                    elif len(n) >= self.min_line and _h(n) in self._index["lines"][z] and not any(_h(n) in self._index["lines"][r] for r in can):
-                        reasons.append(f"{p}:{i}: quotes a line of {z}/ (commit {self._index['lines'][z][_h(n)][:10]})")
+                hit = next((m for m in _marks(added, self.shingle) if m in self._index["marks"].get(y, {}) and m not in exempt), None)
+                if hit:
+                    why = "it cannot read" if y not in can else "a reader of " + z + "/ cannot read"
+                    reasons.append(f"{p}: quotes a line of {y}/ ({why}; commit {self._index['marks'][y][hit][:10]})")
         for s in informed_by:
             c = self._index["commits"].get(s)
             if c is None:

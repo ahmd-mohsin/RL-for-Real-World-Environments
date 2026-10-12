@@ -100,7 +100,7 @@ async def test_breach_invalid_and_nominations(tmp_path):
 
         return run
 
-    res = await SwarmStage(r, "proposer", make, C=1, B=2, validate=_validate).run()
+    res = await SwarmStage(r, "proposer", make, C=1, B=2, validate=_validate, require_announce=False).run()  # validation, not protocol
     kinds = sorted(x["kind"] for x in res.rejected)
     assert kinds == ["breach", "invalid"] and res.charged == 2 and res.commits == [] and res.abstentions == 0
     a = r.commit("proposer", {"public/plans/a.json": "{}"}, type_="plan", summary="a", parent=seed)
