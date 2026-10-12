@@ -23,7 +23,8 @@ READ_ONLY_COMMANDS = {"view", "read", "list"}  # str_replace_editor sub-commands
 # the harness's own sentences, at the start of the text (a commit subject "user rejected the invite" is not a rejection)
 INTERRUPT = re.compile(r"\A\s*(?:\[Request interrupted by user|Interrupted by user)", re.IGNORECASE)
 REJECTED = re.compile(r"\A\s*(?:Error:\s*)?(?:The user doesn't want to proceed with this tool use|User rejected (?:the )?tool use|"
-                      r"The tool use was rejected|Permission to use \S+ (?:has been )?denied by the user)", re.IGNORECASE)
+                      r"The tool use was rejected|Permission to use \S+ (?:has been )?denied by the user|"
+                      r"Commands not executed\. The user rejected your commands)", re.IGNORECASE)  # last: mini-swe-agent (M4 audit)
 
 
 def _tool_base(fn: str) -> str:
@@ -75,8 +76,10 @@ def shell_writes(cmd: str) -> list[str]:
             out += [a for a in args if not a.startswith("-")]
         elif prog in ("cp", "mv", "install") and len([a for a in args if not a.startswith("-")]) >= 2:
             out.append([a for a in args if not a.startswith("-")][-1])
-        elif prog == "touch":
+        elif prog in ("touch", "rm", "rmdir", "unlink"):  # a deletion is a write (M4 audit: `rm a.py` recorded nothing)
             out += [a for a in args if not a.startswith("-")]
+        elif prog == "git" and args and args[0] in ("mv", "rm"):  # both the source and the destination of a move change
+            out += [a for a in args[1:] if not a.startswith("-")]
     return [p for p in out if p and not p.startswith("/dev/")]
 
 
@@ -100,8 +103,45 @@ def writes_of(fn: str, args: Any) -> list[str]:
     return [f"file:{path}"] if path else []
 
 
+READ_VERBS = frozenset({"get", "list", "search", "read", "find", "query", "show", "describe", "count", "check", "view", "lookup", "fetch",
+                        "inspect", "verify", "validate", "preview", "peek", "browse", "download", "export", "calculate", "compute", "estimate"})
+
+
+def app_writes(fn: str, args: Any, *, read_only: bool | None = None) -> list[str]:
+    """Records a business-App call changed, named the way recorded logs name them (``ticket:T7.status``), so a later
+    violation, reversal or reopen grades the call that made the change (DESIGN P28; M4 audit: ``tickets.update_ticket``,
+    ``erp.approve_invoice`` and ``mail.send`` recorded nothing, so enterprise World episodes had no step credit).
+
+    The convention: the first ``<entity>_id`` argument (or ``id`` with the entity taken from the tool name, or a JSON-API
+    ``collection`` + ``id``) names the record; every other scalar argument is a field written (``ticket:T7.status``); with
+    no field, the record itself. Read-only tools and read verbs (``get_``, ``list_``, ``search_`` ...) write nothing; a call
+    that names no record is left to ``writes_of``."""
+    if not isinstance(args, dict) or read_only:
+        return []
+    base = _tool_base(fn)
+    words = base.lower().split("_")
+    if words[0] in READ_VERBS:
+        return []
+    if isinstance(args.get("collection"), str) and isinstance(args.get("id"), (str, int)):
+        obj, used = f"{args['collection']}:{args['id']}", {"collection", "id"}
+        fields = [f"{obj}.{k}" for k, v in (args.get("patch") or args.get("data") or {}).items()] if isinstance(args.get("patch") or args.get("data"), dict) else []
+        return fields or [obj]
+    ent = next(((k[:-3], v) for k, v in args.items() if k.endswith("_id") and len(k) > 3 and isinstance(v, (str, int)) and not isinstance(v, bool)), None)
+    if ent is None and isinstance(args.get("id"), (str, int)) and len(words) > 1:
+        ent = (words[-1].rstrip("s") or words[-1], args["id"])
+    if ent is None:
+        return []
+    obj = f"{ent[0]}:{ent[1]}"
+    used = {f"{ent[0]}_id", "id"}
+    fields = [f"{obj}.{k}" for k, v in args.items() if k not in used and not k.endswith("_id") and isinstance(v, (str, int, float, bool))]
+    return sorted(fields) or [obj]
+
+
 def user_type(text: str) -> str:
-    return "interrupt" if INTERRUPT.search(text) else "user_message"
+    """A user turn as an event type: the harness's interrupt and rejection sentences are signals (M4), the rest is talk.
+    mini-swe-agent sends its rejection back as a user message ("Commands not executed. The user rejected ..."), not as a
+    tool result (M4 audit)."""
+    return "interrupt" if INTERRUPT.search(text) else ("rejection" if REJECTED.search(text) else "user_message")
 
 
 # ----------------------------------------------------------------------------------------- answer-key probes

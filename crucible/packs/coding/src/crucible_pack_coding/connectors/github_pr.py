@@ -38,7 +38,30 @@ SUGGESTION = re.compile(r"```suggestion[^\n]*\n(.*?)```", re.DOTALL)
 FIX_BLOCK = re.compile(r"(?:suggest\w*(?: fix)?|fix(?:ed)? version|should be)\s*:?\s*\n*```[\w+-]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 REVERT = re.compile(r"^revert\b", re.IGNORECASE)
 FIXLIKE = re.compile(r"\b(fix|fixes|fixed|bug|regression|revert|crash|broken|hotfix|wrong|incorrect)\b", re.IGNORECASE)
+NOT_A_FIX = re.compile(r"^\s*(?:chore|docs?|refactor|style|tests?|ci|build|perf|release|bump)(?:\([^)]*\))?!?:", re.IGNORECASE)  # conventional-commit types
+REVERT_LINE = re.compile(r'^\s*((?:Revert\s+")+)', re.IGNORECASE | re.MULTILINE)
+REVERTS_SHA = re.compile(r"This reverts commit ([0-9a-f]{7,40})", re.IGNORECASE)
 WINDOW_DAYS = 30
+# one identity per AI reviewer: GitHub shows Copilot's comments as user "Copilot" (type Bot) and its reviews as
+# "copilot-pull-request-reviewer[bot]" (M4 audit: two actors of two kinds, pooled with people)
+AI_REVIEWERS = {"copilot": "Copilot", "copilot-pull-request-reviewer[bot]": "Copilot", "copilot-pull-request-reviewer": "Copilot",
+                "coderabbitai[bot]": "coderabbitai", "coderabbitai": "coderabbitai", "gemini-code-assist[bot]": "gemini-code-assist",
+                "sourcery-ai[bot]": "sourcery-ai"}
+
+
+def is_fixlike(subject: str, body: str) -> bool:
+    """A fix by its own words: not a docs / refactor / chore commit that mentions a fix (repo2rlenv's rule, M4 audit)."""
+    return not NOT_A_FIX.search(subject) and bool(FIXLIKE.search(f"{subject}\n\n{body}"))
+
+
+def revert_of(text: str, shas: set[str]) -> tuple[bool, bool]:
+    """(reverts something, names one of ``shas``): an odd number of ``Revert "`` at the start of a line (``Revert "Revert``
+    is a re-land), or git's ``This reverts commit <sha>`` trailer. "Reapply", "do not revert #N" and "#N is not reverted"
+    are not reverts (M4 audit: any "revert" word plus "#N" was one)."""
+    odd = any(len(re.findall(r'Revert\s+"', m.group(1), re.IGNORECASE)) % 2 == 1 for m in REVERT_LINE.finditer(text))
+    named = [x.lower() for x in REVERTS_SHA.findall(text)]
+    hits = any(any(sh.startswith(x) for sh in shas) for x in named)
+    return (odd or bool(named)), hits
 
 
 def uid(login: str | None) -> str:
@@ -58,6 +81,8 @@ class GitHubPRConnector:
         self.git_dir = git_dir
         self.family = family
         self.now = datetime.fromisoformat(now) if now else datetime.now(UTC)
+        if self.now.tzinfo is None:  # a naive clock is UTC (it is compared with the API's Z times)
+            self.now = self.now.replace(tzinfo=UTC)
         self._repos: dict[str, GitRepo] = {}
 
     def repo(self, name: str) -> GitRepo:
@@ -189,6 +214,9 @@ class GitHubPRConnector:
         actors: dict[str, TraceActor] = {}
 
         def actor(login: str | None, role: str, kind: str = "human", user: dict | None = None) -> str:
+            ai = AI_REVIEWERS.get((login or "").lower())
+            if ai:
+                login, kind = ai, "agent"
             a = uid(login)
             if a not in actors:
                 if (login or "").endswith("[bot]") and kind == "human":
@@ -201,10 +229,10 @@ class GitHubPRConnector:
         actor(author, "author")
         ev: list[dict[str, Any]] = []
         ev.append({"time": pr["created_at"], "kind": "message", "actor": actor(author, "author"), "type": "pr_opened",
-                   "text": f"{pr['title']}\n\n{(pr.get('body') or '')[:4000]}", "data": {"number": pr["number"], "base": base, "head": head}})
+                   "text": f"{pr['title']}\n\n{(pr.get('body') or '')[:4000]}", "data": {"number": pr["number"], "base": base, "head": head, "row_id": f"pr:{pr['number']}"}})
         for c in commits + superseded:
             ev.append({"time": c.time, "kind": "action", "actor": actor(author, "author"), "type": "commit", "text": f"{c.subject}\n\n{c.body}".strip(),
-                       "state_ref": f"git:{c.sha}", "data": {"sha": c.sha, "git_author": c.author, "added": c.added, "superseded": c.sha not in final,
+                       "state_ref": f"git:{c.sha}", "data": {"sha": c.sha, "row_id": f"commit:{c.sha}", "git_author": c.author, "added": c.added, "superseded": c.sha not in final,
                                                              "apply_suggestion": "suggestion" in c.subject.lower(),
                                                              "writes": [f"file:{path}" for path in c.added]}})
         for r in p["reviews"]:
@@ -212,20 +240,22 @@ class GitHubPRConnector:
                 continue
             who = r["user"]["login"] if r.get("user") else None
             ev.append({"time": r["submitted_at"], "kind": "message", "actor": actor(who, "author" if who == author else "reviewer", user=r.get("user")), "type": "review",
-                       "text": r.get("body") or "", "data": {"state": r["state"], "commit": r.get("commit_id"), "review_id": r["id"]}})
+                       "text": r.get("body") or "", "data": {"state": r["state"], "commit": r.get("commit_id"), "review_id": r["id"], "row_id": f"review:{r['id']}"}})
         for cm in p["comments"]:
             ev.append(self._comment_event(g, cm, commits, by_sha, author, actor, head))
         for run in (p["checks"] or {}).get("check_runs", []):
             if run.get("completed_at"):
                 ev.append({"time": run["completed_at"], "kind": "check", "actor": actor((run.get("app") or {}).get("slug", "ci") + "[bot]", "ci", "system"),
                            "type": "ci_run", "text": run.get("name"), "state_ref": f"git:{run['head_sha']}",
-                           "data": {"name": run.get("name"), "conclusion": run.get("conclusion"), "sha": run["head_sha"]}})
+                           "data": {"name": run.get("name"), "conclusion": run.get("conclusion"), "sha": run["head_sha"], "app": (run.get("app") or {}).get("slug"),
+                                    "row_id": f"check:{run['id']}" if run.get("id") is not None else f"check:{run.get('name')}@{run['head_sha']}@{run['completed_at']}"}})
+        window: dict[str, Any] = {}
         if pr.get("merged_at"):
             ev.append({"time": pr["merged_at"], "kind": "state", "actor": actor((pr.get("merged_by") or {}).get("login"), "maintainer"), "type": "merged",
-                       "state_ref": f"git:{merge_sha}" if merge_sha else None, "data": {"merge_commit": merge_sha, "squash": squash}})
-            ev += self._after_merge(g, pr, commits, merge_sha, squash, actor)
+                       "state_ref": f"git:{merge_sha}" if merge_sha else None, "data": {"merge_commit": merge_sha, "squash": squash, "row_id": "merged"}})
+            ev += self._after_merge(g, pr, commits, merge_sha, squash, actor, window)
         elif pr.get("closed_at"):
-            ev.append({"time": pr["closed_at"], "kind": "state", "actor": None, "type": "closed_unmerged", "data": {}})
+            ev.append({"time": pr["closed_at"], "kind": "state", "actor": None, "type": "closed_unmerged", "data": {"row_id": "closed"}})
 
         from crucible.connectors.base import parse_time
 
@@ -248,7 +278,11 @@ class GitHubPRConnector:
                 if e.data.get(k):
                     e.data[k + "_seq"] = seq_by_sha.get(e.data[k])
             if e.type == "post_merge_commit":
-                e.data["touches_seq"] = sorted({seq_by_sha[s] for s in e.data.get("touches_pr_commits", []) if s in seq_by_sha})
+                touched = {seq_by_sha[s] for s in e.data.get("touches_pr_commits", []) if s in seq_by_sha}
+                if merge_sha in e.data.get("touches_pr_commits", []) and squash:  # a squash merge's lines: the PR commits that wrote those files
+                    paths = set(e.data.get("touched_lines") or {})
+                    touched |= {x.seq for x in events if x.type == "commit" and not x.data.get("superseded") and paths & set(x.data.get("added") or {})}
+                e.data["touches_seq"] = sorted(touched)
         ended = pr.get("merged_at") or pr.get("closed_at")
         return Trace(
             trace_id=f"github:{repo_name}#{pr['number']}", family=self.family,
@@ -256,7 +290,7 @@ class GitHubPRConnector:
             source=TraceSource(connector=self.name, ref=raw.ref.key, url=pr.get("html_url"), privacy="public"),
             actors=list(actors.values()), events=events,
             outcome={"label": "unknown", "details": {"state": pr.get("state"), "merged": bool(pr.get("merged_at")), "ended_at": ended,  # type: ignore[arg-type]
-                                                    "origin": p.get("origin", "api")}},
+                                                    "origin": p.get("origin", "api"), **({"window": window} if window else {})}},
         )
 
     def _comment_event(self, g: GitRepo, cm: dict, commits: list[Commit], by_sha: dict[str, Commit], author: str, actor, head: str) -> dict[str, Any]:
@@ -264,7 +298,7 @@ class GitHubPRConnector:
         path, line, side = cm["path"], cm.get("original_line"), cm.get("side") or "RIGHT"
         start = cm.get("original_start_line") or line
         oc = cm["original_commit_id"]
-        data: dict[str, Any] = {"comment_id": cm["id"], "original_commit": oc, "commit": cm.get("commit_id"), "side": side,
+        data: dict[str, Any] = {"comment_id": cm["id"], "row_id": f"comment:{cm['id']}", "original_commit": oc, "commit": cm.get("commit_id"), "side": side,
                                 "diff_hunk": cm.get("diff_hunk", "")[-1500:], "outdated": cm.get("position") is None, "in_reply_to": cm.get("in_reply_to_id")}
         sug = SUGGESTION.search(cm.get("body") or "") or FIX_BLOCK.search(cm.get("body") or "")
         if sug:
@@ -294,20 +328,28 @@ class GitHubPRConnector:
                 # applied: the suggested text is in the final file, or a deletion suggestion whose line is gone
                 span_lines = [_norm(x[1:]) for x in (cm.get("diff_hunk") or "").splitlines()[1:] if x[:1] in "+ "][-(line - (start or line) + 1):]
                 gone = all(s not in final_text for s in span_lines if s) and any(span_lines)
-                data["suggestion_applied"] = (bool(want) and want in final_text) or (not want and gone)  # a deletion: the span's lines are gone
+                # applied only if the commented span itself changed (M4 audit: the text anywhere in the file counted, so an
+                # unchanged line whose suggestion matched another line of the file was "accepted")
+                data["suggestion_applied"] = bool(exact or near) and ((bool(want) and want in final_text) or (not want and gone))
         return {"time": cm["created_at"], "kind": "message", "actor": actor(who, "author" if who == author else "reviewer", user=cm.get("user")), "type": "review_comment",
                 "text": cm.get("body") or "", "target": SignalTarget(app="repo", object=path, span=[start, line] if line else None), "data": data,
                 "_id": cm["id"], "_reply": cm.get("in_reply_to_id")}
 
-    def _after_merge(self, g: GitRepo, pr: dict, commits: list[Commit], merge_sha: str | None, squash: bool, actor) -> list[dict[str, Any]]:
+    def _after_merge(self, g: GitRepo, pr: dict, commits: list[Commit], merge_sha: str | None, squash: bool, actor, window: dict[str, Any]) -> list[dict[str, Any]]:
         """vcs_history: first-parent commits on the base branch within 30 days that revert the PR or change lines it
         wrote. The lines the PR wrote (at its merge) are carried forward through every later first-parent commit with
         diffs only; a commit "touches" the PR when its changed lines overlap them. Blame runs only for those commits,
-        bounded to ``base..merge``, to name the PR commits whose lines were changed."""
-        if not merge_sha or not g.has(merge_sha):
-            return []
+        bounded to ``base..merge``, to name the PR commits whose lines were changed.
+
+        ``window`` receives what was observed, for the outcome labeler (M4 audit): ``checked`` (the merge commit is in the
+        clone and history after it was read), ``until`` (merge + 30 days) and ``closed`` (the clock is past it and the clone
+        holds a commit after it, so a quiet window is not a stale clone). A PR that only deleted lines is still scanned
+        for reverts (it returned before looking)."""
         merged = datetime.fromisoformat(pr["merged_at"])
         until = merged + timedelta(days=WINDOW_DAYS)
+        window.update(until=until.isoformat(), checked=False, closed=False)
+        if not merge_sha or not g.has(merge_sha):
+            return []
         pr_shas = {c.sha for c in commits} | ({merge_sha} if squash else set())
         base = pr["base"]["sha"]
         mparents = g.commit(merge_sha).parents
@@ -315,19 +357,18 @@ class GitHubPRConnector:
         # segments [current_lo, current_hi, lo_at_merge]: where the PR's lines are now, and where they were at the merge
         ranges = {path: [[s, s + n - 1, s] for _os, _ol, s, n in hs if n] for path, hs in g.hunks_multi(before, merge_sha).items()}
         ranges = {p_: r for p_, r in ranges.items() if r}
-        if not ranges:
-            return []
         branch = pr["base"]["ref"] if g.has(pr["base"]["ref"]) else g.default_branch()
+        tip = g.git("log", "-1", "--format=%cI", branch, check=False).strip()
+        tip_t = datetime.fromisoformat(tip) if tip else None
+        window.update(checked=True, closed=self.now >= until and tip_t is not None and tip_t >= until)
         # no pathspec: a file the PR wrote may be renamed later, and the commits after that touch the new path
         later = g.git("log", "--first-parent", "--reverse", "--format=%H", f"--until={until.isoformat()}", f"{merge_sha}..{branch}").split()
         out = []
         for sha in later:
-            if not ranges:
-                break
             c = g.commit(sha)
             if not c.parents:
                 continue
-            changed = g.changed_paths(c.parents[0], c.sha)
+            changed = g.changed_paths(c.parents[0], c.sha) if ranges else {}
             mine = set(changed) & set(ranges)
             # a file the PR wrote was deleted: perhaps moved (exact renames only; a move with edits counts as a delete)
             moved_to = g.renames(c.parents[0], c.sha) if any(changed[x] == "D" for x in mine) else {}
@@ -370,7 +411,8 @@ class GitHubPRConnector:
             other_prs = {int(x) for x in re.findall(r"#(\d+)\b", text)} - {n_}
             # the title counts only when the revert names no other PR ('Revert "Tweak launch bounds (#123)"' is #123's)
             names_title = (len(title) >= 12 and not other_prs and bool(re.search(r'revert\w*\s+"' + re.escape(title[:60]), text, re.IGNORECASE)))
-            is_revert = bool(re.search(r"\brevert", text, re.IGNORECASE)) and (refs_pr or (merge_sha or "-")[:9] in text or names_title)
+            reverts, names_sha = revert_of(text, pr_shas | ({merge_sha} if merge_sha else set()))
+            is_revert = reverts and (refs_pr or names_sha or names_title)
             if not touched_at_merge and not is_revert:
                 continue
             writers: set[str] = set()
@@ -380,7 +422,7 @@ class GitHubPRConnector:
             touched_lines = touched_at_merge
             out.append({"time": c.time, "kind": "action", "actor": actor(f"git:{c.author}", "maintainer"), "type": "post_merge_commit",
                         "text": text.strip()[:4000], "state_ref": f"git:{c.sha}",
-                        "data": {"sha": c.sha, "is_revert": is_revert, "fixlike": bool(FIXLIKE.search(text)), "mentions_pr": refs_pr,
+                        "data": {"sha": c.sha, "row_id": f"post:{c.sha}", "is_revert": is_revert, "fixlike": is_fixlike(c.subject, c.body), "mentions_pr": refs_pr,
                                  "touched_lines": {k: v[:20] for k, v in touched_lines.items()}, "touches_pr_commits": sorted(writers),
                                  "days_after_merge": round((datetime.fromisoformat(c.time) - merged).total_seconds() / 86400, 1)}})
         return out

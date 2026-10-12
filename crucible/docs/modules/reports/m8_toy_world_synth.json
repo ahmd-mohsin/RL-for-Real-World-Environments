@@ -34,21 +34,21 @@
   },
   "negatives": {
    "status": "done",
-   "attempts": 1,
-   "reused": false,
+   "attempts": 0,
+   "reused": true,
    "findings": [],
    "cost_usd": 0.0
   },
   "audit": {
    "status": "done",
-   "attempts": 1,
-   "reused": false,
+   "attempts": 0,
+   "reused": true,
    "findings": [],
    "cost_usd": 0.0
   }
  },
  "signals": {
-  "approval": "sig_62a4da715b814529"
+  "approval": "sig_635e96ef7b4b8113"
  },
  "spend_usd": 0,
  "audit": {
@@ -59,7 +59,7 @@
  "accept": {
   "toy/helpdesk_v2/t1_duplicate": {
    "task_id": "toy/helpdesk_v2/t1_duplicate",
-   "task_hash": "b353524591ede4a9f735c40f",
+   "task_hash": "2573f0e6fcb806e8f27abc99",
    "ok": true,
    "checks": [
     {
@@ -231,7 +231,7 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "11/11",
+      "checks_with_provenance": "12/12",
       "share": 1.0,
       "trap_signals": [],
       "reasons": []
@@ -290,7 +290,7 @@
   },
   "toy/helpdesk_v2/t2_approval": {
    "task_id": "toy/helpdesk_v2/t2_approval",
-   "task_hash": "ea87efe9301b79639874147f",
+   "task_hash": "245f5662a84b651e96e999be",
    "ok": true,
    "checks": [
     {
@@ -352,6 +352,7 @@
         "expected": "fail",
         "reward": 0.0,
         "failing": [
+         "policy",
          "outcome"
         ],
         "ok": true
@@ -483,10 +484,10 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "11/11",
+      "checks_with_provenance": "12/12",
       "share": 1.0,
       "trap_signals": [
-       "sig_62a4da715b814529"
+       "sig_635e96ef7b4b8113"
       ],
       "reasons": []
      }
@@ -544,7 +545,7 @@
   },
   "toy/helpdesk_v2/t3_in_transit": {
    "task_id": "toy/helpdesk_v2/t3_in_transit",
-   "task_hash": "e5a46978545f505d401330f1",
+   "task_hash": "d1f10be1af5996296901f76d",
    "ok": true,
    "checks": [
     {
@@ -697,7 +698,7 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "11/11",
+      "checks_with_provenance": "12/12",
       "share": 1.0,
       "trap_signals": [],
       "reasons": []
@@ -756,7 +757,7 @@
   },
   "toy/helpdesk_v2/t4_decoy": {
    "task_id": "toy/helpdesk_v2/t4_decoy",
-   "task_hash": "f874f536a834cd2dd803a7c6",
+   "task_hash": "9e139d8e64ef9332d4ef2707",
    "ok": true,
    "checks": [
     {
@@ -818,6 +819,7 @@
         "expected": "fail",
         "reward": 0.0,
         "failing": [
+         "policy",
          "outcome"
         ],
         "ok": true
@@ -939,10 +941,10 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "11/11",
+      "checks_with_provenance": "12/12",
       "share": 1.0,
       "trap_signals": [
-       "sig_62a4da715b814529"
+       "sig_635e96ef7b4b8113"
       ],
       "reasons": []
      }
@@ -1000,7 +1002,7 @@
   },
   "toy/helpdesk_v2/t5_compose": {
    "task_id": "toy/helpdesk_v2/t5_compose",
-   "task_hash": "a62d0a902bc0fd083781b055",
+   "task_hash": "247641de8604527ea4855c42",
    "ok": true,
    "checks": [
     {
@@ -1197,7 +1199,7 @@
      "id": "A8",
      "status": "pass",
      "detail": {
-      "checks_with_provenance": "14/14",
+      "checks_with_provenance": "15/15",
       "share": 1.0,
       "trap_signals": [],
       "reasons": []

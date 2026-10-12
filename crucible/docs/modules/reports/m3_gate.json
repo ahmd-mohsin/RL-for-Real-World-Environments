@@ -20,14 +20,14 @@
   "github_pr": {
    "refs": 55,
    "traces": 55,
-   "seconds": 86.8,
+   "seconds": 84.7,
    "events": 207,
    "outcomes": {
     "unknown": 55
    },
    "post_merge": {
     "reverted": 0,
-    "fix_touching_pr_lines": 8,
+    "fix_touching_pr_lines": 6,
     "origin": {
      "git": 55
     }
@@ -36,7 +36,7 @@
   "claude_code_sessions": {
    "refs": 1,
    "traces": 1,
-   "seconds": 12.0,
+   "seconds": 12.5,
    "events": 9684,
    "events_per_task": {
     "task01_prims_omp": 111,
@@ -49,7 +49,7 @@
   "agent_runs": {
    "refs": 11,
    "traces": 11,
-   "seconds": 2.2,
+   "seconds": 2.3,
    "events": 2532,
    "outcomes": {
     "bad": 5,
@@ -275,7 +275,7 @@
   "same_keys": true,
   "fresh_clock": true,
   "reordered_export": true,
-  "seconds": 83.7
+  "seconds": 99.6
  },
- "seconds": 187.5
+ "seconds": 202.2
 }

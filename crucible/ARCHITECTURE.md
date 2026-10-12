@@ -38,7 +38,7 @@ We build one module at a time. Every module has an **exit gate**, a measurement 
 | M1 world | built | passed (5/5 seed worlds 3/3 on the RTX 5090; 266/266 MiMo envs; 100/100 AWM envs; agentenv clock and triggers). Added after the gate: Postgres, any-MCP-server, website, browser and hidden-check CI Apps; leak scrubber; isolation guard on every container backend (Harbor, agentenv sandboxes) with a red-team suite of 25+ attacks; GPU sandboxes everywhere (lab RTX 5090 via Harbor and agentenv, Modal/Daytona/GKE via Harbor, Modal via agentenv); one tool-call choke point; virtual time for tool modules; World audit (`crucible world validate`) | `docs/modules/M01-world.md` |
 | M2 actors | built | passed (reviewer location precision 0.96 / 0.98 on real PCL / CCCL reviews; fabrication 0/225 sentences (quote mode) and 0% on toy; LLM agent + simulated customer episode reaches the expert end state). Hardened after the gate: episode limits and typed stop conditions, valid histories under parallel calls, status-code error classes, per-sample cache keys, simulated users that end conversations | `docs/modules/M02-actors.md` |
 | M3 connectors | built | passed, offline with 0 API calls: 55 GPU-migration PR traces from git; the task 01–04 construction transcript (9,684 events); 11/11 frontier runs; CI reports, policy docs, toy ticket logs; 106/106 schema-valid; 20 planted canary formats and the workspace's 4 real credentials removed; idempotent re-ingest. Generic: file_drop, sql_audit_log, otel_import, capture_proxy (OpenAI + Anthropic, streaming), atif. Coding: github_pr (+ offline git discovery), claude_code_sessions, agent_runs, ci_logs, policy_docs. Not built: issues, gitlab (need APIs). Article cross-check (2026-10-09): answer-key probes in every agent trace (none exposed in 11 runs), egress self-test on 17 answer-source hosts with TLS/SNI, audit `network.answer_sources`, World traces record writes; seed-grader holes logged in DESIGN Appendix B.10 | `docs/modules/M03-connectors.md`, `docs/reviews/2026-10-09-articles-crosscheck.md` |
-| M4 signals | in progress | dev gate passed (type, attribution, outcome on 50 hand labels); toy ticket mapper and coding `agent_run` mapper (gate-level frontier failures) added for M8; held-out coding labels pending | `docs/modules/reports/m4_gate_coding_dev.json` |
+| M4 signals | in progress | audited 2026-10-12. Coding dev gate 1.0 / 1.0 / 1.0 on 50 events and 14 outcomes (stricter scoring, labels keyed by row ids); toy gate 1.0 / 1.0 / 1.0 on 84 events and 12 outcomes (scored for the first time). Neither is `confident` (95% lower bounds below the bars at this label count); held-out coding labels and a second labeller pending | `docs/modules/reports/m4_gate_coding_dev.json`, `docs/modules/reports/m4_gate_toy_test.json`, `docs/audit/2026-10-12/M04-signals.md` |
 | M5 workflow | built | 2 of 3: replay 94.9% (strict 91.1%) on 913 public OpenHands traces and 24/24 toy logs (31 recorded checks reproduced); tracker κ 0.87 vs manual stage labels (toy); rediscovery 5/6 families on 55 PCL GPU PRs (bit-exactness not in upstream history, only in reference-differential checks) | `docs/modules/M05-workflow.md` |
 | M6 credit | built | R1–R6 pass on every coding (tasks 01–04, recorded outcomes) and toy task; S2 fails as specified: Φ at the midpoint 0.50 vs LLM judge 0.75 (state unchanged by then), at the end Φ is better within a task (0.72 vs 0.67); C3 vs ΔΦ on task04 pending (GPU + ~$130). Native harness `BashLoopPolicy` (mini-swe-agent v2 loop) | `docs/modules/M06-credit.md` |
 | M7 verify | built | toy golden ✅ (oracle 1, no-op 0, 7/7 negatives at their gate); A13 attack suite ✅ (honest 1, 11/11 cheats 0, 6 controls prove the cheats beat a seed-style grader); CPU golden ✅ (task04 36/36 recorded verdicts, task03 static 10/10; one contaminated historical grade masked as designed); GPU golden ✅ task04 8/8 (every recorded profile reproduced in the real verifier image; astra_v3b re-graded on an idle GPU 2026-10-11), task03 GPU golden open; tasks 01/01v2/02 plans not written. Record-relative score gates and honest abstention (P29) | `docs/modules/M07-verify.md` |
@@ -520,14 +520,16 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
 - **Purpose:** find, type, attribute and weigh expert signals.
 - **Contents:**
   - `taxonomy.py`: outcome, correction, rejection, approval, rework, revert, escalation, violation, sla_breach, interrupt, suggestion_accepted, target;
-  - `extract.py` (runs the pack's mappers);
+  - `extract.py` (runs the pack's mapper and outcome labeler, plus the generic session rules; validates the output; ids keyed on stable event keys);
+  - `session.py` (interrupts and rejected tool use in any agent session, graded on the proposing call);
   - `attribute.py` (which step each signal grades — the generic rule: the event that last wrote the object the signal is about; the coding rule: blame within the PR);
-  - `reliability.py` (per-type agreement with later outcomes);
-  - `labels.py` (outcome labelers supplied by packs).
+  - `reliability.py` (agreement with later evidence the mapping rule did not use, per family, type and human or automated source);
+  - `pivots.py` (graded-wrong-then-corrected steps), `gate.py` (the exit gate against hand labels);
+  - outcome labelers are pack plugins (`outcome_labeler`), like the mappers.
 - **Takes:** PATTERN only: SWE-smith `harness/repair.py` (cleaning flaky CI), NeMo-Gym `swe_pivot` (finding decision points), research-environments review rubric (candidates).
 - **We build:** all of it. No framework has this layer.
-- **Coding:** review defects at lines, accepted suggestions, reverts and hotfixes, CI regressions, perf targets.
-- **Toy:** reopen, escalation, CSAT.
+- **Coding:** review defects at lines, accepted suggestions, reverts and hotfixes, CI regressions (check runs and CI logs), frontier-run gate failures, perf targets.
+- **Toy:** reopen, escalation, customer replies, CSAT (as the trace's outcome).
 - **Exit gate:** on 50 hand-labeled events per pack:
   - type accuracy ≥ 0.9;
   - step-attribution precision ≥ 0.9;

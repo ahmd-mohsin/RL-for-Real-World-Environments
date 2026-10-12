@@ -79,7 +79,7 @@
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
    "trap_signals": [
-    "sig_e5cc99b7df2c062f"
+    "sig_0c14e210101c6cfb"
    ],
    "c2": {
     "proposed": 55,
@@ -202,7 +202,7 @@
    },
    "trap": "a property the correctness/ncv gate grades, which openai/gpt-5.6-sol broke",
    "trap_signals": [
-    "sig_e5cc99b7df2c062f"
+    "sig_0c14e210101c6cfb"
    ],
    "c2": {
     "proposed": 27,
@@ -365,7 +365,7 @@
    "skipped": "no recorded frontier failure for this seed (its only frontier run passed)"
   },
   "task01v2_tessera_omp": {
-   "signal": "sig_7cc2641232658e35",
+   "signal": "sig_6271c58280f6c3f5",
    "gate": "tests_gpu",
    "model": "openai/gpt-5.6-sol",
    "area": [
@@ -524,7 +524,7 @@
    "cpu_ok": true
   },
   "task02_pcops_triton": {
-   "signal": "sig_182bce529d0ea29e",
+   "signal": "sig_f47a8fc4c411310f",
    "gate": "ops",
    "model": "openai/gpt-5.6-sol",
    "area": [
@@ -607,7 +607,7 @@
    "cpu_ok": true
   },
   "task03_mdlite_pallas": {
-   "signal": "sig_19737a8ebceb6f63",
+   "signal": "sig_5529226d9a57dd29",
    "gate": "api",
    "model": "openai/gpt-5.6-sol",
    "area": [
@@ -680,7 +680,7 @@
    "cpu_ok": true
   },
   "task04_pcl_gpu_cuda12": {
-   "signal": "sig_e5cc99b7df2c062f",
+   "signal": "sig_0c14e210101c6cfb",
    "gate": "correctness/ncv",
    "model": "openai/gpt-5.6-sol",
    "area": [

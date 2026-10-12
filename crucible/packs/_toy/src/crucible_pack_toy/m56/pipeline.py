@@ -42,6 +42,7 @@ from crucible.workflow.stages import induce, name_stages
 from crucible.workflow.steps import segment
 from crucible.workflow.tracker import WorkflowTracker
 from crucible_pack_toy import PACK_ROOT
+from crucible_pack_toy.outcomes import ticket_outcome
 
 FAMILY = "toy/helpdesk_ticket"
 LOGS = PACK_ROOT / "data" / "ticket_logs" / "tickets.jsonl"
@@ -70,16 +71,7 @@ def toy_states(t: Trace) -> list[tuple[int, LogStateView]]:
 
 
 def outcome(t: Trace) -> str:
-    csat = [e.data.get("score") for e in t.events if e.type == "csat"]
-    statuses = [(e.seq, e.data.get("status")) for e in t.events if e.data.get("status")]
-    last_status = statuses[-1][1] if statuses else None
-    reopened = any(e.type == "reopened" for e in t.events)
-    score = int(csat[-1]) if csat and csat[-1] is not None else None
-    if (score is not None and score <= 2) or (reopened and last_status != "resolved"):
-        return "bad"
-    if score == 3:
-        return "unknown"
-    return "good" if last_status == "resolved" else "unknown"
+    return ticket_outcome(t)  # the M4 toy guideline, shared with the registered outcome labeler
 
 
 # ---------------------------------------------------------------- replay (S1)

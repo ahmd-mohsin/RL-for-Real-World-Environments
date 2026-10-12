@@ -25,7 +25,7 @@ from typing import Any
 from harbor.models.trajectories import Trajectory
 
 from crucible.connectors.base import RawRecord, SourceRef
-from crucible.core.agent_events import INTERRUPT, REJECTED, annotate_probes, writes_of
+from crucible.core.agent_events import REJECTED, annotate_probes, user_type, writes_of
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceSource
 
@@ -58,7 +58,14 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
         events.append(TraceEvent(seq=seq, **kw))
         return seq
 
+    walked: set[int] = set()
+
     def walk(t: Trajectory, sub: str | None) -> None:
+        walked.add(id(t))
+        # a subagent's steps follow the call that delegated to it (Harbor ``subagent_trajectory_ref`` on that call's
+        # result), so a later correction can grade them and the parent call records ``delegated_to``; refs that do not
+        # resolve are appended after the parent as before (M4 audit: all were appended, after the user's later turns)
+        subs = {s.trajectory_id: s for s in t.subagent_trajectories or [] if s.trajectory_id}
         for step in t.steps:
             ref = f"{atif_key}#{step.step_id}" if atif_key else None
             extra = step.extra or {}
@@ -71,7 +78,8 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
                 if here:  # the task the main agent gave its subagent: written by the agent, not a person
                     add(time=step.timestamp, kind="message", actor="agent", type="subagent_prompt", text=msg[:max_text], atif_ref=ref, data=base)
                     continue
-                typ = "interrupt" if INTERRUPT.search(msg) else ("copied_context" if step.is_copied_context else "user_message")
+                typ = user_type(msg)  # interrupt / rejection (mini-swe-agent's is a user message) / talk
+                typ = "copied_context" if typ == "user_message" and step.is_copied_context else typ
                 add(time=step.timestamp, kind="message", actor="user", type=typ, text=msg[:max_text], atif_ref=ref, data=base)
                 continue
             if step.is_copied_context:  # replayed from an earlier trajectory: not new work, not training data (Harbor step.py)
@@ -100,8 +108,17 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
                     reply_to=call_seq.get(r.source_call_id or "", step_calls[i] if i < len(step_calls) else None),
                     data={**base, "call_id": r.source_call_id, "chars": len(out or ""), **({"rejected": True} if REJECTED.search(out or "") else {}),
                           **({"error": True} if is_error else {})})
+                for ref in getattr(r, "subagent_trajectory_ref", None) or []:
+                    child = subs.get(ref.trajectory_id) if ref.trajectory_id else None
+                    if child is None or id(child) in walked:
+                        continue
+                    caller = call_seq.get(r.source_call_id or "", step_calls[i] if i < len(step_calls) else None)
+                    if caller is not None:
+                        events[caller].data.setdefault("delegated_to", []).append(ref.trajectory_id)
+                    walk(child, ref.trajectory_id)
         for s in t.subagent_trajectories or []:
-            walk(s, s.trajectory_id or s.session_id or "subagent")  # siblings inherit the parent's session id
+            if id(s) not in walked:
+                walk(s, s.trajectory_id or s.session_id or "subagent")  # siblings inherit the parent's session id
 
     walk(traj, None)
     probes = annotate_probes(events)

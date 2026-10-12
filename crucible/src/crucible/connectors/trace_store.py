@@ -19,7 +19,7 @@ import os
 from collections.abc import Iterator
 
 from crucible.core.prov import Provenance
-from crucible.core.schema.trace import Trace
+from crucible.core.schema.trace import Trace, event_key
 from crucible.core.store import Store
 
 KIND = "trace"
@@ -37,9 +37,8 @@ class TraceStore:
             os.chmod(f, 0o600)
 
     @staticmethod
-    def _identity(e) -> tuple:
-        rid = e.data.get("row_id") if isinstance(e.data, dict) else None
-        return ("row", rid) if rid is not None else ("event", e.time, e.type, e.actor, e.text)
+    def _identity(e) -> str:
+        return event_key(e)
 
     def _carry_signals(self, trace: Trace) -> Trace:
         head = self._head_key(trace.trace_id)

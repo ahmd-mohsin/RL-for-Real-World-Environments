@@ -7,413 +7,415 @@
  "events": [
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 20,
+   "event": "row:comment:2969445125",
    "type": "correction",
    "grades": [
-    3
+    "row:commit:f2f6dea4c4e35dbc68b86a10b7a77f77f7f75fcb"
    ],
    "note": "asks for documentation of set_sigma; the commented code changed afterwards"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 28,
+   "event": "row:comment:2982368824",
    "type": "correction",
    "grades": [
-    1
+    "row:commit:aefe5db5f79ec69c75350dfcf9d6b62ec7adc9d5"
    ],
    "note": "'can also be removed?' implies a change; the file was removed"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 32,
+   "event": "row:comment:2982591405",
    "type": "correction",
    "grades": [
-    1
+    "row:commit:aefe5db5f79ec69c75350dfcf9d6b62ec7adc9d5"
    ],
    "note": "SPDX switch requested; final header is SPDX"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 36,
+   "event": "row:comment:2987055171",
    "type": "suggestion_accepted",
    "grades": [
-    1
+    "row:commit:aefe5db5f79ec69c75350dfcf9d6b62ec7adc9d5"
    ],
    "note": "suggested '/** \\brief Constructor */' is in the final file, use_umeyama gone"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 39,
+   "event": "row:comment:2987055225",
    "type": "correction",
    "grades": [
-    1
+    "row:commit:aefe5db5f79ec69c75350dfcf9d6b62ec7adc9d5"
    ],
    "note": "wrong class name in message; the TransformationSVD tag is gone"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6199",
-   "seq": 60,
+   "event": "row:comment:3303413906",
    "type": "correction",
    "grades": [
-    4
+    "row:commit:7c8128006445c243aec44668844d946a6ee6c0e6"
    ],
    "note": "suggested pcl::index_t; final has neither form -> changed, not the suggestion verbatim"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 11,
+   "event": "row:comment:1977408839",
    "type": "none",
    "grades": null,
    "note": "draft alternative phrased as a question ('wouldn't this work?') on a pre-existing line"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 41,
+   "event": "row:review:2718244874",
    "type": "none",
    "grades": null,
    "note": "Copilot: could not review any files"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 47,
+   "event": "row:comment:2264850728",
    "type": "correction",
    "grades": [
-    36
+    "row:commit:1fb51d3f422dd2f0fe1f7d013c73dbe06174ee3d"
    ],
    "note": "compile error flagged; LogRecorder class removed (suggestion not applied verbatim)"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 68,
+   "event": "row:comment:2659810169",
    "type": "correction",
    "grades": [
-    48
+    "row:commit:34a715ab1c2d74eaad39a8f4c8dcb0337940a03b"
    ],
    "note": "asked to check isVerbosityLevelEnabled before to_string; final print() returns early on it (change is adjacent to the commented line)"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 70,
+   "event": "row:comment:2659861835",
    "type": "none",
    "grades": null,
    "note": "reply in a thread"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 81,
+   "event": "row:comment:2694303255",
    "type": "correction",
    "grades": [
-    80
+    "row:commit:62c5c72d4833a42df7440ace5507a02d6b5e7650"
    ],
    "note": "revised after re-examination: the shared std::stringstream member was removed (the reviewer's second option); my first string check matched another class"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6244",
-   "seq": 101,
+   "event": "row:check:64727487024",
    "type": "check_result",
    "grades": [
-    95
+    "row:commit:a8391554714fefbdb8a772e6bb358ffc6901e134"
    ],
    "note": "CI success on the head"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 1,
+   "event": "row:comment:2146042745",
    "type": "correction",
    "grades": [
-    15
+    "row:commit:3f63fd896e6f59b16a2c903b2e76d0683796ca92"
    ],
    "note": "omp_get_num_procs outside #ifdef flagged; code changed (suggestion not verbatim)"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 2,
+   "event": "row:comment:2146042768",
    "type": "correction",
    "grades": [
-    15
+    "row:commit:3f63fd896e6f59b16a2c903b2e76d0683796ca92"
    ],
    "note": "uninitialized member flagged; final has no such member declaration"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 6,
+   "event": "row:review:2926317091",
    "type": "none",
    "grades": null,
    "note": "author's own review, empty"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 8,
+   "event": "row:review:2926368017",
    "type": "none",
    "grades": null,
    "note": "Copilot overview, no request"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 30,
+   "event": "row:comment:2161685998",
    "type": "none",
    "grades": null,
    "note": "reviewer reply in a thread (guideline: the thread root carries the signal)"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 42,
+   "event": "row:comment:2358395025",
    "type": "none",
    "grades": null,
    "note": "author reply 'Done'"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 49,
+   "event": "row:check:50679516603",
    "type": "check_result",
    "grades": [
-    63
+    "row:commit:27123106e87444ff088ec3870de0e30e6083e626"
    ],
    "note": "tidy success"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6293",
-   "seq": 71,
+   "event": "row:comment:2395676395",
    "type": "rejection",
    "grades": [
-    63
+    "row:commit:27123106e87444ff088ec3870de0e30e6083e626"
    ],
    "note": "points out num_threads_{0} is never replaced (a bug report); unchanged in the final head"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6309",
-   "seq": 8,
+   "event": "row:comment:2287789850",
    "type": "correction",
    "grades": [
-    1
+    "row:commit:2556e89defcdf67aaa774077bcfe3c18388c5b3f"
    ],
    "note": "asked to move getFields to io.h; gone from this file"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6309",
-   "seq": 22,
+   "event": "row:comment:2316983555",
    "type": "correction",
-   "grades": null,
-   "note": "revised after re-examination: after 'intentional?', getFieldName() was moved back to public"
+   "grades": [
+    "row:commit:2556e89defcdf67aaa774077bcfe3c18388c5b3f"
+   ],
+   "note": "revised after re-examination: after 'intentional?', getFieldName() was moved back to public | grades revised in the M4 audit: `git blame -L 373,373 7286269` names 2556e89 (the line is a '+' line of the PR's diff hunk); the null was left when the type was revised"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6309",
-   "seq": 44,
+   "event": "row:review:3232754889",
    "type": "none",
    "grades": null,
    "note": "empty COMMENTED review"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6309",
-   "seq": 54,
+   "event": "row:check:50868298834",
    "type": "check_result",
    "grades": [
-    63
+    "row:commit:cdb5da7d1a6d11ab8c3d5b75db9e93a10ed664e5"
    ],
    "note": "formatting check success"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6358",
-   "seq": 2,
+   "event": "row:review:3310243739",
    "type": "none",
    "grades": null,
    "note": "empty COMMENTED review"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6358",
-   "seq": 5,
+   "event": "row:comment:2410953716",
    "type": "none",
    "grades": null,
    "note": "author reply"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6363",
-   "seq": 8,
+   "event": "row:comment:2521799856",
    "type": "rejection",
    "grades": [
-    3
+    "row:commit:b40a7c32883044fb19c6cf602f0097ebdfd4a551"
    ],
    "note": "nitpick suggestion return (*this); final keeps return *this;"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6363",
-   "seq": 12,
+   "event": "row:comment:2521800051",
    "type": "rejection",
    "grades": [
-    3
+    "row:commit:b40a7c32883044fb19c6cf602f0097ebdfd4a551"
    ],
    "note": "same nitpick, not applied"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6363",
-   "seq": 13,
+   "event": "row:comment:2521800078",
    "type": "rejection",
    "grades": [
-    3
+    "row:commit:b40a7c32883044fb19c6cf602f0097ebdfd4a551"
    ],
    "note": "same nitpick, not applied"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6363",
-   "seq": 33,
+   "event": "row:review:3468197821",
    "type": "none",
    "grades": null,
    "note": "author's review, empty"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6364",
-   "seq": 1,
+   "event": "row:comment:2503462242",
    "type": "suggestion_accepted",
    "grades": null,
    "note": "deletion suggestion applied (source_group line gone); the line predates the PR"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6371",
-   "seq": 25,
+   "event": "row:comment:2588435278",
    "type": "correction",
    "grades": null,
    "note": "'can be removed?' -> the using statement was removed; the line predates the PR"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6371",
-   "seq": 37,
+   "event": "row:comment:2593977701",
    "type": "suggestion_accepted",
    "grades": [
-    1
+    "row:commit:2ee5ffa9d1436d4e4c44b8929aa6246eb8cef332"
    ],
    "note": "'Suggested fix' code block applied verbatim (emplace_back ( spacing)"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6371",
-   "seq": 53,
+   "event": "row:review:3601919655",
    "type": "approval",
    "grades": [
-    30
+    "row:commit:2b3779dd1fbb93eda0507f63144e4189a25fc8f2"
    ],
    "note": "APPROVED 'Thanks!'"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6375",
-   "seq": 26,
+   "event": "row:comment:2681124406",
    "type": "rejection",
    "grades": [
-    1
+    "row:commit:897032db2cfd7fc74347cec2024c7bfa2b397b8e"
    ],
    "note": "asks to add a removal note; none added"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6375",
-   "seq": 38,
+   "event": "row:comment:2683788422",
    "type": "none",
    "grades": null,
    "note": "reply in a thread"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6375",
-   "seq": 53,
+   "event": "row:check:60662066482",
    "type": "check_result",
    "grades": [
-    54
+    "row:commit:f8337ddeed9cd7fb38f13072bea1a61b37626174"
    ],
    "note": "Build success"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6376",
-   "seq": 2,
+   "event": "row:comment:2605534503",
    "type": "suggestion_accepted",
    "grades": null,
    "note": "ptrdiff_t loop suggestion applied; the commented line predates the PR"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6376",
-   "seq": 17,
+   "event": "row:comment:2935113977",
    "type": "correction",
    "grades": [
-    27
+    "row:commit:ed0679249a0be08bc5fb58d5266fb56063ddf51e"
    ],
    "note": "\\warn -> \\warning done"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6376",
-   "seq": 21,
+   "event": "row:comment:2935136193",
    "type": "rejection",
    "grades": [
-    27
+    "row:commit:ed0679249a0be08bc5fb58d5266fb56063ddf51e"
    ],
    "note": "asks to merge the two critical sections; both remain"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6376",
-   "seq": 23,
+   "event": "row:comment:2935136201",
    "type": "correction",
    "grades": [
-    27
+    "row:commit:ed0679249a0be08bc5fb58d5266fb56063ddf51e"
    ],
    "note": "revised after re-examination: the author added a DIRECT27 case using getAllNeighborsAtPoint next to the commented line, as the reviewer proposed"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6376",
-   "seq": 25,
+   "event": "row:comment:2935136204",
    "type": "correction",
    "grades": [
-    27
+    "row:commit:ed0679249a0be08bc5fb58d5266fb56063ddf51e"
    ],
    "note": "revised after re-examination: same DIRECT27 addition next to the commented line"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6379",
-   "seq": 9,
+   "event": "row:comment:2871896276",
    "type": "none",
    "grades": null,
    "note": "author reply"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6379",
-   "seq": 14,
+   "event": "row:check:65394290401",
    "type": "check_result",
    "grades": [
-    24
+    "row:commit:38160850c5d40d2373a8e8688bd9281f0daa0743"
    ],
    "note": "CI success"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6379",
-   "seq": 20,
+   "event": "row:check:65402958080",
    "type": "check_result",
    "grades": [
-    24
+    "row:commit:38160850c5d40d2373a8e8688bd9281f0daa0743"
    ],
    "note": "CI success"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6380",
-   "seq": 12,
+   "event": "row:review:3673969863",
    "type": "none",
    "grades": null,
    "note": "empty COMMENTED review"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6380",
-   "seq": 21,
+   "event": "row:comment:2724102605",
    "type": "suggestion_accepted",
    "grades": [
-    2
+    "row:commit:a97a7910c3f75d73b91e6a91ec1e32b1007ac6dc"
    ],
    "note": "suggested const auto& loop is in the final file"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6380",
-   "seq": 29,
+   "event": "row:review:3727871948",
    "type": "none",
    "grades": null,
    "note": "empty COMMENTED review"
   },
   {
    "trace_id": "github:PointCloudLibrary/pcl#6380",
-   "seq": 30,
+   "event": "row:comment:2745917374",
    "type": "suggestion_accepted",
    "grades": [
-    2
+    "row:commit:a97a7910c3f75d73b91e6a91ec1e32b1007ac6dc"
    ],
    "note": "same suggestion repeated, applied"
   }
@@ -490,5 +492,6 @@
    "note": "merged, no revert"
   }
  ],
- "revisions": "4 labels revised after re-examining the diffs (notes say which); revisions follow evidence in the code, never a prediction"
+ "revisions": "5 labels revised after re-examining the diffs (notes say which); revisions follow evidence in the code, never a prediction",
+ "migrated": "2026-10-12 (M4 audit): events and grades moved from positions to the connector's row ids (commit sha, comment, review and check-run ids), resolved against the trace versions the labels were written on; no label changed"
 }

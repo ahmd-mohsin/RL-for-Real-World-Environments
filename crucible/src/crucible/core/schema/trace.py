@@ -49,6 +49,19 @@ class TraceEvent(CrucibleModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+def event_key(e: TraceEvent) -> str:
+    """A stable name for an event across re-ingests: the source's own row id when the connector kept one (a GitHub
+    comment id, a ticket-log row), else its time, type, actor and text. Seqs are positions: one earlier row shifts
+    them all, so signal ids, hand labels and carried signals name events by this key (M4 audit)."""
+    import hashlib
+    import json
+
+    rid = e.data.get("row_id") if isinstance(e.data, dict) else None
+    if rid is not None:
+        return f"row:{rid}"
+    return "ev:" + hashlib.sha256(json.dumps([e.time, e.type, e.actor, e.text], ensure_ascii=False).encode()).hexdigest()[:24]
+
+
 class TraceOutcome(CrucibleModel):
     label: Literal["good", "bad", "unknown"] = "unknown"
     label_source: str | None = None  # e.g. "merged + 30d no revert"

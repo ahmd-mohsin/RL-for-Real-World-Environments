@@ -390,13 +390,13 @@ Privacy is enforced by the connector contract: `redact()` runs inside the tenant
 
 | Signal | Where it is recorded | Credit it implies | Reliability | Use |
 |---|---|---|---|---|
-| CI result per commit | check runs | outcome of the state after that step | high (deterministic tests; flaky tests are filtered as in SWE-smith `harness/repair.py`) | milestone evidence; step outcome |
+| CI result per commit | check runs; CI logs (one check per test) | outcome of the state after that step | high (deterministic tests; flaky tests are filtered as in SWE-smith `harness/repair.py`; infra failures are not scored) | milestone evidence; step outcome |
 | Review comment requesting a change, at a line | review thread | **negative** credit on the step that introduced those lines (blame inside the PR) | medium–high | defect → check (§6.3); rubric candidate |
 | Accepted suggestion / the next commit fixing a commented line | review + diff | (wrong, corrected) action pair | high | negative mutant; DPO pair; trap synthesis |
 | Revert or hotfix within N days | history after merge | strong **negative** for the originating step | high (survives review) | regression check; outcome label |
 | Approval + merge, then 30 days without revert | PR state + history | positive terminal outcome | medium (reviews miss bugs) | outcome label |
 | Benchmark numbers in the PR / CI | PR text, perf CI | target perf bar | medium (noisy; recalibrate) | perf gate threshold |
-| User interrupt or rejected edit in an agent session | session log | **negative** on that tool call | medium | step label; PRM training |
+| User interrupt or rejected edit in an agent session | session log | **negative** on that tool call (the proposing call: a rejected command never ran, so it wrote nothing) | medium | step label; PRM training |
 | Manual edit after the agent finished | session + diff | (agent output, expert fix) pair | high | correction mining |
 | Policy text (migration guide) | docs | candidate rubric item | low until validated | rubric candidate (§6.5) |
 
@@ -1442,7 +1442,7 @@ it found, now queued:
 - a candidate can turn a perf failure into a masked grade (M7);
 - dense credit ignores gates, with live evidence on finance_ap (M6);
 - judges read agent text unfenced;
-- circular M4 reliability;
+- circular M4 reliability (addressed in the M4 audit: verdicts use only evidence the mapping rule did not);
 - uncontained harness exceptions;
 - broken layering with no CI;
 - the `SandboxPool` loop;
@@ -2753,6 +2753,16 @@ write detection read shell commands, argv arrays and harness sentences correctly
 runner's summary says otherwise. PR history follows renames and matches reverts by exact PR number. Details:
 `docs/audit/2026-10-12/M03-connectors.md`.
 
+**M4 audit (2026-10-12).** The coding M4 gate had silently broken under the M3 fixes: hand labels named events by
+position, and the outcome rule read a fetch time M3 had removed, so every merged PR was "unknown". Events now carry
+stable keys (the source's row id) that signal ids, labels and carried signals use, and the PR connector records what it
+saw of the 30-day window. The gate fails closed (missing traces, extra signals, a step graded where the label says none),
+needs 50 labels and reports intervals. Reliability is judged only on evidence the mapping rule did not use, per family,
+type and human or automated source, fitted on traces the gate does not score. Attribution treats `file:` objects as
+paths and respects the App; business-App calls record the records they change; agent sessions yield interrupts and
+rejections without a pack mapper; CI logs have a mapper. The toy pack's labels are scored for the first time. A revert
+is never the "chosen" side of a preference pair. Details: `docs/audit/2026-10-12/M04-signals.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
@@ -2911,7 +2921,7 @@ Registry check: A3, mutation score.
 | The egress self-test made plain TCP connects to two hosts | a transparent egress proxy accepts every connect (false alarm); mirrors and wheel hosts were never probed | 17 answer-source hosts, TLS/SNI, allowlist lanes; fixed |
 | An allowlist could open a public index or code host | `pip download` of the fixed release through the "narrow lane" | audit `network.answer_sources`; fixed |
 | No record of answer-key probes in traces | a contaminated pass counts as a solve | P27, `agent_events.py`, `crucible:answer_exposed`; fixed (no exposure in any of the 11 frontier runs) |
-| World traces recorded no `writes` | M4 cannot credit the agent (or peer) that made an edit | `writes` per edit call; fixed |
+| World traces recorded no `writes` | M4 cannot credit the agent (or peer) that made an edit | `writes` per edit call; fixed. Business-App calls (`tickets.update_ticket`, `erp.approve_invoice`) still wrote nothing until the M4 audit: they now record the records and fields they change |
 | Docker Hub and RunPod key formats were not redacted; human actor ids were not pseudonymized | real credentials and identities in stored traces | M3 redaction; fixed |
 
 **B.11 Found while building M5/M6 (2026-10-09).** Each is fixed, or recorded as a design limit, and covered by a test or a gate report.

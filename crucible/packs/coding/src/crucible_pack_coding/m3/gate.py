@@ -44,7 +44,7 @@ NOW = "2026-10-09T12:00:00+00:00"  # outcome windows are computed against this i
 GPU_MIGRATION = (r"\bcuda\b|thrust|\bcub\b|nvcc|\bsm_\d|compute capabilit|texture|\bwarp|__shfl|deprecat|\bc\+\+1[47]\b|toolkit"
                  r"|kepler|maxwell|pascal|volta|turing|ampere|hopper|blackwell|\bport(?:s|ed|ing)?\b|moderni[sz]")
 PCL_POLICY = ["CONTRIBUTING.md", "doc/advanced/content/pcl_style_guide.rst", ".clang-format", ".clang-tidy", ".github/CODEOWNERS", "CODEOWNERS"]
-TICKET_FIELDS = FieldMap(family="toy/support_ticket", extra=["team"])
+TICKET_FIELDS = FieldMap(family="toy/support_ticket", extra=["status", "team", "score", "amount", "rule", "sla", "plan"])  # what the M4 toy mapper reads (CSAT scores were dropped)
 
 
 def sources() -> list[tuple[str, Any, list[SourceRef]]]:

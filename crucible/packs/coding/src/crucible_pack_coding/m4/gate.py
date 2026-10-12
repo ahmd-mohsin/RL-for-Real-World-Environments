@@ -24,12 +24,15 @@ def run(split: str = "dev", rebuild: bool = True) -> dict:
         build("PointCloudLibrary/pcl", {"from_review_pages": 3, "min_comments": 3}, ts)
     labels = load_labels(HERE / f"labels_{split}.json")
     ids = sorted({e["trace_id"] for e in labels["events"]} | {o["trace_id"] for o in labels.get("outcomes", [])})
-    traces = {t: extract(ts.get(t)) for t in ids}
-    rel = estimate(traces.values())
-    traces = {t: apply(tr, rel) for t, tr in traces.items()}
+    # reliability is fitted on the stored PRs nobody labelled and applied to the labelled ones (M4 audit: it was fitted
+    # and scored on the same 14 traces)
+    rest = [extract(ts.get(t)) for t in ts.ids() if t not in ids and t.startswith("github:")]
+    rel = estimate(rest)
+    traces = {t: apply(extract(ts.get(t)), rel) for t in ids if t in set(ts.ids())}
     rep = evaluate(traces, labels)
-    out = {**rep.to_dict(), "split": split, "reliability": {k: {"confirmed": r.confirmed, "contradicted": r.contradicted, "mean": round(r.mean, 3)} for k, r in sorted(rel.items())}}
-    return out
+    return {**rep.to_dict(), "split": split, "labels_sha256": labels["sha256"], "reliability_fitted_on": len(rest),
+            "reliability": {"/".join(k): {"confirmed": r.confirmed, "contradicted": r.contradicted, "unscored": r.unscored, "mean": round(r.mean, 3),
+                                          "interval90": [round(x, 3) for x in r.interval()]} for k, r in sorted(rel.items())}}
 
 
 def main() -> None:

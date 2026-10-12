@@ -93,7 +93,7 @@ async def m3_toy_ingest() -> dict:
     """M3 on the lab: ingest the toy ticket logs (file-drop connector, redaction on) into the trace store the M4 signals,
     M8 world synthesis and M9 acceptance read (``data/m3/store``); twice, to check idempotency."""
     from crucible.connectors.base import ingest
-    from crucible.connectors.file_drop import FieldMap, FileDropConnector
+    from crucible.connectors.file_drop import FileDropConnector
     from crucible.connectors.redact import RedactionPolicy
     from crucible.connectors.trace_store import TraceStore
     from crucible.core.store import Store
@@ -101,7 +101,9 @@ async def m3_toy_ingest() -> dict:
 
     root = PACK_ROOT.parent.parent / "data" / "m3" / "store"
     ts = TraceStore(Store(root))
-    conn = FileDropConnector(FieldMap(family="toy/support_ticket", extra=["team"]))
+    from crucible_pack_toy.m4.gate import TICKET_FIELDS
+
+    conn = FileDropConnector(TICKET_FIELDS)
     refs = list(conn.discover({"glob": str(PACK_ROOT / "data" / "ticket_logs" / "*.jsonl")}))
     keys = ingest(conn, refs, ts, policy=RedactionPolicy())
     again = ingest(conn, refs, ts, policy=RedactionPolicy())

@@ -1,0 +1,184 @@
+{
+ "pack": "toy",
+ "type_accuracy": 1.0,
+ "attribution_precision": 1.0,
+ "attribution_recall": 1.0,
+ "outcome_agreement": 1.0,
+ "n_events": 84,
+ "n_attributed": 17,
+ "n_outcomes": 12,
+ "errors": [],
+ "confusion": {
+  "none": {
+   "none": 61
+  },
+  "rejection": {
+   "rejection": 3
+  },
+  "rework": {
+   "rework": 3
+  },
+  "outcome": {
+   "outcome": 5
+  },
+  "escalation": {
+   "escalation": 2
+  },
+  "approval": {
+   "approval": 4
+  },
+  "violation": {
+   "violation": 2
+  },
+  "correction": {
+   "correction": 2
+  },
+  "sla_breach": {
+   "sla_breach": 1
+  },
+  "revert": {
+   "revert": 1
+  }
+ },
+ "per_type_recall": {
+  "approval": 1.0,
+  "correction": 1.0,
+  "escalation": 1.0,
+  "none": 1.0,
+  "outcome": 1.0,
+  "rejection": 1.0,
+  "revert": 1.0,
+  "rework": 1.0,
+  "sla_breach": 1.0,
+  "violation": 1.0
+ },
+ "macro_recall": 1.0,
+ "intervals": {
+  "type_accuracy": [
+   0.9562667346678565,
+   0.9999999999999999
+  ],
+  "attribution_precision": [
+   0.8156763396284354,
+   1.0
+  ],
+  "outcome_agreement": [
+   0.7574992425007574,
+   1.0
+  ]
+ },
+ "outcome_coverage": 0.9166666666666666,
+ "unlabelled_signals": 0,
+ "label_errors": 0,
+ "by_actor_class": {
+  "human": {
+   "events": 23,
+   "type_accuracy": 1.0
+  }
+ },
+ "passed": true,
+ "confident": false,
+ "thresholds": {
+  "type_accuracy": 0.9,
+  "attribution_precision": 0.9,
+  "outcome_agreement": 0.95
+ },
+ "minimums": {
+  "events": 50,
+  "outcomes": 10
+ },
+ "split": "test",
+ "labels_sha256": "9d64ff911bf9f200ca8687f0fefa0ddded7e49c129769610c76fbd0661b49bc0",
+ "reliability": {
+  "toy/support_ticket/approval/human": {
+   "confirmed": 3,
+   "contradicted": 0,
+   "unscored": 0,
+   "mean": 0.8,
+   "interval90": [
+    0.531,
+    1.0
+   ]
+  },
+  "toy/support_ticket/correction/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 1,
+   "mean": 0.75,
+   "interval90": [
+    0.431,
+    1.0
+   ]
+  },
+  "toy/support_ticket/escalation/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 2,
+   "mean": 0.5,
+   "interval90": [
+    0.025,
+    0.975
+   ]
+  },
+  "toy/support_ticket/outcome/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 7,
+   "mean": 0.5,
+   "interval90": [
+    0.025,
+    0.975
+   ]
+  },
+  "toy/support_ticket/rejection/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 4,
+   "mean": 0.5,
+   "interval90": [
+    0.025,
+    0.975
+   ]
+  },
+  "toy/support_ticket/revert/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 1,
+   "mean": 0.75,
+   "interval90": [
+    0.431,
+    1.0
+   ]
+  },
+  "toy/support_ticket/rework/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 3,
+   "mean": 0.5,
+   "interval90": [
+    0.025,
+    0.975
+   ]
+  },
+  "toy/support_ticket/sla_breach/human": {
+   "confirmed": 0,
+   "contradicted": 0,
+   "unscored": 2,
+   "mean": 0.5,
+   "interval90": [
+    0.025,
+    0.975
+   ]
+  },
+  "toy/support_ticket/violation/human": {
+   "confirmed": 1,
+   "contradicted": 0,
+   "unscored": 1,
+   "mean": 0.667,
+   "interval90": [
+    0.279,
+    1.0
+   ]
+  }
+ }
+}

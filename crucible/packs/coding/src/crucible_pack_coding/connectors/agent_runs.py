@@ -11,6 +11,7 @@ keeps for every seed task (``seeds.SEEDS[...]["frontier"]``). Runs with no recor
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -69,7 +70,8 @@ class AgentRunConnector:
                 data={**st, "writes": [f"file:{x}" for x in st["paths"]]})
         report = p.get("grade_report") or {}
         for gate, res in (report.get("gates") or {}).items():
-            ok = bool(res.get("pass")) if isinstance(res, dict) else bool(res)
+            v = res.get("pass") if isinstance(res, dict) else res
+            ok = v is True or (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 1) or (isinstance(v, str) and v.strip().lower() in ("true", "pass", "passed", "1", "yes"))  # bool("false") was a pass (M4 audit)
             add(kind="check", actor="system", type="grade_gate", text=f"{gate}: {'pass' if ok else 'fail'}",
                 data={"gate": gate, "pass": ok, **({"summary": res.get("summary")} if isinstance(res, dict) and res.get("summary") else {})})
         details = {**trace.outcome.details, "task": task, "run": run, "info": {k: v for k, v in (p["trajectory"].get("info") or {}).items() if k != "config"}}
@@ -82,7 +84,16 @@ class AgentRunConnector:
             m = re.search(r"\*\*Reward:\s*([0-9.]+)", p["result_md"])
             reward = float(m.group(1)) if m else None
         hit = (details.get("probes") or {}).get("first_strong_exposure")
-        if reward is None:
+        try:
+            reward = float(reward) if reward is not None else None
+        except (TypeError, ValueError):
+            reward = None
+        exit_status = str((p["trajectory"].get("info") or {}).get("exit_status") or "")
+        if reward is not None and (math.isnan(reward) or reward < 0):  # NaN, or a harness's -1 "not graded" (M4 audit: both were "bad")
+            outcome = TraceOutcome(label="unknown", label_source=f"reward {reward} is not a grade", details=details)
+        elif reward is not None and reward < 1.0 and exit_status in ("LimitsExceeded", "TimeExceeded"):  # the run never finished: not a verdict on the work
+            outcome = TraceOutcome(label="unknown", label_source=f"the run stopped on {exit_status} before it was done", details={**details, "reward": reward, "exit_status": exit_status})
+        elif reward is None:
             outcome = TraceOutcome(label="unknown", label_source="no recorded verifier result for this run", details=details)
         elif hit and float(reward) >= 1.0:  # Repo2RLEnv: every green score reached through the answer key was contamination
             outcome = TraceOutcome(label="unknown", label_source=f"reward {reward} after a {hit['kind']} probe reached an answer source at event {hit['seq']}: not trusted",

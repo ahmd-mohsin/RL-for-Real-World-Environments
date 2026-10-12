@@ -99,7 +99,7 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
            "threshold": threshold, "margin": margin, "mask_negative": mask_negative}
     summary: dict[str, Any] = {"command": "label", "config": cfg}
     if pack is not None:
-        from crucible.signals.extract import extract, mapper_for
+        from crucible.signals.extract import extract
         from crucible.studio.pack import find_pack, load_manifest, resolve
 
         pack_dir = find_pack(pack)
@@ -115,11 +115,14 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
         traces = ingest(pack_dir, m, out / "store", labelled_only=True)
         labelled_traces = []
         sig_counts: dict[str, int] = {}
+        failed: list[dict[str, str]] = []
         for t in traces:
-            if mapper_for(t.family) is not None:
+            try:  # one trace a mapper cannot handle is reported, not the end of the run (M4 audit A15)
                 t = extract(t)
-                for s in t.signals:
-                    sig_counts[s.type] = sig_counts.get(s.type, 0) + 1
+            except Exception as e:  # noqa: BLE001 - a pack mapper's error, with the trace it failed on
+                failed.append({"trace_id": t.trace_id, "error": f"{type(e).__name__}: {e}"[:500]})
+            for s in t.signals:
+                sig_counts[s.type] = sig_counts.get(s.type, 0) + 1
             labelled_traces.append(t)
         credit = await resolve(pack_dir, m.hooks.credit)(labelled_traces) if m.hooks.credit else {}
         for i, t in enumerate(labelled_traces):  # a pack's outcome rule fills in what no registered labeler decided
@@ -131,7 +134,7 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
         (out / "traces.jsonl").write_text("".join(t.model_dump_json() + "\n" for t in labelled_traces))
         ds.write_jsonl([{"trace_id": t.trace_id, "outcome": t.outcome.label, **{k: v for k, v in (credit.get(t.trace_id) or {}).items()}}
                         for t in labelled_traces], out / "rewards.jsonl")
-        summary |= {"pack": m.name, "traces": len(traces), "signals": dict(sorted(sig_counts.items())), "credited": len(credit),
+        summary |= {"pack": m.name, "traces": len(traces), "signals": dict(sorted(sig_counts.items())), "credited": len(credit), "extract_failed": failed,
                     "outcomes": {k: sum(t.outcome.label == k for t in labelled_traces) for k in ("good", "bad", "unknown")},
                     "pivots": {"pairs": sum(len(x.pivots) for x in items), "without_policy_fix": sum(x.pivots_unpaired for x in items)}}
     else:

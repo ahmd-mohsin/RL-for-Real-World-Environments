@@ -24,11 +24,12 @@
   "T1003": {
    "accepted": true,
    "failing": [],
-   "trap": "the recorded first response to this request was later corrected (violation, revert, correction)",
+   "trap": "the recorded first response to this request was later corrected (violation, revert, correction, outcome)",
    "provenance": [
-    "sig_62a4da715b814529",
-    "sig_3642ec02372a7238",
-    "sig_36e0482415fcffd4",
+    "sig_635e96ef7b4b8113",
+    "sig_a33dfbed39975e6d",
+    "sig_e6dd219f7a4e47a0",
+    "sig_72b0b4985b3bcf82",
     "trace:toy/support_ticket:T1003"
    ],
    "negatives": 9,
@@ -43,9 +44,10 @@
   "T1013": {
    "accepted": true,
    "failing": [],
-   "trap": "the recorded first response to this request was later corrected (rework)",
+   "trap": "the recorded first response to this request was later corrected (rejection, rework)",
    "provenance": [
-    "sig_c23c55a27a6c6be3",
+    "sig_e0ed05fbad444201",
+    "sig_f410b57575f76c88",
     "trace:toy/support_ticket:T1013"
    ],
    "negatives": 8,
@@ -61,7 +63,7 @@
    "failing": [],
    "trap": "the recorded first response to this request was later corrected (violation)",
    "provenance": [
-    "sig_e278b8398e28f751",
+    "sig_bd25c330b50ddd3e",
     "trace:toy/support_ticket:T1015"
    ],
    "negatives": 9,
@@ -78,7 +80,8 @@
    "failing": [],
    "trap": null,
    "provenance": [
-    "sig_b59b6ef774d0c2b5",
+    "sig_688bb2fb105b227b",
+    "sig_009f647ea781a432",
     "trace:toy/support_ticket:T1018"
    ],
    "negatives": 7,
@@ -92,10 +95,11 @@
   "T1021": {
    "accepted": true,
    "failing": [],
-   "trap": "the recorded first response to this request was later corrected (revert, correction)",
+   "trap": "the recorded first response to this request was later corrected (revert, correction, outcome)",
    "provenance": [
-    "sig_b66a0ee6b3e3fd93",
-    "sig_3f72706e8ec5809b",
+    "sig_83947e62c07e22a7",
+    "sig_68263c45b7c210ef",
+    "sig_c8e7ebe40d2a7430",
     "trace:toy/support_ticket:T1021"
    ],
    "negatives": 7,

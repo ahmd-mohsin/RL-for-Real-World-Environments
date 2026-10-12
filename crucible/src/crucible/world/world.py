@@ -29,7 +29,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol, Self, runtime_checkable
 
-from crucible.core.agent_events import annotate_probes, writes_of
+from crucible.core.agent_events import annotate_probes, app_writes, writes_of
 from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, MediaRef, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
@@ -989,8 +989,14 @@ class World:
         actors = [TraceActor(id=a.id, role=a.kind, kind="agent" if a.kind in ("policy", "peer") else ("human" if a.kind == "human" else "system")) for a in self.spec.actors]
         actor_ids = {a.id for a in actors}
         events = [e.model_copy(deep=True, update={} if e.actor is None or e.actor in actor_ids else {"actor": None}) for e in self.log]
-        for e in events:  # what each edit wrote: M4 grades a later signal about that file to this step, whichever agent made it
-            if e.type == "tool_call" and (w := writes_of(str(e.data.get("function", "")), e.data.get("arguments"))):
+        try:
+            read_only = {t.qualified: t.read_only for t in self.all_tools()}
+        except Exception:  # noqa: BLE001 - a backend that cannot list tools after close: fall back to the verb rule
+            read_only = {}
+        failed = {e.data.get("id") for e in events if e.type == "tool_result" and e.data.get("ok") is False and e.data.get("id") is not None}  # a refused or failed call wrote nothing
+        for e in events:  # what each call wrote: M4 grades a later signal about that file or record to this step, whichever agent made it
+            fn = str(e.data.get("function", ""))
+            if e.type == "tool_call" and e.data.get("id") not in failed and (w := writes_of(fn, e.data.get("arguments")) or app_writes(fn, e.data.get("arguments"), read_only=read_only.get(fn))):
                 e.data["writes"] = w
                 e.target = SignalTarget(app=str(e.data["function"]).split(".")[0], object=w[0])
         probes = annotate_probes(events)  # answer-key attempts are recorded, never scored (P12); an exposure masks the episode

@@ -5,623 +5,623 @@
  "guideline": "Customer reply: negative about the answer -> rejection, positive -> approval (both grade the reply it answers), a question -> none. reopened -> rework (grades the resolving status change). Reassignment to another team -> escalation (grades the last answer given before it, none if there was none). refund_reversed -> revert (grades the refund). supervisor_edit -> correction (grades the reply it edits). policy_flag -> violation (grades the event that wrote the flagged object). supervisor_approval -> approval (same). sla_breach -> sla_breach (grades the assignment). csat -> outcome (trace level). Everything else -> none. Outcome: CSAT <= 2, or reopened without a later resolution -> bad; resolved with CSAT >= 4 or no CSAT -> good; CSAT 3 -> unknown.",
  "events": [
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-5",
    "type": "rejection",
    "grades": [
-    2
+    "row:T1013-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-6",
    "type": "rework",
    "grades": [
-    3
+    "row:T1013-4"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-7",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 7,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-8",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 8,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-9",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
-   "seq": 9,
+   "trace_id": "toy/support_ticket:T1013",
+   "event": "row:T1013-10",
    "type": "outcome",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-3",
    "type": "escalation",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-5",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1014",
+   "event": "row:T1014-6",
    "type": "approval",
    "grades": [
-    3
+    "row:T1014-4"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-5",
    "type": "violation",
    "grades": [
-    2
+    "row:T1015-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-6",
    "type": "approval",
    "grades": [
-    2
+    "row:T1015-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-7",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
-   "seq": 7,
+   "trace_id": "toy/support_ticket:T1015",
+   "event": "row:T1015-8",
    "type": "outcome",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-5",
    "type": "rejection",
    "grades": [
-    2
+    "row:T1016-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-6",
    "type": "rework",
    "grades": [
-    3
+    "row:T1016-4"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-7",
    "type": "correction",
    "grades": [
-    2
+    "row:T1016-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 7,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-8",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
-   "seq": 8,
+   "trace_id": "toy/support_ticket:T1016",
+   "event": "row:T1016-9",
    "type": "approval",
    "grades": [
-    6
+    "row:T1016-7"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-5",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-6",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1017",
+   "event": "row:T1017-7",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-3",
    "type": "sla_breach",
    "grades": [
-    1
+    "row:T1018-2"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-5",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-6",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1018",
+   "event": "row:T1018-7",
    "type": "outcome",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-5",
    "type": "rejection",
    "grades": [
-    2
+    "row:T1019-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-6",
    "type": "rework",
    "grades": [
-    3
+    "row:T1019-4"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1019",
+   "event": "row:T1019-7",
    "type": "escalation",
    "grades": [
-    2
+    "row:T1019-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1020",
+   "event": "row:T1020-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1020",
+   "event": "row:T1020-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1020",
+   "event": "row:T1020-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1020",
+   "event": "row:T1020-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1020",
+   "event": "row:T1020-5",
    "type": "outcome",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-5",
    "type": "revert",
    "grades": [
-    2
+    "row:T1021-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-6",
    "type": "correction",
    "grades": [
-    3
+    "row:T1021-4"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 6,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-7",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
-   "seq": 7,
+   "trace_id": "toy/support_ticket:T1021",
+   "event": "row:T1021-8",
    "type": "outcome",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-5",
    "type": "approval",
    "grades": [
-    2
+    "row:T1022-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1022",
+   "event": "row:T1022-6",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-5",
    "type": "violation",
    "grades": [
-    2
+    "row:T1023-3"
    ],
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
-   "seq": 5,
+   "trace_id": "toy/support_ticket:T1023",
+   "event": "row:T1023-6",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
-   "seq": 0,
+   "trace_id": "toy/support_ticket:T1024",
+   "event": "row:T1024-1",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
-   "seq": 1,
+   "trace_id": "toy/support_ticket:T1024",
+   "event": "row:T1024-2",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
-   "seq": 2,
+   "trace_id": "toy/support_ticket:T1024",
+   "event": "row:T1024-3",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
-   "seq": 3,
+   "trace_id": "toy/support_ticket:T1024",
+   "event": "row:T1024-4",
    "type": "none",
    "grades": null,
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
-   "seq": 4,
+   "trace_id": "toy/support_ticket:T1024",
+   "event": "row:T1024-5",
    "type": "none",
    "grades": null,
    "note": ""
@@ -629,64 +629,65 @@
  ],
  "outcomes": [
   {
-   "trace_id": "toy/helpdesk_ticket:T1013",
+   "trace_id": "toy/support_ticket:T1013",
    "label": "unknown",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1014",
+   "trace_id": "toy/support_ticket:T1014",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1015",
+   "trace_id": "toy/support_ticket:T1015",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1016",
+   "trace_id": "toy/support_ticket:T1016",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1017",
+   "trace_id": "toy/support_ticket:T1017",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1018",
+   "trace_id": "toy/support_ticket:T1018",
    "label": "bad",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1019",
+   "trace_id": "toy/support_ticket:T1019",
    "label": "bad",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1020",
+   "trace_id": "toy/support_ticket:T1020",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1021",
+   "trace_id": "toy/support_ticket:T1021",
    "label": "bad",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1022",
+   "trace_id": "toy/support_ticket:T1022",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1023",
+   "trace_id": "toy/support_ticket:T1023",
    "label": "good",
    "note": ""
   },
   {
-   "trace_id": "toy/helpdesk_ticket:T1024",
+   "trace_id": "toy/support_ticket:T1024",
    "label": "good",
    "note": ""
   }
- ]
+ ],
+ "migrated": "2026-10-12 (M4 audit): trace ids moved to the mapper's family (toy/support_ticket) and events from positions to log row ids; no label changed"
 }

@@ -52,7 +52,7 @@ class Labelled:
     model: str = ""
     label: str | None = None  # good | bad | unknown (workflow traces)
     pivots: list[dict[str, Any]] = field(default_factory=list)  # [{"index": message index of the wrong turn, "chosen": message}]
-    pivots_unpaired: int = 0  # graded-wrong policy turns whose fix was not the policy's own action (no chosen turn)
+    pivots_unpaired: int = 0  # graded-wrong policy turns with no chosen turn (the fix was someone else's, or a revert)
 
     @property
     def traj_id(self) -> str:
@@ -167,13 +167,24 @@ def from_trace(trace: Any, *, policy_roles: Sequence[str] = ("agent",), phi_by_s
 
     by_seq = {e.seq: e for e in trace.events}
     sig = {s.id: s for s in trace.signals}
+    seen_pairs: set[tuple[int, int]] = set()
     for graded, sids in sorted(find_pivots(trace).items()):
         if graded not in turn_of_seq:
             continue
         for sid in sids:
-            fix = by_seq.get(sig[sid].source_event) if sig[sid].source_event is not None else None
-            if fix is not None and is_policy(fix) and fix.seq in turn_of_seq and turn_of_seq[fix.seq] > turn_of_seq[graded]:
-                pivots.append({"index": turn_of_seq[graded], "chosen": msgs[turn_of_seq[fix.seq]], "signal": sid})
+            s = sig[sid]
+            fix = by_seq.get(s.source_event) if s.source_event is not None else None
+            # a revert says the step was wrong, not what was right: "reverse the refund" is no answer at the state before
+            # the refund (M4 audit A20); only a correction or an applied suggestion carries the right step
+            if s.type in PAIRABLE and fix is not None and is_policy(fix) and fix.seq in turn_of_seq and turn_of_seq[fix.seq] > turn_of_seq[graded]:
+                pair = (turn_of_seq[graded], turn_of_seq[fix.seq])
+                if pair in seen_pairs:  # two graded calls in one turn are one decision (M4 audit A21)
+                    continue
+                seen_pairs.add(pair)
+                between = [e for e in trace.events if graded < e.seq < fix.seq and not is_policy(e)]
+                pivots.append({"index": pair[0], "chosen": msgs[pair[1]], "signal": sid, "signal_type": s.type, "reliability": s.reliability,
+                               # the fix came after feedback the prompt does not contain: valid only if it needs none (A24)
+                               "state_shift": bool(between)})
             else:
                 unpaired += 1
     return Labelled(task=trace.family or "", messages=msgs, reward=reward, weights=weights, run=trace.source.connector, episode=trace.trace_id,
@@ -265,13 +276,19 @@ def dpo_best_vs_worst(items: Iterable[Labelled], *, threshold: float = 1.0, marg
     return out
 
 
+PAIRABLE = frozenset({"correction", "suggestion_accepted"})
+
+
 def dpo_pivots(items: Iterable[Labelled]) -> list[dict[str, Any]]:
     out = []
     for x in items:
         for pv in x.pivots:
             i = pv["index"]
             out.append({"prompt": x.messages[:i], "chosen": [pv["chosen"]], "rejected": [x.messages[i]], "tools": x.tools, "kind": "correction_pivot",
-                        "task": x.task, "episode": x.episode, "signal": pv.get("signal"), "traj_id": x.traj_id})
+                        "task": x.task, "episode": x.episode, "signal": pv.get("signal"), "traj_id": x.traj_id,
+                        # M4's estimate of how often this kind of signal is right: 1 - reliability is the pair's label-noise
+                        # rate (robust / conservative DPO); None until reliability was estimated
+                        "reliability": pv.get("reliability"), "state_shift": pv.get("state_shift", False)})
     return out
 
 

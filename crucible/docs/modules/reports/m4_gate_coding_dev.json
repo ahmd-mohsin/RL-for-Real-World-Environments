@@ -5,7 +5,7 @@
  "attribution_recall": 1.0,
  "outcome_agreement": 1.0,
  "n_events": 50,
- "n_attributed": 31,
+ "n_attributed": 32,
  "n_outcomes": 14,
  "errors": [],
  "confusion": {
@@ -28,38 +28,136 @@
    "approval": 1
   }
  },
+ "per_type_recall": {
+  "approval": 1.0,
+  "check_result": 1.0,
+  "correction": 1.0,
+  "none": 1.0,
+  "rejection": 1.0,
+  "suggestion_accepted": 1.0
+ },
+ "macro_recall": 1.0,
+ "intervals": {
+  "type_accuracy": [
+   0.9286499658256813,
+   1.0
+  ],
+  "attribution_precision": [
+   0.8928172849426366,
+   1.0
+  ],
+  "outcome_agreement": [
+   0.7846829880728186,
+   1.0
+  ]
+ },
+ "outcome_coverage": 0.7857142857142857,
+ "unlabelled_signals": 247,
+ "label_errors": 0,
+ "by_actor_class": {
+  "automated": {
+   "events": 20,
+   "type_accuracy": 1.0
+  },
+  "human": {
+   "events": 15,
+   "type_accuracy": 1.0
+  }
+ },
  "passed": true,
+ "confident": false,
  "thresholds": {
   "type_accuracy": 0.9,
   "attribution_precision": 0.9,
   "outcome_agreement": 0.95
  },
+ "minimums": {
+  "events": 50,
+  "outcomes": 10
+ },
  "split": "dev",
+ "labels_sha256": "1210928d50e299ab5760ae4b80b4c2418798fc14c3f26d9001ae364ce2bb149b",
+ "reliability_fitted_on": 14,
  "reliability": {
-  "approval": {
-   "confirmed": 19,
+  "coding/pull_request/approval/human": {
+   "confirmed": 14,
+   "contradicted": 2,
+   "unscored": 0,
+   "mean": 0.833,
+   "interval90": [
+    0.693,
+    0.974
+   ]
+  },
+  "coding/pull_request/check_result/automated": {
+   "confirmed": 114,
    "contradicted": 0,
-   "mean": 0.952
+   "unscored": 18,
+   "mean": 0.991,
+   "interval90": [
+    0.977,
+    1.0
+   ]
   },
-  "check_result": {
-   "confirmed": 110,
-   "contradicted": 33,
-   "mean": 0.766
-  },
-  "correction": {
-   "confirmed": 72,
+  "coding/pull_request/correction/automated": {
+   "confirmed": 20,
    "contradicted": 0,
-   "mean": 0.987
+   "unscored": 3,
+   "mean": 0.958,
+   "interval90": [
+    0.893,
+    1.0
+   ]
   },
-  "rejection": {
+  "coding/pull_request/correction/human": {
+   "confirmed": 10,
+   "contradicted": 0,
+   "unscored": 1,
+   "mean": 0.929,
+   "interval90": [
+    0.819,
+    1.0
+   ]
+  },
+  "coding/pull_request/rejection/automated": {
    "confirmed": 0,
-   "contradicted": 21,
-   "mean": 0.043
+   "contradicted": 10,
+   "unscored": 8,
+   "mean": 0.083,
+   "interval90": [
+    0.0,
+    0.209
+   ]
   },
-  "suggestion_accepted": {
-   "confirmed": 25,
+  "coding/pull_request/rejection/human": {
+   "confirmed": 0,
+   "contradicted": 1,
+   "unscored": 5,
+   "mean": 0.333,
+   "interval90": [
+    0.0,
+    0.721
+   ]
+  },
+  "coding/pull_request/suggestion_accepted/automated": {
+   "confirmed": 4,
    "contradicted": 0,
-   "mean": 0.967
+   "unscored": 1,
+   "mean": 0.889,
+   "interval90": [
+    0.725,
+    1.0
+   ]
+  },
+  "coding/pull_request/suggestion_accepted/human": {
+   "confirmed": 1,
+   "contradicted": 0,
+   "unscored": 0,
+   "mean": 0.833,
+   "interval90": [
+    0.602,
+    1.0
+   ]
   }
  }
 }
