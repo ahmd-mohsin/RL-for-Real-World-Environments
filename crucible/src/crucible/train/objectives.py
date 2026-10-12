@@ -26,6 +26,7 @@ between; −1 beyond L_max (L_max 20,480, L_cache 4,096).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import torch
@@ -61,19 +62,43 @@ def aggregate(J: torch.Tensor, mask: torch.Tensor, mode: str = "token_mean_globa
     raise ValueError(f"unknown loss_agg {mode!r}")
 
 
+ESTIMATORS = ("mean", "rloo", "remax", "reinforce_pp")
+
+
 def group_advantages(rewards: Sequence[float | None], groups: Sequence[str], *, std_normalize: bool = False, estimator: str = "mean",
-                     eps: float = 1e-6) -> list[float]:
-    """Per-rollout advantages. ``estimator``: ``mean`` (R − mean), ``rloo`` (R − mean of the others). Masked (None) rollouts
-    get 0 and are excluded from their group's statistics."""
+                     eps: float = 1e-6, baselines: dict[str, float] | None = None) -> list[float]:
+    """Per-rollout advantages. ``estimator``:
+
+    - ``mean``: R − mean of the group (GRPO; Dr.GRPO without std);
+    - ``rloo``: R − mean of the other members;
+    - ``remax``: R − b_g, the reward of the group's greedy rollout (``baselines[group]``; ReMax);
+    - ``reinforce_pp``: (R − mean of the global batch) / std of the global batch (REINFORCE++: no per-prompt baseline).
+
+    Masked (None) rollouts get 0 and are excluded from every statistic."""
+    if estimator not in ESTIMATORS:
+        raise ValueError(f"estimator must be one of {ESTIMATORS}")
     out = [0.0] * len(rewards)
+    if estimator == "reinforce_pp":
+        live = [i for i, r in enumerate(rewards) if r is not None]
+        if not live:
+            return out
+        vals = torch.tensor([float(rewards[i]) for i in live], dtype=torch.float64)
+        adv = (vals - vals.mean()) / (vals.std(unbiased=False) + eps) if len(live) > 1 else vals - vals.mean()
+        for j, i in enumerate(live):
+            out[i] = float(adv[j])
+        return out
     idx: dict[str, list[int]] = {}
     for i, g in enumerate(groups):
         if rewards[i] is not None:
             idx.setdefault(g, []).append(i)
-    for members in idx.values():
+    for gid, members in idx.items():
         vals = torch.tensor([float(rewards[i]) for i in members], dtype=torch.float64)
         n = len(members)
-        if estimator == "rloo" and n > 1:
+        if estimator == "remax":
+            if not baselines or gid not in baselines:
+                raise ValueError(f"remax needs the greedy baseline reward of group {gid!r}")
+            base = torch.full((n,), float(baselines[gid]), dtype=torch.float64)
+        elif estimator == "rloo" and n > 1:
             base = (vals.sum() - vals) / (n - 1)
         else:
             base = vals.mean().expand(n)
@@ -83,6 +108,29 @@ def group_advantages(rewards: Sequence[float | None], groups: Sequence[str], *, 
         for j, i in enumerate(members):
             out[i] = float(adv[j])
     return out
+
+
+def reward_to_go(step_rewards: Sequence[float | None], outcome: float) -> list[float]:
+    """G_t = Σ_{p ≥ t} r_p, with the outcome added at the last step (MiniMax M2: (s_t, a_t) atomic units, reward-to-go
+    minus a trajectory-level baseline). Missing step rewards count 0."""
+    out, acc = [0.0] * len(step_rewards), float(outcome)
+    for t in range(len(step_rewards) - 1, -1, -1):
+        acc += float(step_rewards[t] or 0.0)
+        out[t] = acc
+    return out
+
+
+def speed_bonus(t: float, t_base: float, *, kind: str = "linear") -> float:
+    """h(T / T_baseline), monotone decreasing (MiniMax M2.5 r_speed): ``linear`` = 1 − min(x, 2) ∈ [−1, 1] (0 at the
+    baseline); ``log`` = −log2(x) clipped to [−1, 1]."""
+    if t_base <= 0 or t < 0:
+        return 0.0
+    x = t / t_base
+    if kind == "linear":
+        return 1.0 - min(x, 2.0)
+    if kind == "log":
+        return max(-1.0, min(1.0, -math.log2(max(x, 1e-9))))
+    raise ValueError("speed kind: linear | log")
 
 
 def overlong_penalty(length: int, *, l_max: int = 20_480, l_cache: int = 4_096) -> float:

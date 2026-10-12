@@ -44,3 +44,36 @@ def token_credit(ro: RolloutRecord, seq_adv: float, *, turn_weight: float = 0.0,
                                advantages=[a if trainable else 0.0] * len(ids), loss_mask=[1 if trainable else 0] * len(ids),
                                policy_version=t.policy_version))
     return out
+
+
+def critical_steps(ro: RolloutRecord, main_actor: str | None = None) -> int:
+    """Kimi K2.5 PARL's Critical Steps: Σ over stages of (main-agent steps + the slowest sub-agent's steps), a stage being
+    the stretch from one main-agent call to the next. Dispatching more sub-agents without shortening the longest branch
+    gains nothing. ``main_actor`` defaults to the actor of the first call."""
+    turns = [t for t in ro.turns if t.kind != "compaction"]
+    if not turns:
+        return 0
+    main = main_actor or turns[0].actor
+    total, subs, in_stage = 0, {}, False
+    for t in turns:
+        if t.actor == main:
+            if in_stage:
+                total += 1 + max(subs.values(), default=0)
+            subs, in_stage = {}, True
+        else:
+            subs[t.actor] = subs.get(t.actor, 0) + 1
+    return total + (1 if in_stage else 0) + max(subs.values(), default=0)
+
+
+def dag_critical_path(ro: RolloutRecord, *, weight: str = "calls") -> float:
+    """The longest dependency chain through the calls (``Turn.depends_on``; DeepSeek-V4.1 Agent Team's derived latency):
+    the length in calls, or in completion tokens (``weight="tokens"``). A call without ``depends_on`` follows the
+    previous call of its own actor."""
+    best: dict[str, float] = {}
+    last_of: dict[str, str] = {}
+    for t in ro.turns:
+        w = float(len(t.completion_token_ids or [])) if weight == "tokens" else 1.0
+        deps = t.depends_on if t.depends_on is not None else ([last_of[t.actor]] if t.actor in last_of else [])
+        best[t.call_id] = w + max((best.get(d, 0.0) for d in deps), default=0.0)
+        last_of[t.actor] = t.call_id
+    return max(best.values(), default=0.0)

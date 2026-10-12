@@ -107,6 +107,18 @@ Facts behind the table:
 
 ## 5. Mismatch, objectives, credit
 
+**M12-infra batch B additions:**
+- estimators `remax` and `reinforce_pp`;
+- `credit_unit = reward_to_go` (`Turn.step_reward`);
+- `speed_coef`, `speed_gate`, `speed_kind`;
+- `latency_coef` with `latency_unit` set to `critical_steps` or `dag_path` (`Turn.depends_on`);
+- `frozen_actors`;
+- `entropy_adaptive` (mimo4 bands);
+- `train/group_ops.py` (`zero_hacks`, `grs`, `gar`, `bt_pairwise`, `tournament`, `compose`, `as_group_fn`);
+- `weights.QDQ` (`mxfp4` / `fp8`, `model=` writes the grid into the trainer too);
+- `critic.pretrain_value`.
+
+
 - **Corrections** (`mismatch.py`), each a pure function with the article's numbers as golden tests: ppo (clip-higher, dual clip), tis, icepop, kpop, dis, mimo4, mispo, hispo, cispo, gspo.
 - **Metrics logged every step:** `rollout_probs_diff`, r_dis quantiles, masked and clipped token shares. Without π_θold, `rollout_probs_diff` includes drift since sampling.
 - **Aggregation:** token-mean global (default), seq-mean, prompt-mean, HisPO constant.

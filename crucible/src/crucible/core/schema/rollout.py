@@ -49,6 +49,8 @@ class Turn(CrucibleModel):
     # reference model's log-prob of the sampled token given exactly this prompt
     teacher_logprobs: list[float] | None = None
     format_errors: int = 0  # malformed tool calls this call issued (m13 C-8): ``TrainerConfig.tool_format_penalty`` each, on its tokens
+    step_reward: float | None = None  # a per-step reward for this call (process / speed shaping): reward-to-go credit (MiniMax M2)
+    depends_on: list[str] | None = None  # call ids this call waited for (multi-agent DAG): critical-path latency (DeepSeek Agent Team)
     ref_logprobs: list[float] | None = None
     atif_step_ids: list[int] = Field(default_factory=list)
 

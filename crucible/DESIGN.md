@@ -2485,6 +2485,17 @@ Three findings came out of building it:
 
 Across 24 seed and topology runs, no trained rollout exceeds τ.
 
+**M12-infra batch B (2026-10-12): algorithms and credit.** Additions:
+- **Estimators:** `remax` (greedy-rollout baseline from `reward_components["remax/baseline"]`) and `reinforce_pp` (global-batch normalization, no per-prompt baseline), next to mean, Dr.GRPO and RLOO.
+- **Reward-to-go credit:** `credit_unit=reward_to_go`, built from `Turn.step_reward` minus the group mean of G_0 (MiniMax M2's (s_t, a_t) units).
+- **Speed shaping** (MiniMax M2.5): h(T / T_base), gated on success, with the baseline taken over the group's correct solutions.
+- **Latency shaping:** Kimi PARL critical steps, or the DeepSeek DAG critical path through `Turn.depends_on`.
+- **Frozen sub-agents** in the reference trainer. Only the bridges honoured `frozen_actors` before, so a PARL-style run would have trained its sub-agents.
+- **Entropy-adaptive mimo4 bands** (MiMo).
+- **Group operators** (`train/group_ops.py`) for `group_fn`: hack zeroing, GRS (multiplicative rubric anchored to the test), GAR (positive advantage mass conserved, λ capped and re-centred), pairwise GenRM against a reference (O(n)) and round-robin tournaments (O(n²)).
+- **QDQ** (`weights.QDQ`: OCP MXFP4 with power-of-two block scales, or FP8-E4M3). The QDQ'd values are written back into the trainer's own parameters, so the trainer and engine hold bit-identical weights, as MiMo does. Quantizing only the published copy would leave the mismatch in place.
+- **Value pretraining** (`critic.pretrain_value`).
+
 ### 10.4 Long horizons: million-token trajectories with dense, honest reward (built 2026-10-09)
 
 The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M context, SWE RL at 130 turns) and that rewards got sparse (one binary outcome after hundreds of steps). Crucible's environments must therefore produce, survive and credit such episodes natively, not only in the trainer. Evidence and per-framework mechanisms: `docs/research/long-horizon/01-frameworks.md`. Module doc: `docs/modules/long-horizon.md`.

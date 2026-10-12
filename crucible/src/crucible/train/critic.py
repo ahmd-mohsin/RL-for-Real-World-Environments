@@ -82,3 +82,42 @@ class HFValue(torch.nn.Module):
 def explained_variance(returns: torch.Tensor, values: torch.Tensor) -> float:
     v = float(returns.var(unbiased=False))
     return 1.0 - float((returns - values).var(unbiased=False)) / v if v > 1e-12 else 0.0
+
+
+def pretrain_value(value: torch.nn.Module, records: list, *, steps: int = 50, lr: float = 1e-3, gamma: float = 1.0) -> dict:
+    """Value pretraining before RL (Seed-Thinking; SAO "scaling value pretraining" — the critic's cold start is the
+    bottleneck): regress the value of every completion token on its Monte-Carlo return, over offline (e.g. SFT-policy)
+    rollouts. With γ = 1 the return of every token is the episode outcome; otherwise discounted by tokens to the end.
+    Returns the loss history and the final explained variance."""
+    from crucible.core.schema.rollout import full_prompts
+
+    items = []
+    for r in records:
+        if r.mask_sample or r.reward is None:
+            continue
+        prompts = full_prompts(r)
+        trained = [t for t in r.turns if t.completion_token_ids]
+        left = sum(len(t.completion_token_ids) for t in trained)
+        for t in trained:
+            n = len(t.completion_token_ids)
+            ks = torch.arange(left - 1, left - 1 - n, -1, dtype=torch.float64).clamp(min=0)
+            items.append((prompts[t.call_id], list(t.completion_token_ids), (gamma ** ks) * float(r.reward)))
+            left -= n
+    if not items:
+        raise ValueError("pretrain_value needs scored rollouts")
+    opt = torch.optim.Adam([p for p in value.parameters() if p.requires_grad], lr=lr)
+    hist = []
+    for _ in range(steps):
+        opt.zero_grad()
+        loss = torch.zeros((), dtype=torch.float64)
+        for prompt, comp, ret in items:
+            v = value.token_values(prompt, comp).double()
+            loss = loss + ((v - ret) ** 2).mean()
+        loss = loss / len(items)
+        loss.backward()
+        opt.step()
+        hist.append(float(loss.detach()))
+    with torch.no_grad():
+        vs = torch.cat([value.token_values(p, c).double() for p, c, _ in items])
+        rs = torch.cat([ret for _, _, ret in items])
+    return {"loss": hist, "explained_variance": explained_variance(rs, vs)}

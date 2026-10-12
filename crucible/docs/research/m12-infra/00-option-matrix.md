@@ -74,10 +74,10 @@ GPU time.
 | Option | Where | Status |
 |---|---|---|
 | TIS, IcePop, KPop, DIS, MIS-PO, HisPO, CISPO, GSPO, PPO (+ dual clip) | `mismatch.py` | Have |
-| MiMo four-bound mask with entropy-adaptive bounds | `mimo4` (fixed bounds) | Part → **Gap** (B: entropy controller) |
+| MiMo four-bound mask with entropy-adaptive bounds | `mimo4` + `TrainerConfig.entropy_adaptive` | Have (B) |
 | CISPO M2 asymmetric `[0, 1+ε]` | `cispo` param | Have |
 | FP32 LM head (BF16 in, FP32 out) | `train/hf.py lm_head_fp32` | Have |
-| QDQ to the rollout grid after each update (MiMo MXFP4; Kimi QAT) | `post_update_transform` hook (identity) | Part → **Gap** (B: FP8-e4m3 and MXFP4 QDQ transforms) |
+| QDQ to the rollout grid after each update (MiMo MXFP4; Kimi QAT) | `weights.QDQ` (mxfp4 / fp8; trainer weights too) | Have (B) |
 | Deterministic / batch-invariant kernels (DeepSeek, GLM top-k) | `torch` determinism in tests; engine flags not wired | Part (engine-side; recorded, not enforced) |
 | R3 routing replay; top-p candidate replay; routing confidence Σ_k | `routing_replay=r3`, `Turn.candidates`, `moe/routing_confidence` | Have |
 | Concatenated routing replay across version spans (DeepSeek) | R3 per call | Part (spans carry per-token routing; no cross-checkpoint test) |
@@ -87,24 +87,24 @@ GPU time.
 | Option | Where | Status |
 |---|---|---|
 | GRPO (mean / std), Dr.GRPO, RLOO | `objectives.group_advantages` | Have |
-| ReMax, REINFORCE++ (global-batch normalized) estimators (Hunyuan one-click set) | — | **Gap** (B) |
+| ReMax, REINFORCE++ (global-batch normalized) estimators (Hunyuan one-click set) | `estimator=remax|reinforce_pp` | Have (B) |
 | DAPO: clip-higher, dynamic sampling, token-level loss, overlong filter + soft penalty | `eps_h`, `filter_zero_variance`, `token_mean_global`, `overlong_penalty`, truncation masking | Have |
 | Loss aggregation: token_mean_global, seq_mean_token_mean, prompt_mean, seq_ratio, const_max_len | `objectives.aggregate` | Have |
 | Critic mode: single rollout (n=1), token GAE, skip-observation, cross-segment (CompactionRL), truncation bootstrap, length-adaptive λ, TTUR, frozen attention | `objectives.gae`, `train/critic.py` | Have |
-| Value pretraining (Seed, SAO "scaling value pretraining") | init-from-policy only | Part → **Gap** (B: value pretraining stage on offline rollouts) |
+| Value pretraining (Seed, SAO "scaling value pretraining") | `critic.pretrain_value` | Have (B) |
 | KL k3 to a reference; per-source KL | `kl_coef`, `kl_coef_by_source` | Have |
 | On-policy distillation: token MOPD, full-vocabulary OPD, teacher routing, vocab gate | `train/teachers.py`, `opd_*` | Have |
-| Reward-to-go with per-step rewards and a trajectory baseline (MiniMax M2: (s_t, a_t) atomic units) | turn credit from ΔΦ only | **Gap** (B) |
+| Reward-to-go with per-step rewards and a trajectory baseline (MiniMax M2: (s_t, a_t) atomic units) | `credit_unit=reward_to_go`, `Turn.step_reward` | Have (B) |
 
 ### Rewards and credit (art. §3.6)
 | Option | Where | Status |
 |---|---|---|
 | Outcome + tool-format penalty + incomplete-trajectory penalty | `tool_format_penalty`, limit penalty | Have |
-| Speed reward h(T/T_baseline) (MiniMax M2.5) | — | **Gap** (B) |
-| Group grading hook (GAR, tournaments, hack zeroing) | `RuntimeConfig.group_fn`, deadline fallback | Part: the hook exists; **Gap** (B): GAR redistribution (λ conservation), GRS multiplicative rubric, BT pairwise GenRM vs reference (O(n)), round-robin tournament, hack zeroing with recomputed statistics |
+| Speed reward h(T/T_baseline) (MiniMax M2.5) | `speed_coef` (gated) | Have (B) |
+| Group grading hook (GAR, tournaments, hack zeroing) | `RuntimeConfig.group_fn` + `train/group_ops.py` (gar, grs, bt_pairwise, tournament, zero_hacks, compose) | Have (B) |
 | Rubric / judge scoring channel with deadline | `aux_fn` | Have |
-| DAG critical path latency (DeepSeek Agent Team) / Critical Steps (Kimi PARL) | checklist #49, not built | **Gap** (B) |
-| Frozen sub-agents (PARL) | `credit.frozen_actors` | Have |
+| DAG critical path latency (DeepSeek Agent Team) / Critical Steps (Kimi PARL) | `credit.critical_steps`, `credit.dag_critical_path`, `latency_coef` | Have (B) |
+| Frozen sub-agents (PARL) | `TrainerConfig.frozen_actors` (reference trainer; was bridges-only) | Have (fixed in B) |
 | Turn credit from M6 ΔΦ | `credit.py turn_weight` | Have |
 
 ### Reward hacking and environment noise (art. §3.7, §3.8)

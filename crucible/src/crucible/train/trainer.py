@@ -68,6 +68,24 @@ class TrainerConfig:
     kl_coef_by_source: dict = field(default_factory=dict)
     # m13 C-8 (A2-25): −penalty × ``Turn.format_errors`` on the offending call's tokens only (MiniMax r_process, Qwen)
     tool_format_penalty: float = 0.0
+    # M12-infra B. ``credit_unit``: ``sequence`` (the sequence advantage on every token) or ``reward_to_go`` (each call's
+    # tokens get G_t − B, G_t = Σ_{p≥t} Turn.step_reward + outcome, B = the group mean of G_0: MiniMax M2)
+    credit_unit: str = "sequence"
+    # speed shaping (MiniMax M2.5): r += speed_coef · h(T / T_base), T = timings["active_s"], T_base = the group median;
+    # ``speed_gate``: only rollouts with a positive outcome earn it (a fast failure is not rewarded), and the median is
+    # taken over them (speed is compared among correct solutions)
+    speed_coef: float = 0.0
+    speed_gate: bool = True
+    speed_kind: str = "linear"
+    # latency penalty: r −= latency_coef · L, L = Kimi PARL critical steps or the DeepSeek DAG critical path (calls)
+    latency_coef: float = 0.0
+    latency_unit: str = "critical_steps"  # critical_steps | dag_path
+    latency_main_actor: str | None = None
+    # frozen sub-agents (Kimi PARL): their calls carry no loss (only the orchestrator learns)
+    frozen_actors: tuple[str, ...] = ()
+    # entropy-adaptive mimo4 bounds (MiMo-V2.6): after each step, entropy below ``low`` widens the positive-advantage band
+    # and tightens the negative one by ``rate`` (log space); above ``high`` the opposite; bands stay within [0.05, 20]
+    entropy_adaptive: dict | None = None
 
 
 @dataclass
@@ -254,7 +272,7 @@ class TorchTrainer:
         from crucible.train.bridges.common import flatten
 
         out = []
-        for seq in flatten(r, seq_adv=a, turn_weight=self.cfg.turn_weight):
+        for seq in flatten(r, seq_adv=a, turn_weight=self.cfg.turn_weight, frozen_actors=self.cfg.frozen_actors):
             adv = list(seq.advantages)
             if per_token is not None:  # critic GAE: per-token advantages on each call's own span (+ turn credit)
                 credit = {t.call_id: self.cfg.turn_weight * (t.advantage or 0.0) for t in r.turns}
@@ -277,6 +295,88 @@ class TorchTrainer:
                 out.append(it)
         return out
 
+    def _shaped_rewards(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[float | None]:
+        """Outcome + speed bonus − latency penalty (M12-infra B); masked rollouts stay None. The shaping terms are written to
+        ``reward_components`` so a record shows what it was trained on."""
+        from statistics import median
+
+        from crucible.train.credit import critical_steps, dag_critical_path
+        from crucible.train.objectives import speed_bonus
+
+        c = self.cfg
+        base = [None if (r.mask_sample or r.reward is None) else float(r.reward) for r in records]
+        if not c.speed_coef and not c.latency_coef:
+            return base
+        t_base: dict[str, float] = {}
+        if c.speed_coef:
+            by_g: dict[str, list[float]] = {}
+            for r, g, b in zip(records, groups, base, strict=True):  # gated: the baseline is the speed of the group's correct solutions
+                if b is not None and "active_s" in r.timings and (not c.speed_gate or b > 0):
+                    by_g.setdefault(g, []).append(float(r.timings["active_s"]))
+            t_base = {g: median(v) for g, v in by_g.items() if v}
+        out: list[float | None] = []
+        for r, g, b in zip(records, groups, base, strict=True):
+            if b is None:
+                out.append(None)
+                continue
+            x = b
+            if c.speed_coef and g in t_base and "active_s" in r.timings and (not c.speed_gate or b > 0):
+                bonus = c.speed_coef * speed_bonus(float(r.timings["active_s"]), t_base[g], kind=c.speed_kind)
+                r.reward_components["shaping/speed"] = bonus
+                x += bonus
+            if c.latency_coef:
+                if c.latency_unit not in ("critical_steps", "dag_path"):
+                    raise ValueError("latency_unit: critical_steps | dag_path")
+                lat = critical_steps(r, c.latency_main_actor) if c.latency_unit == "critical_steps" else dag_critical_path(r)
+                r.reward_components["shaping/latency"] = -c.latency_coef * lat
+                x -= c.latency_coef * lat
+            out.append(x)
+        return out
+
+    def _reward_to_go(self, records: Sequence[RolloutRecord], groups: Sequence[str], shaped: Sequence[float | None]) -> dict:
+        from crucible.train.objectives import reward_to_go
+
+        g0: dict[str, list[float]] = {}
+        rtg: dict[str, list[float]] = {}
+        for r, g, x in zip(records, groups, shaped, strict=True):
+            if x is None:
+                continue
+            trained = [t for t in r.turns if t.completion_token_ids]
+            rtg[r.rollout_id] = reward_to_go([t.step_reward for t in trained], x)
+            if rtg[r.rollout_id]:
+                g0.setdefault(g, []).append(rtg[r.rollout_id][0])
+        out: dict[tuple[str, str], list[float]] = {}
+        for r, g in zip(records, groups, strict=True):
+            if r.rollout_id not in rtg:
+                continue
+            b = sum(g0[g]) / len(g0[g]) if g0.get(g) else 0.0
+            trained = [t for t in r.turns if t.completion_token_ids]
+            for t, G in zip(trained, rtg[r.rollout_id], strict=True):
+                out[(r.rollout_id, t.call_id)] = [G - b] * len(t.completion_token_ids or [])
+        return out
+
+    def _adapt_entropy(self, records: Sequence[RolloutRecord]) -> dict[str, float]:
+        """MiMo's entropy-adaptive four-bound mask: move the mimo4 bands from the batch's behaviour entropy."""
+        ea = self.cfg.entropy_adaptive
+        if not ea or self.cfg.correction.name != "mimo4":
+            return {}
+        lps = [lp for r in records if not r.mask_sample for t in r.turns if t.actor not in self.cfg.frozen_actors for lp in (t.logprobs or [])]
+        if not lps:
+            return {}
+        ent = -sum(lps) / len(lps)
+        f = 1.0 + float(ea.get("rate", 0.1))
+        p = self.cfg.correction.params
+        get = lambda k, d: float(p.get(k, d))
+        if ent < float(ea["low"]):  # entropy collapsing: let positive-advantage tokens move more, negative ones less
+            p.update(pos_low=get("pos_low", 0.2) / f, pos_high=get("pos_high", 5.0) * f, neg_low=get("neg_low", 0.2) * f, neg_high=get("neg_high", 5.0) / f)
+        elif ent > float(ea["high"]):
+            p.update(pos_low=get("pos_low", 0.2) * f, pos_high=get("pos_high", 5.0) / f, neg_low=get("neg_low", 0.2) / f, neg_high=get("neg_high", 5.0) * f)
+        for k in ("pos_low", "neg_low"):
+            p[k] = min(max(get(k, 0.2), 0.05), 0.99)
+        for k in ("pos_high", "neg_high"):
+            p[k] = min(max(get(k, 5.0), 1.01), 20.0)
+        return {"entropy_adaptive/entropy": ent, **{f"entropy_adaptive/{k}": float(p[k]) for k in ("pos_low", "pos_high", "neg_low", "neg_high")}}
+
     def _kl_coef(self, r: RolloutRecord) -> float:
         return float(self.cfg.kl_coef_by_source.get(r.source, self.cfg.kl_coef)) if r.source in self.cfg.kl_coef_by_source else float(self.cfg.kl_coef)
 
@@ -286,8 +386,14 @@ class TorchTrainer:
             advs = [0.0] * len(records)
         else:
             per_token = None
-            advs = group_advantages([r.reward if not r.mask_sample else None for r in records], groups, std_normalize=self.cfg.std_normalize,
-                                estimator=self.cfg.estimator)
+            shaped = self._shaped_rewards(records, groups)
+            baselines = None
+            if self.cfg.estimator == "remax":  # the greedy rollout's reward per group, recorded by the rollout function
+                baselines = {g: float(r.reward_components["remax/baseline"]) for r, g in zip(records, groups, strict=True)
+                             if "remax/baseline" in r.reward_components}
+            advs = group_advantages(shaped, groups, std_normalize=self.cfg.std_normalize, estimator=self.cfg.estimator, baselines=baselines)
+            if self.cfg.credit_unit == "reward_to_go":
+                per_token = self._reward_to_go(records, groups, shaped)
             # a group stage (m13 C-2) that set every scored member's advantage replaces the group statistic for that group
             scored: dict[str, list[int]] = {}
             for i, (r, g) in enumerate(zip(records, groups, strict=True)):
@@ -298,6 +404,8 @@ class TorchTrainer:
                     for i in idx:
                         advs[i] = float(records[i].advantage)
         fmt = bool(self.cfg.tool_format_penalty) and any(t.format_errors for r in records for t in r.turns)
+        if self.cfg.credit_unit not in ("sequence", "reward_to_go"):
+            raise ValueError("credit_unit: sequence | reward_to_go")
         if (self.cfg.opd_coef and self.cfg.opd_mode == "token") or self.cfg.rl_coef != 1.0 or fmt:  # m13 C-5 / C-8: per-token advantages
             pt: dict[tuple[str, str], list[float]] = {}
             for r, a in zip(records, advs, strict=True):
@@ -325,7 +433,7 @@ class TorchTrainer:
                 continue
             prompts = full_prompts(r)
             for t in r.turns:
-                if not t.completion_token_ids:
+                if not t.completion_token_ids or t.actor in self.cfg.frozen_actors:
                     continue
                 if not t.candidates_valid():
                     raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
@@ -505,6 +613,7 @@ class TorchTrainer:
                 metrics["moe/routing_confidence"] = sum(self._confidence) / len(self._confidence)
         if self.critic is not None:
             metrics.update(self._critic_step())
+        metrics.update(self._adapt_entropy(records))
         return metrics
 
 
