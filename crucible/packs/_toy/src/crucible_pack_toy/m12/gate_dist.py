@@ -42,7 +42,7 @@ def _engine(spec, a: dict) -> dict:
     log = Path(a["out"]) / f"vllm{spec.engine}.log"
     proc = subprocess.Popen(["vllm", "serve", a["model"], "--port", str(port), "--gpu-memory-utilization", str(a["mem"]), "--max-model-len", str(a["max_len"]),
                              "--worker-extension-cls", "crucible_vllm_ext.CrucibleWorkerExtension", "--logprobs-mode", "processed_logprobs",
-                             "--dtype", "bfloat16"], env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
+                             "--dtype", "bfloat16"], env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT)  # noqa: SIM115 -- the server owns the log for its life
     done = Path(a["out"]) / "done"
     while not done.exists():
         if proc.poll() is not None:
@@ -120,7 +120,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
 
     before = await evaluate("before") if a["eval"] else None
     rt = Runtime(RuntimeConfig(topology="disaggregated_stream", steps=a["steps"], max_turn_tokens=a["max_tokens"], temperature=1.0,
-                               stop_ids=tuple(codec.eos_ids), warmup_batches=0, checkpoint_every=a["checkpoint_every"],
+                               stop_ids=tuple(codec.eos_ids), warmup_batches=0, checkpoint_every=a["checkpoint_every"], max_wall_s=a["max_wall_s"],
                                checkpoint_dir=str(Path(a["out"]) / "runckpt")),
                  SchedulerConfig(n=a["n"], B=a["B"], max_staleness=a["tau"]), pool, drv, pub, None, {"wordfile": [f"s{i}" for i in range(100000)]},
                  rollout_fn=rollout, harness="native:world-qwen@1")
@@ -202,6 +202,7 @@ def main() -> None:
     ap.add_argument("--max-len", dest="max_len", type=int, default=8192)
     ap.add_argument("--eval", type=int, default=24)
     ap.add_argument("--checkpoint-every", dest="checkpoint_every", type=int, default=10)
+    ap.add_argument("--max-wall-s", dest="max_wall_s", type=float, default=7200.0)  # the runtime's default (600 s) stopped a 1.7B run at step 9
     ap.add_argument("--out", default="/work/out")
     a = ap.parse_args()
     Path(a.out).mkdir(parents=True, exist_ok=True)

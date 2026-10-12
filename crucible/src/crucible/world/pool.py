@@ -98,6 +98,7 @@ class SandboxPool:
         self.pids_limit, self.memory = pids_limit, memory
         self._ready: asyncio.Queue[DockerSandbox] = asyncio.Queue()
         self._starting = 0
+        self._out = 0  # handed out and not yet released: reuse mode counts them, they come back
         self._tasks: set[asyncio.Task] = set()
         self.stats = {"hits": 0, "misses": 0, "destroyed": 0, "reused": 0, "dirty": 0}
 
@@ -113,7 +114,11 @@ class SandboxPool:
             self._starting -= 1
 
     def _refill(self) -> None:
-        while self._ready.qsize() + self._starting < self.size:
+        # fresh mode: a handed-out container never returns, so refill as soon as one leaves; reuse mode: it returns cleaned,
+        # so only a destroyed one is replaced (found live: refilling on every acquire filled the pool before the release,
+        # and every clean container was destroyed — reuse mode never reused)
+        held = self._out if self.reuse else 0
+        while self._ready.qsize() + self._starting + held < self.size:
             self._starting += 1
             t = asyncio.create_task(self._start_one())
             self._tasks.add(t)
@@ -133,10 +138,12 @@ class SandboxPool:
             self.stats["misses"] += 1
             sbx = self._new()
             await sbx.start()
+        self._out += 1
         self._refill()
         return sbx
 
     async def release(self, sbx: DockerSandbox) -> None:
+        self._out = max(0, self._out - 1)
         if self.reuse and await self._clean(sbx) and self._ready.qsize() + self._starting < self.size:
             self.stats["reused"] += 1
             await self._ready.put(sbx)

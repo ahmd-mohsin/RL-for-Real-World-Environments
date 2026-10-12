@@ -131,3 +131,41 @@ def test_ray_launcher_places_per_node_groups():
         ray.shutdown()
     assert len(out) == 4 and all(o["role"] == "both" and o["world"] == 4 and o["rank_sum"] == 6 for o in out)
     assert sorted((o["node"], o["gpus"][0]) for o in out) == list(itertools.product((0, 1), (0, 1)))
+
+
+def test_activation_memory_term_matches_the_live_oom():
+    """Modal A10G (24 GB): Qwen3-1.7B under FSDP2 layer mode over 2 ranks ran out of memory at an 8192-token micro batch
+    (17.5 GB allocated against 13.6 GB of state). With width and vocab known the planner counts activations and asks for 4."""
+    from crucible.train.placement import activation_bytes
+
+    m = ModelSpec(1.7, 28, 8, 128, hidden=2048, vocab=151936)
+    c = ClusterSpec(1, gpus_per_node=4, gpu_mem_gb=23.7)
+    assert 3.5e9 < activation_bytes(m, Workload(32, micro_tokens=8192)) < 5e9
+    assert train_mesh(c, m, Workload(32, micro_tokens=8192), 4) == (1, 4)
+    assert train_mesh(c, ModelSpec(1.7, 28, 8, 128), Workload(32), 4) == (2, 2)  # state only: the old, optimistic answer
+
+
+def test_decode_curve_follows_the_engine_load():
+    from crucible.train.placement import CALIBRATED
+
+    cal = CALIBRATED["a10g/qwen3-1.7b"]
+    w = Workload(512, 512, 1024, **cal["workload"])
+    assert w.decode_at(1) == 110.8 and w.decode_at(128) == 53.2 and w.decode_at(1000) == 53.2
+    assert 86.0 < w.decode_at(16) < 106.1  # interpolated between the measured points
+    c = ClusterSpec(1, gpus_per_node=4, **cal["cluster"])
+    m = ModelSpec(1.7, 28, 8, 128, hidden=2048, vocab=151936)
+    light, heavy = Workload(8, 512, 1024, **cal["workload"]), Workload(2048, 512, 1024, **cal["workload"])
+    one_light = rollout_s(c, m, light, 4, tail=False)
+    one_heavy = rollout_s(c, m, heavy, 4, tail=False) * 8 / 2048  # per sequence-equivalent
+    assert one_light < 1024 / 100  # a lightly loaded engine decodes near its batch-1 speed
+    assert rollout_s(c, m, heavy, 4, tail=False) > 2048 * 1024 / (4 * 256 * 53.3) * 0.9 and one_heavy < one_light * 2
+
+
+def test_memory_model_brackets_both_measured_points():
+    """The fitted overhead puts the planner's per-rank estimate within 10% of both measured FSDP2 peaks."""
+    from crucible.train.placement import activation_bytes
+
+    for m, w, shard, measured in ((ModelSpec(1.72, 28, 8, 128, hidden=2048, vocab=151936), Workload(24, micro_tokens=4096), 3, 14.4e9),
+                                  (ModelSpec(8.19, 36, 8, 128, hidden=4096, vocab=151936), Workload(48, micro_tokens=8192), 3, 65.0e9)):
+        est = (16 * m.params_b * 1e9 / shard + activation_bytes(m, w)) * w.mem_overhead
+        assert abs(est - measured) / measured < 0.10, (m.params_b, est / 1e9, measured / 1e9)

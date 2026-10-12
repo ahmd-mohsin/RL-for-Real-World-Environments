@@ -176,7 +176,12 @@ def _killpg(p: subprocess.Popen) -> None:
 async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None) -> ExecOut:
     t0 = time.monotonic()
     started: list[subprocess.Popen] = []
-    fut = asyncio.get_running_loop().run_in_executor(_WAITERS, _blocking_run, argv, cwd, safe_environ(env), timeout_s, stdin, started)
+    full_env = safe_environ(env)
+    if argv and Path(argv[0]).name == "docker" and full_env.get("DOCKER_HOST", "").startswith("ssh://"):
+        from crucible.world.docker_tunnel import rewrite_env  # one shared SSH tunnel per remote daemon (sshd throttles per-call SSH)
+
+        full_env = await asyncio.get_running_loop().run_in_executor(_WAITERS, rewrite_env, argv, full_env)
+    fut = asyncio.get_running_loop().run_in_executor(_WAITERS, _blocking_run, argv, cwd, full_env, timeout_s, stdin, started)
     try:
         rc, out, err, timed_out = await asyncio.shield(fut)
     except asyncio.CancelledError:  # the caller gave up: kill the command's session (no orphan keeps running)

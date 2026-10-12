@@ -28,6 +28,7 @@ reference for where GPUs go. ``Placement.sim_config()`` joins them.
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass, field
 from typing import Any
@@ -59,6 +60,8 @@ class ModelSpec:
     head_dim: int
     active_b: float | None = None  # MoE: parameters active per token (train FLOPs and decode cost); None = dense
     serve_bytes: int = 2  # bf16 serving weights and KV
+    hidden: int | None = None  # model width: with ``vocab``, the trainer's activation memory is modeled (else state only)
+    vocab: int | None = None
 
     @property
     def active(self) -> float:
@@ -80,17 +83,39 @@ class Workload:
     response_tokens: int = 2048
     turns: int = 1
     env_s_per_turn: float = 0.0
-    decode_tok_s: float = 40.0  # per sequence, at full engine batch
+    decode_tok_s: float = 40.0  # per sequence, at full engine batch (used when no ``decode_curve`` is given)
+    # measured per-sequence decode speed against the engine's concurrent batch, ((batch, tok/s), ...): speed falls as the
+    # batch grows (Modal A10G, Qwen3-1.7B: 111 at 1, 86 at 32, 53 at 128), so the engine's actual load sets it
+    decode_curve: tuple[tuple[int, float], ...] | None = None
     max_seqs_per_engine: int = 256
     tail_mult: float = 3.0  # the slowest sequence of a synchronous round, relative to the mean
     mfu: float = 0.35
     kv_frac: float = 0.4  # share of engine GPU memory reserved for KV cache
-    train_mem_frac: float = 0.7  # share of trainer GPU memory for weights, grads and optimizer state
+    train_mem_frac: float = 0.7  # share of trainer GPU memory for weights, grads, optimizer state (and activations when modeled)
+    micro_tokens: int = 8192  # tokens per trainer micro batch (TrainerConfig.token_budget): the activation term
+    logit_chunk: int = 1024  # LM-head rows per chunk (HFPolicy.logit_chunk), held in fp32
+    # allocator + FSDP buffers (gathered layers, reduce-scatter staging) on top of state + activations when the activation
+    # term is modeled: measured 1.18 (A10G, 1.7B, 3 ranks) and 1.27 (H100, 8B, 3 ranks)
+    mem_overhead: float = 1.25
     env_slots_per_seq: float = 1.0  # CPU worker slots one live rollout needs
 
     @property
     def context(self) -> int:
         return self.prompt_tokens + self.response_tokens
+
+    def decode_at(self, batch: float) -> float:
+        """Per-sequence decode tokens/s at a concurrent batch (log-batch interpolation of ``decode_curve``, clamped)."""
+        if not self.decode_curve:
+            return self.decode_tok_s
+        pts = sorted(self.decode_curve)
+        b = max(1.0, float(batch))
+        if b <= pts[0][0]:
+            return pts[0][1]
+        for (b0, v0), (b1, v1) in itertools.pairwise(pts):
+            if b <= b1:
+                f = (math.log(b) - math.log(b0)) / (math.log(b1) - math.log(b0))
+                return v0 + f * (v1 - v0)
+        return pts[-1][1]
 
     @property
     def tokens(self) -> int:
@@ -142,6 +167,20 @@ class Placement:
                 f"rollout {t['rollout']:.1f}s, train {t['train']:.1f}s, publish {t['publish']:.2f}s → step {t['step']:.1f}s")
 
 
+# Measured on real hardware (``scripts/modal_calibrate.py``; ``docs/research/m12-infra/02-live-validation.md``). ``mfu`` is
+# this stack's (FSDP2 layer mode, gradient checkpointing, fp32 master + bf16 autocast, fp32 LM head) at small batches:
+# the planner's default 0.35 is a well-tuned large-batch figure, an order of magnitude above what was measured here.
+CALIBRATED: dict[str, dict] = {
+    "a10g/qwen3-1.7b": {"cluster": {"gpu_mem_gb": 23.7, "gpu_tflops": 125.0, "nvlink_gbps": 1.14, "net_gbps": 1.14},
+                         "workload": {"mfu": 0.034, "decode_curve": ((1, 110.8), (8, 106.1), (32, 86.0), (128, 53.2))},
+                         "measured": {"train_tok_s_3gpu": 1237.7, "checkpoint_gb_s": 3.1, "broadcast_gb_s": 1.14, "peak_mem_gb": 14.4}},
+    # the publish bandwidth is Crucible's bucketed weight sync (double-buffered broadcast + reload), not raw NVLink
+    "h100/qwen3-8b": {"cluster": {"gpu_mem_gb": 80.0, "gpu_tflops": 989.0, "nvlink_gbps": 7.62},
+                      "workload": {"mfu": 0.167, "decode_curve": ((1, 141.2), (8, 142.5), (32, 134.1), (128, 95.9))},
+                      "measured": {"train_tok_s_3gpu": 10054.9, "checkpoint_gb_s": 2.6, "broadcast_gb_s": 7.62, "peak_mem_gb": 65.0}},
+}
+
+
 class PlacementError(ValueError):
     pass
 
@@ -169,11 +208,24 @@ def engine_shape(c: ClusterSpec, m: ModelSpec, w: Workload) -> tuple[int, int]:
                          f"{c.gpus}×{c.gpu_mem_gb} GB with {w.kv_frac:.0%} kept for KV")
 
 
+def activation_bytes(m: ModelSpec, w: Workload) -> float:
+    """Per-rank activation memory of one micro batch with gradient checkpointing (0 when width / vocab are unknown):
+    the checkpointed layer inputs and one layer's recompute (``micro_tokens · hidden · (4 · layers + 24)`` bytes, bf16 with
+    fp32 accumulators) plus the fp32 LM-head chunk with its softmax and gradient (``3 · logit_chunk · vocab · 4``). Fitted
+    on Qwen3-1.7B under FSDP2 layer mode (Modal A10G: 17.5 GB allocated at 8192 tokens against 13.6 GB of state)."""
+    if not (m.hidden and m.vocab):
+        return 0.0
+    return w.micro_tokens * m.hidden * (4 * m.layers + 24) + 3 * w.logit_chunk * m.vocab * 4
+
+
 def train_mesh(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int) -> tuple[int, int]:
-    """(replicate, shard): the smallest power-of-two shard group whose 16 B/param state fits, HSDP replicas beyond it."""
+    """(replicate, shard): the smallest power-of-two shard group whose 16 B/param state (plus the activation term when the
+    model's width and vocab are given) fits, HSDP replicas beyond it."""
     need = 16 * m.params_b * 1e9
+    act = activation_bytes(m, w)
+    over = w.mem_overhead if act else 1.0
     for shard in _pow2_upto(gpus):
-        if need / shard <= w.train_mem_frac * c.gpu_mem_gb * 1e9 and gpus % shard == 0:
+        if (need / shard + act) * over <= w.train_mem_frac * c.gpu_mem_gb * 1e9 and gpus % shard == 0:
             return gpus // shard, shard
     raise PlacementError(f"trainer state {need / 1e12:.1f} TB does not fit {gpus} GPUs at {w.train_mem_frac:.0%} of {c.gpu_mem_gb} GB")
 
@@ -186,7 +238,8 @@ def rollout_s(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int, *, tail: boo
     slots = gpus // eg * seqs
     if slots < 1:
         return math.inf
-    one = w.response_tokens / w.decode_tok_s
+    load = min(seqs, math.ceil(w.seqs_per_step / (gpus // eg)))  # sequences each engine actually decodes at once
+    one = w.response_tokens / w.decode_at(load)
     roll = math.ceil(w.seqs_per_step / slots) * one * w.tail_mult if tail else max(one, w.seqs_per_step * one / slots)
     return roll + w.turns * w.env_s_per_turn
 
@@ -254,8 +307,9 @@ def _candidate(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str, rollout
             t_e = t + swap
             _, seqs_e = engine_shape(c, m, w)
             s_r, s_e = rollout_gpus // eg * seqs_e, elastic // eg * seqs_e
-            work = w.seqs_per_step * w.response_tokens / w.decode_tok_s
-            one = w.response_tokens / w.decode_tok_s
+            speed = w.decode_at(min(seqs_e, math.ceil(w.seqs_per_step / max(1, (rollout_gpus + elastic) // eg))))
+            work = w.seqs_per_step * w.response_tokens / speed
+            one = w.response_tokens / speed
             T = max((work + s_e * t_e) / (s_r + s_e), one) + w.turns * w.env_s_per_turn
             step = max(T, t + p, t_e)
             times.update({"rollout": T, "swap": swap, "elastic_roll_share": max(0.0, (step - t_e) / step), "step": step})

@@ -96,6 +96,16 @@ def docker_grade(*, image: str, bundle_dir: Path, plan: str, out_dir: Path, moun
         got = image_id(image, docker_host)
         if got != expected_image:
             return Grade(_masked("check_infra", f"stale image: {image} is {got}, the task pins {expected_image}"), {}, "", -1)
+    dh = docker_host or os.environ.get("DOCKER_HOST", "")
+    if dh and dh not in ("unix:///var/run/docker.sock", "unix:///run/docker.sock"):
+        # a remote daemon resolves bind-mount sources on ITS host: unless the bundle was staged there at the same path, the
+        # verifier sees empty mounts and leaves no reward (found live: 22 red-team grades masked as no_reward_json, a
+        # misleading reason). Probe once and name the real cause.
+        probe = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{Path(bundle_dir).resolve()}:/probe:ro", "--entrypoint", "sh", image, "-c",
+                                "test -e /probe/crucible/verify/runtime/run.py"], env=env, capture_output=True, text=True, timeout=300, check=False)
+        if probe.returncode != 0:
+            return Grade(_masked("check_infra", f"bind-mount sources are not on the docker host {dh}: stage the bundle there at the same path "
+                                 f"(or grade on that host's local daemon)"), {}, probe.stderr[-500:], -1)
     name = name or f"crucible-grade-{uuid.uuid4().hex[:12]}"
     argv = ["docker", "run", "--rm", "--network", "none", "--init", "--shm-size", "8g", "--name", name, "--label", "crucible.sandbox=1",
             "-v", f"{Path(bundle_dir).resolve()}:{MOUNT}:ro", "-v", f"{out_dir.resolve()}:/logs/verifier"]

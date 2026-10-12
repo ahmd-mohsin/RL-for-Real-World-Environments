@@ -86,7 +86,7 @@ async def unity(out: dict, url: str) -> None:
     def task(i: int = 0):
         return ControlTask(f"live/unity-3dball-{i}@1", client={"base_url": url, "action_key": "continuous_actions", "observation_key": "vector_observations",
                                                                 "done_is": "terminated", "message_timeout_s": 600,
-                                                                "reset_kwargs": {"env_id": "3DBall"}, "ping_interval_s": None},
+                                                                "ping_interval_s": None},  # the server is started with UNITY_ENV_ID=3DBall
                            return_range=(-1, 100), journal="lazy", clock=False, restore="none",
                            action_space={"kind": "box", "shape": [2], "low": -1.0, "high": 1.0},
                            observation_space={"kind": "box", "shape": [8], "low": -1e9, "high": 1e9}, max_episode_ticks=500)

@@ -1,0 +1,48 @@
+{
+ "docker_host": "ssh://ahmed@100.100.101.36",
+ "image": "python:3.12-slim",
+ "A_cold": {
+  "n": 24,
+  "wall_s": 0.9,
+  "start_p50_s": 0.527,
+  "start_p95_s": 0.627,
+  "failures": [],
+  "failed": 0
+ },
+ "B_warm_fresh": {
+  "cycles": 96,
+  "concurrency": 16,
+  "wall_s": 2.5,
+  "acquire_p50_s": 0.0,
+  "acquire_p95_s": 0.535,
+  "distinct_containers": 96,
+  "reused_any": false,
+  "errors": [],
+  "stats": {
+   "hits": 54,
+   "misses": 42,
+   "destroyed": 96,
+   "reused": 0,
+   "dirty": 0
+  }
+ },
+ "C_warm_reuse_hygiene": {
+  "cycles": 96,
+  "wall_s": 12.4,
+  "leaks": 0,
+  "leak_examples": [],
+  "errors": [],
+  "stats": {
+   "hits": 94,
+   "misses": 2,
+   "destroyed": 14,
+   "reused": 82,
+   "dirty": 0
+  }
+ },
+ "D_cleanup": {
+  "left_containers": 0
+ },
+ "pass": true,
+ "wall_s": 20.3
+}

@@ -52,11 +52,14 @@ def stage() -> None:
 def run_check(which: str, extra: str = "") -> None:
     name = f"crucible_sims_{which}"
     sh(f"docker rm -f {name} >/dev/null 2>&1 || true", check=False)
-    cmd = (f"docker run --rm --name {name} --network host -v $HOME/{REMOTE}/out:/work/out -v $HOME/{REMOTE}/src:/crucible crucible-sim:v1 "
+    # shared machine: a bounded CPU share (torch would otherwise spread a tiny PPO net over every core; found live at 2200 %)
+    cmd = (f"docker run --rm --name {name} --network host --cpus 4 -e OMP_NUM_THREADS=4 -e MKL_NUM_THREADS=4 "
+           f"-v $HOME/{REMOTE}/out:/work/out -v $HOME/{REMOTE}/src:/crucible crucible-sim:v1 "
            f"python /crucible/tests/live/sims_check.py {which} --out /work/out {extra}")
     if which == "unity":
         sh("docker rm -f crucible_sims_unity_server >/dev/null 2>&1 || true", check=False)
-        sh("docker run -d --rm --name crucible_sims_unity_server -p 8010:8000 -v $HOME/rlenv/crucible_sims/unity_cache:/root/.mlagents-cache crucible-unity:v1")
+        # the scene is chosen once at server start: an env_id on every reset reloads the Unity binary each episode (found live)
+        sh("docker run -d --rm --name crucible_sims_unity_server -p 8010:8000 -e UNITY_ENV_ID=3DBall -v $HOME/rlenv/crucible_sims/unity_cache:/root/.mlagents-cache crucible-unity:v1")
         sh("for i in $(seq 1 90); do curl -sf http://127.0.0.1:8010/health && break; sleep 2; done")
         try:
             print(sh(cmd, check=False)[-4000:])

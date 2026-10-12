@@ -2518,6 +2518,19 @@ Across 24 seed and topology runs, no trained rollout exceeds τ.
 - **B.27.** Instruction noise typo'd the exact word a task asked for, and the agent faithfully wrote the typo (live: GPT-6 Luna, 2 of 10 word-file episodes at full intensity). Value tokens are now never touched: words the task protects (`NoiseConfig.protect`), plus anything with digits or symbols, quoted text and capitalized names.
 - **Rollout workers** now exit (code 75) after `orphan_after_s` without contact with their controller, instead of polling forever. A controller restarted as a new process (a new id) makes them drop the dead leases and continue.
 
+**Live stress findings (2026-10-11; `docs/research/m12-infra/02-live-validation.md`).** Real backends: Modal multi-GPU, the lab node's Docker and KVM, and OpenRouter.
+- **B.29.** Every Docker CLI call over `DOCKER_HOST=ssh://` opened its own SSH connection. Under concurrency, sshd's MaxStartups throttling left 5 of 24 `docker run` calls hung for over 11 minutes with no error. `world/docker_tunnel.py` now keeps one SSH tunnel per host (local Unix socket → remote `docker.sock`) for every CLI call. 40 concurrent calls take 0.3 s; 48 cold sandboxes start with p95 0.57 s.
+- **B.30.** The warm sandbox pool's reuse mode refilled on every acquire, so the pool was full by release time and every cleaned container was destroyed: reuse never happened. Containers on loan are now counted, and 224 of 256 cycles reused with 0 leaks.
+- **B.31.** `docker_grade` against a remote daemon masked grades as `no_reward_json`. Bind-mount sources resolve on the daemon's host, so the verifier saw empty mounts. A probe now names the real cause. The red-team attacks pass on the local daemon (27/27) and in a container on the lab's own daemon (22/22 without Harbor).
+- **B.32.** The planner's memory model counted state only. Qwen3-1.7B ran out of memory at 8192-token micro batches on 2 × A10G although the planner said it fit. It now models activations and the fp32 LM-head chunk, with a fitted 1.25 overhead, which lands within 10% of the measured peaks (14.4 GB on A10G, 65 GB on H100). It also uses measured decode-versus-batch curves and calibrated presets (`placement.CALIBRATED`).
+  - Measured MFU is 3.4% (A10G) and 16.7% (H100) for this stack, against the 0.35 default.
+  - The weight-sync broadcast measures 1.1 GB/s on PCIe A10G and 7.6 GB/s on H100, against the assumed 450 GB/s NVLink.
+- **B.33.** Remote simulators (Unity through OpenEnv's server, found live on the lab):
+  - ControlApp re-opened a session at every reset, hitting the server's one-session cap; it now keeps one session for its life.
+  - A stochastic simulator's reset failed the start-digest check; with `restore: none` a fresh start is now accepted.
+  - The 20 s WebSocket keepalive dropped a server that blocks while loading a scene; `ping_interval_s` is now configurable.
+  - Passing `env_id` on every reset reloaded the Unity binary each episode, so the scene is set once at server start (`reset_kwargs` stays for servers that switch cheaply).
+
 **M12 records for games, control and vision (2026-10-11).**
 - **Games.** A turn-based multi-agent World trains as one `crucible.rollout/v1` record per trained seat (`train/seats.py`, `world_rollout(seats=SeatConfig)`).
   - Each record holds that seat's turns only, with `RolloutRecord.actor` set and the seat's own outcome from the game App. A missing outcome is masked, never scored 0.
