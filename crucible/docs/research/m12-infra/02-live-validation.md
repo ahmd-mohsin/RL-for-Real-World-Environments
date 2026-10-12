@@ -128,6 +128,14 @@ Found and fixed: B.27, where instruction typos changed the exact word a task ask
 fell to 0.8 because the agent faithfully wrote the typo. With value tokens protected, the one remaining miss is real
 ambiguity ("exactly THE yarrow" after a dropped word).
 
+## 8. OpenRouter: M1 features with real models (`tests/live/m1_llm_check.py`, `live/m1_llm.json`)
+
+| check | model | result |
+|---|---|---|
+| desktop computer use from screenshots alone (type, Save, Approve in a Tk app) | Claude Haiku 5.5, vision | pass in 6 steps: screenshot → click → type "cobalt" → click Save → click Approve; files verified in the container; $0.001 |
+| two LLM seats play Nim under native turn order | GPT-6 Luna vs Claude Haiku 5.5 | 5 / 5 games terminal, zero-sum, no refused moves (after B.34; before it, both seats resigned after one move) |
+| single-turn tasks with parsers | GPT-6 Luna | boxed math ×2 (math-verify) and JSON correct; the multiple-choice answer "Jupiter is the largest planet" has no "Answer: C", so the format gate fails it, as the parser should |
+
 ## Modal cost (estimated from GPU-minutes; budget $30)
 
 | runs | ≈ $ |

@@ -2531,6 +2531,13 @@ Across 24 seed and topology runs, no trained rollout exceeds τ.
   - The 20 s WebSocket keepalive dropped a server that blocks while loading a scene; `ping_interval_s` is now configurable.
   - Passing `env_id` on every reset reloaded the Unity binary each episode, so the scene is set once at server start (`reset_kwargs` stays for servers that switch cheaply).
 
+- **B.34.** Two OpenRouter models playing Nim as two plain `LLMToolPolicy` seats both resigned after one move. A seat was never shown the opponent's move or its legal actions. When its turn came back, `run_episode` handed it its own stale observation (`legal` from when the other seat was to move), and a text reply on its own turn ended its game. Three fixes:
+  - `run_episode` wraps the seats of a multi-seat turn-based World with `SeatView` + `MoveLog` (moved from `train/seats.py` to `actors/seat_view.py`);
+  - `to_move` / `legal` are refreshed from the turn manager before a seat acts;
+  - a text reply on one's own turn is nudged (`TURN_NUDGE`), not taken as Done.
+  
+  Five live games now reach a terminal, zero-sum state with no refused moves.
+
 **M12 records for games, control and vision (2026-10-11).**
 - **Games.** A turn-based multi-agent World trains as one `crucible.rollout/v1` record per trained seat (`train/seats.py`, `world_rollout(seats=SeatConfig)`).
   - Each record holds that seat's turns only, with `RolloutRecord.actor` set and the seat's own outcome from the game App. A missing outcome is masked, never scored 0.

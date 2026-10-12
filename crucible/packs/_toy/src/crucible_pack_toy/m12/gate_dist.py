@@ -223,7 +223,8 @@ def main() -> None:
     ports = sorted({8100 + s.engine for s in specs if s.role == "engine"})
     os.environ[ARGS_ENV] = json.dumps(vars(a))
     t0 = time.time()
-    res = LocalLauncher(extra_env={ARGS_ENV: json.dumps(vars(a)), "CRUCIBLE_ENGINE_PORTS": ",".join(map(str, ports))}, timeout_s=7200).run(
+    res = LocalLauncher(extra_env={ARGS_ENV: json.dumps(vars(a)), "CRUCIBLE_ENGINE_PORTS": ",".join(map(str, ports))}, timeout_s=7200,
+                        log_dir=Path(a.out) / "proc_logs").run(
         specs, "crucible_pack_toy.m12.gate_dist:entry")
     out = {"placement": p.explain(), "layout": p.layout, "wall_s": round(time.time() - t0, 1), "processes": res}
     (Path(a.out) / "gate_dist.json").write_text(json.dumps(out, indent=1, default=str))

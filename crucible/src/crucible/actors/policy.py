@@ -148,6 +148,7 @@ def approx_tokens(messages: list[dict[str, Any]]) -> int:
 
 CUT_OFF = "Your last reply was cut off at the output limit before you called a tool. Continue: make one tool call (keep any reasoning short)."
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
+TURN_NUDGE = "It is still your turn in the game, which is not over. Choose one of your legal actions with a tool call."
 class LLMToolPolicy(Policy):
     """A minimal function-calling harness. Parallel tool calls in one turn are executed in order and their results
     are appended together before any message that arrived meanwhile (a valid history for OpenAI-style APIs);
@@ -173,6 +174,7 @@ class LLMToolPolicy(Policy):
         self._last_full: list[int] | None = None  # prompt + completion of the last captured call in this segment (delta capture)
         self._last_seg: int | None = None
         self._nudges, self.max_nudges = 0, max_nudges
+        self._turn_nudges = 0  # per turn, reset by any tool call: a game seat replying in text on its own turn has not resigned
         self.context = context
         self.segment = 0
         self.segments: list[dict[str, Any]] = []  # one per compaction: the boundary and what was kept
@@ -370,6 +372,14 @@ class LLMToolPolicy(Policy):
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(cut off)"})
             self.messages.append({"role": "user", "content": CUT_OFF})
             return await self.act(Observation(actor=obs.actor, step=obs.step))
+        if not r.tool_calls and obs.legal and self._turn_nudges < self.max_nudges:
+            # a turn-based game: legal actions are offered only to the seat to move; a text reply is not a resignation
+            self._turn_nudges += 1
+            self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(no action)"})
+            self.messages.append({"role": "user", "content": TURN_NUDGE})
+            return await self.act(Observation(actor=obs.actor, step=obs.step, legal=obs.legal, to_move=obs.to_move))
+        if r.tool_calls:
+            self._turn_nudges = 0
         if not r.tool_calls:
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})
             self.stop = "agent_done"
@@ -447,6 +457,14 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     ``start_obs`` (with ``reset=False``) are the first observations, e.g. a multi-step task's next instruction
     (``World.begin_task_step``); ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``)."""
     limits = limits or EpisodeLimits(max_steps=max_steps)
+    turns = getattr(world, "turns", None)
+    if turns is not None and len(policies) > 1:  # a multi-seat game: each seat sees the others' moves and its legal actions
+        from crucible.actors.seat_view import MoveLog, SeatView
+
+        if not any(isinstance(p, SeatView) for p in policies.values()) and not any(isinstance(o, MoveLog) for o in observers):
+            mlog = MoveLog([s for s in policies if s in getattr(turns, "seats", policies)])
+            observers = [*observers, mlog]
+            policies = {a: SeatView(p, a, mlog, show_legal=True) if a in mlog.seats else p for a, p in policies.items()}
     if reset:
         obs = await world.reset()
     else:
@@ -483,6 +501,9 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                     if late:
                         current[a] = current[a].model_copy(update={"tool_results": [*current[a].tool_results, *late]})
                         log.setdefault(a, []).append(current[a])
+                    # the seat's last observation came from its own previous move, when another seat was to move: its turn
+                    # and legal actions are the turn manager's now (found live: a stale legal=None made an LLM seat resign)
+                    current[a] = current[a].model_copy(update={"to_move": list(turns.to_move), "legal": (turns.legal or {}).get(a)})
                 action = await policies[a].act(current[a])
                 res = await world.step(a, action)
                 current[a] = res.observation

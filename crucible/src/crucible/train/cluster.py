@@ -30,6 +30,7 @@ import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from crucible.train.placement import Placement
@@ -93,9 +94,21 @@ def run_entry() -> None:
         print("CRUCIBLE_RESULT " + json.dumps(out), flush=True)
 
 
+def first_traceback(err: str, limit: int = 2500) -> str:
+    """The first Python traceback in a stderr (the cause), not its tail: a dead rank's peers fill the tail with NCCL
+    watchdog dumps that hide it (found live: an 8B run's driver error was lost under them)."""
+    i = err.find("Traceback (most recent call last)")
+    if i < 0:
+        return err[-limit:]
+    j = err.find("\n\n", i)
+    return err[i: (j if j > 0 else i + limit)][:limit]
+
+
 class LocalLauncher:
-    def __init__(self, *, extra_env: dict[str, str] | None = None, timeout_s: float = 300.0):
+    def __init__(self, *, extra_env: dict[str, str] | None = None, timeout_s: float = 300.0, log_dir: str | Path | None = None):
+        """``log_dir``: each process's full stdout / stderr is kept there (``<role>-r<rank>-e<engine>.log``)."""
         self.extra_env, self.timeout_s = extra_env or {}, timeout_s
+        self.log_dir = Path(log_dir) if log_dir else None
 
     def run(self, specs: list[ProcSpec], entry: str) -> list[Any]:
         procs = []
@@ -111,8 +124,11 @@ class LocalLauncher:
                 p.kill()
                 out, err = p.communicate()
                 err = "TIMEOUT\n" + err
+            if self.log_dir is not None:
+                self.log_dir.mkdir(parents=True, exist_ok=True)
+                (self.log_dir / f"{s.role}-r{s.rank}-e{s.engine}.log").write_text(out + "\n--- stderr ---\n" + err)
             if p.returncode:
-                errs.append(f"{s.role} rank={s.rank} engine={s.engine}: {err[-2000:]}")
+                errs.append(f"{s.role} rank={s.rank} engine={s.engine}: {first_traceback(err)}")
             line = [ln for ln in out.splitlines() if ln.startswith("CRUCIBLE_RESULT ")]
             results.append(json.loads(line[-1].split(" ", 1)[1]) if line else None)
         if errs:

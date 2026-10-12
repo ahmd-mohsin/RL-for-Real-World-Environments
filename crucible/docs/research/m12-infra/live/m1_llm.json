@@ -1,0 +1,290 @@
+{
+ "desktop": {
+  "model": "anthropic/claude-haiku-5.5",
+  "steps": 6,
+  "stop": "agent_done",
+  "masked": false,
+  "actions": [
+   "screenshot",
+   "click",
+   "type",
+   "click",
+   "click"
+  ],
+  "saved": "cobalt",
+  "approved": "yes",
+  "spend_usd": 0.0013,
+  "s": 15.7,
+  "pass": true,
+  "wall_s": 20.2
+ },
+ "seats": {
+  "models": [
+   "policy-default (alice)",
+   "judge-default (bob)"
+  ],
+  "games": [
+   {
+    "terminal": true,
+    "rewards": {
+     "alice": 1.0,
+     "bob": -1.0
+    },
+    "moves": [
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ]
+    ],
+    "refused": [],
+    "steps": 5,
+    "masked": false,
+    "spend_usd": 0.0007
+   },
+   {
+    "terminal": true,
+    "rewards": {
+     "alice": 1.0,
+     "bob": -1.0
+    },
+    "moves": [
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ]
+    ],
+    "refused": [],
+    "steps": 5,
+    "masked": false,
+    "spend_usd": 0.0008
+   },
+   {
+    "terminal": true,
+    "rewards": {
+     "bob": 1.0,
+     "alice": -1.0
+    },
+    "moves": [
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 3
+      }
+     ]
+    ],
+    "refused": [],
+    "steps": 5,
+    "masked": false,
+    "spend_usd": 0.0007
+   },
+   {
+    "terminal": true,
+    "rewards": {
+     "alice": 1.0,
+     "bob": -1.0
+    },
+    "moves": [
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ]
+    ],
+    "refused": [],
+    "steps": 5,
+    "masked": false,
+    "spend_usd": 0.0006
+   },
+   {
+    "terminal": true,
+    "rewards": {
+     "alice": 1.0,
+     "bob": -1.0
+    },
+    "moves": [
+     [
+      "alice",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ],
+     [
+      "bob",
+      {
+       "n": 1
+      }
+     ],
+     [
+      "alice",
+      {
+       "n": 3
+      }
+     ]
+    ],
+    "refused": [],
+    "steps": 5,
+    "masked": false,
+    "spend_usd": 0.0006
+   }
+  ],
+  "pass": true,
+  "wall_s": 50.8
+ },
+ "single_turn": {
+  "model": "openai/gpt-6-luna",
+  "rows": [
+   {
+    "task": "live/math1@1",
+    "reward": 1.0,
+    "gates": {
+     "format": "pass",
+     "answer": "pass"
+    },
+    "answer": "\\(\\boxed{7}\\)"
+   },
+   {
+    "task": "live/math2@1",
+    "reward": 1.0,
+    "gates": {
+     "format": "pass",
+     "answer": "pass"
+    },
+    "answer": "\\[\n\\boxed{x+1}\n\\]"
+   },
+   {
+    "task": "live/mcq@1",
+    "reward": 0.0,
+    "gates": {
+     "format": "fail",
+     "answer": "skip"
+    },
+    "answer": "Jupiter is the largest planet in our solar system."
+   },
+   {
+    "task": "live/json@1",
+    "reward": 1.0,
+    "gates": {
+     "format": "pass",
+     "answer": "pass"
+    },
+    "answer": "{\"city\":\"Tokyo\",\"country\":\"Japan\"}"
+   }
+  ],
+  "spend_usd": 0.0001,
+  "pass": true,
+  "wall_s": 8.7
+ }
+}

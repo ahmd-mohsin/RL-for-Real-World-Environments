@@ -41,6 +41,9 @@ def run(argv: list[str]) -> dict:
     out = Path("/work/out/gate_dist.json")
     res = json.loads(out.read_text()) if out.exists() else {"error": p.stderr[-6000:]}
     logs = {f.name: f.read_text(errors="replace")[-3000:] for f in Path("/work/out").glob("vllm*.log")}
+    from crucible.train.cluster import first_traceback
+
+    logs.update({f.name: first_traceback(f.read_text(errors="replace"), 4000) for f in Path("/work/out/proc_logs").glob("*.log")})
     return {"result": res, "returncode": p.returncode, "vllm_log_tails": logs if p.returncode else {}}
 
 
