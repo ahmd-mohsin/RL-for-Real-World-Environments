@@ -1,0 +1,1053 @@
+{
+ "model": "openai/gpt-6-luna",
+ "spend_usd": 0.0815,
+ "summary": {
+  "backlog@0.0": {
+   "n": 10,
+   "mean_reward": 0.567,
+   "masked": 0,
+   "mean_noise_events": 0.0,
+   "errors": 0
+  },
+  "backlog@0.5": {
+   "n": 10,
+   "mean_reward": 0.633,
+   "masked": 0,
+   "mean_noise_events": 8.3,
+   "errors": 0
+  },
+  "backlog@1.0": {
+   "n": 10,
+   "mean_reward": 0.633,
+   "masked": 0,
+   "mean_noise_events": 12.0,
+   "errors": 0
+  },
+  "wordfile@0.0": {
+   "n": 10,
+   "mean_reward": 1.0,
+   "masked": 0,
+   "mean_noise_events": 0.0,
+   "errors": 0
+  },
+  "wordfile@0.5": {
+   "n": 10,
+   "mean_reward": 1.0,
+   "masked": 0,
+   "mean_noise_events": 1.1,
+   "errors": 0
+  },
+  "wordfile@1.0": {
+   "n": 10,
+   "mean_reward": 0.9,
+   "masked": 0,
+   "mean_noise_events": 1.6,
+   "errors": 0
+  }
+ },
+ "rows": [
+  {
+   "task": "backlog",
+   "seed": 0,
+   "noise": 1.0,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 3,
+   "noise_events": 17,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_empty",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 26.1
+  },
+  {
+   "task": "backlog",
+   "seed": 1,
+   "noise": 0.5,
+   "reward": 0.333333,
+   "steps": 21,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 5,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_typo"
+   ],
+   "s": 40.2
+  },
+  {
+   "task": "backlog",
+   "seed": 1,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 29,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 42.1
+  },
+  {
+   "task": "backlog",
+   "seed": 1,
+   "noise": 1.0,
+   "reward": 0.666667,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 4,
+   "noise_events": 16,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_empty",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 42.6
+  },
+  {
+   "task": "backlog",
+   "seed": 0,
+   "noise": 0.5,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 1,
+   "noise_events": 7,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 49.1
+  },
+  {
+   "task": "backlog",
+   "seed": 0,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 50.0
+  },
+  {
+   "task": "backlog",
+   "seed": 2,
+   "noise": 0.5,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 4,
+   "noise_events": 11,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 27.3
+  },
+  {
+   "task": "backlog",
+   "seed": 2,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 42.1
+  },
+  {
+   "task": "backlog",
+   "seed": 3,
+   "noise": 0.0,
+   "reward": 0.666667,
+   "steps": 26,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 31.1
+  },
+  {
+   "task": "backlog",
+   "seed": 3,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 27,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 4,
+   "noise_events": 12,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 30.4
+  },
+  {
+   "task": "backlog",
+   "seed": 2,
+   "noise": 1.0,
+   "reward": 0.666667,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 5,
+   "noise_events": 12,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_empty",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 40.5
+  },
+  {
+   "task": "backlog",
+   "seed": 3,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 2,
+   "noise_events": 12,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 47.8
+  },
+  {
+   "task": "backlog",
+   "seed": 4,
+   "noise": 1.0,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 4,
+   "noise_events": 12,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 28.8
+  },
+  {
+   "task": "backlog",
+   "seed": 4,
+   "noise": 0.5,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 3,
+   "noise_events": 8,
+   "noise_ops": [
+    "instr_typo",
+    "tool_empty",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 40.1
+  },
+  {
+   "task": "backlog",
+   "seed": 4,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 27,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 43.8
+  },
+  {
+   "task": "backlog",
+   "seed": 5,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 35.0
+  },
+  {
+   "task": "backlog",
+   "seed": 5,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 1,
+   "noise_events": 5,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 34.0
+  },
+  {
+   "task": "backlog",
+   "seed": 5,
+   "noise": 1.0,
+   "reward": 0.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 7,
+   "noise_events": 13,
+   "noise_ops": [
+    "instr_drop_word",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 28.7
+  },
+  {
+   "task": "backlog",
+   "seed": 6,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 1,
+   "noise_events": 9,
+   "noise_ops": [
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 34.3
+  },
+  {
+   "task": "backlog",
+   "seed": 6,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 3,
+   "noise_events": 11,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 32.3
+  },
+  {
+   "task": "backlog",
+   "seed": 7,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 26,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 38.0
+  },
+  {
+   "task": "backlog",
+   "seed": 6,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 57.8
+  },
+  {
+   "task": "backlog",
+   "seed": 7,
+   "noise": 0.5,
+   "reward": 0.666667,
+   "steps": 30,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 2,
+   "noise_events": 12,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 45.0
+  },
+  {
+   "task": "backlog",
+   "seed": 7,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 2,
+   "noise_events": 8,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_empty",
+    "tool_transient_error",
+    "tool_truncate",
+    "tool_typo"
+   ],
+   "s": 36.4
+  },
+  {
+   "task": "backlog",
+   "seed": 8,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 21,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 2,
+   "noise_events": 8,
+   "noise_ops": [
+    "instr_typo",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 23.4
+  },
+  {
+   "task": "backlog",
+   "seed": 8,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 16,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 25.0
+  },
+  {
+   "task": "wordfile",
+   "seed": 0,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.1
+  },
+  {
+   "task": "wordfile",
+   "seed": 0,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo"
+   ],
+   "s": 2.9
+  },
+  {
+   "task": "wordfile",
+   "seed": 0,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo"
+   ],
+   "s": 2.9
+  },
+  {
+   "task": "wordfile",
+   "seed": 1,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.9
+  },
+  {
+   "task": "wordfile",
+   "seed": 1,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo"
+   ],
+   "s": 2.6
+  },
+  {
+   "task": "wordfile",
+   "seed": 1,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo"
+   ],
+   "s": 2.5
+  },
+  {
+   "task": "wordfile",
+   "seed": 2,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.1
+  },
+  {
+   "task": "wordfile",
+   "seed": 2,
+   "noise": 1.0,
+   "reward": 0.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo"
+   ],
+   "s": 2.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 2,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 3,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 2,
+   "noise_ops": [
+    "instr_case",
+    "tool_transient_error"
+   ],
+   "s": 3.5
+  },
+  {
+   "task": "wordfile",
+   "seed": 3,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.5
+  },
+  {
+   "task": "backlog",
+   "seed": 8,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 22,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 4,
+   "noise_events": 10,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_empty",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 28.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 3,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "tool_empty"
+   ],
+   "s": 2.8
+  },
+  {
+   "task": "wordfile",
+   "seed": 4,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 3.7
+  },
+  {
+   "task": "wordfile",
+   "seed": 4,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word"
+   ],
+   "s": 3.3
+  },
+  {
+   "task": "wordfile",
+   "seed": 3,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 3,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 2,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "tool_transient_error"
+   ],
+   "s": 5.3
+  },
+  {
+   "task": "wordfile",
+   "seed": 5,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.4
+  },
+  {
+   "task": "wordfile",
+   "seed": 5,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case"
+   ],
+   "s": 2.5
+  },
+  {
+   "task": "wordfile",
+   "seed": 5,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_distractor",
+    "instr_typo"
+   ],
+   "s": 2.8
+  },
+  {
+   "task": "wordfile",
+   "seed": 6,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 4,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 5,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 2,
+   "noise_events": 4,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 7.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 6,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_drop_word"
+   ],
+   "s": 2.1
+  },
+  {
+   "task": "wordfile",
+   "seed": 6,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word"
+   ],
+   "s": 2.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 7,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.3
+  },
+  {
+   "task": "wordfile",
+   "seed": 7,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.3
+  },
+  {
+   "task": "wordfile",
+   "seed": 7,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_distractor",
+    "instr_typo"
+   ],
+   "s": 2.3
+  },
+  {
+   "task": "wordfile",
+   "seed": 8,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.0
+  },
+  {
+   "task": "wordfile",
+   "seed": 8,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 1,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo"
+   ],
+   "s": 2.2
+  },
+  {
+   "task": "wordfile",
+   "seed": 9,
+   "noise": 0.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 2.0
+  },
+  {
+   "task": "wordfile",
+   "seed": 8,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 3,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 2,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo",
+    "tool_transient_error"
+   ],
+   "s": 3.1
+  },
+  {
+   "task": "wordfile",
+   "seed": 9,
+   "noise": 0.5,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 2,
+   "noise_ops": [
+    "instr_distractor",
+    "tool_typo"
+   ],
+   "s": 3.5
+  },
+  {
+   "task": "wordfile",
+   "seed": 9,
+   "noise": 1.0,
+   "reward": 1.0,
+   "steps": 2,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 2,
+   "noise_ops": [
+    "instr_distractor",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_empty"
+   ],
+   "s": 2.5
+  },
+  {
+   "task": "backlog",
+   "seed": 9,
+   "noise": 0.0,
+   "reward": 0.333333,
+   "steps": 25,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 0,
+   "noise_events": 0,
+   "noise_ops": [],
+   "s": 42.9
+  },
+  {
+   "task": "backlog",
+   "seed": 9,
+   "noise": 0.5,
+   "reward": 0.333333,
+   "steps": 30,
+   "masked": false,
+   "stop": "max_steps",
+   "tool_errors": 1,
+   "noise_events": 6,
+   "noise_ops": [
+    "instr_case",
+    "instr_drop_word",
+    "instr_typo",
+    "tool_typo"
+   ],
+   "s": 45.3
+  },
+  {
+   "task": "backlog",
+   "seed": 9,
+   "noise": 1.0,
+   "reward": 0.333333,
+   "steps": 28,
+   "masked": false,
+   "stop": "agent_done",
+   "tool_errors": 1,
+   "noise_events": 9,
+   "noise_ops": [
+    "instr_case",
+    "instr_typo",
+    "tool_drop_json_field",
+    "tool_shuffle_lines",
+    "tool_transient_error",
+    "tool_typo"
+   ],
+   "s": 54.7
+  }
+ ],
+ "pass": true,
+ "wall_s": 217.6
+}

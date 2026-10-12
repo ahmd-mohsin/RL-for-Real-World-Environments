@@ -4,8 +4,10 @@ instruction noise and tool noise of rising intensity makes agents robust to real
 ``WorldNoise`` perturbs what the policy *sees*, never the World's state or the verifier's view:
 
 - **instruction** (at the first observation): word typos (adjacent swap), word dropout, case flips, and an irrelevant
-  distractor sentence; the instruction stays solvable (each operation preserves the task's content words with high
-  probability at low intensity);
+  distractor sentence. **Value tokens are never touched**: words the task protects (``protect``: the exact strings
+  the task must reproduce), and by default anything with a digit or a non-letter character (identifiers, paths,
+  amounts), quoted text, and capitalized words (names). Found live: unprotected typos changed the word a task asked
+  the agent to write, and the agent faithfully wrote the typo (scored 0 for following the instruction it saw);
 - **tool, before execution** (``transient_error``): the call is not executed and returns a retryable
   "temporarily unavailable" error with ``fault="tool"`` (a tool's own error the policy must handle: scored, not masked);
 - **tool, after execution** (successful results only): ``truncate`` (a tail cut with a banner), ``typo`` (character
@@ -43,6 +45,7 @@ class NoiseConfig:
     tool_before: dict[str, float] = field(default_factory=lambda: {"transient_error": 0.15})
     tool_after: dict[str, float] = field(default_factory=lambda: {"truncate": 0.1, "typo": 0.02, "empty": 0.05, "shuffle_lines": 0.1, "drop_json_field": 0.15})
     tools: str = "*"  # fnmatch over qualified tool names that may be perturbed
+    protect: list[str] = field(default_factory=list)  # value tokens instruction noise must never alter (case-insensitive)
     max_transient_per_tool: int = 2  # a tool fails transiently at most this many times per episode (retries succeed after)
 
     def p(self, base: float) -> float:
@@ -74,8 +77,17 @@ class WorldNoise:
             return text, []
         before = dict(self.counts)
         c = self.cfg.instruction
+        guard = {x.lower() for x in self.cfg.protect}
         words = []
+        quoted = False
         for w in text.split(" "):
+            core = w.strip(".,;:!?()[]{}")
+            starts_q, ends_q = core[:1] in "\"'`", core[-1:] in "\"'`"
+            in_quote = quoted or starts_q
+            quoted = (quoted or starts_q) and not (ends_q and len(core) > 1)
+            if in_quote or core.lower() in guard or not core.isalpha() or core[:1].isupper():
+                words.append(w)  # a value token: names, identifiers, numbers, quoted text, protected words
+                continue
             if self._hit("instr_drop_word", c.get("drop_word", 0.0)) and len(w) > 3 and w.isalpha() and w.islower():
                 continue  # only plain lowercase words: names, numbers and identifiers survive
             if self._hit("instr_typo", c.get("typo", 0.0)) and w.isalpha():

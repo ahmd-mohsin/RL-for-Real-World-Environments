@@ -1,0 +1,64 @@
+{
+ "docker_host": "ssh://ahmed@100.100.101.36",
+ "pool_start": {
+  "vms": 4,
+  "wall_s": 7.0,
+  "boot_s": [
+   2.86,
+   2.42,
+   2.73,
+   2.38
+  ],
+  "first_vm": {
+   "ssh_after_loadvm_s": 0.55,
+   "boot_s": 2.86
+  },
+  "others": [
+   {
+    "ssh_after_loadvm_s": 0.62,
+    "boot_s": 2.42
+   },
+   {
+    "ssh_after_loadvm_s": 0.55,
+    "boot_s": 2.73
+   },
+   {
+    "ssh_after_loadvm_s": 0.57,
+    "boot_s": 2.38
+   }
+  ]
+ },
+ "isolation": {
+  "guest": [
+   "6.1.0-53-cloud-amd64",
+   "2",
+   "Mem:             973         197         786           0         117         775"
+  ],
+  "after_reset": [
+   "clean",
+   "clean",
+   "clean",
+   "clean"
+  ]
+ },
+ "world_snapshot": {
+  "savevm_s": 0.6,
+  "loadvm_s": 1.04,
+  "notes_after_restore": "before snapshot",
+  "process_and_dirs": [
+   "alive",
+   "noextra"
+  ]
+ },
+ "stress": {
+  "cycles": 16,
+  "wall_s": 8.8,
+  "all_ok": true,
+  "leaks": 0,
+  "reset_s_median": 1.125,
+  "reset_s_max": 1.2,
+  "resets": 18
+ },
+ "pass": true,
+ "wall_s": 28.2
+}

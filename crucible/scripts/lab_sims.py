@@ -52,7 +52,7 @@ def stage() -> None:
 def run_check(which: str, extra: str = "") -> None:
     name = f"crucible_sims_{which}"
     sh(f"docker rm -f {name} >/dev/null 2>&1 || true", check=False)
-    cmd = (f"docker run --rm --name {name} --network host -v $HOME/{REMOTE}/out:/work/out crucible-sim:v1 "
+    cmd = (f"docker run --rm --name {name} --network host -v $HOME/{REMOTE}/out:/work/out -v $HOME/{REMOTE}/src:/crucible crucible-sim:v1 "
            f"python /crucible/tests/live/sims_check.py {which} --out /work/out {extra}")
     if which == "unity":
         sh("docker rm -f crucible_sims_unity_server >/dev/null 2>&1 || true", check=False)

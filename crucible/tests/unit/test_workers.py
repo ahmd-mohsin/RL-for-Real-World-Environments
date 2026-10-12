@@ -128,3 +128,63 @@ async def test_runtime_survives_a_killed_worker_without_double_training():
     assert len(ids) == len(set(ids))  # nothing trained twice
     assert lc.stats["expired"] > 0 and all(r.reward is not None for r in rep.trained_records)
     assert any(r.timings.get("worker_attempts", 1) > 1 for r in rep.trained_records) or lc.stats["expired"] > 0
+
+
+async def test_worker_exits_when_its_controller_dies():
+    """M12 open item: a worker whose controller died used to poll forever. It now exits (code 75) after
+    ``--orphan-after-s`` without contact, so a supervisor restarts or reaps it."""
+    lc = LeaseController(lease_s=30.0)
+    url = await lc.start()
+    p = subprocess.Popen([sys.executable, "-m", "crucible.train.workers", "--controller", url, "--rollout", "copy", "--orphan-after-s", "1.5", "--id", "orphan"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+    try:
+        await asyncio.sleep(3.0)  # past orphan_after_s: an empty queue still answers every lease, so the worker stays
+        assert p.poll() is None  # alive while the controller is
+        await lc.stop()
+        t0 = time.monotonic()
+        while p.poll() is None and time.monotonic() - t0 < 15:
+            await asyncio.sleep(0.1)
+        assert p.returncode == 75, (p.returncode, p.stderr.read().decode()[-500:] if p.stderr else "")
+        assert time.monotonic() - t0 < 10
+    finally:
+        _kill([p])
+
+
+async def test_worker_survives_a_controller_restart_and_drops_dead_leases():
+    from crucible.train.workers import RolloutWorker
+
+    gate = asyncio.Event()
+
+    async def slow(rid, prompt, seed, gen, *, temperature=1.0, harness="h"):
+        await gate.wait()  # held until the test releases it: the job is in flight when the controller dies
+        from crucible.core.schema.rollout import RolloutRecord
+
+        return RolloutRecord(rollout_id=rid, sample=rid, task=prompt, harness=harness, policy="p", reward=1.0)
+
+    lc1 = LeaseController(lease_s=30.0)
+    url = await lc1.start()
+    port = int(url.rsplit(":", 1)[1])
+    w = RolloutWorker(url, slow, worker_id="w", heartbeat_s=0.2, poll_s=0.02, orphan_after_s=30.0)
+    run = asyncio.create_task(w.run())
+    f1 = asyncio.ensure_future(lc1.rollout_fn()("r1", "p", 0, None))
+    for _ in range(200):
+        if w.active:
+            break
+        await asyncio.sleep(0.02)
+    assert "r1" in w.active and w.controller_id == lc1.id
+    await lc1.stop()
+    f1.cancel()
+    lc2 = LeaseController(lease_s=30.0)
+    await lc2.start(port=port)  # the controller comes back as a new process on the same address
+    f2 = asyncio.ensure_future(lc2.rollout_fn()("r2", "p", 1, None))
+    for _ in range(300):
+        if w.controller_restarts and "r2" in w.active:
+            break
+        await asyncio.sleep(0.02)
+    assert w.controller_restarts == 1 and "r1" not in w.active and w.controller_id == lc2.id  # the dead controller's lease was dropped
+    gate.set()
+    rec = await asyncio.wait_for(f2, 10)
+    assert rec is not None and rec.reward == 1.0 and w.exit_reason is None
+    run.cancel()
+    await asyncio.gather(run, return_exceptions=True)
+    await lc2.stop()

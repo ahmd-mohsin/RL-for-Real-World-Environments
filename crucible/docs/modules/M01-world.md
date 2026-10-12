@@ -465,10 +465,21 @@ Source: taxonomy family 10 (computer use), now expressible.
   - a health check inside the desktop;
   - a vision LLM policy receiving every screenshot as an `image_url` part while it clicks Approve.
 - **Open:**
-  - full VMs (QEMU/KVM with `savevm` snapshots, as OSWorld needs) and pools of pre-booted VMs need a Linux host with `/dev/kvm`, so the lab node;
+  - ~~full VMs and pre-booted pools~~: built 2026-10-11 (`common/vm`, below) and run on the lab's KVM;
   - accessibility trees (AT-SPI);
   - Windows and macOS desktops (cloud providers);
   - Android emulators.
+
+## Full virtual machines with pre-booted pools (2026-10-11; `common/vm`, `world/apps/vm.py`)
+- **What:** a Debian 12 cloud guest under QEMU/KVM in its own container (`--device /dev/kvm`, `--network none`; QEMU user networking with `restrict=on` gives the guest a NIC with no route out). SSH for commands, QMP for snapshots. Tools: `exec`, `read_file`, `write_file`; graders use `inspect`.
+- **Pre-booted starts:** the first VM on a host cold-boots once and saves `ready` (RAM, devices and disk) into a golden overlay on a shared volume. Every later VM copies it and starts with `-loadvm ready`. `VMPool` keeps N warm and resets each released VM with `loadvm ready` in the background; a VM that fails to reset is replaced, never handed out dirty.
+- **World snapshots:** `before_snapshot` → `savevm <tag>` (the tag derives from the journal); `after_restore` → `loadvm <tag>`. This is exact RAM-and-disk branching, so running processes come back. In another container, `restore: replay` re-runs the commands and `restore: start` refuses mid-episode restores.
+- **Measured on the lab** (`docs/research/m12-infra/live/vm_check*.json`, driven over `DOCKER_HOST=ssh://`):
+  - cold boot to SSH 8.8 s, then `savevm` 0.6 s;
+  - a warm VM from the golden state 2.4–2.8 s (SSH 0.5 s after `loadvm`);
+  - a reset 1.1–1.4 s;
+  - a mid-episode snapshot 0.6–0.7 s and its restore 1.0–1.2 s, with a background process alive again;
+  - 8 VMs × 64 concurrent acquire / exec / release cycles: all clean, no file leaked between users.
 
 ## Deferred from the survey (with the module that owns them)
 - **Distractor tools and per-actor identity / row-level RBAC** (EnterpriseOps `plus_N_tools`, identity headers): task construction, so M8 forge and the finance pack.

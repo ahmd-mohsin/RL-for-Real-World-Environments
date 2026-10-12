@@ -1,0 +1,30 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "spend_usd": 0.0013,
+ "bt_pairwise": {
+  "good": 0.97,
+  "ok": 0.2,
+  "wrong": 0.02,
+  "bad": 0.01
+ },
+ "tournament": {
+  "good": 1.0,
+  "ok": 0.667,
+  "wrong": 0.167,
+  "bad": 0.167
+ },
+ "grs_gar_reward": {
+  "good": 1.0,
+  "ok": 0.18,
+  "wrong": 0.0,
+  "bad": 0.0
+ },
+ "grs_gar_advantage": {
+  "good": 0.625,
+  "ok": 0.375,
+  "wrong": -0.5,
+  "bad": -0.5
+ },
+ "pass": true,
+ "wall_s": 8.8
+}

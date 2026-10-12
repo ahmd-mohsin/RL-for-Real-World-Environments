@@ -1,0 +1,89 @@
+{
+ "docker_host": "ssh://ahmed@100.100.101.36",
+ "pool_start": {
+  "vms": 8,
+  "wall_s": 15.3,
+  "boot_s": [
+   11.05,
+   2.5,
+   2.63,
+   2.63,
+   2.51,
+   2.51,
+   2.79,
+   2.63
+  ],
+  "first_vm": {
+   "cold_boot_s": 8.81,
+   "savevm_s": 0.58,
+   "boot_s": 11.05
+  },
+  "others": [
+   {
+    "ssh_after_loadvm_s": 0.54,
+    "boot_s": 2.5
+   },
+   {
+    "ssh_after_loadvm_s": 0.51,
+    "boot_s": 2.63
+   },
+   {
+    "ssh_after_loadvm_s": 0.51,
+    "boot_s": 2.63
+   },
+   {
+    "ssh_after_loadvm_s": 0.52,
+    "boot_s": 2.51
+   },
+   {
+    "ssh_after_loadvm_s": 0.53,
+    "boot_s": 2.51
+   },
+   {
+    "ssh_after_loadvm_s": 0.54,
+    "boot_s": 2.79
+   },
+   {
+    "ssh_after_loadvm_s": 0.51,
+    "boot_s": 2.63
+   }
+  ]
+ },
+ "isolation": {
+  "guest": [
+   "6.1.0-53-cloud-amd64",
+   "2",
+   "Mem:             973         207         776           0         117         765"
+  ],
+  "after_reset": [
+   "clean",
+   "clean",
+   "clean",
+   "clean",
+   "clean",
+   "clean",
+   "clean",
+   "clean"
+  ]
+ },
+ "world_snapshot": {
+  "savevm_s": 0.72,
+  "loadvm_s": 1.19,
+  "notes_after_restore": "before snapshot",
+  "process_and_dirs": [
+   "alive",
+   "noextra"
+  ]
+ },
+ "stress": {
+  "cycles": 64,
+  "wall_s": 18.0,
+  "all_ok": true,
+  "leaks": 0,
+  "reset_s_median": 1.18,
+  "reset_s_max": 1.36,
+  "resets": 66
+ },
+ "pass": true,
+ "wall_s": 48.9
+}

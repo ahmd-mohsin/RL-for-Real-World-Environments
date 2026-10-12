@@ -343,6 +343,9 @@ Desktops cannot be snapshotted generically, so there are two reset tiers:
 - `reprovision` (default): a fresh container and `setup` for every episode; mid-episode restore is refused.
 - `replay`: a new container re-issues the journal's actions, checking every screenshot digest, with a short retry because a blinking caret has two legitimate screens.
 
+**Full VMs with pre-booted pools (2026-10-11; `common/vm`).** A QEMU/KVM Debian guest runs in its own container with `/dev/kvm` and no network route. A golden `ready` RAM snapshot (one cold boot per host, 8.8 s on the lab) lets every later VM start with `-loadvm ready` in about 2.5 s. `VMPool` resets released VMs with `loadvm` (about 1.1 s) and replaces any that fail. World snapshots are `savevm` / `loadvm` under a journal-derived tag: exact RAM and disk, so processes survive a branch.
+- **B.28.** A scoping bug in the pool's background reset (a rebinding made `vm` local, so the first await raised and the task died silently) leaked VMs out of the pool. A live run caught it, and failed reset tasks are now recorded instead of silent.
+
 Graders use `inspect(cmd)` (a root shell inside the container). App health checks run inside an App's own container (`App.health_exec`).
 
 `ARCHITECTURE.md` (M1, M2) shows how a World runs on Harbor (single- or multi-container sandboxes) or on agentenv-framework (MCP/DB/website environments with a gateway clock, triggers, peer and human agents), and how Apps are packaged in the MiMo sidecar format.
@@ -2511,6 +2514,9 @@ Across 24 seed and topology runs, no trained rollout exceeds τ.
 - **B.24.** FSDP2 step mode with a GRU: on CUDA, `nn.GRU.flatten_parameters()` re-points the weights into a cuDNN buffer, away from FSDP's gathered storage. After the first optimizer step the module read stale weights (0.016 off after two updates while the gradient norms matched). `FSDPTrainer` disables RNN weight flattening.
 - **B.25.** `TorchEngine` and `TinyMoEPolicy` built their inputs on the CPU, so any GPU-resident policy broke the engine. Inputs now follow the parameters, and sampling stays on the CPU generator.
 - **B.26.** Modal's sandbox rejects NCCL's cuMem allocator ("Cuda failure 801"). Set `NCCL_CUMEM_ENABLE=0` there.
+
+- **B.27.** Instruction noise typo'd the exact word a task asked for, and the agent faithfully wrote the typo (live: GPT-6 Luna, 2 of 10 word-file episodes at full intensity). Value tokens are now never touched: words the task protects (`NoiseConfig.protect`), plus anything with digits or symbols, quoted text and capitalized names.
+- **Rollout workers** now exit (code 75) after `orphan_after_s` without contact with their controller, instead of polling forever. A controller restarted as a new process (a new id) makes them drop the dead leases and continue.
 
 **M12-infra batch D (2026-10-11): environment noise.** Additions:
 - **Flaky-task admission** (`train/admission.py`, MiMo's rule, the same as acceptance check A4): `screen(sources, rerun, k=8)` reruns each prompt's reference k times and keeps only the stable ones. The verdicts are `flaky` (disagreeing), `broken` (identical and failing) and `infra` (too many infrastructure failures, retried later). It stops early at the first disagreement and reports the Clopper–Pearson bound for the kept set.

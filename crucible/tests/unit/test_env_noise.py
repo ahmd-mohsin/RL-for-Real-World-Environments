@@ -142,3 +142,17 @@ async def test_curriculum_in_the_runtime():
     assert {c["noise/clean"] for c in comps} == {0.0, 1.0}  # both arms trained
     assert any(c["noise/ops"] > 0 for c in comps if c["noise/clean"] == 0.0) and all(c["noise/ops"] == 0 for c in comps if c["noise/clean"] == 1.0)
     assert cur.history and cur.intensity != 0.25  # the sink saw the trained records and moved the knob
+
+
+def test_instruction_noise_never_touches_value_tokens():
+    """Found live (OpenRouter, 2026-10-11): an unprotected typo changed the exact word a task asked for, and the agent wrote
+    the typo. Protected words, identifiers, numbers, quoted text and names stay intact at full intensity."""
+    text = 'Write the word sierra into "Q3 plan draft" for Dana Lee, ticket T-1042, amount 350 USD, then reply that you are done and nothing else'
+    for seed in range(200):
+        out, _ = WorldNoise(NoiseConfig(intensity=1.0, instruction={"typo": 1.0, "drop_word": 0.5, "case": 0.5, "distractor": 0.0}, protect=["sierra"]),
+                            seed=seed).instruction(text)
+        toks = out.split()
+        for value in ("sierra", '"Q3', "plan", 'draft"', "Dana", "Lee,", "T-1042,", "350", "USD,"):
+            assert value in toks, (seed, value, out)
+    noisy, ops = WorldNoise(NoiseConfig(intensity=1.0, instruction={"typo": 1.0}), seed=1).instruction(text)
+    assert noisy != text and "instr_typo" in ops  # the rest is still perturbed

@@ -85,6 +85,7 @@ class LeaseController:
         self.on_reset = on_reset  # called with the rid when a job is re-leased (the runtime resets its pool tag)
         self.stats = {"leased": 0, "expired": 0, "released": 0, "stale_results": 0, "stale_gen": 0, "masked": 0, "results": 0}
         self.workers: dict[str, float] = {}  # worker id -> last heartbeat
+        self.id = uuid.uuid4().hex[:12]  # a restarted controller is a new id: workers drop the dead one's leases
         self._server = None
         self._tasks: list[asyncio.Task] = []
         self._gens: dict[str, set[asyncio.Task]] = {}  # rid -> in-flight /gen handlers (cancelled with their rollout)
@@ -183,11 +184,11 @@ class LeaseController:
 
         @app.post("/lease")
         async def lease(body: dict) -> dict:
-            return {"jobs": self.lease(str(body["worker"]), int(body.get("max", 1)))}
+            return {"jobs": self.lease(str(body["worker"]), int(body.get("max", 1))), "controller": self.id}
 
         @app.post("/heartbeat")
         async def heartbeat(body: dict) -> dict:
-            return {"revoked": self.heartbeat(str(body["worker"]), list(body.get("leases", [])))}
+            return {"revoked": self.heartbeat(str(body["worker"]), list(body.get("leases", []))), "controller": self.id}
 
         @app.post("/gen")
         async def gen(body: dict) -> dict:
@@ -211,7 +212,7 @@ class LeaseController:
 
         @app.get("/health")
         async def health() -> dict:
-            return {"ok": True, "queued": len(self.queue), "jobs": len(self.jobs), "workers": len(self.workers)}
+            return {"ok": True, "queued": len(self.queue), "jobs": len(self.jobs), "workers": len(self.workers), "controller": self.id}
 
         return app
 
@@ -258,10 +259,20 @@ class _Revoked(Exception):
 
 class RolloutWorker:
     def __init__(self, controller: str, rollout_fn: Callable, *, worker_id: str | None = None, concurrency: int = 64, heartbeat_s: float = 1.0,
-                 poll_s: float = 0.05, prefetch: int = 4):
+                 poll_s: float = 0.05, prefetch: int = 4, orphan_after_s: float = 60.0):
         """``prefetch``: jobs taken per lease request. Small batches pulled as capacity frees spread work across workers (a
-        CPU-saturated worker polls less often); a greedy first worker leasing ``concurrency`` jobs starved the others."""
-        self.prefetch = prefetch
+        CPU-saturated worker polls less often); a greedy first worker leasing ``concurrency`` jobs starved the others.
+
+        ``orphan_after_s``: with no successful contact with the controller (lease, heartbeat, gen, result) for this long,
+        the worker cancels its jobs and exits (``exit_reason = "controller_lost"``; the CLI exits 75 so a supervisor
+        restarts or reaps it). Before this, a worker whose controller died polled forever. A controller that comes
+        back as a new process (a new controller id) does not orphan the worker: its leases died with the old one, so
+        their jobs are cancelled and the worker serves the new controller (``controller_restarts``)."""
+        self.prefetch, self.orphan_after_s = prefetch, orphan_after_s
+        self._last_contact = time.monotonic()
+        self.controller_id: str | None = None
+        self.controller_restarts = 0
+        self.exit_reason: str | None = None
         import httpx
 
         self.url, self.rollout_fn = controller.rstrip("/"), rollout_fn
@@ -283,9 +294,22 @@ class RolloutWorker:
                     raise
                 await asyncio.sleep(0.1 * 2**k)
         if r.status_code == 409:
+            self._last_contact = time.monotonic()
             raise _Revoked(path)
         r.raise_for_status()
-        return r.json()
+        self._last_contact = time.monotonic()
+        d = r.json()
+        self._seen_controller(d.get("controller") if isinstance(d, dict) else None)
+        return d
+
+    def _seen_controller(self, cid: str | None) -> None:
+        if not cid:
+            return
+        if self.controller_id is not None and cid != self.controller_id:  # a new controller process: the old leases are gone
+            self.controller_restarts += 1
+            for rid in list(self.active):
+                self._revoke(rid)
+        self.controller_id = cid
 
     async def _run_job(self, job: dict) -> None:
         rid, attempt = job["rid"], int(job["attempt"])
@@ -319,6 +343,8 @@ class RolloutWorker:
                 try:
                     r = c.post(self.url + "/heartbeat", json={"worker": self.id, "leases": leases})
                     revoked = r.json()["revoked"] if r.status_code == 200 else []
+                    if r.status_code == 200:
+                        self._last_contact = time.monotonic()
                 except Exception:  # noqa: BLE001, S112 -- controller briefly unreachable: keep working; the lease may expire
                     continue
                 for rid in revoked:
@@ -335,6 +361,9 @@ class RolloutWorker:
         hb.start()
         try:
             while (stop is None or not stop.is_set()) and (max_jobs is None or self.done < max_jobs):
+                if time.monotonic() - self._last_contact > self.orphan_after_s:
+                    self.exit_reason = "controller_lost"
+                    break
                 room = min(self.concurrency - len(self.active), self.prefetch)
                 jobs = []
                 if room > 0:
@@ -377,8 +406,12 @@ def main() -> None:  # pragma: no cover - a worker process
     ap.add_argument("--concurrency", type=int, default=64)
     ap.add_argument("--cpu-s", dest="cpu_s", type=float, default=0.0)
     ap.add_argument("--id", default=None)
+    ap.add_argument("--orphan-after-s", dest="orphan_after_s", type=float, default=60.0)
     a = ap.parse_args()
-    asyncio.run(RolloutWorker(a.controller, _rollout_from_spec(a.rollout, a.cpu_s), worker_id=a.id, concurrency=a.concurrency).run())
+    w = RolloutWorker(a.controller, _rollout_from_spec(a.rollout, a.cpu_s), worker_id=a.id, concurrency=a.concurrency, orphan_after_s=a.orphan_after_s)
+    asyncio.run(w.run())
+    if w.exit_reason == "controller_lost":
+        raise SystemExit(75)  # EX_TEMPFAIL: the controller is gone; a supervisor restarts or reaps this worker
 
 
 if __name__ == "__main__":  # pragma: no cover

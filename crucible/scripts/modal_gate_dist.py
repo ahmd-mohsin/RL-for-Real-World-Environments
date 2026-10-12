@@ -18,6 +18,7 @@ import modal
 
 ROOT = Path(__file__).resolve().parents[1]
 image = (modal.Image.from_registry("vllm/vllm-openai:latest").entrypoint([])
+         .run_commands("ln -sf $(command -v python3) /usr/local/bin/python && python --version")  # Modal looks for `python`
          .add_local_dir(ROOT / "src", "/root/crucible/src", ignore=["**/__pycache__"], copy=True)
          .add_local_dir(ROOT / "packs" / "_toy", "/root/crucible/packs/_toy", ignore=["**/__pycache__", "**/.venv"], copy=True)
          .add_local_file(ROOT / "pyproject.toml", "/root/crucible/pyproject.toml", copy=True)
