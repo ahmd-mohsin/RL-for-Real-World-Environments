@@ -82,6 +82,9 @@ class FSDPTrainer(DistributedTorchTrainer):
         kw: dict[str, Any] = {"mesh": mesh}
         if offload_policy is not None:
             kw["offload_policy"] = offload_policy
+        for mod in model.modules():  # cuDNN RNNs re-point their weights into one flat buffer on CUDA (``flatten_parameters``),
+            if isinstance(mod, torch.nn.RNNBase):  # detaching them from FSDP's gathered storage: the module would read stale weights
+                mod.flatten_parameters = lambda: None  # found on NCCL (Modal L4), invisible on CPU; cuDNN then reads them in place
         blocks = units(model) if callable(units) else list(units or [])
         for u in blocks:
             fully_shard(u, reshard_after_forward=reshard == "layer", **kw)
@@ -103,6 +106,9 @@ class FSDPTrainer(DistributedTorchTrainer):
     # ---- resharding hooks ---------------------------------------------------------------------------------------
     def _gather_params(self) -> None:
         if self.reshard == "step" and not getattr(self, "_gathered", False):
+            dev = self._coll_dev
+            if dev.type == "cuda":  # precaution: FSDP all-gathers on its own stream, and only the root's pre-forward orders it
+                torch.cuda.current_stream(dev).synchronize()  # after the optimizer step; an explicit unshard is ordered here instead
             for m in self._fsdp:
                 m.unshard()
             self._gathered = True
@@ -127,7 +133,7 @@ class FSDPTrainer(DistributedTorchTrainer):
 
     # ---- lockstep micro batches (layer mode) ----------------------------------------------------------------------
     def _max_count(self, n: int) -> int:
-        t = torch.tensor([n], dtype=torch.int64)
+        t = torch.tensor([n], dtype=torch.int64, device=self._coll_dev)
         self.dist.all_reduce(t, op=self.dist.ReduceOp.MAX, group=self.group)
         return int(t.item())
 

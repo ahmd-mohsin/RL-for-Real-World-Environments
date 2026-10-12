@@ -1,5 +1,6 @@
 """One rank of a weight-sync scenario (``test_weightsync.py`` launches WORLD_SIZE of these over gloo):
-``python _weightsync_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>)."""
+``python _weightsync_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>).
+``CRUCIBLE_DIST_BACKEND=nccl``: the same scenarios on ``cuda:<rank>`` over NCCL (``scripts/modal_infra_check.py``)."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ def weights(seed: int) -> dict[str, torch.Tensor]:
 
 
 def digest(state: dict[str, torch.Tensor]) -> dict[str, str]:
-    return {k: hashlib.sha256(v.contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()).hexdigest()[:16] + f"|{v.dtype}|{tuple(v.shape)}"
+    return {k: hashlib.sha256(v.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()).hexdigest()[:16] + f"|{v.dtype}|{tuple(v.shape)}"
             for k, v in sorted(state.items())}
 
 
@@ -38,11 +39,15 @@ def main() -> None:
     from datetime import timedelta
 
     # rendezvous through a file store (no TCP port to race for); a 60 s collective timeout turns a hang into an error
-    dist.init_process_group("gloo", init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
+    backend = os.environ.get("CRUCIBLE_DIST_BACKEND", "gloo")
+    dist.init_process_group(backend, init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
                             timeout=timedelta(seconds=60))
     rank = dist.get_rank()
-    res: dict = {"rank": rank}
-    sync = BroadcastWeightSync(bucket_bytes=BUCKET)
+    dev = torch.device(f"cuda:{rank}") if backend == "nccl" else torch.device("cpu")
+    if dev.type == "cuda":
+        torch.cuda.set_device(dev)
+    res: dict = {"rank": rank, "backend": backend}
+    sync = BroadcastWeightSync(bucket_bytes=BUCKET, device=dev)
     held = {"v": 0, "state": {}}
 
     def commit(v, s):
@@ -105,7 +110,7 @@ def main() -> None:
         owned = weights(7) if rank == 0 else None
         plan = sync.plan(owned)
         text = plan.to_json()
-        late = BroadcastWeightSync(bucket_bytes=BUCKET)
+        late = BroadcastWeightSync(bucket_bytes=BUCKET, device=dev)
         late.load_plan(text)  # metas exported by a member: same crc, no trainer involvement
         res["same_crc"] = late.plan_.crc() == plan.crc()
         got = sync.update(1 if rank == 0 else None, owned, receive=rank != 0, commit=commit, ranks=[0, 2])
@@ -134,7 +139,7 @@ def main() -> None:
                             p.add_(0.01)
                     vs.append(await pub.publish())
                 return {"versions": vs, "d": digest(model.state_dict())}
-            eng = TorchEngine(TinyPolicy(64, 16, seed=1), capacity=2, numerics="fp32")
+            eng = TorchEngine(TinyPolicy(64, 16, seed=1).to(dev), capacity=2, numerics="fp32")
             sync.plan(None)
             rec = EngineReceiver(sync, eng)
             vs = [await rec.receive_once(), await rec.receive_once()]
@@ -163,9 +168,9 @@ def main() -> None:
         out_res = {}
         for corr in ("dis", "ppo"):
             cfg = {"lr": 1e-2, "correction": Correction(corr), "token_budget": 40}
-            ref = TorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=1))
+            ref = TorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=1))
             ref.step(recs, groups)
-            tr = DistributedTorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=dist.get_world_size()), broadcast_batch=scenario == "dp_broadcast")
+            tr = DistributedTorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=dist.get_world_size()), broadcast_batch=scenario == "dp_broadcast")
             give = (recs, groups) if (scenario == "dp_exact" or rank == 0) else ([], [])
             m = tr.step(*give)
             err = max(float((a - b).abs().max()) for a, b in zip(tr.model.state_dict().values(), ref.model.state_dict().values(), strict=True))

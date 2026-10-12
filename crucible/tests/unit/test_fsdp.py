@@ -52,6 +52,7 @@ def test_fsdp_step_and_layer_modes_equal_the_full_batch_update(tmp_path):
     assert rs[0]["layer/dis"]["probe_micro_batches"] == 0  # balanced: no padding
     assert rs[0]["layer/ppo/skew"]["probe_micro_batches"] + rs[1]["layer/ppo/skew"]["probe_micro_batches"] > 0  # skewed: lockstep padding ran
     assert rs[0]["refused_unbatched_layer"]
+    assert rs[0]["rnn_flatten_disabled"]  # cuDNN would re-point GRU weights away from FSDP's gathered storage (seen on NCCL only)
 
 
 def test_hsdp_two_replicas_of_two_shards(tmp_path):

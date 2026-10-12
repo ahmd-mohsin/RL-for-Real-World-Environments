@@ -283,7 +283,7 @@ class TinyMoEPolicy(TinyPolicy):
         if routing is not None:  # R3: replay the engine's expert choice for the positions given
             idx = idx.clone()
             for t, r in enumerate(routing):
-                idx[0, t] = torch.tensor(r[: self.k])
+                idx[0, t] = torch.tensor(r[: self.k], device=idx.device)
         self.last_routes = idx[0].tolist()
         gate = torch.softmax(torch.log(probs.gather(-1, idx) + 1e-12), -1)  # renormalized over the chosen experts
         outs = torch.stack([e(h) for e in self.experts], -2)  # [B, T, E, D]
@@ -294,7 +294,8 @@ class TinyMoEPolicy(TinyPolicy):
                        routing: list[list[int]] | None = None) -> torch.Tensor:
         if not completion:
             return torch.zeros(0)
-        ids = torch.tensor([prompt + completion[:-1]])
+        dev = self.emb.weight.device
+        ids = torch.tensor([prompt + completion[:-1]], device=dev)
         full = None
         if routing is not None:  # routes for the positions that predicted each completion token; prompt positions keep their own
             with torch.no_grad():
@@ -308,7 +309,7 @@ class TinyMoEPolicy(TinyPolicy):
             from crucible.train.sampling import renormalized
 
             return renormalized(lp[: len(completion)], completion, candidates)
-        return lp[torch.arange(len(completion)), torch.tensor(completion)]
+        return lp[torch.arange(len(completion), device=dev), torch.tensor(completion, device=dev)]
 
 
 def bf16_copy(model: torch.nn.Module) -> torch.nn.Module:
@@ -361,8 +362,8 @@ class TorchEngine:
         def forward(seq: list[int]) -> torch.Tensor:
             # grad mode is thread-local: a no_grad block must never span an ``await`` (it would leak into the trainer's
             # coroutine on the same event-loop thread), so each forward gets its own scope
-            with torch.no_grad():
-                out = serve(torch.tensor([seq]))[0, -1].float()
+            with torch.no_grad():  # the policy may sit on a GPU; sampling below runs on the CPU with a seeded CPU generator
+                out = serve(torch.tensor([seq], device=next(serve.parameters()).device))[0, -1].float().cpu()
             if moe:  # the experts at the last position: the ones that produce the next token (checklist #36)
                 pending_route[:] = [list(serve.last_routes[-1])]
             return out

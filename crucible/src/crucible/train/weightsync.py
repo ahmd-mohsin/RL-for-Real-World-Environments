@@ -170,6 +170,8 @@ class BroadcastWeightSync:
         import torch.distributed as dist
 
         self.dist, self.group, self.device, self.coordinator = dist, group, torch.device(device), coordinator
+        # control tensors (header, plan check, error code, free memory): NCCL takes device tensors only
+        self._cdev = self.device if dist.is_initialized() and dist.get_backend(group) == "nccl" else torch.device("cpu")
         self.rank, self.world = dist.get_rank(), dist.get_world_size()
         self._bucket_bytes, self._free, self._max_bucket = bucket_bytes, free_bytes, max_bucket
         self.plan_: BucketPlan | None = None
@@ -193,7 +195,7 @@ class BroadcastWeightSync:
         b = self._bucket_bytes
         if b is None:
             free = self._free if self._free is not None else self._free_memory()
-            t = torch.tensor([free], dtype=torch.int64)
+            t = torch.tensor([free], dtype=torch.int64, device=self._cdev)
             self.dist.all_reduce(t, op=self.dist.ReduceOp.MIN, group=self.group)
             b = choose_bucket_bytes(int(t.item()), max_tensor, max_bucket=self._max_bucket)
         self.plan_ = plan_buckets(shapes, b, owners)
@@ -229,10 +231,10 @@ class BroadcastWeightSync:
         if plan is None:
             raise RuntimeError("call plan() (or load_plan()) before update()")
         t0 = time.monotonic()
-        hdr = torch.tensor([version if version is not None else -1, plan.crc()], dtype=torch.int64)
+        hdr = torch.tensor([version if version is not None else -1, plan.crc()], dtype=torch.int64, device=self._cdev)
         dist.broadcast(hdr, src=self.coordinator, group=group)
         ver = int(hdr[0])
-        mismatch = torch.tensor([int(int(hdr[1]) != plan.crc())], dtype=torch.int64)
+        mismatch = torch.tensor([int(int(hdr[1]) != plan.crc())], dtype=torch.int64, device=self._cdev)
         dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
         if int(mismatch):
             raise WeightSyncError(f"bucket plans differ across ranks (shapes changed?): replan on every rank; rank {self.rank} crc {plan.crc()}")
@@ -258,7 +260,7 @@ class BroadcastWeightSync:
                     fut.result()
                 except Exception:  # noqa: BLE001
                     bad = self.rank + 1
-            code = torch.tensor([bad], dtype=torch.int64)  # MAX → the highest failing rank: every rank names the same culprit
+            code = torch.tensor([bad], dtype=torch.int64, device=self._cdev)  # MAX → the highest failing rank: every rank names the same culprit
             dist.all_reduce(code, op=dist.ReduceOp.MAX, group=group)
             if int(code):
                 raise WeightSyncError(f"rank {int(code) - 1} failed to reload bucket {g} of version {ver}; no rank commits"

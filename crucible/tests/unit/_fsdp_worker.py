@@ -1,5 +1,6 @@
 """One rank of an FSDP scenario (``test_fsdp.py`` launches WORLD_SIZE of these over gloo):
-``python _fsdp_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>)."""
+``python _fsdp_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>).
+``CRUCIBLE_DIST_BACKEND=nccl``: every scenario on ``cuda:<rank>`` over NCCL (``scripts/modal_infra_check.py``)."""
 
 from __future__ import annotations
 
@@ -25,11 +26,12 @@ class BatchedTiny(TinyPolicy):
 
     def batch_token_logprobs(self, pairs, temperature=1.0, candidates=None):
         seqs = [p + c[:-1] if c else p for p, c in pairs]
-        ids = torch.zeros(len(seqs), max(len(s) for s in seqs), dtype=torch.long)
+        dev = self.emb.weight.device
+        ids = torch.zeros(len(seqs), max(len(s) for s in seqs), dtype=torch.long, device=dev)
         for i, s in enumerate(seqs):
-            ids[i, : len(s)] = torch.tensor(s)
+            ids[i, : len(s)] = torch.tensor(s, device=dev)
         lp = torch.log_softmax(self(ids) / temperature, -1)
-        return [lp[i, len(p) - 1: len(p) - 1 + len(c)].gather(-1, torch.tensor(c).unsqueeze(-1)).squeeze(-1) for i, (p, c) in enumerate(pairs)]
+        return [lp[i, len(p) - 1: len(p) - 1 + len(c)].gather(-1, torch.tensor(c, device=dev).unsqueeze(-1)).squeeze(-1) for i, (p, c) in enumerate(pairs)]
 
 
 def batch(vocab: int, base: torch.nn.Module, n: int = 12, skew: bool = False):
@@ -52,17 +54,22 @@ def compare(tr: FSDPTrainer, ref: TorchTrainer, rank: int) -> float:
     full = tr.state_dict()  # collective; rank 0 holds it
     if rank != 0:
         return 0.0
-    want = ref.model.state_dict()
+    want = {k: v.detach().cpu() for k, v in ref.model.state_dict().items()}
     assert set(full) == set(want), (sorted(full), sorted(want))
     return max(float((full[k].float() - want[k].float()).abs().max()) for k in want)
 
 
 def main() -> None:
     scenario, out = sys.argv[1], Path(sys.argv[2])
-    dist.init_process_group("gloo", init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
+    backend = os.environ.get("CRUCIBLE_DIST_BACKEND", "gloo")
+    dist.init_process_group(backend, init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
                             timeout=timedelta(seconds=300))
     rank, world = dist.get_rank(), dist.get_world_size()
-    res: dict = {"rank": rank}
+    dev = torch.device(f"cuda:{rank}") if backend == "nccl" else torch.device("cpu")
+    if dev.type == "cuda":
+        torch.cuda.set_device(dev)
+    mesh_dev = dev.type
+    res: dict = {"rank": rank, "backend": backend}
     torch.manual_seed(0)
     if scenario in ("fsdp", "hsdp"):
         base = BatchedTiny(48, 16, seed=0)
@@ -71,7 +78,7 @@ def main() -> None:
         if scenario == "hsdp":
             from torch.distributed.device_mesh import init_device_mesh
 
-            mesh = init_device_mesh("cpu", (2, world // 2), mesh_dim_names=("replicate", "shard"))
+            mesh = init_device_mesh(mesh_dev, (2, world // 2), mesh_dim_names=("replicate", "shard"))
         runs = [(m, c, False) for m in (("step", "layer") if scenario == "fsdp" else ("step",)) for c in ("dis", "ppo")]
         runs += [("layer", "ppo", True)] if scenario == "fsdp" else []
         total = sum(p.numel() for p in base.parameters())
@@ -80,10 +87,10 @@ def main() -> None:
                 recs, groups = batch(48, base, skew=True)
             if True:
                 cfg = {"lr": 1e-2, "correction": Correction(corr), "token_budget": 40}
-                ref = TorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=1))
+                ref = TorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=1))
                 r1 = ref.step(recs, groups)
                 ref.step(recs, groups)  # two updates: the AdamW moments (sharded) carry over correctly
-                tr = FSDPTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=world), mesh=mesh, reshard=mode,
+                tr = FSDPTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=world), mesh=mesh, reshard=mode,
                                  units=lambda m: [m.emb, m.rnn, m.head])
                 give = (recs, groups) if rank == 0 else ([], [])
                 tr.broadcast_batch = True  # rank 0 owns the batch; the others receive it
@@ -91,14 +98,33 @@ def main() -> None:
                 tr.step(*give)
                 err = compare(tr, ref, rank)
                 at_rest = tr.local_numel()
+                res["rnn_flatten_disabled"] = tr.model.rnn.flatten_parameters() is None and "lambda" in repr(tr.model.rnn.flatten_parameters)
                 res[f"{mode}/{corr}" + ("/skew" if skew else "")] = {"max_abs_diff": err, "micro_batches": m1["train/micro_batches"], "loss": m1["train/loss"], "ref_grad_norm": r1["train/grad_norm"],
                                          "grad_norm": m1["train/grad_norm"], "params_frac": at_rest["params"] / total,
                                          "moments_frac": at_rest["moments"] / (2 * total), **tr.counters}
         try:
-            FSDPTrainer(copy.deepcopy(TinyPolicy(48, 16)), TrainerConfig(dp=world), reshard="layer")
+            FSDPTrainer(copy.deepcopy(TinyPolicy(48, 16)).to(dev), TrainerConfig(dp=world), reshard="layer")
             res["refused_unbatched_layer"] = False
         except ValueError:
             res["refused_unbatched_layer"] = True
+    elif scenario == "fsdp_debug":  # step mode, one update at a time: where does it leave the reference?
+        base = BatchedTiny(48, 16, seed=0)
+        recs, groups = batch(48, base)
+        cfg = {"lr": 1e-2, "correction": Correction("dis"), "token_budget": 40}
+        ref = TorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=1))
+        tr = FSDPTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=world), reshard="step", units=lambda m: [m.emb, m.rnn, m.head],
+                         broadcast_batch=True)
+        give = (recs, groups) if rank == 0 else ([], [])
+        for k in range(3):
+            r = ref.step(recs, groups)
+            m = tr.step(*give)
+            res[f"step{k}"] = {"diff": compare(tr, ref, rank), "gn": m["train/grad_norm"], "ref_gn": r["train/grad_norm"], "loss": m["train/loss"], "ref_loss": r["train/loss"]}
+            tr._gather_params()  # gathered copy vs the shards' full tensors: stale after the optimizer step?
+            with torch.no_grad():
+                lp_g = tr.model.batch_token_logprobs([(recs[0].turns[0].prompt_token_ids, recs[0].turns[0].completion_token_ids)])[0]
+                lp_r = ref.model.batch_token_logprobs([(recs[0].turns[0].prompt_token_ids, recs[0].turns[0].completion_token_ids)])[0]
+            res[f"step{k}"]["forward_diff"] = float((lp_g - lp_r).abs().max())
+            tr._release_params()
     elif scenario == "hf_layer":  # a real HF decoder (random init from a config, no download): blocks as units, ZeRO-3 forwards
         from transformers import LlamaConfig, LlamaForCausalLM
 
@@ -110,9 +136,9 @@ def main() -> None:
         base = HFPolicy(LlamaForCausalLM(cfg_hf).float(), lm_head_fp32=True)
         recs, groups = batch(64, base, n=8)
         cfg = {"lr": 1e-3, "correction": Correction("ppo"), "token_budget": 48}
-        ref = TorchTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=1))
+        ref = TorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=1))
         ref.step(recs, groups)
-        tr = FSDPTrainer(copy.deepcopy(base), TrainerConfig(**cfg, dp=world), reshard="layer", units=transformer_blocks)
+        tr = FSDPTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=world), reshard="layer", units=transformer_blocks)
         m = tr.step(recs, groups)
         res["units"] = len(transformer_blocks(base))
         res["max_abs_diff"] = compare(tr, ref, rank)
@@ -131,12 +157,12 @@ def main() -> None:
         from crucible.train.spmd import SPMDDriver, follow
         from crucible.train.weights import InprocPublisher
 
-        mesh = init_device_mesh("cpu", (2, world // 2), mesh_dim_names=("replicate", "shard"))
+        mesh = init_device_mesh(mesh_dev, (2, world // 2), mesh_dim_names=("replicate", "shard"))
         ck = out / "ckpt"
 
         def trainer():
             torch.manual_seed(0)
-            return FSDPTrainer(TinyPolicy(32, 48, seed=1), TrainerConfig(lr=1e-2, dp=world), mesh=mesh, broadcast_batch=True)
+            return FSDPTrainer(TinyPolicy(32, 48, seed=1).to(dev), TrainerConfig(lr=1e-2, dp=world), mesh=mesh, broadcast_batch=True)
 
         if rank != 0:
             res["first"] = follow(trainer())
@@ -145,7 +171,7 @@ def main() -> None:
             published: dict[int, dict] = {}
 
             def build(tr, steps, every):
-                eng = TorchEngine(TinyPolicy(32, 48, seed=1), capacity=32, numerics="bf16", decode_delay_s=0.001)
+                eng = TorchEngine(TinyPolicy(32, 48, seed=1).to(dev), capacity=32, numerics="bf16", decode_delay_s=0.001)
                 pool = EnginePool([eng])
                 drv = SPMDDriver(tr)
                 pub = InprocPublisher(drv, pool, post_update_transform=lambda st: published.setdefault(pub.version + 1, {k: v.clone() for k, v in st.items()}) and st)
@@ -164,7 +190,7 @@ def main() -> None:
             rt2, drv2 = build(trainer(), 12, 0)
             start = asyncio.run(rt2.resume(str(ck / "step-000008")))
             got = drv2.state_dict()  # collective: the restored shards, gathered
-            res.update(resumed_at=start, resumed_version=rt2.version, restore_diff=max(float((got[k] - v8[k]).abs().max()) for k in v8),
+            res.update(resumed_at=start, resumed_version=rt2.version, restore_diff=max(float((got[k].cpu() - v8[k].cpu()).abs().max()) for k in v8),
                        resumed_updates=drv2.updates)
             rep2 = asyncio.run(rt2.run())
             res.update(steps2=len(rep2.steps), first_step2=rep2.steps[0].step)

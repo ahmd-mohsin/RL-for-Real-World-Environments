@@ -1,0 +1,243 @@
+{
+ "modal_nccl": {
+  "info": {
+   "torch": "2.14.1+cu130",
+   "cuda": "13.0",
+   "nccl": "2.30.7",
+   "gpus": 4,
+   "nvidia_smi": [
+    "NVIDIA L4, 610.57.04, 23034 MiB",
+    "NVIDIA L4, 610.57.04, 23034 MiB",
+    "NVIDIA L4, 610.57.04, 23034 MiB",
+    "NVIDIA L4, 610.57.04, 23034 MiB"
+   ]
+  },
+  "results": {
+   "fsdp_debug": {
+    "pass": true,
+    "fails": [],
+    "rounds": 1,
+    "wall_s": [
+     10.62
+    ],
+    "sample": {
+     "backend": "nccl",
+     "rank": 0,
+     "step0": {
+      "diff": 2.9802322387695312e-08,
+      "forward_diff": 0.0,
+      "gn": 0.2082056701183319,
+      "loss": 0.41181766191728164,
+      "ref_gn": 0.2082056701183319,
+      "ref_loss": 0.41181766191728153
+     },
+     "step1": {
+      "diff": 1.8067657947540283e-06,
+      "forward_diff": 4.76837158203125e-07,
+      "gn": 0.20748834311962128,
+      "loss": 0.6008726517750895,
+      "ref_gn": 0.20748834311962128,
+      "ref_loss": 0.6008725486998207
+     },
+     "step2": {
+      "diff": 2.60770320892334e-06,
+      "forward_diff": 4.76837158203125e-07,
+      "gn": 0.21151934564113617,
+      "loss": 0.7820576696835346,
+      "ref_gn": 0.21151933073997498,
+      "ref_loss": 0.782057709636629
+     },
+     "_wall_s": 10.62
+    },
+    "gpu": "L4:4"
+   },
+   "fsdp": {
+    "pass": true,
+    "fails": [],
+    "rounds": 5,
+    "wall_s": [
+     10.81,
+     10.77,
+     10.74,
+     10.78,
+     10.57
+    ],
+    "sample": {
+     "backend": "nccl",
+     "layer/dis": {
+      "all_gathers": 0,
+      "grad_norm": 0.2082056701183319,
+      "loss": 0.41181766191728164,
+      "max_abs_diff": 1.8030405044555664e-06,
+      "micro_batches": 10.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 0,
+      "ref_grad_norm": 0.2082056701183319
+     },
+     "layer/ppo": {
+      "all_gathers": 0,
+      "grad_norm": 0.2091197371482849,
+      "loss": -0.08928571428571427,
+      "max_abs_diff": 3.337860107421875e-06,
+      "micro_batches": 10.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 0,
+      "ref_grad_norm": 0.2091197669506073
+     },
+     "layer/ppo/skew": {
+      "all_gathers": 0,
+      "grad_norm": 0.16308124363422394,
+      "loss": 0.05,
+      "max_abs_diff": 3.948807716369629e-06,
+      "micro_batches": 3.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 2,
+      "ref_grad_norm": 0.16308122873306274
+     },
+     "rank": 0,
+     "refused_unbatched_layer": true,
+     "step/dis": {
+      "all_gathers": 2,
+      "grad_norm": 0.2082056701183319,
+      "loss": 0.41181766191728164,
+      "max_abs_diff": 1.8067657947540283e-06,
+      "micro_batches": 10.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 2,
+      "ref_grad_norm": 0.2082056701183319
+     },
+     "step/ppo": {
+      "all_gathers": 2,
+      "grad_norm": 0.2091197669506073,
+      "loss": -0.08928568874086618,
+      "max_abs_diff": 1.1920928955078125e-06,
+      "micro_batches": 10.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 2,
+      "ref_grad_norm": 0.2091197669506073
+     },
+     "_wall_s": 10.57
+    },
+    "gpu": "L4:4"
+   },
+   "hsdp": {
+    "pass": true,
+    "fails": [],
+    "rounds": 1,
+    "wall_s": [
+     11.2
+    ],
+    "sample": {
+     "backend": "nccl",
+     "rank": 0,
+     "refused_unbatched_layer": true,
+     "step/dis": {
+      "all_gathers": 2,
+      "grad_norm": 0.2082056701183319,
+      "loss": 0.41181766191728164,
+      "max_abs_diff": 1.8067657947540283e-06,
+      "micro_batches": 12.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 2,
+      "ref_grad_norm": 0.2082056701183319
+     },
+     "step/ppo": {
+      "all_gathers": 2,
+      "grad_norm": 0.2091197669506073,
+      "loss": -0.08928569016002555,
+      "max_abs_diff": 3.3229589462280273e-06,
+      "micro_batches": 12.0,
+      "moments_frac": 0.5,
+      "params_frac": 0.5,
+      "probe_micro_batches": 2,
+      "ref_grad_norm": 0.2091197669506073
+     },
+     "_wall_s": 11.2
+    },
+    "gpu": "L4:4"
+   },
+   "spmd_run": {
+    "pass": true,
+    "fails": [],
+    "rounds": 1,
+    "wall_s": [
+     15.83
+    ],
+    "sample": {
+     "backend": "nccl",
+     "calls": {
+      "load_sharded": 0,
+      "offload": 0,
+      "onload": 0,
+      "reset_optimizer": 0,
+      "save_sharded": 2,
+      "state_dict": 16,
+      "step": 16,
+      "stop": 0
+     },
+     "checkpoints": [
+      "step-000008",
+      "step-000016"
+     ],
+     "first": 0.0546875,
+     "first_step2": 9,
+     "last": 0.24479166666666666,
+     "max_staleness": 1,
+     "publishes": 16,
+     "rank": 0,
+     "restore_diff": 0.0,
+     "resumed_at": 8,
+     "resumed_updates": 8,
+     "resumed_version": 8,
+     "steps": 16,
+     "steps2": 4,
+     "_wall_s": 15.83
+    },
+    "gpu": "L4:4"
+   },
+   "fsdp_probe": {
+    "pass": true,
+    "fails": [],
+    "rounds": 1,
+    "wall_s": [
+     8.35
+    ],
+    "sample": {
+     "rank": 0,
+     "backend": "nccl",
+     "after_unshard": {
+      "is_sharded": false,
+      "is_unsharded": true
+     },
+     "after_reshard": {
+      "is_sharded": true,
+      "is_unsharded": false
+     },
+     "after_unshard2": {
+      "is_sharded": false,
+      "is_unsharded": true
+     },
+     "gathered": {
+      "diff_gathered_vs_shards": 0.0,
+      "moved_by_step": 0.10034990310668945,
+      "gathered_vs_pre_step": 0.10034990310668945
+     },
+     "gru": {
+      "flat_is_attr": true,
+      "flat_ptr_eq": true,
+      "attr_vs_shards": 0.1003534197807312,
+      "flat_vs_shards": 0.1003534197807312
+     },
+     "_wall_s": 8.35
+    },
+    "gpu": "L4:2"
+   }
+  }
+ }
+}

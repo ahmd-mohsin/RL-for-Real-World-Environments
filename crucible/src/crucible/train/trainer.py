@@ -664,6 +664,8 @@ class DistributedTorchTrainer(TorchTrainer):
         super().__init__(model, cfg)
         self.dist, self.group, self.broadcast_batch, self.src = dist, group, broadcast_batch, src
         self.rank, self.world = dist.get_rank(group), dist.get_world_size(group)
+        # NCCL collectives take device tensors only: scalars and counts ride on the parameters' device there
+        self._coll_dev = next(model.parameters()).device if dist.get_backend(group) == "nccl" else torch.device("cpu")
         if self.cfg.dp != self.world:
             raise ValueError(f"TrainerConfig.dp={self.cfg.dp} but the group has {self.world} ranks")
         if self.cfg.loss_agg != "token_mean_global":  # only a global-token-mean loss decomposes into per-rank shares that sum
@@ -685,9 +687,9 @@ class DistributedTorchTrainer(TorchTrainer):
             g.copy_(r)
 
     def _reduce_scalars(self, vals: list[float]) -> list[float]:
-        t = torch.tensor(vals, dtype=torch.float64)
+        t = torch.tensor(vals, dtype=torch.float64, device=self._coll_dev)
         self.dist.all_reduce(t, op=self.dist.ReduceOp.SUM, group=self.group)
-        return t.tolist()
+        return t.cpu().tolist()
 
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
         if self.broadcast_batch:
