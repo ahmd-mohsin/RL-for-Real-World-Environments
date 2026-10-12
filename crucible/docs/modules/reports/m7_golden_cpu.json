@@ -73,7 +73,7 @@
     "perf": {
      "recorded": false,
      "kit": false,
-     "infra": "perf rounds contaminated: ['candidate/cloud_ms', 'candidate/kinfu_concurrent_wall_ms', 'candidate/kinfu_frame_ms', 'candidate/marching_cubes_ms', 'candidate/people_ms']",
+     "infra": "original's perf rounds contaminated: ['original/cloud_ms', 'original/kinfu_frame_ms', 'original/marching_cubes_ms']",
      "match": true,
      "expected_divergence": {
       "kit": "infra",
@@ -289,14 +289,14 @@
        "match": "CDLL"
       },
       {
+       "rule": "banned_import",
+       "file": "mdlite/_lib.py",
+       "match": "ctypes"
+      },
+      {
        "rule": "foreign_kernels",
        "file": "mdlite/simulation.py",
        "match": "\nimport ctypes"
-      },
-      {
-       "rule": "native_build",
-       "file": "setup.py",
-       "match": "cmake"
       }
      ]
     }

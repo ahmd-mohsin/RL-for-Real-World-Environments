@@ -47,6 +47,11 @@ class InfraError(RuntimeError):
     """The grader or its infrastructure failed (never the candidate): the grade is masked, not scored."""
 
 
+class CandidateError(RuntimeError):
+    """The candidate's run or content failed (a timed run, a computed result, a special file in its tree): a fail, not
+    infra. Re-exported by ``patterns.perf``."""
+
+
 @dataclass
 class RunResult:
     rc: int
@@ -245,11 +250,18 @@ class Trusted:
                 os.lchown(p, self.uid, self.uid)
 
     def seal(self, root: Path) -> None:
-        """Kill the cohort, then make ``root`` root-owned and read-only: later candidate code cannot alter it."""
+        """Kill the cohort, then make ``root`` root-owned and read-only: later candidate code cannot alter it.
+        Submission custody (repo2rlenv ``swe_smith/grade.py``, Karotte ``save_submission.py``; M7 audit): symlinks,
+        FIFOs, sockets and devices in a candidate's outputs are removed, so no later read follows a link to a root-only
+        file or blocks on a pipe."""
         self.kill()
         root = Path(root)
         if not root.exists():
             return
+        for p in sorted(root.rglob("*"), key=lambda q: len(q.parts), reverse=True):
+            m = os.lstat(p).st_mode
+            if stat.S_ISLNK(m) or stat.S_ISFIFO(m) or stat.S_ISSOCK(m) or stat.S_ISCHR(m) or stat.S_ISBLK(m):
+                p.unlink(missing_ok=True)
         for p in [root, *root.rglob("*")]:
             if self.is_root:
                 os.lchown(p, 0, 0)
@@ -323,11 +335,15 @@ class Trusted:
         if candidate and self.is_root:
             self._reachable()
         preexec = self._demote() if candidate and self.is_root else (os.setsid if candidate else None)
+        if not Path(cwd).is_dir():  # the grader chose the directory: its absence is the grader's fault (M7 audit V14)
+            raise InfraError(f"working directory {cwd} does not exist")
         t0 = time.monotonic()
         try:
             p = subprocess.Popen([str(c) for c in cmd], cwd=str(cwd), env=e, preexec_fn=preexec,  # noqa: PLW1509
                                  stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, pass_fds=pass_fds)
+        except subprocess.SubprocessError as ex:  # the privilege drop (preexec) failed: the grader's setup, not the candidate
+            raise InfraError(f"cannot start a candidate process: {ex}") from ex
         except OSError as ex:
             if candidate:  # a missing candidate binary is the candidate's failure
                 return RunResult(127, "", f"cannot execute: {ex}", 0.0, 0.0, candidate=True, trusted=self.is_root, home=home)

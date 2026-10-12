@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -82,8 +83,8 @@ def test_S_adv_signed_conserves_each_sign():
 
 # ------------------------------------------------------------------------------------------------ composition, mask
 def test_K9_K10_unmeasured_milestones_are_not_zeros_and_a_mask_has_no_reward():
-    from crucible.credit.compose import compose
     from crucible.core.schema.reward import InfraStatus
+    from crucible.credit.compose import compose
     from crucible.verify.grader import to_reward
     from crucible.verify.runtime.plan import GradeReport
 
@@ -236,7 +237,7 @@ def test_S_contracts_with_trainers_and_group_ops():
     assert verbosity_group_fn(1.5)  # the bounded rule exists; numbers in test_shaping
     from crucible.interop.nemo_gym import server
 
-    src = open(server.__file__).read()
+    src = Path(server.__file__).read_text()
     assert '"reward_components": {"crucible": reward}' in src  # the channels summed to 4.0 against a reward of 1.033
 
 

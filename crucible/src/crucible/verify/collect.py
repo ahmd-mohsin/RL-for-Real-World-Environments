@@ -11,8 +11,26 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-DERIVED = ("build", "build-*", "cmake-build-*", "dist", "*.egg-info", "__pycache__", "*.pyc", ".pytest_cache", ".mypy_cache", "*.o", "*.so", "*.a",
-           ".ninja_*", "CMakeFiles", "node_modules", ".venv", ".cache")
+# build trees only at the repository root (M7 audit V20: `build` and `dist` matched at any depth and dropped new sources such
+# as tools/build/gen.py); caches and bytecode anywhere
+DERIVED = ("/build/", "/build-*/", "/cmake-build-*/", "/dist/", "*.egg-info", "__pycache__", "*.pyc", ".pytest_cache", ".mypy_cache", "*.o", "*.so",
+           "*.a", ".ninja_*", "CMakeFiles/", "node_modules/", "/.venv/", ".cache/")
+
+
+def is_derived(path: str) -> bool:
+    """Whether a work-tree path is a derived artifact the hook drops (the same patterns, matched like git)."""
+    import fnmatch
+
+    parts = path.strip("/").split("/")
+    for pat in DERIVED:
+        anchored, p = pat.startswith("/"), pat.strip("/")
+        if anchored:
+            if fnmatch.fnmatch(parts[0], p) and (len(parts) > 1 or not pat.endswith("/")):
+                return True
+        elif any(fnmatch.fnmatch(x, p) for x in parts):
+            return True
+    return False
+
 
 COLLECT_SH = r"""set +e
 cd "${1:-.}" || exit 0
@@ -26,7 +44,10 @@ true
 
 
 def collect(workspace: Path, *, base: str = "HEAD", extra_excludes: tuple = ()) -> dict:
-    """Run the hook on a local workspace (git work tree); returns the patch and what was excluded or failed."""
+    """``base``: the commit the agent started from, recorded before it ran (a sha). M7 audit: the default ``HEAD`` lost
+    committed work (an agent that committed its fix yielded an empty patch), and a ``base`` tag the agent can delete
+    either masked its failure or lost its work. Runs the hook on a local work tree; returns the patch and what was
+    excluded or failed."""
     ws = Path(workspace)
 
     def git(*a: str, inp: bytes | None = None) -> subprocess.CompletedProcess:

@@ -65,7 +65,8 @@ class Grade:
 
 
 def _masked(kind: str, reason: str) -> dict:
-    return {"reward": 0.0, "gates": {}, "outcome": 0.0, "infra": {"status": "masked", "failure_kind": kind, "reason": reason[:500]}}
+    # the same document the in-container grader writes when masked: ``reward`` null, never a 0 (M7 audit)
+    return {"reward": None, "gates": {}, "outcome": 0.0, "infra": {"status": "masked", "failure_kind": kind, "reason": reason[:500]}}
 
 
 def image_id(image: str, docker_host: str | None = None) -> str | None:
@@ -124,26 +125,39 @@ def docker_grade(*, image: str, bundle_dir: Path, plan: str, out_dir: Path, moun
     if candidate:
         argv += ["--candidate", candidate]
     for k, v in (params or {}).items():
-        argv += ["--param", f"{k}={json.dumps(v) if not isinstance(v, str) else v}"]
+        argv += ["--param", f"{k}={json.dumps(v)}"]  # always JSON: "true" stays a string (M7 audit V21)
     argv += extra_args or []
+    from crucible.verify.runtime.plan import REWARD_FILES
+
+    for f in REWARD_FILES:  # a previous grade's files must never be read as this one's (M7 audit V9)
+        (out_dir / f).unlink(missing_ok=True)
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env, check=False)
     except subprocess.TimeoutExpired as ex:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, env=env, check=False)
         out = (ex.stdout or b"").decode(errors="replace") if isinstance(ex.stdout, bytes) else (ex.stdout or "")
         return Grade(_masked("verifier_timeout", f"grade exceeded {timeout:.0f}s; container {name} removed"), {}, out[-20000:], -9)
+    finally:  # a dropped connection to a remote daemon can leave the container running and holding the GPU (M7 audit)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, env=env, check=False, timeout=120)
     rw = out_dir / "crucible_reward.json"
-    reward = json.loads(rw.read_text()) if rw.exists() else _masked("no_reward_json", "the verifier left no reward document")
+    try:
+        reward = json.loads(rw.read_text()) if rw.exists() else _masked(
+            "verifier_not_started" if p.returncode in (125, 126, 127) else "no_reward_json", "the verifier left no reward document")
+    except (ValueError, OSError) as e:
+        reward = _masked("unreadable_reward_json", f"crucible_reward.json could not be read: {e}"[:300])
     rp = out_dir / "report.json"
-    report = json.loads(rp.read_text()) if rp.exists() else {}
+    try:
+        report = json.loads(rp.read_text()) if rp.exists() else {}
+    except (ValueError, OSError):
+        report = {}
     return Grade(reward, report, (p.stdout + p.stderr)[-20000:], p.returncode)
 
 
 def reward_json(g: Grade) -> RewardJson:
     r = dict(g.reward)
     r.setdefault("gates", {})
-    if r.get("reward") is None:  # masked: the file carries no reward; in-memory RewardJson keeps 0 and ``scalar()`` returns None
-        r["reward"] = 0.0
+    if r.get("reward") is None:  # masked: no reward (RewardJson.reward is None exactly when masked)
+        r["reward"] = None
     return RewardJson.model_validate({k: v for k, v in r.items() if k in RewardJson.model_fields})
 
 

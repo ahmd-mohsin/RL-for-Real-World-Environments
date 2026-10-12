@@ -1,6 +1,10 @@
 # M7 `verify` — verifier kit
 
-**Status (2026-10-11).**
+**Status (2026-10-11; audited 2026-10-12, `docs/audit/2026-10-12/M07-verify.md`).**
+- **Audit:** 22 reproduced defects fixed, among them a P0: a `pytest11` entry point in the candidate's install forged
+  every hidden-test outcome as root. Masks the candidate could trigger (perf jitter, a missing row, a dropped table, a
+  FIFO, a certain fail beside an infra check) are now fails. The CPU and toy goldens pass after the fixes; the GPU
+  goldens were not re-run.
 - **Passing:** the toy golden, the A13 attack suite, the CPU golden, and **the task04 GPU golden: 8/8 graded, `pass: true`**
   (`reports/m7_golden_gpu.json`).
   - Every grade reproduces its recorded gate profile.
@@ -10,7 +14,7 @@
 
 - **Code:** `src/crucible/verify/`; coding pack `verify/` (`task04.py`, `task03.py`, `golden_cpu.py`, `golden_gpu.py`); toy pack `verify.py`.
 - **Tests:**
-  - `tests/unit/test_verify.py` (13 tests);
+  - `tests/unit/test_verify.py` (21 tests), `tests/unit/test_m7_audit.py` (29 audit regressions);
   - `tests/redteam/test_grader_attacks.py` (18 docker tests: honest, 11 cheats, 6 controls).
 - **Reports:** `reports/m7_toy.json`, `reports/m7_golden_cpu.json`, `reports/m7_golden_gpu.json` (written by `golden_gpu collect`).
 - **Research:** `docs/research/m7-m8/01-verifiers-isolation.md` (12 frameworks and our 4 seed graders).
@@ -76,3 +80,7 @@ Two layers:
 - Kit plans for tasks 01, 01v2 and 02. Their B.10 holes are recorded; they need grader-owned builds of the doctest suites (task01) and root-free candidate execution (task02).
 - Seed re-versioning: the task04 consumer `PCLConfig.cmake` flag injection, the KinFu headroom, and the task03/04 instruction sentences that are unenforced or looser than the grader (A7).
 - A Harbor-run end-to-end check of the flat `reward.json` (M11).
+- From the audit: the patch is still decoded as text (non-UTF-8 context lines), two-level `##` macro pastes,
+  `kill_cohort` survivors still mask, no `adversarial_inputs` pattern, `judge_item` has no production caller, and the
+  masked-mean metric (`interop/harbor/metrics.py`) is not yet wired into the M11 export. Re-run the task04 GPU golden
+  after the perf changes.

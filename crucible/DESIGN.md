@@ -661,8 +661,8 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 3. Network: `no-network` for agent and verifier. Fetches happen only at image build time.
 4. The verifier runs in a separate image (Harbor `environment_mode="separate"`, verifiers `IsolatedVerifierEnv`). Candidate code runs as an unprivileged UID. Reference directories are 0700 root. Outputs are chown-sealed after every candidate step (task-03/04 grader).
 5. The collection hook handles a dirty workspace and gitignored build directories, and errors from `git add` cannot abort the diff (Appendix B.5).
-6. Perf grading runs only when the node is quiet (load guard) and records the spread across rounds; contaminated rounds are re-graded, not scored (Appendix B.5).
-7. **Trusted channels only (P26).** Candidate code runs unprivileged in the verifier too, with privileges dropped *before* any candidate code (its `setup.py`, its import side effects) runs. The test harness, the benchmark and the reference build are root-owned copies made before the candidate runs. Verdicts come from artifacts compared by a trusted process, never from exit codes or the candidate's stdout. Timing is taken outside the candidate's process. Every timed repetition gets fresh inputs, and every candidate invocation a fresh HOME and TMPDIR (no memoization, no replay of cached results). Consumers come before the candidate on `PYTHONPATH`. Any grader exception writes reward 0 plus an `infra_error` record; `reward.txt` is never left empty.
+6. Perf grading runs only when the node is quiet (load guard) and records the spread across rounds; rounds contaminated on the original's side are re-graded, not scored (Appendix B.5). Noise on the candidate's side alone only slows it down, so a failing best-of-k there is a fail (M7 audit: a slow, jittery candidate was masked).
+7. **Trusted channels only (P26).** Candidate code runs unprivileged in the verifier too, with privileges dropped *before* any candidate code (its `setup.py`, its import side effects) runs. The test harness, the benchmark and the reference build are root-owned copies made before the candidate runs. Verdicts come from artifacts compared by a trusted process, never from exit codes or the candidate's stdout. Timing is taken outside the candidate's process. Every timed repetition gets fresh inputs, and every candidate invocation a fresh HOME and TMPDIR (no memoization, no replay of cached results). Consumers come before the candidate on `PYTHONPATH`. Any grader exception masks the grade: no `reward.json`/`reward.txt`, and `crucible_reward.json` with `reward: null` (M7 audit: this line still described the old pre-written 0).
 
 **Built in M1 (2026-10-09), tested by `tests/redteam/test_attacks.py` on a Harbor-backed World with `isolation.policy_user` set:**
 
@@ -704,11 +704,11 @@ A custody violation, like an unkillable process at quiesce, is `crucible:policy_
 | Fresh HOME/TMPDIR per invocation, removed afterwards; `/dev/shm` and SysV IPC of the uid cleared | memoizing or replaying results across timed repetitions (`memoize_in_home`) |
 | Cohort killed **the moment the main process exits** (not after the pipe-drain grace), outputs sealed root-owned read-only before comparison | a detached child rewriting outputs after the run (`background_fixup`; found by the control: a 1 s grace was enough) |
 | Python runs `-I` with grader paths first and the candidate **after the standard library** | shadowing the stdlib (`json.py`), the consumer or the test runner (`pytest/`) |
-| Test verdicts from a grader-opened results fd: a finish record, the expected count (collected against the original), every test passed, no skips; exit code ignored | `os._exit(0)` under pytest, `pytest.skip` from library code, fake "4 passed" on stdout |
+| Test verdicts from a grader-opened results fd: a finish record, the expected count or exact node ids (collected against the original), every test passed, no skips; exit code ignored. Plugin autoload off, outcomes taken from the call's exception before any other hook, `unittest` assertions snapshotted (M7 audit) | `os._exit(0)` under pytest, `pytest.skip` from library code, fake "4 passed" on stdout, a `pytest11` entry point rewriting reports, a library replacing `assertEqual` |
 | Static scan of the pruned tree that gets built: macro expansion, token pasting, dynamic imports, native binaries under any suffix, runner references | banned constructs behind `#define`, `##`, `importlib.import_module("cty" + "pes")`, skipped directories |
 | Hidden material under `/root` (0700) or root-only copies; references computed at grade time into 0700 dirs | delegating to the original, reading or rewriting hidden tests |
-| Perf: load guard, round-spread check (contaminated → infra, re-graded), wall time from the grader's clock (`wall_ratio_max`, or K/5K differential runs), end-state sanity | timers forged in-process; scoring another user's GPU job as a perf failure |
-| `reward.txt` pre-written 0; any grader exception → reward 0, masked `grader_exception`; candidate crashes while judged → fail, never masked | turning a 0 into a masked grade by crashing the grader |
+| Perf: load guard, round-spread check (original contaminated → infra, re-graded), wall time from the grader's clock (`wall_ratio_max`, record mode included, or K/5K differential runs with a positive, plausible per-step time), timings positive and finite, end-state sanity | timers forged in-process; zero or negative timings; start-up that shrinks with the step count; scoring another user's GPU job as a perf failure |
+| Every reward file removed before grading (host and container, and rLLM's agent-writable `/tmp/rllm/reward.json`); any grader exception → masked `grader_exception`, no reward file; candidate crashes while judged, candidate content that breaks `setup`, and a policy-broken schema → fail, never masked; a certain hard-gate fail decides the reward even when another check is infra | turning a 0 into a masked grade by crashing the grader, a FIFO in the tree, a dropped table or a jittery run; a stale or agent-written reward file read as this grade's |
 
 ---
 
@@ -2782,6 +2782,21 @@ untested properties are reported, crafted negatives must hit a gate while honest
 corrected to say so), and R7 bounds farmable progress. C6 is wired: an unmeasured milestone is not a zero, and a masked
 reward is `None`. Rubric items parse their verdict from the last line, ignore unmeasured items, and need fixtures and
 data to validate. NeMo-Gym's reward components sum to the reward. Details: `docs/audit/2026-10-12/M06-credit.md`.
+
+**M7 audit (2026-10-12).** A verdict can no longer be forged or turned into a mask by the candidate. Hidden tests: a
+`pytest11` entry point in the candidate's install rewrote every outcome (a wrong library scored 1 as root); plugin
+autoload is off, outcomes are recorded from the call before any other hook, `unittest` assertion tampering is reported,
+and exact node ids can be required. Masks: a certain hard-gate fail now decides the reward even when another check is
+unmeasured; candidate-side perf noise, a missing row, a policy-dropped table, an `ABSTAIN` directory and a FIFO copied
+in `setup` are fails, not masks. Perf: timings must be positive and finite, record mode keeps the whole-process wall
+bar, and task03's outside-clock differencing rejects a start-up that shrinks with the step count. Static: Python
+imports are parsed (`import os, ctypes`), builtin `exec`/`eval`/`compile` and `__builtins__` lookups, `.pyc`/zip/`ar`
+files and `pytest11` entry points are flagged, skipped directories are checked for binaries, C continuations are
+spliced. Reward files: stale files are removed on the host, NaN masks, a score gate averages its checks, and under
+runtimes that cannot mask, the grader clears rLLM's agent-writable reward file and `interop/harbor/metrics` provides a
+masked-mean Harbor metric (stock `Mean` counts a mask as 0; wiring it into the M11 export is open). Leak audit: every top-level directory, files of any size, refs to blobs and trees. Collect:
+the base is the commit recorded before the agent ran, and only root-level build trees are dropped. Details:
+`docs/audit/2026-10-12/M07-verify.md`.
 
 ## 14. Repository layout
 

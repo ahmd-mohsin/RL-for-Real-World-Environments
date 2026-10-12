@@ -56,6 +56,9 @@ def record(score: float | None, spec: RecordSpec, *, valid: bool, detail: dict |
     """A score check. ``passed`` means the result is valid and beats the baseline; the reward contribution is in
     ``detail["normalized_reward"]`` (read by ``Plan`` for gates of kind ``score``)."""
     d = dict(detail or {})
+    # a "min" metric is a time, size or ratio: positive by nature (M7 audit V5: a forged ratio of -1000 scored 9.38)
+    if score is not None and spec.direction == "min" and math.isfinite(float(score)) and float(score) <= 0:
+        return Verdict(False, {**d, "score": score, "valid": False, "normalized_reward": 0.0, "reason": "a min-metric must be positive"})
     if not valid or score is None or not math.isfinite(float(score)):
         return Verdict(False, {**d, "score": score, "valid": valid, "normalized_reward": 0.0})
     r = spec.reward(float(score))

@@ -32,7 +32,12 @@ def _git(ws: Path, *a: str) -> subprocess.CompletedProcess:
 
 
 def tree_changed(ws: Path) -> bool:
-    return bool(_git(ws, "status", "--porcelain", "--untracked-files=all").stdout.strip())
+    """Whether the agent changed anything the hook collects: derived files (``__pycache__``, build trees) do not count
+    (M7 audit: a do-nothing agent that ran Python had an empty patch and a "changed" tree, so it was masked, not scored 0)."""
+    from crucible.verify.collect import is_derived
+
+    lines = _git(ws, "status", "--porcelain", "--untracked-files=all").stdout.splitlines()
+    return any(not is_derived(ln[3:].split(" -> ")[-1].strip('"')) for ln in lines if ln.strip())
 
 
 def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Collected:

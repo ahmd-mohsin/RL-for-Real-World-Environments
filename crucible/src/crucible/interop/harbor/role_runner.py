@@ -69,6 +69,7 @@ if __name__ == "__main__":
 
 TEST_SH = """#!/bin/bash
 mkdir -p /logs/verifier
+rm -f /tmp/rllm/reward.json /logs/verifier/reward.txt /logs/verifier/reward.json
 if python3 /tests/validate.py /app/{out}; then echo 1 > /logs/verifier/reward.txt; else echo 0 > /logs/verifier/reward.txt; fi
 """
 

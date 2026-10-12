@@ -69,7 +69,12 @@ def json_close(cand: Any, ref: Any, *, atol: float = 0.0, rtol: float = 0.0, tol
             fails += json_close(x, y, atol=atol, rtol=rtol, tol=tol, path=f"{path}[{i}]")
         return fails
     if isinstance(ref, bool) or not isinstance(ref, (int, float)):
-        return [] if cand == ref else [{"key": path, "cand": cand, "ref": ref}]
+        return [] if (cand == ref and type(cand) is type(ref)) else [{"key": path, "cand": cand, "ref": ref}]  # 1 is not True
+    if not math.isfinite(float(ref)):
+        # a NaN or infinite reference: the candidate must be the same non-finite value (M7 audit V12: any candidate passed)
+        same = isinstance(cand, (int, float)) and not isinstance(cand, bool) and (
+            (math.isnan(float(ref)) and math.isnan(float(cand))) or (math.isinf(float(ref)) and float(cand) == float(ref)))
+        return [] if same else [{"key": path, "cand": cand, "ref": ref, "error": "the reference is not finite"}]
     if not isinstance(cand, (int, float)) or isinstance(cand, bool) or not math.isfinite(float(cand)):
         return [{"key": path, "cand": cand, "ref": ref, "error": "not a finite number"}]
     if abs(float(cand) - float(ref)) > atol + rtol * abs(float(ref)):
@@ -96,5 +101,33 @@ class TwoTier:
         return f, "strict"
 
 
+MAX_OUTPUT_BYTES = 256 * 1024 * 1024
+
+
+def safe_read(path: Path, *, max_bytes: int = MAX_OUTPUT_BYTES) -> bytes:
+    """Read a candidate-produced regular file: no symlink (it could point at the root-only reference), no FIFO or device
+    (it would block the grader), bounded size. M7 audit: task03's fresh-draw gate passed a candidate whose output was a
+    link to ``ref.npz``. Raises ``CandidateError``: a bad output is the candidate's failure."""
+    import os
+    import stat
+
+    from crucible.verify.runtime.patterns.perf import CandidateError
+
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError as e:
+        raise CandidateError(f"{path}: not a readable regular file ({e.strerror})") from e
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise CandidateError(f"{path}: not a regular file")
+        if st.st_size > max_bytes:
+            raise CandidateError(f"{path}: {st.st_size} bytes, over the {max_bytes} limit")
+        with os.fdopen(os.dup(fd), "rb") as f:
+            return f.read(max_bytes + 1)
+    finally:
+        os.close(fd)
+
+
 def load_json(path: Path) -> Any:
-    return json.loads(Path(path).read_text())
+    return json.loads(safe_read(path))

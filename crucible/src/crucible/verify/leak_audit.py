@@ -82,12 +82,28 @@ def audit_tree(root: Path, *, canaries: Sequence[str] = (), strings: Sequence[st
         if (n := _hidden_name(rel, names)) is not None:
             rep.findings.append({"file": rel, "kind": "hidden_artifact", "match": n})
         rep.scanned_files += 1
-        if p.stat().st_size <= max_bytes:
-            _scan_text(rel, p.read_bytes(), canaries, strings, rep)
+        _scan_large(rel, p.open("rb"), p.stat().st_size, max_bytes, canaries, strings, rep)
     return rep
 
 
-def audit_image(image: str, *, roots: Sequence[str] = ("workspace", "app", "root", "home", "opt", "tmp", "srv"), canaries: Sequence[str] = (),
+def _scan_large(rel: str, f, size: int, max_bytes: int, canaries: Sequence[str], strings: Sequence[str], rep: LeakReport) -> None:
+    """Scan a file of any size in overlapping chunks (M7 audit V11: files over 4 MiB were skipped silently, so a hidden
+    string in a 5 MiB file passed)."""
+    overlap = max([len(x) for x in [*canaries, *strings]] + [1])
+    prev = b""
+    with f:
+        while chunk := f.read(max_bytes):
+            before = len(rep.findings)
+            _scan_text(rel, prev + chunk, canaries, strings, rep)
+            if len(rep.findings) > before:
+                return
+            prev = chunk[-overlap:]
+
+
+SYSTEM_DIRS = ("proc", "sys", "dev")
+
+
+def audit_image(image: str, *, roots: Sequence[str] | None = None, canaries: Sequence[str] = (),
                 strings: Sequence[str] = (), names: Sequence[str] = HIDDEN_NAMES, max_bytes: int = 4 << 20, docker_host: str | None = None) -> LeakReport:
     import os
 
@@ -99,13 +115,15 @@ def audit_image(image: str, *, roots: Sequence[str] = ("workspace", "app", "root
         with tarfile.open(fileobj=p.stdout, mode="r|") as tf:
             for m in tf:
                 rel = m.name.lstrip("./")
-                if not m.isfile() or rel.split("/", 1)[0] not in roots:
+                top = rel.split("/", 1)[0]
+                # every top-level directory but the kernel's (M7 audit V11: /tests, /solution and /usr were never scanned)
+                if not m.isfile() or (roots is not None and top not in roots) or top in SYSTEM_DIRS:
                     continue
                 if (n := _hidden_name(rel, names)) is not None:
                     rep.findings.append({"file": rel, "kind": "hidden_artifact", "match": n})
                 rep.scanned_files += 1
-                if m.size <= max_bytes and (f := tf.extractfile(m)) is not None:
-                    _scan_text(rel, f.read(), canaries, strings, rep)
+                if (f := tf.extractfile(m)) is not None:
+                    _scan_large(rel, f, m.size, max_bytes, canaries, strings, rep)
         p.wait()
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True, check=False, env=env)
@@ -126,5 +144,10 @@ def audit_git(repo: Path, *, base: str | None = None, forbidden: Sequence[str] =
     unreachable = [ln for ln in git("fsck", "--unreachable", "--no-reflogs").stdout.splitlines() if ln.startswith("unreachable")]
     present = [s for s in forbidden if git("cat-file", "-e", s).returncode == 0]
     refs = git("for-each-ref", "--format=%(refname)").stdout.split()
-    return {"ok": not beyond and not unreachable and not present, "commits": len(all_commits), "beyond_base": beyond[:20], "unreachable": unreachable[:20],
-            "forbidden_present": present, "refs": refs[:20]}
+    # a ref (a tag) can point straight at a blob or a tree holding the oracle: `rev-list --all` lists commits only (V11)
+    odd = [ln for ln in git("for-each-ref", "--format=%(objecttype) %(refname)").stdout.splitlines() if ln and not ln.startswith(("commit ", "tag "))]
+    peeled = [ln.split(" ", 1)[1] for ln in git("for-each-ref", "--format=%(*objecttype) %(refname)").stdout.splitlines()
+              if ln.split(" ", 1)[0] not in ("", "commit")]
+    non_commit = sorted({ln.split(" ", 1)[-1] for ln in odd} | set(peeled))
+    return {"ok": not beyond and not unreachable and not present and not non_commit, "commits": len(all_commits), "beyond_base": beyond[:20],
+            "unreachable": unreachable[:20], "forbidden_present": present, "refs": refs[:20], "non_commit_refs": non_commit[:20]}

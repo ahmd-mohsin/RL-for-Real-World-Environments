@@ -92,7 +92,8 @@ class WorkspaceHarness(NativeHarness):
             return await self.regrade(attempt, prior[1])
         try:
             if prior is not None:  # re-collect only: never re-run an agent whose work the harness lost
-                c = collect(prior[1], base="base", mode="tolerant")
+                base_file = attempt.dir / "base_sha"
+                c = collect(prior[1], base=base_file.read_text().strip() if base_file.exists() else "base", mode="tolerant")
                 res.stop = "recollected"
                 f = classify(c)
                 if f:
@@ -104,6 +105,11 @@ class WorkspaceHarness(NativeHarness):
                 world = await attempt.task.open(attempt.dir / "work")
             t["seed"] = time.monotonic() - t0
             t0 = time.monotonic()
+            # the commit the agent starts from, recorded before it runs: the ``base`` tag is in the agent's own repository
+            # and can be deleted or moved (M7 audit)
+            base_sha = _base_sha(attempt.task.workspace(world))
+            if base_sha:
+                (attempt.dir / "base_sha").write_text(base_sha + "\n")
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
                 ep = await run_episode(world, policies, limits=self.limits, sample_key=attempt.id)
@@ -118,7 +124,7 @@ class WorkspaceHarness(NativeHarness):
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
             ws = attempt.task.workspace(world)
             t0 = time.monotonic()
-            c = collect(ws, base="base", mode=self.collect_mode)
+            c = collect(ws, base=base_sha or "base", mode=self.collect_mode)
             t["collect"] = time.monotonic() - t0
             f = classify(c)
             if f:  # keep the agent's tree as it is (a rename: unreadable files survive) for a re-collect-only retry
@@ -137,3 +143,13 @@ class WorkspaceHarness(NativeHarness):
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
             res.timings = {k: round(v, 3) for k, v in t.items()}
         return res
+
+
+def _base_sha(ws) -> str | None:
+    import subprocess
+
+    try:
+        r = subprocess.run(["git", "-C", str(ws), "rev-parse", "--verify", "-q", "base^{commit}"], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() or None

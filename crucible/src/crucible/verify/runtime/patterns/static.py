@@ -9,10 +9,18 @@ files, required constructs), hardened against the A13 evasions found in the 2026
   token-pasting macro (``##``) that assembles a banned identifier is reported;
 - **dynamic imports**: ``importlib.import_module`` / ``__import__`` / ``getattr(..., "...")`` with string literals
   (adjacent literals and ``+`` concatenations joined) are matched against banned module names;
-- **renamed binaries**: files whose content starts with an ELF/Mach-O magic or a shebang are reported wherever the rule
-  set forbids native artifacts, whatever their suffix;
+- **renamed binaries**: files whose content starts with an ELF, Mach-O, PE, static-archive or zip magic, and compiled or
+  archived Python, are reported wherever the rule set forbids native artifacts, whatever their suffix (a shebang script
+  is source, scanned as text);
 - **runner tampering**: candidate source that references the test runner (``pytest``, ``_pytest``, doctest config
   macros, frame inspection) is flagged, because in-process forgery of results needs it (see ``hidden_tests``).
+
+M7 audit (2026-10-12): Python imports are read with ``ast`` (``import os, ctypes`` and ``import os, pytest`` passed a
+first-name regex), ``exec``/``eval``/``compile`` and ``__builtins__`` lookups are flagged where modules are banned,
+compiled or archived Python (``.pyc``, ``.zip``, ``.egg``, ``.whl``), static archives (``!<arch>``) and zips are native
+artifacts, a ``pytest11`` entry point is runner tampering, forbidden and native files are reported even inside skipped
+directories (a new ``third_party/libk.a`` passed), frozen directories are hashed in full, and C sources are scanned
+with line continuations spliced (a backslash-newline inside ``cudaBindTexture2D`` passed) and in ``.inc``/``.tpp`` files too.
 """
 
 from __future__ import annotations
@@ -23,9 +31,29 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-C_LIKE = {".c", ".cc", ".cpp", ".cxx", ".cu", ".cuh", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".cl", ".metal"}
+C_LIKE = {".c", ".cc", ".cpp", ".cxx", ".cu", ".cuh", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".cl", ".metal", ".inc", ".tpp"}
 PY = {".py", ".pyi", ".pyx", ".pxd"}
-NATIVE_MAGIC = (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ")
+NATIVE_MAGIC = (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ", b"!<ar", b"PK\x03\x04")
+COMPILED_SUFFIXES = {".pyc", ".pyo", ".pyd", ".zip", ".egg", ".whl", ".a", ".so", ".dylib", ".o"}
+# the builtins only: ``re.compile(`` and ``jax.jit(...).compile(`` are attribute calls (the CPU golden caught that)
+DYNAMIC_EXEC = re.compile(r"(?<![\w.])(?:exec|eval|compile)\s*\(|__builtins__\s*(?:\.|\[)|\bbuiltins\.(?:__dict__|exec|eval|compile|__import__)\b")
+
+
+def py_imports(code: str) -> set[str] | None:
+    """Top-level module names a Python source imports (every alias of every import), or None if it does not parse."""
+    import ast
+
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return None
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            out |= {a.name.split(".")[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
+            out.add(n.module.split(".")[0])
+    return out
 RUNNER_TAMPER_PY = [r"\bimport\s+_?pytest\b", r"\bfrom\s+_?pytest\b", r"sys\.modules\s*\[\s*['\"]_?pytest", r"\bsys\._getframe\b",
                     r"\binspect\.(stack|currentframe|getouterframes)\b", r"\bjunitxml\b", r"PYTEST_CURRENT_TEST", r"\bos\._exit\s*\(",
                     r"crucible_verify"]
@@ -147,15 +175,18 @@ def scan(root: Path, rules: RuleSet) -> dict:
     files = [p for p in sorted(root.rglob("*")) if p.is_file() and not p.is_symlink()]
     for p in files:
         rel = p.relative_to(root).as_posix()
-        if rel.split("/", 1)[0] in rules.skip:
-            continue
+        # forbidden and native files first: a skipped directory is not a place to hide a binary
         if p.suffix in rules.forbidden_files or p.name in rules.forbidden_files:
             violations.append({"rule": "forbidden_file", "file": rel})
             continue
         head = p.open("rb").read(4)
-        if rules.forbid_native and any(head.startswith(m) for m in NATIVE_MAGIC):
+        if rules.forbid_native and (any(head.startswith(m) for m in NATIVE_MAGIC) or p.suffix in COMPILED_SUFFIXES):
             violations.append({"rule": "native_binary", "file": rel})
             continue
+        if rel.split("/", 1)[0] in rules.skip:
+            continue
+        if rules.runner_tamper and p.name in ("entry_points.txt", "pyproject.toml", "setup.cfg", "setup.py") and "pytest11" in p.read_text(errors="replace"):
+            violations.append({"rule": "runner_tamper", "file": rel, "match": "pytest11 entry point"})
         if p.suffix not in rules.text_suffixes:
             continue
         top = rel.split("/", 1)[0]
@@ -163,6 +194,8 @@ def scan(root: Path, rules: RuleSet) -> dict:
             continue
         raw = p.read_text(errors="replace")
         is_cmake = p.name == "CMakeLists.txt" or p.suffix == ".cmake"
+        if p.suffix in C_LIKE:
+            raw = raw.replace("\\\n", "")  # a line continuation splits no identifier for the compiler, so neither here
         code = strip_c(raw) if p.suffix in C_LIKE else strip_py(raw) if p.suffix in PY else strip_cmake(raw) if is_cmake else raw
         active = [r for r in rules.forbid if (not r.suffixes or p.suffix in r.suffixes or p.name in r.suffixes) and (not r.roots or top in r.roots)]
         for r in active:
@@ -179,6 +212,13 @@ def scan(root: Path, rules: RuleSet) -> dict:
                         if re.search(r.pattern, joined, r.flags):
                             violations.append({"rule": f"{r.id}:token_paste", "file": rel, "match": call.group(0).strip()[:120]})
         if p.suffix in PY and rules.banned_modules:
+            imported = py_imports(raw)
+            for mod in sorted((imported or set()) & set(rules.banned_modules)):
+                violations.append({"rule": "banned_import", "file": rel, "match": mod})
+            if imported is None:
+                violations.append({"rule": "unparseable_python", "file": rel})
+            for m in DYNAMIC_EXEC.finditer(code):
+                violations.append({"rule": "dynamic_exec", "file": rel, "match": m.group(0)[:80]})
             joined = _join_literals(code)
             for m in re.finditer(r"(?:importlib\.import_module|__import__|import_module|find_spec|getattr)\s*\(\s*[^)]*?['\"]([\w.]+)['\"]", joined):
                 if m.group(1).split(".")[0] in rules.banned_modules:
@@ -188,6 +228,8 @@ def scan(root: Path, rules: RuleSet) -> dict:
             for pat in pats:
                 for m in re.finditer(pat, code):
                     violations.append({"rule": "runner_tamper", "file": rel, "match": m.group(0)[:80]})
+            if p.suffix in PY and (imp := py_imports(raw)) and imp & {"pytest", "_pytest"}:
+                violations.append({"rule": "runner_tamper", "file": rel, "match": f"imports {sorted(imp & {'pytest', '_pytest'})}"})
     # aliases: expand object-like macros (transitively) and rescan; a construct that only appears after expansion was
     # hidden behind a macro
     macros: dict[str, str] = {}
@@ -225,7 +267,8 @@ def scan(root: Path, rules: RuleSet) -> dict:
         import hashlib
 
         def buildable(q: Path) -> bool:
-            return q.suffix in C_LIKE | PY | {".cmake", ".cu", ".cuh"} or q.name == "CMakeLists.txt"
+            # every file but prose: a library or a data file in a frozen directory changes the build too (M7 audit)
+            return q.suffix.lower() not in {".md", ".rst", ".txt", ".adoc"} and not q.name.upper().startswith(("README", "LICENSE", "CHANGELOG", "AUTHORS"))
 
         def digest(top: Path) -> dict:
             if not top.exists():

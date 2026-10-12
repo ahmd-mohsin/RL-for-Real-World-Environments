@@ -118,12 +118,20 @@ def json_value(text: str) -> Any:
             return json.loads(block)
     dec = json.JSONDecoder()
     last: Any = _NONE
-    for i, ch in enumerate(text):
-        if ch in "{[":
+    last_end = -1
+    i = 0
+    while i < len(text):  # the outermost value that ends last (M7 audit V19: the innermost won, '{"a": {"b": 1}}' gave {"b": 1})
+        if text[i] in "{[":
             try:
-                last, _ = dec.raw_decode(text, i)
-            except ValueError:
+                val, end = dec.raw_decode(text, i)
+            except (ValueError, RecursionError):
+                i += 1
                 continue
+            if end > last_end:
+                last, last_end = val, end
+            i = end
+            continue
+        i += 1
     if last is _NONE:
         raise ValueError("no JSON value in the answer")
     return last
@@ -136,7 +144,7 @@ _NONE = object()
 _CHOICE = re.compile(r"(?<![A-Za-z])([A-Za-z])(?![A-Za-z])")
 _BOXED_LETTER_ONLY = re.compile(r"^[^A-Za-z]*([A-Z])[^A-Za-z]*$")
 _BOXED_LETTER_LABEL = re.compile(r"^\s*([A-Z])\s*[:).\-]")
-_LEADING_LETTER = re.compile(r"^([a-zA-Z])(?![a-zA-Z0-9])")
+_LEADING_LETTER = re.compile(r"^([a-zA-Z])\s*[).:\]-]")  # "B)", "B.", "B:" -- not "A good choice is C" (M7 audit V19)
 _LAST_LETTER = re.compile(r"\b[A-Z]\b(?!.*\b[A-Z]\b)", re.DOTALL)
 _LIST_SEP = re.compile(r"(?:\s*[/|&,;]\s*|\s+(?:or|and)\s+|\s+)", re.IGNORECASE)
 _FOLD = str.maketrans({"أ": " A", "ب": " B", "ج": " C", "د": " D", "অ": " A", "ব": " B", "ড": " C", "ঢ": " D"})
@@ -271,7 +279,7 @@ class ParserSpec:
         elif self.kind == "json":
             try:
                 return json_value(body)
-            except ValueError:
+            except (ValueError, RecursionError):  # deeply nested input is no answer, not a grader crash (M7 audit V19)
                 return None
         elif self.kind == "mcq":
             return mcq_letter(body, options or {}, self.mode, self.prefix)
@@ -467,7 +475,13 @@ class CheckerSpec:
             raise CheckerUnavailable(f"judge {self.judge!r} failed: {type(e).__name__}: {e}") from e
         if v is None:
             raise CheckerUnavailable(f"judge {self.judge!r} gave no verdict")
-        return max(0.0, min(1.0, float(v)))
+        try:
+            x = float(v)
+        except (TypeError, ValueError) as e:
+            raise CheckerUnavailable(f"judge {self.judge!r} gave a non-numeric verdict {v!r}") from e
+        if not math.isfinite(x):  # NaN scored 1.0 through max(0, min(1, nan)) (M7 audit V19)
+            raise CheckerUnavailable(f"judge {self.judge!r} gave a non-finite verdict {v!r}")
+        return max(0.0, min(1.0, x))
 
 
 def _subset(gold: Any, got: Any) -> bool:

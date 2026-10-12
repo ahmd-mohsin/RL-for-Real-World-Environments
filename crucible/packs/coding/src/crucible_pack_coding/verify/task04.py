@@ -29,6 +29,7 @@ Changes from the seed grader (DESIGN Appendix B.10/B.12), none of which changes 
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -63,7 +64,7 @@ TEXREF = [
     r"\btextureReference\b",
     r"\bsurfaceReference\b",
 ]
-CODE = {".cu", ".cuh", ".h", ".hpp", ".cpp", ".inl", ".hh"}
+CODE = {".cu", ".cuh", ".h", ".hpp", ".cpp", ".inl", ".hh", ".hxx", ".cc", ".cxx", ".c", ".inc", ".ipp", ".tpp"}  # M7 audit: `texture<>` in an #included .inc passed
 RULES = RuleSet(forbid=[Rule(f"texref{i}", p, suffixes=CODE, roots=("gpu", "cuda")) for i, p in enumerate(TEXREF)],
                 exclude=(".git",), runner_tamper=False)
 
@@ -119,7 +120,7 @@ def record_score(metrics: dict, bars: dict, best: dict, *, floor: str = "all_bar
     per, below = {}, []
     for m, bar in bars.items():
         ratio = metrics.get(m, {}).get("ratio")
-        if ratio is None:
+        if ratio is None or not (isinstance(ratio, (int, float)) and math.isfinite(ratio) and ratio > 0):  # M7 audit V5: -1000 scored 9.38
             below.append(m)
             continue
         spec = RecordSpec(baseline=bar, best_known=min(best.get(m, bar * 0.9), bar * 0.999), direction="min")
@@ -492,8 +493,9 @@ class Task04:
         if p.get("perf_mode") == "record":  # deep variant: no ceiling, the oracle is the best known, faster pays more
             from crucible.verify.runtime.patterns.record import record as record_verdict
 
+            # the whole-process wall clock binds record mode too: its per-metric numbers come from JSON the candidate wrote
             measured = PerfBars({m: 10.0 for m in metrics}, self.perf_round, rounds=int(p.get("perf_rounds", 3)), remeasure=0,
-                                spread_max=p.get("spread_max", 0.25), guard=guard)(ctx)
+                                spread_max=p.get("spread_max", 0.25), wall_ratio_max=p.get("wall_ratio_max", 1.0), guard=guard)(ctx)
             if measured.infra:
                 return measured
             bars = {m: b for m, b in self.thresholds["max_ratio"].items() if m in metrics}

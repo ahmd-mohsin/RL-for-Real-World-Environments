@@ -46,7 +46,14 @@ class References:
             return self.done[name]
         out = self.root / name
         self.trusted.private(out)
-        self.run(name, args, out)
+        try:
+            self.run(name, args, out)
+        except InfraError:
+            raise
+        except Exception as e:  # the reference is the grader's: its failure is never the candidate's (M7 audit V14)
+            raise InfraError(f"the reference run {name} failed: {type(e).__name__}: {e}"[:500]) from e
+        if not out.exists() or (out.is_dir() and not any(out.iterdir())) or (out.is_file() and out.stat().st_size == 0):
+            raise InfraError(f"the reference run {name} produced nothing")  # an empty reference passed an empty candidate (V13)
         for k in range(self_check):
             again = self.root / f"{name}.selfcheck{k}"
             self.trusted.private(again)

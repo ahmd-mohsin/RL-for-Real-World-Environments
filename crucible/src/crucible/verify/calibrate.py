@@ -48,17 +48,21 @@ class FlakeEstimate:
     rate: float
     upper_95: float
     ok: bool  # A4: zero false negatives
+    unmeasured: int = 0  # draws with no verdict (masked): neither a pass nor a false negative
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
-def flake_rate(natural: Sequence[bool], induced: Sequence[bool] = ()) -> FlakeEstimate:
-    """``natural``/``induced``: did the oracle pass each draw?"""
-    draws = list(natural) + list(induced)
+def flake_rate(natural: Sequence[bool | None], induced: Sequence[bool | None] = ()) -> FlakeEstimate:
+    """``natural``/``induced``: did the oracle pass each draw? ``None`` = no verdict (masked); it is counted apart, not as a
+    false negative (M7 audit: a missing verdict raised the flake rate)."""
+    all_draws = list(natural) + list(induced)
+    draws = [x for x in all_draws if x is not None]
     fn = sum(1 for x in draws if not x)
     n = len(draws)
-    return FlakeEstimate(n, fn, len(induced), fn / n if n else 1.0, round(clopper_pearson_upper(fn, n), 6), n > 0 and fn == 0)
+    return FlakeEstimate(n, fn, sum(1 for x in induced if x is not None), fn / n if n else 1.0, round(clopper_pearson_upper(fn, n), 6),
+                         n > 0 and fn == 0, unmeasured=len(all_draws) - n)
 
 
 def bifurcations(values: Sequence[float], *, min_gap_ratio: float = 4.0) -> list[list[float]]:
@@ -96,9 +100,11 @@ def tolerance_tiers(natural: Sequence[float], induced: Sequence[float] = (), neg
     strict = nat * margin
     relaxed = max(strict, (ind or 0.0) * margin)
     neg = min(negatives) if negatives else None
-    kills = neg is None or relaxed < neg
+    # a tolerance must be shown to kill at least one negative, and DESIGN §8.2 asks for natural draws: induced draws
+    # widen the relaxed tier but do not count toward ``min_draws`` (M7 audit V22: no negatives and 1 natural draw passed)
+    kills = neg is not None and relaxed < neg
     return TierCalibration(strict, relaxed, nat, ind, neg, len(bifurcations(list(natural) + list(induced))) > 1, kills,
-                           kills and len(natural) + len(induced) >= min_draws, len(natural) + len(induced))
+                           kills and len(natural) >= min_draws, len(natural))
 
 
 def perf_headroom(oracle_ratios: dict[str, float], bars: dict[str, float], *, required: float = 0.15) -> dict:

@@ -15,6 +15,16 @@ loaded, or a PUBLIC ``DOCTEST_CONFIG_DISABLE`` that compiles every test away, pa
   code (``runner_tamper``), and the expected-count manifest is computed by the grader on the oracle at authoring time.
 
 ``pytest_suite`` and ``doctest_suite`` are the two runners the seed tasks need; both return a ``Verdict``.
+
+M7 audit (2026-10-12):
+- pytest auto-loaded ``pytest11`` entry points from the candidate's install, and such a plugin's
+  ``pytest_runtest_logreport`` could set every report to "passed" (a wrong library scored 1 in a root container).
+  Autoload is off (``PYTEST_DISABLE_PLUGIN_AUTOLOAD``) and outcomes are recorded from ``call.excinfo`` in an outermost
+  ``pytest_runtest_makereport`` wrapper, not from the mutable report;
+- a candidate that replaced ``unittest.TestCase.assert*`` passed unittest-style suites with a wrong implementation:
+  the plugin snapshots those methods and reports tampering (repo2rlenv ``test_driver.py:14-37``);
+- a count can be met by a different test set: ``expected_ids`` checks the exact passed node ids (repo2rlenv
+  ``grade.py:187-188``), and ``collect_pytest_ids`` writes that manifest on the oracle.
 """
 
 from __future__ import annotations
@@ -28,9 +38,13 @@ from pathlib import Path
 from crucible.verify.runtime.plan import Verdict
 
 PLUGIN = '''"""Crucible verifier pytest plugin: per-test outcomes to a grader-owned file descriptor."""
-import json, os
+import json, os, unittest
+import pytest
+
 _FD = int(os.environ.pop("CRUCIBLE_VERIFY_FD", "-1"))
 _seen = {"collected": 0}
+_ASSERTS = {n: getattr(unittest.TestCase, n) for n in dir(unittest.TestCase) if n.startswith(("assert", "fail"))}
+_CODES = {n: getattr(f, "__code__", None) for n, f in _ASSERTS.items()}
 
 
 def _emit(rec):
@@ -40,16 +54,30 @@ def _emit(rec):
 
 def pytest_collection_modifyitems(session, config, items):
     _seen["collected"] = len(items)
-    _emit({"event": "collected", "n": len(items)})
+    _emit({"event": "collected", "n": len(items), "ids": [i.nodeid for i in items]})
 
 
-def pytest_runtest_logreport(report):
-    if report.when == "call" or report.outcome != "passed":
-        _emit({"event": "test", "nodeid": report.nodeid, "when": report.when, "outcome": report.outcome,
-               "wasxfail": bool(getattr(report, "wasxfail", False))})
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):
+    # the outcome from the call itself, before any other plugin can touch the report
+    exc = call.excinfo
+    if exc is None:
+        outcome = "passed"
+    elif exc.errisinstance(pytest.skip.Exception):
+        outcome = "skipped"
+    else:
+        outcome = "failed"
+    xfail = exc is not None and hasattr(pytest, "xfail") and exc.errisinstance(pytest.xfail.Exception)
+    yield
+    if call.when == "call" or outcome != "passed":
+        _emit({"event": "test", "nodeid": item.nodeid, "when": call.when, "outcome": outcome, "wasxfail": bool(xfail)})
 
 
 def pytest_sessionfinish(session, exitstatus):
+    changed = sorted(n for n, f in _ASSERTS.items() if getattr(unittest.TestCase, n, None) is not f
+                     or getattr(getattr(unittest.TestCase, n, None), "__code__", None) is not _CODES[n])
+    if changed:
+        _emit({"event": "tamper", "what": changed[:20]})
     _emit({"event": "finish", "exitstatus": int(exitstatus), "collected": _seen["collected"]})
 '''
 
@@ -72,7 +100,8 @@ def install_plugin(trusted, where: Path) -> Path:
     return where
 
 
-def verdict_from_records(records: list[dict], *, expected: int | None, min_count: int, allowed_skips: int, rc: int, log: str) -> Verdict:
+def verdict_from_records(records: list[dict], *, expected: int | None, min_count: int, allowed_skips: int, rc: int, log: str,
+                         expected_ids: list[str] | None = None) -> Verdict:
     finish = next((r for r in records if r.get("event") == "finish"), None)
     collected = max([r.get("n", 0) for r in records if r.get("event") == "collected"] + [finish.get("collected", 0) if finish else 0])
     tests = [r for r in records if r.get("event") == "test"]
@@ -82,6 +111,11 @@ def verdict_from_records(records: list[dict], *, expected: int | None, min_count
     reasons = []
     if finish is None:
         reasons.append("the test session did not finish (process exited early)")
+    if tamper := [r for r in records if r.get("event") == "tamper"]:
+        reasons.append(f"the candidate changed the test framework's assertions: {tamper[0].get('what')}")
+    if expected_ids is not None and passed != set(expected_ids):
+        missing, extra = sorted(set(expected_ids) - passed), sorted(passed - set(expected_ids))
+        reasons.append(f"the passed tests are not the expected set ({len(missing)} missing, {len(extra)} unexpected)")
     if expected is not None and collected != expected:
         reasons.append(f"collected {collected} tests, expected {expected}")
     if collected < min_count:
@@ -97,13 +131,16 @@ def verdict_from_records(records: list[dict], *, expected: int | None, min_count
 
 
 def pytest_suite(ctx, *, name: str, args: list, cwd: Path, pythonpath: list, plugin_dir: Path, candidate_path: tuple = (), python: str = "python3",
-                 expected: int | None = None, min_count: int = 1, allowed_skips: int = 0, timeout: float = 3600, env: dict | None = None) -> Verdict:
+                 expected: int | None = None, min_count: int = 1, allowed_skips: int = 0, timeout: float = 3600, env: dict | None = None,
+                 expected_ids: list[str] | None = None) -> Verdict:
     t = ctx.trusted
     fd, path = _results_fd(t.work, name)
     try:
+        # no plugin from anyone's install loads (a candidate's ``pytest11`` entry point forged every outcome)
         rr = t.python(module="pytest", args=["-q", "-p", "no:cacheprovider", "-p", "crucible_verify_pytest", "-W", "ignore", *args],
                       first=[plugin_dir, *pythonpath], last=list(candidate_path), python=python, cwd=cwd,
-                      env={"CRUCIBLE_VERIFY_FD": str(fd), **(env or {})}, timeout=timeout, candidate=True, pass_fds=(fd,))
+                      env={**(env or {}), "CRUCIBLE_VERIFY_FD": str(fd), "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}, timeout=timeout, candidate=True,
+                      pass_fds=(fd,))
     finally:
         os.close(fd)
     records = []
@@ -112,7 +149,8 @@ def pytest_suite(ctx, *, name: str, args: list, cwd: Path, pythonpath: list, plu
             records.append(json.loads(line))
         except json.JSONDecodeError:
             records.append({"event": "garbage"})
-    return verdict_from_records(records, expected=expected, min_count=min_count, allowed_skips=allowed_skips, rc=rr.rc, log=rr.log)
+    return verdict_from_records(records, expected=expected, min_count=min_count, allowed_skips=allowed_skips, rc=rr.rc, log=rr.log,
+                                expected_ids=expected_ids)
 
 
 def doctest_suite(ctx, *, name: str, binary: Path, cwd: Path, expected: int | None = None, min_count: int = 1, timeout: float = 3600,
@@ -161,3 +199,10 @@ def count_pytest(ctx, *, args: list, cwd: Path, pythonpath: list, plugin_dir: Pa
                          pythonpath=[plugin_dir, *pythonpath])
     m = re.search(r"(\d+) tests? collected", rr.log)
     return int(m.group(1)) if m else len([ln for ln in rr.stdout.splitlines() if "::" in ln])
+
+
+def collect_pytest_ids(ctx, *, args: list, cwd: Path, pythonpath: list, plugin_dir: Path, python: str = "python3", timeout: float = 600) -> list[str]:
+    """The exact-ids manifest: the node ids the suite collects (run as the grader, against the oracle)."""
+    rr = ctx.trusted.run([python, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *args], cwd=cwd, timeout=timeout,
+                         pythonpath=[plugin_dir, *pythonpath], env={"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
+    return sorted(ln.strip() for ln in rr.stdout.splitlines() if "::" in ln)

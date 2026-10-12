@@ -218,8 +218,13 @@ json.dump({"pot_per_atom": e["potential"] / n, "temperature": e["temperature"], 
                 self.t.kill()
                 w1, _ = self._timed(case, n, cand, f"{case}{rnd}s")
                 w2, end = self._timed(case, 5 * n, cand, f"{case}{rnd}l")
-                res[side][case] = max(1e-6, (w2 - w1) / (4 * n) * 1e3)  # ms/step from the grader's clock: start-up and JIT cancel
+                per_step = (w2 - w1) / (4 * n) * 1e3  # ms/step from the grader's clock: start-up and JIT cancel
+                if per_step <= 0:  # the long run was not longer: start-up depended on the step count (M7 audit V4)
+                    raise (CandidateError if cand else InfraError)(f"{case}: the {side} long run took {w2:.3f}s, the short {w1:.3f}s")
+                res[side][case] = per_step
                 res.setdefault("_end", {})[side] = end
+            if res["candidate"][case] < 0.05 * res["original"][case]:  # 20x faster per step than the original: not a measurement
+                raise CandidateError(f"{case}: candidate {res['candidate'][case]:.4f} ms/step vs original {res['original'][case]:.4f}: implausibly fast")
             o, c = res["_end"]["original"], res["_end"]["candidate"]
             sane = abs(c["pot_per_atom"] - o["pot_per_atom"]) <= 0.03 * abs(o["pot_per_atom"]) + 0.05 and \
                 abs(c["temperature"] - o["temperature"]) <= 0.05 * o["temperature"] + 2.0 and c["steps"] == o["steps"]

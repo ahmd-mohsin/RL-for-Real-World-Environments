@@ -132,7 +132,10 @@ def test_perf_bars():
     assert v.passed and v.detail["metrics"]["m"]["ratio"] == 0.6
     noisy = iter([{"original": {"m": 10.0}, "candidate": {"m": 9.0}}, {"original": {"m": 10.0}, "candidate": {"m": 90.0}}] * 4)
     v2 = PerfBars({"m": 0.65}, lambda k: next(noisy), rounds=2, remeasure=1, spread_max=0.25)()
-    assert v2.infra and "contaminated" in v2.infra  # a noisy failing measurement is re-graded, never scored
+    assert not v2.passed and not v2.infra  # M7 audit: noise on the candidate's side only slows it down, so a failing best-of-k is a fail
+    noisy_o = iter([{"original": {"m": 10.0}, "candidate": {"m": 9.0}}, {"original": {"m": 90.0}, "candidate": {"m": 9.0}}] * 4)
+    v2b = PerfBars({"m": 0.65}, lambda k: next(noisy_o), rounds=2, remeasure=1, spread_max=0.25)()
+    assert v2b.infra and "original" in v2b.infra  # noise on the original's side (the node) is re-graded, never scored
 
     def broken(k):
         raise CandidateError("computed a different result")

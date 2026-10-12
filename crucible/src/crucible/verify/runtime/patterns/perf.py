@@ -24,6 +24,7 @@ it raises ``CandidateError`` when the candidate's timed run fails or computes so
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -32,11 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from crucible.verify.runtime.plan import Verdict
-from crucible.verify.runtime.trusted import InfraError
-
-
-class CandidateError(RuntimeError):
-    """The candidate's timed run failed or computed a different result: a perf failure, not infra."""
+from crucible.verify.runtime.trusted import CandidateError, InfraError
 
 
 @dataclass
@@ -101,6 +98,10 @@ class PerfBars:
             for side in ("original", "candidate"):
                 for m, v in r[side].items():
                     v = float(v)
+                    if not (math.isfinite(v) and v > 0):  # a time is positive and finite (M7 audit V5: -5.0 and 0.0 passed)
+                        if side == "candidate":
+                            raise CandidateError(f"candidate reported a non-positive or non-finite {m}: {v}")
+                        raise InfraError(f"the original's {m} is not a positive finite time: {v}")
                     best[side][m] = min(v, best[side].get(m, v))
                     rounds[side].setdefault(m, []).append(round(v, 4))
                 if "wall" in r and r["wall"].get(side) is not None:
@@ -138,8 +139,11 @@ class PerfBars:
         except CandidateError as ex:
             return Verdict(False, {"error": str(ex)[:1500], "attempts": attempts})
         last = attempts[-1]
-        if not last["pass"] and last["contaminated"]:
-            return Verdict(False, {"attempts": attempts}, infra=f"perf rounds contaminated: {last['contaminated'][:5]}")
+        orig_noise = [k for k in last["contaminated"] if k.startswith("original/")]
+        if not last["pass"] and orig_noise:
+            # only noise on the original's side (the node's fault) can mask a failure: noise on the candidate's side only
+            # slows it down, so a failing best-of-k is a fail (M7 audit V2: a slow, jittery candidate was masked)
+            return Verdict(False, {"attempts": attempts}, infra=f"original's perf rounds contaminated: {orig_noise[:5]}")
         if last["pass"] and last["contaminated"]:
             # passing bars under noise: noise only slows runs down, but the original's best may have been the noisy one
             orig = [k for k in last["contaminated"] if k.startswith("original/")]

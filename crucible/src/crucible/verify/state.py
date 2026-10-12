@@ -14,6 +14,7 @@ predicates), turned into end-state predicates plus violating-row invariants.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,10 +44,26 @@ class Predicate:
         return Milestone(id=self.id, check=MilestoneCheck(app=self.app, query=self.query, expect=self.expect), **kw)
 
 
+SCHEMA_ERROR = re.compile(r"no such (?:table|column)|does not exist|undefined (?:table|column)|has no column|syntax error", re.IGNORECASE)
+
+
+def _policy_broke(r) -> bool:
+    """A query error on state the policy can change (a dropped table, a renamed column) is the policy's doing; transport
+    and adapter errors are infrastructure (M7 audit V10: both masked the grade)."""
+    return not r.ok and bool(SCHEMA_ERROR.search(r.error or ""))
+
+
 async def state_predicates(view, predicates: list[Predicate]) -> Verdict:
     out, unmeasured = {}, []
     for p in predicates:
         r = await view.query(p.app, p.query)
+        if r.ok and r.value is None:
+            # no row is an answer, not an unmeasured check: the policy never made the row the predicate asks about
+            out[p.id] = {"pass": False, "value": None, "description": p.description, "reason": "no matching row"}
+            continue
+        if _policy_broke(r):
+            out[p.id] = {"pass": False, "value": None, "description": p.description, "reason": f"the state's schema was changed: {(r.error or '')[:200]}"}
+            continue
         v = phi(p.expect, r)
         if v is None:
             unmeasured.append(p.id)
@@ -61,8 +78,12 @@ async def state_predicates(view, predicates: list[Predicate]) -> Verdict:
 def view_query(view, app: str):
     async def q(sql: str) -> list:
         r = await view.query(app, Query(op="sql", args={"sql": sql}))
+        if _policy_broke(r):
+            from crucible.verify.runtime.patterns.perf import CandidateError
+
+            raise CandidateError(f"invariant query failed on {app}: the state's schema was changed: {r.error}")
         if not r.ok:
-            raise InfraError(f"invariant query failed on {app}: {r.error}")  # the grader's query, never the candidate's fault
+            raise InfraError(f"invariant query failed on {app}: {r.error}")  # transport or adapter: never the candidate's fault
         v = decode(r.value)
         return v.get("rows", []) if isinstance(v, dict) else list(v or [])
 

@@ -43,7 +43,8 @@ def agreement(fast: Sequence[float], full: Sequence[float], *, required: float =
     rho = spearman(fast, full)
     false_pass = sum(1 for f, g in zip(fast, full, strict=True) if f > 0 and g == 0)  # the fast tier pays what the full tier rejects
     return {"spearman": None if rho is None else round(rho, 4), "required": required, "n": len(fast), "fast_pass_full_fail": false_pass,
-            "ok": rho is not None and rho >= required}
+            # a fast pass the full tier rejects means the fast tier paid for a wrong answer (M7 audit V17): never ok
+            "ok": rho is not None and rho >= required and false_pass == 0}
 
 
 def audit_sample(rollout_id: str, *, rate: float = 0.05, salt: str = "crucible-audit") -> bool:
