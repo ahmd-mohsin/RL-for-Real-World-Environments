@@ -529,12 +529,14 @@ C3 (branch-rollout values) gives an alternative advantage, in the style of VineP
 Snapshot support comes from agentenv's snapshot extension and Harbor's `trajectory.json` prefix seeding with `is_copied_context`.
 
 **Properties every reward function must pass** (unit tests in `crucible/credit/tests`):
-- **R1** An oracle rollout gets the maximum reward.
+- **R1** An oracle rollout gets the maximum reward, and its measured Φ is 1.
 - **R2** A no-op gets 0.
-- **R3** Every registered negative gets 0.
+- **R3** Every negative fails and stays below every success. A **crafted** negative (a known-bad end state: a policy violation, a reversal, a cheat) is caught by a gate and gets 0. An **honest** failure (a real attempt that did not succeed) keeps the bounded partial credit κΦ. (M6 audit: this line said 0 for every negative, while the κ(1−O)Φ term gives every gate-passing failure partial credit; the toy's crafted negatives earned 0.13–0.2 until they became gates.)
 - **R4** Oscillating rollouts that break and fix the same thing do not earn more than monotone ones (shaping telescopes).
 - **R5** A rollout that satisfies milestones by stubbing (with prerequisites unmet) earns ≤ the same rollout with the stubs removed.
 - **R6** Reward is a function of state only, not of the agent's text claims (anti-sycophancy; for terminal reward it is computed in the separate verifier).
+- **R7** Progress cannot be farmed: a mutant that only reaches the shallow milestones (the edit's location, a created file, a premature "resolved") earns at most ε = 0.1 (OpenEnv's field evidence: a "+0.2 for submitting anything" term taught quick submits).
+- A property with nothing to test is reported as untested, never as passed; one that holds by construction (R5 without prerequisites, R6 on a reward with no message input) says so.
 
 ### 6.5 Predictive-validity gate (anti-slop for rubric items and milestones)
 
@@ -2771,6 +2773,15 @@ unmeasured rather than scored on the wrong content. Mined coding milestones are 
 adapter's grep takes `paths`, and `block_changed` exists there). Mining keeps C pointer lines, skips prose and forward
 declarations, and CI mining counts added tests. Rediscovery is 4 of 6 families with every family hand-audited (it was
 reported as 5 of 6). S1 is 0.919 on the audited replayer. Details: `docs/audit/2026-10-12/M05-workflow.md`.
+
+**M6 audit (2026-10-12).** Dense credit now honours gates everywhere it leaves M6: a gate-failed or hacked episode gets
+no positive turn credit, a group without outcome spread gets none, the per-turn term is centred within each episode and
+never flips the sign of a turn's outcome advantage, and the live trainer passes every call's ΔΦ through that rule (it
+added raw ΔΦ). `adv_signed` (ported from Xiaomi's verl fork) is available for marked calls. R1-R7 can now fail:
+untested properties are reported, crafted negatives must hit a gate while honest failures keep κΦ (DESIGN's R3 is
+corrected to say so), and R7 bounds farmable progress. C6 is wired: an unmeasured milestone is not a zero, and a masked
+reward is `None`. Rubric items parse their verdict from the last line, ignore unmeasured items, and need fixtures and
+data to validate. NeMo-Gym's reward components sum to the reward. Details: `docs/audit/2026-10-12/M06-credit.md`.
 
 ## 14. Repository layout
 

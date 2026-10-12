@@ -15,6 +15,7 @@ Pure Python and deterministic (seeded), so gate reports reproduce exactly.
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ def auc(scores: Sequence[float], labels: Sequence[int | bool]) -> float | None:
     """P(score of a positive > score of a negative), ties counted half. None without both classes."""
     if len(scores) != len(labels):
         raise ValueError("scores and labels differ in length")
+    if any(not math.isfinite(float(s)) for s in scores):  # NaN made the result depend on input order (M6 audit)
+        raise ValueError("scores must be finite")
     pos = sum(1 for y in labels if y)
     neg = len(labels) - pos
     if pos == 0 or neg == 0:
@@ -98,11 +101,14 @@ def time_split(items: Sequence[Any], time: Callable[[Any], str | float], holdout
     ordered = sorted(items, key=time)
     if not ordered:
         return [], []
-    cut = round(len(ordered) * (1 - holdout))
-    cut = min(max(cut, 1), len(ordered) - 1) if len(ordered) > 1 else len(ordered)
-    t_cut = time(ordered[cut]) if cut < len(ordered) else None
-    while cut > 0 and t_cut is not None and time(ordered[cut - 1]) == t_cut:
-        cut -= 1
+    target = round(len(ordered) * (1 - holdout))
+    target = min(max(target, 1), len(ordered) - 1) if len(ordered) > 1 else len(ordered)
+    # ties at the cut stay together: move the cut to whichever tie boundary is nearer the target fraction (M6 audit:
+    # it always moved down, so 8 traces at t0 and 2 at t1 gave an empty training split)
+    bounds = [i for i in range(1, len(ordered)) if time(ordered[i - 1]) != time(ordered[i])]
+    if not bounds:
+        raise ValueError("every item has the same time: no time split exists")
+    cut = min(bounds, key=lambda b: (abs(b - target), b))
     return ordered[:cut], ordered[cut:]
 
 

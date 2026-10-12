@@ -17,10 +17,11 @@
   variance, but it carries no information about the action at t (it even lowers the advantage of turns taken from
   good states). Use it only as variance reduction.
 - ``mode="delta"`` — local credit: η·ΔΦ_t, the potential gained by the turn's own action. This is a process-reward
-  term: biased (it changes the objective, P13 type 2), so it is kept small (η), centred to zero net mass within the
-  group (a whole-turn negative shift flattens the policy and lengthens outputs: research 04 §1.4), scaled by the group's
-  outcome spread (the MiMo recipes use Dr.GRPO, no std normalisation), and it never exceeds the outcome advantage
-  of a success over a failure.
+  term: biased (it changes the objective, P13 type 2), so it is kept small (η), centred to zero net mass within each
+  episode (a whole-turn negative shift flattens the policy and lengthens outputs: research 04 §1.4), scaled by the
+  group's outcome spread (the MiMo recipes use Dr.GRPO, no std normalisation), bounded by the turn's outcome
+  advantage (its sign never flips), never positive on a gate-failed or hacked episode, and absent from a group with
+  no outcome spread.
 
 Episodes with ``reward is None`` (masked) are excluded from every group statistic and get zero advantage.
 """
@@ -63,7 +64,7 @@ def compose(*, gates: Mapping[str, bool], outcome: bool, phi: float, rubric: flo
         raise ValueError(f"efficiency must be in [0, 2], got {efficiency}")
     g = {k: int(bool(v)) for k, v in gates.items()}
     if masked is not None and masked.status == "masked":
-        return RewardJson(reward=0.0, gates=g, outcome=float(outcome), progress=phi, infra=masked, components=dict(components or {}),
+        return RewardJson(reward=None, gates=g, outcome=float(outcome), progress=phi, infra=masked, components=dict(components or {}),
                           rubric=dict(rubric_items or {}))
     o = 1.0 if outcome else 0.0
     gate = 1.0 if all(g.values()) else 0.0
@@ -84,10 +85,26 @@ class Episode:
     phi0: float = 0.0
     turn_weights: Sequence[float] | None = None  # e.g. completion tokens per turn (zero-mass centring); default 1
     advantages: list[float] = field(default_factory=list)
+    gated: bool = False  # a hard gate failed: no positive local credit (M6 audit V3: gate-failed turns earned +0.143)
+    hack: bool = False  # a confirmed hack (level-2 judge): same
+    vetoed: Sequence[bool] | None = None  # per turn: evidence of wrongdoing at that turn (violations, probes, regressions)
 
 
-def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "delta", normalize_outcome: bool = False) -> list[list[float]]:
-    """Per-turn advantages for one GRPO group (all episodes share a prompt/task and a harness)."""
+def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "delta", normalize_outcome: bool = False,
+                    zeta: float | None = None) -> list[list[float]]:
+    """Per-turn advantages for one GRPO group (all episodes share a prompt/task and a harness).
+
+    ``delta`` mode, after the M6 audit:
+    - the local term is centred **within each episode** (it only redistributes the episode's outcome advantage across
+      its turns): group-wide centring paid every extra turn when the group's mean ΔΦ was negative, so an oscillating
+      episode out-earned a monotone one (0.495 vs 0.254);
+    - it is bounded by the turn's outcome advantage and never flips its sign (the docstring promised this; at 800
+      turns one turn of a failure out-ranked every turn of the success);
+    - a gate-failed or hacked episode gets no positive local term, and a group whose live episodes all have one
+      reward gets none at all (it learned from pure process reward);
+    - a vetoed turn (AReaL GVPO's veto, fed by Crucible's own step evidence) cannot be positive, and in a flat group
+      it gets ``-zeta``."""
+    zeta = eta if zeta is None else zeta
     live = [e for e in group if e.reward is not None]
     out: list[list[float]] = []
     if not live:
@@ -95,32 +112,50 @@ def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "
     rs = [e.reward for e in live]
     mu = statistics.fmean(rs)  # type: ignore[arg-type]
     sd = statistics.pstdev(rs) if len(rs) > 1 else 0.0  # type: ignore[arg-type]
-    # local terms per live episode
     terms: dict[int, list[float]] = {}
     for k, e in enumerate(group):
         if e.reward is None:
             continue
         prev = [e.phi0, *e.phis[:-1]]
         if mode == "delta":
-            terms[k] = [p - q for p, q in zip(e.phis, prev, strict=True)]
+            raw = [p - q for p, q in zip(e.phis, prev, strict=True)]
         elif mode == "baseline":
-            terms[k] = [-q for q in prev]  # shaping return-to-go with Φ(terminal) = 0
+            raw = [-q for q in prev]  # shaping return-to-go with Φ(terminal) = 0
         else:
             raise ValueError("mode is 'delta' or 'baseline'")
-    # zero net mass across the group (weighted by turn tokens when given)
-    num = den = 0.0
-    for k, ts in terms.items():
-        ws = group[k].turn_weights or [1.0] * len(ts)
-        num += sum(w * t for w, t in zip(ws, ts, strict=True))
-        den += sum(ws)
-    centre = num / den if den else 0.0
+        ws = e.turn_weights or [1.0] * len(raw)
+        c = sum(w * t for w, t in zip(ws, raw, strict=True)) / sum(ws) if sum(ws) else 0.0
+        terms[k] = [t - c for t in raw]
     spread = statistics.pstdev([t for ts in terms.values() for t in ts]) if sum(len(t) for t in terms.values()) > 1 else 0.0
-    scale = (sd if sd > 0 else 1.0) / spread if spread > 0 else 0.0
+    scale = (sd / spread) if (spread > 0 and sd > 0) else 0.0  # no outcome spread: no process credit
     for k, e in enumerate(group):
         if e.reward is None:
             out.append([0.0] * len(e.phis))
             continue
         a_out = (e.reward - mu) / (sd if normalize_outcome and sd > 0 else 1.0)
-        local = [eta * scale * (t - centre) for t in terms[k]]
-        out.append([a_out + x for x in local])
+        local = [eta * scale * t for t in terms[k]]
+        peak = max((abs(x) for x in local), default=0.0)
+        if peak > abs(a_out):  # bounded by the outcome advantage (sign never flips), scaled as a whole: zero mass kept
+            local = [x * abs(a_out) / peak for x in local] if peak else local
+        if e.gated or e.hack:
+            local = [min(0.0, x) for x in local]
+        row = []
+        for i, x in enumerate(local):
+            total = a_out + x
+            if e.vetoed and i < len(e.vetoed) and e.vetoed[i]:
+                total = min(total, 0.0) - (zeta if sd == 0 else 0.0)
+            row.append(total)
+        out.append(row)
     return out
+
+
+def turn_credit(group: Sequence[Episode], **kw) -> list[list[float]]:
+    """The process part only (per-turn advantage minus the episode's outcome advantage): what a trainer adds on each
+    call's tokens next to the sequence advantage it computes itself."""
+    adv = turn_advantages(group, **kw)
+    live = [e.reward for e in group if e.reward is not None]
+    mu = statistics.fmean(live) if live else 0.0
+    sd = statistics.pstdev(live) if len(live) > 1 else 0.0
+    norm = kw.get("normalize_outcome", False)
+    return [[0.0] * len(row) if e.reward is None else [x - (e.reward - mu) / (sd if norm and sd > 0 else 1.0) for x in row]
+            for e, row in zip(group, adv, strict=True)]

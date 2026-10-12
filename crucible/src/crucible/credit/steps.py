@@ -22,6 +22,9 @@ def rows_for(steps: Sequence[Step], potential: Sequence[PotentialStep], *, call_
              harness: str | None = None, violations: Sequence[Sequence[str]] | None = None) -> list[StepRow]:
     if len(steps) != len(potential):
         raise ValueError(f"{len(steps)} steps but {len(potential)} potential values")
+    for name, xs in (("call_ids", call_ids), ("violations", violations)):  # one per step, or the rows misalign (M6 audit)
+        if xs is not None and len(xs) != len(steps):
+            raise ValueError(f"{len(steps)} steps but {len(xs)} {name}")
     out = []
     for i, (s, p) in enumerate(zip(steps, potential, strict=True)):
         out.append(StepRow(step=s.index, call_id=call_ids[i] if call_ids else None, harness=harness, actor=s.actor, phi=round(p.phi, 6),
@@ -38,6 +41,16 @@ def read(path: Path) -> list[StepRow]:
     return [StepRow.model_validate(json.loads(x)) for x in path.read_text().splitlines() if x.strip()]
 
 
-def to_turn_shaping(rows: Sequence[StepRow]) -> list[float]:
-    """Per-turn ΔΦ in step order (the ``turn_shaping`` list placed next to ``llm_turn_spans``)."""
-    return [r.delta_phi for r in sorted(rows, key=lambda r: r.step)]
+def to_turn_shaping(rows: Sequence[StepRow], *, gated: bool = False) -> list[float]:
+    """Per-turn ΔΦ (the ``turn_shaping`` list placed next to ``llm_turn_spans``): one entry per model call when the
+    rows carry ``call_id`` (rows of one call summed, in first-seen order), else per step. ``gated``: a hard gate failed,
+    so no turn keeps positive credit (M6 audit: per step, not per turn, and gate-blind)."""
+    ordered = sorted(rows, key=lambda r: r.step)
+    if all(r.call_id is not None for r in ordered) and ordered:
+        per: dict[str, float] = {}
+        for r in ordered:
+            per[r.call_id] = per.get(r.call_id, 0.0) + r.delta_phi  # type: ignore[index]
+        vals = list(per.values())
+    else:
+        vals = [r.delta_phi for r in ordered]
+    return [min(0.0, v) for v in vals] if gated else vals

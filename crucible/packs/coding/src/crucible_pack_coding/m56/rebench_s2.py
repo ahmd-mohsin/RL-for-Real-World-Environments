@@ -24,6 +24,7 @@ from typing import Any
 from crucible.credit.validity import auc, bootstrap_ci, paired_bootstrap, time_split
 
 FRAC = "0.5"
+MIN_AUC = 0.6  # DESIGN §6.5
 
 
 def load(path: Path) -> list[dict[str, Any]]:
@@ -73,7 +74,9 @@ def analyse(rows: list[dict[str, Any]], judge: dict[str, float] | None = None, h
         xs = [(s, y) for s, y in xs if s is not None]
         a = auc([s for s, _ in xs], [y for _, y in xs]) if xs else None
         type_auc[t] = a
-        weights[t] = max(0.0, 2 * (a - 0.5)) if a is not None else 0.0
+        # the §6.5 keep rule: a type earns weight only when its fit AUC reaches 0.6 (M6 audit: every type was weighted,
+        # including six whose fit AUC was 0.47-0.54)
+        weights[t] = 2 * (a - 0.5) if a is not None and a >= MIN_AUC else 0.0
     y = [r["resolved"] for r in hold]
     groups = [r["instance_id"] for r in hold]
 
@@ -94,6 +97,7 @@ def analyse(rows: list[dict[str, Any]], judge: dict[str, float] | None = None, h
     out = {"rows": len(rows), "usable": len(usable), "quarantined_by_replay": quarantined, "no_milestones": no_milestones,
            "fit_issues": len(fit_inst), "holdout_issues": len(hold_inst), "holdout_attempts": len(hold), "holdout_resolved_rate": round(statistics.fmean(y), 4) if y else None,
            "type_weights": {t: round(w, 4) for t, w in weights.items()}, "type_auc_fit": {t: a and round(a, 4) for t, a in type_auc.items()},
+           "types_kept": sorted(t for t, w in weights.items() if w > 0),
            "metrics": {k: report(k, [fn(r) for r in hold], fn) for k, fn in candidates.items()}}
     if judge:
         jh = [r for r in hold if r["trajectory_id"] in judge]

@@ -535,9 +535,20 @@ class AnswerScore:
     per_criterion: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
+def validate_criteria(criteria: list[Criterion]) -> None:
+    ids = [c.id for c in criteria]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"duplicate criterion ids: {sorted({x for x in ids if ids.count(x) > 1})}")
+    if any(not (math.isfinite(c.weight) and c.weight >= 0) for c in criteria) or (criteria and not any(c.weight > 0 for c in criteria)):
+        raise ValueError(f"criterion weights must be finite, >= 0 and not all 0: {[(c.id, c.weight) for c in criteria]}")
+
+
 async def score_answer(text: str | None, gold: Any, *, parser: ParserSpec, criteria: list[Criterion], options: dict[str, str] | None = None,
                        row: dict[str, Any] | None = None, judges: dict[str, Judge] | None = None) -> AnswerScore:
-    """Parse once per distinct parser, score each criterion, weight. ``CheckerUnavailable`` propagates (mask)."""
+    """Parse once per distinct parser, score each criterion, weight. ``CheckerUnavailable`` propagates (mask).
+    M6 audit (verifiers' rubric validation): weights must be finite and >= 0 with at least one > 0, and criterion ids
+    unique (a negative weight returned -1.0; all-zero weights scored 0 with outcome 1; a duplicate id crashed every grade)."""
+    validate_criteria(criteria)
     parsed = parser.parse(text, options=options)
     total_w = sum(c.weight for c in criteria) or 1.0
     per: dict[str, dict[str, Any]] = {}

@@ -1,16 +1,16 @@
 {
  "gate": "M6 R1-R6 (coding, recorded outcomes)",
- "pass": true,
+ "pass": false,
  "tasks": {
   "task01_prims_omp": {
    "task": "task01_prims_omp",
-   "candidates": 138,
+   "candidates": 119,
    "dropped_by_filters": {
     "true_at_base": 0,
     "not_reached_by_oracle": 1,
     "unmeasurable": 0
    },
-   "milestones": 137,
+   "milestones": 118,
    "milestone_kinds": [
     "added",
     "added_call",
@@ -27,26 +27,43 @@
    "runs": {
     "fable-5.1-run1": {
      "outcome": 1.0,
-     "phi": 0.4917,
+     "phi": 0.4627,
      "reward": 1.0
     }
    },
-   "ok": true,
+   "ok": false,
+   "untested": [
+    "R3",
+    "R5",
+    "R6"
+   ],
+   "not_tested": [
+    "R3"
+   ],
    "properties": {
     "R1": {
      "ok": true,
+     "tested": true,
      "reward": 1.0,
      "outcome": 1.0,
-     "gates": {}
+     "gates": {},
+     "progress": 1.0
     },
     "R2": {
      "ok": true,
+     "tested": true,
      "reward": 0.0,
      "outcome": 0.0,
      "progress": 0.0
     },
+    "R3": {
+     "ok": false,
+     "tested": false,
+     "reason": "no negatives to test"
+    },
     "R4": {
      "ok": true,
+     "tested": true,
      "sum_delta": [
       1.0,
       1.0
@@ -59,29 +76,38 @@
     },
     "R5": {
      "ok": true,
-     "phi_with_stubs": 0.0125,
-     "phi_without": 0.0125,
-     "stubbed": []
+     "tested": false,
+     "reason": "no milestone has a prerequisite: nothing can be stubbed",
+     "by_construction": true
     },
     "R6": {
      "ok": true,
+     "tested": false,
      "rewards": [
       1.0,
       1.0
-     ]
+     ],
+     "by_construction": true
+    },
+    "R7": {
+     "ok": true,
+     "tested": true,
+     "shallow_phi": 0.194,
+     "partial_credit": 0.0388,
+     "eps": 0.1
     }
    },
    "negatives_tested": 0
   },
   "task01v2_tessera_omp": {
    "task": "task01v2_tessera_omp",
-   "candidates": 297,
+   "candidates": 282,
    "dropped_by_filters": {
     "true_at_base": 0,
     "not_reached_by_oracle": 6,
     "unmeasurable": 0
    },
-   "milestones": 291,
+   "milestones": 276,
    "milestone_kinds": [
     "added",
     "added_call",
@@ -98,36 +124,47 @@
    "runs": {
     "gpt-5.6-sol-run1": {
      "outcome": 0.0,
-     "phi": 0.6135,
-     "reward": 0.1227
+     "phi": 0.6185,
+     "reward": 0.1237
     }
    },
    "ok": true,
+   "untested": [
+    "R5",
+    "R6"
+   ],
+   "not_tested": [],
    "properties": {
     "R1": {
      "ok": true,
+     "tested": true,
      "reward": 1.0,
      "outcome": 1.0,
-     "gates": {}
+     "gates": {},
+     "progress": 1.0
     },
     "R2": {
      "ok": true,
+     "tested": true,
      "reward": 0.0,
      "outcome": 0.0,
      "progress": 0.0
     },
     "R3": {
      "ok": true,
+     "tested": true,
      "negatives": {
       "run:gpt-5.6-sol-run1": {
-       "reward": 0.12270168855534709,
-       "outcome": 0.0
+       "reward": 0.12369477911646587,
+       "outcome": 0.0,
+       "crafted": false
       }
      },
      "violations": {}
     },
     "R4": {
      "ok": true,
+     "tested": true,
      "sum_delta": [
       1.0,
       1.0
@@ -140,16 +177,25 @@
     },
     "R5": {
      "ok": true,
-     "phi_with_stubs": 0.0075046904315197,
-     "phi_without": 0.0075046904315197,
-     "stubbed": []
+     "tested": false,
+     "reason": "no milestone has a prerequisite: nothing can be stubbed",
+     "by_construction": true
     },
     "R6": {
      "ok": true,
+     "tested": false,
      "rewards": [
       1.0,
       1.0
-     ]
+     ],
+     "by_construction": true
+    },
+    "R7": {
+     "ok": true,
+     "tested": true,
+     "shallow_phi": 0.1365,
+     "partial_credit": 0.0273,
+     "eps": 0.1
     }
    },
    "negatives_tested": 1
@@ -182,31 +228,42 @@
     }
    },
    "ok": true,
+   "untested": [
+    "R5",
+    "R6"
+   ],
+   "not_tested": [],
    "properties": {
     "R1": {
      "ok": true,
+     "tested": true,
      "reward": 1.0,
      "outcome": 1.0,
-     "gates": {}
+     "gates": {},
+     "progress": 1.0
     },
     "R2": {
      "ok": true,
+     "tested": true,
      "reward": 0.0,
      "outcome": 0.0,
      "progress": 0.0
     },
     "R3": {
      "ok": true,
+     "tested": true,
      "negatives": {
       "run:gpt-5.6-sol-run1": {
        "reward": 0.08405797101449275,
-       "outcome": 0.0
+       "outcome": 0.0,
+       "crafted": false
       }
      },
      "violations": {}
     },
     "R4": {
      "ok": true,
+     "tested": true,
      "sum_delta": [
       1.0,
       1.0
@@ -219,16 +276,25 @@
     },
     "R5": {
      "ok": true,
-     "phi_with_stubs": 0.043478260869565216,
-     "phi_without": 0.043478260869565216,
-     "stubbed": []
+     "tested": false,
+     "reason": "no milestone has a prerequisite: nothing can be stubbed",
+     "by_construction": true
     },
     "R6": {
      "ok": true,
+     "tested": false,
      "rewards": [
       1.0,
       1.0
-     ]
+     ],
+     "by_construction": true
+    },
+    "R7": {
+     "ok": true,
+     "tested": true,
+     "shallow_phi": 0.3913,
+     "partial_credit": 0.0783,
+     "eps": 0.1
     }
    },
    "negatives_tested": 1
@@ -262,31 +328,42 @@
     }
    },
    "ok": true,
+   "untested": [
+    "R5",
+    "R6"
+   ],
+   "not_tested": [],
    "properties": {
     "R1": {
      "ok": true,
+     "tested": true,
      "reward": 1.0,
      "outcome": 1.0,
-     "gates": {}
+     "gates": {},
+     "progress": 1.0
     },
     "R2": {
      "ok": true,
+     "tested": true,
      "reward": 0.0,
      "outcome": 0.0,
      "progress": 0.0
     },
     "R3": {
      "ok": true,
+     "tested": true,
      "negatives": {
       "run:gpt-5.6-sol-run1": {
        "reward": 0.054838709677419356,
-       "outcome": 0.0
+       "outcome": 0.0,
+       "crafted": false
       }
      },
      "violations": {}
     },
     "R4": {
      "ok": true,
+     "tested": true,
      "sum_delta": [
       1.0,
       1.0
@@ -299,29 +376,38 @@
     },
     "R5": {
      "ok": true,
-     "phi_with_stubs": 0.010752688172043012,
-     "phi_without": 0.010752688172043012,
-     "stubbed": []
+     "tested": false,
+     "reason": "no milestone has a prerequisite: nothing can be stubbed",
+     "by_construction": true
     },
     "R6": {
      "ok": true,
+     "tested": false,
      "rewards": [
       1.0,
       1.0
-     ]
+     ],
+     "by_construction": true
+    },
+    "R7": {
+     "ok": true,
+     "tested": true,
+     "shallow_phi": 0.1613,
+     "partial_credit": 0.0323,
+     "eps": 0.1
     }
    },
    "negatives_tested": 1
   },
   "task04_pcl_gpu_cuda12": {
    "task": "task04_pcl_gpu_cuda12",
-   "candidates": 435,
+   "candidates": 404,
    "dropped_by_filters": {
     "true_at_base": 0,
     "not_reached_by_oracle": 49,
     "unmeasurable": 0
    },
-   "milestones": 386,
+   "milestones": 355,
    "milestone_kinds": [
     "added",
     "added_call",
@@ -345,55 +431,67 @@
     },
     "gpt-5.6-sol-run1": {
      "outcome": 1.0,
-     "phi": 0.3161,
+     "phi": 0.3014,
      "reward": 1.0
     },
     "gpt-5.6-sol-v3-run1": {
      "outcome": 0.0,
-     "phi": 0.3187,
-     "reward": 0.0637
+     "phi": 0.3042,
+     "reward": 0.0608
     },
     "gpt-6-astra-run1": {
      "outcome": 1.0,
-     "phi": 0.329,
+     "phi": 0.3155,
      "reward": 1.0
     },
     "gpt-6-astra-v3-run2": {
      "outcome": 0.0,
-     "phi": 0.5544,
-     "reward": 0.1109
+     "phi": 0.5606,
+     "reward": 0.1121
     }
    },
    "ok": true,
+   "untested": [
+    "R5",
+    "R6"
+   ],
+   "not_tested": [],
    "properties": {
     "R1": {
      "ok": true,
+     "tested": true,
      "reward": 1.0,
      "outcome": 1.0,
-     "gates": {}
+     "gates": {},
+     "progress": 1.0
     },
     "R2": {
      "ok": true,
+     "tested": true,
      "reward": 0.0,
      "outcome": 0.0,
      "progress": 0.0
     },
     "R3": {
      "ok": true,
+     "tested": true,
      "negatives": {
       "run:gpt-5.6-sol-v3-run1": {
-       "reward": 0.06373056994818653,
-       "outcome": 0.0
+       "reward": 0.06084507042253521,
+       "outcome": 0.0,
+       "crafted": false
       },
       "run:gpt-6-astra-v3-run2": {
-       "reward": 0.11088082901554404,
-       "outcome": 0.0
+       "reward": 0.11211267605633804,
+       "outcome": 0.0,
+       "crafted": false
       }
      },
      "violations": {}
     },
     "R4": {
      "ok": true,
+     "tested": true,
      "sum_delta": [
       1.0,
       1.0
@@ -406,16 +504,25 @@
     },
     "R5": {
      "ok": true,
-     "phi_with_stubs": 0.0051813471502590676,
-     "phi_without": 0.0051813471502590676,
-     "stubbed": []
+     "tested": false,
+     "reason": "no milestone has a prerequisite: nothing can be stubbed",
+     "by_construction": true
     },
     "R6": {
      "ok": true,
+     "tested": false,
      "rewards": [
       1.0,
       1.0
-     ]
+     ],
+     "by_construction": true
+    },
+    "R7": {
+     "ok": true,
+     "tested": true,
+     "shallow_phi": 0.2,
+     "partial_credit": 0.04,
+     "eps": 0.1
     }
    },
    "negatives_tested": 2

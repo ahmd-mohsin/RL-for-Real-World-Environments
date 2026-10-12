@@ -52,15 +52,21 @@ async def branch_value(world: Any, ref: Any, *, step: int, policy_factory: Calla
                        limits: EpisodeLimits | None = None, harness: str | None = None) -> BranchResult:
     """K continuations from ``ref``; ``verify(world)`` reads the end state through the verifier (1 = success)."""
     out = BranchResult(step=step, k=k, harness=harness)
-    for i in range(k):
-        await world.restore(ref)
-        res = await run_episode(world, {actor: policy_factory(i)}, reset=False, limits=limits or EpisodeLimits(max_steps=50))
-        out.stops.append(res.stop_condition)
-        if res.masked:
-            out.masked += 1
-            out.values.append(None)
-            continue
-        out.values.append(await verify(world))
+    try:
+        for i in range(k):
+            await world.restore(ref)
+            res = await run_episode(world, {actor: policy_factory(i)}, reset=False, limits=limits or EpisodeLimits(max_steps=50))
+            out.stops.append(res.stop_condition)
+            v = None if res.masked else await verify(world)
+            if v is None:  # a masked run, or a verifier that could not measure: excluded and counted (M6 audit)
+                out.masked += 1
+                out.values.append(None)
+                continue
+            if not (math.isfinite(v) and 0.0 <= v <= 1.0):
+                raise ValueError(f"verify() must return a success value in [0, 1] (the outcome, not a composed reward); got {v}")
+            out.values.append(v)
+    finally:
+        await world.restore(ref)  # leave the World at the branch point, not in the last continuation's state
     got = [v for v in out.values if v is not None]
     if got:
         out.v_hat = statistics.fmean(got)

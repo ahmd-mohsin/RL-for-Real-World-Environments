@@ -49,5 +49,10 @@ class LogisticPRM:
         z = sum(wi * xi for wi, xi in zip(self.w, x, strict=True))
         return 1 / (1 + math.exp(-max(-40.0, min(40.0, z))))
 
-    def score(self, step: Mapping[str, object]) -> float:
-        return self._p(features(step)) if self.w else 0.5
+    def score(self, step: Mapping[str, object]) -> float | None:
+        """P(success) for a step, or None: an unfit model or a non-finite feature is no score (M6 audit: an unfit model
+        imputed 0.5, and a NaN feature scored 1.0 because ``min(40, nan)`` is 40)."""
+        x = features(step)
+        if not self.w or any(not math.isfinite(v) for v in x):
+            return None
+        return self._p(x)

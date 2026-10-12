@@ -65,7 +65,8 @@ async def test_toy_same_reward_and_steps_across_runtimes(tmp_path):
             jcs([{k: v for k, v in r.items() if k != "harness"} for r in ref_s])
     # the server graded its own live World session: same reward, same components, same dense rows, not masked
     assert v["reward"] == ref_r["reward"] and v["mask_sample"] is False and v["instance_config"]["mask_sample"] is False
-    assert jcs({k: v["reward_components"][k] for k in v["reward_components"]}) == jcs({k: x for k, x in ref_r.items() if k != "reward"})
+    assert jcs(v["crucible_channels"]) == jcs({k: x for k, x in ref_r.items() if k != "reward"})
+    assert sum(v["reward_components"].values()) == v["reward"]  # NeMo-RL's contract (M6 audit: the channels summed to 4.0)
     assert [r["phi"] for r in v["crucible_steps"]] == [r["phi"] for r in ref_s] and [r["call_id"] for r in v["crucible_steps"]] == [r["call_id"] for r in ref_s]
 
 

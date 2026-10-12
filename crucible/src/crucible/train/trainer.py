@@ -68,6 +68,11 @@ class TrainerConfig:
     kl_coef_by_source: dict = field(default_factory=dict)
     # m13 C-8 (A2-25): −penalty × ``Turn.format_errors`` on the offending call's tokens only (MiniMax r_process, Qwen)
     tool_format_penalty: float = 0.0
+    # how a call with format errors is penalised: "reduction" subtracts tool_format_penalty x errors from its tokens
+    # (adds net negative mass to the batch); "signed" is adv_signed (credit.signed: 0 on a positive rollout's marked
+    # call, x format_kappa on a negative one, each sign's batch mass conserved). M6 audit; MiMo's verl fork
+    format_penalty_mode: str = "reduction"
+    format_kappa: float = 2.0
     # M12-infra B. ``credit_unit``: ``sequence`` (the sequence advantage on every token) or ``reward_to_go`` (each call's
     # tokens get G_t − B, G_t = Σ_{p≥t} Turn.step_reward + outcome, B = the group mean of G_0: MiniMax M2)
     credit_unit: str = "sequence"
@@ -381,6 +386,12 @@ class TorchTrainer:
         return float(self.cfg.kl_coef_by_source.get(r.source, self.cfg.kl_coef)) if r.source in self.cfg.kl_coef_by_source else float(self.cfg.kl_coef)
 
     def _items(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[_Item]:
+        if self.cfg.turn_weight:  # raw ΔΦ per call -> M6's group rule, before any path adds it to tokens (M6 audit)
+            from crucible.train.credit import turn_credit_map
+
+            tc = turn_credit_map(records, groups, eta=self.cfg.turn_weight, frozen_actors=self.cfg.frozen_actors)
+            records = [r.model_copy(update={"turns": [t.model_copy(update={"advantage": tc.get((r.rollout_id, t.call_id), 0.0) / self.cfg.turn_weight})
+                                                      for t in r.turns]}) for r in records]
         if self.critic is not None:
             per_token = self._gae_advantages(records)
             advs = [0.0] * len(records)
@@ -419,9 +430,27 @@ class TorchTrainer:
                     tl, bl = t.teacher_logprobs, t.logprobs
                     if self.cfg.opd_coef and self.cfg.opd_mode == "token" and tl is not None and bl is not None and len(tl) == n == len(bl):
                         base = [b + self.cfg.opd_coef * (x - y) for b, x, y in zip(base, tl, bl, strict=True)]
-                    if fmt and t.format_errors:
+                    if fmt and t.format_errors and self.cfg.format_penalty_mode == "reduction":
                         base = [b - self.cfg.tool_format_penalty * t.format_errors for b in base]
                     pt[(r.rollout_id, t.call_id)] = base
+            if fmt and self.cfg.format_penalty_mode == "signed":
+                from crucible.credit.signed import signed_rebalance
+
+                keys, flat, hit, sign = [], [], [], []
+                errs = {(r.rollout_id, t.call_id): t.format_errors for r in records for t in r.turns}
+                sgn = {r.rollout_id: (a > 0) - (a < 0) for r, a in zip(records, advs, strict=True)}
+                for k, vals in pt.items():
+                    keys.append((k, len(vals)))
+                    flat += vals
+                    hit += [self.cfg.format_kappa if errs.get(k) else 0.0] * len(vals)
+                    sign += [sgn.get(k[0], 0)] * len(vals)
+                new, self._signed_metrics = signed_rebalance(flat, hit, sign)
+                i = 0
+                for k, n in keys:
+                    pt[k] = new[i:i + n]
+                    i += n
+            elif self.cfg.format_penalty_mode not in ("reduction", "signed"):
+                raise ValueError("format_penalty_mode: reduction | signed")
             per_token = pt
         pids = {g: i for i, g in enumerate(dict.fromkeys(groups))}
         items = []

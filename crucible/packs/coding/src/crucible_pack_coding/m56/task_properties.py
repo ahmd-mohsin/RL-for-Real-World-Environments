@@ -22,8 +22,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from crucible.credit.compose import compose
-from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only
+from crucible.credit.compose import DEFAULT, compose
+from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only, r7_phi_farm
 from crucible.workflow.filestate import EditError, FileState
 from crucible.workflow.milestones.evaluate import FileStateView, evaluate
 from crucible.workflow.milestones.mine import from_diff
@@ -97,12 +97,14 @@ async def task_report(task: str) -> dict[str, Any]:
     for n, (_, y) in states.items():
         if n.startswith("run:"):
             runs[n[4:]] = {"outcome": y, "phi": round(potential(ms, phis[n])[0], 4), "reward": round(reward[n].reward, 4)}
-    res = [r1_oracle(of, oracle), r2_noop(of, states["base"][0])]
-    if negatives:
-        res.append(r3_negatives(of, negatives))
-    res += [r4_oscillation(ms, [phis["base"], phis["oracle"]], [phis["base"], phis["oracle"], phis["base"], phis["oracle"]]),
-            r5_stubbing(ms, {**{m.id: 0.0 for m in ms}, **{m.id: 1.0 for m in ms[-2:]}}),
-            r6_state_only(lambda fs, msgs: of(fs), oracle, [["All tests pass and it is 3x faster."], ["done"]])]
+    # R3: the failing frontier runs are honest failures (bounded partial credit); a task with none cannot test R3,
+    # which is reported, not passed (M6 audit: task01 skipped R3 and reported ok)
+    shallow = {m.id: 1.0 if m.id.split("/")[1] in ("located", "created", "deleted") else 0.0 for m in ms}
+    res = [r1_oracle(of, oracle), r2_noop(of, states["base"][0]), r3_negatives(of, negatives),
+           r4_oscillation(ms, [phis["base"], phis["oracle"]], [phis["base"], phis["oracle"], phis["base"], phis["oracle"]]),
+           r5_stubbing(ms, {**{m.id: 0.0 for m in ms}, **{m.id: 1.0 for m in ms[-2:]}}),
+           r6_state_only(lambda fs, msgs: of(fs), oracle, [["All tests pass and it is 3x faster."], ["done"]], reads_messages=False),
+           r7_phi_farm(ms, shallow, kappa=DEFAULT.kappa)]
     return {"task": task, "candidates": len(cands), "dropped_by_filters": dropped, "milestones": len(ms), "milestone_kinds": sorted({m.id.split("/")[1] for m in ms}),
             "phi": {"oracle": round(potential(ms, phis["oracle"])[0], 4), "base": round(potential(ms, phis["base"])[0], 4)},
             "runs": runs, **check_all(res), "negatives_tested": len(negatives)}

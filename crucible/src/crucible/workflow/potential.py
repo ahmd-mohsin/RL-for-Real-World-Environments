@@ -14,6 +14,7 @@ cannot change which policy is optimal (Ng, Harada & Russell 1999). They only mov
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -30,7 +31,20 @@ class PotentialStep:
 
 
 def potential(milestones: Sequence[Milestone], phis: Mapping[str, float | None]) -> tuple[float, bool]:
-    """Φ for one state; ``phis`` maps milestone id -> φ (None = unmeasured). Returns (Φ, partial)."""
+    """Φ for one state; ``phis`` maps milestone id -> φ (None = unmeasured). Returns (Φ, partial).
+
+    M6 audit: callers pass raw lists (filtered subsets of a ``MilestoneSet``), so the set's rules are checked here:
+    weights > 0, φ finite in [0, 1], prerequisites known (weights [2, -1] gave Φ = 2.0; φ = NaN gave Φ = NaN; an
+    unknown prerequisite zeroed its milestone forever)."""
+    ids = {m.id for m in milestones}
+    for m in milestones:
+        if not (m.weight > 0 and math.isfinite(m.weight)):
+            raise ValueError(f"milestone {m.id}: weight {m.weight} must be finite and > 0")
+        if bad := [r for r in m.requires if r not in ids]:
+            raise ValueError(f"milestone {m.id} requires {bad}, which are not in this milestone list")
+    for k, v in phis.items():
+        if v is not None and k in ids and not (math.isfinite(v) and 0.0 <= v <= 1.0):
+            raise ValueError(f"φ({k}) = {v} is not in [0, 1]")
     total = sum(m.weight for m in milestones)
     if total <= 0:
         return 0.0, False
@@ -50,11 +64,14 @@ def credited(milestones: Sequence[Milestone], phis: Mapping[str, float | None]) 
     return {m.id for m in milestones if (phis.get(m.id) or 0) >= 1.0 and all((phis.get(p) or 0) >= 1.0 for p in m.requires)}
 
 
-def trajectory(milestones: Sequence[Milestone], series: Sequence[Mapping[str, float | None]]) -> list[PotentialStep]:
-    """Φ and ΔΦ along a series of states (``series[t]`` = φ per milestone after step t, with carried values)."""
+def trajectory(milestones: Sequence[Milestone], series: Sequence[Mapping[str, float | None]],
+               initial: Mapping[str, float | None] | None = None) -> list[PotentialStep]:
+    """Φ and ΔΦ along a series of states (``series[t]`` = φ per milestone after step t, with carried values).
+    ``initial``: φ at the state before the first step (s0), so a milestone already true there is not credited to
+    step 0 (M6 audit: Φ(s0) was taken as 0)."""
     out: list[PotentialStep] = []
-    last: dict[str, float | None] = {}
-    prev_phi, prev_set = 0.0, set()
+    last: dict[str, float | None] = {k: v for k, v in (initial or {}).items() if v is not None}
+    prev_phi, prev_set = (potential(milestones, last)[0], credited(milestones, last)) if initial else (0.0, set())
     for row in series:
         cur = {**last, **{k: v for k, v in row.items() if v is not None}}
         for k, v in row.items():
@@ -82,9 +99,13 @@ def shaping(phis: Sequence[float], *, initial: float | None = None) -> list[floa
     return out
 
 
+def fraction_index(n: int, frac: float) -> int:
+    """The one definition of "the state at fraction f" of n step states (M6 audit: three midpoints coexisted)."""
+    return min(n - 1, max(0, round(frac * (n - 1)))) if n else 0
+
+
 def at_fraction(steps: Sequence[PotentialStep], frac: float) -> float:
     """Φ at a fraction of the trajectory (0.5 = midpoint state), used by the predictive-validity gate (§6.5)."""
     if not steps:
         return 0.0
-    i = min(len(steps) - 1, max(0, round(frac * (len(steps) - 1))))
-    return steps[i].phi
+    return steps[fraction_index(len(steps), frac)].phi

@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import asyncio
-import statistics
 from collections.abc import Callable
 from typing import Any
 
@@ -69,22 +68,36 @@ def _length(rec: Any) -> int:
     return sum(len(t.completion_token_ids or []) for t in rec.turns)
 
 
-def verbosity_group_fn(sigma: float, *, l0_of: Callable[[str], float | None] | None = None, pass_threshold: float = 1.0) -> Callable:
+def verbosity_group_fn(sigma: float, *, l0_of: Callable[[str], float | None] | None = None, pass_threshold: float = 1.0,
+                       max_penalty: float = 0.2, exponent: float = 1.5, anchor_quantile: float = 0.3, min_pass_rate: float = 0.5) -> Callable:
+    """Over-length successes lose a bounded amount (PORT of Xiaomi's verl ``length_penalty.py:232-329``, chosen in the
+    M5-M7 sweep). Only passing members are penalised; the anchor is a low quantile of the passing lengths (or ``l0_of``);
+    a member over ``sigma`` x the anchor loses ``max_penalty`` x t^``exponent``, t the excess saturating at 2 x the
+    budget; groups whose pass rate is at most ``min_pass_rate`` are left alone. ``max_penalty`` stays below 1 - κ, so a
+    success always out-scores every failure (M6 audit: the old rule set an over-budget success to 0, below a failure's
+    κΦ = 0.18)."""
     if sigma <= 0:
         raise ValueError("sigma must be positive")
+    if not 0 <= max_penalty < 0.7:
+        raise ValueError("max_penalty must stay below 1 - max κ (0.7)")
 
     def fn(gid: str, members: list[Any]) -> list[Any]:
         scored = [m for m in members if m.reward is not None]
-        if not scored:
+        passed = [m for m in scored if m.reward >= pass_threshold]
+        if not passed or len(passed) / len(scored) <= min_pass_rate:
             return members
         l0 = l0_of(scored[0].task) if l0_of is not None else None
         if l0 is None:
-            ref = [_length(m) for m in scored if m.reward >= pass_threshold] or [_length(m) for m in scored]
-            l0 = statistics.median(ref)
-        for m in scored:
-            if _length(m) > sigma * l0:
+            lens = sorted(_length(m) for m in passed)
+            l0 = lens[min(len(lens) - 1, int(anchor_quantile * (len(lens) - 1) + 0.5))]
+        budget = sigma * max(l0, 1)
+        for m in passed:
+            excess = _length(m) / budget - 1.0
+            if excess > 0:
+                pen = max_penalty * min(excess, 1.0) ** exponent
                 m.reward_components["verbosity/over_budget"] = float(_length(m) / max(l0, 1))
-                m.reward = 0.0
+                m.reward_components["verbosity/penalty"] = pen
+                m.reward = float(m.reward) - pen
         return members
 
     return fn

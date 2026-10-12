@@ -140,8 +140,11 @@ def make_app(tasks: dict[str, Any], *, max_concurrent_episodes: int = 64, queue_
         masked = (rj.get("infra") or {}).get("status") == "masked"
         flat = json.loads((out / "reward.json").read_text()) if (out / "reward.json").exists() else {}
         comps = {k: v for k, v in flat.items() if k != "reward"}
+        reward = 0.0 if masked else float(rj["reward"])
+        # NeMo-RL requires reward == sum(reward_components) (nemo_gym.py:1483-1508; M6 audit: gate bits and progress
+        # summed to 4.0 against 1.033, and NeMo-RL raised). The channels stay readable beside it, not as components.
         doc = {"responses_create_params": body.get("responses_create_params") or {}, "response": body.get("response") or {},  # echoed (BaseVerifyResponse ⊃ request)
-               "reward": 0.0 if masked else float(rj["reward"]), "reward_components": comps, "mask_sample": masked,
+               "reward": reward, "reward_components": {"crucible": reward}, "crucible_channels": comps, "mask_sample": masked,
                "instance_config": {"mask_sample": masked}, **({"failure_kind": rj["infra"].get("failure_kind"), "failure_reason": rj["infra"].get("reason")} if masked else {}),
                **{k: v for k, v in comps.items() if k.startswith("gate/")},
                "crucible_reward": json.loads((out / "crucible_reward.json").read_text()), "crucible_steps": rows}
@@ -156,7 +159,7 @@ def make_app(tasks: dict[str, Any], *, max_concurrent_episodes: int = 64, queue_
 
     @app.get("/reverify_mode")
     async def reverify_mode():
-        return {"reverify_mode": False}
+        return {"reverify_mode": "unsupported"}  # NeMo-Gym's ReverifyMode values; a World grade needs live state
 
     @app.post("/aggregate_metrics")
     async def aggregate_metrics(req: Request):

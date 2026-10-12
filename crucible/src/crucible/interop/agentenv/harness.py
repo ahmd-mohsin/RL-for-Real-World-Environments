@@ -57,15 +57,18 @@ def token_record(resp: dict) -> dict | None:
 
 
 def calls_from_capture(path: Path, actor: str, policy_version: int | None = None) -> list[dict[str, Any]]:
-    """The capture log as model calls (the last attempt of a retried request wins, as in ``CaptureLogConnector``)."""
+    """The capture log as model calls, with ``CaptureLogConnector``'s retry rule: a repeated request collapses onto its
+    earlier attempt only when it is marked as a retry (or the earlier attempt failed); two identical genuine calls
+    (best-of-n, parallel subagents) stay two calls. M6 audit: every repeated digest collapsed, which shifted every later
+    ``call_id`` and misplaced credit."""
     if not Path(path).exists():
         return []
-    rows = [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
-    last: dict[str, dict] = {}
-    for r in rows:
-        last[r.get("digest") or str(len(last))] = r
+    from crucible.connectors.base import SourceRef
+    from crucible.connectors.capture_proxy import CaptureLogConnector
+
+    rows = CaptureLogConnector().fetch(SourceRef(connector="capture_log", key=Path(path).stem, meta={"path": str(path)})).payload["exchanges"]
     out = []
-    for i, r in enumerate(last.values(), 1):
+    for i, r in enumerate(rows, 1):
         resp = r.get("response") or {}
         ch = (resp.get("choices") or [{}])[0]
         call: dict[str, Any] = {"call_id": f"{actor}:cap{i}", "model": (r.get("request") or {}).get("model"), "usage": resp.get("usage") or {},

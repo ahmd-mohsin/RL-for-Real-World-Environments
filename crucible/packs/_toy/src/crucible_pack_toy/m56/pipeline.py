@@ -30,14 +30,14 @@ from crucible.core.schema.milestone import Expectation, Milestone, MilestoneChec
 from crucible.core.schema.state import Query
 from crucible.core.schema.trace import Trace
 from crucible.credit.compose import compose
-from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only
+from crucible.credit.properties import check_all, r1_oracle, r2_noop, r3_negatives, r4_oscillation, r5_stubbing, r6_state_only, r7_phi_farm
 from crucible.credit.validity import auc
 from crucible.workflow.graph import WorkflowGraph
 from crucible.workflow.logstate import LogStateView, states
 from crucible.workflow.milestones.evaluate import evaluate, evaluate_series
 from crucible.workflow.milestones.filters import screen
 from crucible.workflow.milestones.match import match
-from crucible.workflow.potential import potential, trajectory
+from crucible.workflow.potential import at_fraction, potential, trajectory
 from crucible.workflow.stages import induce, name_stages
 from crucible.workflow.steps import segment
 from crucible.workflow.tracker import WorkflowTracker
@@ -228,8 +228,13 @@ async def reward(case: str, obj: dict[str, Any], ms: list[Milestone]):
     except (TypeError, ValueError):
         unapproved = False
     no_offer = f"ticket:{case}.account" in obj and f"ticket:{case}.retention_offer" not in obj
-    resolved = obj.get(f"ticket:{case}.status") == "resolved" and f"ticket:{case}.resolution" in obj and refund != "reversed"
-    return compose(gates={"refund_policy": not unapproved, "retention_policy": not no_offer}, outcome=resolved, phi=potential(ms, phis)[0])
+    status = obj.get(f"ticket:{case}.status")
+    resolved = status == "resolved" and f"ticket:{case}.resolution" in obj and refund != "reversed"
+    # known-bad end states are gates, so they earn no partial credit (M6 audit: a reversed refund and a ticket closed
+    # without an answer earned 0.2 and 0.13)
+    gates = {"refund_policy": not unapproved, "retention_policy": not no_offer, "no_reversed_refund": refund != "reversed",
+             "answered_if_resolved": not (status == "resolved" and f"ticket:{case}.resolution" not in obj)}
+    return compose(gates=gates, outcome=resolved, phi=potential(ms, phis)[0])
 
 
 async def properties(ms: list[Milestone]) -> dict[str, Any]:
@@ -251,8 +256,12 @@ async def properties(ms: list[Milestone]) -> dict[str, Any]:
     mono = [await ph(base), await ph({**base, f"ticket:{case}.assignee": "tier1"}), await ph(oracle)]
     osc = [await ph(base), await ph(oracle), await ph({**oracle, f"ticket:{case}.status": "open"}), await ph(oracle)]
     stub = await ph({**base, f"ticket:{case}.status": "resolved"})
-    res = [r1_oracle(by_id, oracle), r2_noop(by_id, base), r3_negatives(by_id, negatives), r4_oscillation(ms, mono, osc), r5_stubbing(ms, stub),
-           r6_state_only(lambda s, msgs: by_id(s), oracle, [["Resolved! Customer is happy."], ["ok"]])]
+    premature = await ph({**base, f"ticket:{case}.status": "resolved"})  # "resolved" with nothing done: the shallow mutant
+    res = [r1_oracle(by_id, oracle), r2_noop(by_id, base),
+           r3_negatives(by_id, negatives, crafted=["refund_over_50_unapproved", "refund_reversed", "resolved_without_answer"]),
+           r4_oscillation(ms, mono, osc), r5_stubbing(ms, stub),
+           r6_state_only(lambda s, msgs: by_id(s), oracle, [["Resolved! Customer is happy."], ["ok"]], reads_messages=False),
+           r7_phi_farm(ms, premature, kappa=0.2)]
     return check_all(res)
 
 
@@ -281,7 +290,7 @@ async def run() -> dict[str, Any]:
             continue
         s = await series_of(graph.milestones, t)
         pot = trajectory(graph.milestones, s.values)
-        rows.append((t.source.ref, 1 if y == "good" else 0, pot[len(pot) // 2].phi, pot[-1].phi))
+        rows.append((t.source.ref, 1 if y == "good" else 0, at_fraction(pot, 0.5), pot[-1].phi))  # the one midpoint definition (M6 audit)
     props = await properties(graph.milestones)
     return {"family": FAMILY, "replay": {"traces": len(rep), "replayed": sum(r["ok"] for r in rep.values()), "rate": sum(r["ok"] for r in rep.values()) / len(rep),
                                          "checks": sum(len(r["checks"]) for r in rep.values()), "failed": [r for r in rep.values() if not r["ok"]]},

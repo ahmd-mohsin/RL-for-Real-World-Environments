@@ -24,10 +24,26 @@ def admit(items: Sequence[RubricItem]) -> list[RubricItem]:
     return list(items)
 
 
-async def judge_items(llm, items: Sequence[RubricItem], evidence: str, *, max_tokens: int = 2500) -> dict:
-    """One strict binary judgment per validated item; returns ``{"items": {id: bool|None}, "met": share}``."""
+async def judge_items(llm, items: Sequence[RubricItem], evidence: str, *, max_tokens: int = 2500, votes: int = 1, retries: int = 1) -> dict:
+    """Strict binary judgments per validated item; returns ``{"items": {id: bool|None}, "met": share, "unmeasured": [...],
+    "mask": bool}``. MiMo's handling (``verify.py:311-382``, M5-M7 sweep): ``votes`` samples per item, an unparseable reply
+    is asked again up to ``retries`` times, the verdict is the majority of usable votes (ties: no verdict), and no usable
+    vote is unmeasured. An unmeasured **critical** item masks the rubric channel (``mask``); a lesser one only leaves
+    the share's denominator. M6 audit: unmeasured items counted as unmet, and nothing called this or tested it."""
     verdicts: dict[str, bool | None] = {}
     for it in admit(items):
-        resp = await llm.complete([{"role": "user", "content": it.prompt(evidence)}], max_tokens=max_tokens, temperature=0)
-        verdicts[it.id] = parse_verdict(getattr(resp, "text", "") or "")
-    return {"items": verdicts, "met": share_met(items, verdicts), "unmeasured": [k for k, v in verdicts.items() if v is None]}
+        got: list[bool] = []
+        for _ in range(max(1, votes)):
+            v = None
+            for _try in range(1 + max(0, retries)):
+                resp = await llm.complete([{"role": "user", "content": it.prompt(evidence)}], max_tokens=max_tokens, temperature=0 if votes == 1 else 0.7)
+                v = parse_verdict(getattr(resp, "text", "") or "")
+                if v is not None:
+                    break
+            if v is not None:
+                got.append(v)
+        yes, no = sum(got), len(got) - sum(got)
+        verdicts[it.id] = None if not got or yes == no else yes > no
+    unmeasured = [k for k, v in verdicts.items() if v is None]
+    critical = {i.id for i in items if i.tier == "critical"}
+    return {"items": verdicts, "met": share_met(items, verdicts), "unmeasured": unmeasured, "mask": bool(set(unmeasured) & critical)}

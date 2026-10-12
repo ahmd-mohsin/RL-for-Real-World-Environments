@@ -87,10 +87,12 @@ def test_terminal_reward_reaches_every_step():
 def test_verbosity_budget_loses_automatically():
     stage = verbosity_group_fn(1.5)
     members = [_rec("a", 1.0, n_tokens=10), _rec("b", 1.0, n_tokens=10), _rec("c", 1.0, n_tokens=30), _rec("d", 0.0, n_tokens=5)]
-    out = stage("g", members)  # l0 = median passing length = 12 (10 + 2)
-    assert [m.reward for m in out] == [1.0, 1.0, 0.0, 0.0] and "verbosity/over_budget" in out[2].reward_components
-    out = verbosity_group_fn(2.0, l0_of=lambda task: 5.0)("g", [_rec("a", 1.0, n_tokens=8), _rec("b", 1.0, n_tokens=9)])  # 10 = 2·5 stays, 11 loses
-    assert [m.reward for m in out] == [1.0, 0.0]
+    out = stage("g", members)  # anchor = the 0.3 quantile of passing lengths = 12 (10 + 2); budget 18
+    # a bounded, passed-only penalty (M6 audit): the over-budget success loses 0.2·(32/18 − 1)^1.5 and still beats the failure
+    assert [round(m.reward, 4) for m in out] == [1.0, 1.0, round(1 - 0.2 * (32 / 18 - 1) ** 1.5, 4), 0.0] and "verbosity/over_budget" in out[2].reward_components
+    assert out[2].reward > 0.3  # was 0.0, below a failure's κΦ
+    out = verbosity_group_fn(2.0, l0_of=lambda task: 5.0)("g", [_rec("a", 1.0, n_tokens=8), _rec("b", 1.0, n_tokens=9)])  # 10 = 2·5 stays, 11 loses a little
+    assert out[0].reward == 1.0 and 0.99 < out[1].reward < 1.0
 
 
 async def test_grader_compute_is_accounted_per_step():

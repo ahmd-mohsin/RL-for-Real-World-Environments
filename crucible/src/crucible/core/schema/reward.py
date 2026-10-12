@@ -23,7 +23,7 @@ class InfraStatus(CrucibleModel):
 
 class RewardJson(VersionedDocument):
     SCHEMA = "crucible.reward/v1"
-    reward: float
+    reward: float | None  # None = masked (M6 audit: it was 0.0 beside infra/masked = 1, and direct readers took the 0)
     gates: dict[str, int] = Field(default_factory=dict)  # gate -> 0/1
     outcome: float = 0.0
     progress: float | None = None  # Φ(s_T) in [0, 1]
@@ -40,11 +40,13 @@ class RewardJson(VersionedDocument):
             raise ValueError("a failed gate forces reward 0 (DESIGN §6.4)")
         if self.progress is not None and not 0 <= self.progress <= 1:
             raise ValueError("progress is Φ in [0, 1]")
+        if (self.reward is None) != (self.infra.status == "masked"):
+            raise ValueError("reward is None exactly when the episode is masked")
         return self
 
     def flat(self) -> dict[str, float]:
         """The numeric ``reward.json`` Harbor accepts."""
-        out = {"reward": self.reward, **self.reward_components(), "infra/masked": float(self.infra.status == "masked")}
+        out = {**({"reward": self.reward} if self.reward is not None else {}), **self.reward_components(), "infra/masked": float(self.infra.status == "masked")}
         return {k: float(v) for k, v in out.items()}
 
     def reward_components(self) -> dict[str, float]:

@@ -1,9 +1,9 @@
 # M6 `credit` — dense credit and reward composition
 
-**Status: built (2026-10-09). R1–R6 pass on every coding and toy task. S2 fails as specified (finding below). The C3-vs-ΔΦ report on task04 is pending (GPU plus a paid model).**
+**Status: built (2026-10-09); audited 2026-10-12 (`docs/audit/2026-10-12/M06-credit.md`). R1–R7 pass on the toy and on 4 of 5 coding tasks (task01 has no failing run to test R3). S2 fails as specified (finding below). The C3-vs-ΔΦ report on task04 is pending (GPU plus a paid model).**
 
 - **Code:** `src/crucible/credit/`, `src/crucible/actors/harness.py` (native harness), coding pack `m56/`.
-- **Tests:** `tests/unit/test_credit.py`, `tests/unit/test_harness_branch.py`.
+- **Tests:** `tests/unit/test_credit.py`, `tests/unit/test_harness_branch.py`, `tests/unit/test_m6_audit.py`.
 - **Reports:** `reports/m6_s2_swe_rebench.json`, `reports/m6_properties_coding.json`, `reports/m56_toy.json`, `reports/m56_gate_coding.json`.
 
 ## What it is
@@ -19,7 +19,8 @@
 | `compose.py` | R = G·[O(1+αp+βe) + κ(1−O)Φ], with κ ≤ 0.3, α ≤ 0.1, β ≤ 0.05 enforced and `None` for masked episodes. Per-turn advantages in two modes (below), centred to zero net mass per group, masked episodes excluded from group statistics | verl fork (mass conservation, group-mean imputation); Dr.GRPO scaling |
 | `steps.py` | `steps.jsonl` rows with `call_id` (the model call the credit attaches to) and `harness`; `to_turn_shaping` for a trainer's turn-span operator | verifiers v1 message graph; OpenEnv capture graph |
 | `validity.py` | Tie-aware AUC, time split, subset sign rule, weight = max(0, 2(AUC−0.5)), group bootstrap and paired bootstrap | DESIGN §6.5 |
-| `properties.py` | R1–R6 as reusable checks | DESIGN §6.4; NeMo-Gym verifier fixtures; Repo2RLEnv control evidence |
+| `properties.py` | R1–R7 as reusable checks. Crafted negatives must hit a gate (0); honest failures keep κΦ; R7 bounds a shallow mutant's partial credit; untested properties are reported, by-construction ones say so | DESIGN §6.4; NeMo-Gym verifier fixtures; Repo2RLEnv control evidence; OpenEnv's quick-submit evidence |
+| `signed.py` | `adv_signed`: a marked call's tokens go to 0 on a positive rollout and ×κ on a negative one, each sign's batch mass conserved (trainer: `format_penalty_mode="signed"`) | PORT of Xiaomi's verl fork `signed_rebalance.py` (Apache-2.0) |
 | `judge.py` | The LLM-judge outcome baseline: task plus trajectory prefix → P(success), 3 sampled passes averaged with spread reported, anchored parse, masked if unparseable | GitSwarm judging; prime-environments `torch_ao`/`nextjs` parsers |
 | `actors/harness.py` | `BashLoopPolicy`, a port of the mini-swe-agent v2 loop onto World shell tools: one bash block per turn, head/tail-truncated observations, explicit submit, format-error templates (3 strikes), cut-off replies treated as errors | mini-swe-agent (MIT) |
 
@@ -36,7 +37,7 @@ Also corrected: DESIGN cited verl's `arvo_penalties.py` as a turn-level advantag
 | Requirement (ARCHITECTURE M6) | Result |
 |---|---|
 | S2: Φ at the midpoint predicts the outcome, AUC ≥ 0.75, above an LLM-judge baseline, on held-out traces | ❌ **Coding** (SWE-rebench: 913 OpenHands attempts on 80 issues, weights fitted on the earliest 70% of issues, 200 attempts on 23 later issues held out): Φ_mid AUC 0.50 (CI 0.42–0.58) vs the judge's 0.75. The judge (claude-haiku-5.5, 3 passes, $0.90) is better by 0.25 (CI 0.10–0.38). **Toy:** Φ_mid AUC 0.58 on 11 tickets |
-| R1–R6 on every coding and toy task | ✅ **Coding:** tasks 01, 01v2, 02, 03, 04, with recorded verifier outcomes and oracle-derived milestones (filtered). The oracle has Φ = 1, the base 0. Failing frontier runs earn bounded partial credit (Φ 0.27–0.61, reward 0.05–0.12). **Toy:** all six on the state-only helpdesk reward |
+| R1–R6 on every coding and toy task | ⚠️ (M6 audit: the earlier ✅ could not fail: Φ ≡ 0 passed all six). Now R1–R7 with untested properties reported. **Coding:** pass on 01v2, 02, 03, 04; **task01 has no failing run, so R3 is untested and the gate does not pass**. Failing frontier runs are honest failures and keep bounded partial credit; shallow mutants reach κΦ 0.027–0.078 (R7 ≤ 0.1). **Toy:** pass; the crafted negatives (unapproved refund, reversed refund, resolved without an answer) are gates and score 0 |
 | corr(C3 branch values, ΔΦ) reported for 3 task04 trajectories | ⏸ Operator and harness are built and tested (V̂ from restored snapshots in a real World). The run needs K continuations per branch point of 3 task04 trajectories on the lab RTX 5090 with a paid model, about $130 estimated; not started without approval |
 
 ## Findings (the S2 result in detail)

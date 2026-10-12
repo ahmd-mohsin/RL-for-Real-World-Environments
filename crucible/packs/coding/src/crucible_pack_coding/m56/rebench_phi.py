@@ -23,6 +23,7 @@ from typing import Any
 from crucible.workflow.filestate import FileState
 from crucible.workflow.milestones.evaluate import FileStateView, evaluate
 from crucible.workflow.milestones.mine import from_diff
+from crucible.workflow.potential import fraction_index
 from crucible.workflow.replay import EditReplayer, replay_version
 from crucible_pack_coding.corpora import swe_rebench as S
 
@@ -60,7 +61,7 @@ async def attempt(rec: dict[str, Any], meta: dict[str, Any], milestones: list) -
         return row
     states, _ = rp.states(tr)
     for f in FRACTIONS:
-        cut = calls[min(len(calls) - 1, max(0, round(f * len(calls)) - 1))] if calls else 0
+        cut = calls[fraction_index(len(calls), f)] if calls else 0  # the one midpoint definition (M6 audit; cached rows used round(f·n) − 1)
         upto = [fs for seq, fs in states if seq <= cut]
         fs = upto[-1] if upto else FileState(base=base)
         row["phi"][str(f)] = await evaluate(milestones, FileStateView(fs))

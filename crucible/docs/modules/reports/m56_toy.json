@@ -227,13 +227,13 @@
  },
  "s2": {
   "test_tickets_with_outcome": 11,
-  "phi_mid_auc": 0.5833333333333334,
+  "phi_mid_auc": 0.5,
   "phi_end_auc": 0.6666666666666666,
   "rows": [
    [
     "T1014",
     1,
-    0.6666666666666666,
+    0.3333333333333333,
     1.0
    ],
    [
@@ -287,7 +287,7 @@
    [
     "T1023",
     1,
-    0.6666666666666666,
+    0.3333333333333333,
     1.0
    ],
    [
@@ -300,46 +300,62 @@
  },
  "properties": {
   "ok": true,
+  "untested": [
+   "R5",
+   "R6"
+  ],
+  "not_tested": [],
   "properties": {
    "R1": {
     "ok": true,
+    "tested": true,
     "reward": 1.0,
     "outcome": 1.0,
     "gates": {
      "refund_policy": 1,
-     "retention_policy": 1
-    }
+     "retention_policy": 1,
+     "no_reversed_refund": 1,
+     "answered_if_resolved": 1
+    },
+    "progress": 1.0
    },
    "R2": {
     "ok": true,
+    "tested": true,
     "reward": 0.0,
     "outcome": 0.0,
     "progress": 0.0
    },
    "R3": {
     "ok": true,
+    "tested": true,
     "negatives": {
      "refund_over_50_unapproved": {
       "reward": 0.0,
-      "outcome": 1.0
+      "outcome": 1.0,
+      "crafted": true
      },
      "refund_reversed": {
-      "reward": 0.2,
-      "outcome": 0.0
+      "reward": 0.0,
+      "outcome": 0.0,
+      "crafted": true
      },
      "resolved_without_answer": {
-      "reward": 0.13333333333333333,
-      "outcome": 0.0
+      "reward": 0.0,
+      "outcome": 0.0,
+      "crafted": true
      },
      "reopened": {
       "reward": 0.13333333333333333,
-      "outcome": 0.0
+      "outcome": 0.0,
+      "crafted": false
      }
     },
     "violations": {}
    },
    "R4": {
     "ok": true,
+    "tested": true,
     "sum_delta": [
      1.0,
      1.0
@@ -352,16 +368,25 @@
    },
    "R5": {
     "ok": true,
-    "phi_with_stubs": 0.3333333333333333,
-    "phi_without": 0.3333333333333333,
-    "stubbed": []
+    "tested": false,
+    "reason": "no milestone has a prerequisite: nothing can be stubbed",
+    "by_construction": true
    },
    "R6": {
     "ok": true,
+    "tested": false,
     "rewards": [
      1.0,
      1.0
-    ]
+    ],
+    "by_construction": true
+   },
+   "R7": {
+    "ok": true,
+    "tested": true,
+    "shallow_phi": 0.3333,
+    "partial_credit": 0.0667,
+    "eps": 0.1
    }
   }
  },

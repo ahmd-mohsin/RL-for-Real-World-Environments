@@ -80,14 +80,16 @@ def grs(rubric: Callable[[RolloutRecord], Any]) -> GroupOp:
     return op
 
 
-def gar(quality: Callable[[RolloutRecord], Any], *, lambda_max: float = 3.0) -> GroupOp:
-    """``quality(record) -> f ∈ (0, 1]`` for passing rollouts (None: 1.0, no preference)."""
+def gar(quality: Callable[[RolloutRecord], Any], *, lambda_max: float = 3.0, pass_threshold: float = 1.0) -> GroupOp:
+    """``quality(record) -> f ∈ (0, 1]`` for passing rollouts (None: 1.0, no preference). A rollout passes at
+    ``reward >= pass_threshold`` (a composed success is >= 1; M6 audit: any reward > 0 passed, so a failure's partial
+    credit κΦ got the success's advantage, 0.333 vs 0.333)."""
 
     async def op(gid: str, members: list[RolloutRecord]) -> list[RolloutRecord]:
         scored = [m for m in members if m.reward is not None and not m.mask_sample]
         if not scored:
             return members
-        rs = [1.0 if (m.reward or 0.0) > 0 else 0.0 for m in scored]
+        rs = [1.0 if (m.reward or 0.0) >= pass_threshold else 0.0 for m in scored]
         mean = sum(rs) / len(rs)
         adv = [r - mean for r in rs]
         passing = [i for i, r in enumerate(rs) if r == 1.0]

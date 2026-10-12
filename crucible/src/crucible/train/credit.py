@@ -6,7 +6,10 @@ and a loss mask. Rules:
 - the **sequence advantage** Â (group-relative or critic) is broadcast to every completion token of every trainable call
   (including compaction summary calls: they share the episode's advantage, CompactionRL);
 - **turn credit** (M6 ΔΦ per call, ``Turn.advantage``) is added on that call's tokens with weight ``turn_weight``
-  (``credit_unit = "turn"``), centred within the group by the caller (``objectives``) so it adds no net mass;
+  (``credit_unit = "turn"``) after ``turn_credit_map`` has passed it through M6's group rule (centred within each
+  episode, bounded by the outcome advantage, none on gate-failed or hacked episodes, none in a group without outcome
+  spread). M6 audit: nothing centred it, so raw ΔΦ reached the tokens: a gate-failed rollout gained credit and a
+  group's net advantage was +9.0;
 - observation / tool-output / prompt tokens never carry loss (they are prompt tokens of the next call: only completion
   tokens are trainable);
 - masked rollouts (``mask_sample``) contribute nothing; truncated rollouts are masked or bootstrapped by the caller
@@ -16,7 +19,7 @@ and a loss mask. Rules:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from crucible.core.schema.rollout import RolloutRecord
@@ -43,6 +46,31 @@ def token_credit(ro: RolloutRecord, seq_adv: float, *, turn_weight: float = 0.0,
         out.append(TokenCredit(call_id=t.call_id, completion_ids=ids, logprobs=list(t.logprobs or []),
                                advantages=[a if trainable else 0.0] * len(ids), loss_mask=[1 if trainable else 0] * len(ids),
                                policy_version=t.policy_version))
+    return out
+
+
+def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, eta: float, frozen_actors: Iterable[str] = ()) -> dict[tuple[str, str], float]:
+    """(rollout id, call id) -> the process credit to add on that call's tokens: each call's ΔΦ (``Turn.advantage``)
+    through ``credit.compose.turn_credit`` per group, ``eta`` its weight."""
+    import itertools
+
+    from crucible.credit.compose import Episode, turn_credit
+
+    frozen = set(frozen_actors)
+    by: dict[str, list[RolloutRecord]] = {}
+    for r, g in zip(records, groups, strict=True):
+        by.setdefault(g, []).append(r)
+    out: dict[tuple[str, str], float] = {}
+    for rs in by.values():
+        eps, keys = [], []
+        for r in rs:
+            ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen]
+            masked = r.mask_sample or r.reward is None
+            eps.append(Episode(reward=None if masked else float(r.reward), phis=list(itertools.accumulate(float(t.advantage or 0.0) for t in ts)),
+                               gated=bool(r.gates) and not all(r.gates.values()), hack=float((r.reward_components or {}).get("hack/confirmed", 0.0)) > 0))
+            keys.append([(r.rollout_id, t.call_id) for t in ts])
+        for ks, row in zip(keys, turn_credit(eps, eta=eta), strict=True):
+            out.update(zip(ks, row, strict=True))
     return out
 
 

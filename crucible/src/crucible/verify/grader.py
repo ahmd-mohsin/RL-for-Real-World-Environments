@@ -38,26 +38,37 @@ class GradeOutcome:
 
 def to_reward(report: GradeReport, *, milestones: Sequence[Milestone] = (), final_phis: Mapping[str, float | None] | None = None,
               rubric: float = 0.0) -> RewardJson:
+    from crucible.credit.operators.infra_mask import mask_for
+
     rj = report.reward_json()
-    phi = potential(list(milestones), final_phis or {})[0] if milestones else 0.0
+    finals = dict(final_phis or {})
+    measured = [m for m in milestones if finals.get(m.id) is not None and all(finals.get(p) is not None for p in m.requires)]
+    # Φ over the milestones that could be measured: an unmeasured one is not a failed one (M6 audit: it counted as 0)
+    phi = potential(measured, finals)[0] if measured else 0.0
     masked = InfraStatus(**report.infra) if report.infra.get("status") == "masked" else None
+    if masked is None and milestones:  # C6, wired (it had no production caller): nothing measurable at the end masks
+        c6 = mask_for(terminal_phis={m.id: finals.get(m.id) for m in milestones})
+        masked = c6 if c6.status == "masked" else None
     out = compose(gates={g: bool(v) for g, v in rj["gates"].items()}, outcome=report.outcome == 1.0, phi=phi, rubric=rubric, masked=masked,
-                  components={k: v for k, v in rj["components"].items() if k.startswith("check/")})
+                  components={**{k: v for k, v in rj["components"].items() if k.startswith("check/")},
+                              **({"progress/unmeasured": float(len(milestones) - len(measured))} if milestones and len(measured) < len(milestones) else {})})
     if "score" in report.meta or "abstained" in report.meta:  # record-style or abstention: the plan's reward is the reward
-        out = out.model_copy(update={"reward": report.reward if masked is None else 0.0,
+        out = out.model_copy(update={"reward": report.reward if masked is None else None,
                                      "components": {**out.components, "plan_reward": report.reward}})
     return out
 
 
 async def grade_episode(plan: Plan, ctx: Context, *, out_dir: Path | None = None, tier: str = "full", milestones: Sequence[Milestone] = (),
                         series: Sequence[Mapping[str, float | None]] | None = None, episode_steps: Sequence[Step] | None = None,
-                        call_ids: Sequence[str | None] | None = None, harness: str | None = None, rubric: float = 0.0) -> GradeOutcome:
+                        call_ids: Sequence[str | None] | None = None, harness: str | None = None, rubric: float = 0.0,
+                        base_phis: Mapping[str, float | None] | None = None) -> GradeOutcome:
+    """``base_phis``: φ at the state before the first step, so step 0 is not credited with what already held (M6 audit)."""
     report = await plan.arun(ctx, tier=tier)
     final = series[-1] if series else None
     rj = to_reward(report, milestones=milestones, final_phis=final, rubric=rubric)
     rows: list[StepRow] = []
     if milestones and series and episode_steps is not None and len(series) == len(episode_steps):
-        rows = steps_io.rows_for(episode_steps, trajectory(list(milestones), list(series)), call_ids=call_ids, harness=harness)
+        rows = steps_io.rows_for(episode_steps, trajectory(list(milestones), list(series), initial=base_phis), call_ids=call_ids, harness=harness)
     if out_dir is not None:
         write(out_dir, report, rj, rows)
     return GradeOutcome(report, rj, rows)

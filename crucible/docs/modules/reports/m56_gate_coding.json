@@ -5,7 +5,7 @@
   "M5.rediscovery_all_families": false,
   "M5.tracker_kappa>=0.7(toy)": true,
   "M6.S2_phi_mid_auc>=0.75_and>judge": false,
-  "M6.R1-R6_coding": true,
+  "M6.R1-R6_coding": false,
   "M6.corr_C3_dPhi_task04_reported": false
  },
  "replay": {
@@ -39,12 +39,12 @@
   "holdout_attempts": 200,
   "holdout_resolved_rate": 0.58,
   "type_weights": {
-   "added": 0.0148,
+   "added": 0.0,
    "added_call": 0.0,
    "created": 0.0,
-   "located": 0.0312,
-   "removed": 0.0383,
-   "removed_call": 0.0783
+   "located": 0.0,
+   "removed": 0.0,
+   "removed_call": 0.0
   },
   "type_auc_fit": {
    "added": 0.5074,
@@ -54,15 +54,16 @@
    "removed": 0.5192,
    "removed_call": 0.5392
   },
+  "types_kept": [],
   "metrics": {
    "phi_mid_validity_weighted": {
     "name": "phi_mid_validity_weighted",
-    "auc": 0.4986,
+    "auc": 0.5,
     "ci": [
-     0.4194,
-     0.5831
+     0.5,
+     0.5
     ],
-    "within_issue_auc": 0.5186,
+    "within_issue_auc": 0.5,
     "issues_with_mixed_outcomes": 22
    },
    "phi_mid_uniform": {
@@ -77,22 +78,22 @@
    },
    "phi_end_validity_weighted": {
     "name": "phi_end_validity_weighted",
-    "auc": 0.6624,
+    "auc": 0.5,
     "ci": [
-     0.531,
-     0.7963
+     0.5,
+     0.5
     ],
-    "within_issue_auc": 0.7142,
+    "within_issue_auc": 0.5,
     "issues_with_mixed_outcomes": 22
    },
    "phi_q1_validity_weighted": {
     "name": "phi_q1_validity_weighted",
-    "auc": 0.5043,
+    "auc": 0.5,
     "ci": [
      0.5,
-     0.5163
+     0.5
     ],
-    "within_issue_auc": 0.5227,
+    "within_issue_auc": 0.5,
     "issues_with_mixed_outcomes": 22
    },
    "baseline_fewer_tool_calls": {
@@ -119,12 +120,12 @@
   "judge": {
    "attempts": 200,
    "judge_auc": 0.7481527093596059,
-   "phi_auc_same_attempts": 0.4985632183908046,
+   "phi_auc_same_attempts": 0.5,
    "judge_within_issue_auc": 0.6356060606060606,
    "phi_minus_judge": {
-    "diff": -0.2495894909688013,
-    "lo": -0.38273913043478264,
-    "hi": -0.09677241074389298,
+    "diff": -0.24815270935960587,
+    "lo": -0.3330385763236432,
+    "hi": -0.14542483660130723,
     "p_not_better": 1.0
    }
   },
@@ -221,24 +222,24 @@
  },
  "properties": {
   "task01_prims_omp": {
-   "ok": true,
-   "milestones": 137,
+   "ok": false,
+   "milestones": 118,
    "runs": {
     "fable-5.1-run1": {
      "outcome": 1.0,
-     "phi": 0.4917,
+     "phi": 0.4627,
      "reward": 1.0
     }
    }
   },
   "task01v2_tessera_omp": {
    "ok": true,
-   "milestones": 291,
+   "milestones": 276,
    "runs": {
     "gpt-5.6-sol-run1": {
      "outcome": 0.0,
-     "phi": 0.6135,
-     "reward": 0.1227
+     "phi": 0.6185,
+     "reward": 0.1237
     }
    }
   },
@@ -266,7 +267,7 @@
   },
   "task04_pcl_gpu_cuda12": {
    "ok": true,
-   "milestones": 386,
+   "milestones": 355,
    "runs": {
     "gpt-5.6-sol-v2-run1": {
      "skipped": "no recorded outcome"
@@ -279,23 +280,23 @@
     },
     "gpt-5.6-sol-run1": {
      "outcome": 1.0,
-     "phi": 0.3161,
+     "phi": 0.3014,
      "reward": 1.0
     },
     "gpt-5.6-sol-v3-run1": {
      "outcome": 0.0,
-     "phi": 0.3187,
-     "reward": 0.0637
+     "phi": 0.3042,
+     "reward": 0.0608
     },
     "gpt-6-astra-run1": {
      "outcome": 1.0,
-     "phi": 0.329,
+     "phi": 0.3155,
      "reward": 1.0
     },
     "gpt-6-astra-v3-run2": {
      "outcome": 0.0,
-     "phi": 0.5544,
-     "reward": 0.1109
+     "phi": 0.5606,
+     "reward": 0.1121
     }
    }
   }
