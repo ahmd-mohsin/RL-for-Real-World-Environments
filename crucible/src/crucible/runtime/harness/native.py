@@ -175,12 +175,9 @@ class NativeHarness:
                 obs = await world.begin_task_step(st.name, i, st.instruction)
                 if i > 0 and st.fresh_context:
                     policies = attempt.policy.make(attempt)
-                    for p in policies.values():
-                        if hasattr(p, "begin_episode"):
-                            p.begin_episode(attempt.id)
                     used.append(policies)
                 limits = dataclasses.replace(self.limits, max_steps=st.max_steps) if st.max_steps else self.limits
-                ep = await run_episode(world, policies, limits=limits, reset=False, start_obs=obs)
+                ep = await run_episode(world, policies, limits=limits, reset=False, start_obs=obs, sample_key=attempt.id)
             total_steps += ep.steps
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
@@ -238,9 +235,6 @@ class NativeHarness:
             t0 = time.monotonic()
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
-                for p in policies.values():
-                    if hasattr(p, "begin_episode"):
-                        p.begin_episode(attempt.id)  # per-attempt cache key: k samples never replay one completion
                 observers = []
                 if getattr(attempt.task, "subgoals", None) is not None:
                     from crucible.verify.progress import ProgressTracker
@@ -255,7 +249,7 @@ class NativeHarness:
                 else:
                     ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every) if self.checkpoint_every else None
                     ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
-                                           after_step=ckpt)
+                                           after_step=ckpt, sample_key=attempt.id)  # per-attempt cache key: k samples never replay one completion
                 if observers:
                     res.grade["progress"] = ep.observed[0]
             t["agent"] = time.monotonic() - t0

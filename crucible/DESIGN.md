@@ -2733,6 +2733,16 @@ no nullable field may carry a non-`None` default (a property test enforces it), 
 store is multi-process safe (staged, fsynced writes under flock, WAL) and self-repairing. Details:
 `docs/audit/2026-10-12/M00-core.md`.
 
+**M2 audit (2026-10-12).** The grounding gate compares facts as whole tokens (dates first), judges claims behind a
+greeting, checks polarity against the cited sentence, and caps citations at two that must each support the sentence;
+records are tokenized in every script and untimed records are hidden in replays. The LLM budget reserves each call's
+worst case before it starts, and an unpriced hosted model pays a fallback price. `run_episode` takes the harness's
+`sample_key`, reports every policy stop label, stops at the first masking failure, and by default ends once every
+simulated person has ended. Simulated people get read-only tools unless a scenario allows writes, and their end markers
+are judged. A failed simulator ends its conversation. Human and peer failures, silences and cancellations are masked,
+and a restored A2A peer gets a fresh context opened with the restored conversation. The CI bot runs through the `ci`
+App. A raising responder is a masked failure at the World's choke point. Details: `docs/audit/2026-10-12/M02-actors.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.

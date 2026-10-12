@@ -86,7 +86,7 @@ class GroundedResponder(ActorBase):
         except LLMError as e:
             v = _salvage_selection(str(e))
             if v is None:
-                self.failures.append({"kind": "provider_unavailable", "reason": str(e)[:300], "at": now})
+                self.failures.append({"kind": getattr(e, "failure_kind", None) or "crucible:sim_failure", "reason": str(e)[:300], "at": now})
                 return NO_RECORD, []
         except BudgetExceeded as e:
             self.failures.append({"kind": e.failure_kind, "reason": str(e)[:300], "at": now})
@@ -115,16 +115,19 @@ class GroundedResponder(ActorBase):
         messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         try:
             draft = (await self.llm.complete(messages, max_tokens=1200)).text
-            rep = check(draft, self.store, now=now, min_overlap=self.min_overlap)
+            # citations must be records this actor may see (its sources, roles and tags: the retrieved set); any visible
+            # record id used to pass, so the actor could quote another person's notes (M2 audit)
+            scope = {r.id for r, _ in hits}
+            rep = check(draft, self.store, now=now, min_overlap=self.min_overlap, allowed_ids=scope)
             if not rep.ok:
                 self.stats["regenerations"] += 1
                 feedback = "; ".join(f"'{s.text[:80]}': {s.reason}" for s in rep.unsupported)
                 messages += [{"role": "assistant", "content": draft},
                              {"role": "user", "content": f"Some sentences are not supported by the cited records ({feedback}). Rewrite using only the records, citing each factual sentence, or reply exactly: {NO_RECORD}"}]
                 draft = (await self.llm.complete(messages, max_tokens=1200)).text
-                rep = check(draft, self.store, now=now, min_overlap=self.min_overlap)
+                rep = check(draft, self.store, now=now, min_overlap=self.min_overlap, allowed_ids=scope)
         except (LLMError, BudgetExceeded) as e:
-            self.failures.append({"kind": getattr(e, "failure_kind", "provider_unavailable"), "reason": str(e)[:300], "at": now})
+            self.failures.append({"kind": getattr(e, "failure_kind", None) or "crucible:sim_failure", "reason": str(e)[:300], "at": now})
             return NO_RECORD, []
         self.stats["dropped_sentences"] += len(rep.unsupported)
         text = rep.clean_text(drop_unsupported=True)

@@ -59,9 +59,10 @@ async def grounding_audit(replies: list[tuple[str, list[str], str | None]], stor
         if text.strip() == NO_RECORD:
             a.no_record += 1
             continue
-        tags = " ".join(f"[R:{c}]" for c in cites)
-        # citations go before the sentence's closing punctuation, so they stay with that sentence
-        marked = " ".join(_cite(s, tags) for s in split_sentences(text))
+        # citations go before the sentence's closing punctuation, so they stay with that sentence. Each sentence gets the
+        # reply's citations that share a word or fact with it (all of them if none does): a two-record quote reply
+        # tagged every sentence with both records, and the record a sentence did not come from looked like padding
+        marked = " ".join(_cite(s, " ".join(f"[R:{c}]" for c in _supporting(s, cites, store))) for s in split_sentences(text))
         rep = check(marked, store, now=now)
         a.factual_sentences += len(rep.factual)
         a.unsupported_sentences += len(rep.unsupported)
@@ -105,7 +106,20 @@ def _norm(text: str) -> str:
     return t.rstrip(".!?。！？ ").strip()
 
 
+def _supporting(sentence: str, cites: list[str], store: RecordStore) -> list[str]:
+    from crucible.actors.grounding import _facts
+    from crucible.actors.records import content_tokens
+
+    st, facts = set(content_tokens(sentence)), _facts(sentence)
+    if not st and not facts:  # a bare fence or bullet: no claim to cite (the re-split would glue its tags onto the next sentence)
+        return []
+    keep = [c for c in cites if (r := store.get(c)) is not None and (st & set(content_tokens(r.text)) or facts & _facts(r.text))]
+    return keep or cites
+
+
 def _cite(sentence: str, tags: str) -> str:
+    if not tags:
+        return sentence
     stripped = sentence.rstrip()
     end = ""
     while stripped and stripped[-1] in ".!?。！？":

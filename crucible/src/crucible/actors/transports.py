@@ -32,7 +32,11 @@ class CallableTransport:
 
 
 class FileQueueTransport:
-    """Writes ``q-<n>.json``; waits for ``a-<n>.json`` ({"text": ...}) up to ``timeout_s``."""
+    """Writes ``q-<n>-<id>.json``; waits for ``a-<n>-<id>.json`` ({"text": ...}) up to ``timeout_s``.
+
+    Every question gets a fresh id, so an answer file can only answer the question it names. (M2 audit 2026-10-12: with
+    ``q-<n>`` names, a World restored to before question n, or a second episode sharing the directory, read the old
+    answer to a different question: "Yes, PO 77 approved" came back for "Approve PO 99 for 1M USD?".)"""
 
     def __init__(self, directory: str | Path, *, timeout_s: float = 3600, poll_s: float = 0.5):
         self.dir = Path(directory)
@@ -41,16 +45,30 @@ class FileQueueTransport:
         self.n = 0
 
     async def send(self, text: str) -> str:
+        import uuid
+
         self.n += 1
-        q = self.dir / f"q-{self.n:04d}.json"
-        a = self.dir / f"a-{self.n:04d}.json"
-        q.write_text(json.dumps({"n": self.n, "text": text, "asked_at": time.time()}, ensure_ascii=False))
+        qid = f"{self.n:04d}-{uuid.uuid4().hex[:10]}"
+        q = self.dir / f"q-{qid}.json"
+        a = self.dir / f"a-{qid}.json"
+        tmp = self.dir / f".q-{qid}.tmp"
+        tmp.write_text(json.dumps({"n": self.n, "id": qid, "text": text, "asked_at": time.time()}, ensure_ascii=False))
+        tmp.replace(q)  # a UI never reads a half-written question
         deadline = time.monotonic() + self.timeout_s
-        while time.monotonic() < deadline:
-            if a.exists():
-                return str(json.loads(a.read_text()).get("text", ""))
-            await asyncio.sleep(self.poll_s)
-        raise TimeoutError(f"no answer in {a} after {self.timeout_s}s")
+        try:
+            while time.monotonic() < deadline:
+                if a.exists():
+                    try:
+                        reply = str(json.loads(a.read_text()).get("text", ""))
+                    except json.JSONDecodeError:  # being written: read again on the next poll
+                        await asyncio.sleep(self.poll_s)
+                        continue
+                    return reply
+                await asyncio.sleep(self.poll_s)
+            raise TimeoutError(f"no answer in {a} after {self.timeout_s}s")
+        except BaseException:  # timed out or the episode was cancelled: withdraw the question, so nobody answers a dead one
+            q.unlink(missing_ok=True)
+            raise
 
     def state_dict(self) -> dict[str, Any]:
         return {"n": self.n}

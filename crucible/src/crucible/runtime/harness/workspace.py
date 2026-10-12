@@ -106,10 +106,7 @@ class WorkspaceHarness(NativeHarness):
             t0 = time.monotonic()
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
-                for p in policies.values():
-                    if hasattr(p, "begin_episode"):
-                        p.begin_episode(attempt.id)
-                ep = await run_episode(world, policies, limits=self.limits)
+                ep = await run_episode(world, policies, limits=self.limits, sample_key=attempt.id)
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
             save_episode(attempt, ep, res, self.id, policies)

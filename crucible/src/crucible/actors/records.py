@@ -2,7 +2,12 @@
 
 Two rules make it safe for hindsight tasks:
 - **time**: a record is visible only if its time <= the world's virtual "now" (an actor in a replayed
-  2024 workflow must not know what was written in 2025 — that would leak the expert's future fixes);
+  2024 workflow must not know what was written in 2025 — that would leak the expert's future fixes). A record without a
+  time cannot be placed on the timeline, so in a replay (``now`` given) it is hidden unless the store is built with
+  ``untimed="visible"`` (written policy, timeless reference text). Times are validated when the store is built;
+- **text**: words in any script are indexed (accented Latin, Cyrillic, Arabic, Devanagari, ...); CJK, kana and Hangul
+  are indexed as characters plus bigrams. (M2 audit 2026-10-12: ASCII-only tokens made "café" "caf" and dropped
+  Russian records entirely; untimed records leaked into replays; a timezone-less time crashed the first search.)
 - **scope**: retrieval can be restricted to sources (traces) and roles (e.g. only the reviewer's own
   past comments).
 """
@@ -21,7 +26,12 @@ from pathlib import Path
 
 from crucible.core.schema.trace import Record, Trace, records_from_trace
 
-_WORD = re.compile(r"[A-Za-z0-9_]+(?:[.\-][A-Za-z0-9_]+)*|[一-鿿]")
+_CJK = "一-鿿\u3040-\u30ff\uac00-\ud7af"  # Han, kana, Hangul: no spaces between words
+_WORD = re.compile(rf"[{_CJK}]|[^\W{_CJK}]+(?:[.\-'’][^\W{_CJK}]+)*")
+
+
+def _is_cjk(t: str) -> bool:
+    return len(t) == 1 and re.match(rf"[{_CJK}]", t) is not None
 STOP = frozenset(
     ["a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "had", "has", "have", "he", "her", "his", "i", "if", "in", "into", "is", "it", "its", "may", "me", "my", "no", "not", "of", "on", "or", "our", "she", "so", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this", "to", "too", "up", "us", "was", "we", "were", "what", "when", "where", "which", "who", "will", "with", "would", "you", "your", "yes", "ok", "okay", "please", "thanks", "thank", "hi", "hello"]
 )
@@ -39,22 +49,31 @@ def tokens(text: str) -> list[str]:
     for m in _WORD.finditer(text.lower()):
         t = m.group(0)
         out.append(t)
-    # CJK bigrams so Chinese records retrieve on words, not single characters
-    cjk = [t for t in out if len(t) == 1 and "一" <= t <= "鿿"]
+    # CJK bigrams so Chinese / Japanese / Korean records retrieve on words, not single characters
+    cjk = [t for t in out if _is_cjk(t)]
     out.extend(a + b for a, b in itertools.pairwise(cjk))
     return out
 
 
 def content_tokens(text: str) -> list[str]:
-    return [t for t in tokens(text) if t not in STOP and len(t) > 1 or ("一" <= t[:1] <= "鿿")]
+    return [t for t in tokens(text) if (t not in STOP and len(t) > 1) or _is_cjk(t[:1])]
 
 
 class RecordStore:
-    def __init__(self, records: Iterable[Record], *, k1: float = 1.5, b: float = 0.75):
+    def __init__(self, records: Iterable[Record], *, k1: float = 1.5, b: float = 0.75, untimed: str = "hidden"):
+        if untimed not in ("hidden", "visible"):
+            raise ValueError("untimed: hidden | visible")
+        self.untimed = untimed
         self.records = list(records)
         self.by_id = {r.id: r for r in self.records}
         if len(self.by_id) != len(self.records):
             raise ValueError("duplicate record ids")
+        for r in self.records:  # fail when the data is loaded, not at the first search of an episode
+            if r.time is not None:
+                try:
+                    _ts(r.time)
+                except ValueError as e:
+                    raise ValueError(f"record {r.id!r}: {e}") from None
         # What a person knows about their own note includes what it was about (e.g. the file path).
         self._tf = [Counter(content_tokens(r.text + (" " + r.target.object if r.target and r.target.object else ""))) for r in self.records]
         self._len = [sum(c.values()) for c in self._tf]
@@ -69,10 +88,13 @@ class RecordStore:
     def __len__(self) -> int:
         return len(self.records)
 
-    @staticmethod
-    def _visible(r: Record, now: str | None) -> bool:
+    def _visible(self, r: Record, now: str | None) -> bool:
         # Compare instants, never strings: "…56Z" > "…56.5Z" lexically although it is earlier.
-        return now is None or r.time is None or _ts(r.time) <= _ts(now)
+        if now is None:
+            return True
+        if r.time is None:
+            return self.untimed == "visible"
+        return _ts(r.time) <= _ts(now)
 
     def get(self, rid: str, *, now: str | None = None) -> Record | None:
         r = self.by_id.get(rid)
@@ -100,12 +122,12 @@ class RecordStore:
         return scored[:k]
 
     @classmethod
-    def from_traces(cls, traces: Iterable[Trace], types: set[str] | None = None) -> RecordStore:
-        return cls(r for t in traces for r in records_from_trace(t, types))
+    def from_traces(cls, traces: Iterable[Trace], types: set[str] | None = None, **kw) -> RecordStore:
+        return cls((r for t in traces for r in records_from_trace(t, types)), **kw)
 
     @classmethod
-    def from_jsonl(cls, path: str | Path) -> RecordStore:
-        return cls(Record.model_validate(json.loads(line)) for line in Path(path).read_text().splitlines() if line.strip())
+    def from_jsonl(cls, path: str | Path, **kw) -> RecordStore:
+        return cls((Record.model_validate(json.loads(line)) for line in Path(path).read_text().splitlines() if line.strip()), **kw)
 
     def to_jsonl(self, path: str | Path) -> None:
         Path(path).write_text("".join(r.model_dump_json(exclude_none=True) + "\n" for r in self.records))

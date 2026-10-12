@@ -58,10 +58,19 @@ _DEBRIS = [(re.compile(r"\(\s*\)|\[\s*\]"), ""), (re.compile(r"\b(?:See|Refer to
            (re.compile(r"(?m)\s+/\.?$"), "")]
 
 
+# A GitHub ```suggestion block is the reviewer's replacement code: for a hindsight or trap task, the reference fix
+# (M2 audit: the reviewer passed them to the policy verbatim). The comment around it stays.
+_SUGGESTION = re.compile(r"```suggestion[^\n]*\n.*?(?:```|\Z)", re.S)
+
+
+def strip_suggestions(text: str) -> str:
+    return _SUGGESTION.sub("(a suggested change was here)", text)
+
+
 def scrub_text(text: str, mode: str = "inline") -> str:
     if not text:
         return text
-    out = text
+    out = _SUGGESTION.sub("(a suggested change was here)", text)
     if mode == "strict":
         out = _LEAK_SECTION_RE.sub("", out)
         for rx in _LEAK_LINE_RES:

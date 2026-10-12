@@ -155,10 +155,10 @@ class FsAdapter(StateAdapter):
     async def q_manifest(self) -> Any:
         return await self._snip("manifest")
 
-    async def q_run(self, cmd: str, timeout_s: float = 600, env: dict[str, str] | None = None) -> Any:
+    async def q_run(self, cmd: str, timeout_s: float = 600, env: dict[str, str] | None = None, user: str | None = None) -> Any:
         from crucible.core.schema.state import QueryResult
 
-        out = await self.exec.run(cmd, cwd=self.params["root"], timeout_s=timeout_s, env=env)
+        out = await self.exec.run(cmd, cwd=self.params["root"], timeout_s=timeout_s, env=env, **({"user": user} if user else {}))
         return QueryResult(ok=out.ok, exit_code=out.rc, stdout=out.stdout[-20000:], stderr=out.stderr[-20000:], duration_s=out.duration_s,
                            value={"timed_out": out.timed_out})
 

@@ -146,7 +146,7 @@ def approx_tokens(messages: list[dict[str, Any]]) -> int:
     return n // 4 + 4 * len(messages)
 
 
-CUT_OFF = "Your last reply was cut off at the output limit before you called a tool. Continue: make one tool call (keep any reasoning short)."
+CUT_OFF = "Your last reply was cut off at the output limit, so nothing in it was run. Continue: make one tool call (keep any reasoning short)."
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
 TURN_NUDGE = "It is still your turn in the game, which is not over. Choose one of your legal actions with a tool call."
 class LLMToolPolicy(Policy):
@@ -180,9 +180,24 @@ class LLMToolPolicy(Policy):
         self.segments: list[dict[str, Any]] = []  # one per compaction: the boundary and what was kept
         self.trajectory_tokens = 0  # every token that entered the context, before any compaction (instruction, observations, replies)
         self._seen = 0  # messages already counted
+        self._measured: tuple[int, int] | None = None  # (messages in the last prompt, its prompt + completion tokens per the provider)
 
     def begin_episode(self, episode_id: str) -> None:
         self.sample_key = episode_id
+
+    def context_tokens(self) -> int:
+        """The context's size: the provider's count of the last prompt and reply plus an estimate of what came after, else
+        the chars/4 estimate. chars/4 alone undercounted code and CJK text by 2-3x, so compaction fired after the
+        provider had already refused the prompt (M2 audit)."""
+        if self._measured is not None and self._measured[0] <= len(self.messages):
+            n, tokens = self._measured
+            return tokens + approx_tokens(self.messages[n:])
+        return approx_tokens(self.messages)
+
+    def _measure(self, usage: dict[str, Any] | None) -> None:
+        u = usage or {}
+        if u.get("prompt_tokens"):
+            self._measured = (len(self.messages), int(u["prompt_tokens"]) + int(u.get("completion_tokens") or 0))
 
     # ---- long horizons: accounting, compaction, checkpoint state ------------------------------------------------------
     def _count_new(self) -> None:
@@ -227,6 +242,7 @@ class LLMToolPolicy(Policy):
             head.append({"role": "user", "content": "[Earlier history of this episode was discarded to fit the context; continue from the current state]"})
         self.messages = [*head, *recent]
         self._seen = len(self.messages)
+        self._measured = None
         return min(keep_turns, len(starts))
 
     def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
@@ -250,9 +266,9 @@ class LLMToolPolicy(Policy):
         cfg = self.context
         if cfg is None or cfg.mode != "compact" or self._queue or self._pending:
             return
-        if approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
+        if self.context_tokens() < cfg.trigger * cfg.budget_tokens:
             return
-        before = approx_tokens(self.messages)
+        before = self.context_tokens()
         strategy = cfg.strategy
         if strategy not in ("summary", "keep_recent", "discard_all", "tiered", "hybrid"):
             raise ValueError(f"unknown context strategy {strategy!r}")
@@ -262,6 +278,7 @@ class LLMToolPolicy(Policy):
         if strategy == "tiered":
             if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
                 self._seen = len(self.messages)
+                self._measured = None
                 self._new_segment("tiered:shrink", before, len(self.messages))
                 return
             strategy = "tiered:summary"
@@ -271,14 +288,20 @@ class LLMToolPolicy(Policy):
         if strategy in ("discard_all", "hybrid:discard_all"):
             self._new_segment(strategy, before, self._rebuild(0, None, keep_summary=strategy == "hybrid:discard_all"))
             return
-        r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
-                                    temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
-        self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
-        self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
-                                 "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                 "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})
-        kept = self._rebuild(cfg.keep_recent_turns, r.text or "")
-        self._new_segment(strategy, before, kept, summary_call=self.model_calls[-1]["call_id"])
+        for attempt in range(2):  # an empty summary (a reasoning model that spent its budget thinking) is resampled once
+            r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
+                                        temperature=self.temperature, sample_key=f"{self.sample_key}:summary{attempt}" if attempt and self.sample_key else self.sample_key,
+                                        seed=0 if self.temperature == 0 else None)
+            self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
+            self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
+                                     "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                                     "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})
+            if (r.text or "").strip():
+                note = "\n[this summary was cut off at its length limit]" if r.raw_finish == "length" else ""
+                self._new_segment(strategy, before, self._rebuild(cfg.keep_recent_turns, r.text + note), summary_call=self.model_calls[-1]["call_id"])
+                return
+        # no usable summary: an empty one used to replace the whole history (M2 audit); keep the recent turns instead
+        self._new_segment(f"{strategy}:summary_failed", before, self._rebuild(cfg.keep_recent_turns, None, keep_summary=True))
 
     def state_dict(self) -> dict[str, Any]:
         """Everything needed to continue this policy mid-episode (``runtime.checkpoint``): its context, tools, queued actions,
@@ -287,7 +310,8 @@ class LLMToolPolicy(Policy):
                 "pending": sorted(self._pending), "held": self._held, "stop": self.stop, "nudges": self._nudges, "model_calls": self.model_calls,
                 "segment": self.segment, "segments": self.segments, "trajectory_tokens": self.trajectory_tokens, "seen": self._seen,
                 "last_full": self._last_full, "last_seg": self._last_seg,
-                "sample_key": self.sample_key, "error": self.error, "failure_kind": self.failure_kind}
+                "sample_key": self.sample_key, "error": self.error, "failure_kind": self.failure_kind, "measured": self._measured,
+                "turn_nudges": self._turn_nudges}
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
         from pydantic import TypeAdapter
@@ -299,6 +323,8 @@ class LLMToolPolicy(Policy):
         self.segment, self.segments, self.trajectory_tokens, self._seen = d["segment"], d["segments"], d["trajectory_tokens"], d["seen"]
         self._last_full, self._last_seg = d.get("last_full"), d.get("last_seg")
         self.sample_key, self.error, self.failure_kind = d.get("sample_key"), d.get("error"), d.get("failure_kind")
+        self._measured = tuple(d["measured"]) if d.get("measured") else None
+        self._turn_nudges = d.get("turn_nudges", 0)
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -342,8 +368,8 @@ class LLMToolPolicy(Policy):
         self._count_new()
         if self._queue:
             return self._queue.pop(0)
-        await self._maybe_compact()
         try:
+            await self._maybe_compact()  # inside: a failed summary call ends the turn like a failed turn (it crashed run_episode)
             r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
         except ContextOverflow as e:
@@ -361,25 +387,35 @@ class LLMToolPolicy(Policy):
                 "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens)}
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
+        self._measure(r.usage)
+        # retries keep the game context: a nudge that dropped ``legal`` let the next text reply resign the seat (M2 audit)
+        again = Observation(actor=obs.actor, step=obs.step, legal=obs.legal, to_move=obs.to_move)
+        if r.raw_finish in ("content_filter", "refusal") and not r.tool_calls:
+            # a provider filter is not the policy choosing to stop: a scored, labelled end (it was read as an empty reply)
+            self.stop = "content_filter"
+            call["actions"] = ["done"]
+            return Done(reason=f"the provider filtered the reply (finish={r.raw_finish})")
         if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
-            return await self.act(Observation(actor=obs.actor, step=obs.step))
-        if not r.tool_calls and r.raw_finish == "length" and self._nudges < self.max_nudges:
-            # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error)
+            return await self.act(again)
+        if r.raw_finish == "length" and self._nudges < self.max_nudges:
+            # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error). Tool calls in a
+            # cut-off reply may be truncated mid-argument or missing their siblings: they are dropped, never executed.
             self._nudges += 1
-            self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(cut off)"})
+            dropped = f" ({len(r.tool_calls)} unfinished tool call(s) were not run)" if r.tool_calls else ""
+            self.messages.append({**r.raw_message, "role": "assistant", "content": (r.text or "(cut off)") + dropped})
             self.messages.append({"role": "user", "content": CUT_OFF})
-            return await self.act(Observation(actor=obs.actor, step=obs.step))
+            return await self.act(again)
         if not r.tool_calls and obs.legal and self._turn_nudges < self.max_nudges:
             # a turn-based game: legal actions are offered only to the seat to move; a text reply is not a resignation
             self._turn_nudges += 1
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(no action)"})
             self.messages.append({"role": "user", "content": TURN_NUDGE})
-            return await self.act(Observation(actor=obs.actor, step=obs.step, legal=obs.legal, to_move=obs.to_move))
-        if r.tool_calls:
-            self._turn_nudges = 0
+            return await self.act(again)
+        if r.tool_calls:  # a clean step: the nudge allowance is per stall, not per episode (it never reset: M2 audit)
+            self._turn_nudges = self._nudges = 0
         if not r.tool_calls:
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text})
             self.stop = "agent_done"
@@ -397,7 +433,7 @@ class LLMToolPolicy(Policy):
             if self._compactions_in_row > 2:  # compacting again and again without acting is not progress
                 self.stop = "too_many_compactions"
                 return Done(reason="the policy kept compacting without acting")
-            return await self.act(Observation(actor=obs.actor, step=obs.step))
+            return await self.act(again)
         self._compactions_in_row = 0
         calls = []
         actions: list[Action] = []
@@ -429,7 +465,10 @@ class EpisodeLimits:
     max_steps: int = 50
     max_tool_errors: int | None = 25  # consecutive failed policy calls: a policy stuck in an error loop ends "too_many_errors"
     timeout_s: float | None = None  # wall clock for the whole episode; the final snapshot is still taken
-    end_on: tuple[str, ...] = ()  # simulated actors whose end of conversation ends the episode (stop "user_stop" / "out_of_scope")
+    # actors whose end of conversation ends the episode (stop "user_stop" / "out_of_scope"). None: every simulated person
+    # (a responder with a ``scenario``) once all of them have ended, as in every reference loop; () never ends early. The
+    # default was () and nothing set it, so after "###DONE###" the policy talked to no one until max_steps (M2 audit).
+    end_on: tuple[str, ...] | None = None
     snapshot_every: int = 0  # >0: a WorldRef every N steps (deduplicated by fingerprint) for state-based credit and branching
 
 
@@ -442,7 +481,7 @@ class EpisodeResult:
     masked: bool
     failures: list[dict[str, Any]] = field(default_factory=list)
     observations: dict[str, list[Observation]] = field(default_factory=dict)
-    stop_condition: str = "running"  # agent_done | all_done | max_steps | too_many_errors | timeout | context_overflow | <failure kind>
+    stop_condition: str = "running"  # agent_done | all_done | max_steps | timeout | <POLICY_STOP_ORDER label> | <failure kind>
     snapshots: list[tuple[int, WorldRef]] = field(default_factory=list)  # (step, ref) when limits.snapshot_every > 0
     truncated: bool = False
     model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -451,11 +490,13 @@ class EpisodeResult:
 
 async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
                       limits: EpisodeLimits | None = None, observers: Sequence[Any] = (), start_steps: int = 0,
-                      after_step: Any = None, start_obs: dict[str, Observation] | None = None) -> EpisodeResult:
+                      after_step: Any = None, start_obs: dict[str, Observation] | None = None, sample_key: str | None = None) -> EpisodeResult:
     """``observers``: objects with ``on_start(world)``, ``on_step(world, step, actor, action, result)`` and ``on_end(world)``
     (``verify.progress.ProgressTracker``). ``start_steps``/``reset=False`` continue an episode restored from a checkpoint;
     ``start_obs`` (with ``reset=False``) are the first observations, e.g. a multi-step task's next instruction
-    (``World.begin_task_step``); ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``)."""
+    (``World.begin_task_step``); ``after_step(step)`` is awaited after every step (checkpointing, ``runtime.checkpoint``).
+    ``sample_key`` (the harness's attempt id) keys each policy's record/replay cache; it defaults to the World's episode
+    id, which is random per run, so only a stable key lets a replay hit (it was always overwritten: M2 audit)."""
     limits = limits or EpisodeLimits(max_steps=max_steps)
     turns = getattr(world, "turns", None)
     if turns is not None and len(policies) > 1:  # a multi-seat game: each seat sees the others' moves and its legal actions
@@ -471,9 +512,15 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         obs = dict(start_obs) if start_obs else {a: Observation(actor=a, step=world.step_index) for a in policies}
     for o in observers:
         await o.on_start(world)
-    for p in policies.values():
+    for p in [*policies.values(), *world.responders.values()]:  # simulated people key per-episode sampling the same way
         if hasattr(p, "begin_episode"):
-            p.begin_episode(world.episode_id)
+            p.begin_episode(sample_key or world.episode_id)
+    end_on = limits.end_on
+    if end_on is None:
+        end_on = tuple(a for a, r in world.responders.items() if getattr(r, "scenario", None) is not None)
+        end_all = True
+    else:
+        end_all = False
     log: dict[str, list[Observation]] = {a: [o] for a, o in obs.items()}
     order = list(policies)
     if limits.snapshot_every:
@@ -522,9 +569,13 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 if limits.max_tool_errors and state["errors"] >= limits.max_tool_errors:
                     state["stop"] = "too_many_errors"
                     return
-                ended = [world.finished[x] for x in limits.end_on if x in world.finished]
-                if ended:
-                    state["stop"] = ended[0]
+                ended = [world.finished[x] for x in end_on if x in world.finished]
+                if ended and (not end_all or len(ended) == len(end_on)):
+                    state["stop"] = ended[-1] if end_all else ended[0]
+                    return
+                broke = _masking_failure(world)
+                if broke is not None:  # the episode is no longer evidence: stop now, not after paying for max_steps (M2 audit)
+                    state["stop"] = broke
                     return
                 if state["done"] or state["steps"] >= limits.max_steps:
                     break
@@ -548,12 +599,12 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     hit = (trace.outcome.details.get("probes") or {}).get("first_strong_exposure")
     if hit:  # the World let the policy reach the answer (P21 says it must not): whatever it scores is not evidence
         failures.append({"kind": "crucible:answer_exposed", "reason": f"{hit['kind']} at event {hit['seq']}: {hit['evidence'][:200]}", "mask": True})
-    stops = {getattr(p, "stop", None) for p in policies.values()}
+    stops = [s for p in policies.values() if (s := getattr(p, "stop", None)) not in (None, "agent_done")]
     if state["stop"] == "running":
-        if "context_overflow" in stops:
-            state["stop"] = "context_overflow"
-        elif "too_many_errors" in stops:  # a policy that detected its own stall (RLMPolicy): truncated, not done
-            state["stop"] = "too_many_errors"
+        # a policy's own stop label (context_overflow, too_many_errors from a self-detected stall, too_many_compactions,
+        # format_error, content_filter) is the episode's: these were reported as a voluntary agent_done (M2 audit)
+        if stops:
+            state["stop"] = next((s for s in POLICY_STOP_ORDER if s in stops), stops[0])
         elif failures and any(_masks(f) for f in failures):
             state["stop"] = next(f["kind"] for f in failures if _masks(f))
         elif state["done"]:
@@ -565,8 +616,25 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     calls = {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}
     return EpisodeResult(steps=state["steps"], done=state["done"], trace=trace, final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
-                         truncated=state["stop"] in ("max_steps", "timeout", "context_overflow", "too_many_errors"), model_calls=calls,
+                         truncated=state["stop"] in TRUNCATING_STOPS, model_calls=calls,
                          snapshots=series, observed=observed)
+
+
+POLICY_STOP_ORDER = ("context_overflow", "too_many_errors", "too_many_compactions", "format_error", "content_filter")
+TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "too_many_errors", "too_many_compactions")  # format_error and content_filter are terminal
+
+
+def _masking_failure(world: World) -> str | None:
+    """The kind of the first failure that masks the episode (a simulator broke, an infra fault), else ``None``."""
+    for r in world.responders.values():
+        for f in getattr(r, "failures", None) or ():
+            if _masks(f):
+                return str(f.get("kind"))
+    for f in world.failures:
+        d = f.model_dump()
+        if _masks(d):
+            return str(d.get("kind"))
+    return None
 
 
 def _masks(f: dict[str, Any]) -> bool:

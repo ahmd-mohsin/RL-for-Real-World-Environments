@@ -5,7 +5,10 @@
 - **Cache** (record / replay): responses are keyed by sha256(model, messages, tools, params) and stored
   under ``<data>/llm_cache``. ``CRUCIBLE_LLM_CACHE=replay`` makes a missing entry an error (CI);
   ``record`` (default) reads then writes; ``off`` disables. Replay makes simulated actors deterministic.
-- **Accounting**: provider-reported cost when present (OpenRouter ``usage.cost``), else config prices.
+- **Accounting**: provider-reported cost when present (OpenRouter ``usage.cost``), else config prices, else (a hosted
+  model with no price) ``UNPRICED_USD_PER_M`` or ``prices["*"]``, booked as spend and as uncertain: an unpriced model
+  used to cost 0 USD, so its hard budget could never trip (M2 audit). Self-hosted engines (localhost, ``tito``, a
+  ``policy_version``) cost 0.
 """
 
 from __future__ import annotations
@@ -106,18 +109,24 @@ class Spend:
     completion_tokens: int = 0
     uncertain_usd: float = 0.0  # calls whose cost could not be read (blank usage in tolerant mode): an upper-bound estimate
     blank_usage_calls: int = 0
+    unpriced_calls: int = 0  # calls booked at the fallback price (no provider cost, no configured price)
+
+
+UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a hosted model with no price anywhere
+RATE_LIMIT_ATTEMPTS = 6  # a 429 gets at least this many attempts, on a slower curve: 3 tries over 4.5 s gave up mid-burst
 
 
 def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
     """Provider's Retry-After (seconds) when given, else capped exponential backoff with jitter (Karotte's agent
-    loop; verifiers' ``backoff`` curve)."""
+    loop; verifiers' ``backoff`` curve). Rate limits back off from 5 s instead of 1.5 s."""
     import random
 
     headers = getattr(getattr(e, "response", None), "headers", None) or {}
     try:
         return min(float(headers.get("retry-after")), cap)
     except (TypeError, ValueError):
-        return min(min(1.5 * 2**attempt, cap) * (0.5 + random.random()), cap)
+        base = 5.0 if getattr(e, "status_code", None) == 429 else 1.5
+        return min(min(base * 2**attempt, cap) * (0.5 + random.random()), cap)
 
 
 def _approx_tokens(messages: list[dict[str, Any]]) -> int:
@@ -145,7 +154,7 @@ class _NoChoices(RuntimeError):
 
 class LLMClient:
     def __init__(self, model: str = "sim-default", *, config: Config | None = None, budget_usd: float | None = None,
-                 cache_dir: Path | None = None, cache_mode: str | None = None, timeout_s: float = 120, max_retries: int = 3,
+                 cache_dir: Path | None = None, cache_mode: str | None = None, timeout_s: float | None = None, max_retries: int = 3,
                  require_usage: bool = True):
         self.config = config or get_config()
         self.provider, self.model = self.config.model(model)
@@ -153,30 +162,56 @@ class LLMClient:
         self.cache_mode = cache_mode or os.environ.get("CRUCIBLE_LLM_CACHE", "record")
         self.cache_dir = cache_dir or (self.config.data_path() / "llm_cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.timeout_s = timeout_s
+        # read timeout per call (CRUCIBLE_LLM_TIMEOUT_S, default 600 s): reasoning models routinely think past the old fixed
+        # 120 s, which failed the call after paying for it (M2 audit); connecting still fails fast
+        self.timeout_s = float(timeout_s if timeout_s is not None else os.environ.get("CRUCIBLE_LLM_TIMEOUT_S", "600"))
         self.max_retries = max_retries
         self.require_usage = require_usage  # False: tolerate blank usage, booking an upper-bound estimate as uncertain spend
         # the served checkpoint's version (provider config), replaced by the trainer bridge on every weight update; stamped on each call's token record
         self.policy_version: int | str | None = self.provider.policy_version
         self.spend = Spend()
+        self._reserved = 0.0  # USD held by calls in flight (the hard budget counts them: see ``_reserve``)
+        self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
         self._client = None
 
     def _openai(self):
         if self._client is None:
             from openai import AsyncOpenAI
 
-            self._client = AsyncOpenAI(base_url=self.provider.base_url, api_key=resolve_secret(self.provider.api_key), timeout=self.timeout_s,
+            self._client = AsyncOpenAI(base_url=self.provider.base_url, api_key=resolve_secret(self.provider.api_key),
+                                       timeout=httpx.Timeout(self.timeout_s, connect=min(30.0, self.timeout_s)),
                                        default_headers=self.provider.headers or None, max_retries=0)
         return self._client
 
     def _key(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, params: dict[str, Any]) -> str:
         return sha256_text(json.dumps({"model": self.model, "messages": messages, "tools": tools, "params": params}, sort_keys=True, ensure_ascii=False))
 
-    def _price(self, usage: dict[str, int]) -> float:
+    def _self_hosted(self) -> bool:
+        from urllib.parse import urlparse
+
+        host = (urlparse(self.provider.base_url).hostname or "").casefold()
+        return self.provider.tito or self.provider.policy_version is not None or host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".local")
+
+    def _prices(self) -> tuple[list[float] | tuple[float, float] | None, bool]:
+        """(USD per 1M [input, output], is_fallback). No price for a self-hosted engine; a hosted model with none
+        configured gets ``prices["*"]`` or ``UNPRICED_USD_PER_M``."""
         p = self.config.prices.get(self.model)
+        if p:
+            return p, False
+        if self._self_hosted():
+            return None, False
+        return self.config.prices.get("*") or UNPRICED_USD_PER_M, True
+
+    def _price(self, usage: dict[str, int]) -> float:
+        p, fallback = self._prices()
         if not p:
             return 0.0
-        return usage.get("prompt_tokens", 0) / 1e6 * p[0] + usage.get("completion_tokens", 0) / 1e6 * p[1]
+        if fallback:
+            self.spend.unpriced_calls += 1
+        cost = usage.get("prompt_tokens", 0) / 1e6 * p[0] + usage.get("completion_tokens", 0) / 1e6 * p[1]
+        if fallback:
+            self.spend.uncertain_usd += cost
+        return cost
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 0.0,
                        max_tokens: int = 800, json_mode: bool = False, seed: int | None = 0, sample_key: str | None = None, **extra: Any) -> LLMResponse:
@@ -185,15 +220,44 @@ class LLMClient:
         params: dict[str, Any] = {"temperature": temperature, "max_tokens": max_tokens, "json": json_mode, "seed": seed, **extra}
         key = self._key(messages, tools, {**params, **({"sample": sample_key} if sample_key else {})})
         path = self.cache_dir / key[:2] / f"{key}.json"
-        if self.cache_mode in ("record", "replay") and path.exists():
-            d = json.loads(path.read_text())
+        d = self._cached(path) if self.cache_mode in ("record", "replay") else None
+        if d is not None:
             self.spend.cached_calls += 1
             return LLMResponse(text=d["text"], tool_calls=d.get("tool_calls", []), usage=d.get("usage", {}), cost_usd=0.0, model=d.get("model", self.model), cached=True,
                                raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
-        if self.spend.usd >= self.budget_usd:
-            raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent)")
+        hold = self._reserve(messages, max_tokens)
+        try:
+            return await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
+                                             seed=seed, extra=extra)
+        finally:
+            self._reserved -= hold
+
+    @staticmethod
+    def _cached(path: Path) -> dict[str, Any] | None:
+        """A cache entry, or ``None`` (a miss) when absent or unreadable: one corrupt file (a crash mid-write, before
+        writes were atomic) raised JSONDecodeError on every later run (M2 audit)."""
+        try:
+            d = json.loads(path.read_text())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError):
+            return None
+        return d if isinstance(d, dict) and isinstance(d.get("text"), str) else None
+
+    def _reserve(self, messages: list[dict[str, Any]], max_tokens: int) -> float:
+        """Check the budget and hold this call's worst-case cost until it settles. A check of money already spent let
+        40 concurrent calls through a 0.05 USD budget and spend 0.40 (M2 audit): calls in flight now count. The hold is
+        the configured price of the prompt plus ``max_tokens``, else the largest single call seen so far."""
+        p, _ = self._prices()
+        est = max((_approx_tokens(messages) / 1e6 * p[0] + max_tokens / 1e6 * p[1]) if p else 0.0, self._max_seen)
+        if self.spend.usd >= self.budget_usd or self.spend.usd + self._reserved + est > self.budget_usd + 1e-12:
+            raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent, {self._reserved:.4f} held by calls in flight)")
+        self._reserved += est
+        return est
+
+    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra) -> LLMResponse:
         if self.provider.tito:
             return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed)
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
@@ -212,9 +276,14 @@ class LLMClient:
             kwargs["extra_body"] = body
         last: Exception | None = None
         t0 = time.monotonic()
-        for attempt in range(self.max_retries):
+        try:
+            client = self._openai()
+        except Exception as e:  # a missing key or bad base URL: retrying cannot help (it was retried 3x with backoff)
+            raise LLMError(f"{self.model}: cannot build the client: {e}") from e
+        attempt, limit = 0, self.max_retries
+        while True:
             try:
-                resp = await self._openai().chat.completions.create(**kwargs)
+                resp = await client.chat.completions.create(**kwargs)
                 if not getattr(resp, "choices", None):  # OpenRouter can answer 200 with an error body and no choices
                     raise _NoChoices(f"no choices in response: {getattr(resp, 'error', None) or getattr(resp, 'model_extra', {})}")
                 break
@@ -224,14 +293,17 @@ class LLMClient:
                 text = str(e).casefold()
                 if status == 402 or (status == 429 and "insufficient_quota" in text):
                     raise BudgetExceeded(f"provider refused for credits ({status}): {e}") from e
-                if is_context_overflow(e):
+                # an overflow in a 200 error body was retried and masked as an outage (M2 audit): it is the policy's overflow
+                if is_context_overflow(e) or (isinstance(e, _NoChoices) and any(m in text for m in CONTEXT_OVERFLOW_MARKERS)):
                     raise ContextOverflow(f"{self.model}: {e}") from e
                 if status is not None and 400 <= status < 500 and status not in (408, 409, 425, 429):  # retrying cannot help
                     raise RequestRejected(f"{self.model} rejected the request ({status}): {e}") from e
-                if attempt + 1 < self.max_retries:
-                    await asyncio.sleep(_retry_delay(e, attempt))
-        else:
-            raise LLMError(f"{self.model} failed after {self.max_retries} attempts: {last}")
+                if status == 429:
+                    limit = max(limit, RATE_LIMIT_ATTEMPTS)
+                attempt += 1
+                if attempt >= limit:
+                    raise LLMError(f"{self.model} failed after {attempt} attempts: {last}") from e
+                await asyncio.sleep(_retry_delay(e, attempt - 1))
         choice = resp.choices[0]
         msg = choice.message
         calls = [{"id": tc.id, "name": tc.function.name, "arguments": _parse_arguments(tc.function.arguments)} for tc in msg.tool_calls or []]
@@ -243,7 +315,7 @@ class LLMClient:
         usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0, "completion_tokens": getattr(u, "completion_tokens", 0) or 0} if u else {}
         if u is None:  # tolerant mode (B.5 row 2): the call happened and cost something; book the worst case as uncertain
             self.spend.blank_usage_calls += 1
-            p = self.config.prices.get(self.model)
+            p, _ = self._prices()
             self.spend.uncertain_usd += (max_tokens / 1e6 * p[1] + _approx_tokens(messages) / 1e6 * p[0]) if p else 0.0
             usage = {"blank": 1}
         cost = getattr(u, "cost", None) if u else None
@@ -252,6 +324,7 @@ class LLMClient:
             cost = extra_u.get("cost")
         cost = float(cost) if cost is not None else self._price(usage)
         self.spend.usd += cost
+        self._max_seen = max(self._max_seen, cost)
         self.spend.calls += 1
         self.spend.prompt_tokens += usage.get("prompt_tokens", 0)
         self.spend.completion_tokens += usage.get("completion_tokens", 0)
@@ -261,13 +334,21 @@ class LLMClient:
         pdetails = getattr(u, "prompt_tokens_details", None) if u else None
         if pdetails is not None and getattr(pdetails, "cached_tokens", None):
             usage["cached_tokens"] = pdetails.cached_tokens
-        out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=choice.finish_reason,
+        if choice.finish_reason == "length" and not calls and not (msg.content or "").strip() and usage.get("completion_tokens") == 0:
+            # the prompt filled the window: nothing was generated (engines that answer 200 instead of a 400; M2 audit)
+            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({usage.get('prompt_tokens')} prompt tokens)")
+        finish = choice.finish_reason
+        if getattr(msg, "refusal", None) and not (msg.content or "").strip():
+            finish = "refusal"  # the provider's refusal field: a labelled end, not an empty reply
+        out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=finish,
                           raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None),
                           tokens=token_record(resp, choice, self.policy_version))
-        if self.cache_mode == "record":
+        if self.cache_mode == "record":  # atomic: a concurrent reader of the same key never sees half a file
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
-                                        "raw_message": raw_message}, ensure_ascii=False, default=str))
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(out)}.tmp")
+            tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
+                                       "raw_message": raw_message}, ensure_ascii=False, default=str))
+            os.replace(tmp, path)
         return out
 
     async def _tito_complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, temperature: float, max_tokens: int,

@@ -748,7 +748,13 @@ class World:
         results: list[ToolResult] = []
         for _ in range(MAX_INNER_TURNS):
             turn = ActorTurn(actor=actor_id, time=self._now(), inbox=inbox, tool_results=results, tools=self.tools_for(actor_id))
-            actions = await responder.respond(turn)
+            try:
+                actions = await responder.respond(turn)
+            except Exception as e:  # noqa: BLE001 - a broken simulator masks the sample; it crashed World.step and run_episode (M2 audit)
+                import traceback
+
+                self._infra("crucible:sim_failure", f"{actor_id} raised {type(e).__name__}: {e}", traceback.format_exc()[-4000:])
+                return
             inbox, results = [], []
             calls = [a for a in actions if isinstance(a, ToolCall)]
             for a in actions:

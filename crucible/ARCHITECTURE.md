@@ -471,8 +471,8 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
   - `policy.py` (wraps the harness or endpoint under test);
   - `simulated.py` (persona LLM actors);
   - `grounded.py` (responders that answer only from record spans, else "no record");
-  - `scripted.py` (CI, cron, mail delivery);
-  - `human.py`, `peer.py`;
+  - `scripted.py` (rule-based relay bots and the CI bot; timed events live in the World's scheduler);
+  - `human.py` (humans and peer agents over transports: callable, file queue, A2A);
   - `fidelity.py`.
 - **Takes:**
   - DEPEND: verifiers `UserSimEnv`; agentenv A2A agents, `peer_agents`, `deploy_human_agent`, `register_env_triggers`.

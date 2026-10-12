@@ -60,7 +60,7 @@ def test_grounding_checker():
     wrong_number = check("Keep the guard band at 4 KiB alignment [R:pr1#5].", s)
     assert not wrong_number.ok and "facts not in cited records" in wrong_number.unsupported[0].reason
     unrelated = check("The deployment pipeline uses blue green rollouts everywhere [R:pr1#5].", s)
-    assert not unrelated.ok and "overlap" in unrelated.unsupported[0].reason
+    assert not unrelated.ok and any(k in unrelated.unsupported[0].reason for k in ("overlap", "support nothing"))  # M2 audit: caught earlier now
     assert not is_factual("Thanks!") and not is_factual("Could you share the line number?") and not is_factual(NO_RECORD)
     mixed = check("Thanks. tex1Dfetch returned 0 out of range [R:pr1#3]. Also the code has 99 bugs.", s)
     assert len(mixed.unsupported) == 1 and "99" not in mixed.clean_text() and "tex1Dfetch" in mixed.clean_text()
@@ -133,8 +133,9 @@ async def test_file_queue_human(tmp_path: Path):
     async def answer_later():
         for _ in range(100):
             await asyncio.sleep(0.05)
-            if (q / "q-0001.json").exists():
-                (q / "a-0001.json").write_text(json.dumps({"text": "Use vendor B."}))
+            asked = sorted(q.glob("q-0001-*.json"))  # the question names its own answer file (M2 audit: ids, not counters)
+            if asked:
+                (q / asked[0].name.replace("q-", "a-", 1)).write_text(json.dumps({"text": "Use vendor B."}))
                 return
 
     w = World(world_spec(), store=Store(tmp_path / "s"), workdir=tmp_path / "w")
