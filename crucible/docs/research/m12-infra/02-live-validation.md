@@ -42,6 +42,15 @@ Found and fixed:
 | word-file task | 4 × A10G | Qwen3-0.6B | 2 engines + 2 FSDP | 20 / 20 | **0.44 → 1.00** (n = 96 each) | 0.52 → 1.00 | ≤ 1 | 7.3 GB |
 | word-file task | 4 × A10G | Qwen3-1.7B | 2 engines + 2 FSDP | 9 (wall clock) | 1.00 → 1.00 | 1.00 | ≤ 1 | 18.2 GB |
 
+| backlog (3 tickets) | 4 × A10G | Qwen3-1.7B | 1 engine + 3 FSDP | 4 / 4 | 0.00 → 0.00 (n = 16) | 0.00 | ≤ 1 | 14.3 GB |
+
+The backlog runs exposed three more defects:
+- B.35: mcp 2 in the vLLM image broke every SQLite World;
+- B.36: a context-length 400 crashed the driver;
+- the launcher lost the driver's traceback under NCCL dumps.
+
+All three are fixed. The tool-using backlog is beyond a 1.7B policy (0 before and after), so the learning claim needs 8B.
+
 The 1.7B run first ran out of memory at an 8192-token micro batch, although the planner said it fit (B.32). It ran
 at 4096 tokens. The runtime's default 600 s wall clock stopped it at step 9; the gate now sets its own wall clock.
 The task is already solved by 1.7B, so this run proves sharded training and publishing at that size, not learning.
@@ -144,4 +153,13 @@ ambiguity ("exactly THE yarrow" after a dropped word).
 | real-model gates on A10G × 4 (0.6B, 1.7B OOM, 1.7B) | 2.95 |
 | calibration A10G × 4 (including a failed first run) | 1.35 |
 | calibration H100 × 4 | 4.00 |
-| **total before the 8B run** | **≈ 12** |
+| first 8B attempts on H100 × 4 (planner refusal at the wrong card size; a driver crash later traced to mcp 2) | 4.90 |
+| A10G × 4 reproductions of the 8B failure (3 short runs) | 2.40 |
+| final 8B backlog run on H100 × 4, stopped at ~36 min to stay inside the budget (no result returned) | 9.50 |
+| **total** | **≈ 28.8 of 30** |
+
+The final 8B run was stopped by hand to protect the budget. The gate returned results only at the end, so nothing came
+back. The gate now streams step metrics and process logs to a Modal volume every minute (`crucible-gate-runs`), so a
+stopped or timed-out run keeps its progress. The 8B learning claim on the backlog is therefore **not** established. The
+learning claim rests on the 0.6B word-file run (0.44 → 1.00 held-out). The 8B and 1.7B runs establish only that the
+distributed stack runs at those sizes.

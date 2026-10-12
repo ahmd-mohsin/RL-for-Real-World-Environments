@@ -26,15 +26,35 @@ image = (modal.Image.from_registry("vllm/vllm-openai:latest").entrypoint([])
          .run_commands("pip install -q -e /root/crucible -e /root/crucible/packs/_toy")
          .env({"NCCL_CUMEM_ENABLE": "0", "HF_HUB_ENABLE_HF_TRANSFER": "0", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}))
 hf_cache = modal.Volume.from_name("crucible-hf-cache", create_if_missing=True)
+# per-step metrics and process logs land here as the run goes: a run stopped early (budget, timeout) keeps its progress
+# (found live: a stopped 8B run returned nothing because results only came back at the end)
+runs = modal.Volume.from_name("crucible-gate-runs", create_if_missing=True)
 app = modal.App("crucible-gate-dist")
 
 
-@app.function(image=image, gpu=os.environ.get("CRUCIBLE_GATE_GPU", "L4:4"), timeout=5400, volumes={"/root/.cache/huggingface": hf_cache})
+@app.function(image=image, gpu=os.environ.get("CRUCIBLE_GATE_GPU", "L4:4"), timeout=5400, volumes={"/root/.cache/huggingface": hf_cache, "/runs": runs})
 def run(argv: list[str]) -> dict:
     import subprocess
     import sys
+    import threading
+    import time
 
-    p = subprocess.run([sys.executable, "-m", "crucible_pack_toy.m12.gate_dist", *argv, "--out", "/work/out"], capture_output=True, text=True, check=False)
+    tag = time.strftime("%Y%m%d-%H%M%S")
+    stop = threading.Event()
+
+    def sync() -> None:  # copy the live metrics to the volume every minute
+        import shutil
+
+        while not stop.wait(60):
+            src = Path("/work/out")
+            if src.exists():
+                shutil.copytree(src, f"/runs/{tag}", dirs_exist_ok=True, ignore=shutil.ignore_patterns("ckpt", "runckpt", "*.safetensors"))
+                runs.commit()
+
+    threading.Thread(target=sync, daemon=True).start()
+    p = subprocess.run([sys.executable, "-m", "crucible_pack_toy.m12.gate_dist", *argv, "--out", "/work/out", "--sinks", "jsonl:/work/out/metrics"],
+                       capture_output=True, text=True, check=False)
+    stop.set()
     print(p.stdout[-4000:])
     if p.returncode:
         print(p.stderr[-6000:])

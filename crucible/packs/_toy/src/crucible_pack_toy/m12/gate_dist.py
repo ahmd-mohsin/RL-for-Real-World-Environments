@@ -77,6 +77,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
     from crucible.train.engine import EnginePool, GenRequest
     from crucible.train.runtime import Runtime, RuntimeConfig
     from crucible.train.scheduler import SchedulerConfig
+    from crucible.train.sinks import from_spec
     from crucible.train.spmd import SPMDDriver
     from crucible.train.vllm_http import VLLMServerEngine
     from crucible.train.weights import CheckpointPublisher
@@ -128,6 +129,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
     before = await evaluate("before") if a["eval"] else None
     rt = Runtime(RuntimeConfig(topology="disaggregated_stream", steps=a["steps"], max_turn_tokens=a["max_tokens"], temperature=1.0,
                                stop_ids=tuple(codec.eos_ids), warmup_batches=0, checkpoint_every=a["checkpoint_every"], max_wall_s=a["max_wall_s"],
+                               sinks=from_spec(a["sinks"]) if a["sinks"] else [],
                                checkpoint_dir=str(Path(a["out"]) / "runckpt")),
                  SchedulerConfig(n=a["n"], B=a["B"], max_staleness=a["tau"]), pool, drv, pub, None, {a["task"]: [f"s{i}" for i in range(100000)]},
                  rollout_fn=rollout, harness="native:world-qwen@1")
@@ -211,6 +213,7 @@ def main() -> None:
     ap.add_argument("--checkpoint-every", dest="checkpoint_every", type=int, default=10)
     ap.add_argument("--max-wall-s", dest="max_wall_s", type=float, default=7200.0)
     ap.add_argument("--task", choices=["wordfile", "backlog"], default="wordfile")
+    ap.add_argument("--sinks", default="", help="train.sinks spec, e.g. jsonl:DIR (step metrics as the run goes)")
     ap.add_argument("--tickets", type=int, default=3)
     ap.add_argument("--params-b", dest="params_b", type=float, default=0.6, help="model size for the planner")  # the runtime's default (600 s) stopped a 1.7B run at step 9
     ap.add_argument("--out", default="/work/out")
