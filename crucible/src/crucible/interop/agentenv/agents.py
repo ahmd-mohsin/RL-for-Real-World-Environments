@@ -59,7 +59,8 @@ def _text(result: Any) -> str:
 class LLMToolAgent(AgentEnvAgent):
     async def run(self, request: TaskRequest[LLMToolAgentConfig]) -> TaskResult:
         from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
+
+        from crucible.world.packaging.mcp_compat import http_streams, mcp_field
 
         cfg = request.config
         if not (cfg.llm_base_url and cfg.model):
@@ -72,11 +73,11 @@ class LLMToolAgent(AgentEnvAgent):
         trajectory: list[dict[str, Any]] = []
         usage = {"in": 0, "out": 0, "tools": 0}
         final = ""
-        async with streamablehttp_client(srv["url"], headers=srv.get("headers") or {}) as (rd, wr, _), ClientSession(rd, wr) as session:
+        async with http_streams(srv["url"], headers=srv.get("headers") or {}, timeout_s=30.0, read_timeout_s=300.0) as (rd, wr), ClientSession(rd, wr) as session:
             await session.initialize()
             listed = (await session.list_tools()).tools
             tools = [{"type": "function", "function": {"name": t.name, "description": (t.description or "")[:1000],
-                                                       "parameters": t.inputSchema or {"type": "object", "properties": {}}}} for t in listed]
+                                                       "parameters": mcp_field(t, "inputSchema") or {"type": "object", "properties": {}}}} for t in listed]
             messages: list[dict[str, Any]] = [{"role": "system", "content": cfg.system_prompt or SYSTEM}, {"role": "user", "content": prompt}]
             headers = {"authorization": f"Bearer {cfg.llm_api_key}"} if cfg.llm_api_key else {}
             async with httpx.AsyncClient(timeout=300) as http:

@@ -17,6 +17,7 @@ from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.world.exec import safe_environ
+from crucible.world.packaging.mcp_compat import mcp_field  # mcp 1.x / 2.x field names
 from crucible.world.packaging.mcp_tools import _content_text
 
 
@@ -58,10 +59,9 @@ class PersistentMcpSession:
             async with stdio_client(params) as (r, w):
                 yield r, w
         else:
-            import httpx
-            from mcp.client.streamable_http import streamable_http_client
+            from crucible.world.packaging.mcp_compat import http_streams
 
-            async with httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s)) as http, streamable_http_client(self.url, http_client=http) as (r, w, _):
+            async with http_streams(self.url, headers=self.headers, timeout_s=self.timeout_s) as (r, w):
                 yield r, w
 
     async def _run(self) -> None:
@@ -99,7 +99,7 @@ class PersistentMcpSession:
 
     async def list_tools(self, app: str) -> list[ToolSpec]:
         res = await self._call("list_tools")
-        return sorted((ToolSpec(app=app, name=t.name, description=t.description or t.name, input_schema=t.inputSchema or {"type": "object", "properties": {}},
+        return sorted((ToolSpec(app=app, name=t.name, description=t.description or t.name, input_schema=mcp_field(t, "inputSchema") or {"type": "object", "properties": {}},
                                 read_only=bool(getattr(t, "annotations", None) and getattr(t.annotations, "readOnlyHint", False)))
                        for t in res.tools), key=lambda t: t.name)
 
@@ -110,8 +110,8 @@ class PersistentMcpSession:
         except Exception as e:  # noqa: BLE001
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{name}", ok=False, content=f"transport error: {e}", error="transport",
                               duration_s=time.monotonic() - t0)
-        return ToolResult(tool_call_id=call_id, function_name=f"{app}.{name}", ok=not res.isError, content=_content_text(res.content),
-                          data=res.structuredContent, error="tool_error" if res.isError else None, duration_s=time.monotonic() - t0)
+        return ToolResult(tool_call_id=call_id, function_name=f"{app}.{name}", ok=not mcp_field(res, "isError"), content=_content_text(res.content),
+                          data=mcp_field(res, "structuredContent"), error="tool_error" if mcp_field(res, "isError") else None, duration_s=time.monotonic() - t0)
 
     async def stop(self) -> None:
         if self._task is None:

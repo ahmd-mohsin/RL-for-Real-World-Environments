@@ -8,8 +8,10 @@ the command before running it; ``follow`` is the loop on every other rank: recei
 (``step`` receives its batch from ``src`` through ``broadcast_batch``), until ``stop``. Anything else the runtime reads
 (``cfg``, ``updates``, ``model``) passes through.
 
-Commands are small pickled lists on the trainer's process group; the batch rides the trainer's own broadcast, so the
-driver adds one tiny collective per call.
+Commands are small pickled lists on a dedicated **gloo** group with a long timeout (``command_group``): followers wait
+there, on the CPU, while the driver does anything that is not training (rollouts, evaluation). Waiting inside an NCCL
+collective instead would spin a GPU and trip NCCL's 10-minute watchdog whenever the driver's non-training work runs long.
+The batch still rides the trainer's own broadcast, so the driver adds one tiny CPU collective per call.
 """
 
 from __future__ import annotations
@@ -22,13 +24,23 @@ from crucible.core.schema.rollout import RolloutRecord
 COMMANDS = ("step", "state_dict", "reset_optimizer", "offload", "onload", "save_sharded", "load_sharded", "stop")
 
 
+def command_group(group: Any = None, *, timeout_s: float = 7 * 24 * 3600) -> Any:
+    """A gloo group over the trainer group's ranks for commands (a collective: every rank calls it, in the same order)."""
+    from datetime import timedelta
+
+    import torch.distributed as dist
+
+    ranks = None if group is None else dist.get_process_group_ranks(group)
+    return dist.new_group(ranks=ranks, backend="gloo", timeout=timedelta(seconds=timeout_s))
+
+
 class SPMDDriver:
     def __init__(self, trainer: Any, *, group: Any = None, src: int = 0):
         import torch.distributed as dist
 
         if not getattr(trainer, "broadcast_batch", False):
             raise ValueError("SPMDDriver needs the trainer built with broadcast_batch=True (the followers receive the batch)")
-        self.__dict__.update(trainer=trainer, _dist=dist, _group=group, _src=src, calls={c: 0 for c in COMMANDS})
+        self.__dict__.update(trainer=trainer, _dist=dist, _group=command_group(group), _src=src, calls={c: 0 for c in COMMANDS})
 
     def _send(self, cmd: str, *args: Any) -> None:
         self._dist.broadcast_object_list([cmd, list(args)], src=self._src, group=self._group)
@@ -73,6 +85,7 @@ def follow(trainer: Any, *, group: Any = None, src: int = 0) -> dict[str, int]:
     """The loop on a non-driver rank: run each broadcast command until ``stop``; returns the command counts."""
     import torch.distributed as dist
 
+    group = command_group(group)
     counts = {c: 0 for c in COMMANDS}
     while True:
         box: list[Any] = [None, None]

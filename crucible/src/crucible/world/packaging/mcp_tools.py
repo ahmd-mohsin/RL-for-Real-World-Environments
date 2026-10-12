@@ -66,11 +66,25 @@ def envelope_error(structured: Any, content: str) -> str | None:
     return None
 
 
+def _tool_class() -> tuple[Any, bool]:
+    """The MCP SDK's function-tool class: mcp 1.x ``fastmcp`` or mcp 2.x ``mcpserver`` (FastMCP renamed to MCPServer;
+    ``run`` takes a context and returns a ``CallToolResult``). Found live: the vLLM image ships mcp 2, and every World
+    with a ``common/sqlite_app`` failed to start there; the ``verifiers`` extra pins mcp 2 as well."""
+    try:
+        from mcp.server.fastmcp.tools.base import Tool
+
+        return Tool, False
+    except ImportError:  # mcp 2.x: the fastmcp shim module raises on import
+        from mcp.server.mcpserver.tools.base import Tool
+
+        return Tool, True
+
+
 class InProcessToolModule:
-    """All public functions of one tools file, as FastMCP Tools, called in this process."""
+    """All public functions of one tools file, as MCP SDK function Tools (mcp 1.x or 2.x), called in this process."""
 
     def __init__(self, app: str, tools_path: str | Path, *, server_name: str | None = None, env: Any = None):
-        from mcp.server.fastmcp.tools.base import Tool
+        Tool, self._mcp2 = _tool_class()
 
         self.app = app
         self.path = Path(tools_path).resolve()
@@ -103,9 +117,15 @@ class InProcessToolModule:
         if tool is None:
             return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=f"Unknown tool: {name}", error="unknown_tool")
         try:
-            result = await tool.run(args, convert_result=True)
+            if self._mcp2:
+                r = await tool.run(args, None, convert_result=True)
+                result = (list(r.content), r.structured_content)
+            else:
+                result = await tool.run(args, convert_result=True)
         except Exception as e:  # noqa: BLE001 - FastMCP surfaces tool exceptions as isError text; mirror that exactly
             orig = e.__cause__ or e
+            if orig is not e and str(orig) and str(orig) not in str(e):  # mcp 2 keeps the reason on the cause only
+                e = type(e)(f"{e}: {orig}")
             if isinstance(orig, BUG_EXCEPTIONS):  # a programming bug in the environment, not a domain answer: mask, don't score
                 return ToolResult(tool_call_id=call_id, function_name=f"{self.app}.{name}", ok=False, content=f"internal error in {self.app}.{name}",
                                   error="internal_error", fault="infra", duration_s=time.monotonic() - t0)

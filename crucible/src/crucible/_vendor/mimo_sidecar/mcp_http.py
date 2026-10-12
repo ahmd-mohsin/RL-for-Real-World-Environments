@@ -339,8 +339,40 @@ def _first_line(doc: str | None) -> str:
 
 # ─────────────────────────── FastMCP HTTP server ───────────────────────────
 
+def _surface_errors(fn):  # [crucible] mcp 2.x: re-raise as ToolError so "no ticket 99" reaches the policy, as in mcp 1.x
+    import inspect
+
+    from mcp.server.mcpserver.tools.base import ToolError
+
+    if inspect.iscoroutinefunction(fn):
+        async def wrapped(*a, **k):
+            try:
+                return await fn(*a, **k)
+            except ToolError:
+                raise
+            except Exception as e:
+                raise ToolError(str(e) or type(e).__name__) from e
+    else:
+        def wrapped(*a, **k):
+            try:
+                return fn(*a, **k)
+            except ToolError:
+                raise
+            except Exception as e:
+                raise ToolError(str(e) or type(e).__name__) from e
+    wrapped.__name__, wrapped.__doc__ = fn.__name__, fn.__doc__
+    wrapped.__signature__ = inspect.signature(fn)  # the schema comes from the signature; no __wrapped__ (see _wrap_capped)
+    wrapped.__annotations__ = dict(getattr(fn, "__annotations__", {}))
+    return wrapped
+
+
 def serve(server_name: str, tools_path: Path, port: int, host: str = "127.0.0.1") -> None:  # [crucible] host param
-    from mcp.server.fastmcp import FastMCP
+    try:  # [crucible] mcp 1.x (FastMCP) or mcp 2.x (MCPServer: host and port move to run())
+        from mcp.server.fastmcp import FastMCP
+        mcp2 = False
+    except ImportError:
+        from mcp.server.mcpserver import MCPServer as FastMCP
+        mcp2 = True
 
     module = _load_tools_module(tools_path)
     fns = _public_functions(module)
@@ -349,14 +381,20 @@ def serve(server_name: str, tools_path: Path, port: int, host: str = "127.0.0.1"
               file=sys.stderr)
         sys.exit(1)
 
-    mcp = FastMCP(server_name, host=host, port=port)  # [crucible] was host="0.0.0.0"
+    mcp = FastMCP(server_name) if mcp2 else FastMCP(server_name, host=host, port=port)  # [crucible] was host="0.0.0.0"
     for name, fn in fns:
-        mcp.add_tool(_wrap_capped(fn), name=name,
+        tool_fn = _wrap_capped(fn)
+        if mcp2:  # [crucible] mcp 2 hides a tool exception's message unless it is a ToolError: surface domain errors
+            tool_fn = _surface_errors(tool_fn)
+        mcp.add_tool(tool_fn, name=name,
                      description=_first_line(fn.__doc__) or name)
 
     print(f"[mcp_http] server={server_name} tools={len(fns)} port={port} "
           f"src={tools_path}", file=sys.stderr)
-    mcp.run(transport="streamable-http")
+    if mcp2:  # [crucible]
+        mcp.run(transport="streamable-http", host=host, port=port)
+    else:
+        mcp.run(transport="streamable-http")
 
 
 # ─────────────────────────── CLI ───────────────────────────

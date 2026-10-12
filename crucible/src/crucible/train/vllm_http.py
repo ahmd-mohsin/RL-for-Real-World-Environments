@@ -82,7 +82,13 @@ class VLLMServerEngine:
             raise
         finally:
             self._tasks.pop(rid, None)
-        r.raise_for_status()
+        if r.status_code == 400 and any(k in r.text.lower() for k in ("maximum context length", "context length", "too long", "max_model_len",
+                                                                          "maximum model length")):
+            # the prompt plus max_tokens exceeds the engine's model length: the episode ends truncated (a "length" finish
+            # with no tokens), as any over-long context does; found live: it crashed a backlog run's driver as an HTTP error
+            return GenResult([], [], version, "length", None, len(req.prompt_ids))
+        if r.status_code >= 400:
+            raise RuntimeError(f"vLLM {r.status_code} on /v1/completions: {r.text[:600]}")  # the server's reason, not just the status
         ch = r.json()["choices"][0]
         ids = list(ch.get("token_ids") or [])
         lps = list(((ch.get("logprobs") or {}).get("token_logprobs")) or [])

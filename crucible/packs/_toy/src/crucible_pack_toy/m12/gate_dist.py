@@ -102,6 +102,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
     async def evaluate(tag: str) -> dict:
         sem = asyncio.Semaphore(32)
         rewards: list[float] = []
+        failed: list[str] = []
 
         async def one(i: int, j: int) -> None:
             rid, calls = f"eval-{tag}-{i}-{j}", [0]
@@ -112,13 +113,17 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
                                                       stop_ids=tuple(codec.eos_ids), seed=None))
 
             async with sem:
-                ro = await rollout(rid, f"s{1_000_000 + i}", j, gen, temperature=1.0, harness="eval")
+                try:
+                    ro = await rollout(rid, f"s{1_000_000 + i}", j, gen, temperature=1.0, harness="eval")
+                except Exception as e:  # noqa: BLE001 -- an evaluation episode that fails is masked, as the runtime does, never fatal
+                    failed.append(f"{type(e).__name__}: {e}"[:300])
+                    return
             if ro is not None and ro.reward is not None:
                 rewards.append(float(ro.reward))
 
         await asyncio.gather(*(one(i, j) for i in range(a["eval"]) for j in range(4)))
         n = len(rewards)
-        return {"mean": sum(rewards) / n if n else None, "n": n, "version": engines[0].version}
+        return {"mean": sum(rewards) / n if n else None, "n": n, "version": engines[0].version, "failed": len(failed), "failures": failed[:3]}
 
     before = await evaluate("before") if a["eval"] else None
     rt = Runtime(RuntimeConfig(topology="disaggregated_stream", steps=a["steps"], max_turn_tokens=a["max_tokens"], temperature=1.0,

@@ -2538,6 +2538,11 @@ Across 24 seed and topology runs, no trained rollout exceeds τ.
   
   Five live games now reach a terminal, zero-sum state with no refused moves.
 
+- **B.35.** MCP SDK 2.x (shipped in the vLLM image; pinned by the `verifiers` extra) broke every `common/sqlite_app` World there: FastMCP was renamed, `Tool.run` takes a context, results became objects, fields went snake_case, the streamable-HTTP client yields two streams over `httpx2`, `call_tool` timeouts became seconds, and tool exceptions are hidden unless raised as `ToolError`. `world/packaging/mcp_compat.py` (`http_streams`, `mcp_field`, `call_timeout`) plus version branches in the in-process module and the vendored server make the in-process path, the HTTP server and every client work on both 1.x and 2.x. The suite was run on both.
+- **B.36.** Two defects surfaced on the way, found live on Modal:
+  - a vLLM 400 for an over-long context crashed a driver as an HTTP error; it is now a `length` finish (the episode ends truncated), and other engine errors carry the server's reason;
+  - the SPMD command channel waited inside NCCL, where a long non-training phase would trip the 10-minute watchdog; it now uses its own gloo group with a long timeout.
+
 **M12 records for games, control and vision (2026-10-11).**
 - **Games.** A turn-based multi-agent World trains as one `crucible.rollout/v1` record per trained seat (`train/seats.py`, `world_rollout(seats=SeatConfig)`).
   - Each record holds that seat's turns only, with `RolloutRecord.actor` set and the seat's own outcome from the game App. A missing outcome is masked, never scored 0.

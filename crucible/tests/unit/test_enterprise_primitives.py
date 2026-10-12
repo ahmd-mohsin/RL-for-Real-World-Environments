@@ -321,6 +321,10 @@ async def test_identity_headers_reach_an_http_mcp_server(tmp_path):
 
     pytest.importorskip("mcp")
     pytest.importorskip("uvicorn")
+    from crucible.world.packaging.mcp_compat import mcp_major
+
+    if mcp_major() != 1:
+        pytest.skip("the fixture server (WHO_SERVER) is written against the mcp 1.x FastMCP Context API")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]

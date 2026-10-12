@@ -28,17 +28,20 @@ import json
 import os
 import sys
 
+from crucible.world.packaging.mcp_compat import mcp_field  # mcp 1.x / 2.x field names  # [crucible]
+
 ONESHOT_MARKER = "__MCP_ONESHOT__"
 
 
 async def run_bridge(url: str, server_name: str) -> None:
     from mcp.client.session import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
     from mcp.types import TextContent
 
-    async with streamablehttp_client(url, timeout=120) as (read_remote, write_remote, _):
+    from crucible.world.packaging.mcp_compat import http_streams  # [crucible] mcp 1.x / 2.x
+
+    async with http_streams(url, timeout_s=120, read_timeout_s=300) as (read_remote, write_remote):  # [crucible]
         async with ClientSession(read_remote, write_remote) as client:
             await client.initialize()
 
@@ -93,9 +96,10 @@ def _content_to_text(result) -> str:
 
 async def run_list(url: str) -> None:
     from mcp.client.session import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
 
-    async with streamablehttp_client(url, timeout=120) as (r, w, _):
+    from crucible.world.packaging.mcp_compat import http_streams  # [crucible] mcp 1.x / 2.x
+
+    async with http_streams(url, timeout_s=120, read_timeout_s=300) as (r, w):  # [crucible]
         async with ClientSession(r, w) as client:
             await client.initialize()
             resp = await client.list_tools()
@@ -103,7 +107,7 @@ async def run_list(url: str) -> None:
                 {
                     "name": t.name,
                     "description": t.description or "",
-                    "inputSchema": t.inputSchema or {"type": "object", "properties": {}},
+                    "inputSchema": mcp_field(t, "inputSchema") or {"type": "object", "properties": {}},
                 }
                 for t in resp.tools
             ]
@@ -112,9 +116,10 @@ async def run_list(url: str) -> None:
 
 async def run_call(url: str, fn: str, arguments: dict) -> None:
     from mcp.client.session import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
 
-    async with streamablehttp_client(url, timeout=120) as (r, w, _):
+    from crucible.world.packaging.mcp_compat import http_streams  # [crucible] mcp 1.x / 2.x
+
+    async with http_streams(url, timeout_s=120, read_timeout_s=300) as (r, w):  # [crucible]
         async with ClientSession(r, w) as client:
             await client.initialize()
             result = await client.call_tool(fn, arguments or {})

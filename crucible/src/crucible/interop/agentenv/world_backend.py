@@ -261,11 +261,11 @@ class AgentEnvBackend(Backend):
 
         async def hold() -> None:
             from mcp.client.session import ClientSession
-            from mcp.client.streamable_http import streamable_http_client
+
+            from crucible.world.packaging.mcp_compat import http_streams
 
             async with (
-                httpx.AsyncClient(headers={ROLE_HEADER: EXECUTOR_ROLE}, timeout=None) as http,
-                streamable_http_client(f"{self.gateway_url}/mcp", http_client=http) as (r, w, _),
+                http_streams(f"{self.gateway_url}/mcp", headers={ROLE_HEADER: EXECUTOR_ROLE}, timeout_s=None) as (r, w),
                 ClientSession(r, w) as session,
             ):
                 await session.initialize()

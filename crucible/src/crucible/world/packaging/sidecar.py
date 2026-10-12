@@ -22,6 +22,7 @@ from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.world.exec import safe_environ, spawn_logged
+from crucible.world.packaging.mcp_compat import mcp_field  # mcp 1.x / 2.x field names
 from crucible.world.packaging.mcp_tools import _content_text
 
 
@@ -45,13 +46,12 @@ class McpClient:
 
     @contextlib.asynccontextmanager
     async def _session(self):
-        import httpx
         from mcp.client.session import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
+
+        from crucible.world.packaging.mcp_compat import http_streams
 
         async with (
-            httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(self.timeout_s, read=self.timeout_s * 5)) as http,
-            streamable_http_client(self.url, http_client=http) as (r, w, _),
+            http_streams(self.url, headers=self.headers, timeout_s=self.timeout_s, read_timeout_s=self.timeout_s * 5) as (r, w),
             ClientSession(r, w) as session,
         ):
             await session.initialize()
@@ -61,26 +61,26 @@ class McpClient:
         async with self._session() as s:
             res = await s.list_tools()
         return sorted(
-            (ToolSpec(app=app, name=t.name, description=t.description or t.name, input_schema=t.inputSchema or {"type": "object", "properties": {}}) for t in res.tools),
+            (ToolSpec(app=app, name=t.name, description=t.description or t.name, input_schema=mcp_field(t, "inputSchema") or {"type": "object", "properties": {}}) for t in res.tools),
             key=lambda t: t.name,
         )
 
     async def call(self, app: str, name: str, args: dict[str, Any], *, call_id: str) -> ToolResult:
-        from datetime import timedelta
+        from crucible.world.packaging.mcp_compat import call_timeout
 
         t0 = time.monotonic()
         try:
             async with self._session() as s:
-                res = await s.call_tool(name, args, read_timeout_seconds=timedelta(seconds=self.timeout_s))
+                res = await s.call_tool(name, args, read_timeout_seconds=call_timeout(self.timeout_s))
         except Exception as e:  # noqa: BLE001 - httpx, anyio and MCP errors all mean the same thing to the caller: the server is unreachable
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{name}", ok=False, content=f"transport error: {e}", error="transport", duration_s=time.monotonic() - t0)
         return ToolResult(
             tool_call_id=call_id,
             function_name=f"{app}.{name}",
-            ok=not res.isError,
+            ok=not mcp_field(res, "isError"),
             content=_content_text(res.content),
-            data=res.structuredContent,
-            error="tool_error" if res.isError else None,
+            data=mcp_field(res, "structuredContent"),
+            error="tool_error" if mcp_field(res, "isError") else None,
             duration_s=time.monotonic() - t0,
         )
 
