@@ -52,6 +52,15 @@ class WorkflowTracker:
         checkpoint = final or (step is not None and step.kind in CHECKPOINT_KINDS) or (self.every and len(self.history) % self.every == 0)
         return {m.id for m in self.graph.milestones if m.cost == "cheap" or (m.cost == "medium" and checkpoint) or (m.cost == "expensive" and final)}
 
+    async def start(self, view: StateView) -> float:
+        """Evaluate the state before any step (s0), so a milestone already true there is not credited to the first
+        step (M5 audit: Φ(s0) was taken as 0)."""
+        fresh = await evaluate(self.graph.milestones, view)
+        self.phis.update({k: v for k, v in fresh.items() if v is not None})
+        self.prev_phi, _ = potential(self.graph.milestones, self.phis)
+        self.prev_set = credited(self.graph.milestones, self.phis)
+        return self.prev_phi
+
     async def observe(self, step: Step | None, view: StateView, *, final: bool = False) -> TrackerState:
         due = self._due(step, final)
         fresh = await evaluate([m for m in self.graph.milestones if m.id in due], view)
@@ -61,8 +70,8 @@ class WorkflowTracker:
         stage = stage_of(self.model, self.graph.milestones, self.phis, done_share=self.done_share)
         names = {s.index: s.name for s in self.graph.stages}
         cur = next((s for s in self.graph.stages if s.index == stage), None)
-        nxt = [m for m in (cur.milestones if cur else []) if m not in now
-               and all((self.phis.get(p) or 0) >= 1 for p in next(x.requires for x in self.graph.milestones if x.id == m))]
+        req = {x.id: x.requires for x in self.graph.milestones}
+        nxt = [m for m in (cur.milestones if cur else []) if m not in now and all((self.phis.get(p) or 0) >= 1 for p in req.get(m, []))]
         dev = [f"regressed:{m}" for m in sorted(self.prev_set - now)]
         if step is not None and step.data.get("probes"):
             dev += [f"probe:{p['kind']}" for p in step.data["probes"]]
@@ -73,8 +82,11 @@ class WorkflowTracker:
         self.history.append(st)
         return st
 
-    async def run(self, steps: Sequence[Step], views: Sequence[StateView]) -> list[TrackerState]:
-        """Offline: track a recorded trace, one state view per step (the state after it)."""
+    async def run(self, steps: Sequence[Step], views: Sequence[StateView], *, base: StateView | None = None) -> list[TrackerState]:
+        """Offline: track a recorded trace, one state view per step (the state after it); ``base``: the state before
+        the first step."""
+        if base is not None:
+            await self.start(base)
         for i, (s, v) in enumerate(zip(steps, views, strict=True)):
             await self.observe(s, v, final=i == len(steps) - 1)
         return self.history

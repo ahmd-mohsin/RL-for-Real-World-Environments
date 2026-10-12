@@ -69,8 +69,13 @@ def states(trace: Trace, *, case: str | None = None, fields: Sequence[str] = VAL
     cur: dict[str, Any] = {}
     out = []
     for e in trace.events:
+        args = e.data.get("arguments") if isinstance(e.data.get("arguments"), dict) else None
         for w in e.data.get("writes") or []:
-            cur[w] = value_of(e.data, e.type, fields)
+            obj_field = w.split(":", 1)[-1]
+            if args is not None and "." in obj_field and obj_field.rsplit(".", 1)[-1] in args:
+                cur[w] = args[obj_field.rsplit(".", 1)[-1]]  # a World App call: the value it wrote (M5 audit: the event type was stored)
+            else:
+                cur[w] = value_of(e.data, e.type, fields)
         if effects is not None:
             cur.update(effects(e))
         out.append((e.seq, LogStateView(objects=dict(cur), case=case)))

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from crucible.core.schema.base import CrucibleModel, VersionedDocument
 from crucible.core.schema.milestone import Milestone
@@ -35,6 +35,23 @@ class WorkflowGraph(VersionedDocument):
     verdicts: dict[str, dict[str, Any]] = Field(default_factory=dict)  # milestone -> filter checks + kept/reason
     sources: list[str] = Field(default_factory=list)  # trace ids mined from
     stats: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _valid(self) -> WorkflowGraph:
+        """The ``MilestoneSet`` rules (M5 audit: a weight of -1 gave Φ = -1, an unknown prerequisite zeroed a milestone
+        forever, and a stage naming an unknown milestone crashed the tracker)."""
+        ids = {m.id for m in self.milestones}
+        if len(ids) != len(self.milestones):
+            raise ValueError("duplicate milestone ids")
+        for m in self.milestones:
+            if not m.weight > 0:
+                raise ValueError(f"milestone {m.id} has weight {m.weight}; weights must be > 0")
+            if bad := [r for r in m.requires if r not in ids]:
+                raise ValueError(f"milestone {m.id} requires unknown milestones {bad}")
+        for st in self.stages:
+            if bad := [x for x in st.milestones if x not in ids]:
+                raise ValueError(f"stage {st.index} names unknown milestones {bad}")
+        return self
 
     @classmethod
     def build(cls, family: str, milestones: list[Milestone], model: StageModel, **kw: Any) -> WorkflowGraph:

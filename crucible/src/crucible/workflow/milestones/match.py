@@ -39,8 +39,9 @@ def match(milestones: list[Milestone], series: PhiSeries) -> Match:
                 if all(p in out.achieved and out.achieved[p] <= t for p in pre[m.id]):
                     out.achieved[m.id] = t
                     progressed = True
-                else:
-                    out.out_of_order.setdefault(m.id, t)
+        for m in milestones:  # held at t but still not achieved once this row is settled: before its prerequisites
+            if m.id not in out.achieved and (row.get(m.id) or 0) >= 1.0:
+                out.out_of_order.setdefault(m.id, t)
         for mid, t0 in out.achieved.items():
             if t > t0 and mid not in out.regressed and row.get(mid) is not None and (row.get(mid) or 0) < 1.0:
                 out.regressed[mid] = t

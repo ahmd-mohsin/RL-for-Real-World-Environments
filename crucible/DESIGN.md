@@ -432,8 +432,8 @@ Segment traces into steps and stages, then mine the family-level Workflow Graph.
 - **Event-log state** (tickets, ERP rows) is rebuilt from `writes` and replays every recorded check.
 - **Milestones** are mined from diffs (constructs removed or added, the expert's block changed, files created or deleted), from CI (fail-to-pass per step) and from signals, then filtered and matched to steps along prerequisites (ToolSandbox's DAG-matcher pattern).
 - **Stages** are layers of a ≥ 90% precedence graph.
-- **The tracker** reports stage, Φ, milestones gained and lost, the next expected milestones and deviations; κ = 0.87 against manual stage labels (toy).
-- **Rediscovery**, on 55 PCL GPU PRs, audited: build, API removal, edge semantics and concurrency come from code; perf only from review comments; **bit-exactness is not rediscovered**. It comes from reference-differential checks (§7.1), a source upstream history does not contain, so that source is required for any family whose tasks grade exactness.
+- **The tracker** reports stage, Φ, milestones gained and lost, the next expected milestones and deviations; κ = 0.87 against manual stage labels (toy, with the pack's monotone threshold 0.6; 0.28 at the default 0.9).
+- **Rediscovery**, on 55 PCL GPU PRs, every family hand-audited (M5 audit): build, API removal and concurrency come from code; perf only from review comments; **edge semantics (one genuine PR) and bit-exactness are not rediscovered**. Bit-exactness comes from reference-differential checks (§7.1), a source upstream history does not contain, so that source is required for any family whose tasks grade exactness.
 
 ---
 
@@ -2763,6 +2763,15 @@ paths and respects the App; business-App calls record the records they change; a
 rejections without a pack mapper; CI logs have a mapper. The toy pack's labels are scored for the first time. A revert
 is never the "chosen" side of a preference pair. Details: `docs/audit/2026-10-12/M04-signals.md`.
 
+**M5 audit (2026-10-12).** Before it, every locally cloned framework and dataset was read again for M5-M7 and the best
+picked (`docs/audit/2026-10-12/M05-M07-study-sweep.md`). Replay now fails closed: every path the shared write detector
+names is applied or reported, nothing is guessed (`git restore --staged`, `mv f dir`, conditionals, `printf`, expanding
+here-docs), refused edits are skipped, and files an unreplayed command wrote are stale, so milestones on them are
+unmeasured rather than scored on the wrong content. Mined coding milestones are measurable on a live World (the fs
+adapter's grep takes `paths`, and `block_changed` exists there). Mining keeps C pointer lines, skips prose and forward
+declarations, and CI mining counts added tests. Rediscovery is 4 of 6 families with every family hand-audited (it was
+reported as 5 of 6). S1 is 0.919 on the audited replayer. Details: `docs/audit/2026-10-12/M05-workflow.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
@@ -2929,7 +2938,7 @@ Registry check: A3, mutation score.
 | Defect / finding | Where it bites | Check |
 |---|---|---|
 | The editor classifier read JSON-string arguments as empty, so a `view` counted as an edit | segmentation over-counts edits | `test_workflow.py` |
-| A keyword family table matched substrings ("round" in "stereo_ground", "stream" in "PointStream") | rediscovery reported 6/6 families that were not there | construct-only matching plus a hand audit (`m5_rediscovery.json`) |
+| A keyword family table matched substrings ("round" in "stereo_ground", "stream" in "PointStream") | rediscovery reported 6/6 families that were not there | construct-only matching plus a hand audit (`m5_rediscovery.json`). The M5 audit found the "5 of 6" that followed still counted block names and added APIs and audited two families: 4 of 6 |
 | Blocks in brace languages were cut at the anchor line; comment lines anchored blocks; token novelty ignored comments that grep counts | "located" milestones never fired on C/C++; the oracle's own Φ was 0.69 | R1–R6 on the real tasks (`m6_properties_coding.json`) |
 | Agents edit through `rm`/`mv`/here-docs/`git checkout <file>`; harnesses write files themselves | replay reproduced 21/100 traces | shell-effect replay plus byproduct accounting (99/100 agent state) |
 | `LLMToolPolicy` treated a cut-off reply as done and pinned seed 0 when sampling | long-horizon episodes end early; C3 branches near-identical | cut-off nudge, `seed=None` when temperature > 0 |

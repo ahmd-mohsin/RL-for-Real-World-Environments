@@ -1,7 +1,7 @@
 """M5/M6 evaluation on SWE-rebench OpenHands trajectories (held-out, public; see ``corpora/swe_rebench.py``).
 
 For each sampled issue: mine solution-first milestones from the gold patch (source files only; tests excluded);
-for each attempt: replay its edits (M5 replay test; quarantined attempts are excluded and counted); evaluate every
+for each attempt (milestones filtered for non-triviality since the M5 audit; the cached rows predate it): replay its edits (M5 replay test; quarantined attempts are excluded and counted); evaluate every
 milestone on the reconstructed state at 25/50/75/100% of the attempt's tool calls. One JSONL row per attempt is
 cached (``data/m56/rebench_phi.jsonl``), so the M6 analyses (time-split type weights, Φ vs judge AUC) re-run cheaply.
 
@@ -23,7 +23,7 @@ from typing import Any
 from crucible.workflow.filestate import FileState
 from crucible.workflow.milestones.evaluate import FileStateView, evaluate
 from crucible.workflow.milestones.mine import from_diff
-from crucible.workflow.replay import EditReplayer
+from crucible.workflow.replay import EditReplayer, replay_version
 from crucible_pack_coding.corpora import swe_rebench as S
 
 OUT = S.DATA.parent.parent.parent / "m56"
@@ -54,7 +54,8 @@ async def attempt(rec: dict[str, Any], meta: dict[str, Any], milestones: list) -
     calls = [e.seq for e in tr.events if e.type == "tool_call"]
     row: dict[str, Any] = {"trajectory_id": rec["trajectory_id"], "instance_id": meta["instance_id"], "repo": meta["repo"],
                            "created_at": str(meta["created_at"]), "resolved": rec["resolved"], "n_calls": len(calls),
-                           "replay_strict": rr.ok, "replay_agent_state": bool(rr.meta.get("ok_agent_state")), "phi": {}}
+                           "replay_strict": rr.ok, "replay_agent_state": bool(rr.meta.get("ok_agent_state")), "phi": {},
+                           "replay_version": replay_version()}
     if not row["replay_agent_state"] or not milestones:
         return row
     states, _ = rp.states(tr)
@@ -64,6 +65,16 @@ async def attempt(rec: dict[str, Any], meta: dict[str, Any], milestones: list) -
         fs = upto[-1] if upto else FileState(base=base)
         row["phi"][str(f)] = await evaluate(milestones, FileStateView(fs))
     return row
+
+
+async def nontrivial(ms: list, meta: dict[str, Any]) -> list:
+    """Filter (c) before any use (M5 audit: these milestones skipped every filter): false at the base, true at the
+    expert's end state. Prose files are already skipped by ``from_diff``."""
+    base = S.raw_reader(meta["repo"], meta["base_commit"])
+    end = FileState(base=base)
+    end.apply_patch(meta["patch"], skip_binary=True)
+    at_base, at_end = await evaluate(ms, FileStateView(FileState(base=base))), await evaluate(ms, FileStateView(end))
+    return [m for m in ms if (at_base.get(m.id) or 0) < 1.0 and (at_end.get(m.id) or 0) >= 1.0]
 
 
 def run(n: int, seed: int = 0) -> Path:
@@ -80,7 +91,8 @@ def run(n: int, seed: int = 0) -> Path:
         for i in picks:
             m = inst[i]
             try:
-                mil[i] = [c.milestone for c in from_diff(m["patch"], S.raw_reader(m["repo"], m["base_commit"]), include=lambda p: not TEST.search(p))]
+                mil[i] = asyncio.run(nontrivial([c.milestone for c in from_diff(m["patch"], S.raw_reader(m["repo"], m["base_commit"]),
+                                                                                 include=lambda p: not TEST.search(p))], m))
             except Exception as e:  # noqa: BLE001 -- a gold patch that does not apply to the fetched base: no milestones
                 mil[i] = []
                 print("mining failed", i, str(e)[:120])

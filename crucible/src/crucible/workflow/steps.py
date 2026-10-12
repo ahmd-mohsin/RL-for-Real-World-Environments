@@ -72,51 +72,72 @@ class GenericSegmenter:
     # ------------------------------------------------------------------ agent sessions
     def _agent(self, trace: Trace) -> list[Step]:
         steps: list[Step] = []
-        pending: list[int] = []  # messages / reasoning waiting for the next call
+        pending: list[TraceEvent] = []  # messages / reasoning waiting for the next call
         results = {e.reply_to: e for e in trace.events if e.type == "tool_result" and e.reply_to is not None}
         consumed: set[int] = set()
 
-        def new(kind: str, e: TraceEvent, seqs: list[int], tool: str, label: str) -> None:
+        def call_id(e: TraceEvent) -> str | None:
+            c = e.data.get("call_id") or e.data.get("id")
+            return str(c) if c is not None else None
+
+        def new(kind: str, e: TraceEvent, seqs: list[int], tool: str, label: str, state_ref: str | None) -> None:
+            data: dict[str, Any] = {"probes": e.data["probes"]} if e.data.get("probes") else {}
+            if call_id(e):
+                data["call_ids"] = [call_id(e)]  # every model call in the step keeps its credit row (S: one step may merge reads)
             steps.append(Step(index=len(steps), seqs=seqs, actor=e.actor, kind=kind, tools=[tool] if tool else [], writes=list(e.data.get("writes") or []),
-                              t0=e.time, t1=e.time, calls=1 if tool else 0, label=label[:160], data={"probes": e.data["probes"]} if e.data.get("probes") else {}))
+                              state_ref=state_ref, t0=e.time, t1=e.time, calls=1 if tool else 0, label=label[:160], data=data))
+
+        def flush_others(actor: str | None) -> list[int]:
+            """Pending events of this actor join its step; another actor's (a subagent's message) are their own step."""
+            mine = [p.seq for p in pending if p.actor == actor or p.actor is None]
+            for p in [p for p in pending if not (p.actor == actor or p.actor is None)]:
+                steps.append(Step(index=len(steps), seqs=[p.seq], actor=p.actor, kind="message", t0=p.time, t1=p.time, label=(p.text or p.type)[:160]))
+            return mine
 
         for e in trace.events:
             if e.type == "tool_call":
                 tool, args = _tool_and_args(e)
-                kind = classify(tool, args)
+                # a call that recorded writes is an edit whatever the classifier makes of its text (`tee`, `echo a#b >`)
+                kind = "edit" if e.data.get("writes") else classify(tool, args)
                 r = results.get(e.seq)
-                seqs = [*pending, e.seq, *([r.seq] if r is not None else [])]
+                seqs = [*flush_others(e.actor), e.seq, *([r.seq] if r is not None else [])]
                 if r is not None:
                     consumed.add(r.seq)
                 pending = []
                 prev = steps[-1] if steps else None
-                if kind == "investigate" and prev is not None and prev.kind == "investigate" and prev.actor == e.actor:
+                if kind == "investigate" and prev is not None and prev.kind == "investigate" and prev.actor == e.actor and not prev.writes:
                     prev.seqs = sorted({*prev.seqs, *seqs})  # read-only calls in a row are one investigation
                     prev.calls += 1
+                    if call_id(e) and call_id(e) not in prev.data.get("call_ids", []):
+                        prev.data["call_ids"] = [*prev.data.get("call_ids", []), call_id(e)]
                     if tool and tool not in prev.tools:
                         prev.tools = [*prev.tools, tool]
                     prev.t1 = e.time or prev.t1
                     continue
-                new(kind, e, seqs, tool, e.text or tool)
+                # the state after the step, when the trace records one (a World fingerprint, a git sha): the key for
+                # anchor-state grouping and branch points (S: it was always None for agent steps)
+                new(kind, e, seqs, tool, e.text or tool, e.state_ref or (r.state_ref if r is not None else None))
             elif e.type == "tool_result":
                 if e.seq not in consumed and steps:  # an unlinked result belongs to the latest step
                     steps[-1].seqs = sorted({*steps[-1].seqs, e.seq})
-            elif e.type in ("user_message", "interrupt", "system_message", "copied_context", "context_reset"):
+            elif e.type in ("user_message", "interrupt", "rejection", "system_message", "copied_context", "context_reset"):
                 if pending:
-                    steps.append(Step(index=len(steps), seqs=pending, actor="agent", kind="message", t0=None))
+                    steps.append(Step(index=len(steps), seqs=[p.seq for p in pending], actor=pending[0].actor or "agent", kind="message", t0=None))
                     pending = []
                 steps.append(Step(index=len(steps), seqs=[e.seq], actor=e.actor, kind="message", t0=e.time, t1=e.time, label=(e.text or e.type)[:160],
                                   data={"type": e.type}))
             else:  # agent_message, llm_call, done, reset, ...
-                pending.append(e.seq)
+                pending.append(e)
         if pending:
-            steps.append(Step(index=len(steps), seqs=pending, actor="agent", kind="message"))
+            steps.append(Step(index=len(steps), seqs=[p.seq for p in pending], actor=pending[0].actor or "agent", kind="message"))
         return steps
 
     # ------------------------------------------------------------------ pull requests
     def _pr(self, trace: Trace) -> list[Step]:
         steps: list[Step] = []
-        for e in sorted(trace.events, key=lambda x: (x.time or "", x.seq)):
+        # events are already in instant order (the connector sorts them; M5 audit: re-sorting by the time *string* put a
+        # commit at 10:30+02:00 after a review at 09:00Z)
+        for e in trace.events:
             if e.type == "commit":
                 steps.append(Step(index=len(steps), seqs=[e.seq], actor=e.actor, kind="commit", writes=list(e.data.get("writes") or []),
                                   state_ref=e.state_ref, t0=e.time, t1=e.time, label=(e.text or "").splitlines()[0][:160] if e.text else None,

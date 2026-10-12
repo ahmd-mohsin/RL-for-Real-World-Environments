@@ -18,6 +18,7 @@ Replayers are registry entries (kind ``replayer``) keyed by trace family prefix,
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
@@ -55,6 +56,18 @@ class Replayer(Protocol):
     def replay(self, trace: Trace) -> ReplayResult: ...
 
 
+# what running something leaves behind (logs, caches, build output): only these may be excused as byproducts
+BYPRODUCT = re.compile(r"(?:^|/)(?:__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|node_modules|build|dist|\.tox|\.cache|htmlcov|[^/]+\.egg-info)(?:/|$)"
+                       r"|\.(?:pyc|pyo|log|o|so|a|class|tmp)$|(?:^|/)\.coverage[^/]*$")
+
+
+def _failed(r: Any) -> bool:
+    """A tool result saying the call did nothing: the editor refused it (Claude Code's "File has not been read yet",
+    OpenHands' bad ``insert_line``)."""
+    d = r.data if r is not None else {}
+    return d.get("ok") is False or bool(d.get("is_error")) or d.get("error") is True
+
+
 def _norm(text: str | None, mode: str) -> str | None:
     if text is None or mode == "exact":
         return text
@@ -78,8 +91,11 @@ class EditReplayer:
     name = "edit_replay"
 
     def __init__(self, base: Callable[[str], str | None], final_patch: str, *, path_of: Callable[[str], str | None] | None = None,
-                 compare: str = "whitespace", ignore: Callable[[str], bool] | None = None, cwd: str = "/"):
-        self.base, self.final_patch, self.compare, self.cwd = base, final_patch, compare, cwd
+                 compare: str = "whitespace", ignore: Callable[[str], bool] | None = None, cwd: str = "/", scope: str = "tree"):
+        """``scope``: ``tree`` (the final patch is the whole working tree, e.g. an OpenHands ``git diff``) or
+        ``submitted`` (the agent chose what to submit, e.g. mini-swe-agent's ``patch.txt``: files it changed but left
+        out are its scratch, reported and not counted as divergence)."""
+        self.base, self.final_patch, self.compare, self.cwd, self.scope = base, final_patch, compare, cwd, scope
         self.path_of = path_of or (lambda p: p.lstrip("/"))
         self.ignore = ignore or (lambda p: False)
 
@@ -92,11 +108,16 @@ class EditReplayer:
         cwd = self.cwd
         out: list[tuple[int, FileState]] = []
         problems: list[dict[str, Any]] = []
+        results = {e.reply_to: e for e in trace.events if e.type == "tool_result" and e.reply_to is not None}
+        self.skipped_failed: list[int] = []
         for e in trace.events:
             if e.type != "tool_call":
                 continue
             tool = str(e.data.get("tool") or e.data.get("function") or "")
             base = tool.rsplit(".", 1)[-1]
+            if base not in SHELL_TOOLS and _failed(results.get(e.seq)):  # a refused edit changed nothing (M4 records no writes for it either)
+                self.skipped_failed.append(e.seq)
+                continue
             args = e.data.get("arguments")
             if isinstance(args, str):
                 try:
@@ -113,11 +134,15 @@ class EditReplayer:
                     if path is None:
                         continue
                     fs.str_replace_editor(args, path)
+                    if args.get("command") == "create":
+                        fs.stale.discard(path)  # wholly rewritten: known again
                 elif base in ("Write", "Edit", "MultiEdit"):
                     path = self.path_of(str(args.get("file_path") or ""))
                     if path is None:
                         continue
                     fs.claude_edit(base, args, path)
+                    if base == "Write":
+                        fs.stale.discard(path)
                 elif base in ("write_file", "edit_file", "create_file"):
                     path = self.path_of(str(args.get("path") or ""))
                     if path is None:
@@ -127,10 +152,19 @@ class EditReplayer:
                                                 "replace_all": args.get("replace_all")}, path)
                     else:
                         fs.write(path, args.get("content") or args.get("file_text") or "")
+                        fs.stale.discard(path)
                 elif base in SHELL_TOOLS:
                     cmd = command_of(args)
                     eff = apply_shell(fs, cmd, cwd=cwd, path_of=self.path_of)
                     cwd = eff.cwd  # the harness keeps one shell session: cd persists across calls
+                    fs.stale -= set(eff.overwritten)
+                    fs.stale |= set(eff.uncertain)
+                    if eff.uncertain:
+                        out.append((e.seq, fs.copy()))  # a state whose stale paths are now unmeasurable
+                        if not eff.applied:
+                            if eff.unreplayable:
+                                problems.append({"seq": e.seq, "tool": tool, "problem": "shell: " + eff.unreplayable[0], "command": cmd[:200]})
+                            continue
                     if eff.unreplayable:
                         problems.append({"seq": e.seq, "tool": tool, "problem": "shell: " + eff.unreplayable[0], "command": cmd[:200]})
                     if not eff.applied:
@@ -151,23 +185,26 @@ class EditReplayer:
         final = states[-1][1] if states else FileState(base=self.base)
         want = FileState(base=self.base)
         try:
-            want_paths = [p for p in want.apply_patch(self.final_patch) if not self.ignore(p)]
+            want_paths = [p for p in want.apply_patch(self.final_patch, skip_binary=True) if not self.ignore(p)]  # binaries are opaque
         except EditError as err:
             return ReplayResult(trace_id=trace.trace_id, replayer=self.name, ok=False, quarantined=True,
                                 reason=f"recorded final patch does not apply to the base: {err}", steps_replayed=len(states))
         checks = []
-        for p in sorted(set(want_paths) | {p for p in final.touched if not self.ignore(p)}):
+        scratch = sorted(p for p in final.touched if not self.ignore(p) and p not in want_paths) if self.scope == "submitted" else []
+        for p in sorted(set(want_paths) | {p for p in final.touched if not self.ignore(p) and p not in scratch}):
             rec = want.files.get(p) if p in want.files else self.base(p)
             got = final.files.get(p) if p in final.files else self.base(p)
             checks.append(ReplayCheck(what=f"final:{p}", recorded=None if rec is None else len(rec), replayed=None if got is None else len(got),
                                       match=_norm(rec, self.compare) == _norm(got, self.compare), tolerance=self.compare))
         # A file no recorded call ever names (not in any argument, not a redirect target) was produced by running
         # something (test logs, caches): an execution byproduct. Strict replay counts it; agent-state replay does not.
+        # Only paths that look like run output (logs, caches, build dirs) qualify: a source file in the submitted patch
+        # that no call names was authored by a script, and counts against agent-state replay (M5 audit W20).
         mentioned = " ".join(str(e.data.get("arguments") or "") for e in trace.events if e.type == "tool_call")
         for c in checks:
             if not c.match:
                 path = c.what.split(":", 1)[1]
-                c.tolerance = (c.tolerance or "") + ("; byproduct" if path.rsplit("/", 1)[-1] not in mentioned else "")
+                c.tolerance = (c.tolerance or "") + ("; byproduct" if path.rsplit("/", 1)[-1] not in mentioned and BYPRODUCT.search(path) else "")
         bad = [c.what for c in checks if not c.match]
         authored_bad = [c.what for c in checks if not c.match and "byproduct" not in (c.tolerance or "")]
         ok = not bad
@@ -177,7 +214,22 @@ class EditReplayer:
         return ReplayResult(trace_id=trace.trace_id, replayer=self.name, ok=ok, quarantined=not ok, reason=reason, steps_replayed=len(states),
                             checks=checks, meta={"ok_agent_state": not authored_bad, "byproducts": [c for c in bad if c not in authored_bad][:20],
                                                  "unreplayable": problems[:20], "n_unreplayable": len(problems),
+                                                 # states after the first call that could not be replayed are not the agent's: per-step
+                                                 # measurements past it are unreliable even when the final files match (M5 audit)
+                                                 "stale_from_seq": problems[0]["seq"] if problems else None,
+                                                 "skipped_failed": getattr(self, "skipped_failed", [])[:20],
+                                                 "unsubmitted": scratch[:20],
                                                  "files_in_final_patch": len(parse_patch(self.final_patch))})
+
+
+def replay_version() -> str:
+    """A hash of the code that decides replay (this module, shell ops, the diff applier): rows computed by another
+    version say so (M5 audit: cached S1 rows could not be tied to the code that produced them)."""
+    import hashlib
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent
+    return hashlib.sha256(b"".join((here / f).read_bytes() for f in ("replay.py", "shellops.py", "filestate.py"))).hexdigest()[:12]
 
 
 def replayer_for(family: str | None) -> Any:

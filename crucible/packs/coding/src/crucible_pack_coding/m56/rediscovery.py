@@ -10,6 +10,11 @@ Sources (none of them our graders, which would be circular):
 Each candidate is assigned to the check families its evidence supports (token, path, PR title or comment text), by an
 explicit keyword table kept next to the code so the mapping is reviewable. The gate passes when every family has
 diff-derived candidates from at least two independent PRs (behavioural evidence from code), with the signal/policy evidence reported beside it.
+
+M5 audit (2026-10-12): only constructs count, in the direction the family means: "API removal" needs the API *removed*
+(10 of 47 hits were APIs being added), and a block's name is not evidence (34 of 40 "edge semantics" hits were
+functions named ``*Bound*`` / ``*Edge*`` touched by refactors such as "use override"). Each family's verdict says
+whether its evidence was hand-audited or only matched by the keyword table.
 """
 
 from __future__ import annotations
@@ -104,8 +109,11 @@ def run() -> dict[str, Any]:
             continue
         fams = Counter()
         for c in cands:
-            construct = str(c.evidence.get("token") or c.evidence.get("anchor") or "")
-            fams_here = families_of(construct) if construct else []
+            change = c.evidence.get("change")
+            if change not in ("removed", "added"):
+                continue  # a located block's *name* says nothing about what changed inside it
+            construct = str(c.evidence.get("token") or "")
+            fams_here = [f for f in (families_of(construct) if construct else []) if f != "api_removal" or change == "removed"]
             for f in fams_here:
                 fams[f] += 1
                 diff_hits[f].append({"pr": t.trace_id, "title": title[:90], "milestone": c.milestone.id, "evidence": c.evidence})
@@ -129,9 +137,24 @@ def run() -> dict[str, Any]:
                     policy_hits[f].append({"doc": t.source.ref, "rule": e.text[:160]})
     coverage = {f: {"diff": len(diff_hits[f]), "prs": len({h["pr"] for h in diff_hits[f]}), "review_comments": len(signal_hits[f]),
                     "policy_rules": len(policy_hits[f]), "examples": diff_hits[f][:4], "comment_examples": signal_hits[f][:2]} for f in FAMILIES}
-    # Hand audit (2026-10-09) of every example the keyword table assigned to the two thinnest families: which
-    # evidence really is that property. The verdict counts audited evidence only.
+    # Hand audit of every hit the keyword table assigned (2026-10-09 for bit-exactness and perf; 2026-10-12, M5 audit, for
+    # the rest, after hits were restricted to removed/added constructs). The verdict counts audited evidence only:
+    # a family is rediscovered with genuine evidence from at least two PRs.
     audit = {
+        "build": {"genuine": ["#5953 adds check_language( / CMAKE_CUDA_COMPILER_VERSION (CMake CUDA language detection)",
+                              "#4402 adds a CUDA_ARCH_BIN build-configuration check to pcl::gpu::Octree's error path"],
+                  "rejected": [], "verdict": "rediscovered from code (2 PRs)"},
+        "api_removal": {"genuine": ["#6010 removes cudaBindTexture( / cudaBindTexture2D( / cudaUnbindTexture(", "#5535 and #2981 remove __all( / __ballot( / __any(",
+                                    "#2736 removes cudaThreadExit( / cudaThreadSynchronize(", "#6472, #5872 remove deprecated PCL APIs"],
+                        "rejected": ["#3121 'deprecated(' removed in a typedef -> using refactor"], "verdict": "rediscovered from code (6 PRs)"},
+        "concurrency": {"genuine": ["#2981, #2212 add __all_sync( / __any_sync( / __ballot_sync( (warp votes with explicit masks)",
+                                    "#3086 adds lock_guard (mutex migration)", "#2736, #6010 add cudaDeviceSynchronize("],
+                        "rejected": ["#6472 removes deprecated 'atomics' code"], "verdict": "rediscovered from code (5 PRs)"},
+        "edge_semantics": {"genuine": ["#6460 adds isfinite( (NaN guard in brute-force search)"],
+                           "rejected": ["#5722 fov_*_bound_( removed: a default-member-init refactor",
+                                        "#1568 SetSaturationRange( moved between files (VTK colour range)",
+                                        "earlier report: 34 'located' hits were function names containing Bound/Edge in refactor PRs (#2728, #3006, #3121, #3180)"],
+                           "verdict": "not rediscovered: genuine evidence from 1 PR"},
         "bit_exactness": {"genuine": [], "rejected": ["epsilon_/getEpsilon/off_surface_epsilon_ (#5722, #4629, #2736): numeric tolerance parameters, not bit-exactness",
                                                       "review #6199 (sigma2 -> 0, Welsch decay range): division-by-zero / NaN guard = edge semantics"],
                           "verdict": "not rediscovered from upstream PRs; in tasks 01-04 it comes from reference-differential checks (DESIGN §7.1)"},
@@ -141,10 +164,9 @@ def run() -> dict[str, Any]:
                  "rejected": ["review #6400 (error-message wording)", "review #6413 (API design)"],
                  "verdict": "rediscovered from review signals (2 PRs), not from code"},
     }
-    audited = {f: (coverage[f]["prs"] >= 2) for f in FAMILIES if f not in audit}
-    audited["perf"] = True
-    audited["bit_exactness"] = False
-    out = {"gate": "M5 rediscovery", "pass": all(audited.values()), "families_rediscovered": audited, "audit": audit, "prs": len(prs), "per_pr": per_pr,
+    found = {f: not audit[f]["verdict"].startswith("not") for f in FAMILIES}
+    basis = {f: "hand-audited" for f in FAMILIES}
+    out = {"gate": "M5 rediscovery", "pass": all(found.values()), "families_rediscovered": found, "basis": basis, "audit": audit, "prs": len(prs), "per_pr": per_pr,
            "coverage": coverage, "families": list(FAMILIES), "note": "keyword table FAMILIES in m56/rediscovery.py; our own graders are not a source"}
     REPORT.write_text(json.dumps(out, indent=1, default=str) + "\n")
     return out

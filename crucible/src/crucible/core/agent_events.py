@@ -32,10 +32,44 @@ def _tool_base(fn: str) -> str:
     return re.split(r"__|\.", fn)[-1] if fn else fn
 
 
+_PUNCT = re.compile(r"&&|\|\||>>|<<-|<<<|<<|&>>|&>|>&|>\||[;&|<>()]")
+_SEPS = {";", "&&", "||", "|", "&", "\n", "(", ")"}
+
+
+def _segments(text: str) -> list[list[str]]:
+    """Simple commands of a shell text, quote-aware (M5 audit: splitting on ``;`` and ``>`` before parsing quotes turned
+    ``python -c "a = 1; print(x > 0)"`` into writes of files named ``=`` and ``0:``)."""
+    import shlex
+
+    try:
+        lex = shlex.shlex(text.replace("\n", " \n "), posix=True, punctuation_chars=";&|<>()")
+        lex.whitespace_split = True
+        lex.whitespace = " \t\r"
+        lex.commenters = ""
+        raw = list(lex)
+    except ValueError:  # unbalanced quotes: the old, rough split
+        return [p.split() for p in re.split(r"&&|\|\||;|\||\n", text)]
+    cmds: list[list[str]] = []
+    cur: list[str] = []
+    for t in raw:
+        parts = _PUNCT.findall(t) if t and all(c in ";&|<>()" for c in t) else [t]
+        for x in parts:
+            if x in _SEPS or (x.strip() == "" and "\n" in x):
+                if cur:
+                    cmds.append(cur)
+                cur = []
+            elif x.startswith("#") and not cur:  # a comment line
+                cur = ["#"]
+            else:
+                cur.append(x)
+    if cur:
+        cmds.append(cur)
+    return [c for c in cmds if c and c[0] != "#"]
+
+
 def shell_writes(cmd: str) -> list[str]:
     """Files a shell command writes: ``sed -i``, redirections, ``tee``, ``cp``/``mv`` targets, ``touch`` (heredoc bodies
     are not commands; ``/dev/*`` is not a file)."""
-    import shlex
 
     lines, skip = [], None
     for ln in cmd.split("\n"):  # drop heredoc bodies
@@ -48,24 +82,24 @@ def shell_writes(cmd: str) -> list[str]:
         if m:
             skip = m.group(1)
     out: list[str] = []
-    for part in re.split(r"&&|\|\||;|\||\n", "\n".join(lines)):
-        part = re.sub(r"<<-?\s*['\"]?\w+['\"]?", "", part)
-        try:
-            tok = shlex.split(part, posix=True)
-        except ValueError:
-            tok = part.split()
-        i = 0
-        while i < len(tok):  # redirections anywhere in the command
-            t = tok[i]
-            m = re.fullmatch(r"(?:\d|&)?>>?(.*)", t)
-            if m:
-                target = m.group(1) or (tok[i + 1] if i + 1 < len(tok) else "")
-                if target and not target.startswith(("/dev/", "&")):
-                    out.append(target)
-                i += 1 if m.group(1) else 2
+    for tok in _segments("\n".join(lines)):
+        i, words = 0, []
+        while i < len(tok):  # redirections anywhere in the command (`>`, `>>`, `2>log`, `&>out`; `>&2` is an fd)
+            t, nxt = tok[i], tok[i + 1] if i + 1 < len(tok) else None
+            if t.isdigit() and nxt in (">", ">>", ">|"):
+                i += 1
                 continue
+            if t in (">", ">>", ">|", "&>", "&>>"):
+                if nxt and not nxt.startswith(("/dev/", "&")):
+                    out.append(nxt)
+                i += 2
+                continue
+            if t in (">&", "<", "<<", "<<-", "<<<"):
+                i += 2
+                continue
+            words.append(t)
             i += 1
-        words = [t for t in tok if not re.fullmatch(r"(?:\d|&)?>>?.*", t)]
+        tok = words
         if not words:
             continue
         prog, args = words[0].rsplit("/", 1)[-1], words[1:]

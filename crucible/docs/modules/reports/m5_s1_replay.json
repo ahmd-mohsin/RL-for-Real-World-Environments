@@ -1,0 +1,35 @@
+{
+ "version": "efcbd28f2f1c",
+ "n": 913,
+ "strict": 831,
+ "agent_state": 839,
+ "unreplayable_calls": 378,
+ "stale": 167,
+ "skipped_failed": 0,
+ "reasons": {
+  "shell: git stash": 172,
+  "shell: python code that writes files": 55,
+  "old_str occurs 2 times in ignite/handler": 23,
+  "old_str occurs 0 times in sqllineage/cor": 14,
+  "shell: git checkout <ref>": 12,
+  "old_str occurs 0 times in jaconv/jaconv.": 7,
+  "old_str occurs 0 times in beartype/_deco": 7,
+  "old_str occurs 0 times in src/rich_click": 5,
+  "old_str occurs 0 times in test_edge_case": 4,
+  "old_str occurs 0 times in reproduce_issu": 4,
+  "old_str occurs 0 times in pymarkdown/lea": 4,
+  "old_str occurs 2 times in pennylane/ops/": 4,
+  "old_str occurs 0 times in comprehensive_": 3,
+  "shell: git reset": 3,
+  "old_str occurs 0 times in specutils/fitt": 3
+ },
+ "errors": 0,
+ "agent_state_rate": 0.9189,
+ "strict_rate": 0.9102,
+ "what": "M5 S1 replay re-run (M5 audit, 2026-10-12): every attempt of the 80 sampled SWE-rebench issues, current replayer, no \u03a6",
+ "before_audit": {
+  "agent_state_rate": 0.9485,
+  "strict_rate": 0.9113,
+  "note": "cached rows, unversioned"
+ }
+}

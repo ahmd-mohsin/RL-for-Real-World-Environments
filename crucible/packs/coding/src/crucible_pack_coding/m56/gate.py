@@ -33,6 +33,20 @@ def run(tag: str = "n80_s7") -> dict[str, Any]:
     replay = {"traces": n, "agent_state_replayed": sum(r["replay_agent_state"] for r in rows), "strict_replayed": sum(r["replay_strict"] for r in rows)}
     replay["agent_state_rate"] = round(replay["agent_state_replayed"] / n, 4)
     replay["strict_rate"] = round(replay["strict_replayed"] / n, 4)
+    from crucible.workflow.replay import replay_version
+
+    versions = sorted({str(r.get("replay_version")) for r in rows})
+    replay["row_versions"] = versions  # "None": rows written before rows were stamped
+    replay["current_version"] = replay_version()
+    replay["rows_from_current_code"] = versions == [replay["current_version"]]
+    rerun = REPORTS / "m5_s1_replay.json"  # the replay alone, re-run with the current code (M5 audit)
+    if rerun.exists():
+        rr = json.loads(rerun.read_text())
+        replay["rerun"] = {k: rr[k] for k in ("version", "n", "agent_state_rate", "strict_rate", "unreplayable_calls", "stale")}
+        if rr["version"] == replay["current_version"]:
+            replay.update(agent_state_rate=rr["agent_state_rate"], strict_rate=rr["strict_rate"], agent_state_replayed=rr["agent_state"],
+                          strict_replayed=rr["strict"], traces=rr["n"], source="m5_s1_replay.json (current code)")
+            n = rr["n"]
     redisc = json.loads((REPORTS / "m5_rediscovery.json").read_text())
     props = json.loads((REPORTS / "m6_properties_coding.json").read_text())
     toy = json.loads((REPORTS / "m56_toy.json").read_text()) if (REPORTS / "m56_toy.json").exists() else {}

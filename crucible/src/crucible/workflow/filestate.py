@@ -32,6 +32,10 @@ class FileState:
     base: Callable[[str], str | None] | None = None  # lazily reads the base snapshot (git show, raw fetch)
     _history: dict[str, list[str | None]] = field(default_factory=dict)
     touched: set[str] = field(default_factory=set)
+    dirs: set[str] = field(default_factory=set)  # directories known to exist (made by ``mkdir``): ``mv f dir`` moves into them
+    # paths an unreplayable command wrote: their content here is not the agent's until something rewrites them whole
+    # (M5 audit: per-step Φ was computed on the stale file, e.g. the base content after an unapplied ``sed -i``)
+    stale: set[str] = field(default_factory=set)
 
     def read(self, path: str) -> str | None:
         if path in self.files:
@@ -46,7 +50,8 @@ class FileState:
         self.touched.add(path)
 
     def copy(self) -> FileState:
-        return FileState(files=dict(self.files), base=self.base, _history={k: list(v) for k, v in self._history.items()}, touched=set(self.touched))
+        return FileState(files=dict(self.files), base=self.base, _history={k: list(v) for k, v in self._history.items()}, touched=set(self.touched),
+                         dirs=set(self.dirs), stale=set(self.stale))
 
     # ------------------------------------------------------------------ editors
     def str_replace_editor(self, args: dict[str, Any], path: str) -> None:
@@ -106,21 +111,31 @@ class FileState:
         self.write(path, cur)
 
     # ------------------------------------------------------------------ unified diffs
-    def apply_patch(self, patch: str, *, strip: int = 1) -> list[str]:
-        """Apply a git-style unified diff strictly; returns the paths it changed."""
+    def apply_patch(self, patch: str, *, strip: int | None = None, skip_binary: bool = False) -> list[str]:
+        """Apply a git-style unified diff strictly; returns the paths it changed. ``strip``: path components to drop
+        (default: 1 when the diff uses git's ``a/`` ``b/`` prefixes, else 0). ``skip_binary``: binary entries are
+        recorded in ``self.binary`` instead of failing the whole patch (M5 audit: one image aborted every file)."""
         changed = []
-        for fp in parse_patch(patch):
+        fps = parse_patch(patch)
+        if strip is None:
+            strip = 1 if all((fp.old is None or fp.old.startswith("a/")) and (fp.new is None or fp.new.startswith("b/")) for fp in fps) else 0
+        self.binary: list[str] = []
+        for fp in fps:
             src = _strip(fp.old, strip)
             dst = _strip(fp.new, strip)
             if fp.binary:
-                raise EditError(f"binary patch for {dst or src}")
+                if not skip_binary:
+                    raise EditError(f"binary patch for {dst or src}")
+                self.binary.append(dst or src or "")
+                continue
             if dst is None:  # deletion
                 self.write(src, None)  # type: ignore[arg-type]
                 changed.append(src)
                 continue
             base = "" if src is None else (self.read(src) or "")
-            if src is not None and src != dst:  # rename
+            if src is not None and src != dst and not fp.copy:  # rename
                 self.write(src, None)
+                changed.append(src)
             self.write(dst, apply_hunks(base, fp.hunks, dst))
             changed.append(dst)
         return changed
@@ -153,6 +168,7 @@ class FilePatch:
     new: str | None
     hunks: list[Hunk]
     binary: bool = False
+    copy: bool = False  # ``copy from`` / ``copy to``: the source stays
 
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -161,6 +177,7 @@ _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 def parse_patch(patch: str) -> list[FilePatch]:
     out: list[FilePatch] = []
     cur: FilePatch | None = None
+    pending_copy = False
     lines = patch.split("\n")
     i = 0
     while i < len(lines):
@@ -170,22 +187,33 @@ def parse_patch(patch: str) -> list[FilePatch]:
             m = re.match(r"diff --git (\S+) (\S+)$", ln)
             j = i + 1
             mode = None
+            moved: dict[str, str] = {}
             while j < len(lines) and not lines[j].startswith(("diff --git ", "--- ", "@@", "Binary files ", "GIT binary patch")):
                 if lines[j].startswith(("new file mode", "deleted file mode")):
                     mode = lines[j].split()[0]
+                for key in ("rename from ", "rename to ", "copy from ", "copy to "):
+                    if lines[j].startswith(key):
+                        moved[key.strip()] = lines[j][len(key):]
                 j += 1
-            if m and mode and (j >= len(lines) or lines[j].startswith("diff --git ")):  # empty file added / deleted
+            header_only = j >= len(lines) or lines[j].startswith("diff --git ")
+            if m and mode and header_only:  # empty file added / deleted
                 out.append(FilePatch(old=None if mode == "new" else m.group(1), new=None if mode == "deleted" else m.group(2), hunks=[]))
+            elif m and header_only and ({"rename from", "rename to"} <= moved.keys() or {"copy from", "copy to"} <= moved.keys()):
+                # a pure rename or copy (similarity 100%): no hunks follow (M5 audit: it was dropped)
+                out.append(FilePatch(old=m.group(1), new=m.group(2), hunks=[], copy="copy from" in moved))
+            pending_copy = "copy from" in moved  # a copy with edits: the `---`/`+++` entry below keeps its source
         elif ln.startswith("--- "):
             old = ln[4:].split("\t")[0].strip()
             new = lines[i + 1][4:].split("\t")[0].strip() if i + 1 < len(lines) and lines[i + 1].startswith("+++ ") else None
-            cur = FilePatch(old=None if old == "/dev/null" else old, new=None if new in (None, "/dev/null") else new, hunks=[])
+            cur = FilePatch(old=None if old == "/dev/null" else old, new=None if new in (None, "/dev/null") else new, hunks=[], copy=pending_copy)
+            pending_copy = False
             out.append(cur)
             i += 2
             continue
         elif ln.startswith(("Binary files ", "GIT binary patch")):
             m = re.match(r"Binary files (\S+) and (\S+) differ", ln)
-            out.append(FilePatch(old=m.group(1) if m else None, new=m.group(2) if m else None, hunks=[], binary=True))
+            old_b, new_b = (m.group(1), m.group(2)) if m else (None, None)
+            out.append(FilePatch(old=None if old_b == "/dev/null" else old_b, new=None if new_b == "/dev/null" else new_b, hunks=[], binary=True))
         elif (m := _HUNK.match(ln)) and cur is not None:
             h = Hunk(int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1), [])
             i += 1

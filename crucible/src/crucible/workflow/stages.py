@@ -45,6 +45,7 @@ class StageModel:
     stages: list[Stage]
     edges: list[Precedence] = field(default_factory=list)
     unplaced: list[str] = field(default_factory=list)  # never achieved in any trace
+    conflicts: list[tuple[str, str]] = field(default_factory=list)  # declared prerequisites (p, m) the data orders the other way
 
     def stage_index(self) -> dict[str, int]:
         return {m: s.index for s in self.stages for m in s.milestones}
@@ -79,9 +80,15 @@ def induce(milestones: Sequence[Milestone], achievements: Sequence[Mapping[str, 
     ids = [m.id for m in milestones]
     reached = {m for ach in achievements for m in ach}
     edges = [e for e in precedence(achievements, min_support=min_support, min_traces=min_traces) if e.a in ids and e.b in ids]
-    # prerequisites declared on the milestones are precedence too
+    # prerequisites declared on the milestones are precedence too; one the data contradicts (the reverse order holds
+    # with support) is dropped and reported rather than left to cut the cycle wherever the search meets it, which
+    # made the layering depend on the input order (M5 audit)
+    conflicts: list[tuple[str, str]] = []
     for m in milestones:
         for p in m.requires:
+            if any(e.a == m.id and e.b == p for e in edges):
+                conflicts.append((p, m.id))
+                continue
             if not any(e.a == p and e.b == m.id for e in edges):
                 edges.append(Precedence(p, m.id, 1.0, 0))
     preds: dict[str, set[str]] = {m: set() for m in ids}
@@ -100,7 +107,7 @@ def induce(milestones: Sequence[Milestone], achievements: Sequence[Mapping[str, 
 
     med = {m: statistics.median([ach[m] for ach in achievements if m in ach]) for m in ids if m in reached}
     linked = {e.a for e in edges} | {e.b for e in edges}
-    for m in ids:
+    for m in sorted(ids):  # a fixed order: the same graph whatever order the milestones came in
         if m in linked:
             depth(m)
     layers: dict[int, list[str]] = {}
@@ -117,7 +124,8 @@ def induce(milestones: Sequence[Milestone], achievements: Sequence[Mapping[str, 
         layers.setdefault(lv, []).append(m)
     stages = [Stage(index=i, milestones=sorted(layers[lv]), median_time=statistics.median([med[m] for m in layers[lv] if m in med] or [0.0]))
               for i, lv in enumerate(sorted(layers))]
-    return StageModel(stages=stages, edges=edges, unplaced=sorted(m for m in ids if m not in reached and m not in level))
+    return StageModel(stages=stages, edges=sorted(edges, key=lambda e: (e.a, e.b)), unplaced=sorted(m for m in ids if m not in reached and m not in level),
+                      conflicts=conflicts)
 
 
 def default_name(milestone_ids: Sequence[str]) -> str:
@@ -132,8 +140,13 @@ def default_name(milestone_ids: Sequence[str]) -> str:
 
 
 def name_stages(model: StageModel, namer: Callable[[list[str]], str] | None = None) -> StageModel:
+    """Names are unique within a model (M5 audit: four stages were all called "added a.py"): a repeated name gets the
+    stage's position."""
+    seen: Counter[str] = Counter()
     for s in model.stages:
-        s.name = (namer or default_name)(s.milestones)
+        name = (namer or default_name)(s.milestones)
+        seen[name] += 1
+        s.name = name if seen[name] == 1 else f"{name} ({seen[name]})"
     return model
 
 

@@ -4,7 +4,7 @@
   "traces": 24,
   "replayed": 24,
   "rate": 1.0,
-  "checks": 31,
+  "checks": 7,
   "failed": []
  },
  "milestones": {
@@ -51,7 +51,8 @@
       "source": "good_trace_end_states",
       "note": "8/8 good dev tickets"
      }
-    ]
+    ],
+    "states": []
    },
    {
     "id": "log/resolution",
@@ -81,7 +82,8 @@
       "source": "good_trace_end_states",
       "note": "8/8 good dev tickets"
      }
-    ]
+    ],
+    "states": []
    },
    {
     "id": "log/status=resolved",
@@ -115,7 +117,8 @@
       "source": "good_trace_end_states",
       "note": "8/8 good dev tickets"
      }
-    ]
+    ],
+    "states": []
    }
   ],
   "stages": [
@@ -206,12 +209,15 @@
   "stats": {
    "dev_tickets": 12,
    "good_dev_tickets": 8,
-   "candidates": 3
+   "candidates": 3,
+   "min_monotone": 0.6
   }
  },
  "tracker": {
   "test_events": 84,
   "kappa": 0.8685,
+  "min_monotone": 0.6,
+  "kappa_at_module_default": 0.2756,
   "agreement": 0.9048,
   "confusion": {
    "respond->resolved": 3,

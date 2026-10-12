@@ -55,12 +55,23 @@ class Candidate:
     evidence: dict[str, Any] = field(default_factory=dict)
 
 
+# prose and metadata: tokens there are words, not constructs (a contributor's name in CHANGELOG.rst became a milestone)
+PROSE = re.compile(r"(?:^|/)(?:CHANGELOG|CHANGES|HISTORY|NEWS|AUTHORS|CONTRIBUTORS|LICENSE|COPYING|README)[^/]*$|\.(?:md|rst|txt|adoc)$|(?:^|/)docs?/", re.IGNORECASE)
+
+
 def _tokens(lines: Iterable[str], min_len: int = 4) -> set[str]:
     out: set[str] = set()
+    in_block = False
     for ln in lines:
         s = ln.strip()
-        if s.startswith(("#", "//", "*", "/*")) and not s.startswith(("#include", "#define", "#pragma")):
-            continue  # comments carry no behaviour
+        if in_block:  # inside /* ... */: a leading `*` is the comment's margin
+            in_block = "*/" not in s
+            continue
+        if s.startswith("/*"):
+            in_block = "*/" not in s[2:]
+            continue
+        if s.startswith(("#", "//")) and not s.startswith(("#include", "#define", "#pragma")):
+            continue  # comments carry no behaviour (`*dst = tex1Dfetch(...)` outside a comment block is code: M5 audit)
         for c in CALL.findall(ln):
             if c.rsplit(".", 1)[-1] not in COMMON and len(c) >= min_len:
                 out.add(c + "(")
@@ -96,7 +107,8 @@ def _enclosing_anchors(base_text: str, hunks: list) -> list[tuple[str, str]]:
             name = m.group(2) or m.group(4)
             if not name or name in COMMON:
                 continue
-            anchor = r"^\s*" + re.escape(ln.strip()[:120])
+            # not a forward declaration of the same signature (`int helper(int x);`): the definition (M5 audit)
+            anchor = r"^\s*" + re.escape(ln.strip()[:120]) + r"(?!\s*;)"
             if (anchor, name) not in out:
                 out.append((anchor, name))
             break
@@ -116,10 +128,11 @@ def _grep_milestone(app: str, path: str, token: str, kind: str, weight: float, p
 
 
 def from_diff(patch: str, base: Callable[[str], str | None], *, app: str = "repo", source: str = "expert_end_state",
-              max_per_file: int = 8, include: Callable[[str], bool] | None = None) -> list[Candidate]:
-    """Diff-derived candidates from one expert change. ``include``: which files count (e.g. skip tests, docs)."""
+              max_per_file: int = 8, include: Callable[[str], bool] | None = None, prose: bool = False) -> list[Candidate]:
+    """Diff-derived candidates from one expert change. ``include``: which files count (e.g. skip tests, docs);
+    ``prose``: mine tokens from docs, changelogs and READMEs too (off: their words are not constructs)."""
     after = FileState(base=base)
-    after.apply_patch(patch)
+    after.apply_patch(patch, skip_binary=True)  # an image in the patch does not stop mining the code
     out: list[Candidate] = []
     for fp in parse_patch(patch):
         path = (fp.new or fp.old or "")[2:] if (fp.new or fp.old or "").startswith(("a/", "b/")) else (fp.new or fp.old or "")
@@ -143,6 +156,8 @@ def from_diff(patch: str, base: Callable[[str], str | None], *, app: str = "repo
                                            provenance=[prov], check=MilestoneCheck(app=app, query=Query(op="block_changed", args={"path": path, "anchor": anchor[0]}),
                                                                                    expect=Expectation(kind="equals", value={"changed": True, "found": True}))),
                                  "diff", {"path": path, "change": "located", "anchor": anchor[1]}))
+        if not prose and PROSE.search(path):
+            continue
         removed = [ln[1:] for h in fp.hunks for ln in h.lines if ln.startswith("-")]
         added = [ln[1:] for h in fp.hunks for ln in h.lines if ln.startswith("+")]
         before_tokens = _tokens((before_text or "").split("\n"))
@@ -174,36 +189,60 @@ def from_ci(test_runs: list[tuple[int, dict[str, str]]], *, app: str = "repo", c
     """``test_runs``: (step, {test_name: pass|fail|error|skip}) in trace order. A test failing at some step and passing
     at the last run where it appears (fail -> pass) becomes a candidate; one that ever passed and ends failing is a
     regression signal, not a milestone."""
+    import shlex
+
     first_fail: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
     last: dict[str, tuple[int, str]] = {}
+    history: dict[str, list[str]] = {}
+    first_step = test_runs[0][0] if test_runs else 0
     for step, results in test_runs:
         for name, st in results.items():
-            if st in ("fail", "error") and name not in first_fail:
+            first_seen.setdefault(name, step)
+            history.setdefault(name, []).append(st)
+            if st in ("fail", "error", "skip") and name not in first_fail:  # skipped then passing is fail -> pass too
                 first_fail[name] = step
             last[name] = (step, st)
     out = []
     for name, (step, st) in sorted(last.items()):
-        if st == "pass" and name in first_fail and first_fail[name] < step:
-            cmd = command(name) if command else f"python -m pytest -q {name!r}"
+        # a test the change added (absent from the first run, passing at the end) is fail -> pass as SWE-smith counts it
+        added = name not in first_fail and first_seen[name] > first_step
+        if st == "pass" and ((name in first_fail and first_fail[name] < step) or added):
+            h = history[name]
+            settled = h[h.index("pass"):] if "pass" in h else []
+            if any(x in ("fail", "error") for x in settled):
+                continue  # passed, failed again, passed: one flaky flip is no milestone
+            cmd = command(name) if command else f"python -m pytest -q {shlex.quote(name)}"  # a test id is data, never shell
             out.append(Candidate(Milestone(id=f"ci/f2p/{name}#{_mid(name)}", weight=1.0, cost="medium",
-                                           provenance=[Provenance(source="ci_fail_to_pass", note=f"failed at step {first_fail[name]}, passed at {step}")],
+                                           provenance=[Provenance(source="ci_fail_to_pass", note=f"failed at step {first_fail[name]}, passed at {step}"
+                                                                  if name in first_fail else f"added by the change, passing at step {step}")],
                                            check=MilestoneCheck(app=app, query=Query(op="run", args={"cmd": cmd, "timeout_s": 900}), expect=Expectation(kind="ok"))),
-                                 "ci", {"test": name, "failed_at": first_fail[name], "passed_at": step}))
+                                 "ci", {"test": name, "failed_at": first_fail.get(name), "passed_at": step, "added": added}))
     return out
 
 
-def from_signals(signals: Iterable[Any], *, app: str = "repo") -> list[Candidate]:
-    """Negative signals anchored at a file region (``target.object = "file:<path>"``, ``target.span``) -> "the region
-    the expert flagged was changed" candidates (the precise behavioural check is C2's job)."""
+def from_signals(signals: Iterable[Any], base: Callable[[str], str | None] | None = None, *, app: str = "repo") -> list[Candidate]:
+    """Negative signals anchored at a file region (``target.object = "file:<path>"`` or a bare path, ``target.span``)
+    -> "the block the expert flagged was changed" (``block_changed`` on the definition enclosing the flagged line in
+    the base file; the precise behavioural check is C2's job). M5 audit: the check was ``exists(path)``, true at the
+    base, so every candidate failed non-triviality; a signal whose block cannot be found yields nothing."""
+    from crucible.workflow.filestate import Hunk
+
     out = []
     for s in signals:
         tgt = getattr(s, "target", None)
-        if not tgt or not tgt.object or not str(tgt.object).startswith("file:") or getattr(s, "polarity", 0) >= 0:
+        if not tgt or not tgt.object or getattr(s, "polarity", 0) >= 0 or base is None or not tgt.span:
             continue
-        path = str(tgt.object)[5:]
-        text = (getattr(s, "text", None) or "")[:200]
-        out.append(Candidate(Milestone(id=f"signal/{s.type}/{path.rsplit('/', 1)[-1]}#{_mid(s.id)}", weight=1.0, cost="cheap",
-                                       provenance=[Provenance(signal=s.id, note=text)],
-                                       check=MilestoneCheck(app=app, query=Query(op="exists", args={"path": path}), expect=Expectation(kind="truthy"))),
-                             "signal", {"signal": s.id, "type": s.type, "path": path, "span": tgt.span}))
+        path = str(tgt.object).removeprefix("file:")
+        text = base(path)
+        if not text:
+            continue
+        line = int(tgt.span[-1] or tgt.span[0] or 1)
+        anchors = _enclosing_anchors(text, [Hunk(old_start=line, old_len=1, new_start=line, new_len=1, lines=["-x"])])
+        for anchor, name in anchors[:1]:
+            out.append(Candidate(Milestone(id=f"signal/{s.type}/{path.rsplit('/', 1)[-1]}:{name[:40]}#{_mid(s.id)}", weight=1.0, cost="cheap",
+                                           provenance=[Provenance(signal=s.id, note=(getattr(s, "text", None) or "")[:200])],
+                                           check=MilestoneCheck(app=app, query=Query(op="block_changed", args={"path": path, "anchor": anchor}),
+                                                                expect=Expectation(kind="equals", value={"changed": True, "found": True}))),
+                                 "signal", {"signal": s.id, "type": s.type, "path": path, "span": tgt.span, "anchor": name}))
     return out

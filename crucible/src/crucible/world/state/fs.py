@@ -52,7 +52,7 @@ class FsAdapter(StateAdapter):
         "read": "read a file: {path, max_bytes}",
         "exists": "path exists: {path}",
         "list": "managed paths, optionally filtered by glob: {pattern}",
-        "grep": "regex over managed text files: {pattern, glob, max_hits}",
+        "grep": "regex over managed text files: {pattern, glob, paths, max_hits}",
         "manifest": "full manifest {entries, fingerprint}",
         "run": "run a shell command in root: {cmd, timeout_s}",
     }
@@ -149,8 +149,8 @@ class FsAdapter(StateAdapter):
     async def q_list(self, pattern: str | None = None) -> Any:
         return (await self._snip("list", pattern=pattern))["paths"]
 
-    async def q_grep(self, pattern: str, glob: str | None = None, max_hits: int = 200) -> Any:
-        return await self._snip("grep", pattern=pattern, glob=glob, max_hits=max_hits)
+    async def q_grep(self, pattern: str, glob: str | None = None, max_hits: int = 200, paths: list[str] | None = None) -> Any:
+        return await self._snip("grep", pattern=pattern, glob=glob, max_hits=max_hits, paths=paths)
 
     async def q_manifest(self) -> Any:
         return await self._snip("manifest")
@@ -166,7 +166,28 @@ class FsAdapter(StateAdapter):
 class FsGitAdapter(FsAdapter):
     kind = "fs_git"
     GIT = True
-    OPS: ClassVar[dict[str, str]] = {**FsAdapter.OPS, "git_diff": "git diff against a ref (default 'base'), excluding ignored files: {ref, stat}"}
+    OPS: ClassVar[dict[str, str]] = {**FsAdapter.OPS, "git_diff": "git diff against a ref (default 'base'), excluding ignored files: {ref, stat}",
+                                     "block_changed": "whether the block an anchor regex starts differs from the base ref's: {path, anchor, ref}"}
+
+    async def q_block_changed(self, path: str, anchor: str, ref: str = "base") -> Any:
+        """The same answer ``FileStateView`` gives offline: ``{changed, found}`` for the block at ``anchor`` in ``path``
+        now vs at ``ref`` (git show through the trusted git dir)."""
+        from crucible.core.schema.state import QueryResult
+        from crucible.core.textblock import block
+
+        if path.startswith("/") or ".." in path.split("/"):
+            return QueryResult(ok=False, error=f"bad path {path!r}")
+        try:
+            now = (await self.q_read(path)).get("text")
+        except Exception:  # noqa: BLE001 - no such file now
+            now = None
+        g = git_shell(self.params["root"], self.trusted_git_dir)
+        out = await self.exec.run(f"{g} show {shlex.quote(check_ref(ref) + ':' + path)}", timeout_s=120)
+        base = out.stdout if out.ok else None
+        if now is None or base is None:
+            return QueryResult(ok=True, value={"changed": now != base, "found": False})
+        b0, b1 = block(base, anchor), block(now, anchor)
+        return QueryResult(ok=True, value={"changed": b0 != b1, "found": b1 is not None})
 
     async def q_git_diff(self, ref: str = "base", stat: bool = False) -> Any:
         from crucible.core.schema.state import QueryResult

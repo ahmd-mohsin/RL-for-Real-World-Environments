@@ -24,6 +24,7 @@ from typing import Any, Protocol
 
 from crucible.core.schema.milestone import Expectation, Milestone
 from crucible.core.schema.state import Query, QueryResult
+from crucible.core.textblock import block
 from crucible.workflow.filestate import FileState
 
 
@@ -120,6 +121,11 @@ class FileStateView:
     async def query(self, app: str, q: Query | dict[str, Any]) -> QueryResult:
         q = q if isinstance(q, Query) else Query.model_validate(q)
         a = q.args
+        stale = getattr(self.fs, "stale", set())
+        touched = [a["path"]] if "path" in a else list(a.get("paths") or ([] if not stale else self._paths()))
+        if hit := [p for p in touched if p in stale]:
+            # an unreplayable command wrote it: the rebuilt content is not the agent's, so the check is unmeasured
+            return QueryResult(ok=False, error=f"stale after an unreplayable command: {hit[0]}")
         try:
             if q.op == "read":
                 t = self.fs.read(a["path"])
@@ -157,33 +163,6 @@ class FileStateView:
         except (KeyError, re.error) as e:
             return QueryResult(ok=False, error=f"{q.op}: {e}")
         return QueryResult(ok=False, error=f"op {q.op!r} not available offline (needs a live World)")
-
-
-def block(text: str, anchor: str) -> str | None:
-    """The block starting at the first line matching ``anchor`` (a regex). Brace languages: from the anchor to the
-    brace that closes the body (the opening brace may sit on the anchor line or the next line); otherwise
-    (Python/YAML) the anchor plus every following blank or deeper-indented line."""
-    lines = text.split("\n")
-    rx = re.compile(anchor)
-    for i, ln in enumerate(lines):
-        if not rx.search(ln):
-            continue
-        nxt = next((j for j in range(i + 1, min(i + 4, len(lines))) if lines[j].strip()), None)
-        if "{" in ln or (nxt is not None and lines[nxt].lstrip().startswith("{")):
-            depth, started = 0, False
-            for j in range(i, len(lines)):
-                code = re.sub(r"//.*$|\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'", "", lines[j])
-                depth += code.count("{") - code.count("}")
-                started = started or "{" in code
-                if started and depth <= 0:
-                    return "\n".join(lines[i:j + 1]).rstrip()
-            return "\n".join(lines[i:]).rstrip()
-        ind = len(ln) - len(ln.lstrip())
-        j = i + 1
-        while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > ind):
-            j += 1
-        return "\n".join(lines[i:j]).rstrip()
-    return None
 
 
 @dataclass

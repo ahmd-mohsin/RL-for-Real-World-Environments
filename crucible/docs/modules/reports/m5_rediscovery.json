@@ -4,12 +4,62 @@
  "families_rediscovered": {
   "build": true,
   "api_removal": true,
-  "edge_semantics": true,
+  "bit_exactness": false,
+  "edge_semantics": false,
   "concurrency": true,
-  "perf": true,
-  "bit_exactness": false
+  "perf": true
+ },
+ "basis": {
+  "build": "hand-audited",
+  "api_removal": "hand-audited",
+  "bit_exactness": "hand-audited",
+  "edge_semantics": "hand-audited",
+  "concurrency": "hand-audited",
+  "perf": "hand-audited"
  },
  "audit": {
+  "build": {
+   "genuine": [
+    "#5953 adds check_language( / CMAKE_CUDA_COMPILER_VERSION (CMake CUDA language detection)",
+    "#4402 adds a CUDA_ARCH_BIN build-configuration check to pcl::gpu::Octree's error path"
+   ],
+   "rejected": [],
+   "verdict": "rediscovered from code (2 PRs)"
+  },
+  "api_removal": {
+   "genuine": [
+    "#6010 removes cudaBindTexture( / cudaBindTexture2D( / cudaUnbindTexture(",
+    "#5535 and #2981 remove __all( / __ballot( / __any(",
+    "#2736 removes cudaThreadExit( / cudaThreadSynchronize(",
+    "#6472, #5872 remove deprecated PCL APIs"
+   ],
+   "rejected": [
+    "#3121 'deprecated(' removed in a typedef -> using refactor"
+   ],
+   "verdict": "rediscovered from code (6 PRs)"
+  },
+  "concurrency": {
+   "genuine": [
+    "#2981, #2212 add __all_sync( / __any_sync( / __ballot_sync( (warp votes with explicit masks)",
+    "#3086 adds lock_guard (mutex migration)",
+    "#2736, #6010 add cudaDeviceSynchronize("
+   ],
+   "rejected": [
+    "#6472 removes deprecated 'atomics' code"
+   ],
+   "verdict": "rediscovered from code (5 PRs)"
+  },
+  "edge_semantics": {
+   "genuine": [
+    "#6460 adds isfinite( (NaN guard in brute-force search)"
+   ],
+   "rejected": [
+    "#5722 fov_*_bound_( removed: a default-member-init refactor",
+    "#1568 SetSaturationRange( moved between files (VTK colour range)",
+    "earlier report: 34 'located' hits were function names containing Bound/Edge in refactor PRs (#2728, #3006, #3121, #3180)"
+   ],
+   "verdict": "not rediscovered: genuine evidence from 1 PR"
+  },
   "bit_exactness": {
    "genuine": [],
    "rejected": [
@@ -35,7 +85,7 @@
  "per_pr": {
   "github:PointCloudLibrary/pcl#6472": {
    "title": "Remove deprecated code before release 1.16",
-   "candidates": 51,
+   "candidates": 41,
    "families": {
     "concurrency": 1,
     "api_removal": 1
@@ -43,19 +93,19 @@
   },
   "github:PointCloudLibrary/pcl#6460": {
    "title": "Replace deprecated VTK and thrust functions, fix other problems with thrust",
-   "candidates": 225,
+   "candidates": 147,
    "families": {
     "edge_semantics": 2
    }
   },
   "github:PointCloudLibrary/pcl#6443": {
    "title": "fix cuda 13.3 errors",
-   "candidates": 1,
+   "candidates": 0,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#6424": {
    "title": "Fix gpu module building with cuda 13.2",
-   "candidates": 1,
+   "candidates": 0,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#6386": {
@@ -65,46 +115,42 @@
   },
   "github:PointCloudLibrary/pcl#6316": {
    "title": "Support cuda 13",
-   "candidates": 19,
+   "candidates": 18,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#6010": {
    "title": "Remove global includes and use target include for GPU/CUDA",
-   "candidates": 214,
+   "candidates": 101,
    "families": {
-    "api_removal": 9,
-    "concurrency": 1
+    "concurrency": 1,
+    "api_removal": 3
    }
   },
   "github:PointCloudLibrary/pcl#6040": {
    "title": "Remove Deprecated Code for 1.15.0 release",
-   "candidates": 110,
-   "families": {
-    "build": 1
-   }
+   "candidates": 69,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#5976": {
    "title": "fix build with CUDA",
-   "candidates": 31,
-   "families": {
-    "build": 1
-   }
+   "candidates": 27,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#5953": {
    "title": "Cmake cuda find_package cuda is deprecated.",
-   "candidates": 21,
+   "candidates": 6,
    "families": {
     "build": 2
    }
   },
   "github:PointCloudLibrary/pcl#5921": {
    "title": "Enable C++17 filesystem in the future",
-   "candidates": 197,
+   "candidates": 158,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#5904": {
    "title": "replace deprecated boost filesystem extension",
-   "candidates": 46,
+   "candidates": 39,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#5901": {
@@ -114,71 +160,60 @@
   },
   "github:PointCloudLibrary/pcl#5872": {
    "title": "remove deprecated code for 1.14 release",
-   "candidates": 35,
+   "candidates": 29,
    "families": {
     "api_removal": 3
    }
   },
   "github:PointCloudLibrary/pcl#5722": {
    "title": "Part C of transition to support modernize-use-default-member-init",
-   "candidates": 138,
+   "candidates": 137,
    "families": {
-    "edge_semantics": 6,
+    "edge_semantics": 4,
     "bit_exactness": 1
    }
   },
   "github:PointCloudLibrary/pcl#5535": {
    "title": "Remove CUDA code for already unsupported CUDA versions",
-   "candidates": 211,
+   "candidates": 174,
    "families": {
-    "edge_semantics": 2,
-    "api_removal": 10,
-    "perf": 1
+    "api_removal": 10
    }
   },
   "github:PointCloudLibrary/pcl#5384": {
    "title": "Fix wrong implemented CUDA function `RGB& operator-(RGB &rhs)`",
-   "candidates": 1,
+   "candidates": 0,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#5326": {
    "title": "Remove `using namespace thrust`",
-   "candidates": 18,
-   "families": {
-    "edge_semantics": 1
-   }
+   "candidates": 12,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#4629": {
    "title": "Modernized code with clang-tidy [PCL-2731]",
-   "candidates": 646,
-   "families": {
-    "edge_semantics": 2,
-    "bit_exactness": 1
-   }
+   "candidates": 578,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#5155": {
    "title": "[CUDA/OpenMP] Fix build errors",
-   "candidates": 8,
+   "candidates": 4,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#4925": {
    "title": "Deprecate the cuda VoxelGrid filter",
-   "candidates": 13,
+   "candidates": 9,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#4861": {
    "title": "Add deprecation for filter getters with bool reference",
-   "candidates": 78,
-   "families": {
-    "build": 1
-   }
+   "candidates": 62,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#4794": {
    "title": "[cuda] Fix cuda I/O cmake",
-   "candidates": 4,
-   "families": {
-    "build": 1
-   }
+   "candidates": 0,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#4675": {
    "title": "[GPU] MSVC / CUDA fix",
@@ -194,7 +229,7 @@
   },
   "github:PointCloudLibrary/pcl#3804": {
    "title": "[cuda] remove unwanted variable/initialisations",
-   "candidates": 57,
+   "candidates": 55,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#3743": {
@@ -204,30 +239,28 @@
   },
   "github:PointCloudLibrary/pcl#3627": {
    "title": "[CUDA] Octree builder: Check for a maximum level of Morton code",
-   "candidates": 235,
+   "candidates": 225,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#3587": {
    "title": "[cuda/apps] Fixing memory leaks",
-   "candidates": 65,
+   "candidates": 47,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#3576": {
    "title": "[cuda, gpu] Header fix for compilation",
-   "candidates": 25,
+   "candidates": 19,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#3249": {
    "title": "[cuda] Transition from boost::bind to std::bind.",
-   "candidates": 202,
+   "candidates": 183,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#3180": {
    "title": "Remove else after return statement [2d, apps, common, cuda, examples, features, filters, g",
-   "candidates": 121,
-   "families": {
-    "edge_semantics": 4
-   }
+   "candidates": 106,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#3153": {
    "title": "Suppress deprecation warnings in gpu.",
@@ -241,43 +274,36 @@
   },
   "github:PointCloudLibrary/pcl#3121": {
    "title": "Use using instead of typedef [cuda]",
-   "candidates": 945,
+   "candidates": 730,
    "families": {
-    "edge_semantics": 3,
     "api_removal": 1
    }
   },
   "github:PointCloudLibrary/pcl#3086": {
    "title": "[cuda] Migrate mutex, locks and cvs to C++14",
-   "candidates": 38,
+   "candidates": 28,
    "families": {
     "concurrency": 5
    }
   },
   "github:PointCloudLibrary/pcl#3044": {
    "title": "Modernize some CMake macros (Increases minimum required CMake version to 3.5)",
-   "candidates": 155,
-   "families": {
-    "build": 13
-   }
+   "candidates": 10,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#3006": {
    "title": "Use nullptr in module cuda",
-   "candidates": 356,
-   "families": {
-    "edge_semantics": 5
-   }
+   "candidates": 330,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#2993": {
    "title": "Remove unnecessary FLANN includes, deprecate \"kdtree/flann.h\" header",
-   "candidates": 126,
-   "families": {
-    "api_removal": 1
-   }
+   "candidates": 86,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#2981": {
    "title": "Add sync variants to CUDA vote functions to support PTX/ARCH >= 7.0",
-   "candidates": 50,
+   "candidates": 43,
    "families": {
     "api_removal": 10,
     "concurrency": 10
@@ -285,58 +311,47 @@
   },
   "github:PointCloudLibrary/pcl#2966": {
    "title": "Drop deprecated boost code",
-   "candidates": 37,
+   "candidates": 26,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#2883": {
    "title": "fix missing include for compiling with CUDA 10.1",
-   "candidates": 2,
+   "candidates": 1,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#2736": {
    "title": "Drop support of CUDA 7.0 and below",
-   "candidates": 1741,
+   "candidates": 1518,
    "families": {
-    "edge_semantics": 7,
-    "build": 5,
-    "api_removal": 10,
-    "concurrency": 4,
-    "bit_exactness": 2
+    "api_removal": 9,
+    "concurrency": 4
    }
   },
   "github:PointCloudLibrary/pcl#2737": {
    "title": "Modernize code by replacing deprecated headers",
-   "candidates": 411,
-   "families": {
-    "build": 2
-   }
+   "candidates": 269,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#2728": {
    "title": "Modernize code to use override",
-   "candidates": 1145,
-   "families": {
-    "edge_semantics": 8,
-    "bit_exactness": 2
-   }
+   "candidates": 1128,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#2212": {
    "title": "Fix compilation issues with CUDA 9.1",
-   "candidates": 221,
+   "candidates": 191,
    "families": {
-    "build": 1,
     "concurrency": 14
    }
   },
   "github:PointCloudLibrary/pcl#2181": {
    "title": "Fix some CUDA 9 related errors",
-   "candidates": 56,
-   "families": {
-    "api_removal": 2
-   }
+   "candidates": 39,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#1929": {
    "title": "Added CUDA compute capability 5.3",
-   "candidates": 2,
+   "candidates": 1,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#1824": {
@@ -345,7 +360,11 @@
    "families": {}
   },
   "github:PointCloudLibrary/pcl#1568": {
-   "error": "binary patch for dev/null"
+   "title": "Fix several WIN32 macro check problem in cuda module.",
+   "candidates": 103,
+   "families": {
+    "edge_semantics": 2
+   }
   },
   "github:PointCloudLibrary/pcl#1225": {
    "title": "Fixes 1224 for CUDA >= 6.x when calling fmin.",
@@ -354,19 +373,17 @@
   },
   "github:PointCloudLibrary/pcl#876": {
    "title": "Fix compile for CUDA and VTK 6 for gpu_people module.",
-   "candidates": 6,
+   "candidates": 4,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#824": {
    "title": "Fix compile for CUDA and VTK 6.",
-   "candidates": 21,
-   "families": {
-    "build": 1
-   }
+   "candidates": 14,
+   "families": {}
   },
   "github:PointCloudLibrary/pcl#600": {
    "title": "Fixing 'cannot find -lnpps' error when compiling with CUDA 5.5",
-   "candidates": 3,
+   "candidates": 0,
    "families": {}
   },
   "github:PointCloudLibrary/pcl#155": {
@@ -377,31 +394,11 @@
  },
  "coverage": {
   "build": {
-   "diff": 29,
-   "prs": 11,
+   "diff": 3,
+   "prs": 2,
    "review_comments": 26,
    "policy_rules": 0,
    "examples": [
-    {
-     "pr": "github:PointCloudLibrary/pcl#6040",
-     "title": "Remove Deprecated Code for 1.15.0 release",
-     "milestone": "diff/located/CMakeLists.txt:find_package#81fac7c508",
-     "evidence": {
-      "path": "surface/CMakeLists.txt",
-      "change": "located",
-      "anchor": "find_package"
-     }
-    },
-    {
-     "pr": "github:PointCloudLibrary/pcl#5976",
-     "title": "fix build with CUDA",
-     "milestone": "diff/located/pcl_find_cuda.cmake:find_package#199c75c7e1",
-     "evidence": {
-      "path": "cmake/pcl_find_cuda.cmake",
-      "change": "located",
-      "anchor": "find_package"
-     }
-    },
     {
      "pr": "github:PointCloudLibrary/pcl#5953",
      "title": "Cmake cuda find_package cuda is deprecated.",
@@ -421,24 +418,34 @@
       "token": "CMAKE_CUDA_COMPILER_VERSION",
       "change": "added"
      }
+    },
+    {
+     "pr": "github:PointCloudLibrary/pcl#4402",
+     "title": "Add a better error message in pcl::gpu::Octree if not built with proper CUDA support",
+     "milestone": "diff/added/octree.cpp:CUDA_ARCH_BIN#90c680480d",
+     "evidence": {
+      "path": "gpu/octree/src/octree.cpp",
+      "token": "CUDA_ARCH_BIN",
+      "change": "added"
+     }
     }
    ],
    "comment_examples": [
     {
      "trace": "github:PointCloudLibrary/pcl#5958",
-     "seq": 2,
+     "seq": 3,
      "text": "I would appreciate adopting lower-case commands in new/moved CMake code."
     },
     {
      "trace": "github:PointCloudLibrary/pcl#5958",
-     "seq": 8,
+     "seq": 10,
      "text": "Basically it is done in all modern CMake code, including reference documentation. I believe lower-case is widely accepted as more readable for humans.\r\nThe tran"
     }
    ]
   },
   "api_removal": {
-   "diff": 47,
-   "prs": 9,
+   "diff": 37,
+   "prs": 7,
    "review_comments": 10,
    "policy_rules": 2,
    "examples": [
@@ -455,50 +462,50 @@
     {
      "pr": "github:PointCloudLibrary/pcl#6010",
      "title": "Remove global includes and use target include for GPU/CUDA",
-     "milestone": "diff/added_call/texture_binder.hpp:cudaBindTexture2D#b416d13226",
+     "milestone": "diff/removed_call/texture_binder.hpp:cudaBindTexture2D#fa316afe91",
      "evidence": {
-      "path": "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+      "path": "gpu/utils/include/pcl/gpu/utils/texture_binder.hpp",
       "token": "cudaBindTexture2D(",
-      "change": "added"
+      "change": "removed"
      }
     },
     {
      "pr": "github:PointCloudLibrary/pcl#6010",
      "title": "Remove global includes and use target include for GPU/CUDA",
-     "milestone": "diff/added_call/texture_binder.hpp:cudaUnbindTexture#632289edf6",
+     "milestone": "diff/removed_call/texture_binder.hpp:cudaUnbindTexture#5da37843a2",
      "evidence": {
-      "path": "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+      "path": "gpu/utils/include/pcl/gpu/utils/texture_binder.hpp",
       "token": "cudaUnbindTexture(",
-      "change": "added"
+      "change": "removed"
      }
     },
     {
      "pr": "github:PointCloudLibrary/pcl#6010",
      "title": "Remove global includes and use target include for GPU/CUDA",
-     "milestone": "diff/added_call/texture_binder.hpp:cudaBindTexture#22a278c8fc",
+     "milestone": "diff/removed_call/texture_binder.hpp:cudaBindTexture#7a7d6f9390",
      "evidence": {
-      "path": "gpu/containers/include/pcl/gpu/containers/impl/texture_binder.hpp",
+      "path": "gpu/utils/include/pcl/gpu/utils/texture_binder.hpp",
       "token": "cudaBindTexture(",
-      "change": "added"
+      "change": "removed"
      }
     }
    ],
    "comment_examples": [
     {
      "trace": "github:PointCloudLibrary/pcl#6199",
-     "seq": 44,
+     "seq": 45,
      "text": "`set_sigma` introduces a snake_case public API in a codebase that otherwise uses lowerCamelCase setters (e.g., `setMaximumIterations`, `setTransformationEpsilon"
     },
     {
      "trace": "github:PointCloudLibrary/pcl#6199",
-     "seq": 50,
+     "seq": 51,
      "text": "Just renaming is okay, no need for a deprecated alias here."
     }
    ]
   },
   "bit_exactness": {
-   "diff": 6,
-   "prs": 4,
+   "diff": 1,
+   "prs": 1,
    "review_comments": 2,
    "policy_rules": 0,
    "examples": [
@@ -511,54 +518,24 @@
       "token": "epsilon_(",
       "change": "removed"
      }
-    },
-    {
-     "pr": "github:PointCloudLibrary/pcl#4629",
-     "title": "Modernized code with clang-tidy [PCL-2731]",
-     "milestone": "diff/located/marching_cubes_rbf.h:off_surface_epsilon_#4a88d9427e",
-     "evidence": {
-      "path": "surface/include/pcl/surface/marching_cubes_rbf.h",
-      "change": "located",
-      "anchor": "off_surface_epsilon_"
-     }
-    },
-    {
-     "pr": "github:PointCloudLibrary/pcl#2736",
-     "title": "Drop support of CUDA 7.0 and below",
-     "milestone": "diff/located/kdtree.h:getEpsilon#1a773f2f54",
-     "evidence": {
-      "path": "search/include/pcl/search/kdtree.h",
-      "change": "located",
-      "anchor": "getEpsilon"
-     }
-    },
-    {
-     "pr": "github:PointCloudLibrary/pcl#2736",
-     "title": "Drop support of CUDA 7.0 and below",
-     "milestone": "diff/located/marching_cubes_rbf.h:off_surface_epsilon_#4a88d9427e",
-     "evidence": {
-      "path": "surface/include/pcl/surface/marching_cubes_rbf.h",
-      "change": "located",
-      "anchor": "off_surface_epsilon_"
-     }
     }
    ],
    "comment_examples": [
     {
      "trace": "github:PointCloudLibrary/pcl#6199",
-     "seq": 38,
+     "seq": 39,
      "text": "`sigma2` can become zero or extremely small (e.g., when all squared distances are 0, or when `set_sigma(0)` is used), which will cause division-by-zero/NaNs in "
     },
     {
      "trace": "github:PointCloudLibrary/pcl#6199",
-     "seq": 41,
+     "seq": 42,
      "text": "`setDynamicWelschDecay()` documents a valid range of [0, 1], but values near 0 are currently forced to 0.5, which silently ignores caller intent and contradicts"
     }
    ]
   },
   "edge_semantics": {
-   "diff": 40,
-   "prs": 10,
+   "diff": 8,
+   "prs": 3,
    "review_comments": 4,
    "policy_rules": 0,
    "examples": [
@@ -585,28 +562,28 @@
     {
      "pr": "github:PointCloudLibrary/pcl#5722",
      "title": "Part C of transition to support modernize-use-default-member-init",
-     "milestone": "diff/located/edge.h:Edge#941bbf0163",
+     "milestone": "diff/removed_call/frustum_culling.h:fov_lower_bound_#f39422c261",
      "evidence": {
-      "path": "2d/include/pcl/2d/edge.h",
-      "change": "located",
-      "anchor": "Edge"
+      "path": "filters/include/pcl/filters/frustum_culling.h",
+      "token": "fov_lower_bound_(",
+      "change": "removed"
      }
     },
     {
      "pr": "github:PointCloudLibrary/pcl#5722",
      "title": "Part C of transition to support modernize-use-default-member-init",
-     "milestone": "diff/located/frustum_culling.h:fov_left_bound_#b024603c94",
+     "milestone": "diff/removed_call/frustum_culling.h:fov_right_bound_#8b2c763278",
      "evidence": {
       "path": "filters/include/pcl/filters/frustum_culling.h",
-      "change": "located",
-      "anchor": "fov_left_bound_"
+      "token": "fov_right_bound_(",
+      "change": "removed"
      }
     }
    ],
    "comment_examples": [
     {
      "trace": "github:PointCloudLibrary/pcl#6199",
-     "seq": 37,
+     "seq": 38,
      "text": "`computeWeighted3DCentroid` indexes `weights` using `cp`, which is incremented only for finite points. If any point is NaN/Inf, this shifts the weight indexing "
     },
     {
@@ -671,28 +648,17 @@
     },
     {
      "trace": "github:PointCloudLibrary/pcl#6376",
-     "seq": 21,
+     "seq": 24,
      "text": "The parallel region accumulates `score_gradient` and `hessian` via two separate named `omp critical` blocks. This adds extra synchronization overhead (two lock "
     }
    ]
   },
   "perf": {
-   "diff": 1,
-   "prs": 1,
+   "diff": 0,
+   "prs": 0,
    "review_comments": 4,
    "policy_rules": 10,
-   "examples": [
-    {
-     "pr": "github:PointCloudLibrary/pcl#5535",
-     "title": "Remove CUDA code for already unsupported CUDA versions",
-     "milestone": "diff/removed/CMakeLists.txt:test_gpu_octree_performance#45df6b8bdb",
-     "evidence": {
-      "path": "test/gpu/octree/CMakeLists.txt",
-      "token": "test_gpu_octree_performance",
-      "change": "removed"
-     }
-    }
-   ],
+   "examples": [],
    "comment_examples": [
     {
      "trace": "github:PointCloudLibrary/pcl#6400",

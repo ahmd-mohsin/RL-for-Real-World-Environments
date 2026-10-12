@@ -6,7 +6,7 @@ Ops (``main({"op": ..., ...})``):
   unpack    {root, git, include, exclude, tar}       -> manifest after restore (managed files only)
   read      {root, path, max_bytes}                  -> {text, size, truncated}
   list      {root, git, include, exclude, pattern}   -> {paths}
-  grep      {root, git, include, exclude, pattern, glob, max_hits} -> {hits: [[path, line, text]]}
+  grep      {root, git, include, exclude, pattern, glob, paths, max_hits} -> {hits: [[path, line, text]]}
   exists    {root, path}                             -> {exists, is_file, is_dir}
 
 Canonical entry per managed file: (relpath, mode, sha256) with mode "100644" | "100755" | "120000"
@@ -543,6 +543,9 @@ def list_(a):
 def grep(a):
     rx = re.compile(a["pattern"])
     rels = _rels(a)
+    if a.get("paths"):  # only these files (still within the managed set): a mined milestone names its file
+        want = set(a["paths"])
+        rels = [r for r in rels if r in want]
     g = a.get("glob")
     hits, max_hits = [], int(a.get("max_hits", 200))
     for rel in rels:

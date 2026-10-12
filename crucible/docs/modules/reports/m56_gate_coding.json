@@ -10,10 +10,24 @@
  },
  "replay": {
   "traces": 913,
-  "agent_state_replayed": 866,
-  "strict_replayed": 832,
-  "agent_state_rate": 0.9485,
-  "strict_rate": 0.9113
+  "agent_state_replayed": 839,
+  "strict_replayed": 831,
+  "agent_state_rate": 0.9189,
+  "strict_rate": 0.9102,
+  "row_versions": [
+   "None"
+  ],
+  "current_version": "efcbd28f2f1c",
+  "rows_from_current_code": false,
+  "rerun": {
+   "version": "efcbd28f2f1c",
+   "n": 913,
+   "agent_state_rate": 0.9189,
+   "strict_rate": 0.9102,
+   "unreplayable_calls": 378,
+   "stale": 167
+  },
+  "source": "m5_s1_replay.json (current code)"
  },
  "s2": {
   "rows": 913,
@@ -135,12 +149,54 @@
   "families": {
    "build": true,
    "api_removal": true,
-   "edge_semantics": true,
+   "bit_exactness": false,
+   "edge_semantics": false,
    "concurrency": true,
-   "perf": true,
-   "bit_exactness": false
+   "perf": true
   },
   "audit": {
+   "build": {
+    "genuine": [
+     "#5953 adds check_language( / CMAKE_CUDA_COMPILER_VERSION (CMake CUDA language detection)",
+     "#4402 adds a CUDA_ARCH_BIN build-configuration check to pcl::gpu::Octree's error path"
+    ],
+    "rejected": [],
+    "verdict": "rediscovered from code (2 PRs)"
+   },
+   "api_removal": {
+    "genuine": [
+     "#6010 removes cudaBindTexture( / cudaBindTexture2D( / cudaUnbindTexture(",
+     "#5535 and #2981 remove __all( / __ballot( / __any(",
+     "#2736 removes cudaThreadExit( / cudaThreadSynchronize(",
+     "#6472, #5872 remove deprecated PCL APIs"
+    ],
+    "rejected": [
+     "#3121 'deprecated(' removed in a typedef -> using refactor"
+    ],
+    "verdict": "rediscovered from code (6 PRs)"
+   },
+   "concurrency": {
+    "genuine": [
+     "#2981, #2212 add __all_sync( / __any_sync( / __ballot_sync( (warp votes with explicit masks)",
+     "#3086 adds lock_guard (mutex migration)",
+     "#2736, #6010 add cudaDeviceSynchronize("
+    ],
+    "rejected": [
+     "#6472 removes deprecated 'atomics' code"
+    ],
+    "verdict": "rediscovered from code (5 PRs)"
+   },
+   "edge_semantics": {
+    "genuine": [
+     "#6460 adds isfinite( (NaN guard in brute-force search)"
+    ],
+    "rejected": [
+     "#5722 fov_*_bound_( removed: a default-member-init refactor",
+     "#1568 SetSaturationRange( moved between files (VTK colour range)",
+     "earlier report: 34 'located' hits were function names containing Bound/Edge in refactor PRs (#2728, #3006, #3121, #3180)"
+    ],
+    "verdict": "not rediscovered: genuine evidence from 1 PR"
+   },
    "bit_exactness": {
     "genuine": [],
     "rejected": [
