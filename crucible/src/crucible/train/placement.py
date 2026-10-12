@@ -224,8 +224,11 @@ def train_mesh(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int) -> tuple[in
     need = 16 * m.params_b * 1e9
     act = activation_bytes(m, w)
     over = w.mem_overhead if act else 1.0
-    for shard in _pow2_upto(gpus):
-        if (need / shard + act) * over <= w.train_mem_frac * c.gpu_mem_gb * 1e9 and gpus % shard == 0:
+    # with activations and overhead modeled, the budget is nearly the whole card (the measured 8B peak was 65 of 80 GB at
+    # 3 ranks); a state-only estimate keeps the conservative fraction for what it does not count
+    cap = (0.92 if act else w.train_mem_frac) * c.gpu_mem_gb * 1e9
+    for shard in (d for d in range(1, gpus + 1) if gpus % d == 0):  # any divisor: 3 ranks shard 3 ways (FSDP needs no power of two)
+        if (need / shard + act) * over <= cap:
             return gpus // shard, shard
     raise PlacementError(f"trainer state {need / 1e12:.1f} TB does not fit {gpus} GPUs at {w.train_mem_frac:.0%} of {c.gpu_mem_gb} GB")
 
@@ -340,7 +343,7 @@ def candidates(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str) -> list
         elastics = [0] if topology == "disaggregated_stream" else range(eg, rest - eg + 1, eg)
         for e in elastics:
             g_r = (rest - e) // eg * eg
-            if g_r < eg:
+            if g_r < eg or g_r != rest - e:  # every GPU gets a role: a split that strands GPUs is not a placement
                 continue
             p = _candidate(c, m, w, topology, g_r, g_t, e)
             if p:

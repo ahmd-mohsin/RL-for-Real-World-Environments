@@ -1,0 +1,20 @@
+{
+ "_ppo_steps": 200000,
+ "_unity_ppo_steps": 20000,
+ "unity_reset": {
+  "obs_len": 8,
+  "s": 0.7
+ },
+ "unity_random": {
+  "steps": 300,
+  "episodes": 20,
+  "mean_return": 0.3550000201910734,
+  "steps_per_s": 12.2
+ },
+ "unity_ppo": {
+  "first10": 0.3200000196695328,
+  "last": 0.45000002160668373,
+  "episodes": 1341
+ },
+ "wall_s": 1925.9
+}

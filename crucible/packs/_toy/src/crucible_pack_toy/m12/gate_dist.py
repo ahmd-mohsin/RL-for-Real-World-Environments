@@ -11,7 +11,8 @@ ranks; ``cluster.process_specs`` gives every process its devices and torch.distr
   rank 0, bf16 safetensors, every engine loads them);
 - trainer ranks > 0 ``follow`` (NCCL, FSDP shards).
 
-The task is ``WordFileTask`` (learnable by a 0.6B policy), with held-out evaluation before and after training.
+The task is ``WordFileTask`` (learnable by a 0.6B policy) or the helpdesk backlog (``--task backlog``: multi-ticket
+enterprise tool use, hard enough for an 8B policy), with held-out evaluation before and after training.
 
     python -m crucible_pack_toy.m12.gate_dist --gpus 4 --steps 20 --eval 24 --out /work/out
 """
@@ -80,6 +81,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
     from crucible.train.vllm_http import VLLMServerEngine
     from crucible.train.weights import CheckpointPublisher
     from crucible.train.world_env import world_rollout
+    from crucible_pack_toy.longhorizon.task import BacklogTask
     from crucible_pack_toy.runtime import WordFileTask
 
     tok = AutoTokenizer.from_pretrained(a["model"])
@@ -92,7 +94,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
 
     def task_for(prompt: str):
         if prompt not in tasks:
-            tasks[prompt] = WordFileTask(seed=int(prompt[1:]))
+            tasks[prompt] = WordFileTask(seed=int(prompt[1:])) if a["task"] == "wordfile" else BacklogTask(seed=int(prompt[1:]), n=a["tickets"])
         return tasks[prompt]
 
     rollout = world_rollout(task_for, codec, max_steps=a["max_steps"], max_tokens=a["max_tokens"], context=ContextConfig(budget_tokens=a["context"], keep_recent_turns=2))
@@ -122,7 +124,7 @@ async def _drive(tr, a: dict, ports: list[int]) -> dict:
     rt = Runtime(RuntimeConfig(topology="disaggregated_stream", steps=a["steps"], max_turn_tokens=a["max_tokens"], temperature=1.0,
                                stop_ids=tuple(codec.eos_ids), warmup_batches=0, checkpoint_every=a["checkpoint_every"], max_wall_s=a["max_wall_s"],
                                checkpoint_dir=str(Path(a["out"]) / "runckpt")),
-                 SchedulerConfig(n=a["n"], B=a["B"], max_staleness=a["tau"]), pool, drv, pub, None, {"wordfile": [f"s{i}" for i in range(100000)]},
+                 SchedulerConfig(n=a["n"], B=a["B"], max_staleness=a["tau"]), pool, drv, pub, None, {a["task"]: [f"s{i}" for i in range(100000)]},
                  rollout_fn=rollout, harness="native:world-qwen@1")
     t0 = time.time()
     rep = await rt.run()
@@ -202,12 +204,15 @@ def main() -> None:
     ap.add_argument("--max-len", dest="max_len", type=int, default=8192)
     ap.add_argument("--eval", type=int, default=24)
     ap.add_argument("--checkpoint-every", dest="checkpoint_every", type=int, default=10)
-    ap.add_argument("--max-wall-s", dest="max_wall_s", type=float, default=7200.0)  # the runtime's default (600 s) stopped a 1.7B run at step 9
+    ap.add_argument("--max-wall-s", dest="max_wall_s", type=float, default=7200.0)
+    ap.add_argument("--task", choices=["wordfile", "backlog"], default="wordfile")
+    ap.add_argument("--tickets", type=int, default=3)
+    ap.add_argument("--params-b", dest="params_b", type=float, default=0.6, help="model size for the planner")  # the runtime's default (600 s) stopped a 1.7B run at step 9
     ap.add_argument("--out", default="/work/out")
     a = ap.parse_args()
     Path(a.out).mkdir(parents=True, exist_ok=True)
     c = ClusterSpec(1, gpus_per_node=a.gpus, gpu_mem_gb=a.gpu_mem)
-    m = ModelSpec(0.6, 28, 8, 128)
+    m = ModelSpec(a.params_b, 36 if a.params_b > 4 else 28, 8, 128)
     p = plan(c, m, Workload(a.n * a.B, 512, a.max_tokens * a.max_steps), "disaggregated_stream")
     if a.train_gpus:  # override the split, keep the planner's engine size
         from crucible.train.placement import _candidate, _layout

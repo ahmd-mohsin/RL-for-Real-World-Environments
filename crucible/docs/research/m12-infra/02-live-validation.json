@@ -993,6 +993,15 @@
    },
    "returncode": 0,
    "vllm_log_tails": {}
+  },
+  {
+   "gpu": "H100:4",
+   "args": "--model Qwen/Qwen3-8B --params-b 8.2 --task backlog --tickets 3 --train-gpus 3 --steps 20 --eval 16 --n 8 --B 4 --max-steps 24 --max-tokens 384 --context 6000 --lr 1e-6 --token-budget 8192 --mem 0.85",
+   "result": {
+    "error": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/root/crucible/packs/_toy/src/crucible_pack_toy/m12/gate_dist.py\", line 236, in <module>\n    main()\n  File \"/root/crucible/packs/_toy/src/crucible_pack_toy/m12/gate_dist.py\", line 216, in main\n    p = plan(c, m, Workload(a.n * a.B, 512, a.max_tokens * a.max_steps), \"disaggregated_stream\")\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/crucible/src/crucible/train/placement.py\", line 359, in plan\n    raise PlacementError(f\"no feasible placement on {c.nodes}\u00d7{c.gpus_per_node} GPUs for {m.params_b}B\")\ncrucible.train.placement.PlacementError: no feasible placement on 1\u00d74 GPUs for 8.2B\n"
+   },
+   "returncode": 1,
+   "vllm_log_tails": {}
   }
  ],
  "calibration": [
