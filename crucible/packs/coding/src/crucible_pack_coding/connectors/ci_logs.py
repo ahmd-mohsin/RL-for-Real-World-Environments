@@ -18,6 +18,14 @@ outcome is otherwise ``good`` iff nothing failed.
 
 ``flaky(traces)``: tests whose status differs between runs of the same commit. SWE-smith ``harness/repair.py``
 drops such tests from FAIL_TO_PASS / PASS_TO_PASS; here they are listed so M4 can discount them.
+
+M3 audit (2026-10-12): a failing run was labelled ``good`` whenever the parser missed its failures (a pytest id with a
+space, a GTest ``, where GetParam() = 4`` line): parsed counts are now checked against the runner's own summary. A
+collection error is ``bad`` (it was ``unknown``). Infra markers are read outside test-failure output only (a test that
+failed on "Connection refused" was masked as infra). A run killed mid-way (exit 137, no runner summary) is ``unknown``,
+not ``good``. Logs as CI downloads them parse (timestamp prefixes, ANSI colours, byte-order marks, UTF-16 JUnit).
+CTest exception lines, JUnit flaky reruns and pytest ``RERUN`` lines are read. A rerun written to the same path is its
+own trace (the id carries a content digest).
 """
 
 from __future__ import annotations
@@ -39,9 +47,41 @@ INFRA = re.compile(
     r"|Could not resolve host|Connection (?:reset|refused|timed out)|Temporary failure in name resolution"
     r"|no CUDA-capable device is detected|CUDA driver version is insufficient|NVIDIA-SMI has failed"
     r"|The job running on runner .* has exceeded the maximum execution time|##\[error\]The operation was canceled"
-    r"|rate limit exceeded|503 Service Unavailable|docker: Error response from daemon",
-    re.IGNORECASE,
+    r"|rate limit exceeded|503 Service Unavailable|docker: Error response from daemon"
+    r"|exit code 137|exit code 143|exit status 137|signal: killed|Terminated by signal|^Killed$|runner has received a shutdown signal",
+    re.IGNORECASE | re.MULTILINE,
 )
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ", re.MULTILINE)  # GitHub Actions / Azure log prefixes
+
+
+def clean(text: str) -> str:
+    """A log as CI downloads it, minus line timestamps and colour codes (every pattern is line-anchored)."""
+    return STAMP.sub("", ANSI.sub("", text.lstrip("\ufeff")))
+
+
+def decode(data: bytes) -> str:
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    return data.decode("utf-8-sig", errors="replace")
+
+
+def infra_evidence(text: str) -> re.Match | None:
+    """An infra marker outside the output of a failed test (a test may fail *on* a refused connection: that is the
+    code's failure, not the runner's)."""
+    in_failures = False
+    for line in text.splitlines():
+        if re.match(r"^=+ (?:FAILURES|ERRORS) =+$", line):
+            in_failures = True
+            continue
+        if in_failures and re.match(r"^=+ .* =+$", line) and "FAILURES" not in line and "ERRORS" not in line:
+            in_failures = False
+        if in_failures or re.match(r"^(?:FAILED|ERROR)\s+\S", line) or "::" in line or re.match(r"^\[\s*FAILED\s*\]", line):
+            continue
+        m = INFRA.search(line)
+        if m:
+            return m
+    return None
 
 
 def parse_junit(text: str) -> list[dict[str, Any]]:
@@ -50,6 +90,7 @@ def parse_junit(text: str) -> list[dict[str, Any]]:
     for case in root.iter("testcase"):
         cls, name = case.get("classname") or "", case.get("name") or ""
         status, message = PASS, None
+        flaky = any(case.find(t) is not None for t in ("flakyFailure", "flakyError", "rerunFailure", "rerunError"))
         for tag, st in (("failure", FAIL), ("error", ERROR), ("skipped", SKIP)):
             el = case.find(tag)
             if el is not None:
@@ -58,11 +99,11 @@ def parse_junit(text: str) -> list[dict[str, Any]]:
                 break
         t = case.get("time")
         out.append({"name": f"{cls}::{name}" if cls else name, "status": status, "message": message,
-                    "duration_s": float(t) if t not in (None, "") else None})
+                    "duration_s": float(t) if t not in (None, "") else None, **({"flaky": True} if flaky else {})})
     return out
 
 
-CTEST = re.compile(r"^\s*\d+/\d+\s+Test\s+#\d+:\s+(\S+)\s+\.+\s*(\*{0,3}\w[\w ]*?)\s+([\d.]+)\s+sec", re.MULTILINE)
+CTEST = re.compile(r"^\s*\d+/\d+\s+Test\s+#\d+:\s+(\S+)\s+\.+\s*(\*{0,3}\w[\w :()-]*?)\s+([\d.]+)\s+sec", re.MULTILINE)
 CTEST_FAILED = re.compile(r"The following tests FAILED:\n((?:\s+\d+\s+-\s+\S+.*\n?)+)")
 
 
@@ -82,7 +123,8 @@ def parse_ctest(text: str) -> list[dict[str, Any]]:
     return list(res.values())
 
 
-GTEST = re.compile(r"^\[\s*(OK|FAILED|SKIPPED|DISABLED)\s*\]\s+([\w/.:<>,]+)(?:\s+\((\d+)\s*ms\))?\s*$", re.MULTILINE)
+# value-parameterized tests end with ", where GetParam() = 4" (that line was missed and its run labelled good)
+GTEST = re.compile(r"^\[\s*(OK|FAILED|SKIPPED|DISABLED)\s*\]\s+([\w/.:<>,]+)(?:,\s+where\s+.*?)?(?:\s+\((\d+)\s*ms\))?\s*$", re.MULTILINE)
 
 
 def parse_gtest(text: str) -> list[dict[str, Any]]:
@@ -98,16 +140,23 @@ def parse_gtest(text: str) -> list[dict[str, Any]]:
     return list(res.values())
 
 
-PYTEST_LINE = re.compile(r"^(\S+::\S+?)\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\b", re.MULTILINE)
-PYTEST_SHORT = re.compile(r"^(FAILED|ERROR)\s+(\S+::\S+?)(?:\s+-\s+(.*))?$", re.MULTILINE)
-PYTEST_SUMMARY = re.compile(r"(\d+) (failed|passed|skipped|errors?|xfailed|xpassed|deselected)")
+# node ids may hold spaces inside [...] (parametrize ids); short-summary node ids need not hold "::" (collection errors)
+_NODE = r"\S+?::\S*?(?:\[[^\]\n]*\])?"
+PYTEST_LINE = re.compile(rf"^({_NODE})\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS|RERUN)\b", re.MULTILINE)
+PYTEST_XDIST = re.compile(r"^\[gw\d+\]\s+\[\s*\d+%\]\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS|RERUN)\s+(\S+?(?:\[[^\]\n]*\])?)\s*$", re.MULTILINE)
+PYTEST_SHORT = re.compile(r"^(FAILED|ERROR)\s+(\S+?(?:\[[^\]\n]*\])?)(?:\s+-\s+(.*))?$", re.MULTILINE)
+PYTEST_SUMMARY = re.compile(r"(\d+) (failed|passed|skipped|errors?|xfailed|xpassed|deselected|rerun)")
 
 
 def parse_pytest(text: str) -> list[dict[str, Any]]:
     res: dict[str, dict[str, Any]] = {}
-    for m in PYTEST_LINE.finditer(text):
-        st = {"PASSED": PASS, "XFAIL": PASS, "FAILED": FAIL, "XPASS": FAIL, "ERROR": ERROR}.get(m.group(2), SKIP)
-        res[m.group(1)] = {"name": m.group(1), "status": st, "message": None, "duration_s": None}
+    lines = [(m.group(1), m.group(2)) for m in PYTEST_LINE.finditer(text)] + [(m.group(2), m.group(1)) for m in PYTEST_XDIST.finditer(text)]
+    for name, word in lines:
+        if word == "RERUN":  # pytest-rerunfailures: failed, then retried: flaky whatever the final status
+            res.setdefault(name, {"name": name, "status": FAIL, "message": None, "duration_s": None})["flaky"] = True
+            continue
+        st = {"PASSED": PASS, "XFAIL": PASS, "FAILED": FAIL, "XPASS": FAIL, "ERROR": ERROR}.get(word, SKIP)
+        res[name] = {**res.get(name, {}), "name": name, "status": st, "message": None, "duration_s": None}
     for m in PYTEST_SHORT.finditer(text):
         st = FAIL if m.group(1) == "FAILED" else ERROR
         res[m.group(2)] = {**res.get(m.group(2), {"name": m.group(2), "duration_s": None}), "status": st, "message": m.group(3)}
@@ -137,8 +186,16 @@ def summary_counts(text: str) -> dict[str, int]:
     m = re.search(r"(\d+)% tests passed, (\d+) tests? failed out of (\d+)", text)
     if m:
         return {"failed": int(m.group(2)), "passed": int(m.group(3)) - int(m.group(2))}
+    m = re.search(r"Interrupted: (\d+) errors? during collection", text)
+    if m:
+        out["error"] = int(m.group(1))
+    m = re.search(r"\[==========\] (\d+) tests? (?:from .* )?ran", text)
+    if m:  # gtest: "[  PASSED  ] n tests." and "[  FAILED  ] n tests, listed below:"
+        p_ = re.search(r"^\[\s*PASSED\s*\]\s+(\d+) tests?", text, re.MULTILINE)
+        f_ = re.search(r"^\[\s*FAILED\s*\]\s+(\d+) tests?, listed below", text, re.MULTILINE)
+        return {"passed": int(p_.group(1)) if p_ else 0, "failed": int(f_.group(1)) if f_ else 0}
     for line in text.splitlines():
-        if re.search(r"\d+ (passed|failed)", line) and (" in " in line or line.startswith("=")):
+        if re.search(r"\d+ (passed|failed|errors?)\b", line) and (" in " in line or line.startswith("=")):
             out = {}
             for n, k in PYTEST_SUMMARY.findall(line):
                 out[k.rstrip("s") if k.startswith("error") else k] = int(n)
@@ -146,10 +203,10 @@ def summary_counts(text: str) -> dict[str, int]:
 
 
 def detect(text: str) -> str:
-    head = text.lstrip()[:400]
+    head = text.lstrip("\ufeff \t\r\n")[:400]
     if head.startswith(("<?xml", "<testsuite")):
         return "junit"
-    if re.search(r"Test\s+#\d+:", text) or "tests passed," in text:
+    if re.search(r"Test\s+#\d+:", text) or re.search(r"\d+% tests passed, \d+ tests? failed out of", text):  # not prose "all tests passed,"
         return "ctest"
     if "[ RUN      ]" in text or "[==========]" in text:
         return "gtest"
@@ -165,7 +222,7 @@ PARSERS = {"junit": parse_junit, "ctest": parse_ctest, "gtest": parse_gtest, "py
 
 def parse(text: str, fmt: str | None = None) -> tuple[str, list[dict[str, Any]]]:
     fmt = fmt or detect(text)
-    tests = PARSERS[fmt](text) if fmt in PARSERS else []
+    tests = PARSERS[fmt](text.lstrip("\ufeff") if fmt == "junit" else text) if fmt in PARSERS else []
     if fmt not in ("build", "junit"):
         tests += [t for t in parse_build(text) if t["name"] not in {x["name"] for x in tests}]
     return fmt, tests
@@ -203,10 +260,14 @@ class CILogConnector:
                 yield SourceRef(connector=self.name, key=rel, meta={"path": str(p), "commit": sha, "family": scope.get("family", FAMILY)})
 
     def fetch(self, ref: SourceRef) -> RawRecord:
-        return RawRecord(ref=ref, payload={"text": Path(ref.meta["path"]).read_text(errors="replace")}, privacy=self.privacy)  # type: ignore[arg-type]
+        return RawRecord(ref=ref, payload={"text": decode(Path(ref.meta["path"]).read_bytes())}, privacy=self.privacy)  # type: ignore[arg-type]
 
     def normalize(self, raw: RawRecord) -> Trace:
-        text, path = raw.payload["text"], raw.ref.meta["path"]
+        import hashlib
+
+        raw_text, path = raw.payload["text"], raw.ref.meta["path"]
+        digest = hashlib.sha256(raw_text.encode("utf-8", "replace")).hexdigest()[:10]
+        text = clean(raw_text)
         reward = None
         if path.endswith("grade_report.json"):
             report = json.loads(text)
@@ -216,16 +277,20 @@ class CILogConnector:
             fmt, tests = parse(text)
             counted = tests
         counts = {"passed": 0, "failed": 0, "skipped": 0, "error": 0}
-        if counted:
-            for t in counted:
-                counts[{PASS: "passed", FAIL: "failed", SKIP: "skipped", ERROR: "error"}[t["status"]]] += 1
-        else:
-            counts.update(summary_counts(text))
-        infra = INFRA.search(text)
+        for t in counted:
+            counts[{PASS: "passed", FAIL: "failed", SKIP: "skipped", ERROR: "error"}[t["status"]]] += 1
+        summary = summary_counts(text) if fmt != "grade_report" else {}
+        missed = {k: summary[k] - counts[k] for k in counts if summary.get(k, 0) > counts[k]}
+        for k, v in missed.items():  # the runner reported more than the parser read: trust the runner
+            counts[k] += v
+        infra = infra_evidence(text)
+        # a pytest / gtest / ctest run with no runner summary was cut off (killed, timed out): never "good"
+        cut_off = fmt in ("pytest", "gtest", "ctest") and not summary and not infra
         failing = counts["failed"] + counts["error"]
-        kind = "infra" if infra else ("test" if failing else None)
+        kind = "infra" if (infra or cut_off) else ("test" if failing else None)
         commit = raw.ref.meta.get("commit")
-        run = {"format": fmt, **counts, "failure_kind": kind, **({"reward": reward} if reward is not None else {}), **({"infra_evidence": infra.group(0)} if infra else {}), **({"commit": commit} if commit else {})}
+        run = {"format": fmt, **counts, "failure_kind": kind, **({"reward": reward} if reward is not None else {}), **({"infra_evidence": infra.group(0)} if infra else {}),
+               **({"commit": commit} if commit else {}), **({"unparsed": missed} if missed else {}), **({"cut_off": True} if cut_off else {}), "digest": digest}
         events = [TraceEvent(seq=0, kind="check", actor="ci", type="ci_run", text=f"{fmt}: {counts['passed']} passed, {failing} failed",
                              state_ref=f"git:{commit}" if commit else None, data=run)]
         for t in tests:
@@ -233,11 +298,14 @@ class CILogConnector:
                                      reply_to=0, data={k: v for k, v in t.items() if v is not None}))
         if infra:
             outcome = TraceOutcome(label="unknown", label_source=f"infra failure (P16): {infra.group(0)}", details=run)
+        elif cut_off:
+            outcome = TraceOutcome(label="unknown", label_source=f"no runner summary: the run was cut off ({fmt})", details=run)
         elif not tests and not any(counts.values()):
             outcome = TraceOutcome(label="unknown", label_source=f"no test results found ({fmt})", details=run)
         else:
             outcome = TraceOutcome(label="bad" if failing else "good", label_source=f"{failing} failing of {sum(counts.values())}", details=run)
-        return Trace(trace_id=f"ci:{raw.ref.key}", family=raw.ref.meta.get("family", FAMILY),
+        # the digest: a rerun written to the same path is its own run (it replaced the first, so flaky() saw one)
+        return Trace(trace_id=f"ci:{raw.ref.key}@{digest}", family=raw.ref.meta.get("family", FAMILY),
                      source=TraceSource(connector=self.name, ref=raw.ref.key, privacy=raw.privacy),  # type: ignore[arg-type]
                      actors=[TraceActor(id="ci", role="ci", kind="system")], events=events, outcome=outcome)
 

@@ -505,9 +505,9 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
 - **Coding pack connectors:**
   - `github`, `gitlab` (PRs, commit series, review threads, suggestions, check runs);
   - `ci_logs`;
-  - `vcs_history` (reverts and hotfixes via blame);
+  - `vcs_history` (reverts and hotfixes via blame; today inside `github_pr`);
   - `claude_code_sessions` (our construction transcripts);
-  - `mini_swe_agent_runs` (the GPT 6 Astra and GPT 5.6 sol trajectories);
+  - `mini_swe_agent_runs` (the GPT 6 Astra and GPT 5.6 sol trajectories; built as `agent_runs`);
   - `policy_docs`, `issues`.
 - **Toy:** `file_drop` of ticket event logs.
 - **Exit gate:**

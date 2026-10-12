@@ -2743,6 +2743,16 @@ are judged. A failed simulator ends its conversation. Human and peer failures, s
 and a restored A2A peer gets a fresh context opened with the restored conversation. The CI bot runs through the `ci`
 App. A raising responder is a masked failure at the World's choke point. Details: `docs/audit/2026-10-12/M02-actors.md`.
 
+**M3 audit (2026-10-12).** Redaction covers every string of a trace (ids, URLs, targets, dict keys), masks values under
+credential-named keys, removes URL userinfo, short passwords, Basic auth, cookies, cut private keys, cards, IBANs and
+SSNs, rewrites known people's names in text, runs in linear time, and pseudonymizes with an HMAC under a per-tenant key
+(the public default salt let a guessed address be reversed). Stored traces are owner-only, stamped with the rules that
+redacted them, purgeable, and keep M4's signals when a grown source is re-ingested. Ingest isolates failing sources.
+Captures keep upstream error statuses, record interrupted streams, and tell side calls from context resets. Probes and
+write detection read shell commands, argv arrays and harness sentences correctly. CI logs are never `good` when the
+runner's summary says otherwise. PR history follows renames and matches reverts by exact PR number. Details:
+`docs/audit/2026-10-12/M03-connectors.md`.
+
 ## 14. Repository layout
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.

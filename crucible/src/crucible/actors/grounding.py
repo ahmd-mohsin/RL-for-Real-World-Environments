@@ -91,7 +91,7 @@ def is_factual(sentence: str) -> bool:
     return len(content_tokens(rest)) >= 2 or bool(_FACT_TOKEN.search(rest))
 
 
-_LIST_MARKER = re.compile(r"[(\[]?(?:\d{1,2}|[a-z]|[ivx]{1,4})[.)\]]?\s*[.:]?", re.I)
+_LIST_MARKER = re.compile(r"[(\[]?(?:\d{1,2}|[a-z]|[ivx]{1,4})[.)\]]?\s*[.:]?", re.IGNORECASE)
 
 
 def _facts(text: str) -> set[str]:

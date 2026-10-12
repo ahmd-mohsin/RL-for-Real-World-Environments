@@ -255,6 +255,22 @@ class Store:
             yield from self._db.execute("SELECT kind, COUNT(*) FROM docs GROUP BY kind ORDER BY kind").fetchall()
 
     # ---------------- tags ----------------
+    def forget_doc(self, kind: str, key: str) -> bool:
+        """Remove a document version from the index, and its blob once nothing (another kind, a tag) refers to it.
+        For content that must not stay at rest (a trace stored before a redaction fix). Returns whether the blob went."""
+        with self._lock:
+            self._db.execute("DELETE FROM docs WHERE kind=? AND key=?", (kind, key))
+            self._db.execute("DELETE FROM doc_names WHERE kind=? AND key=?", (kind, key))
+            self._db.commit()
+            used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+        if used:
+            return False
+        path = self._blob_path(key)
+        if path.exists():
+            path.chmod(0o600)
+            path.unlink()
+        return True
+
     def tag(self, name: str, key: str) -> None:
         if not self.has(key):
             raise StoreError(f"cannot tag missing blob {key}")

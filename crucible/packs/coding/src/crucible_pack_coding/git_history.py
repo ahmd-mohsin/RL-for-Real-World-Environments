@@ -27,6 +27,11 @@ class Commit:
     added: dict[str, list[list[int]]] = field(default_factory=dict)  # path -> [[first, last], ...] lines added in this commit
 
 
+def _path(p: str) -> str:
+    """A diff header path: git ends names that contain spaces with a tab."""
+    return p.rstrip("\t")
+
+
 class GitRepo:
     def __init__(self, path: Path, url: str | None = None):
         self.path = Path(path)
@@ -40,7 +45,8 @@ class GitRepo:
         return self
 
     def git(self, *args: str, timeout: float = 600, check: bool = True) -> str:
-        r = subprocess.run(["git", "-C", str(self.path), *args], capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, check=False,  # old sources are Latin-1
+        # quotePath off: "gpu/café.cu" came back as "\"b/gpu/caf\\303\\251.cu\"" and was dropped (M3 audit)
+        r = subprocess.run(["git", "-C", str(self.path), "-c", "core.quotePath=false", *args], capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, check=False,  # old sources are Latin-1
                            env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(Path.home())})
         if check and r.returncode != 0:
             raise RuntimeError(f"git {' '.join(args[:3])}: {r.stderr.strip()[-400:]}")
@@ -68,7 +74,7 @@ class GitRepo:
         path = None
         for line in out.splitlines():
             if line.startswith("+++ "):
-                path = line[6:] if line.startswith("+++ b/") else None
+                path = _path(line[6:]) if line.startswith("+++ b/") else None
             elif line.startswith("@@") and path:
                 m = HUNK.match(line)
                 if m:
@@ -87,21 +93,51 @@ class GitRepo:
                 hs.append((int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1)))
         return hs
 
-    def hunks_multi(self, a: str, b: str, paths: list[str] | None = None) -> dict[str, list[tuple[int, int, int, int]]]:
-        """All files' hunks between two revisions in one diff: path -> [(old_start, old_len, new_start, new_len)]."""
-        out = self.git("diff", "-U0", "--no-color", "--no-renames", a, b, "--", *(paths or []))
+    def hunks_multi(self, a: str, b: str, paths: list[str] | None = None, *, renames: bool = False) -> dict[str, list[tuple[int, int, int, int]]]:
+        """All files' hunks between two revisions in one diff: path -> [(old_start, old_len, new_start, new_len)].
+        Keyed by the old path; with ``renames`` a renamed file's hunks are under its old path too (see ``renames``)."""
+        out = self.git("diff", "-U0", "--no-color", "-M100%" if renames else "--no-renames", a, b, "--", *(paths or []))
         res: dict[str, list[tuple[int, int, int, int]]] = {}
         path = None
         for line in out.splitlines():
-            if line.startswith("--- "):
-                path = line[6:] if line.startswith("--- a/") else None
+            if line.startswith("diff --git"):
+                path = None
+            elif line.startswith("--- "):
+                path = _path(line[6:]) if line.startswith("--- a/") else None
             elif line.startswith("+++ ") and path is None:
-                path = line[6:] if line.startswith("+++ b/") else None
+                path = _path(line[6:]) if line.startswith("+++ b/") else None
             elif line.startswith("@@") and path:
                 m = HUNK.match(line)
                 if m:
                     res.setdefault(path, []).append((int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1)))
         return res
+
+    def renames(self, a: str, b: str) -> dict[str, str]:
+        """old path -> new path for files moved unchanged between two revisions. Exact renames only: git matches them
+        by object id, so a blobless clone reads them offline (similarity detection fetched every blob)."""
+        out = self.git("diff", "-M100%", "--name-status", "-z", a, b)
+        parts, res, i = out.split("\0"), {}, 0
+        while i < len(parts):
+            st = parts[i]
+            if st.startswith(("R", "C")) and i + 2 < len(parts):
+                if st.startswith("R"):
+                    res[parts[i + 1]] = parts[i + 2]
+                i += 3
+            else:
+                i += 2
+        return res
+
+    def changed_paths(self, a: str, b: str) -> dict[str, str]:
+        """path -> status letter (A, M, D, T) between two revisions, from the trees alone (no blobs)."""
+        parts = self.git("diff", "--name-status", "-z", "--no-renames", a, b).split("\0")
+        return {parts[i + 1]: parts[i][:1] for i in range(0, len(parts) - 1, 2) if parts[i]}
+
+    def default_branch(self) -> str:
+        """The branch HEAD names (a bare clone's HEAD is the remote's default), else master / main if present."""
+        head = self.git("symbolic-ref", "--short", "HEAD", check=False).strip()
+        if head and self.has(head):
+            return head
+        return next((b for b in ("master", "main", "trunk", "develop") if self.has(b)), "master")
 
     def blame_range(self, rev_range: str, path: str, first: int, last: int) -> set[str]:
         """Commits that wrote lines [first, last] of ``path``; ``rev_range`` like ``base..merge`` bounds the history walk."""

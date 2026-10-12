@@ -9,7 +9,8 @@
   "planted_canaries_removed_100pct": true,
   "env_secrets_absent": true,
   "env_secrets_caught_by_patterns_alone": true,
-  "reingest_idempotent": true
+  "reingest_idempotent": true,
+  "reingest_idempotent_fresh_clock_and_reordered": true
  },
  "now": "2026-10-09T12:00:00+00:00",
  "github_api_calls": 0,
@@ -19,7 +20,7 @@
   "github_pr": {
    "refs": 55,
    "traces": 55,
-   "seconds": 13.5,
+   "seconds": 86.8,
    "events": 207,
    "outcomes": {
     "unknown": 55
@@ -35,7 +36,7 @@
   "claude_code_sessions": {
    "refs": 1,
    "traces": 1,
-   "seconds": 6.1,
+   "seconds": 12.0,
    "events": 9684,
    "events_per_task": {
     "task01_prims_omp": 111,
@@ -48,7 +49,7 @@
   "agent_runs": {
    "refs": 11,
    "traces": 11,
-   "seconds": 0.9,
+   "seconds": 2.2,
    "events": 2532,
    "outcomes": {
     "bad": 5,
@@ -69,7 +70,7 @@
   "policy_docs": {
    "refs": 11,
    "traces": 11,
-   "seconds": 0.2,
+   "seconds": 0.3,
    "events": 252,
    "rules": 173
   },
@@ -97,9 +98,16 @@
   "canary_formats": [
    "anthropic",
    "aws",
+   "azure",
+   "basic_auth",
    "bearer",
+   "card",
+   "cookie",
    "dockerhub",
+   "dsn",
    "email",
+   "field_cookie",
+   "field_password",
    "github",
    "github_pat",
    "gitlab",
@@ -112,9 +120,13 @@
    "openai",
    "openrouter",
    "password",
+   "phone",
+   "private_key",
    "runpod",
+   "short_password",
    "slack",
-   "tailnet"
+   "tailnet",
+   "url_userinfo"
   ],
   "planted": {
    "file_drop": {
@@ -122,9 +134,16 @@
     "planted": [
      "anthropic",
      "aws",
+     "azure",
+     "basic_auth",
      "bearer",
+     "card",
+     "cookie",
      "dockerhub",
+     "dsn",
      "email",
+     "field_cookie",
+     "field_password",
      "github",
      "github_pat",
      "gitlab",
@@ -137,9 +156,13 @@
      "openai",
      "openrouter",
      "password",
+     "phone",
+     "private_key",
      "runpod",
+     "short_password",
      "slack",
-     "tailnet"
+     "tailnet",
+     "url_userinfo"
     ],
     "leaked": []
    },
@@ -148,8 +171,13 @@
     "planted": [
      "anthropic",
      "aws",
+     "azure",
+     "basic_auth",
      "bearer",
+     "card",
+     "cookie",
      "dockerhub",
+     "dsn",
      "email",
      "github",
      "github_pat",
@@ -163,9 +191,13 @@
      "openai",
      "openrouter",
      "password",
+     "phone",
+     "private_key",
      "runpod",
+     "short_password",
      "slack",
-     "tailnet"
+     "tailnet",
+     "url_userinfo"
     ],
     "leaked": []
    },
@@ -174,8 +206,13 @@
     "planted": [
      "anthropic",
      "aws",
+     "azure",
+     "basic_auth",
      "bearer",
+     "card",
+     "cookie",
      "dockerhub",
+     "dsn",
      "email",
      "github",
      "github_pat",
@@ -189,9 +226,13 @@
      "openai",
      "openrouter",
      "password",
+     "phone",
+     "private_key",
      "runpod",
+     "short_password",
      "slack",
-     "tailnet"
+     "tailnet",
+     "url_userinfo"
     ],
     "leaked": []
    },
@@ -232,7 +273,9 @@
   "docs_before": 106,
   "docs_after": 106,
   "same_keys": true,
-  "seconds": 23.6
+  "fresh_clock": true,
+  "reordered_export": true,
+  "seconds": 83.7
  },
- "seconds": 45.3
+ "seconds": 187.5
 }

@@ -128,7 +128,7 @@ def test_sql_audit_log(tmp_path):
     assert [r.key for r in refs] == ["INV-1", "INV-2"]
     t = SqlAuditLogConnector(fm).normalize(SqlAuditLogConnector(fm).fetch(refs[0]))  # a fresh connector re-queries
     assert [(e.kind, e.type, e.data["writes"]) for e in t.events] == [("state", "insert", ["invoices:INV-1"]), ("state", "update", ["invoices:INV-1"])]
-    with pytest.raises(sqlite3.OperationalError):  # read-only: a connector never writes the system of record
+    with pytest.raises((ValueError, sqlite3.OperationalError)):  # read-only: a connector never writes the system of record (M3 audit: refused before it runs)
         from crucible.connectors.sql_audit_log import _query
         _query(str(db), "DELETE FROM audit")
 
@@ -156,9 +156,10 @@ def test_otel_import(tmp_path, monkeypatch):
     c = OtelConnector(family="ap/invoice")
     refs = list(c.discover({"glob": "*.json"}))
     t = OtelConnector().normalize(OtelConnector().fetch(refs[0]))
-    assert [e.type for e in t.events] == ["agent_invocation", "llm_call", "tool_call", "tool_result", "span"]
+    # time order: the tool's result lands at its end time, after the SELECT span that started meanwhile (M3 audit)
+    assert [e.type for e in t.events] == ["agent_invocation", "llm_call", "tool_call", "span", "tool_result"]
     assert t.events[1].data["model"] == "m-1" and t.events[1].data["usage"] == {"input_tokens": 120}
-    assert t.events[3].reply_to == 2 and t.events[3].data["error"] == "duplicate invoice"
+    assert t.events[4].reply_to == 2 and t.events[4].data["error"] == "duplicate invoice"
     assert t.events[2].data["parent"] == "s1" and t.family == "ap/invoice"
 
 

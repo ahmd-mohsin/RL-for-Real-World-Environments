@@ -42,22 +42,45 @@ class GitHubCache:
         return self.root / hashlib.sha256(url.encode()).hexdigest()[:24]
 
     def get_json(self, url: str) -> Any:
+        """One API response, cached on disk (atomically). Not cached: check runs still in progress (they were cached
+        with ``completed_at: null`` and skipped forever). Secondary limits and 429s wait for ``retry-after``."""
         p = self._path(url)
         if p.exists():
             return json.loads(p.read_text())
-        for attempt in range(3):
+        for attempt in range(5):
             r = self.http.get(url)
             self.api_calls += 1
             if r.status_code == 403 and r.headers.get("x-ratelimit-remaining") == "0":
                 reset = int(r.headers.get("x-ratelimit-reset", "0"))
                 raise RuntimeError(f"GitHub API rate limit exhausted (resets at {time.ctime(reset)}); set GH_TOKEN to continue")
+            if r.status_code == 429 or (r.status_code == 403 and "secondary rate limit" in r.text.lower()):
+                time.sleep(min(float(r.headers.get("retry-after") or 30 * (attempt + 1)), 300))
+                continue
             if r.status_code >= 500:
                 time.sleep(2 * (attempt + 1))
                 continue
             r.raise_for_status()
-            p.write_text(r.text)
-            return r.json()
+            data = r.json()
+            runs = data.get("check_runs") if isinstance(data, dict) else None
+            if not (runs and any(x.get("completed_at") is None for x in runs)):
+                tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+                tmp.write_text(r.text)
+                os.replace(tmp, p)
+            return data
         r.raise_for_status()
+
+    def get_all(self, url: str, *, key: str | None = None, max_pages: int = 50) -> list[Any]:
+        """Every page of a list endpoint (``&page=N`` until a short page; each page cached): reviews, comments and
+        check runs of a busy PR were cut at the first 100 silently. ``key``: the list inside an object page."""
+        per = int(re.search(r"per_page=(\d+)", url).group(1)) if re.search(r"per_page=(\d+)", url) else 30
+        out: list[Any] = []
+        for page in range(1, max_pages + 1):
+            data = self.get_json(url if page == 1 else f"{url}{'&' if '?' in url else '?'}page={page}")
+            items = (data.get(key) if key and isinstance(data, dict) else data) or []
+            out += items
+            if len(items) < per:
+                break
+        return out
 
     def get_raw(self, repo: str, sha: str, path: str) -> str | None:
         url = f"{RAW}/{repo}/{sha}/{path}"

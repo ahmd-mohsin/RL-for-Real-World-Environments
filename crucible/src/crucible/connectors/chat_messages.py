@@ -28,8 +28,8 @@ MAX_TEXT = 4000
 
 
 def _text(content: Any) -> str:
-    if isinstance(content, list):
-        return "\n".join(p.get("text", "") for p in content if isinstance(p, dict))
+    if isinstance(content, list):  # an image part leaves a marker, not a blank line
+        return "\n".join(p.get("text", "") if p.get("type", "text") in ("text", "input_text") else f"[{p.get('type')}]" for p in content if isinstance(p, dict))
     return content or ""
 
 
@@ -78,8 +78,8 @@ def messages_to_trace(messages: list[dict[str, Any]], *, trace_id: str, source: 
         elif role == "tool":
             cid = m.get("tool_call_id") or ""
             reply = open_calls.pop(cid, None)
-            if reply is None and order:  # unlinked result: answers the latest unanswered call
-                for c in reversed(order):
+            if reply is None and order:  # unlinked result: answers the oldest unanswered call (results come in call order;
+                for c in order:  # newest-first swapped the results of parallel calls; M3 audit)
                     if c in open_calls:
                         reply = open_calls.pop(c)
                         break

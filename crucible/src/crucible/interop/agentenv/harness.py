@@ -23,6 +23,7 @@ Grading is the task's own (``task.grade(world, dir)``), exactly as for the nativ
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -108,7 +109,7 @@ class A2AHarness:
 
         t: dict[str, float] = {}
         res = HarnessResult()
-        world = served = None
+        world = served = key = None
         try:
             t0 = time.monotonic()
             with boundary("seed"):
@@ -123,7 +124,10 @@ class A2AHarness:
                 if self.agent is not None:
                     served = await ServedAgent(self.agent()).start()
                 url = served.url if served else self.agent_url
-                session = re.sub(r"[^A-Za-z0-9._-]", "_", attempt.id).lstrip("._-") or "attempt"
+                # one capture log per attempt *run*: two runs of one task share attempt ids, and their exchanges were
+                # appended to one log (M3 audit: the proxy now refuses a second live key for a session)
+                tag = hashlib.sha256(str(Path(attempt.dir).resolve()).encode()).hexdigest()[:8]
+                session = (re.sub(r"[^A-Za-z0-9._-]", "_", attempt.id).lstrip("._-") or "attempt") + f"-{tag}"
                 key = self.capture.register(session) if self.capture is not None else None
                 async with httpx.AsyncClient(timeout=60) as c:
                     r = await c.post(f"{url}/ext/mcp-config", json={"url": mcp_url, "headers": {"AgentEnv-Role": self.actor}, "name": "world"})
@@ -169,6 +173,8 @@ class A2AHarness:
         except StageFailure as sf:
             res.failure = sf.failure
         finally:
+            if self.capture is not None and key is not None:
+                self.capture.unregister(key)
             for closer in (world.close if world is not None else None, served.stop if served is not None else None):
                 if closer is not None:
                     try:

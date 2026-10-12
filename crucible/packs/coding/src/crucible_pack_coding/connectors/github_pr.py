@@ -11,6 +11,12 @@ The API part (PR, reviews, comments, check runs) goes through the on-disk ``GitH
 mapper needs are computed here, once: which PR commit wrote each commented line (blame at the comment's
 commit), whether and by which commit that line changed afterwards, whether a ``suggestion`` block was applied,
 and which post-merge commits touched lines this PR wrote.
+
+M3 audit (2026-10-12): a revert counts as this PR's only when it names "#N" exactly (``#12`` matched ``#123``) or the
+PR's title in a ``Revert "..."`` line; renames are followed (a ``git mv`` "fix:" commit touched every PR line, and later
+edits of the moved file were lost); the default branch is read from the clone (``master`` was hard-coded); the fetch
+time is not part of the trace (re-ingest without a pinned clock changed the hash); events are ordered by instant;
+API lists are read past their first page; a "use:" code block is not a suggested fix; a PR found twice is one ref.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from crucible_pack_coding.git_history import Commit, GitRepo
 from crucible_pack_coding.github_reviews import API, GitHubCache
 
 SUGGESTION = re.compile(r"```suggestion[^\n]*\n(.*?)```", re.DOTALL)
-FIX_BLOCK = re.compile(r"(?:suggest\w*(?: fix)?|fix(?:ed)? version|should be|use)\s*:?\s*\n*```[\w+-]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+FIX_BLOCK = re.compile(r"(?:suggest\w*(?: fix)?|fix(?:ed)? version|should be)\s*:?\s*\n*```[\w+-]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 REVERT = re.compile(r"^revert\b", re.IGNORECASE)
 FIXLIKE = re.compile(r"\b(fix|fixes|fixed|bug|regression|revert|crash|broken|hotfix|wrong|incorrect)\b", re.IGNORECASE)
 WINDOW_DAYS = 30
@@ -79,13 +85,13 @@ class GitHubPRConnector:
         and squash commits "... (#N)" touching ``paths``, newest first, optionally filtered by a title regex."""
         repo = scope["repo"]
         g = self.repo(repo)
-        branch = scope.get("branch", "master")
+        branch = scope.get("branch") or g.default_branch()
         args = ["log", branch, "--first-parent", "--format=%H%x00%P%x00%s%x00%b%x1e"]
         if scope.get("since"):
             args.append(f"--since={scope['since']}")
         out = g.git(*args, "--", *scope.get("paths", []))
         title_re = re.compile(scope["title_re"], re.IGNORECASE) if scope.get("title_re") else None
-        n = 0
+        n, seen = 0, set()
         for rec in out.split("\x1e"):
             if not rec.strip():
                 continue
@@ -101,7 +107,11 @@ class GitHubPRConnector:
                 continue
             if title_re and not title_re.search(meta["title"]):
                 continue
-            yield SourceRef(connector=self.name, key=f"{repo}#{meta['pr']}", url=f"https://github.com/{repo}/pull/{meta['pr']}", meta={"repo": repo, **meta})
+            if meta["pr"] in seen:  # re-landed: the newest landing (first in the log) is the PR's state
+                continue
+            seen.add(meta["pr"])
+            yield SourceRef(connector=self.name, key=f"{repo}#{meta['pr']}", url=f"https://github.com/{repo}/pull/{meta['pr']}",
+                            meta={"repo": repo, "branch": branch, **meta})
             n += 1
             if scope.get("limit") and n >= int(scope["limit"]):
                 return
@@ -121,7 +131,8 @@ class GitHubPRConnector:
         first = g.git("log", "--reverse", "--format=%cI", f"{base}..{head}").split()
         pr = {"number": ref.meta["pr"], "title": ref.meta.get("title") or merge.subject, "body": merge.body, "user": {"login": author},
               "created_at": first[0] if first else merge.time, "merged_at": merge.time, "closed_at": merge.time, "state": "closed",
-              "merge_commit_sha": merged_sha, "head": {"sha": head}, "base": {"sha": base, "ref": "master"}, "html_url": ref.url, "merged_by": None}
+              "merge_commit_sha": merged_sha, "head": {"sha": head}, "base": {"sha": base, "ref": ref.meta.get("branch") or g.default_branch()},
+              "html_url": ref.url, "merged_by": None}
         return {"pr": pr, "reviews": [], "comments": [], "checks": {"check_runs": []}, "origin": "git"}
 
     def _cached(self, url: str) -> bool:
@@ -144,9 +155,10 @@ class GitHubPRConnector:
                 raise LookupError(f"{ref.key}: not cached and offline (discover it from git with discover_git)")
             return RawRecord(ref=ref, payload=payload, privacy="public", fetched_at=self.now.isoformat())
         pr = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}")
-        reviews = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}/reviews?per_page=100")
-        comments = self.gh.get_json(f"{API}/repos/{repo}/pulls/{n}/comments?per_page=100")
-        checks = self.gh.get_json(f"{API}/repos/{repo}/commits/{pr['head']['sha']}/check-runs?per_page=100")
+        reviews = self.gh.get_all(f"{API}/repos/{repo}/pulls/{n}/reviews?per_page=100")
+        comments = self.gh.get_all(f"{API}/repos/{repo}/pulls/{n}/comments?per_page=100")
+        checks = {"check_runs": [r for page in self.gh.get_all(f"{API}/repos/{repo}/commits/{pr['head']['sha']}/check-runs?per_page=100", key="check_runs")
+                                 for r in ([page] if isinstance(page, dict) else page)]}
         return RawRecord(ref=ref, payload={"pr": pr, "reviews": reviews, "comments": comments, "checks": checks}, privacy="public",
                          fetched_at=self.now.isoformat())
 
@@ -215,7 +227,13 @@ class GitHubPRConnector:
         elif pr.get("closed_at"):
             ev.append({"time": pr["closed_at"], "kind": "state", "actor": None, "type": "closed_unmerged", "data": {}})
 
-        ev.sort(key=lambda e: (e["time"] or "", {"pr_opened": 0, "commit": 1}.get(e["type"], 2)))
+        from crucible.connectors.base import parse_time
+
+        def instant(t: str | None) -> float:  # git %cI keeps the committer's offset; API times are Z: compare instants
+            x = parse_time(t)
+            return x.timestamp() if x is not None else float("inf")
+
+        ev.sort(key=lambda e: (instant(e["time"]), {"pr_opened": 0, "commit": 1}.get(e["type"], 2)))
         events, seq_of = [], {}
         for i, e in enumerate(ev):
             key = e.pop("_id", None)
@@ -234,7 +252,8 @@ class GitHubPRConnector:
         ended = pr.get("merged_at") or pr.get("closed_at")
         return Trace(
             trace_id=f"github:{repo_name}#{pr['number']}", family=self.family,
-            source=TraceSource(connector=self.name, ref=raw.ref.key, url=pr.get("html_url"), privacy="public", fetched_at=raw.fetched_at),
+            # no fetched_at: the trace is what the PR is, not when it was read (the hash changed with the clock)
+            source=TraceSource(connector=self.name, ref=raw.ref.key, url=pr.get("html_url"), privacy="public"),
             actors=list(actors.values()), events=events,
             outcome={"label": "unknown", "details": {"state": pr.get("state"), "merged": bool(pr.get("merged_at")), "ended_at": ended,  # type: ignore[arg-type]
                                                     "origin": p.get("origin", "api")}},
@@ -298,14 +317,21 @@ class GitHubPRConnector:
         ranges = {p_: r for p_, r in ranges.items() if r}
         if not ranges:
             return []
-        branch = pr["base"]["ref"] if g.has(pr["base"]["ref"]) else "master"
-        later = g.git("log", "--first-parent", "--reverse", "--format=%H", f"--until={until.isoformat()}", f"{merge_sha}..{branch}", "--", *sorted(ranges)[:200]).split()
+        branch = pr["base"]["ref"] if g.has(pr["base"]["ref"]) else g.default_branch()
+        # no pathspec: a file the PR wrote may be renamed later, and the commits after that touch the new path
+        later = g.git("log", "--first-parent", "--reverse", "--format=%H", f"--until={until.isoformat()}", f"{merge_sha}..{branch}").split()
         out = []
         for sha in later:
+            if not ranges:
+                break
             c = g.commit(sha)
             if not c.parents:
                 continue
-            hunks = g.hunks_multi(c.parents[0], c.sha, sorted(ranges))
+            changed = g.changed_paths(c.parents[0], c.sha)
+            mine = set(changed) & set(ranges)
+            # a file the PR wrote was deleted: perhaps moved (exact renames only; a move with edits counts as a delete)
+            moved_to = g.renames(c.parents[0], c.sha) if any(changed[x] == "D" for x in mine) else {}
+            hunks = g.hunks_multi(c.parents[0], c.sha, sorted({*mine, *moved_to.values()}), renames=bool(moved_to)) if mine else {}
             touched_at_merge: dict[str, list[tuple[int, int]]] = {}
             new_ranges: dict[str, list[list[int]]] = {}
             for path, rs in ranges.items():
@@ -333,13 +359,18 @@ class GitHubPRConnector:
                         shift = sum(nl - ol for os_, ol, _ns, nl in hs if (ol and os_ + ol - 1 < a) or (not ol and os_ < a))
                         moved.append([a + shift, b + shift, o])
                 if moved:
-                    new_ranges[path] = moved
+                    new_ranges[moved_to.get(path, path)] = moved  # a rename carries the PR's lines to the new path
             ranges = new_ranges
             text = f"{c.subject}\n\n{c.body}"
             if len(c.parents) == 2:  # a merge on the base branch: what it says is in the commits it brings in
                 text += "\n\n" + g.git("log", "--format=%B", f"{c.parents[0]}..{c.parents[1]}", check=False)[:20000]
-            refs_pr = f"#{pr['number']}" in text or f"/pull/{pr['number']}" in text
-            is_revert = bool(re.search(r"\brevert", text, re.IGNORECASE)) and (refs_pr or (merge_sha or "-")[:9] in text or _norm(pr["title"]).lower()[:40] in text.lower())
+            n_ = pr["number"]
+            refs_pr = bool(re.search(rf"#{n_}(?!\d)|/pull/{n_}(?!\d)", text))  # "#12" is not "#123"
+            title = _norm(pr["title"])
+            other_prs = {int(x) for x in re.findall(r"#(\d+)\b", text)} - {n_}
+            # the title counts only when the revert names no other PR ('Revert "Tweak launch bounds (#123)"' is #123's)
+            names_title = (len(title) >= 12 and not other_prs and bool(re.search(r'revert\w*\s+"' + re.escape(title[:60]), text, re.IGNORECASE)))
+            is_revert = bool(re.search(r"\brevert", text, re.IGNORECASE)) and (refs_pr or (merge_sha or "-")[:9] in text or names_title)
             if not touched_at_merge and not is_revert:
                 continue
             writers: set[str] = set()

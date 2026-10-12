@@ -61,11 +61,20 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
     def walk(t: Trajectory, sub: str | None) -> None:
         for step in t.steps:
             ref = f"{atif_key}#{step.step_id}" if atif_key else None
-            base = {"step_id": step.step_id, **({"subagent": sub} if sub else {})}
+            extra = step.extra or {}
+            # Claude Code subagents are merged into the main step list and marked only in ``extra`` (Harbor): their
+            # prompts were human user_messages and their writes the main agent's (M3 audit)
+            here = sub or (str(extra.get("agent_id") or "sidechain") if extra.get("is_sidechain") else None)
+            base = {"step_id": step.step_id, **({"subagent": here} if here else {})}
             msg = text_of(step.message)
             if step.source == "user":
+                if here:  # the task the main agent gave its subagent: written by the agent, not a person
+                    add(time=step.timestamp, kind="message", actor="agent", type="subagent_prompt", text=msg[:max_text], atif_ref=ref, data=base)
+                    continue
                 typ = "interrupt" if INTERRUPT.search(msg) else ("copied_context" if step.is_copied_context else "user_message")
                 add(time=step.timestamp, kind="message", actor="user", type=typ, text=msg[:max_text], atif_ref=ref, data=base)
+                continue
+            if step.is_copied_context:  # replayed from an earlier trajectory: not new work, not training data (Harbor step.py)
                 continue
             if step.source == "system":
                 add(time=step.timestamp, kind="message", actor="system", type="system_message", text=msg[:max_text], atif_ref=ref, data=base)
@@ -85,12 +94,14 @@ def trajectory_to_trace(traj: Trajectory, *, trace_id: str, source: TraceSource,
                 step_calls.append(seq)
             for i, r in enumerate(step.observation.results if step.observation else []):
                 out = text_of(r.content) if not isinstance(r.content, str) else r.content
+                is_error = (getattr(r, "extra", None) or {}).get("tool_result_is_error") or extra.get("tool_result_is_error")
                 add(time=step.timestamp, kind="observation", actor="system", type="tool_result", text=(out or "")[:max_text], atif_ref=ref,
                     # some converters (mini-swe-agent) leave source_call_id empty: results then answer the step's calls in order
                     reply_to=call_seq.get(r.source_call_id or "", step_calls[i] if i < len(step_calls) else None),
-                    data={**base, "call_id": r.source_call_id, "chars": len(out or ""), **({"rejected": True} if REJECTED.search(out or "") else {})})
+                    data={**base, "call_id": r.source_call_id, "chars": len(out or ""), **({"rejected": True} if REJECTED.search(out or "") else {}),
+                          **({"error": True} if is_error else {})})
         for s in t.subagent_trajectories or []:
-            walk(s, s.session_id or s.trajectory_id or "subagent")
+            walk(s, s.trajectory_id or s.session_id or "subagent")  # siblings inherit the parent's session id
 
     walk(traj, None)
     probes = annotate_probes(events)
@@ -113,7 +124,8 @@ def convert_claude_code_sessions(session_dir: Path) -> Trajectory | None:
 
     from harbor.agents.installed.claude_code import ClaudeCode
 
-    return ClaudeCode(logs_dir=Path(tempfile.mkdtemp(prefix="crucible-cc-")))._convert_events_to_trajectory(Path(session_dir))
+    with tempfile.TemporaryDirectory(prefix="crucible-cc-") as d:  # was a mkdtemp per conversion, never removed
+        return ClaudeCode(logs_dir=Path(d))._convert_events_to_trajectory(Path(session_dir))
 
 
 class AtifConnector:
@@ -133,6 +145,8 @@ class AtifConnector:
 
     def normalize(self, raw: RawRecord) -> Trace:
         traj = Trajectory.model_validate(raw.payload)
-        tid = traj.session_id or traj.trajectory_id or Path(raw.ref.key).stem
+        # a session's continuation segments share its session id: the trajectory id tells them apart
+        sid, trid = traj.session_id, getattr(traj, "trajectory_id", None)
+        tid = f"{sid}:{trid}" if sid and trid and trid != sid else (sid or trid or Path(raw.ref.key).stem)
         return trajectory_to_trace(traj, trace_id=f"atif:{tid}", family=raw.ref.meta.get("family"),
                                    source=TraceSource(connector=self.name, ref=raw.ref.key, privacy=raw.privacy))

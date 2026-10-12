@@ -16,6 +16,50 @@ from pydantic import Field
 from crucible.core.schema.base import CrucibleModel
 from crucible.core.schema.trace import Privacy, Trace
 
+_TIME_FORMATS = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y",
+                 "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d", "%d-%b-%Y %H:%M:%S", "%d %b %Y %H:%M")
+
+
+def parse_time(value: Any):
+    """An instant from what exports contain: ISO 8601 (any offset), a ``datetime``, epoch seconds or milliseconds, or a
+    common spreadsheet format (naive times are UTC); ``None`` when it is none of these."""
+    from datetime import UTC, datetime
+
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, (int, float)) or (isinstance(value, str) and value.strip().replace(".", "", 1).isdigit()):
+        x = float(value)
+        if x > 1e11:  # milliseconds
+            x /= 1000
+        return datetime.fromtimestamp(x, tz=UTC)
+    s = str(value).strip()
+    try:
+        t = datetime.fromisoformat(s)  # 3.11+: "Z" and any offset
+        return t if t.tzinfo else t.replace(tzinfo=UTC)
+    except ValueError:
+        pass
+    for fmt in _TIME_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def rfc3339(value: Any) -> str | None:
+    """An event time as stored in traces: RFC 3339, the source's own text when it already is ISO 8601 (offsets kept)."""
+    t = parse_time(value)
+    if t is None:
+        return None
+    s = str(value).strip() if isinstance(value, str) else ""
+    import re
+
+    if s and "T" in s and s[:4].isdigit() and re.search(r"(?:Z|[+-]\d{2}:?\d{2})$", s):  # already RFC 3339 with a zone
+        return s
+    return t.isoformat().replace("+00:00", "Z")
+
 
 class SourceRef(CrucibleModel):
     connector: str
@@ -42,13 +86,37 @@ class Connector(Protocol):
     def normalize(self, raw: RawRecord) -> Trace: ...
 
 
-def ingest(connector: Connector, refs: list[SourceRef], store, *, policy=None) -> list[str]:
-    """Fetch, normalize, redact and store; returns the trace document keys (idempotent: same source, same key)."""
-    from crucible.connectors.redact import RedactionPolicy, redact
+class IngestError(RuntimeError):
+    """Some sources failed; the others were stored. ``keys`` are the stored traces, ``failed`` the (ref, error) pairs."""
+
+    def __init__(self, keys: list[str], failed: list[tuple[SourceRef, BaseException]]):
+        self.keys, self.failed = keys, failed
+        names = ", ".join(f"{r.key}: {type(e).__name__}: {str(e)[:120]}" for r, e in failed[:5])
+        super().__init__(f"{len(failed)} of {len(keys) + len(failed)} sources failed ({names}{', ...' if len(failed) > 5 else ''})")
+
+
+def ingest(connector: Connector, refs: list[SourceRef], store, *, policy=None, errors: list | None = None) -> list[str]:
+    """Fetch, normalize, redact and store; returns the trace document keys (idempotent: same source, same key).
+
+    One failing source no longer aborts the rest (M3 audit: a vanished file lost a whole export). Every source is
+    tried; with ``errors`` the failures are appended there as (ref, error), otherwise ``IngestError`` is raised after
+    the others are stored."""
+    from crucible.connectors.redact import RedactionPolicy, Redactor, redact
 
     policy = policy or RedactionPolicy()
-    keys = []
+    if policy.salt is None:  # resolve the tenant key once, not once per trace
+        policy = policy.model_copy(update={"salt": Redactor(policy).salt})
+    keys: list[str] = []
+    failed: list[tuple[SourceRef, BaseException]] = []
     for ref in refs:
-        trace = redact(connector.normalize(connector.fetch(ref)), policy)
+        try:
+            trace = redact(connector.normalize(connector.fetch(ref)), policy)
+        except Exception as e:  # noqa: BLE001 - reported per source
+            failed.append((ref, e))
+            continue
         keys.append(store.put(trace))
+    if failed:
+        if errors is None:
+            raise IngestError(keys, failed)
+        errors.extend(failed)
     return keys

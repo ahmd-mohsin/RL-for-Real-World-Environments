@@ -50,7 +50,47 @@ Every agent-session connector (ATIF, capture proxy, OTel), and the World, tags t
 - **Probes are never scored.** An agent-run trace whose pass followed an exposure is relabelled `unknown` (`contaminated`).
 - **All 11 frontier runs:** probes ran in 7 of them (history, installs, `/proc`, test edits), and **none exposed an answer source**. A manual audit of every command agreed.
 
-## Exit gate (`python -m crucible_pack_coding.m3.gate`, offline, 0 GitHub API calls, 45 s)
+## M3 audit (2026-10-12)
+
+Report: `docs/audit/2026-10-12/M03-connectors.md`; 80 regression tests in `tests/unit/test_m3_audit*.py`. Behaviour that changed:
+- **Redaction.**
+  - Coverage: every string field and dict key; values under credential-named keys.
+  - Formats: URL userinfo, short passwords, Basic auth, cookies, private keys cut by a text cap, Azure keys, Google OAuth and Vault tokens, webhooks, cards, IBANs, SSNs, phones.
+  - Names: known people rewritten in text; identity keys (`author`, `assignee`) pseudonymized.
+  - Mechanics:
+    - linear time;
+    - HMAC pseudonyms under a per-tenant key (`<data>/redaction.salt`, or `CRUCIBLE_REDACTION_SALT`);
+    - idempotent;
+    - code such as `threading.local()` and `tokenizer.encode(x)` is left alone.
+- **Store.**
+  - Access: the trace store is owner-only.
+  - Provenance: each version is stamped with the redaction rules' hash. `stale()` and `purge_superseded()` find and remove old versions; `Store.forget_doc()` deletes.
+  - Head: an explicit tag per trace.
+  - Re-ingest: M4's signals are carried to a re-ingested version through `data.row_id` or event identity.
+- **Ingest.** Failing sources no longer abort the batch (`IngestError` / `errors=`).
+- **`file_drop`.** BOM, Latin-1, `.CSV` and U+2028 are read; overlapping exports are deduplicated; events are ordered by instant; times are normalized to RFC 3339; bot actors are agents.
+- **`sql_audit_log`.** One SELECT, read-only (SQLite `query_only`; Postgres read-only session with a server-side cursor); NULL cases skipped; paths quoted.
+- **Capture proxy.**
+  - Upstream errors keep their status and `retry-after`.
+  - Interrupted streams are recorded in a `finally`; logs are ASCII and owner-only.
+  - `count_tokens`, `/v1/models` and `/v1/responses` are served, and the query string is forwarded.
+  - Requests are threaded by prefix: side calls get `data.thread` and are not resets.
+  - Harness text becomes a `harness_message`.
+  - Retries collapse only when marked.
+- **Probes and writes.**
+  - Probes see git global options and argv commands; error lines exclude commit lines.
+  - `/root` and plain web searches are not exposures.
+  - Shell writes count; an editor's `view` does not.
+- **ATIF.** Sidechains become `subagent_prompt` events with `data.subagent`; copied-context steps are skipped; tool errors are kept.
+- **OTel.** Events are time-ordered; OpenInference spans map like GenAI ones; nanoseconds are kept.
+- **`ci_logs`.**
+  - Counts are checked against the runner's summary.
+  - Collection errors are `bad`. Killed or cut-off runs are `unknown`.
+  - Infra markers count only outside test failures.
+  - Downloaded logs are cleaned. Flaky reruns are marked. Ids carry a digest.
+- **`github_pr`.** Reverts match by exact PR number; exact renames are followed; the default branch is detected; no fetch time in the hash; API lists are paginated.
+
+## Exit gate (`python -m crucible_pack_coding.m3.gate`, offline, 0 GitHub API calls, 188 s after the audit, 45 s before)
 
 | Requirement (ARCHITECTURE M3) | Result |
 |---|---|
@@ -60,7 +100,7 @@ Every agent-session connector (ATIF, capture proxy, OTel), and the World, tags t
 | 100% schema-valid | ✅ 106/106 stored traces re-validate from their stored JSON |
 | Redaction removes 100% of planted canaries | ✅ 20 formats (API keys of 13 providers, a JWT, a bearer token, a password assignment, an e-mail, two internal hosts, a private IP and a Tailscale IP) planted in raw records of five connectors: a ticket log, a real frontier trajectory (task text and a tool output), a capture log, a CI log and a policy doc. **0 leaked**, using the format patterns alone |
 | … real secrets | ✅ All 4 credentials in the workspace `.env` appear in the raw construction transcript. **None** survives into the store, and each is caught by the format patterns alone, without the known-value list |
-| Re-ingest is idempotent | ✅ A second ingest of every source returns identical content hashes; 106 docs before and after |
+| Re-ingest is idempotent | ✅ A second ingest of every source returns identical content hashes; 106 docs before and after. Since the M3 audit also with a PR connector on its own clock and with every ticket log in reverse row order. Canaries: 31 formats including structured fields and a key longer than any text cap, checked by fragments, 0 leaked |
 
 ## Findings
 1. **Two credential formats leaked on the first gate run.** Docker Hub PATs and RunPod keys were in the construction transcript, and the redactor had no pattern for them. The planted-canary test passed because it only planted formats the redactor already knew; the real-secret check caught it. Both formats now have patterns, and tenants can also list their known secrets.

@@ -75,24 +75,48 @@ def canaries() -> dict[str, str]:
         "dockerhub": "dckr_pat_" + "Dk4" * 9, "runpod": "rpa_" + "Rp7" * 14, "bearer": "Bearer " + "Br3." * 8 + "x",
         "password": "password=" + "Corr3ctH0rse!", "email": "canary.person@example-enterprise.com",
         "host": "ci-runner-7.build.corp", "tailnet": "gpu-box.tail9f9f.ts.net", "ip": "10.44.55.66", "ip_tailscale": "100.101.102.103",
+        # M3 audit (2026-10-12): formats the redactor missed
+        "url_userinfo": "https://deploy:Ur1P4ssw0rdX@git.example.com/r.git", "dsn": "postgres://svc:Ds5nPassQ@db.example.com/prod",
+        "short_password": "pwd=Hn2x9", "azure": "AccountKey=" + "Az9" * 20 + "==", "card": "4111 1111 1111 1111", "phone": "+1 415 555 0132",
+        "basic_auth": "Authorization: Basic " + "QmFzaWM6" * 4, "cookie": "Cookie: sessionid=" + "c0ok1e" * 5,
+        # longer than any connector's text cap, so a cut lands inside the body (the END line never reaches the redactor)
+        "private_key": "-----BEGIN RSA PRIVATE KEY-----\n" + "Pk9Rs4" * 1200 + "\n-----END RSA PRIVATE KEY-----",
+        # structured: values under credential-named keys, with no recognizable format of their own
+        "field_password": "Wq3rTy7uIo", "field_cookie": "zz91aa82bb73cc64",
     }
 
 
+_STRUCTURED = {"field_password", "field_cookie"}  # planted as column values, not in the free-text blob
+_SECRET_PART = {"basic_auth": lambda v: v.split(" ", 2)[2], "cookie": lambda v: v.split("=", 1)[1],
+                "private_key": lambda v: v.split("\n")[1],"password": lambda v: v.split("=", 1)[1], "short_password": lambda v: v.split("=", 1)[1], "azure": lambda v: v.split("=", 1)[1],
+                "bearer": lambda v: v.split(" ", 1)[1], "url_userinfo": lambda v: v.split(":")[2].split("@")[0],
+                "dsn": lambda v: v.split(":")[2].split("@")[0], "phone": lambda v: v[-8:]}
+
+
 def _value(k: str, v: str) -> str:
-    return v.split("=", 1)[1] if k == "password" else (v.split(" ", 1)[1] if k == "bearer" else v)
+    """The part of a canary that must be gone (the host of a URL may stay)."""
+    return _SECRET_PART.get(k, lambda x: x)(v)
+
+
+def _leaked(secret: str, dumped: str, width: int = 12) -> bool:
+    """Any 12-character piece of a secret counts: a key cut by a text cap, or a token half matched, still leaks."""
+    if len(secret) <= width:
+        return secret in dumped
+    return any(secret[i:i + width] in dumped for i in range(0, len(secret) - width + 1, 3))
 
 
 def plant(work: Path) -> list[tuple[str, Any, list[SourceRef]]]:
     """Raw records of each connector kind with every canary planted where real data would carry it."""
     c = canaries()
-    blob = " ".join(c.values())
+    blob = " ".join(v for k, v in c.items() if k not in _STRUCTURED)
     work.mkdir(parents=True, exist_ok=True)
     out: list[tuple[str, Any, list[SourceRef]]] = []
     # file_drop: a ticket log
     (work / "tickets.jsonl").write_text("\n".join(json.dumps(r) for r in [
         {"case": "C1", "id": "1", "time": "2026-01-01T00:00:00Z", "actor": c["email"], "type": "opened", "text": f"creds: {blob}"},
-        {"case": "C1", "id": "2", "time": "2026-01-01T01:00:00Z", "actor": "ops", "type": "note", "text": "rotated", "team": c["host"], "reply_to": "1"}]))
-    fd = FileDropConnector(FieldMap(extra=["team"]))
+        {"case": "C1", "id": "2", "time": "2026-01-01T01:00:00Z", "actor": "ops", "type": "note", "text": "rotated", "team": c["host"], "reply_to": "1",
+         "db_password": c["field_password"], "headers": {"Cookie": c["field_cookie"]}}]))
+    fd = FileDropConnector(FieldMap(extra=["team", "db_password", "headers"]))
     out.append(("file_drop", fd, list(fd.discover({"glob": str(work / "tickets.jsonl")}))))
     # agent run: a real trajectory with canaries in the task text and in a tool output
     src = next(iter(sorted(TASKS.glob("*/runs/*/trajectory.json"))), None)
@@ -203,7 +227,7 @@ def run() -> dict[str, Any]:
         ks = ingest(conn, refs, cts, policy=RedactionPolicy())  # canaries must fall to the format patterns alone
         dumped = "\n".join(cts.store.get_bytes(k).decode() for k in ks)
         present = sorted(k for k, v in canaries().items() if _value(k, v) in _raw(conn, refs))
-        leaked = sorted(k for k, v in canaries().items() if _value(k, v) in dumped)
+        leaked = sorted(k for k, v in canaries().items() if _value(k, v) in _raw(conn, refs) and _leaked(_value(k, v), dumped))
         planted[name] = {"traces": len(ks), "planted": present, "leaked": leaked}
     secrets = env_secrets()
     all_dump = [ts.store.get_bytes(r.key).decode() for r in rows]
@@ -218,6 +242,19 @@ def run() -> dict[str, Any]:
     again = {name: ingest(conn, refs, ts, policy=policy) for name, conn, refs in sources()}
     after = len(ts.store.list_docs("trace"))
     same = all(again[n] == keys[n] for n in keys)
+    # the harder cases (M3 audit): a connector with its own clock (the fetch time was hashed), and exports written in
+    # another row order (equal times hashed by export order)
+    fresh = GitHubPRConnector(DATA / "cache" / "github", DATA / "cache" / "git", offline=True)
+    gh_refs = next(r for n, _c, r in sources() if n == "github_pr")[:5]
+    fresh_clock = ingest(fresh, gh_refs, ts, policy=policy) == keys["github_pr"][:5]
+    shuffled = root / "reordered"
+    shuffled.mkdir(parents=True, exist_ok=True)
+    for f in sorted((CRUCIBLE / "packs" / "_toy" / "data" / "ticket_logs").glob("*.jsonl")):
+        lines = [x for x in f.read_text().splitlines() if x.strip()]
+        (shuffled / f.name).write_text("\n".join(reversed(lines)) + "\n")
+    toy = FileDropConnector(TICKET_FIELDS)
+    reordered = ingest(toy, list(toy.discover({"glob": str(shuffled / "*.jsonl")})), ts, policy=policy) == keys["file_drop"]
+    after = len(ts.store.list_docs("trace"))
 
     checks = {
         "pr_traces>=30": len(prs) >= 30,
@@ -229,13 +266,15 @@ def run() -> dict[str, Any]:
         "env_secrets_absent": not env_leaks,
         "env_secrets_caught_by_patterns_alone": not misses,
         "reingest_idempotent": same and before == after,
+        "reingest_idempotent_fresh_clock_and_reordered": fresh_clock and reordered,
     }
     return {
         "gate": "M3", "pass": all(checks.values()), "checks": checks, "now": NOW, "github_api_calls": 0,
         "traces": len(traces), "invalid": invalid, "sources": per, "frontier_runs": run_dirs,
         "redaction": {"canary_formats": sorted(canaries()), "planted": planted, "env_secrets": sorted(secrets),
                       "env_secrets_in_raw_transcript": env_in_raw, "env_secrets_in_store": env_leaks, "env_secrets_missed_by_patterns": misses},
-        "idempotency": {"docs_before": before, "docs_after": after, "same_keys": same, "seconds": round(time.time() - t0, 1)},
+        "idempotency": {"docs_before": before, "docs_after": after, "same_keys": same, "fresh_clock": fresh_clock, "reordered_export": reordered,
+                        "seconds": round(time.time() - t0, 1)},
         "seconds": round(time.time() - t_start, 1),
     }
 
