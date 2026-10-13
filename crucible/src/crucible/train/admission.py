@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -38,6 +38,9 @@ def _passed(v: Any) -> bool:
         return v >= 1.0
     if isinstance(v, tuple) and v and isinstance(v[0], int | float):
         return v[0] >= 1.0  # (reward, gates...) as A4 builds them
+    if isinstance(v, Mapping):  # a verdict dict: its reward decides (any non-empty dict was truthy: M12 audit H2 V19)
+        r = v.get("reward")
+        return _passed(r) if isinstance(r, bool | int | float) else False
     return bool(v)
 
 

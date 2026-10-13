@@ -41,6 +41,49 @@ class EngineDown(RuntimeError):
     """The engine cannot be reached (connection refused / reset): evicted at once."""
 
 
+class EngineCallFailed(RuntimeError):
+    """A call the engines keep refusing: a deterministic request error (an HTTP 4xx, a reply that does not parse, an
+    unsupported request) or the same call failing ``failure_threshold`` times. Raised instead of another abort, so the
+    rollout is masked with a named kind (M12 audit V9: every error became an abort, the runtime re-issued it forever, the
+    gateway evicted and revived every engine in a loop and the run stalled until ``max_wall_s``)."""
+
+    failure_kind = "provider_unavailable"  # infra (NeMo-Gym name): masked, never the policy's score
+
+
+def _snapshot(state: Any) -> Any:
+    """A detached copy of published weights (M12 audit V8: the gateway kept the caller's state dict by reference;
+    ``HFPolicy.state_dict()`` returns live parameters, so a revived engine replayed the trainer's *current*, unpublished
+    weights stamped with the last published version). A checkpoint path is immutable and kept as is."""
+    if isinstance(state, (str, bytes)) or state is None or hasattr(state, "__fspath__"):
+        return state
+    try:
+        import torch
+    except ImportError:  # pragma: no cover
+        torch = None
+    if isinstance(state, dict):
+        return {k: (v.detach().to("cpu", copy=True) if torch is not None and isinstance(v, torch.Tensor) else _snapshot(v)) for k, v in state.items()}
+    if torch is not None and isinstance(state, torch.Tensor):
+        return state.detach().to("cpu", copy=True)
+    import copy
+
+    return copy.deepcopy(state)
+
+
+def _request_error(e: BaseException) -> bool:
+    """The request, not the engine, is at fault: retrying it anywhere gives the same answer."""
+    if isinstance(e, NotImplementedError | ValueError | TypeError | KeyError):
+        return True
+    try:
+        import httpx
+
+        if isinstance(e, httpx.HTTPStatusError):
+            code = e.response.status_code
+            return 400 <= code < 500 and code not in (404, 408, 409, 425, 429)
+    except ImportError:  # pragma: no cover
+        pass
+    return False
+
+
 class GatewayPool(EnginePool):
     def __init__(self, engines: Sequence[Engine], *, spill_factor: float = 2.0, max_sessions: int = 100_000, failure_threshold: int = 3,
                  health_interval_s: float = 5.0):
@@ -52,6 +95,8 @@ class GatewayPool(EnginePool):
         self.stats = {"routed": 0, "sticky": 0, "spilled": 0, "new_sessions": 0, "evictions": 0, "revived": 0, "failed_calls": 0}
         self.served: list[tuple[str, int]] = []  # (rid, engine) per call: affinity audits
         self._last_weights: tuple[Any, int] | None = None
+        self._loading = 0  # a publish in progress: engines behind it are not stale (V7)
+        self._call_errors: dict[str, int] = {}  # call id -> consecutive engine errors (V9)
         self._health_task: asyncio.Task | None = None
 
     # ---- routing -------------------------------------------------------------------------------------------------------
@@ -61,6 +106,11 @@ class GatewayPool(EnginePool):
             raise EngineDown("no live engines in the gateway")
         free = [i for i in live if i not in self.held]  # elastic topology: the held group is training
         return free or live
+
+    def _alive(self) -> list[int]:
+        """Every live engine, held or not: weights and aborts reach the held (elastic) group too (M12 audit V6: they went to
+        ``_live()``, which skips held engines, so the elastic group never received a publish and served v0 after release)."""
+        return [i for i, a in enumerate(self.alive) if a]
 
     def _load(self, i: int) -> float:
         return self.inflight[i] / max(self.engines[i].capacity, 1)
@@ -88,6 +138,8 @@ class GatewayPool(EnginePool):
 
     # ---- failures ------------------------------------------------------------------------------------------------------
     def _fail(self, i: int, e: BaseException) -> None:
+        if _request_error(e):
+            return  # the engine answered: not a health failure (V9: one bad request evicted every engine in turn)
         self.fails[i] += 1
         down = isinstance(e, EngineDown | ConnectionError | OSError)
         try:
@@ -132,22 +184,33 @@ class GatewayPool(EnginePool):
         try:
             res = await self.engines[i].generate(req)
             self.fails[i] = 0
+            self._call_errors.pop(req.call_id, None)
             self.served.append((req.rid, i))
             return res
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001 -- the engine failed mid-call: abort (re-issued elsewhere), never masked
+        except Exception as e:
             self.stats["failed_calls"] += 1
             self._fail(i, e)
+            n = self._call_errors.get(req.call_id, 0) + (0 if isinstance(e, EngineDown) else 1)
+            self._call_errors[req.call_id] = n
+            if _request_error(e) or n >= self.failure_threshold:
+                self._call_errors.pop(req.call_id, None)
+                raise EngineCallFailed(f"call {req.call_id}: {type(e).__name__}: {e}"[:800]) from e
+            while len(self._call_errors) > self.max_sessions:
+                self._call_errors.pop(next(iter(self._call_errors)))
             return GenResult(list(req.resume_completion), list(req.resume_logprobs), self.version_or_zero(), "abort",
-                             list(req.resume_spans) or None)
+                             list(req.resume_spans) or None, len(req.prompt_ids), list(req.resume_candidates) or None,
+                             list(req.resume_routing) or None)
         finally:
             self.inflight[i] -= 1
             self._exit()
 
-    async def _each(self, method: str, *args: Any) -> list[Any]:
+    async def _each(self, method: str, *args: Any, held: bool = True) -> list[Any]:
         out = []
-        for i in self._live():
+        for i in self._alive():
+            if not held and i in self.held:
+                continue
             try:
                 out.append(await getattr(self.engines[i], method)(*args))
             except Exception as e:  # noqa: BLE001
@@ -160,15 +223,19 @@ class GatewayPool(EnginePool):
 
     async def pause(self) -> None:
         self._set(paused=True)
-        await self._each("pause")
+        await self._each("pause", held=False)  # a held engine is already paused by ``hold``; ``release`` resumes it
 
     async def resume(self) -> None:
-        await self._each("resume")
+        await self._each("resume", held=False)
         self._set(paused=False)
 
     async def load_weights(self, state: Any, version: int) -> None:
-        self._last_weights = (state, version)
-        await self._each("load_weights", state, version)
+        self._last_weights = (_snapshot(state), version)
+        self._loading += 1
+        try:
+            await self._each("load_weights", state, version)
+        finally:
+            self._loading -= 1
 
     @property
     def version(self) -> int:
@@ -192,6 +259,11 @@ class GatewayPool(EnginePool):
                 ok = False
             if ok:
                 self.fails[i] = 0
+                if self.alive[i] and self._last_weights is not None and not self._loading and e.version != self._last_weights[1]:
+                    # alive but not on the published weights: restarted between probes (it reports its boot version) or
+                    # missed a publish. Out of routing until the replay catches it up (M12 audit V7: it served v0 for the
+                    # rest of the run)
+                    self.evict(i)
                 if not self.alive[i]:
                     await self.revive(i)
             else:
@@ -274,6 +346,12 @@ def engine_app(engine: Engine):
     async def health() -> dict:
         return {"ok": True, "version": engine.version, "capacity": engine.capacity}
 
+    @app.get("/capabilities")
+    async def capabilities() -> dict:
+        from crucible.train.hf_engine import capabilities as caps
+
+        return caps(engine)
+
     return app
 
 
@@ -305,11 +383,25 @@ def generate_app(pool: Any, *, model: str, max_model_len: int = 32768, session_h
             if res.finish != "abort":
                 break
             g.resume_completion, g.resume_logprobs, g.resume_spans = [], [], []  # re-issued whole under the new version
+            g.resume_candidates, g.resume_routing = [], []
+        else:  # never a partial (or empty) aborted result labelled "length" (M12 audit V22)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=503, detail=f"the engines aborted this call {max_aborts} times")
         ids, lps = list(res.completion_ids), list(res.logprobs)
         finish = "stop" if (res.finish == "stop" or (ids and ids[-1] in g.stop_ids)) else "length"
+        choice: dict[str, Any] = {"index": 0, "token_ids": ids, "finish_reason": finish, "policy_version": res.version,
+                                  "logprobs": {"content": [{"token": f"token_id:{t}", "logprob": float(lp)} for t, lp in zip(ids, lps, strict=True)]}}
+        if res.version_spans:
+            choice["version_spans"] = [list(x) for x in res.version_spans]
+        if g.top_p < 1.0:  # the nucleus each token was drawn from: a top-p client renormalizes over it (V22)
+            if res.candidates is None:
+                from fastapi import HTTPException
+
+                raise HTTPException(status_code=501, detail="top_p < 1 needs an engine that reports top-p candidate sets")
+            choice["candidates"] = [list(c) for c in res.candidates]
         return {"request_id": g.call_id, "prompt_token_ids": list(g.prompt_ids),
-                "choices": [{"index": 0, "token_ids": ids, "finish_reason": finish, "policy_version": res.version,
-                             "logprobs": {"content": [{"token": f"token_id:{t}", "logprob": float(lp)} for t, lp in zip(ids, lps, strict=True)]}}],
+                "choices": [choice],
                 "usage": {"prompt_tokens": len(g.prompt_ids), "completion_tokens": len(ids), "total_tokens": len(g.prompt_ids) + len(ids)}}
 
     return app
@@ -322,6 +414,7 @@ class HTTPEngine:
         self.url, self.capacity = url.rstrip("/"), capacity
         self.version = 0
         self.client = httpx.AsyncClient(timeout=timeout_s)
+        self._caps: dict[str, Any] | None = None  # the served engine's own ``capabilities()``, read at ``health`` (V19)
 
     async def _post(self, path: str, json: Any = None) -> dict:
         import httpx
@@ -334,8 +427,18 @@ class HTTPEngine:
         return r.json()
 
     def capabilities(self) -> dict[str, Any]:
-        return {"token_ids": True, "logprobs": "remote", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": True, "routing": False,
-                "weight_load": "checkpoint_dir"}
+        """The remote engine's capabilities once read (``fetch_capabilities``, also at every ``health``); before that a
+        conservative set: never more than it can do (M12 audit V19: it always claimed top-p candidate sets)."""
+        if self._caps is not None:
+            return {**self._caps, "weight_load": "checkpoint_dir"}
+        return {"token_ids": True, "logprobs": "remote", "abort": "all", "pause": [], "sleep": False, "top_p_candidates": False, "routing": False,
+                "weight_load": "checkpoint_dir", "token_resume": False}
+
+    async def fetch_capabilities(self) -> dict[str, Any]:
+        r = await self.client.get(self.url + "/capabilities", timeout=5.0)
+        r.raise_for_status()
+        self._caps = dict(r.json())
+        return self.capabilities()
 
     async def generate(self, req: GenRequest) -> GenResult:
         d = await self._post("/generate", dataclasses.asdict(req))
@@ -364,6 +467,11 @@ class HTTPEngine:
             r = await self.client.get(self.url + "/health", timeout=5.0)
             if r.status_code == 200:
                 self.version = int(r.json().get("version", self.version))
+                if self._caps is None:
+                    try:
+                        await self.fetch_capabilities()
+                    except httpx.HTTPError:
+                        pass  # an older server without /capabilities: the conservative set stays
                 return True
         except httpx.HTTPError:
             pass

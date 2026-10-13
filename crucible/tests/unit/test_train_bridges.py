@@ -3,6 +3,8 @@ advantages, versions), and each trainer adapter produces its framework's fields 
 
 from __future__ import annotations
 
+import pytest
+
 from crucible.core.schema.rollout import RolloutRecord, Turn
 from crucible.train.bridges.adapters import rllm_steps, skyrl_generator_output, trl_rollout, verl_agent_loop_output
 from crucible.train.bridges.common import flatten
@@ -31,16 +33,27 @@ def test_flatten_segments_masks_and_advantages():
 
 
 def test_adapters_shapes():
+    """Shapes only; the framework contracts (each bridge against its pinned upstream code) are in test_m12_audit_bridges.py."""
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _upstream import upstream
+
     seqs = flatten(record(), seq_adv=0.25)
     v = verl_agent_loop_output(seqs[0])
-    assert len(v["response_ids"]) == len(v["response_mask"]) == len(v["response_logprobs"]) == len(v["extra_fields"]["crucible_token_advantages"])
-    sk = skyrl_generator_output(seqs)
-    assert all(len(r) == len(m) for r, m in zip(sk["rewards"], sk["loss_masks"], strict=True))
-    assert sk["rewards"][0][-1] == 1.0 and sum(sk["rewards"][0]) == 1.0  # outcome on the last sampled token (GRPO sums token rewards)
+    assert v["response_mask"] == [1, 1, 0, 0, 1] and v["metrics"] == {} and v["reward_score"] == 1.0  # metrics: required by verl
+    assert v["extra_fields"]["min_global_steps"] == 3 and v["extra_fields"]["max_global_steps"] == 3
+    sk = skyrl_generator_output([record(), None], token_rewards=True)  # one row per input; None = a failed episode
+    assert len(sk["response_ids"]) == 2 and sk["loss_masks"][1] == [0] and sk["stop_reasons"] == ["stop", "abort"]
+    assert sk["rollout_metrics"]["crucible/segments_dropped"] == 1  # the compaction segment trains in step-wise mode only
+    assert sk["rewards"][0][-1] == 1.0 and sum(sk["rewards"][0]) == 1.0
     t = trl_rollout(seqs)
     assert t["env_mask"][0] == [1, 1, 0, 0, 1]
-    steps = rllm_steps(seqs[0])
-    assert [s["id"] for s in steps] == ["a:c1", "a:c2"] and steps[1]["prompt_ids"] == [1, 2, 5, 6, 9, 9] and steps[1]["advantage"] == [0.25]
+    with upstream("rllm", ["rllm.types", "rllm.engine.rollout.rollout_engine"]):
+        steps = rllm_steps(seqs[0], backend="tinker")
+        assert [s.id for s in steps] == ["a:c1", "a:c2"] and steps[1].model_output.prompt_ids == [1, 2, 5, 6, 9, 9] and steps[1].advantage == [0.25]
+        assert [s.reward for s in steps] == [0.0, 0.0]  # segment 0 is not the rollout's last: the outcome sits on c3 only
 
 
 def test_verl_crucible_delta_estimator():
@@ -50,7 +63,7 @@ def test_verl_crucible_delta_estimator():
 
     s0, _ = flatten(record(), seq_adv=0.0)
     r = token_rewards(s0, turn_credit={"a:c1": 0.1, "a:c2": -0.2})
-    assert r == [0.1, 0.1, 0.0, 0.0, 1.0]  # credit on call 1's tokens; the outcome on the last sampled token
+    assert r == pytest.approx([0.1, 0.1, 0.0, 0.0, 0.8]) and sum(r) == pytest.approx(1.0)  # credit on c1; the row sums to R
     other = [0.0, 0.0, 0.0, 0.0, 0.0]  # a group member that failed (R = 0), same mask
     tlr = torch.tensor([r, other])
     mask = torch.tensor([s0.response_mask, s0.response_mask])
@@ -59,38 +72,3 @@ def test_verl_crucible_delta_estimator():
     masked = torch.zeros(1, 5)
     adv2, _ = crucible_delta(torch.cat([tlr, torch.zeros(1, 5)]), torch.cat([mask, masked.long()]), index=["g", "g", "g"])
     assert torch.allclose(adv2[:2], adv) and adv2[2].abs().sum() == 0  # a masked rollout neither trains nor moves the baseline
-
-
-def test_trl_rollout_func_runs_world_episodes():
-    import json as _json
-
-    from crucible_pack_toy.runtime import HelpdeskTask
-    from crucible_pack_toy.verify import GOLD
-
-    from crucible.core.schema.actions import openai_name
-    from crucible.train.bridges.trl_bridge import make_rollout_func
-    from crucible.train.chat import ByteChatCodec
-    from crucible.train.engine import GenRequest, ScriptedEngine
-    from crucible.train.world_env import world_rollout
-
-    codec = ByteChatCodec()
-
-    def script(rid, k, prompt):
-        k = bytes(t for t in prompt if t < 256).count(b"<tool_call>")  # stateless: position from the context, like a real model
-        if k < len(GOLD):
-            return list(f"<tool_call>{_json.dumps({'name': openai_name(GOLD[k].function_name), 'arguments': GOLD[k].arguments})}</tool_call>".encode()) + [codec.EOS]
-        return list(b"done") + [codec.EOS]
-
-    eng = ScriptedEngine(script, stop_ids=[codec.EOS])
-    calls = {"n": 0}
-
-    def gen_factory(trainer):
-        async def gen(ids, max_tokens, temperature):
-            calls["n"] += 1
-            return await eng.generate(GenRequest(rid=f"x{trainer}{calls['n'] // 100}", call_id=str(calls["n"]), prompt_ids=ids, max_tokens=max_tokens))
-        return gen
-
-    rf = make_rollout_func(world_rollout(lambda p: HelpdeskTask(), codec, max_steps=len(GOLD) + 3, max_tokens=2048), num_generations=2, gen_factory=gen_factory)
-    out = rf(["p0"], trainer="T")
-    assert len(out["completion_ids"]) == 2 and all(len(c) == len(m) for c, m in zip(out["completion_ids"], out["env_mask"], strict=True))
-    assert out["crucible_reward"] == [1.0, 1.0]

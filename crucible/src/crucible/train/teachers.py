@@ -14,13 +14,23 @@ signal (``TrainerConfig.opd_coef``) and the k3 KL penalty (``kl_coef`` / ``kl_co
 - **Teachers**: ``TorchTeacher`` (a local model with ``token_logprobs`` / ``batch_token_logprobs``, run in a thread
   under ``no_grad``) and ``VLLMTeacher`` (a vLLM server: ``/v1/completions`` with ``prompt_logprobs``, the teacher's
   log-prob of every prompt token, of which the completion's are kept).
+
+**Same distribution as the student (M12 audit H1 V7).** Behaviour log-probs are taken at the turn's sampling
+temperature and, under top-p, renormalized over the nucleus the token was drawn from (``Turn.candidates``); the trainer
+evaluates π_θ the same way. A teacher or reference scored at temperature 1 over the full vocabulary gave a non-zero OPD
+signal and k3 KL even when it *was* the policy (top_p 0.8: β·log(nucleus mass) < 0 on every token). So ``score`` takes,
+per pair, the turn's ``temperatures`` and its ``candidates``, and returns log π_T(token | prompt) at that temperature,
+renormalized over those candidates when given: ``Turn.teacher_logprobs`` / ``Turn.ref_logprobs`` are directly comparable
+with ``Turn.logprobs`` and with π_θ recomputed at the turn's sampling parameters.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
@@ -31,7 +41,16 @@ class Teacher(Protocol):
     id: str
     vocab_id: str
 
-    async def score(self, pairs: Sequence[tuple[list[int], list[int]]]) -> list[list[float]]: ...
+    async def score(self, pairs: Sequence[tuple[list[int], list[int]]], *, temperatures: Sequence[float | None] | None = None,
+                    candidates: Sequence[list[list[int]] | None] | None = None) -> list[list[float]]: ...
+
+
+def _takes_sampling(fn: Any) -> bool:
+    try:
+        ps = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return "temperatures" in ps and "candidates" in ps
 
 
 def vocab_signature(tokenizer: Any) -> str:
@@ -45,48 +64,89 @@ class TorchTeacher:
     def __init__(self, model: Any, *, id: str, vocab_id: str, temperature: float = 1.0):
         self.model, self.id, self.vocab_id, self.temperature = model, id, vocab_id, temperature
 
-    def _score(self, pairs: Sequence[tuple[list[int], list[int]]]) -> list[list[float]]:
+    def _score(self, pairs: Sequence[tuple[list[int], list[int]]], temperatures: Sequence[float | None] | None = None,
+               candidates: Sequence[list[list[int]] | None] | None = None) -> list[list[float]]:
+        """``temperatures`` / ``candidates``: per pair, the turn's sampling temperature (None: ``self.temperature``) and
+        top-p nucleus per token (None: the full vocabulary)."""
         import torch
 
+        temps = [float(t) if t is not None else self.temperature for t in (temperatures or [None] * len(pairs))]
+        cands = list(candidates) if candidates is not None else [None] * len(pairs)
         with torch.no_grad():
-            if hasattr(self.model, "batch_token_logprobs"):
-                rows = self.model.batch_token_logprobs(list(pairs), self.temperature)
+            if hasattr(self.model, "batch_token_logprobs") and len(set(temps)) <= 1 and not any(cands):
+                rows = self.model.batch_token_logprobs(list(pairs), temps[0] if temps else self.temperature)
+            elif hasattr(self.model, "batch_token_logprobs") and len(set(temps)) <= 1:
+                rows = self.model.batch_token_logprobs(list(pairs), temps[0], candidates=cands)
             else:
-                rows = [self.model.token_logprobs(p, c, self.temperature) for p, c in pairs]
+                rows = [self.model.token_logprobs(p, c, t, candidates=k) if k else self.model.token_logprobs(p, c, t)
+                        for (p, c), t, k in zip(pairs, temps, cands, strict=True)]
         return [[float(x) for x in r.detach().cpu().tolist()] for r in rows]
 
-    async def score(self, pairs: Sequence[tuple[list[int], list[int]]]) -> list[list[float]]:
-        return await asyncio.to_thread(self._score, pairs)
+    async def score(self, pairs: Sequence[tuple[list[int], list[int]]], *, temperatures: Sequence[float | None] | None = None,
+                    candidates: Sequence[list[list[int]] | None] | None = None) -> list[list[float]]:
+        return await asyncio.to_thread(self._score, pairs, temperatures, candidates)
 
 
 class VLLMTeacher:
     """A teacher served by vLLM: one ``/v1/completions`` request per call with the prompt + completion as token ids,
-    ``max_tokens=1`` and ``prompt_logprobs=0`` (the log-prob of each prompt token under the teacher)."""
+    ``max_tokens=1`` and ``prompt_logprobs`` (the log-prob of each prompt token under the teacher).
 
-    def __init__(self, base_url: str, model: str, *, id: str, vocab_id: str, client: Any = None, timeout_s: float = 600.0):
+    vLLM's prompt log-probs are the model's raw (temperature 1, full vocabulary) distribution. A turn sampled under top-p
+    is scored exactly from the top-``candidates_k`` prompt log-probs: log π_T(x)/T renormalized over the turn's nucleus
+    (the normalizer cancels), which needs every nucleus member among the returned entries (else the call fails, never a
+    guess). A turn sampled at T ≠ 1 over the full vocabulary cannot be rebuilt from top-k entries: refused."""
+
+    def __init__(self, base_url: str, model: str, *, id: str, vocab_id: str, client: Any = None, timeout_s: float = 600.0, candidates_k: int = 20):
         import httpx
 
         self.base, self.model, self.id, self.vocab_id = base_url.rstrip("/").removesuffix("/v1"), model, id, vocab_id
+        self.candidates_k = candidates_k
         self.client = client or httpx.AsyncClient(timeout=timeout_s)
 
-    async def _one(self, prompt: list[int], completion: list[int]) -> list[float]:
-        body = {"model": self.model, "prompt": list(prompt) + list(completion), "max_tokens": 1, "temperature": 0.0, "prompt_logprobs": 0}
+    @staticmethod
+    def _lp(entry: Any, tok: int) -> float | None:
+        got = entry.get(str(tok))
+        if got is None:
+            got = entry.get(tok)
+        if got is None:
+            return None
+        return float(got["logprob"] if isinstance(got, dict) else got)
+
+    async def _one(self, prompt: list[int], completion: list[int], temperature: float | None = None,
+                   candidates: list[list[int]] | None = None) -> list[float]:
+        T = 1.0 if temperature is None else float(temperature)
+        if candidates is None and abs(T - 1.0) > 1e-9:
+            raise NotImplementedError(f"teacher {self.id}: vLLM prompt log-probs are at temperature 1; a full-vocabulary turn sampled at T={T} "
+                                      "cannot be scored exactly (use a TorchTeacher, or sample the student with top_p < 1)")
+        k = self.candidates_k if candidates is not None else 0
+        body = {"model": self.model, "prompt": list(prompt) + list(completion), "max_tokens": 1, "temperature": 0.0, "prompt_logprobs": k}
         r = await self.client.post(self.base + "/v1/completions", json=body)
         r.raise_for_status()
         pl = r.json()["choices"][0].get("prompt_logprobs") or []
         out = []
-        for pos, tok in zip(range(len(prompt), len(prompt) + len(completion)), completion, strict=True):
+        for i, (pos, tok) in enumerate(zip(range(len(prompt), len(prompt) + len(completion)), completion, strict=True)):
             entry = pl[pos] if pos < len(pl) else None
             if not entry:
                 raise ValueError(f"teacher {self.id}: no prompt logprob at position {pos}")
-            got = entry.get(str(tok)) or entry.get(tok)
+            got = self._lp(entry, tok)
             if got is None:
                 raise ValueError(f"teacher {self.id}: sampled token {tok} missing from prompt_logprobs at {pos}")
-            out.append(float(got["logprob"] if isinstance(got, dict) else got))
+            if candidates is None:
+                out.append(got)
+                continue
+            members = [self._lp(entry, c) for c in candidates[i]]
+            if any(m is None for m in members):
+                raise ValueError(f"teacher {self.id}: position {pos}: nucleus members outside the top-{k} prompt logprobs; raise candidates_k")
+            zs = [m / T for m in members]  # type: ignore[operator]
+            top = max(zs)
+            out.append(got / T - (top + math.log(sum(math.exp(z - top) for z in zs))))
         return out
 
-    async def score(self, pairs: Sequence[tuple[list[int], list[int]]]) -> list[list[float]]:
-        return list(await asyncio.gather(*(self._one(p, c) for p, c in pairs)))
+    async def score(self, pairs: Sequence[tuple[list[int], list[int]]], *, temperatures: Sequence[float | None] | None = None,
+                    candidates: Sequence[list[list[int]] | None] | None = None) -> list[list[float]]:
+        temps = list(temperatures) if temperatures is not None else [None] * len(pairs)
+        cands = list(candidates) if candidates is not None else [None] * len(pairs)
+        return list(await asyncio.gather(*(self._one(p, c, t, k) for (p, c), t, k in zip(pairs, temps, cands, strict=True))))
 
 
 class TeacherPool:
@@ -117,12 +177,13 @@ class TeacherPool:
         prompts = full_prompts(rec)
         calls = [t for t in rec.turns if t.completion_token_ids]
         pairs = [(prompts[t.call_id], list(t.completion_token_ids)) for t in calls]
+        temps, cands = sampling_of(calls)
         tid = self.teacher_for(source)
         jobs = []
         if tid is not None and pairs:
-            jobs.append(("teacher", self.teachers[tid].score(pairs)))
+            jobs.append(("teacher", _score(self.teachers[tid], pairs, temps, cands)))
         if self.reference is not None and pairs:
-            jobs.append(("ref", self.reference.score(pairs)))
+            jobs.append(("ref", _score(self.reference, pairs, temps, cands)))
         results = await asyncio.gather(*(j for _, j in jobs))
         for (kind, _), rows in zip(jobs, results, strict=True):
             for t, row in zip(calls, rows, strict=True):
@@ -136,3 +197,27 @@ class TeacherPool:
             rec.teacher_id = tid
         self.seconds += time.monotonic() - t0
         return rec
+
+
+def sampling_of(turns: Sequence[Any]) -> tuple[list[float | None], list[list[list[int]] | None]]:
+    """Per turn, the sampling temperature (``Turn.sampling["temperature"]``, None if unrecorded) and the top-p nucleus of
+    every completion token (``Turn.candidates`` when the turn was sampled with top_p < 1)."""
+    temps: list[float | None] = []
+    cands: list[list[list[int]] | None] = []
+    for t in turns:
+        s = getattr(t, "sampling", None) or {}
+        temps.append(float(s["temperature"]) if s.get("temperature") is not None else None)
+        nucleus = float(s.get("top_p", 1.0) or 1.0) < 1.0 or bool(t.candidates)
+        cands.append([list(c) for c in t.candidates] if nucleus and t.candidates else None)
+        if nucleus and not t.candidates:
+            raise ValueError(f"{t.call_id}: sampled with top_p < 1 but no candidate sets: the teacher cannot score the student's distribution")
+    return temps, cands
+
+
+async def _score(teacher: Any, pairs: list[tuple[list[int], list[int]]], temps: list[float | None], cands: list[Any]) -> list[list[float]]:
+    if _takes_sampling(teacher.score):
+        return await teacher.score(pairs, temperatures=temps, candidates=cands)
+    if any(c is not None for c in cands) or any(t is not None and abs(t - 1.0) > 1e-9 for t in temps):
+        raise ValueError(f"teacher {teacher.id} scores at temperature 1 over the full vocabulary only; these turns were sampled at "
+                         f"{sorted({t for t in temps if t is not None})} / top-p: its log-probs would not compare with the student's (M12 audit H1 V7)")
+    return await teacher.score(pairs)

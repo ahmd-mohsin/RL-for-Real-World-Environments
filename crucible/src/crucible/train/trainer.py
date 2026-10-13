@@ -27,8 +27,8 @@ import torch
 
 from crucible.core.schema.rollout import RolloutRecord, full_prompts
 from crucible.train.batching import balance_partitions, micro_batches
-from crucible.train.mismatch import NEEDS_OLD, Correction, correct
-from crucible.train.objectives import aggregate, group_advantages
+from crucible.train.mismatch import NEEDS_OLD, Correction, correct, needs_sequence
+from crucible.train.objectives import group_advantages, resolve_agg, row_weights
 
 
 class TrainerBackend(Protocol):
@@ -41,15 +41,26 @@ class TrainerBackend(Protocol):
 class TrainerConfig:
     lr: float = 3e-3
     correction: Correction = field(default_factory=Correction)
-    loss_agg: str = "token_mean_global"
+    # "auto": the correction's own unit (GSPO → per-rollout sequence mean, HisPO → const_max_len, else the global token
+    # mean). Every mode is a per-row weight (``objectives.row_weights``) over ROLLOUTS, so it micro-batches and splits
+    # across DP ranks exactly (M12 audit: the other modes ran the whole batch in one forward and counted calls as sequences)
+    loss_agg: str = "auto"
+    loss_max_len: int | None = None  # const_max_len's L (a constant, e.g. the max response length); None = the group's longest
     estimator: str = "mean"
     std_normalize: bool = False
+    std_ddof: int = 0  # 1 = Bessel's std, as TRL / verl / OpenRLHF compute GRPO advantages
+    # DAPO overlong reward shaping (art. §3.5.3.1; verl reward_manager/dapo.py): {"l_max": 20480, "l_cache": 4096} adds
+    # objectives.overlong_penalty(len) to the outcome, len = the rollout's sampled tokens; ``overlong_filter``: truncated
+    # rollouts count in the group baseline but carry no loss (DAPO overlong filtering: neither reward nor penalty)
+    overlong: dict | None = None
+    overlong_filter: bool = False
     turn_weight: float = 0.0
     token_budget: int = 4096
     dp: int = 1
     grad_clip: float = 1.0
     updates_per_batch: int = 1
-    temperature: float = 1.0
+    temperature: float = 1.0  # must equal every trained call's sampling temperature (checked: a mismatch biases every ratio)
+    skip_nonfinite: bool = True  # a non-finite gradient norm skips the optimizer step (AReaL, slime), counted in train/skipped_nonfinite
     routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
     prefix_sharing: bool = False  # items with the same full prompt in a micro batch encode it once (checklist #50)
     # "segment" (default): one causal sequence per (rollout, actor, compaction segment), loss only on sampled tokens:
@@ -66,6 +77,10 @@ class TrainerConfig:
     # coefficient ``kl_coef`` or per source ``kl_coef_by_source`` (StepFun 0.001, Seed 1e-5 / 0)
     kl_coef: float = 0.0
     kl_coef_by_source: dict = field(default_factory=dict)
+    # "reverse": the k3 value with a score-function weight, whose gradient is ∇KL(π_θ‖π_ref) (NeMo-RL); "k3_loss": the plain
+    # k3 loss of verl / TRL, whose gradient is that of the FORWARD KL(π_ref‖π_θ). Log ratios clamp at ±20, k3 at ``kl_clamp``
+    kl_grad: str = "reverse"
+    kl_clamp: float = 10.0
     # m13 C-8 (A2-25): −penalty × ``Turn.format_errors`` on the offending call's tokens only (MiniMax r_process, Qwen)
     tool_format_penalty: float = 0.0
     # how a call with format errors is penalised: "reduction" subtracts tool_format_penalty x errors from its tokens
@@ -81,6 +96,7 @@ class TrainerConfig:
     # taken over them (speed is compared among correct solutions)
     speed_coef: float = 0.0
     speed_gate: bool = True
+    speed_pass_threshold: float = 1.0  # what counts as a correct solution for the gate (a partial-credit failure is not)
     speed_kind: str = "linear"
     # latency penalty: r −= latency_coef · L, L = Kimi PARL critical steps or the DeepSeek DAG critical path (calls)
     latency_coef: float = 0.0
@@ -106,6 +122,8 @@ class _Item:
     ref: list[float] | None = None  # per completion position: reference log-prob (KL term), aligned with ``ref_mask``
     ref_mask: list[int] | None = None
     kl: float = 0.0
+    seq: str = ""  # the rollout: the sequence unit of loss aggregation and of GSPO / MIS-PO / HisPO statistics
+    media: list | None = None  # images in this call's full prompt (vision policies recompute π_θ with them)
 
 
 class TorchTrainer:
@@ -202,10 +220,15 @@ class TorchTrainer:
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
-    def _gae_advantages(self, records: Sequence[RolloutRecord]) -> dict[tuple[str, str], list[float]]:
+    def _gae_advantages(self, records: Sequence[RolloutRecord], shaped: Sequence[float | None] | None = None) -> dict[tuple[str, str], list[float]]:
         """Critic mode: per (rollout id, call id), the per-token GAE advantages (call ids repeat across rollouts: World
         episodes all have ``agent:c1``...); also fills ``self._critic_data`` with (prompt, completion,
-        returns) for the critic regression. The chain holds only completion tokens (skip-observation), in call order."""
+        returns) for the critic regression. The chain holds only completion tokens (skip-observation), in call order.
+
+        Rewards: the shaped outcome (speed / latency terms, as in group mode) at the last token, each call's
+        ``step_reward`` at its own last token. A truncated rollout's outcome is REPLACED by the bootstrap V(s_T), the value
+        of the state after its last token (StepFun's R̂ = V(s_T); AReaL zeroes the task reward): truncation is not failure
+        (M12 audit: R was kept and V(s_T) added on top, a critic target of 1.5 for R = 1, V = 0.5)."""
         from crucible.train.critic import explained_variance
         from crucible.train.objectives import gae, length_adaptive_lambda
 
@@ -213,8 +236,9 @@ class TorchTrainer:
         out: dict[tuple[str, str], list[float]] = {}
         self._critic_data: list[tuple[list[int], list[int], torch.Tensor]] = []
         all_ret, all_val = [], []
-        for r in records:
-            if r.mask_sample or r.reward is None:
+        for j, r in enumerate(records):
+            outcome = shaped[j] if shaped is not None else (None if (r.mask_sample or r.reward is None) else float(r.reward))
+            if outcome is None:
                 continue
             prompts = full_prompts(r)
             calls = [t for t in r.turns if t.completion_token_ids]
@@ -226,14 +250,26 @@ class TorchTrainer:
             v = torch.cat(vals)
             T = int(v.shape[0])
             rewards = torch.zeros(T, dtype=torch.float64)
-            rewards[-1] = float(r.reward)
+            end = 0
+            for t, n in zip(calls, lens, strict=True):
+                end += n
+                if t.step_reward:
+                    rewards[end - 1] += float(t.step_reward)
+            trunc_boot = bool(r.truncated) and cc.truncation == "bootstrap"
+            final = 0.0 if trunc_boot else float(outcome)
             seg = torch.tensor([t.segment for t, n in zip(calls, lens, strict=True) for _ in range(n)])
             multi = len(set(seg.tolist())) > 1
-            kw = {"segments": seg, "shared_terminal": float(r.reward)} if multi else {}
-            if multi:
-                rewards[-1] = 0.0  # the shared terminal carries the outcome to every segment's end
+            kw = {"segments": seg, "shared_terminal": final} if multi else {}
+            if not multi:
+                rewards[-1] += final  # multi-segment: the shared terminal carries the outcome to every segment's end
             lam_p = length_adaptive_lambda(T, cc.alpha) if cc.lam_policy == "adaptive" else float(cc.lam_policy)
-            trunc = {"truncated": bool(r.truncated), "bootstrap_value": float(v[-1])}
+            v_T = 0.0
+            if trunc_boot:  # V(s_T): the value at a position after the last token (any next token: the model is causal)
+                last = calls[-1]
+                comp = list(last.completion_token_ids)
+                with torch.no_grad():
+                    v_T = float(self.critic.token_values(prompts[last.call_id], comp + [comp[-1]])[-1])
+            trunc = {"truncated": trunc_boot, "bootstrap_value": v_T}
             adv, _ = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=lam_p, **kw, **trunc)
             _, ret = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic, **kw, **trunc)
             k = 0
@@ -271,7 +307,7 @@ class TorchTrainer:
         """Segment packing needs no per-call model inputs: truncated sampling (candidates) and R3 routing keep per-call items."""
         if self.cfg.routing_replay == "r3":
             return False
-        return all(float(t.sampling.get("top_p", 1.0)) >= 1.0 for t in r.turns)
+        return all(float(t.sampling.get("top_p", 1.0)) >= 1.0 and not t.media for t in r.turns)
 
     def _segment_items(self, r: RolloutRecord, a: float, per_token: dict | None, pid: int) -> list[_Item]:
         from crucible.train.bridges.common import flatten
@@ -286,7 +322,7 @@ class TorchTrainer:
                     if vals is not None:
                         adv[s0:s1] = [x + credit.get(cid, 0.0) for x in vals[: s1 - s0]]
             if sum(seq.response_mask):
-                it = _Item(list(seq.prompt_ids), list(seq.response_ids), list(seq.logprobs), adv, pid, mask=list(seq.response_mask))
+                it = _Item(list(seq.prompt_ids), list(seq.response_ids), list(seq.logprobs), adv, pid, mask=list(seq.response_mask), seq=r.rollout_id)
                 kl = self._kl_coef(r)
                 if kl:
                     ref, rm = [0.0] * len(it.completion), [0] * len(it.completion)
@@ -310,13 +346,23 @@ class TorchTrainer:
 
         c = self.cfg
         base = [None if (r.mask_sample or r.reward is None) else float(r.reward) for r in records]
+        if c.overlong:
+            from crucible.train.objectives import overlong_penalty
+
+            for i, r in enumerate(records):
+                if base[i] is not None:
+                    n = sum(len(t.completion_token_ids or []) for t in r.turns if t.actor not in c.frozen_actors)
+                    pen = overlong_penalty(n, l_max=int(c.overlong.get("l_max", 20_480)), l_cache=int(c.overlong.get("l_cache", 4_096)))
+                    if pen:
+                        r.reward_components["shaping/overlong"] = pen
+                    base[i] += pen
         if not c.speed_coef and not c.latency_coef:
             return base
         t_base: dict[str, float] = {}
         if c.speed_coef:
             by_g: dict[str, list[float]] = {}
             for r, g, b in zip(records, groups, base, strict=True):  # gated: the baseline is the speed of the group's correct solutions
-                if b is not None and "active_s" in r.timings and (not c.speed_gate or b > 0):
+                if b is not None and "active_s" in r.timings and (not c.speed_gate or b >= c.speed_pass_threshold):
                     by_g.setdefault(g, []).append(float(r.timings["active_s"]))
             t_base = {g: median(v) for g, v in by_g.items() if v}
         out: list[float | None] = []
@@ -325,7 +371,7 @@ class TorchTrainer:
                 out.append(None)
                 continue
             x = b
-            if c.speed_coef and g in t_base and "active_s" in r.timings and (not c.speed_gate or b > 0):
+            if c.speed_coef and g in t_base and "active_s" in r.timings and (not c.speed_gate or b >= c.speed_pass_threshold):
                 bonus = c.speed_coef * speed_bonus(float(r.timings["active_s"]), t_base[g], kind=c.speed_kind)
                 r.reward_components["shaping/speed"] = bonus
                 x += bonus
@@ -392,17 +438,27 @@ class TorchTrainer:
             tc = turn_credit_map(records, groups, eta=self.cfg.turn_weight, frozen_actors=self.cfg.frozen_actors)
             records = [r.model_copy(update={"turns": [t.model_copy(update={"advantage": tc.get((r.rollout_id, t.call_id), 0.0) / self.cfg.turn_weight})
                                                       for t in r.turns]}) for r in records]
+        shaped = self._shaped_rewards(records, groups)
+        staged = any(r.advantage is not None and not r.mask_sample and r.reward is not None for r in records)
         if self.critic is not None:
-            per_token = self._gae_advantages(records)
+            if staged:
+                raise ValueError("group-stage advantages (GAR, tournament) need group mode: critic mode computes its own per-token GAE")
+            if self.cfg.credit_unit == "reward_to_go":
+                raise ValueError("credit_unit='reward_to_go' is a group-mode baseline; critic mode credits step rewards through GAE")
+            if self.cfg.format_penalty_mode == "signed" and self.cfg.tool_format_penalty:
+                raise ValueError("format_penalty_mode='signed' rebalances by the sign of a sequence advantage: group mode only")
+            per_token = self._gae_advantages(records, shaped)
             advs = [0.0] * len(records)
         else:
             per_token = None
-            shaped = self._shaped_rewards(records, groups)
+            if staged and self.cfg.credit_unit == "reward_to_go":
+                raise ValueError("credit_unit='reward_to_go' would replace the group stage's advantages; use credit_unit='sequence'")
             baselines = None
             if self.cfg.estimator == "remax":  # the greedy rollout's reward per group, recorded by the rollout function
                 baselines = {g: float(r.reward_components["remax/baseline"]) for r, g in zip(records, groups, strict=True)
                              if "remax/baseline" in r.reward_components}
-            advs = group_advantages(shaped, groups, std_normalize=self.cfg.std_normalize, estimator=self.cfg.estimator, baselines=baselines)
+            advs = group_advantages(shaped, groups, std_normalize=self.cfg.std_normalize, estimator=self.cfg.estimator, baselines=baselines,
+                                    std_ddof=self.cfg.std_ddof)
             if self.cfg.credit_unit == "reward_to_go":
                 per_token = self._reward_to_go(records, groups, shaped)
             # a group stage (m13 C-2) that set every scored member's advantage replaces the group statistic for that group
@@ -457,10 +513,17 @@ class TorchTrainer:
         for r, a, g in zip(records, advs, groups, strict=True):
             if r.mask_sample or r.reward is None:
                 continue
+            if self.cfg.overlong_filter and r.truncated:  # in the baseline above, out of the loss here
+                continue
             if self.cfg.item_unit == "segment" and self._segment_ok(r):
                 items += self._segment_items(r, a, per_token, pids[g])
                 continue
             prompts = full_prompts(r)
+            media = None
+            if any(t.media for t in r.turns):
+                from crucible.train.vision import prompt_media
+
+                media = prompt_media(r)
             for t in r.turns:
                 if not t.completion_token_ids or t.actor in self.cfg.frozen_actors:
                     continue
@@ -474,7 +537,8 @@ class TorchTrainer:
                 adv = [x + credit for x in per_token[(r.rollout_id, t.call_id)]] if per_token is not None else a + credit
                 it = _Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
                            t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
-                           t.routing if self.cfg.routing_replay == "r3" else None)
+                           t.routing if self.cfg.routing_replay == "r3" else None, seq=r.rollout_id,
+                           media=(media.get(t.call_id) or None) if media else None)
                 kl = self._kl_coef(r)
                 if kl and t.ref_logprobs is not None and len(t.ref_logprobs) == len(t.completion_token_ids):
                     it.ref, it.ref_mask, it.kl = list(t.ref_logprobs), [1] * len(t.ref_logprobs), kl
@@ -482,7 +546,11 @@ class TorchTrainer:
         return items
 
     def _logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
+        if any(items[i].media for i in idx) and not _takes_media(self.model):
+            raise ValueError("records carry images (Turn.media) but the policy computes text-only log-probs: use train.vision.VisionHFPolicy")
         if self.cfg.routing_replay == "r3":  # per item: the replayed expert path
+            if any(items[i].media for i in idx):
+                raise ValueError("routing_replay='r3' with images is not supported")
             out = []
             for i in idx:
                 out.append(self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates,
@@ -493,7 +561,7 @@ class TorchTrainer:
         if share is not None:  # group by identical full prompt; truncated-sampling items keep the plain path
             by: dict[tuple, list[int]] = {}
             for i in idx:
-                if items[i].candidates is None:
+                if items[i].candidates is None and not items[i].media:
                     by.setdefault(tuple(items[i].prompt), []).append(i)
             res: dict[int, torch.Tensor] = {}
             for prompt, members in by.items():
@@ -509,10 +577,12 @@ class TorchTrainer:
         return self._plain_logprobs(items, idx)
 
     def _plain_logprobs(self, items: list[_Item], idx: list[int]) -> list[torch.Tensor]:
+        mkw = {"media": [items[i].media for i in idx]} if any(items[i].media for i in idx) else {}
         if hasattr(self.model, "batch_token_logprobs"):  # one forward per micro batch (HF policies)
             return self.model.batch_token_logprobs([(items[i].prompt, items[i].completion) for i in idx], self.cfg.temperature,
-                                                   candidates=[items[i].candidates for i in idx])
-        out = [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates) for i in idx]
+                                                   candidates=[items[i].candidates for i in idx], **mkw)
+        out = [self.model.token_logprobs(items[i].prompt, items[i].completion, self.cfg.temperature, candidates=items[i].candidates,
+                                         **({"media": items[i].media} if mkw else {})) for i in idx]
         if hasattr(self.model, "last_confidence"):
             self._confidence.append(float(self.model.last_confidence))
         return out
@@ -531,8 +601,13 @@ class TorchTrainer:
                     n = len(it.ref)
                     ref[k, :n] = torch.tensor(it.ref, dtype=fdt, device=dev)
                     w[k, :n] = it.kl * torch.tensor(it.ref_mask, dtype=fdt, device=dev)
-            d = ref - lp
-            out = w * (torch.exp(d) - d - 1.0)  # k3: unbiased, non-negative; 0 when π_θ = π_ref
+            d = (ref - lp).clamp(-20.0, 20.0)
+            k3 = (torch.exp(d) - d - 1.0).clamp(max=self.cfg.kl_clamp)  # k3: unbiased, non-negative; 0 when π_θ = π_ref
+            if self.cfg.kl_grad == "reverse":  # value k3, gradient (log π_θ − log π_ref)·∇log π_θ = ∇KL(π_θ‖π_ref) in expectation
+                k3 = k3 + k3.detach() * (lp - lp.detach())
+            elif self.cfg.kl_grad != "k3_loss":
+                raise ValueError("kl_grad: reverse | k3_loss")
+            out = w * k3
         if self.cfg.opd_coef and self.cfg.opd_mode == "full_vocab":
             kl = torch.zeros(len(idx), T, dtype=fdt, device=dev)
             for k, i in enumerate(idx):
@@ -576,6 +651,10 @@ class TorchTrainer:
     def _reduce_scalars(self, vals: list[float]) -> list[float]:
         return vals
 
+    def _metric_keys(self, keys: list[str]) -> list[str]:
+        """The metric names every rank reduces, in one order (``DistributedTorchTrainer``: the union over ranks)."""
+        return keys
+
     def _old_logprobs(self, items: list[_Item], mine: list[int], seq_lens: list[int], parts: list[list[int]]) -> dict[int, torch.Tensor]:
         return {i: r.to(_loss_dtype(r.device)) for i, r in zip(mine, self._logprobs(items, mine), strict=True)} if mine else {}
 
@@ -592,19 +671,81 @@ class TorchTrainer:
     def _release_params(self) -> None:
         """After the optimizer step (``FSDPTrainer``: drop the gathered copy; the next gather sees the updated shards)."""
 
+    def _gate(self, records: Sequence[RolloutRecord]) -> tuple[list[RolloutRecord], int]:
+        """The trainer's own validity check (M12 audit: nothing on the M12 path called ``valid_for_training``, so a call
+        without behaviour logprobs trained with π_rollout = 1). A scored record whose trained calls lack a complete,
+        finite token record is masked here (``crucible:capture_incomplete``): excluded from baselines and the loss.
+        A call sampled at another temperature than the trainer's is a configuration error and raises."""
+        import math
+
+        out, bad = [], 0
+        for r in records:
+            if r.mask_sample or r.reward is None:
+                out.append(r)
+                continue
+            why = None
+            for t in r.turns:
+                n = len(t.completion_token_ids or [])
+                if not n or t.actor in self.cfg.frozen_actors:
+                    continue
+                temp = t.sampling.get("temperature") if t.sampling else None
+                if temp is not None and abs(float(temp) - float(self.cfg.temperature)) > 1e-6:
+                    raise ValueError(f"{r.rollout_id}/{t.call_id} was sampled at temperature {temp} but the trainer computes log-probs at "
+                                     f"{self.cfg.temperature}: every ratio would be biased (set TrainerConfig.temperature)")
+                if t.logprobs is None or len(t.logprobs) != n:
+                    why = "logprobs"
+                elif not all(math.isfinite(x) for x in t.logprobs):
+                    why = "non-finite logprobs"
+                elif t.prompt_token_ids is None:
+                    why = "prompt_token_ids"
+                elif not t.spans_valid():
+                    why = "version_spans"
+                if why:
+                    break
+            if why:
+                bad += 1
+                out.append(r.model_copy(update={"mask_sample": True, "reward": None, "failure_kind": "crucible:capture_incomplete",
+                                                "reward_components": {**r.reward_components, "train/invalid": 1.0}}))
+            else:
+                out.append(r)
+        return out, bad
+
+    def _make_units(self, items: list[_Item], seq_lens: list[int]) -> None:
+        """Placement units: rows that must share a micro batch. Corrections with a per-sequence statistic (GSPO's ratio, the
+        MIS-PO / HisPO trajectory gates) keep a rollout's rows together; every other correction places rows freely."""
+        if needs_sequence(self.cfg.correction):
+            by: dict[str, list[int]] = {}
+            for i, it in enumerate(items):
+                by.setdefault(it.seq, []).append(i)
+            self._units = list(by.values())
+        else:
+            self._units = [[i] for i in range(len(items))]
+        self._unit_of = {i: u for u, members in enumerate(self._units) for i in members}
+        self._unit_lens = [sum(seq_lens[i] for i in members) for members in self._units]
+
+    def _split(self, part: list[int]) -> list[list[int]]:
+        """One rank's rows → token-budget micro batches over whole units (first-fit decreasing)."""
+        units = sorted({self._unit_of[i] for i in part})
+        return [sorted(i for u in mb.indices for i in self._units[u]) for mb in micro_batches(self._unit_lens, units, self.cfg.token_budget)]
+
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
+        import math
+
         if self.cfg.routing_replay not in ("none", "r3"):
             raise ValueError(f"routing_replay: none | r3 (got {self.cfg.routing_replay!r})")
+        agg = resolve_agg(self.cfg.loss_agg, self.cfg.correction.name)
         self._confidence: list[float] = []
         self._saved_tokens = 0
+        records, n_invalid = self._gate(records)
         items = self._items(records, groups)
         if not items:
-            return {"train/items": 0.0}
+            return {"train/items": 0.0, "train/records_invalid": float(n_invalid)}
         lengths = [sum(it.mask) if it.mask is not None else len(it.completion) for it in items]  # trained tokens: the loss normalizer
         seq_lens = [len(it.prompt) + len(it.completion) for it in items]  # forward tokens: memory and compute, for placement
         g_tokens = sum(lengths)
-        single = self.cfg.loss_agg != "token_mean_global"
-        parts = balance_partitions(seq_lens, self.cfg.dp) if not single else [list(range(len(items)))]
+        w = row_weights(lengths, [it.seq for it in items], [it.prompt_index for it in items], agg, max_len=self.cfg.loss_max_len)
+        self._make_units(items, seq_lens)
+        parts = [sorted(i for u in p for i in self._units[u]) for p in balance_partitions(self._unit_lens, self.cfg.dp)]
         mine = sorted(i for p in self._local_parts(parts) for i in p)
         old = None
         src = self.cfg.correction.old_logprob_source
@@ -618,48 +759,49 @@ class TorchTrainer:
             with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
                 old = self._old_logprobs(items, mine, seq_lens, parts)
         metrics: dict[str, float] = {}
+        skipped = 0
         for _ in range(self.cfg.updates_per_batch):
             self.opt.zero_grad()
             self._gather_params()
             total_loss = 0.0
-            mbs = [mb.indices for p in self._local_parts(parts) for mb in micro_batches(seq_lens, p, self.cfg.token_budget)] if not single else [mine]
-            mbs = self._equalize(mbs)
+            mbs = self._equalize([mb for p in self._local_parts(parts) for mb in self._split(p)])
             agg_metrics: list[dict] = []
             for idx in mbs:
                 if not idx:  # padding: keeps per-forward collectives in lockstep across ranks (FSDPTrainer reshard="layer")
                     self._idle_micro_batch()
                     continue
                 lp, roll, adv, mask, old_t = self._padded(items, idx, old)
-                terms = correct(self.cfg.correction, logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t)
+                local = {k: j for j, k in enumerate(dict.fromkeys(items[i].seq for i in idx))}
+                sid = torch.tensor([local[items[i].seq] for i in idx], device=lp.device)
+                terms = correct(self.cfg.correction, logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t, seq_ids=sid)
                 extra = self._extra_terms(items, idx, lp, mask)
                 if extra is not None:  # m13 C-5: k3 KL to the reference, full-vocabulary OPD (trained positions only)
                     terms = dataclasses.replace(terms, objective=terms.objective - extra * mask.to(extra.dtype))
-                if single:
-                    J = aggregate(terms.objective, mask, self.cfg.loss_agg, prompt_ids=[items[i].prompt_index for i in idx])
-                else:
-                    J = (terms.objective * mask).sum() / g_tokens  # this micro batch's share of the global token mean
+                wt = torch.tensor([w[i] for i in idx], dtype=terms.objective.dtype, device=lp.device)
+                J = (terms.objective * mask.to(terms.objective.dtype) * wt[:, None]).sum()  # this micro batch's exact share of the batch objective
                 loss = -J
                 loss.backward()
                 total_loss += float(loss.detach())
                 agg_metrics.append(terms.metrics)
-            if not mbs:  # an empty DP rank still joins the collective with zero gradients
-                for p in self.model.parameters():
-                    if p.grad is None:
-                        p.grad = torch.zeros_like(p)
             self._reduce_grads()
             gn = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip)  # pre-clip: proves a step had signal
             grad_norm = float(gn.full_tensor() if hasattr(gn, "full_tensor") else gn)  # sharded (DTensor) gradients: the global norm
-            self.opt.step()
+            if self.cfg.skip_nonfinite and not math.isfinite(grad_norm):  # the same global norm on every rank: all skip together
+                self.opt.zero_grad(set_to_none=True)
+                skipped += 1
+            else:
+                self.opt.step()
+                self.updates += 1
             self._release_params()
-            self.updates += 1
-            keys = sorted({k for m in agg_metrics for k in m})
+            keys = self._metric_keys(sorted({k for m in agg_metrics for k in m}))
             sums = self._reduce_scalars([total_loss, float(sum(1 for idx in mbs if idx))] + [sum(m.get(k, 0.0) for m in agg_metrics) for k in keys])
             n_mb = sums[1]
             metrics = {"train/loss": sums[0], "train/grad_norm": grad_norm, "train/lr": float(self.opt.param_groups[0]["lr"]),
                        "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),
-                       "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts)}
+                       "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts),
+                       "train/skipped_nonfinite": float(skipped), "train/records_invalid": float(n_invalid)}
             for k, v in zip(keys, sums[2:], strict=True):
-                metrics[f"mismatch/{k}"] = v / max(n_mb, 1.0)
+                metrics[f"mismatch/{k}"] = v if k == "nonfinite_tokens" else v / max(n_mb, 1.0)
             if self.cfg.prefix_sharing:
                 metrics["train/prefix_tokens_saved"] = float(self._saved_tokens)
             if self._confidence:  # MoE routing confidence Σ_k (mean top-k router mass), checklist #36
@@ -668,6 +810,16 @@ class TorchTrainer:
             metrics.update(self._critic_step())
         metrics.update(self._adapt_entropy(records))
         return metrics
+
+
+def _takes_media(model: Any) -> bool:
+    import inspect
+
+    fn = getattr(model, "batch_token_logprobs", None) or getattr(model, "token_logprobs", None)
+    try:
+        return fn is not None and "media" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def _loss_dtype(dev: torch.device) -> torch.dtype:
@@ -687,21 +839,43 @@ class DistributedTorchTrainer(TorchTrainer):
     **global** token mean, so after ``all_reduce(SUM)`` of the gradients every rank holds exactly the full-batch
     gradient and takes the identical optimizer step. ``cfg.dp`` must equal the group size."""
 
-    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, group: Any = None, broadcast_batch: bool = False, src: int = 0):
+    def __init__(self, model: torch.nn.Module, cfg: TrainerConfig | None = None, *, group: Any = None, broadcast_batch: bool = False, src: int = 0,
+                 critic: torch.nn.Module | None = None, critic_cfg=None, teacher: torch.nn.Module | None = None, sync_init: bool = True,
+                 device: torch.device | str | None = None):
+        """``src`` is a rank **within** ``group`` (M12 audit H4 V12: it was used as a group rank and as a global rank, so a
+        trainer subgroup not starting at global rank 0 failed). ``critic`` / ``teacher`` (H4 V11: refused before): the
+        critic is replicated — every rank holds the same batch, computes the same GAE and takes the same critic steps, so
+        replicas stay identical with no extra collective; a full-vocabulary teacher scores this rank's rows only.
+        ``sync_init=False``: the caller guarantees identical initial weights (e.g. ``FSDPTrainer`` loading with
+        ``broadcast_from_rank0``), so the per-tensor broadcast of the full model is skipped. ``device``: where NCCL
+        collectives place their scalars (default: the parameters' device; a meta-device model must name it)."""
         import torch.distributed as dist
 
-        super().__init__(model, cfg)
+        super().__init__(model, cfg, critic=critic, critic_cfg=critic_cfg, teacher=teacher)
         self.dist, self.group, self.broadcast_batch, self.src = dist, group, broadcast_batch, src
         self.rank, self.world = dist.get_rank(group), dist.get_world_size(group)
         # NCCL collectives take device tensors only: scalars and counts ride on the parameters' device there
-        self._coll_dev = next(model.parameters()).device if dist.get_backend(group) == "nccl" else torch.device("cpu")
+        if dist.get_backend(group) == "nccl":
+            self._coll_dev = torch.device(device) if device is not None else next(model.parameters()).device
+        else:
+            self._coll_dev = torch.device("cpu")
         if self.cfg.dp != self.world:
             raise ValueError(f"TrainerConfig.dp={self.cfg.dp} but the group has {self.world} ranks")
-        if self.cfg.loss_agg != "token_mean_global":  # only a global-token-mean loss decomposes into per-rank shares that sum
-            raise ValueError(f"DistributedTorchTrainer needs loss_agg='token_mean_global' (got {self.cfg.loss_agg!r}): other aggregations do not split across ranks")
-        with torch.no_grad():  # replicas start identical
-            for p in self.model.parameters():
-                dist.broadcast(p.data, src=self.src, group=group)
+        if sync_init:
+            with torch.no_grad():  # replicas start identical
+                for p in self.model.parameters():
+                    dist.broadcast(p.data, group_src=self.src, group=group)
+                if critic is not None:
+                    for p in critic.parameters():
+                        dist.broadcast(p.data, group_src=self.src, group=group)
+
+    def _metric_keys(self, keys: list[str]) -> list[str]:
+        """M12 audit H4 V1 / G5 D1: a rank with no rows (fewer trained rows than ranks, heavy masking) has no correction
+        metrics, so it reduced 2 floats while its peers reduced 2 + K: a hang (NCCL) or an abort (gloo). Agree on the
+        union first; a missing key counts 0 on that rank."""
+        box: list[Any] = [None] * self.world
+        self.dist.all_gather_object(box, keys, group=self.group)
+        return sorted({k for ks in box for k in ks})
 
     def _local_parts(self, parts: list[list[int]]) -> list[list[int]]:
         return [parts[self.rank]] if len(parts) == self.world else parts
@@ -709,7 +883,17 @@ class DistributedTorchTrainer(TorchTrainer):
     def _reduce_grads(self) -> None:
         from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-        grads = [p.grad for p in self.model.parameters() if p.grad is not None]
+        params = list(self.model.parameters())
+        # a parameter one rank never used (an adapter, a vision tower, an idle expert) has no .grad there: agree on the set
+        # first, or the flattened buffers differ in size across ranks (gloo aborts, NCCL is undefined; M12 audit)
+        used = torch.tensor([p.grad is not None for p in params], dtype=torch.int32, device=self._coll_dev)
+        self.dist.all_reduce(used, op=self.dist.ReduceOp.MAX, group=self.group)
+        for p, u in zip(params, used.tolist(), strict=True):
+            if u and p.grad is None:
+                p.grad = torch.zeros_like(p)
+        grads = [p.grad for p in params if p.grad is not None]
+        if not grads:
+            return
         flat = _flatten_dense_tensors(grads)  # one bucket: one collective per update
         self.dist.all_reduce(flat, op=self.dist.ReduceOp.SUM, group=self.group)
         for g, r in zip(grads, _unflatten_dense_tensors(flat, grads), strict=True):
@@ -723,6 +907,6 @@ class DistributedTorchTrainer(TorchTrainer):
     def step(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
         if self.broadcast_batch:
             box = [list(records), list(groups)] if self.rank == self.src else [None, None]
-            self.dist.broadcast_object_list(box, src=self.src, group=self.group)
+            self.dist.broadcast_object_list(box, group_src=self.src, group=self.group)
             records, groups = box
         return super().step(records, groups)

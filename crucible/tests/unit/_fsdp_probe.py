@@ -15,7 +15,8 @@ backend = os.environ.get("CRUCIBLE_DIST_BACKEND", "gloo")
 dist.init_process_group(backend, init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
                         timeout=timedelta(seconds=120))
 rank = dist.get_rank()
-dev = torch.device(f"cuda:{rank}") if backend == "nccl" else torch.device("cpu")
+local = int(os.environ.get("LOCAL_RANK", rank % max(1, torch.cuda.device_count()) if backend == "nccl" else 0))  # node-local (G5 D6)
+dev = torch.device(f"cuda:{local}") if backend == "nccl" else torch.device("cpu")
 if dev.type == "cuda":
     torch.cuda.set_device(dev)
 torch.manual_seed(0)

@@ -29,7 +29,7 @@ from typing import Any
 
 import torch
 
-from crucible.train.engine import GenRequest, GenResult
+from crucible.train.engine import GenRequest, GenResult, resume_spans
 
 
 class HFGenerateEngine:
@@ -44,13 +44,14 @@ class HFGenerateEngine:
         self.version = 0
         self._abort_epoch = 0
         self._aborted: set[str] = set()
+        self._running: dict[str, int] = {}  # call id -> calls in flight with it (``abort(call_id)`` only marks running calls)
         self._unpaused = asyncio.Event()
         self._unpaused.set()
         self.inflight = 0
 
     def capabilities(self) -> dict[str, Any]:
         return {"token_ids": True, "logprobs": "processed", "abort": "per_call", "pause": ["keep"], "sleep": False, "top_p_candidates": True,
-                "routing": False, "weight_load": "state_dict|checkpoint_dir"}
+                "routing": False, "weight_load": "state_dict|checkpoint_dir", "token_resume": True}
 
     def _forward(self, model: Any, ids: list[int], past: Any) -> tuple[torch.Tensor, Any]:
         with torch.no_grad():  # each forward its own scope: grad mode must never span an await
@@ -61,17 +62,17 @@ class HFGenerateEngine:
     async def generate(self, req: GenRequest) -> GenResult:
         await self._unpaused.wait()
         self.inflight += 1
+        self._running[req.call_id] = self._running.get(req.call_id, 0) + 1
         epoch, version, model = self._abort_epoch, self.version, self.model  # pinned at call start
         out, lps = list(req.resume_completion), list(req.resume_logprobs)
         cands: list[list[int]] = list(req.resume_candidates)
-        spans = list(req.resume_spans) or ([(0, version)] if not out else [])
-        if out and (not spans or spans[-1][1] != version):
-            spans.append((len(out), version))
+        n_resume = len(out)
         g = torch.Generator().manual_seed(req.seed if req.seed is not None else zlib.crc32(f"{req.call_id}|{len(out)}".encode()))
 
         def result(finish: str) -> GenResult:
-            sp = spans if (self.version_switch == "token" or len(spans) > 1) and finish == "abort" else (spans if len(spans) > 1 else None)
-            return GenResult(out, lps, version, finish, sp, len(req.prompt_ids), cands or None, None)
+            spans = resume_spans(req.resume_spans, n_resume, len(out) - n_resume, version)
+            sp = spans if (finish == "abort" and self.version_switch == "token") or len(spans) > 1 else None
+            return GenResult(out, lps, spans[-1][1], finish, sp, len(req.prompt_ids), cands or None, None)
 
         try:
             logits, past = self._forward(model, list(req.prompt_ids) + out, None)
@@ -98,6 +99,12 @@ class HFGenerateEngine:
             return result("length")
         finally:
             self.inflight -= 1
+            left = self._running.get(req.call_id, 1) - 1
+            if left:
+                self._running[req.call_id] = left
+            else:
+                self._running.pop(req.call_id, None)
+                self._aborted.discard(req.call_id)  # an abort that arrived as the call ended must not kill the re-issue
 
     async def abort_all(self) -> int:
         n = self.inflight
@@ -105,7 +112,10 @@ class HFGenerateEngine:
         return n
 
     async def abort(self, call_id: str) -> None:
-        self._aborted.add(call_id)
+        """Abort the running call ``call_id``; a call that is not running is left alone (M12 audit V23: the mark stayed and
+        killed the next call with that id, which is how the runtime re-issues)."""
+        if call_id in self._running:
+            self._aborted.add(call_id)
 
     async def pause(self) -> None:
         self._unpaused.clear()
@@ -118,13 +128,18 @@ class HFGenerateEngine:
             from safetensors.torch import load_file
 
             state = load_file(str(Path(state) / "model.safetensors"))
+        state = {k.removeprefix("model."): v for k, v in state.items()} if _wrapped(state, self.model) else state
+        # validated against the serving model *before* any tensor is touched (M12 audit V5: an idle engine loaded in place
+        # with strict=False, then refused: half the tensors were already the new ones, still stamped with the old version)
+        have = self.model.state_dict()
+        tied = getattr(getattr(self.model, "config", None), "tie_word_embeddings", False)
+        missing = [k for k in have if k not in state and not (tied and k == "lm_head.weight")]
+        unexpected = [k for k in state if k not in have]
+        shape = [k for k in state if k in have and tuple(state[k].shape) != tuple(have[k].shape)]
+        if unexpected or missing or shape:  # a partial load would serve weights the trainer never published
+            raise ValueError(f"weights do not match this engine: unexpected {unexpected[:5]}, missing {missing[:5]}, shape {shape[:5]}")
         target = self.model if self.inflight == 0 else copy.deepcopy(self.model)  # running calls keep the weights they pinned
-        missing, unexpected = target.load_state_dict({k.removeprefix("model."): v for k, v in state.items()} if _wrapped(state, target) else state,
-                                                     strict=False)
-        tied = getattr(getattr(target, "config", None), "tie_word_embeddings", False)
-        missing = [m for m in missing if not (tied and m == "lm_head.weight")]
-        if unexpected or missing:  # a partial load would serve weights the trainer never published
-            raise ValueError(f"weights do not match this engine: unexpected {unexpected[:5]}, missing {missing[:5]}")
+        target.load_state_dict(state, strict=False)  # keys and shapes checked above: nothing is refused half way
         self.model = target.eval()
         self.version = version
 
@@ -140,7 +155,8 @@ def capabilities(engine: Any) -> dict[str, Any]:
     fn = getattr(engine, "capabilities", None)
     if callable(fn):
         return fn()
-    return {"token_ids": True, "logprobs": "unknown", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": False, "routing": False}
+    return {"token_ids": True, "logprobs": "unknown", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": False, "routing": False,
+            "token_resume": False}
 
 
 async def probe_logprobs_mode(engine: Any, reference: Any, prompt: list[int], *, temperature: float = 2.0, tokens: int = 8, tol: float = 1e-3) -> str:

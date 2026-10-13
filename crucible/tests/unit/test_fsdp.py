@@ -82,6 +82,8 @@ def test_single_controller_runtime_over_hsdp_ranks_with_sharded_resume(tmp_path)
     assert d["checkpoints"] == ["step-000008", "step-000016"] and d["calls"]["save_sharded"] == 2
     assert d["resumed_at"] == 8 and d["resumed_version"] == 8 and d["resumed_updates"] == 8 and d["restore_diff"] == 0.0
     assert d["steps2"] == 4 and d["first_step2"] == 9
+    assert d["updates_after_run2"] == 12  # the trainer itself continued from 8 (H4 V3: the test read the driver's shadow attribute)
     for r in rs[1:]:
         assert r["first"]["step"] == 16 and r["first"]["state_dict"] == d["calls"]["state_dict"] and r["first"]["save_sharded"] == 2
-        assert r["second"]["load_sharded"] == 1 and r["second"]["step"] == 4 and r["second"]["stop"] == 1
+        assert r["second"]["load_state"] == 1 and r["second"]["step"] == 4 and r["second"]["stop"] == 1  # every rank loads its shards
+        assert r["updates_after_run2"] == 12

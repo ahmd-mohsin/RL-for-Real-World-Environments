@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import heapq
 import random
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -45,7 +46,7 @@ def default_shapes(seed: int = 0, *, tail_frac: float = 0.2, tail_mult: float = 
         long = r.random() < tail_frac
         k = r.randint(*turns) * (2 if long else 1)
         ts = [(r.randint(100, 400), int(r.randint(80, 300) * (tail_mult if long else 1)), r.uniform(0.5, 3.0)) for _ in range(k)]
-        p = (hash(prompt) % 7) / 8
+        p = (zlib.crc32(prompt.encode()) % 7) / 8  # not the salted hash(): a sweep must not change with PYTHONHASHSEED (M12 audit H2 V15)
         return RolloutShape(ts, 1.0 if r.random() < p else 0.0)
     return shape
 
@@ -173,12 +174,19 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
                 res.trainer_idle_s += dt
         last_t = t
 
+    def launch_pending() -> None:
+        # every pending rollout, as the runtime launches them: members of new groups *and* members refilled by group
+        # backfill (only new groups were launched, so a refilled member stayed pending forever: ``refill_member`` trained
+        # 0 of 15 steps; M12 audit H2 V14)
+        for rid in pool.pending():
+            g = pool.groups[pool.tags[rid].group]
+            rs[rid] = _R(rid, shape(g.meta["prompt"], g.members.index(rid)))
+            pool.start(rid)
+            engine_q.append(rid)
+
     def admit() -> None:
-        for g in sched.admit(version):
-            for i, rid in enumerate(g.members):
-                rs[rid] = _R(rid, shape(g.meta["prompt"], i))
-                pool.start(rid)
-                engine_q.append(rid)
+        sched.admit(version)
+        launch_pending()
         live = sched.untrained_count()
         res.max_inflight_seen = max(res.max_inflight_seen, live)
         if live > sched_cfg.max_inflight():
@@ -220,24 +228,28 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
 
     def cut_live() -> None:
         over = set()
-        for rid, r in rs.items():
+        for rid in rs:
             t = pool.tags.get(rid)
             if t is not None and t.status == "running":
                 t.cuts += 1
                 if sim.max_cuts is not None and t.cuts > sim.max_cuts:
                     over.add(t.group)
         for gid in over:
-            for rid in pool.evict_group(gid):
-                if rid in active:
-                    r = rs[rid]
-                    if r.gen_event is not None:
-                        cancelled.add(r.gen_event)
-                    active.discard(rid)
-                for q in (engine_q, env_q):
-                    while rid in q:
-                        q.remove(rid)
-                rs.pop(rid, None)
+            drop_rids(pool.evict_group(gid))
             res.evicted["retention"] = res.evicted.get("retention", 0) + 1
+
+    def drop_rids(rids: list[str]) -> None:
+        """Stop evicted rollouts: their pending generation event is cancelled and they leave every queue."""
+        for rid in rids:
+            if rid in active:
+                r = rs[rid]
+                if r.gen_event is not None:
+                    cancelled.add(r.gen_event)
+                active.discard(rid)
+            for q in (engine_q, env_q):
+                while rid in q:
+                    q.remove(rid)
+            rs.pop(rid, None)
 
     def boundary() -> bool:
         if sim.partial_barrier == "token_budget":
@@ -270,6 +282,7 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             res.blocked[sel.blocked] = res.blocked.get(sel.blocked, 0) + 1
             admit()
             return
+        launch_pending()  # members refilled at this barrier start now (the engine may stay up: disaggregated)
         res.staleness.append(sel.staleness)
         for src, xs in sel.staleness_by_source.items():
             res.staleness_by_source.setdefault(src, []).extend(xs)
@@ -320,6 +333,7 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             r.turn += 1
             if r.turn >= len(r.shape.turns):
                 pool.finish(rid, reward=r.shape.reward, status="masked" if r.shape.masked else "finished", now=now)
+                drop_rids(sched.trim_redundant(pool.tags[rid].group))  # ``group_redundancy``: the slowest spares stop
                 admit()
             else:
                 engine_q.append(rid)
@@ -341,6 +355,7 @@ def simulate(sched_cfg: SchedulerConfig, sim: SimConfig, sources: dict[str, list
             publishing = False
             res.publishes += 1
             engine_up = True
+            drop_rids(sched.evict_doomed(version))  # ``drop``: live groups already past τ stop now (runtime parity)
             admit()
         while env_q and env_busy < sim.env_workers:
             rid2 = env_q.pop(0)

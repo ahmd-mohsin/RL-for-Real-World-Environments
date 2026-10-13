@@ -55,6 +55,9 @@ ALIGN = 256
 GiB = 1 << 30
 DTYPES = {str(d).removeprefix("torch."): d for d in (torch.float32, torch.float16, torch.bfloat16, torch.float64, torch.int64, torch.int32,
                                                      torch.int16, torch.int8, torch.uint8, torch.bool)}
+# fp8 weights (M12 audit V20: planning an fp8 checkpoint raised KeyError 'float8_e4m3fn'); whichever this torch has
+DTYPES.update({n: getattr(torch, n) for n in ("float8_e4m3fn", "float8_e5m2", "float8_e4m3fnuz", "float8_e5m2fnuz", "uint16", "uint32", "uint64")
+               if isinstance(getattr(torch, n, None), torch.dtype)})
 
 
 class WeightSyncError(RuntimeError):
@@ -147,14 +150,17 @@ def choose_bucket_bytes(free_bytes_min: int, max_tensor: int, *, fraction: float
 
 
 class StagedState:
-    """Receiver-side staging: bucket reloads copy into a fresh dict; ``take()`` hands the complete state to commit."""
+    """Receiver-side staging: bucket reloads copy into a fresh dict; ``take()`` hands the complete state to commit.
+    ``device``: where the staged copy lives (default: the received bucket's device). ``"cpu"`` keeps a receiver from
+    holding a second full copy of the model on the accelerator until commit (sweep G5 P2-h)."""
 
-    def __init__(self) -> None:
+    def __init__(self, device: str | torch.device | None = None) -> None:
         self._d: dict[str, torch.Tensor] = {}
+        self.device = torch.device(device) if device is not None else None
 
     def load(self, named: list[tuple[str, torch.Tensor]]) -> None:
         for n, t in named:
-            self._d[n] = t.clone()
+            self._d[n] = t.clone() if self.device is None or self.device == t.device else t.to(self.device, copy=True)
 
     def take(self) -> dict[str, torch.Tensor]:
         d, self._d = self._d, {}
@@ -166,17 +172,50 @@ class BroadcastWeightSync:
     methods in the same order (collectives). Owners pass their tensors; receivers pass ``receive=True``."""
 
     def __init__(self, *, group: Any = None, device: str | torch.device = "cpu", bucket_bytes: int | None = None, free_bytes: int | None = None,
-                 max_bucket: int = 8 * GiB, coordinator: int = 0):
+                 max_bucket: int = 8 * GiB, coordinator: int = 0, staging_device: str | torch.device | None = None):
+        """Ranks: ``self.rank`` / ``self.world``, plan owners and ``coordinator`` are ranks *within* ``group`` (the plan is
+        portable across groups); collectives get global ranks (``_global``). Sweep G5 P2-f: global and group ranks were
+        mixed, so a group ``[1, 2, 3]`` failed with "Global rank 0 is not part of group". ``ranks=`` in ``update`` names
+        global ranks. ``staging_device``: see ``StagedState``."""
         import torch.distributed as dist
 
         self.dist, self.group, self.device, self.coordinator = dist, group, torch.device(device), coordinator
         # control tensors (header, plan check, error code, free memory): NCCL takes device tensors only
         self._cdev = self.device if dist.is_initialized() and dist.get_backend(group) == "nccl" else torch.device("cpu")
-        self.rank, self.world = dist.get_rank(), dist.get_world_size()
+        self.rank, self.world = dist.get_rank(group), dist.get_world_size(group)
+        self.global_rank = dist.get_rank()
+        self.staging_device = staging_device
         self._bucket_bytes, self._free, self._max_bucket = bucket_bytes, free_bytes, max_bucket
         self.plan_: BucketPlan | None = None
         self.version = 0
         self.stats: list[dict] = []
+        self._subgroups: dict[tuple[int, ...], Any] = {}  # one communicator per rank set, built once (G3 D9, G5 P2-g)
+
+    def _global(self, group_rank: int) -> int:
+        return group_rank if self.group is None else self.dist.get_global_rank(self.group, group_rank)
+
+    def _subgroup(self, ranks: list[int]) -> Any:
+        key = tuple(sorted({int(r) for r in ranks}))
+        if key not in self._subgroups:  # collective over the world, as torch requires: every rank passes the same ranks
+            self._subgroups[key] = self.dist.new_group(list(key))
+        return self._subgroups[key]
+
+    def _validate(self, owned: dict[str, torch.Tensor] | None, plan: BucketPlan) -> str | None:
+        """What this rank's own tensors cannot stage (missing names, dtype or shape drift since the plan), checked before any
+        collective so every rank learns of it (M12 audit V11: the owner raised alone and every receiver hung in
+        ``broadcast`` until the backend timeout)."""
+        mine = [m for m in plan.metas if m.owner == self.rank]
+        if not mine:
+            return None
+        if owned is None:
+            return f"rank {self.rank} owns {len(mine)} tensors but passed none"
+        for m in mine:
+            t = owned.get(m.name)
+            if t is None:
+                return f"rank {self.rank}: {m.name} missing"
+            if str(t.dtype).removeprefix("torch.") != m.dtype or tuple(t.shape) != m.shape:
+                return f"rank {self.rank}: {m.name} is {t.dtype}{tuple(t.shape)}, the plan says {m.dtype}{m.shape}: replan on every rank"
+        return None
 
     # ---- plan --------------------------------------------------------------------------------------------------
     def plan(self, owned: dict[str, torch.Tensor] | None = None) -> BucketPlan:
@@ -224,21 +263,27 @@ class BroadcastWeightSync:
         dist = self.dist
         group = self.group
         if ranks is not None:
-            group = dist.new_group(sorted(set(ranks)))  # collective over the world, as torch requires
-            if self.rank not in ranks:
+            group = self._subgroup(ranks)
+            if self.global_rank not in ranks:
                 return None
         plan = self.plan_
         if plan is None:
             raise RuntimeError("call plan() (or load_plan()) before update()")
         t0 = time.monotonic()
+        coord = self._global(self.coordinator)
         hdr = torch.tensor([version if version is not None else -1, plan.crc()], dtype=torch.int64, device=self._cdev)
-        dist.broadcast(hdr, src=self.coordinator, group=group)
+        dist.broadcast(hdr, src=coord, group=group)
         ver = int(hdr[0])
-        mismatch = torch.tensor([int(int(hdr[1]) != plan.crc())], dtype=torch.int64, device=self._cdev)
-        dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
-        if int(mismatch):
-            raise WeightSyncError(f"bucket plans differ across ranks (shapes changed?): replan on every rank; rank {self.rank} crc {plan.crc()}")
-        staged = StagedState()
+        problem = self._validate(owned, plan)
+        if int(hdr[1]) != plan.crc():
+            problem = f"rank {self.rank}: bucket plan crc {plan.crc()} differs from the coordinator's (shapes changed?): replan on every rank"
+        code = torch.tensor([self.rank + 1 if problem else 0, int(ver < 0)], dtype=torch.int64, device=self._cdev)
+        dist.all_reduce(code, op=dist.ReduceOp.MAX, group=group)
+        if int(code[1]):  # V20: receivers committed version -1 when the coordinator sent none
+            raise WeightSyncError("the coordinator passed no version: nothing is sent, no rank commits")
+        if int(code[0]):
+            raise WeightSyncError(f"rank {int(code[0]) - 1} cannot stage its tensors; no rank commits" + (f" ({problem})" if problem else ""))
+        staged = StagedState(self.staging_device)
         reload = load or staged.load
         B = plan.bucket_bytes
         buf = torch.empty(2 * B, dtype=torch.uint8, device=self.device)
@@ -271,14 +316,22 @@ class BroadcastWeightSync:
             for g, metas in enumerate(buckets):
                 half = buf[(g % 2) * B: (g % 2) * B + plan.used(g)]
                 owner = metas[0].owner
+                bad, why = 0, None
                 if owner == self.rank:
-                    assert owned is not None, f"rank {self.rank} owns bucket {g} but passed no tensors"
-                    for m in metas:
-                        src = owned[m.name].detach().contiguous()
-                        half[m.offset: m.offset + m.nbytes].copy_(src.reshape(-1).view(torch.uint8).to(self.device), non_blocking=True)
-                    if self.device.type == "cuda":
-                        torch.cuda.current_stream(self.device).synchronize()
-                dist.broadcast(half, src=owner, group=group)
+                    try:
+                        for m in metas:
+                            src = owned[m.name].detach().contiguous()
+                            half[m.offset: m.offset + m.nbytes].copy_(src.reshape(-1).view(torch.uint8).to(self.device), non_blocking=True)
+                        if self.device.type == "cuda":
+                            torch.cuda.current_stream(self.device).synchronize()
+                    except Exception as e:  # noqa: BLE001 -- an H2D OOM, a tensor changed under us: every rank must hear of it
+                        bad, why = self.rank + 1, f"{type(e).__name__}: {e}"
+                staged_ok = torch.tensor([bad], dtype=torch.int64, device=self._cdev)
+                dist.all_reduce(staged_ok, op=dist.ReduceOp.MAX, group=group)  # V11: before the broadcast receivers would block in
+                if int(staged_ok):
+                    raise WeightSyncError(f"rank {int(staged_ok) - 1} failed to stage bucket {g} of version {ver}; no rank commits"
+                                          + (f" ({why})" if why else ""))
+                dist.broadcast(half, src=self._global(owner), group=group)
                 check(prev, g - 1)  # the previous bucket's reload: done on every rank, or everyone aborts
                 prev = None
                 if receive:
@@ -320,10 +373,11 @@ class DistributedPublisher:
         state = self.trainer.state_dict()
         if self.transform is not None:
             state = self.transform(state)
-        self.version += 1
+        v = self.version + 1  # raised only once sent (V20: a failed send burned the version)
         if self.sync.plan_ is None:
             await asyncio.to_thread(self.sync.plan, state)
-        await asyncio.to_thread(self._send, self.version, state)
+        await asyncio.to_thread(self._send, v, state)
+        self.version = v
         if self.engines is not None:
             await self.engines.load_weights(state, self.version)
         if self.reset:
@@ -337,10 +391,10 @@ class DistributedPublisher:
         state = self.trainer.state_dict()
         if self.transform is not None:
             state = self.transform(state)
-        self.version = version
         if self.sync.plan_ is None:
             await asyncio.to_thread(self.sync.plan, state)
         await asyncio.to_thread(self._send, version, state)
+        self.version = version
         if self.engines is not None:
             await self.engines.load_weights(state, version)
 

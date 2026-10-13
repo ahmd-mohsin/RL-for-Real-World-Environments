@@ -31,6 +31,9 @@ class CriticConfig:
     alpha: float = 1.5
     lam_critic: float = 1.0
     grad_clip: float = 1.0
+    # a truncated rollout (limit stop): "bootstrap" replaces its outcome with V(s_T) (StepFun; AReaL zeroes the reward and
+    # bootstraps), "reward" keeps the scored outcome and no bootstrap (the limit stop is the task's verdict)
+    truncation: str = "bootstrap"
 
 
 class TinyValue(torch.nn.Module):

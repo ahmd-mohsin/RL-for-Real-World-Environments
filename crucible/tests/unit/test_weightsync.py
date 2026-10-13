@@ -117,4 +117,4 @@ def test_data_parallel_trainer_equals_the_full_batch_step(tmp_path, scenario):
         assert a["d"] == b["d"] and a["changed"]  # replicas bitwise identical after the step, and the step did something
         assert a["max_abs_diff_vs_full_batch"] < 1e-6, a
         assert a["micro_batches"] > 2 and a["imbalance"] < 1.2  # placement over forward tokens, balanced
-    assert rs[0]["refused_seq_mean"]
+    assert rs[0]["accepts_seq_mean"]  # DP takes every loss_agg (exact per-rollout weights; test_m12_audit_math)

@@ -92,8 +92,10 @@ class HFPolicy(torch.nn.Module):
         head = self.model.get_output_embeddings()
         with torch.autocast(device_type=h.device.type, enabled=False):
             if self.lm_head_fp32:  # BF16 input, FP32 output (the LM head itself in FP32)
-                return torch.nn.functional.linear(h.float(), head.weight.float(), None if head.bias is None else head.bias.float()) / temperature
-            return head(h).float() / temperature
+                logits = torch.nn.functional.linear(h.float(), head.weight.float(), None if head.bias is None else head.bias.float())
+            else:
+                logits = head(h).float()
+            return _post_head(logits, getattr(self.model, "config", None)) / temperature
 
     def _head_logprobs(self, h: torch.Tensor, targets: torch.Tensor, temperature: float) -> torch.Tensor:
         from torch.utils.checkpoint import checkpoint
@@ -186,3 +188,22 @@ class HFPolicy(torch.nn.Module):
 
     def load_state_dict(self, sd, *a, **kw):
         return self.model.load_state_dict(sd, *a, **kw)
+
+
+def _post_head(logits: torch.Tensor, config: object) -> torch.Tensor:
+    """What a model's own forward applies after the LM head, which a hidden @ head recomputation would skip (M12 audit:
+    Gemma-2 log-probs off by 6.9e-3, Granite by 0.14): Cohere ``logit_scale`` (×), Granite ``logits_scaling`` (÷),
+    Gemma-2/3 ``final_logit_softcapping`` (cap·tanh(x/cap)), in that model order."""
+    if config is None:
+        return logits
+    text = getattr(config, "text_config", None) or config
+    scale = getattr(text, "logit_scale", None)
+    if isinstance(scale, (int, float)) and scale != 1:
+        logits = logits * float(scale)
+    div = getattr(text, "logits_scaling", None)
+    if isinstance(div, (int, float)) and div != 1:
+        logits = logits / float(div)
+    cap = getattr(text, "final_logit_softcapping", None)
+    if isinstance(cap, (int, float)) and cap:
+        logits = torch.tanh(logits / float(cap)) * float(cap)
+    return logits

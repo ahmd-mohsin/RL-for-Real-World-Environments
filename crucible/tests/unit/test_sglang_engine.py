@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 
 import httpx
+import numpy as np
 import pytest
 
 from crucible.train.engine import GenRequest
@@ -22,14 +24,17 @@ def _engine(*, routed=False, delay=0.0, refuse=False):
             await asyncio.sleep(delay)
             n = body["sampling_params"]["max_new_tokens"]
             meta = {"output_token_logprobs": [[-0.25, 100 + i, None] for i in range(n)], "finish_reason": {"type": "length"}}
-            if routed:
-                meta["routed_experts"] = [[[i, i + 1], [i + 2, i + 3]] for i in range(n)]  # per token, per layer, top-2
+            if routed:  # community SGLang (slime's contract): base64 int32, one row per position but the last, from start_len on;
+                # a row is num_layers x topk (2 x 2 here); position p routes to experts [p, p+1 | p+2, p+3]
+                start = body.get("routed_experts_start_len", 0)
+                rows = np.array([[p, p + 1, p + 2, p + 3] for p in range(start, len(body["input_ids"]) + n - 1)], dtype="<i4")
+                meta["routed_experts"] = base64.b64encode(rows.tobytes()).decode()
             return httpx.Response(200, json={"text": "x", "meta_info": meta})
         if req.url.path == "/update_weights_from_disk":
             return httpx.Response(200, json={"success": not refuse, "message": "bad shapes" if refuse else ""})
         return httpx.Response(200, json={})
 
-    eng = SGLangServerEngine("http://sglang", routed_experts=routed)
+    eng = SGLangServerEngine("http://sglang", routed_experts=routed, routed_width=4 if routed else None)
     eng.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return eng, calls
 
@@ -40,14 +45,20 @@ async def test_token_in_token_out_routing_and_resume():
     r = await eng.generate(GenRequest(rid="r", call_id="c1", prompt_ids=[1, 2], max_tokens=3, stop_ids=[0], seed=5))
     path, body = calls[0]
     assert path == "/generate" and body["input_ids"] == [1, 2] and body["return_logprob"] and body["return_routed_experts"]
-    assert body["sampling_params"]["stop_token_ids"] == [0] and body["sampling_params"]["seed"] == 5 and not body["sampling_params"]["skip_special_tokens"]
+    assert body["sampling_params"]["stop_token_ids"] == [0] and body["sampling_params"]["sampling_seed"] == 5 and not body["sampling_params"]["skip_special_tokens"]
     assert r.completion_ids == [100, 101, 102] and r.logprobs == [-0.25] * 3 and r.version == 2 and r.finish == "length"
-    assert r.routing == [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]  # flattened per token for R3 replay
+    # completion token t was produced at position len(prompt) - 1 + t: rows 1, 2, 3 (row 0 is prompt position 0)
+    assert r.routing == [[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]]  # layer-major per token for R3 replay
     calls.clear()
     r2 = await eng.generate(GenRequest(rid="r", call_id="c2", prompt_ids=[1, 2], max_tokens=5, resume_completion=[7, 8], resume_logprobs=[-1.0, -1.0],
-                                       resume_spans=[(0, 1)], resume_routing=[[9], [9]]))
+                                       resume_spans=[(0, 1)], resume_routing=[[9] * 4, [9] * 4]))
     assert calls[0][1]["input_ids"] == [1, 2, 7, 8] and calls[0][1]["sampling_params"]["max_new_tokens"] == 3
+    assert calls[0][1]["routed_experts_start_len"] == 3  # the continuation asks only for the new rows
     assert r2.completion_ids[:2] == [7, 8] and len(r2.completion_ids) == 5 and r2.version_spans == [(0, 1), (2, 2)]
+    assert r2.routing == [[9] * 4, [9] * 4, [3, 4, 5, 6], [4, 5, 6, 7], [5, 6, 7, 8]] and len(r2.routing) == len(r2.completion_ids)
+    with pytest.raises(ValueError, match="refusing to mix"):  # kept tokens without their routes: never replayed half
+        await eng.generate(GenRequest(rid="r", call_id="c3", prompt_ids=[1, 2], max_tokens=5, resume_completion=[7, 8], resume_logprobs=[-1.0, -1.0],
+                                      resume_spans=[(0, 1)], resume_routing=[[9] * 4]))
 
 
 async def test_per_call_abort_targets_the_calls_rid():
@@ -66,7 +77,8 @@ async def test_colocated_lifecycle_and_refused_weights():
     assert [p for p, _ in calls] == ["/pause_generation", "/release_memory_occupation"] and eng.asleep == {"weights", "kv_cache"}
     calls.clear()
     await eng.load_weights("/ckpt/v1", 1)
-    assert calls == [("/resume_memory_occupation", {"tags": ["weights"]}), ("/update_weights_from_disk", {"model_path": "/ckpt/v1"}), ("/flush_cache", {})]
+    assert calls == [("/resume_memory_occupation", {"tags": ["weights"]}), ("/update_weights_from_disk", {"model_path": "/ckpt/v1", "weight_version": "1"}),
+                     ("/flush_cache", {})]
     assert eng.version == 1 and eng.asleep == {"kv_cache"}  # the KV cache does not wake inside the publish
     calls.clear()
     await eng.resume()
@@ -85,12 +97,12 @@ async def test_resume_without_publish_reloads_released_weights():
     await eng.pause()
     await eng.resume()
     loads = [b for p, b in calls if p == "/update_weights_from_disk"]
-    assert loads == [{"model_path": "/models/base"}] and ("/continue_generation", {}) in calls
+    assert loads == [{"model_path": "/models/base", "weight_version": "0"}] and ("/continue_generation", {}) in calls
     calls.clear()
     await eng.pause()
     await eng.load_weights("/ckpt/v1", 1)
     await eng.resume()
-    assert [b for p, b in calls if p == "/update_weights_from_disk"] == [{"model_path": "/ckpt/v1"}]  # the publish only, no second reload
+    assert [b for p, b in calls if p == "/update_weights_from_disk"] == [{"model_path": "/ckpt/v1", "weight_version": "1"}]  # the publish only, no second reload
     blind, _ = _engine()
     await blind.pause()
     with pytest.raises(RuntimeError, match="no weights path"):

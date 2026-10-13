@@ -47,13 +47,18 @@ class MicroBatch:
     tokens: int
 
 
-def micro_batches(lengths: Sequence[int], indices: Sequence[int], token_budget: int) -> list[MicroBatch]:
+def micro_batches(lengths: Sequence[int], indices: Sequence[int], token_budget: int, *, padded: bool = True) -> list[MicroBatch]:
     """First-fit-decreasing packing of ``indices`` into micro batches of at most ``token_budget`` tokens (a sequence
-    longer than the budget gets its own micro batch: it is never split, splitting would cut the causal context)."""
+    longer than the budget gets its own micro batch: it is never split, splitting would cut the causal context).
+
+    ``padded`` (default): the budget bounds what the forward actually holds, rows × the longest row, because the trainer
+    pads every row of a micro batch to its longest (M12 audit G5 D9 / G2: a bimodal mix packed on raw tokens gave a
+    micro batch 3.4× the budget). Items arrive longest first, so a bin's first item is its longest."""
     bins: list[MicroBatch] = []
     for i in sorted(indices, key=lambda j: (-lengths[j], j)):
         for b in bins:
-            if b.tokens + lengths[i] <= token_budget:
+            cost = lengths[b.indices[0]] * (len(b.indices) + 1) if padded else b.tokens + lengths[i]
+            if cost <= token_budget:
                 b.indices.append(i)
                 b.tokens += lengths[i]
                 break

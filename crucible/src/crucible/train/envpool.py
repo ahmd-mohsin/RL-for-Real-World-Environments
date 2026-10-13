@@ -21,6 +21,7 @@ the ``idle/env_wait_s`` bubble), ``busy_s`` = start → end (environment time), 
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -80,6 +81,7 @@ class EnvWorkerPool:
         main = self._main or asyncio.get_running_loop()
         self._main = main
 
+        @functools.wraps(async_fn)  # keeps the signature: ``EngineLLM`` passes ``seed`` / ``stop_ids`` only to a gen naming them
         async def call(*a: Any, **k: Any) -> Any:
             if asyncio.get_running_loop() is main:
                 return await async_fn(*a, **k)
@@ -89,6 +91,32 @@ class EnvWorkerPool:
 
     async def run_episode(self, fn: Callable[..., Awaitable[Any]], *args: Any, **kw: Any) -> Any:
         return await self.run(fn, *args, **kw)
+
+    async def aclose(self, timeout: float = 5.0) -> int:
+        """Cancel every task still on the worker loops and await them there (bounded by ``timeout``), then stop the
+        loops. Cancelling the main-loop wrapper of ``run`` only *requests* the cancel on the worker loop; ``close``
+        alone then stopped the loop under the episode, so its cleanup (``World.close``, the temp dir) never ran: 4 of 12
+        episodes leaked at the end of a run (M12 audit H2 V18). A task already cancelling is not cancelled again, so an
+        ``await`` in its cleanup completes. Returns the tasks still unfinished at the timeout."""
+
+        async def drain() -> int:
+            me = asyncio.current_task()
+            ts = [t for t in asyncio.all_tasks() if t is not me and not t.done()]
+            for t in ts:
+                if not t.cancelling():  # already cancelling (the runtime cancelled its wrapper): a second cancel would
+                    t.cancel()  # interrupt the episode's own cleanup (an ``await`` in its ``finally``)
+            if not ts:
+                return 0
+            _, pending = await asyncio.wait(ts, timeout=timeout)
+            return len(pending)
+
+        left = 0
+        futs = [asyncio.wrap_future(asyncio.run_coroutine_threadsafe(drain(), w.loop)) for w in self.workers if w.loop.is_running()]
+        if futs:
+            done, pending = await asyncio.wait(futs, timeout=timeout + 1.0)
+            left = sum(f.result() for f in done if not f.cancelled() and f.exception() is None) + len(pending)
+        self.close()
+        return left
 
     def close(self) -> None:
         for w in self.workers:

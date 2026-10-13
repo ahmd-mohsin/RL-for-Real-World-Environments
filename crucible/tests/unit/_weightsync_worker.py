@@ -34,6 +34,75 @@ def digest(state: dict[str, torch.Tensor]) -> dict[str, str]:
 BUCKET = 13 * 1024  # forces many buckets (the largest tensor, layers.0.mlp.up, is 12 KiB)
 
 
+class _FailsOn(dict):
+    """An owner's tensors where staging ``name`` raises (an H2D OOM, a tensor freed under the copy); ``get`` still works."""
+
+    def __init__(self, d, name):
+        super().__init__(d)
+        self.name = name
+
+    def __getitem__(self, k):
+        if k == self.name:
+            raise RuntimeError("injected staging failure")
+        return super().__getitem__(k)
+
+
+def m12_scenario(scenario: str, rank: int, sync: BroadcastWeightSync, dev: torch.device) -> dict:
+    out: dict = {}
+    w = weights(11)
+
+    def attempt(fn) -> None:
+        t0 = time.monotonic()
+        try:
+            out["got"] = fn()
+            out["raised"] = None
+        except WeightSyncError as e:
+            out["raised"] = str(e)
+        except Exception as e:  # noqa: BLE001 -- anything but WeightSyncError is the defect
+            out["raised"] = f"OTHER {type(e).__name__}: {e}"
+        out["seconds"] = time.monotonic() - t0
+
+    if scenario == "m12_owner_fails":  # V11: a key missing since the plan (owner raised alone; receivers hung in broadcast)
+        sync.plan(w if rank == 0 else None)
+        owned = {k: v for k, v in w.items() if k != "lm_head.weight"} if rank == 0 else None
+        attempt(lambda: sync.update(1 if rank == 0 else None, owned, receive=rank != 0))
+    elif scenario == "m12_dtype_drift":  # V11: the cached plan says fp32, the trainer now hands bf16
+        sync.plan(w if rank == 0 else None)
+        owned = {k: (v.to(torch.bfloat16) if v.is_floating_point() else v) for k, v in w.items()} if rank == 0 else None
+        attempt(lambda: sync.update(1 if rank == 0 else None, owned, receive=rank != 0))
+    elif scenario == "m12_stage_raises":  # V11: staging fails at a later bucket, after some broadcasts
+        sync.plan(w if rank == 0 else None)
+        owned = _FailsOn(w, "lm_head.weight") if rank == 0 else None
+        attempt(lambda: sync.update(1 if rank == 0 else None, owned, receive=rank != 0, commit=lambda v, s: out.update(committed=v)))
+    elif scenario == "m12_no_version":  # V20: receivers committed version -1
+        sync.plan(w if rank == 0 else None)
+        attempt(lambda: sync.update(None, w if rank == 0 else None, receive=rank != 0, commit=lambda v, s: out.update(committed=v)))
+    elif scenario == "m12_fp8":  # V20: fp8 planning raised KeyError
+        fp8 = {"a": torch.randn(16, 16).to(torch.float8_e4m3fn), "b": torch.randn(8).to(torch.float8_e5m2)}
+        held: dict = {}
+        sync.plan(fp8 if rank == 0 else None)
+        attempt(lambda: sync.update(1 if rank == 0 else None, fp8 if rank == 0 else None, receive=rank != 0, commit=lambda v, s: held.update(s)))
+        out["d"] = digest(held if rank else fp8)
+    elif scenario == "m12_group_ranks":  # G5 P2-f: a weight group of global ranks [1, 2] (group ranks 0, 1)
+        g = dist.new_group([1, 2])
+        if rank in (1, 2):
+            s2 = BroadcastWeightSync(group=g, bucket_bytes=BUCKET, device=dev)
+            held: dict = {}
+            s2.plan(w if rank == 1 else None)
+            out["owners"] = sorted({m.owner for m in s2.plan_.metas})
+            attempt(lambda: s2.update(3 if rank == 1 else None, w if rank == 1 else None, receive=rank == 2, commit=lambda v, s: held.update(s)))
+            out["d"] = digest(held if rank == 2 else w)
+    elif scenario == "m12_subgroup_cached":  # G3 D9 / G5 P2-g: one communicator per rank set, not one per update
+        from torch.distributed import distributed_c10d as c10d
+
+        sync.plan(w if rank == 0 else None)
+        before = len(c10d._world.pg_map)
+        for v in range(1, 6):
+            sync.update(v if rank == 0 else None, w if rank == 0 else None, receive=rank != 0, ranks=[0, 2])
+        out["new_groups"] = len(c10d._world.pg_map) - before
+    return out
+
+
 def main() -> None:
     scenario, out = sys.argv[1], Path(sys.argv[2])
     from datetime import timedelta
@@ -41,7 +110,7 @@ def main() -> None:
     # rendezvous through a file store (no TCP port to race for); a 60 s collective timeout turns a hang into an error
     backend = os.environ.get("CRUCIBLE_DIST_BACKEND", "gloo")
     dist.init_process_group(backend, init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
-                            timeout=timedelta(seconds=60))
+                            timeout=timedelta(seconds=float(os.environ.get("CRUCIBLE_WS_TIMEOUT_S", "60"))))
     rank = dist.get_rank()
     dev = torch.device(f"cuda:{rank}") if backend == "nccl" else torch.device("cpu")
     if dev.type == "cuda":
@@ -176,12 +245,12 @@ def main() -> None:
             err = max(float((a - b).abs().max()) for a, b in zip(tr.model.state_dict().values(), ref.model.state_dict().values(), strict=True))
             out_res[corr] = {"max_abs_diff_vs_full_batch": err, "d": digest(tr.model.state_dict()), "micro_batches": m["train/micro_batches"],
                              "imbalance": m["train/dp_imbalance"], "loss": m["train/loss"], "changed": digest(tr.model.state_dict()) != digest(base.state_dict())}
-        try:
-            DistributedTorchTrainer(copy.deepcopy(base), TrainerConfig(dp=dist.get_world_size(), loss_agg="seq_mean"))
-            out_res["refused_seq_mean"] = False
-        except ValueError:
-            out_res["refused_seq_mean"] = True
+        # M12 audit: every aggregation is a per-rollout row weight now, so DP accepts the sequence mean too (it was refused)
+        DistributedTorchTrainer(copy.deepcopy(base), TrainerConfig(dp=dist.get_world_size(), loss_agg="seq_mean_token_mean"))
+        out_res["accepts_seq_mean"] = True
         res.update(out_res)
+    elif scenario.startswith("m12_"):  # M12 audit (H3 V11, V20; sweep G5 P2-f, P2-g): failures reach every rank promptly
+        res.update(m12_scenario(scenario, rank, sync, dev))
     else:
         raise SystemExit(f"unknown scenario {scenario}")
     (out / f"r{rank}.json").write_text(json.dumps(res, sort_keys=True))

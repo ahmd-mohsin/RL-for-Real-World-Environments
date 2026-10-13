@@ -23,13 +23,19 @@ call adds in ``tokens["media"]`` (``Turn.media``).
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import inspect
+import json
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+import uuid
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from crucible.actors.llm import LLMResponse
+from crucible.actors.llm import LLMError, LLMResponse
 from crucible.train.chat import ChatCodec
 from crucible.train.engine import GenResult
 
@@ -39,13 +45,82 @@ class _Spend:
         self.usd, self.uncertain_usd, self.calls = 0.0, 0.0, 0
 
 
+REPLY_KEY = "crucible_reply"  # per-reply nonce in ``LLMResponse.raw_message``: policies replay it on the assistant turn
+
+
+class EngineCallError(LLMError):
+    """The engine (or the chat codec) failed a model call: an infrastructure / harness failure. It carries a named
+    ``failure_kind`` so the episode is *masked* (``LLMToolPolicy`` and ``run_episode`` read it), never scored 0 as the
+    policy's own error (M12 audit: a ``ValueError`` from the engine path reached the policy-error branch)."""
+
+    def __init__(self, msg: str, *, failure_kind: str = "provider_unavailable"):
+        super().__init__(msg)
+        self.failure_kind = failure_kind
+
+
+@dataclass
+class _Conv:
+    key: str | None  # the caller's ``sample_key`` (episode id): conversations of different episodes never extend each other
+    msgs: list[dict[str, Any]]  # the call's message list, without its reply
+    ids: list[int]  # that call's prompt + completion (+EOS)
+    media: list[dict[str, Any]]  # every image in that prompt, absolute offsets
+    reply: str  # the nonce handed out with the reply (``raw_message[REPLY_KEY]``)
+    text: str
+    calls: list[tuple[str, str]]  # (name, canonical json arguments) of the parsed tool calls
+
+
+def _canon_calls(calls: Any) -> list[tuple[str, str]]:
+    out = []
+    for c in calls or []:
+        f = c.get("function") if isinstance(c, dict) and isinstance(c.get("function"), dict) else c
+        if not isinstance(f, dict):
+            return [("?", repr(c))]
+        args = f.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args or "{}")
+            except json.JSONDecodeError:
+                args = {"__unparseable__": args}
+        out.append((str(f.get("name", "")), json.dumps(args, sort_keys=True, default=str)))
+    return out
+
+
+def _accepts(fn: Callable, name: str) -> bool:
+    """``fn`` names the keyword itself (a ``**kw`` pass-through, e.g. ``EnvWorkerPool.bridge``, may wrap a ``gen`` that
+    does not take it)."""
+    try:
+        return name in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def cut_at_stop(res: GenResult, stop_ids: Sequence[int]) -> GenResult:
+    """The completion up to and including its first stop token (M12 audit V10: with no stop ids the engine sampled past
+    ``<|im_end|>`` into invented turns, which were trained and parsed). A prefix of what was sampled, with its own
+    behaviour log-probs, candidates, routes and version spans: still exactly what the engine produced."""
+    ids = list(res.completion_ids)
+    k = next((i + 1 for i, t in enumerate(ids) if t in stop_ids), None)
+    if k is None or k == len(ids):
+        return res
+    spans = [(int(s), int(v)) for s, v in (res.version_spans or []) if s < k] or None
+    return dataclasses.replace(res, completion_ids=ids[:k], logprobs=list(res.logprobs)[:k], finish="stop",
+                               version=spans[-1][1] if spans else res.version, version_spans=spans if spans and len(spans) > 1 else None,
+                               candidates=list(res.candidates)[:k] if res.candidates is not None else None,
+                               routing=list(res.routing)[:k] if res.routing is not None else None)
+
+
 class EngineLLM:
-    def __init__(self, codec: ChatCodec, gen: Callable[[list[int], int, float], Awaitable[GenResult]], *, model: str = "policy",
+    def __init__(self, codec: ChatCodec, gen: Callable[..., Awaitable[GenResult]], *, model: str = "policy",
                  max_conversations: int = 4096, thinking: str | None = None):
         """``thinking`` (m13 C-7, A2-48): how earlier reasoning is shown, matching the deployment template:
         "preserved" (extend token for token), "interleaved" (extend inside a tool loop; a new user message re-renders the
         history, which drops reasoning: a new segment), "strip" (every call renders the history: each call its own
-        segment). Default: the codec's own template behaviour; a mode the template does not implement is refused."""
+        segment). Default: the codec's own template behaviour; a mode the template does not implement is refused.
+
+        A conversation is extended only when the caller's ``sample_key`` is the one that served it *and* the assistant
+        turn that follows is the reply this engine produced for it (the ``crucible_reply`` nonce the policy replays from
+        ``raw_message``, else the same tool calls and text). M12 audit V1: matching on the message prefix alone spliced
+        one GRPO member's sampled completion into another member's next prompt."""
         self.codec, self.gen, self.model = codec, gen, model
         probe = getattr(codec, "thinking_behaviour", None)
         actual = probe() if callable(probe) else "preserved"
@@ -57,13 +132,12 @@ class EngineLLM:
         self.rerenders = 0
         self._rerendered = False
         self.spend = _Spend()
-        # served conversations: (message list of a call without its reply, that call's prompt + completion (+EOS), every
-        # image in that prompt with absolute placeholder offsets)
-        self._convs: list[tuple[list[dict[str, Any]], list[int], list[dict[str, Any]]]] = []
+        self._convs: list[_Conv] = []
         self._media_new: list[dict[str, Any]] = []
         self._media_all: list[dict[str, Any]] = []
         self.max_conversations = max_conversations
         self.prefix_breaks = 0
+        self._gen_seed, self._gen_stop = _accepts(gen, "seed"), _accepts(gen, "stop_ids")
 
     def _rendered(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
         ids = self.codec.render(messages, tools)
@@ -71,42 +145,80 @@ class EngineLLM:
         self._media_all = list(self._media_new)
         return ids
 
-    def _prompt(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> list[int]:
+    @staticmethod
+    def _is_reply(m: dict[str, Any], c: _Conv) -> bool:
+        if REPLY_KEY in m:
+            return m[REPLY_KEY] == c.reply
+        content = m.get("content")
+        return _canon_calls(m.get("tool_calls")) == c.calls and (not c.text or (isinstance(content, str) and content.startswith(c.text)))
+
+    def _prompt(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, key: str | None) -> list[int]:
         self._rerendered = False
-        best = None
-        for i, (s, _ids, _m) in enumerate(self._convs):
-            if len(messages) > len(s) and messages[len(s)].get("role") == "assistant" and messages[: len(s)] == s and (best is None or len(s) > len(self._convs[best][0])):
-                best = i
-        if best is not None:
-            s, ids, media = self._convs.pop(best)  # the conversation moves on: its next entry replaces this one
-            new = messages[len(s) + 1:]
+        # served conversations this call strictly extends (equal message lists are another sample of the same opening: a
+        # GRPO member, a retry; rendered whole, and the served one stays for its own continuation)
+        mine = [c for c in self._convs if c.key == key and len(messages) > len(c.msgs) and messages[: len(c.msgs)] == c.msgs]
+        ext = [c for c in mine if messages[len(c.msgs)].get("role") == "assistant" and self._is_reply(messages[len(c.msgs)], c)]
+        top = [c for c in ext if len(c.msgs) == max(len(x.msgs) for x in ext)]
+        if len(top) == 1:
+            c = top[0]
+            self._convs.remove(c)  # the conversation moves on: its next entry replaces this one
+            new = messages[len(c.msgs) + 1:]
             if self.thinking == "strip" or (self.thinking == "interleaved" and any(m.get("role") == "user" for m in new)):
                 self.rerenders += 1  # the deployed template re-renders (and drops) earlier reasoning here: so do we, in a new segment
                 self._rerendered = True
                 return self._rendered(messages, tools)
             suf = self.codec.suffix(new, tools)
-            self._media_new = [{**m, "offset": int(m["offset"]) + len(ids)} for m in getattr(self.codec, "last_media", None) or []]
-            self._media_all = [*media, *self._media_new]
-            return ids + suf
-        if any(m.get("role") == "assistant" for m in messages):
+            self._media_new = [{**m, "offset": int(m["offset"]) + len(c.ids)} for m in getattr(self.codec, "last_media", None) or []]
+            self._media_all = [*c.media, *self._media_new]
+            return c.ids + suf
+        if mine:
+            # it continues a served conversation, but not through the reply (a nudge after an empty reply, a rewritten or
+            # ambiguous assistant turn): rendered whole, and the caller is told it is a new segment (M12 audit V15: a
+            # nudge re-rendered in the same segment was flagged prefix_break and the exact episode was masked)
+            self.rerenders += 1
+            self._rerendered = True
+            for c in mine:
+                self._convs.remove(c)
+        elif any(m.get("role") == "assistant" for m in messages):
             self.prefix_breaks += 1  # mid-conversation but extends nothing served (compaction rewrote it): a new segment, rendered whole
         return self._rendered(messages, tools)
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 1.0,
-                       max_tokens: int = 512, **_: Any) -> LLMResponse:
-        prompt = self._prompt(messages, tools)
+                       max_tokens: int = 512, sample_key: str | None = None, seed: int | None = None, **_: Any) -> LLMResponse:
+        try:
+            prompt = self._prompt(messages, tools, sample_key)
+        except Exception as e:
+            raise EngineCallError(f"chat codec: {type(e).__name__}: {e}", failure_kind="crucible:harness_unsupported") from e
         media_new, media_all = self._media_new, self._media_all
         t0 = time.monotonic()
-        res = await (self.gen(prompt, max_tokens, temperature, media=media_all) if media_all else self.gen(prompt, max_tokens, temperature))
+        kw: dict[str, Any] = {}
+        if media_all:
+            kw["media"] = media_all
+        if self._gen_seed and seed is not None:
+            kw["seed"] = seed  # per call (M12 audit V12): a greedy call's seed must never pin later sampled calls
+        if self._gen_stop:
+            kw["stop_ids"] = list(self.codec.eos_ids)
+        try:
+            res = await self.gen(prompt, max_tokens, temperature, **kw)
+        except asyncio.CancelledError:
+            raise
+        except LLMError:
+            raise
+        except Exception as e:
+            raise EngineCallError(f"engine: {type(e).__name__}: {e}", failure_kind=getattr(e, "failure_kind", None) or "provider_unavailable") from e
+        if res.finish == "abort":  # the runtime re-issues its aborts; one reaching here (a direct engine) is not a reply
+            raise EngineCallError(f"engine aborted the call after {len(res.completion_ids)} tokens", failure_kind="provider_unavailable")
+        res = cut_at_stop(res, self.codec.eos_ids)
         self.spend.calls += 1
         comp = list(res.completion_ids)
         tail = comp if (comp and comp[-1] in self.codec.eos_ids) else comp + list(self.codec.eos_ids[:1])
-        self._convs.append(([dict(m) for m in messages], prompt + tail, media_all))
-        del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         text, calls = self.codec.parse(comp)
+        nonce = uuid.uuid4().hex
+        self._convs.append(_Conv(sample_key, [dict(m) for m in messages], prompt + tail, media_all, nonce, text, _canon_calls(calls)))
+        del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         finish = "stop" if res.finish == "stop" else ("length" if res.finish == "length" else res.finish)
         return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp)}, model=self.model,
-                           raw_finish=finish, latency_s=time.monotonic() - t0,
+                           raw_finish=finish, latency_s=time.monotonic() - t0, raw_message={REPLY_KEY: nonce},
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
                                    "policy_version": res.version, "version_spans": res.version_spans,
                                    **({"media": media_new} if media_new else {}), **({"new_segment": True} if self._rerendered else {})})
@@ -219,6 +331,7 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
         finally:
             await world.close()
 
+    rollout.codec = codec  # the runtime defaults its stop ids to codec.eos_ids (M12 audit H3 V10): no decoding past end-of-turn
     return rollout
 
 
@@ -242,7 +355,11 @@ def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: 
 
 def tito_llm(provider: Any, model: str, *, timeout_s: float, seed: int | None = None) -> EngineLLM:
     """``LLMProvider.tito``: an ``EngineLLM`` over a vLLM server's token-id completions endpoint, rendered with the
-    model's own chat template. ``actors.llm.LLMClient`` resolves this through a pointer (it may not import train)."""
+    model's own chat template. ``actors.llm.LLMClient`` resolves this through a pointer (it may not import train).
+
+    The seed travels with each call (``EngineLLM.complete(seed=...)``); ``seed`` here is ignored (kept for callers):
+    it pinned the first call's seed for the client's life, so after one greedy call every sampled GRPO member drew the
+    same completion (M12 audit V12). Conversations are keyed by the caller's ``sample_key`` (V1)."""
     from transformers import AutoTokenizer
 
     from crucible.core.config import resolve_secret
@@ -255,9 +372,9 @@ def tito_llm(provider: Any, model: str, *, timeout_s: float, seed: int | None = 
                            api_key=resolve_secret(provider.api_key) or None)
     calls = [0]
 
-    async def gen(prompt: list[int], n: int, temp: float):
+    async def gen(prompt: list[int], n: int, temp: float, *, seed: int | None = None, stop_ids: Sequence[int] = ()):
         calls[0] += 1
         return await eng.generate(GenRequest(rid="llm", call_id=f"c{calls[0]}", prompt_ids=prompt, max_tokens=n, temperature=temp,
-                                             stop_ids=codec.eos_ids, seed=seed))
+                                             stop_ids=list(stop_ids) or codec.eos_ids, seed=seed))
 
     return EngineLLM(codec, gen, model=model)

@@ -63,12 +63,15 @@ class Child:
         return self.proc is not None and self.proc.poll() is None
 
     def kill(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
-            try:
-                os.killpg(self.proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            self.proc.wait()
+        """Kill the child's whole process group, also when the group leader has already exited (M12 audit V23: the
+        ``killpg`` was skipped then, and grandchildren, e.g. an engine's GPU workers, survived the job)."""
+        if self.proc is None:
+            return
+        try:
+            os.killpg(self.proc.pid, signal.SIGKILL)  # the child leads its own session: pgid == pid
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.proc.wait()
 
 
 class Launcher:
@@ -131,6 +134,7 @@ class Launcher:
                         continue
                     ch.restarts += 1
                     self.events.append({"t": time.time(), "child": ch.name, "event": "restart", "rc": ch.proc.returncode, "n": ch.restarts})
+                    ch.kill()  # what the dead leader left in its group (workers holding its port or GPU) goes first
                     ch.start(self.work / "logs")
 
     def supervise(self) -> None:

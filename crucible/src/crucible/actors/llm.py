@@ -271,7 +271,7 @@ class LLMClient:
         hold = self._reserve(messages, max_tokens)
         try:
             return await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
-                                             seed=seed, extra=extra)
+                                             seed=seed, extra=extra, sample_key=sample_key)
         finally:
             self._reserved -= hold
 
@@ -298,9 +298,9 @@ class LLMClient:
         self._reserved += est
         return est
 
-    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra) -> LLMResponse:
+    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
         if self.provider.tito:
-            return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed)
+            return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
         if seed is not None:
             kwargs["seed"] = seed
@@ -394,17 +394,24 @@ class LLMClient:
         return out
 
     async def _tito_complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, temperature: float, max_tokens: int,
-                             seed: int | None) -> LLMResponse:
+                             seed: int | None, sample_key: str | None = None) -> LLMResponse:
         """``LLMProvider.tito``: ``train.world_env.EngineLLM`` over the engine's token-id completions endpoint. Prompts
-        extend the served conversation token for token; the record is exactly what the engine sampled."""
+        extend the served conversation token for token; the record is exactly what the engine sampled. One instance
+        serves every episode of this client: ``sample_key`` (the episode) keys its conversations, and the seed goes with
+        each call (M12 audit V1, V12)."""
         if getattr(self, "_tito", None) is None:
             # the engine stack lives in ``crucible.train`` (above actors): resolved through a pointer, never imported here
             from crucible.core.registry import load_impl
 
-            self._tito = load_impl("crucible.train.world_env:tito_llm")(self.provider, self.model, timeout_s=self.timeout_s, seed=seed)
+            self._tito = load_impl("crucible.train.world_env:tito_llm")(self.provider, self.model, timeout_s=self.timeout_s)
         t0 = time.monotonic()
         try:
-            r = await self._tito.complete(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)
+            try:
+                r = await self._tito.complete(messages, tools=tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
+            except LLMError as e:  # the engine wrapper keeps the transport error as its cause
+                if isinstance(e.__cause__, httpx.HTTPError):
+                    raise e.__cause__ from None
+                raise
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 400 and "maximum context length" in e.response.text.lower():
                 raise ContextOverflow(f"{self.model}: {e.response.text[:300]}") from e

@@ -64,6 +64,19 @@ class GenResult:
     reprefill_tokens: int = 0
 
 
+def resume_spans(prior: Sequence[tuple[int, int]] | None, n_resume: int, n_new: int, version: int) -> list[tuple[int, int]]:
+    """The version spans of a (possibly resumed) call: the kept output's spans, plus ``(n_resume, version)`` only when this
+    version produced at least one token (AReaL stamps versions per emitted token). M12 audit V14 / G3 D6: a resume
+    aborted before its first token opened a span anyway, the next resume added a second span at the same start, and
+    ``Turn.spans_valid()`` masked the rollout. Spans that start at or past the kept output (empty) are dropped."""
+    spans = [(int(s), int(v)) for s, v in (prior or [])] if n_resume else []
+    while spans and spans[-1][0] >= n_resume and n_resume:
+        spans.pop()
+    if n_new and spans and spans[-1][1] != version:
+        spans.append((n_resume, version))
+    return spans or [(0, version)]  # a fresh call (or kept output with no recorded spans: the caller's runtime always records them)
+
+
 class Engine(Protocol):
     capacity: int
     version: int
@@ -352,12 +365,15 @@ class TorchEngine:
         out, lps = list(req.resume_completion), list(req.resume_logprobs)
         cands: list[list[int]] = list(req.resume_candidates)
         routes: list[list[int]] = list(req.resume_routing)
-        spans = list(req.resume_spans) or ([(0, version)] if not out else [])
-        if out and (not spans or spans[-1][1] != version):
-            spans.append((len(out), version))
+        n_resume = len(out)
         g = torch.Generator().manual_seed(req.seed if req.seed is not None else zlib.crc32(f"{req.call_id}|{len(out)}".encode()))
         moe = hasattr(serve, "last_routes")
         pending_route: list[list[int]] = []
+
+        def result(finish: str) -> GenResult:
+            spans = resume_spans(req.resume_spans, n_resume, len(out) - n_resume, version)
+            keep = spans if (finish == "abort" and self.version_switch == "token") or len(spans) > 1 else None
+            return GenResult(out, lps, spans[-1][1], finish, keep, len(req.prompt_ids), cands or None, routes or None)
 
         def forward(seq: list[int]) -> torch.Tensor:
             # grad mode is thread-local: a no_grad block must never span an ``await`` (it would leak into the trainer's
@@ -373,7 +389,7 @@ class TorchEngine:
             logits_all = forward(ids)
             for _ in range(req.max_tokens - len(out)):
                 if self._abort_epoch != epoch:
-                    return GenResult(out, lps, version, "abort", spans if self.version_switch == "token" else None, len(req.prompt_ids), cands or None, routes or None)
+                    return result("abort")
                 p = torch.softmax(logits_all / req.temperature, -1)
                 if req.top_p < 1.0:  # sample from the renormalized nucleus; report its logprob and the candidate set
                     from crucible.train.sampling import nucleus
@@ -389,11 +405,11 @@ class TorchEngine:
                 if moe:
                     routes.append(pending_route[0])
                 if tok in req.stop_ids:
-                    return GenResult(out, lps, version, "stop", spans if len(spans) > 1 else None, len(req.prompt_ids), cands or None, routes or None)
+                    return result("stop")
                 await asyncio.sleep(self.decode_delay_s)
                 ids = ids + [tok]
                 logits_all = forward(ids)
-            return GenResult(out, lps, version, "length", spans if len(spans) > 1 else None, len(req.prompt_ids), cands or None, routes or None)
+            return result("length")
         finally:
             self.inflight -= 1
 
@@ -410,7 +426,7 @@ class TorchEngine:
 
     def capabilities(self) -> dict[str, Any]:
         return {"token_ids": True, "logprobs": "processed", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": True,
-                "routing": hasattr(self._serve, "last_routes"), "weight_load": "state_dict",
+                "routing": hasattr(self._serve, "last_routes"), "weight_load": "state_dict", "token_resume": True,
                 "resume_keeps_kv": bool(getattr(self, "resume_keeps_kv", False))}
 
     async def load_weights(self, state: dict[str, torch.Tensor], version: int) -> None:
@@ -450,7 +466,7 @@ class ScriptedEngine:
 
     def capabilities(self) -> dict[str, Any]:
         return {"token_ids": True, "logprobs": "fixed", "abort": "all", "pause": ["keep"], "sleep": False, "top_p_candidates": False, "routing": False,
-                "weight_load": "version_only"}
+                "weight_load": "version_only", "token_resume": False}
 
     async def pause(self) -> None:
         self._unpaused.clear()

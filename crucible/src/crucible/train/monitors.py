@@ -6,7 +6,11 @@
 - mismatch: whatever ``mismatch.correct`` measured (``rollout_probs_diff``, r_dis quantiles, masked / clipped shares);
 - length: mean and p99 response length, truncation share, and the **length-bias KS distance** between this batch's
   lengths and the trailing steady-state window (DeepSeek / MiniMax: early batches skew short);
-- learning signal: entropy, share of zero-variance groups, confirmed-hack rate, pass rate;
+- learning signal: entropy, share of zero-variance groups, confirmed-hack rate, pass rate. ``confirmed_hack_rate`` is
+  the larger of two rates, each over its own denominator: the detector's confirmations over the batch, and the full-tier
+  audit's confirmations over the audits run (``audit/confirmed_rate``, trailing ``audit_window`` verdicts, counted once
+  ``min_audits`` exist). Audit confirmations were divided by the batch, so a 33 % hack share read ~1.8 % (the audit
+  samples 5 %): M12 audit H2 V13;
 - timing: bubble time per phase (trainer idle, engine down, env wait), publish latency, re-prefill tokens.
 
 ``PassRateAlarm``: a jump of more than ``delta`` in the training pass rate within ``window`` steps raises an alarm; the
@@ -56,12 +60,20 @@ class StepMonitor:
     lengths: deque = field(default_factory=lambda: deque(maxlen=4096))
     alarms: list = field(default_factory=list)
     max_confirmed_hack_rate: float = 0.02
+    audit_window: int = 400  # trailing full-tier audit verdicts behind ``audit/confirmed_rate``
+    min_audits: int = 20  # fewer audits than this: the rate is reported but does not drive confirmed_hack_rate (noise)
+    audits: deque = field(default_factory=lambda: deque(maxlen=400))
 
     def record(self, step: int, *, staleness: Sequence[int] = (), spans: Sequence[int] = (), lengths: Sequence[int] = (), truncated: Sequence[bool] = (),
                rewards: Sequence[float] = (), group_rewards: Sequence[Sequence[float]] = (), entropy: float | None = None, hacks: int = 0,
                mismatch: dict | None = None, timing: dict | None = None, evicted: dict | None = None, worst: Sequence[int] = (),
-               evicted_staleness: Sequence[int] = ()) -> dict:
+               evicted_staleness: Sequence[int] = (), audit_runs: int = 0, audit_confirmed: int = 0) -> dict:
+        """``hacks``: confirmations in this batch (the level-2 detector); ``audit_runs`` / ``audit_confirmed``: full-tier
+        audits finished since the last step and how many confirmed a hack (their own denominator)."""
         m: dict[str, float] = {}
+        if self.audits.maxlen != self.audit_window:
+            self.audits = deque(self.audits, maxlen=self.audit_window)
+        self.audits.extend([1] * min(audit_confirmed, audit_runs) + [0] * max(audit_runs - audit_confirmed, 0))
         if staleness:
             m.update({"staleness/mean": _mean(staleness), "staleness/max": max(staleness), "on_policy_share": sum(1 for s in staleness if s == 0) / len(staleness)})
         if worst:
@@ -76,6 +88,7 @@ class StepMonitor:
             self.lengths.extend(lengths)
         if truncated:
             m["truncation_share"] = sum(truncated) / len(truncated)
+        rewards = [r for r in rewards if r is not None]  # a masked record carries no reward: never a 0 in the pass rate
         if rewards:
             pr = sum(1 for r in rewards if r >= 1.0) / len(rewards)
             m["pass_rate"] = pr
@@ -87,8 +100,12 @@ class StepMonitor:
             m["zero_variance_groups"] = sum(1 for g in group_rewards if len(set(g)) <= 1) / len(group_rewards)
         if entropy is not None:
             m["entropy"] = entropy
+        audit_rate = None
+        if self.audits:
+            audit_rate = sum(self.audits) / len(self.audits)
+            m["audit/confirmed_rate"] = audit_rate
         if rewards:
-            m["confirmed_hack_rate"] = hacks / len(rewards)
+            m["confirmed_hack_rate"] = max(hacks / len(rewards), audit_rate if audit_rate is not None and len(self.audits) >= self.min_audits else 0.0)
             if m["confirmed_hack_rate"] > self.max_confirmed_hack_rate:  # m13 C-4: MiMo keeps confirmed hacks under 2%
                 self.alarms.append({"step": step, "kind": "confirmed_hack_rate", "value": m["confirmed_hack_rate"]})
                 m["alarm/confirmed_hack_rate"] = 1.0

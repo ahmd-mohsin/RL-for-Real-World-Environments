@@ -130,11 +130,15 @@ async def test_late_teacher_falls_back_or_masks():
         async def score(self, pairs):
             await asyncio.sleep(5)
 
-    rep = await _runtime(TeacherPool([Slow()], default="slow"), teacher_deadline_s=0.01).run()
+    # M12 audit H1 V8: a teacher pool needs the student's vocabulary id (the check was skipped without one)
+    with pytest.raises(ValueError, match="student_vocab_id"):
+        _runtime(TeacherPool([Slow()], default="slow"))
+    rep = await _runtime(TeacherPool([Slow()], default="slow"), teacher_deadline_s=0.01, student_vocab_id="v1").run()
     assert len(rep.steps) == 4 and all(r.opd_fallback and r.teacher_id is None for r in rep.trained_records)
     rep = await _runtime(TeacherPool([Slow()], default="slow"), teacher_deadline_s=0.01, teacher_on_miss="mask", max_masked_share=1.0, breaker_min=10**6,
-                         max_wall_s=2.0).run()
+                         max_wall_s=2.0, student_vocab_id="v1").run()
     assert rep.masked_rollouts > 0 and not rep.trained_records and rep.stop_reason == "wall_clock"  # nothing trainable: never trained as 0
+    assert rep.masked_kinds.get("teacher_miss") == rep.masked_rollouts  # every masked rollout is named
 
 
 async def test_vllm_teacher_reads_prompt_logprobs():

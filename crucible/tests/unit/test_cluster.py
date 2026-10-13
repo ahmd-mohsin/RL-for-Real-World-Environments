@@ -12,7 +12,7 @@ from collections import Counter
 import pytest
 
 from crucible.train.cluster import LocalLauncher, process_specs, ray_bundles
-from crucible.train.placement import TOPOLOGIES, ClusterSpec, ModelSpec, PlacementError, Workload, engine_shape, plan, rollout_s, train_mesh, train_s
+from crucible.train.placement import TOPOLOGIES, ClusterSpec, ModelSpec, PlacementError, Workload, engine_shape, plan, rollout_s, train_comm_s, train_mesh, train_s
 
 M7, M70 = ModelSpec(7, 32, 8, 128), ModelSpec(70, 80, 8, 128)
 MOE = ModelSpec(1000, 61, 8, 128, active_b=32)
@@ -42,13 +42,22 @@ def test_layout_invariants(c, m, w):
         roles = [r for row in p.layout for r in row]
         assert len(roles) == c.gpus and all(roles)  # every GPU has exactly one role
         specs = process_specs(p)
-        owned = Counter((s.node, g) for s in specs for g in s.gpus)
-        assert set(owned) == {(n, g) for n in range(c.nodes) for g in range(c.gpus_per_node)} and set(owned.values()) == {1}
+        every = {(n, g) for n in range(c.nodes) for g in range(c.gpus_per_node)}
+        assert {(s.node, g) for s in specs for g in s.gpus} == every  # every GPU has a process
+        trainer_owned = Counter((s.node, g) for s in specs if s.rank is not None for g in s.gpus)
+        engine_owned = Counter((s.node, g) for s in specs if s.env.get("ENGINE_HOST") == "1" for g in s.gpus)
+        assert set(trainer_owned.values()) <= {1} and set(engine_owned.values()) <= {1}  # one trainer rank and one engine host per GPU
+        for s in specs:  # H4 V8 / V10: LOCAL_RANK indexes the visible devices; an engine host sees all its GPUs on the node
+            visible = s.env["CUDA_VISIBLE_DEVICES"].split(",")
+            if s.rank is not None:
+                assert int(s.env["LOCAL_RANK"]) < len(visible) == 1
+            if s.env.get("ENGINE_HOST") == "1" and p.engine_gpus <= c.gpus_per_node:
+                assert len(visible) == p.engine_gpus
         ranks = sorted(s.rank for s in specs if s.rank is not None)
         assert ranks == list(range(len(ranks))) and len(ranks) == p.mesh[0] * p.mesh[1]  # the trainer world is the FSDP/HSDP mesh
         eng: dict[int, list] = {}
         for s in specs:
-            if s.engine is not None:
+            if s.engine is not None and s.env.get("ENGINE_HOST") == "1":
                 eng.setdefault(s.engine, []).append(s)
         assert len(eng) == p.engines
         for parts in eng.values():
@@ -63,15 +72,16 @@ def test_layout_invariants(c, m, w):
 def test_disaggregated_split_is_optimal_and_topology_choice_reacts():
     c, w = ClusterSpec(4), Workload(2048, 2048, 4096)
     best = plan(c, M7, w, "disaggregated_stream")
-    brute = min(max(rollout_s(c, M7, w, c.gpus - k * 8, tail=False), train_s(c, M7, w, k * 8) + best.times["publish"]) for k in range(1, 4))
+    brute = min(max(rollout_s(c, M7, w, c.gpus - k * 8, tail=False),
+                    train_s(c, M7, w, k * 8) + train_comm_s(c, M7, w, k * 8, train_mesh(c, M7, w, k * 8)) + best.times["publish"]) for k in range(1, 4))
     assert best.step_s == pytest.approx(brute)
-    assert plan(c, M7, w).step_s <= min(plan(c, M7, w, t).step_s for t in TOPOLOGIES) + 1e-9
+    assert plan(c, M7, w, engine="torch").step_s <= min(plan(c, M7, w, t, engine="torch").step_s for t in TOPOLOGIES) + 1e-9
     assert plan(c, M7, w, "colocated_sync").step_s > plan(c, M7, w, "colocated_partial").step_s  # the tail costs synchronous rounds
     slow = plan(ClusterSpec(4, net_gbps=0.05), M7, w, "disaggregated_stream")
     assert slow.times["publish"] > 100 * best.times["publish"] and slow.step_s >= best.step_s  # weight broadcast over a thin network
     rt = best.runtime_overrides()
     assert rt["topology"] == "disaggregated_stream" and rt["env_workers"] > 0
-    el = plan(ClusterSpec(2), M7, Workload(512, 1024, 4096), "elastic")
+    el = plan(ClusterSpec(2), M7, Workload(512, 1024, 4096), "elastic", engine="torch")
     assert el.runtime_overrides()["elastic_engines"] == el.elastic_gpus // el.engine_gpus > 0
     assert 0.0 <= el.times["elastic_roll_share"] <= 1.0
 
@@ -86,7 +96,7 @@ def test_plan_feeds_the_simulator():
     assert cfg.slots == p.engines * p.seqs_per_engine and cfg.topology == "disaggregated_stream"
     res = simulate(SchedulerConfig(n=4, B=4, max_staleness=2), cfg, {"a": [f"a{i}" for i in range(2000)]}, default_shapes(0))
     assert res.steps == 6 and res.max_staleness() <= 2
-    el = plan(ClusterSpec(2), M7, Workload(512, 1024, 4096), "elastic")
+    el = plan(ClusterSpec(2), M7, Workload(512, 1024, 4096), "elastic", engine="torch")
     ec = el.sim_config(Workload(512, 1024, 4096))
     assert ec.elastic_train_speedup == (el.train_gpus + el.elastic_gpus) / el.train_gpus > 1
     from crucible.train.sim import SimConfig
@@ -104,9 +114,20 @@ def _local(p):
 
 
 def test_local_launcher_runs_a_two_node_placement():
+    """One launcher per node (``cluster.run_node``, what each Slurm task runs), both on this host over loopback gloo."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from crucible.train.cluster import free_port, run_node
+
     p = plan(ClusterSpec(2, gpus_per_node=2, gpu_mem_gb=24), ModelSpec(0.5, 24, 2, 64), Workload(64, 64, 32), "disaggregated_stream")
-    specs = _local(p)
-    out = LocalLauncher(extra_env={"CRUCIBLE_CPU_ONLY": "1", "GLOO_SOCKET_IFNAME": "lo0" if sys.platform == "darwin" else "lo"}).run(specs, "crucible.train.cluster:smoke")
+    with pytest.raises(ValueError, match="span nodes"):  # H4 V9: one launcher never starts every node's processes on one host
+        LocalLauncher().run(_local(p), "crucible.train.cluster:smoke")
+    port = free_port()
+    env = {"CRUCIBLE_CPU_ONLY": "1", "GLOO_SOCKET_IFNAME": "lo0" if sys.platform == "darwin" else "lo"}
+    with ThreadPoolExecutor(2) as ex:
+        outs = list(ex.map(lambda n: run_node(p, "crucible.train.cluster:smoke", node=n, master_addr="127.0.0.1", master_port=port, extra_env=env), (0, 1)))
+    out = [o for part in outs for o in part]
+    assert {o["node"] for o in outs[0]} == {0} and {o["node"] for o in outs[1]} == {1}
     trainers = [o for o in out if o["rank"] is not None]
     W = len(trainers)
     assert W == p.train_gpus and all(o["world"] == W and o["rank_sum"] == W * (W - 1) / 2 for o in trainers)

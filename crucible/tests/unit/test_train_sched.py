@@ -29,12 +29,12 @@ def test_partial_rollout_wait_never_drops_and_bounds_staleness():
 
 def test_drop_strategy_never_trains_over_tau():
     r = run("colocated_partial", max_staleness=1, staleness_strategy="drop", admission_staleness=4)
-    assert r.max_staleness() <= 1 and r.evicted.get("stale", 0) > 0  # item 20
+    assert r.steps == 15 and r.max_staleness() <= 1 and r.evicted.get("stale", 0) > 0  # item 20 (every sim asserts its steps: G3 pick 5)
 
 
 def test_disaggregated_keeps_engine_busy_while_training():
     r = run("disaggregated_stream", slots=32, train_s_base=40.0)
-    assert r.engine_down_s == 0.0  # generation never pauses (item 12)
+    assert r.steps == 15 and r.engine_down_s == 0.0  # generation never pauses (item 12)
     assert r.busy_while_training_s / max(r.time - r.trainer_idle_s, 1e-9) > 0.9
 
 
@@ -61,25 +61,29 @@ def test_per_source_caps_and_group_admission():
 
 
 def test_windowed_fifo_blocks_out_of_window_and_bounds_lag():
-    # Fig. 9: with W groups, finished groups past head + W are not taken while the head is untrained
+    # Fig. 9: the trainer takes only from the first W *untrained* groups (the head and the W − 1 behind it), earliest
+    # finished first; a trained group leaves the queue, so the window slides (M12 audit H2 V5: W counted raw submission
+    # indexes, trained holes kept their slots, and the run deadlocked once fewer than B finished groups fit inside)
     pool = DataPool()
     ids = iter(range(100))
     s = Scheduler(SchedulerConfig(n=1, B=1, buffer_policy="windowed_fifo", fifo_window_frac=4 / 8, admission_staleness=8, staleness_strategy="none"),
                   pool, {"x": lambda: f"t{next(ids)}"})
     gs = s.admit(0)
     assert len(gs) == 8 and s.cfg.window() == 4
-    for i in (1, 3, 4, 5, 7):  # T0 still running
-        pool.finish(gs[i].members[0], reward=1.0, now=float(i))
-    sel = s.select(0)
-    assert [g.gid for g in sel.groups] == [gs[1].gid]  # earliest finished inside [T0, T3]
-    s.trained(sel)
-    sel = s.select(0)
-    assert [g.gid for g in sel.groups] == [gs[3].gid]
-    s.trained(sel)
-    assert s.select(0).blocked == "need_more"  # T4, T5, T7 finished but outside the window while T0 is untrained (item 27)
+    for i, at in ((7, 0.5), (1, 1.0), (3, 3.0), (4, 4.0), (5, 5.0)):  # T0 still running; T7 finished before every other group
+        pool.finish(gs[i].members[0], reward=1.0, now=at)
+    order = []
+    while not (sel := s.select(0)).blocked:
+        order += [g.gid for g in sel.groups]
+        s.trained(sel)
+    # T7 is taken only once it is among the first 4 untrained groups ([T0, T2, T6, T7]), never ahead of the window (item 27)
+    assert order == [gs[i].gid for i in (1, 3, 4, 5, 7)] and sel.blocked == "need_more"
+    # the article's case, batch 8 with W 4 < B: it trained 0 of 12 steps (a vacuous lag assert passed on the empty run)
     r = simulate(SchedulerConfig(n=1, B=8, buffer_policy="windowed_fifo", fifo_window_frac=4 / 8, admission_staleness=1, staleness_strategy="none"),
                  SimConfig(topology="disaggregated_stream", steps=12, publish_every=1), {"x": [f"p{i}" for i in range(500)]})
-    assert r.max_staleness() <= 10  # the article's bound: batch 8, W 4 -> 8 + 3 − 1 (item 28)
+    assert r.steps == 12  # item 28 (the lag bound itself: test_m12_audit_control.py::test_H2_V11_windowed_lag_bound)
+    r = simulate(SchedulerConfig(n=4, B=4, max_staleness=2, buffer_policy="windowed_fifo"), SimConfig(topology="colocated_partial", steps=12), SRC)
+    assert r.steps == 12 and r.max_staleness() <= 2  # W 3 < B 4 at τ = 2 (the GPU gate's τ): progress, and τ holds
 
 
 def test_dynamic_sampling_and_backfill():
@@ -102,8 +106,15 @@ def test_dynamic_sampling_and_backfill():
 
 def test_max_offpolicy_frac_and_ks():
     assert ks_distance([1, 2, 3], [1, 2, 3]) == 0.0 and ks_distance([1, 1, 1], [9, 9, 9]) == 1.0
-    r = run("colocated_partial", max_staleness=3, max_offpolicy_frac=0.25)
-    assert all(sum(1 for s in b if s > 0) <= max(1, len(b) // 4) * 4 for b in r.staleness)  # ≤ 25% of groups off-policy (item 25)
+    # M12 audit H2 V11: the bound was max(1, len(b) // 4) * 4 = every rollout of the batch (true with the cap removed),
+    # and the run it checked trained at staleness 8 with τ = 3 (V4). Groups at their bound are exempt from the cap (they
+    # must train now); below it, at most ⌊0.25·B⌋ = 1 off-policy group (n = 4 rollouts) per batch, and τ holds
+    for topo in ("colocated_partial", "disaggregated_stream"):
+        r = run(topo, max_staleness=3, max_offpolicy_frac=0.25)
+        assert r.steps == 15 and r.max_staleness() <= 3
+        if topo == "colocated_partial":  # (disaggregated relaxes the cap when only off-policy work can arrive)
+            assert all(sum(1 for s in b if 0 < s < 3) <= 4 for b in r.staleness)  # item 25
+            assert "preference_relaxed" not in r.evicted
 
 
 def test_monitors_alarm_and_length_bias():
@@ -123,4 +134,4 @@ def test_per_source_tau():
         r = run("colocated_partial", max_staleness=4, max_staleness_by_source={"a": 1}, staleness_strategy=strategy, admission_staleness=4)
         assert r.steps == 15 and max(r.staleness_by_source["a"]) <= 1 and max(r.staleness_by_source.get("b", [0])) <= 4
     r = run("colocated_partial", max_staleness=4, staleness_strategy="drop", admission_staleness=4)
-    assert max(r.staleness_by_source["a"]) > 1  # without the per-source limit, source a does go staler
+    assert r.steps == 15 and max(r.staleness_by_source["a"]) > 1  # without the per-source limit, source a does go staler

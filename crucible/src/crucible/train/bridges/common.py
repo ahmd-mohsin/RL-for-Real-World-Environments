@@ -11,6 +11,13 @@ with ``response_mask`` = 1 exactly on sampled tokens (observations / tool output
 ``logprobs`` aligned (0.0 where masked: never read), per-token ``advantages`` (the rollout's sequence advantage on every
 sampled token + M6 turn credit on its own call's span), and the per-token ``versions`` (from ``version_spans`` when a call
 crossed a publish). A segment whose calls do not chain (``prefix_break``) is split at the break: never stitched.
+
+A rollout yields **no** sequences when it is masked (``mask_sample`` or reward None: never trained as 0) or when a call of
+a trained actor is not token-complete (``Turn.missing()``: no completion, logprobs missing or of the wrong length, no
+policy version, a prefix break, impure version spans, top-p without candidates). M12 audit G4 §5: the behaviour logprobs
+of such a call used to be zero-filled, i.e. trained as if π_rollout = 1. Frozen actors' calls are context only (mask 0),
+so their logprobs are never read and need not exist. Each bridge then keeps the masked rollout *aligned* in its own
+framework's terms (a placeholder row with no trainable token), never as a reward of 0.
 """
 
 from __future__ import annotations
@@ -36,6 +43,10 @@ class TrainSeq:
     call_spans: list[tuple[str, int, int]] = field(default_factory=list)  # (call_id, start, end) in response coordinates
     reward: float | None = None
     num_turns: int = 0
+    truncated: bool = False  # the rollout's own truncation flag (a turn/token limit stop)
+    finish: str | None = None  # the finish reason of this sequence's last call (stop | length | abort | None)
+    last: bool = True  # the rollout's final sequence (its outcome closes here)
+    versions_seen: list[int] = field(default_factory=list)  # every policy version that produced a sampled token
 
 
 def _call_versions(t, n: int) -> list[int | None]:
@@ -48,8 +59,23 @@ def _call_versions(t, n: int) -> list[int | None]:
     return [t.policy_version if isinstance(t.policy_version, int) else None] * n
 
 
-def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0, frozen_actors: Sequence[str] = ()) -> list[TrainSeq]:
+def untrainable(ro: RolloutRecord, frozen_actors: Sequence[str] = ()) -> str | None:
+    """Why this rollout yields no training sequence (None: it trains). ``RolloutRecord.valid_for_training`` with frozen
+    actors' calls exempt from the token-record checks (they are context, mask 0)."""
     if ro.mask_sample or ro.reward is None:
+        return f"masked ({ro.failure_kind or 'no reward'})"
+    frozen = set(frozen_actors)
+    live = [t for t in ro.turns if t.actor not in frozen]
+    if not live:
+        return "no trained call"
+    bad = [(t.call_id, t.missing()) for t in live if t.missing()]
+    if bad:
+        return f"token record incomplete for {len(bad)}/{len(live)} calls (first: {bad[0][0]}: {', '.join(bad[0][1])})"
+    return None
+
+
+def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0, frozen_actors: Sequence[str] = ()) -> list[TrainSeq]:
+    if untrainable(ro, frozen_actors) is not None:
         return []
     prompts = full_prompts(ro)
     out: list[TrainSeq] = []
@@ -61,7 +87,7 @@ def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0
         chains = cur is not None and cur.actor == t.actor and cur.segment == t.segment and not t.prefix_break and \
             full[: len(cur.prompt_ids) + len(cur.response_ids)] == cur.prompt_ids + cur.response_ids
         if not chains:
-            cur = TrainSeq(ro.rollout_id, t.actor, t.segment, list(full), reward=ro.reward)
+            cur = TrainSeq(ro.rollout_id, t.actor, t.segment, list(full), reward=ro.reward, truncated=bool(ro.truncated))
             out.append(cur)
         else:
             obs = full[len(cur.prompt_ids) + len(cur.response_ids):]
@@ -81,4 +107,9 @@ def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0
         cur.versions += _call_versions(t, len(comp))
         cur.call_spans.append((t.call_id, start, start + len(comp)))
         cur.num_turns += 1
+        cur.finish = t.finish
+        if trainable:
+            cur.versions_seen = sorted(set(cur.versions_seen) | {int(v) for v in t.versions()})
+    for s in out[:-1]:
+        s.last = False
     return out

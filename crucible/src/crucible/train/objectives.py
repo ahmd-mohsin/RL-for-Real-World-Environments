@@ -9,7 +9,11 @@
 | seq_mean_token_mean   | (1/G) Σ_i (1/|o_i|) Σ_t J_it                            | GRPO, IcePop |
 | prompt_mean           | mean over prompts of the token-mean inside each prompt  | MiMo |
 | seq_ratio             | same arithmetic as seq_mean_token_mean (GSPO's unit)     | GSPO |
-| const_max_len         | Σ_{i,t} J_it / (G · max_i |o_i|)                         | HisPO |
+| const_max_len         | per group Σ_{i,t} J_it / (G · max_i |o_i|), mean over groups | HisPO |
+
+The trainer applies these through ``row_weights``: per row a weight w with J = Σ w · Σ_t J_t, so every mode micro-batches
+and splits across DP ranks exactly. The sequence is the **rollout**, however many rows it becomes. ``loss_agg="auto"``
+(the trainer default) picks the correction's own unit (``NATURAL_AGG``: GSPO → sequence mean, HisPO → const_max_len).
 
 **Group-relative advantages** (``group_advantages``): Â_i = R_i − mean_group (Dr.GRPO, Kimi K3, MiMo: no std), optionally
 / std (GRPO), or leave-one-out (RLOO). Masked rollouts (reward None) are excluded from every statistic and get Â = 0.
@@ -28,10 +32,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import Any
 
 import torch
 
-LOSS_AGG = ("token_mean_global", "seq_mean_token_mean", "prompt_mean", "seq_ratio", "const_max_len")
+LOSS_AGG = ("token_mean_global", "seq_mean_token_mean", "prompt_mean", "seq_ratio", "const_max_len")  # + "auto" (``resolve_agg``)
 
 
 def aggregate(J: torch.Tensor, mask: torch.Tensor, mode: str = "token_mean_global", *, prompt_ids: Sequence[int] | torch.Tensor | None = None,
@@ -62,28 +67,103 @@ def aggregate(J: torch.Tensor, mask: torch.Tensor, mode: str = "token_mean_globa
     raise ValueError(f"unknown loss_agg {mode!r}")
 
 
-ESTIMATORS = ("mean", "rloo", "remax", "reinforce_pp")
+# the aggregation each correction is defined with (GSPO: sequence mean of the sequence ratio; HisPO: G·max|y|); "auto"
+# picks it, every other correction trains under the global token mean (DAPO, CISPO, MiMo's verl default)
+NATURAL_AGG = {"gspo": "seq_mean_token_mean", "hispo": "const_max_len"}
+REQUIRED_AGG = {"gspo": ("seq_mean_token_mean", "seq_ratio")}  # GSPO's clip and value are per sequence: token mean is a different objective
+
+
+def resolve_agg(mode: str, correction: str) -> str:
+    if mode == "auto":
+        return NATURAL_AGG.get(correction, "token_mean_global")
+    if mode not in LOSS_AGG:
+        raise ValueError(f"unknown loss_agg {mode!r}")
+    need = REQUIRED_AGG.get(correction)
+    if need and mode not in need:
+        raise ValueError(f"correction {correction!r} is defined with loss_agg in {need} (got {mode!r}); use loss_agg='auto'")
+    return mode
+
+
+def row_weights(lengths: Sequence[int], seqs: Sequence[Any], prompts: Sequence[Any], mode: str, *, max_len: int | None = None) -> list[float]:
+    """Per row (trainer item), the weight w such that the aggregated objective is J = Σ_rows w · Σ_t J_t over its trained
+    tokens: every aggregation is linear in the token terms, so any micro-batching and any DP split of the rows gives the
+    full-batch value and gradient exactly (verl ``global_batch_info``, SkyRL / NeMo-RL global normalisers).
+
+    ``lengths``: trained tokens per row; ``seqs``: the sequence (rollout) of each row — a rollout split into calls,
+    compaction segments or actors is ONE sequence; ``prompts``: the prompt group of each row.
+
+    - token_mean_global: 1 / Σ tokens;
+    - seq_mean_token_mean, seq_ratio: 1 / (n_seq · T_seq) — each rollout weighs the same;
+    - prompt_mean: 1 / (n_prompt · T_prompt) — the token mean inside each prompt group, averaged over groups (MiMo);
+    - const_max_len: 1 / (n_prompt · G_p · L_p) — HisPO's per-group 1/(G·max|y|), L_p = ``max_len`` (a constant) or the
+      group's longest rollout, averaged over groups."""
+    n = len(lengths)
+    if mode == "token_mean_global":
+        tot = sum(lengths)
+        return [1.0 / tot if tot else 0.0] * n
+    t_seq: dict[Any, int] = {}
+    for L, s in zip(lengths, seqs, strict=True):
+        t_seq[s] = t_seq.get(s, 0) + L
+    live = {s for s, t in t_seq.items() if t > 0}
+    if mode in ("seq_mean_token_mean", "seq_ratio"):
+        return [1.0 / (len(live) * t_seq[s]) if s in live else 0.0 for s in seqs]
+    if mode == "prompt_mean":
+        t_p: dict[Any, int] = {}
+        for L, p in zip(lengths, prompts, strict=True):
+            t_p[p] = t_p.get(p, 0) + L
+        n_p = sum(1 for t in t_p.values() if t > 0)
+        return [1.0 / (n_p * t_p[p]) if t_p[p] else 0.0 for p in prompts]
+    if mode == "const_max_len":
+        members: dict[Any, set] = {}
+        for s, p in zip(seqs, prompts, strict=True):
+            if s in live:
+                members.setdefault(p, set()).add(s)
+        n_p = len(members)
+        out = []
+        for s, p in zip(seqs, prompts, strict=True):
+            if s not in live:
+                out.append(0.0)
+                continue
+            L = max_len or max(t_seq[x] for x in members[p])
+            out.append(1.0 / (n_p * len(members[p]) * max(L, 1)))
+        return out
+    raise ValueError(f"unknown loss_agg {mode!r}")
+
+
+ESTIMATORS = ("mean", "rloo", "remax", "reinforce_pp", "reinforce_pp_baseline")
 
 
 def group_advantages(rewards: Sequence[float | None], groups: Sequence[str], *, std_normalize: bool = False, estimator: str = "mean",
-                     eps: float = 1e-6, baselines: dict[str, float] | None = None) -> list[float]:
+                     eps: float = 1e-6, baselines: dict[str, float] | None = None, std_ddof: int = 0) -> list[float]:
     """Per-rollout advantages. ``estimator``:
 
     - ``mean``: R − mean of the group (GRPO; Dr.GRPO without std);
     - ``rloo``: R − mean of the other members;
     - ``remax``: R − b_g, the reward of the group's greedy rollout (``baselines[group]``; ReMax);
-    - ``reinforce_pp``: (R − mean of the global batch) / std of the global batch (REINFORCE++: no per-prompt baseline).
+    - ``reinforce_pp``: (R − mean of the global batch) / std of the global batch (REINFORCE++: no per-prompt baseline);
+    - ``reinforce_pp_baseline``: R − mean of the group, then whitened by the global batch std (OpenRLHF
+      ``reinforce_baseline``).
 
-    Masked (None) rollouts get 0 and are excluded from every statistic."""
+    ``std_ddof``: 0 = population std (Crucible's default), 1 = Bessel (TRL, verl, OpenRLHF: GRPO advantages there are
+    √(n/(n−1)) smaller, 1.15× at n = 4). Masked (None) rollouts get 0 and are excluded from every statistic."""
     if estimator not in ESTIMATORS:
         raise ValueError(f"estimator must be one of {ESTIMATORS}")
     out = [0.0] * len(rewards)
+    if estimator == "reinforce_pp_baseline":
+        centred = group_advantages(rewards, groups, estimator="mean")
+        live = [i for i, r in enumerate(rewards) if r is not None]
+        if len(live) > 1:
+            vals = torch.tensor([centred[i] for i in live], dtype=torch.float64)
+            sd = float(vals.std(correction=std_ddof)) + eps
+            for i in live:
+                out[i] = centred[i] / sd
+        return out
     if estimator == "reinforce_pp":
         live = [i for i, r in enumerate(rewards) if r is not None]
         if not live:
             return out
         vals = torch.tensor([float(rewards[i]) for i in live], dtype=torch.float64)
-        adv = (vals - vals.mean()) / (vals.std(unbiased=False) + eps) if len(live) > 1 else vals - vals.mean()
+        adv = (vals - vals.mean()) / (vals.std(correction=std_ddof) + eps) if len(live) > 1 else vals - vals.mean()
         for j, i in enumerate(live):
             out[i] = float(adv[j])
         return out
@@ -104,7 +184,7 @@ def group_advantages(rewards: Sequence[float | None], groups: Sequence[str], *, 
             base = vals.mean().expand(n)
         adv = vals - base
         if std_normalize and n > 1:
-            adv = adv / (vals.std(unbiased=False) + eps)
+            adv = adv / (vals.std(correction=std_ddof) + eps)
         for j, i in enumerate(members):
             out[i] = float(adv[j])
     return out

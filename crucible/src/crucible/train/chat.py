@@ -31,12 +31,29 @@ from typing import Any, Protocol
 TOOL_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
 
+def _arguments(a: Any) -> dict[str, Any]:
+    """Tool-call arguments as a dict. A JSON-string encoding (the OpenAI style) is decoded; anything that is not an object
+    is ``{"__unparseable__": <raw>}``, the policy's format-error path (M12 audit V17: a string reached ``ToolCall`` and
+    was scored 0 as a policy error; a list on ``send_message`` raised and was masked with unknown blame)."""
+    if a is None or a == "":
+        return {}
+    if isinstance(a, str):
+        try:
+            d = json.loads(a)
+        except json.JSONDecodeError:
+            return {"__unparseable__": a}
+        return d if isinstance(d, dict) else {"__unparseable__": a}
+    return a if isinstance(a, dict) else {"__unparseable__": json.dumps(a, default=str)}
+
+
 def parse_tool_calls(text: str) -> tuple[str, list[dict[str, Any]]]:
     calls = []
     for m in TOOL_CALL.finditer(text):
         try:
             d = json.loads(m.group(1))
-            calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": d.get("name", ""), "arguments": d.get("arguments") or {}})
+            name = d.get("name", "") if isinstance(d, dict) else ""
+            calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": name if isinstance(name, str) else str(name),
+                          "arguments": _arguments(d.get("arguments")) if isinstance(d, dict) else {"__unparseable__": m.group(1)}})
         except json.JSONDecodeError:
             calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": "", "arguments": {"__unparseable__": m.group(1)}})
     return TOOL_CALL.sub("", text).strip(), calls
@@ -96,15 +113,56 @@ class HFChatCodec:
     """A Hugging Face tokenizer's chat template. ``suffix`` = render([dummy user, dummy assistant] + new, gen prompt)
     minus render([dummy user, dummy assistant]): the exact framing of the new messages (TRL's technique)."""
 
-    def __init__(self, tokenizer: Any, *, template_kwargs: dict | None = None):
+    def __init__(self, tokenizer: Any, *, template_kwargs: dict | None = None, eos_ids: list[int] | None = None, fold_system: bool | None = None):
+        """``eos_ids``: the tokens that end an assistant turn, the first one appended when the engine stopped without it.
+        Default: the template's own end-of-turn token (the special token that closes a rendered assistant turn, e.g.
+        Gemma's ``<end_of_turn>``), then the tokenizer's EOS. M12 audit V18: only ``eos_token_id`` was used, so Gemma-2
+        (``<end_of_turn>`` 107, eos ``<eos>`` 1) failed every suffix. ``fold_system``: put a system message into the first
+        user message, for templates that refuse the system role (Gemma); ``None`` probes the template."""
         self.tok = tokenizer
         self.kw = dict(template_kwargs or {})
         eos = tokenizer.eos_token_id
-        self.eos_ids = [eos] if isinstance(eos, int) else list(eos or [])
+        base = [eos] if isinstance(eos, int) else list(eos or [])
+        if fold_system is None:
+            try:
+                self._apply_raw([{"role": "system", "content": "s"}, {"role": "user", "content": "x"}], None, gen=True)
+                fold_system = False
+            except Exception:  # noqa: BLE001 -- the template refuses a system turn (jinja raise_exception)
+                fold_system = True
+        self.fold_system = fold_system
+        if eos_ids is not None:
+            self.eos_ids = [int(t) for t in eos_ids]
+        else:
+            eot = self._end_of_turn()
+            self.eos_ids = ([eot] if eot is not None and eot not in base else []) + base
         self._dummy = [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}]
         self._dummy_ids = self._apply(self._dummy, None, gen=False)
 
+    def _end_of_turn(self) -> int | None:
+        """The special token right after a rendered assistant turn's content, if the template closes turns with one."""
+        try:
+            full = self._apply([{"role": "user", "content": "x"}, {"role": "assistant", "content": self.SENTINEL}], None, gen=False)
+        except Exception:  # noqa: BLE001
+            return None
+        sent = self.tok.encode(self.SENTINEL, add_special_tokens=False)
+        start = next((i for i in range(len(full) - len(sent) + 1) if full[i:i + len(sent)] == sent), None)
+        if start is None or start + len(sent) >= len(full):
+            return None
+        t = full[start + len(sent)]
+        return t if t in set(getattr(self.tok, "all_special_ids", []) or []) else None
+
+    def _fold(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.fold_system or not messages or messages[0].get("role") != "system":
+            return messages
+        sys_text, rest = str(messages[0].get("content") or ""), list(messages[1:])
+        if rest and rest[0].get("role") == "user" and isinstance(rest[0].get("content"), str):
+            return [{**rest[0], "content": f"{sys_text}\n\n{rest[0]['content']}"}, *rest[1:]]
+        return [{"role": "user", "content": sys_text}, *rest]
+
     def _apply(self, messages, tools, *, gen: bool) -> list[int]:
+        return self._apply_raw(self._fold(list(messages)) if getattr(self, "fold_system", False) else messages, tools, gen=gen)
+
+    def _apply_raw(self, messages, tools, *, gen: bool) -> list[int]:
         ids = self.tok.apply_chat_template(messages, tools=tools, add_generation_prompt=gen, tokenize=True, return_dict=False, **self.kw)
         # transformers 5 returns a BatchEncoding (a UserDict, not a dict) by default: a list of its *keys* was taken as the
         # prompt token ids and every real-tokenizer rollout failed (found by the M12 GPU gate: 228k masked rollouts, 0 steps)

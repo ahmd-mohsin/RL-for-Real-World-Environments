@@ -1007,9 +1007,24 @@ Infra failures are masked and never trained.
 
 **As built, part 3 (M12 bridges, 2026-10-10; module doc `docs/modules/M12-train.md`).**
 - `bridges/common.flatten` turns a rollout record into one causal training sequence per (actor, segment): response = completions interleaved with observation tokens; the mask is 1 only on sampled tokens; logprobs, per-token advantages and per-token versions are aligned.
-- Adapters: verl `AgentLoopOutput`, SkyRL `GeneratorOutput` (outcome on the last sampled token, since GRPO sums token rewards), TRL `rollout_func` fields, rLLM `Step`s with precomputed per-token advantages.
-- verl: the `crucible_delta` estimator, registered through verl's own `register_adv_est`, computes A_t = (R − group mean) + c_t, with turn credit encoded in the token rewards; masked rollouts are excluded.
-- TRL: `make_rollout_func` runs World episodes concurrently over TRL's colocated vLLM.
+- Adapters, each checked by tests that run the pinned upstream code (verl 5eb4826, TRL 72cf37d, SkyRL 3d0ae22, rLLM
+  4e828c8, verifiers ae819de; M12 audit: none of the four bridges ran against its upstream before):
+  - **verl** (`verl_plugin.py`, `verl_agent_loop.py`, `verl_bridge.py`): a `verl.plugins` entry point registers the
+    `crucible_delta` estimator and the `crucible_agent` loop on `import verl` in every Ray actor (registration in the
+    driver alone never reached the trainer actor). Turn credit travels in `rm_scores`, the only per-token field verl
+    v1's advantage path reads: credit on each call's sampled tokens, the row summing to R (verl's convention, so a row
+    ending on tool tokens keeps its R). `CrucibleAgentLoop` runs one World episode per session through verl's
+    `LLMServerClient.generate`; with `turn_weight` a uid's sessions meet for M6's group credit. Masked sessions are
+    placeholder rows with no trainable token. v1 trainer only; `use_kl_in_reward` and truncated sampling are refused.
+  - **TRL** (`trl_bridge.py`): one episode per TRL row (TRL already repeats prompts), the sampled token's logprob from
+    TRL's top-k lists, one batched `generate` per round on one thread (ranks in lockstep where `generate` is a
+    collective), and masked episodes as placeholder rows (`env_mask=[0]`, reward None → NaN) so rewards never shift onto
+    another completion.
+  - **SkyRL** (`skyrl_bridge.py`): every `GeneratorOutput` key, one row per input or step-wise rows with
+    `trajectory_ids` / `is_last_step`, stop reasons from truncation; masked rollouts never enter a group as 0.
+  - **rLLM** (`rllm_bridge.py`): `Step.from_model_output` with `weight_version`; a scalar advantage from
+    `Trajectory.reward` for its verl backend, per-token advantages for tinker.
+- `flatten` refuses token-incomplete records (missing logprobs were zero-filled, i.e. trained as π_rollout = 1).
 
 **As built, part 4 (M12 distributed weight plane, 2026-10-10; `train/weightsync.py`; research `m11-m12/04` §A).**
 The checkpoint-engine protocol as a PATTERN over any `torch.distributed` group (NCCL on GPUs, gloo on CPU):
@@ -2852,6 +2867,28 @@ document: NeMo-RL counts a masked sample's 0.0 in its GRPO group baselines (`grp
 bridge must fill masked rows first; NeMo-Gym's `harbor_agent` scores a missing reward 0 (unsupported path); the MiMo
 "byte-identical re-export" proves only that the import left its source untouched; the verifiers gate runs verifiers'
 classes on a stub runtime. Details: `docs/audit/2026-10-12/M11-interop.md`.
+
+**M12 audit (2026-10-13).** The per-token loss math already matched verl, MiMo-verl, NeMo-RL, SkyRL, prime-rl, TRL
+and AReaL to 1e-8; the defects were in what surrounds it. Numerics: log ratios clamp at ±20, gated tokens multiply a
+finite zero weight, non-finite behaviour logprobs drop their token, and a non-finite gradient norm skips the step (one
+behaviour logprob of −9999 used to NaN every parameter). The loss unit is the rollout: every aggregation is an exact
+per-rollout row weight (`objectives.row_weights`), so the sequence, prompt and HisPO means micro-batch and run under
+DP, and GSPO / MIS-PO / HisPO statistics span a rollout's rows; `loss_agg="auto"` gives GSPO and HisPO their own unit.
+The trainer trains only what was sampled as it was sampled: token-incomplete records are masked, a temperature mismatch
+is refused, images reach vision policies, teachers and references score at the turn's temperature and nucleus. One GAR
+(MiMo's redistribution), with its pass set from the raw outcome, so GRS / BT / tournament compose with it. The critic
+replaces a truncated rollout's outcome with V(s_T) and sees shaped rewards. The scheduler's bounds are hard (the
+off-policy cap and the FIFO window no longer train past τ or deadlock; `allow` ≤ τ + 1; refills and zero-variance
+resampling are bounded); every rollout exception masks under a named kind. Exact TITO per conversation, stop at the
+codec's end-of-turn, a seed per call; vLLM drains before a weight load; the gateway snapshots weights; SGLang R3 follows
+slime's row contract; the vLLM nucleus is the finite processed entries. Data parallelism agrees on metric keys and
+used parameters, so an empty rank or a rank-local parameter no longer hangs or diverges. Scale-out: Slurm multi-node
+launch and a REPACSS recipe (4 × H100 NVL per node, so 8 GPUs = two nodes), meta-device init with rank-0 broadcast,
+FSDP CPU offload, node-local shard groups, a store-backed SPMD channel with heartbeats, resume on every rank,
+checkpoint garbage collection. The verl, TRL, SkyRL and rLLM bridges are tested against the pinned upstream code
+(none ran before); turn credit reaches verl through a `verl.plugins` entry point and `rm_scores`. QDQ keeps an fp32
+master. Corrections: MiMo's T = 4 is Crucible τ = 3; AReaL's η is S − 1 and bounds capacity, not staleness; the
+§9 items 25–28 rested on vacuous tests. Details: `docs/audit/2026-10-12/M12-train.md`.
 
 ## 14. Repository layout
 

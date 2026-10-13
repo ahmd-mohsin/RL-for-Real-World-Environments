@@ -24,6 +24,25 @@ The cost model is first order and every term is printed (``Placement.explain``):
 
 The simulator (``train.sim``) is the reference for scheduling effects (staleness, waste, tail); the planner is the
 reference for where GPUs go. ``Placement.sim_config()`` joins them.
+
+Scale-out constraints (M12 audit H4 V4 / V7 / V10 / V14 / V15, G5 D2 / D3 / D10):
+
+- **shard groups stay inside a node** (or are whole nodes): an FSDP group that straddles a node boundary all-gathers
+  and reduce-scatters every layer over the network. The FSDP traffic is a term of the train time (``train_comm``):
+  per micro batch (layer mode) two all-gathers and one reduce-scatter of the parameters over the shard group's link
+  (NVLink domain, PCIe inside the node, or the network), plus the HSDP all-reduce of the gradient shard across replicas;
+- **loading**: a sharded trainer is built on the meta device and filled from the source rank's host copy
+  (``fsdp.meta_params`` + ``FSDPTrainer(full_state=)``, ``Placement.init``), so the GPU never holds ``4·params``; the
+  source node's host memory must hold the fp32 copy, and a replicated trainer must fit whole (``load_peak``);
+- **colocated plans offload the trainer** between steps (``runtime_overrides()["train_state_on_rollout"] = "cpu"``,
+  which ``FSDPTrainer.offload`` implements); the host must hold the offloaded shards and the sleeping engine weights;
+- **elastic plans need engines that can hold** (``plan(..., engine="torch")``): a vLLM / SGLang server cannot hand its
+  GPUs to the trainer mid-run, so ``engine="vllm"`` (the default) never plans elastic;
+- ``env_workers`` is one node's CPU slots at most (the runtime's environment workers are threads of the driver);
+- ``Placement.trainer_kwargs()`` / ``trainer_config()`` / ``build_trainer()`` construct the planned trainer.
+
+``ClusterSpec.preset("repacss", nodes)``: REPACSS (TTU) nodes, 4 × H100 NVL 94 GB, NVLink-bridged in pairs and PCIe
+Gen5 otherwise (the network figure is a placeholder until stage 0 of ``scripts/repacss_train.sbatch`` measures it).
 """
 
 from __future__ import annotations
@@ -46,10 +65,30 @@ class ClusterSpec:
     net_gbps: float = 50.0  # GB/s per GPU across nodes (400 Gb/s NIC per GPU)
     pcie_gbps: float = 25.0  # GB/s per GPU host ↔ device (colocated offload / onload)
     cpu_slots_per_node: int = 192  # environment worker slots per node (cores × oversubscription)
+    host_mem_gb: float = 1024.0  # host RAM per node: the source rank's fp32 copy at load, offloaded trainer shards
+    nvlink_domain: int = 0  # GPUs per NVLink domain (0: the whole node; 2: H100 NVL bridged pairs)
+    intra_gbps: float = 0.0  # GB/s per GPU between NVLink domains of one node (PCIe P2P); 0: nvlink_gbps
 
     @property
     def gpus(self) -> int:
         return self.nodes * self.gpus_per_node
+
+    @classmethod
+    def preset(cls, name: str, nodes: int, **kw: Any) -> ClusterSpec:
+        """A known venue: ``"h100-sxm"`` (the defaults) or ``"repacss"``; ``kw`` overrides single fields."""
+        if name not in PRESETS:
+            raise ValueError(f"cluster preset: {' | '.join(PRESETS)} (got {name!r})")
+        return cls(nodes, **{**PRESETS[name], **kw})
+
+
+PRESETS: dict[str, dict[str, Any]] = {
+    "h100-sxm": {},
+    # REPACSS (Texas Tech, ``scripts/repacss.sh``): 4 × H100 NVL 94 GB per node, NVLink bridges join GPUs in pairs (~300 GB/s
+    # per direction), PCIe Gen5 between the pairs and to the host; dense bf16 ~835 TFLOPs per card. ``net_gbps``,
+    # ``host_mem_gb`` and ``cpu_slots_per_node`` are conservative placeholders until stage 0 measures them.
+    "repacss": {"gpus_per_node": 4, "gpu_mem_gb": 94.0, "gpu_tflops": 835.0, "nvlink_gbps": 300.0, "nvlink_domain": 2, "intra_gbps": 50.0,
+                "pcie_gbps": 50.0, "net_gbps": 25.0, "host_mem_gb": 512.0, "cpu_slots_per_node": 128},
+}
 
 
 @dataclass(frozen=True)
@@ -98,6 +137,8 @@ class Workload:
     # term is modeled: measured 1.18 (A10G, 1.7B, 3 ranks) and 1.27 (H100, 8B, 3 ranks)
     mem_overhead: float = 1.25
     env_slots_per_seq: float = 1.0  # CPU worker slots one live rollout needs
+    gather_bytes: int = 4  # bytes per parameter the FSDP all-gathers move (4: fp32; 2: ``FSDPTrainer(mixed_precision="bf16")``)
+    reshard: str = "layer"  # the FSDP mode a sharded plan runs (layer: gathers per micro batch; step: one per update)
 
     @property
     def context(self) -> int:
@@ -137,18 +178,42 @@ class Placement:
     times: dict[str, float]
     layout: list[list[str]] = field(default_factory=list)  # [node][gpu] → "engine:k/tp_rank" | "train:r" | "both:k/r" | "elastic:k/r"
     alternatives: dict[str, float] = field(default_factory=dict)  # topology → its best step time
+    reshard: str = "layer"
+    load_peak: dict[str, float] = field(default_factory=dict)  # GB: per GPU and on the source node's host while the trainer is built
 
     @property
     def step_s(self) -> float:
         return self.times["step"]
 
+    @property
+    def init(self) -> str:
+        """How the trainer is built: ``meta_rank0`` (sharded: ``fsdp.meta_params()`` on every rank, the full state on rank 0's
+        host, ``FSDPTrainer(full_state=)``) or ``replicated`` (every rank loads the full model; the shard group is 1)."""
+        return "meta_rank0" if self.mesh[1] > 1 else "replicated"
+
     def runtime_overrides(self) -> dict[str, Any]:
-        return {"topology": self.topology, "elastic_engines": self.elastic_gpus // self.engine_gpus if self.topology == "elastic" else 0,
-                "env_workers": self.env_workers}
+        out = {"topology": self.topology, "elastic_engines": self.elastic_gpus // self.engine_gpus if self.topology == "elastic" else 0,
+               "env_workers": self.env_workers}
+        if self.topology.startswith("colocated"):  # the cost model swaps the trainer state out for rollouts (H4 V7 / G5 D3)
+            out["train_state_on_rollout"] = "cpu"
+        return out
 
     def trainer_kwargs(self) -> dict[str, Any]:
-        """For ``FSDPTrainer``: the mesh shape (build with ``init_device_mesh(dev, mesh, mesh_dim_names=("replicate", "shard"))``)."""
-        return {"mesh_shape": self.mesh, "dp": self.mesh[0] * self.mesh[1], "reshard": "layer" if self.mesh[1] > 1 else "step"}
+        """``FSDPTrainer(model, TrainerConfig(..., **p.trainer_config()), **p.trainer_kwargs())``: the HSDP mesh shape and the
+        resharding mode (H4 V14: the old keys were accepted by neither constructor)."""
+        return {"mesh_shape": tuple(self.mesh), "reshard": self.reshard if self.mesh[1] > 1 else "step"}
+
+    def trainer_config(self) -> dict[str, Any]:
+        """``TrainerConfig`` fields the plan fixes: the data-parallel width."""
+        return {"dp": self.mesh[0] * self.mesh[1]}
+
+    def build_trainer(self, model: Any, cfg: Any, **kw: Any) -> Any:
+        """The planned ``FSDPTrainer`` (``kw``: units, full_state, broadcast_batch, mixed_precision …)."""
+        import dataclasses
+
+        from crucible.train.fsdp import FSDPTrainer
+
+        return FSDPTrainer(model, dataclasses.replace(cfg, **self.trainer_config()), **{**self.trainer_kwargs(), **kw})
 
     def sim_config(self, w: Workload, **kw: Any):
         """The simulator's view of this plan: aggregate slots, per-sequence decode, train time per kilo-token, publish."""
@@ -163,8 +228,9 @@ class Placement:
     def explain(self) -> str:
         t = self.times
         return (f"{self.topology}: {self.engines} engines × {self.engine_gpus} GPUs ({self.seqs_per_engine} seqs each) on {self.rollout_gpus} GPUs; "
-                f"trainer {self.train_gpus} GPUs mesh {self.mesh}; elastic {self.elastic_gpus}; env workers {self.env_workers}; "
-                f"rollout {t['rollout']:.1f}s, train {t['train']:.1f}s, publish {t['publish']:.2f}s → step {t['step']:.1f}s")
+                f"trainer {self.train_gpus} GPUs mesh {self.mesh} {self.reshard} ({self.init}); elastic {self.elastic_gpus}; env workers {self.env_workers}; "
+                f"rollout {t['rollout']:.1f}s, train {t['train']:.1f}s (FSDP traffic {t.get('train_comm', 0.0):.1f}s), publish {t['publish']:.2f}s "
+                f"→ step {t['step']:.1f}s")
 
 
 # Measured on real hardware (``scripts/modal_calibrate.py``; ``docs/research/m12-infra/02-live-validation.md``). ``mfu`` is
@@ -218,19 +284,71 @@ def activation_bytes(m: ModelSpec, w: Workload) -> float:
     return w.micro_tokens * m.hidden * (4 * m.layers + 24) + 3 * w.logit_chunk * m.vocab * 4
 
 
+def shard_local(c: ClusterSpec, gpus: int, shard: int) -> bool:
+    """Every shard group of ``gpus`` trainer ranks (laid out node-major from GPU 0) inside one node, or made of whole
+    nodes (G5 D10: a group that straddles a node boundary gathers every layer over the network)."""
+    gpn = c.gpus_per_node
+    if shard % gpn == 0 and gpus % gpn == 0:
+        return True
+    return all((j * shard) // gpn == ((j + 1) * shard - 1) // gpn for j in range(gpus // shard))
+
+
+def _link_gbps(c: ClusterSpec, group: int, *, spans_nodes: bool) -> float:
+    if spans_nodes:
+        return c.net_gbps
+    if c.nvlink_domain and group > c.nvlink_domain:
+        return c.intra_gbps or c.pcie_gbps
+    return c.nvlink_gbps
+
+
 def train_mesh(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int) -> tuple[int, int]:
-    """(replicate, shard): the smallest power-of-two shard group whose 16 B/param state (plus the activation term when the
-    model's width and vocab are given) fits, HSDP replicas beyond it."""
+    """(replicate, shard): the smallest shard group whose 16 B/param state (plus the activation term when the model's
+    width and vocab are given) fits, among groups that stay inside a node or are whole nodes; HSDP replicas beyond it."""
     need = 16 * m.params_b * 1e9
     act = activation_bytes(m, w)
     over = w.mem_overhead if act else 1.0
     # with activations and overhead modeled, the budget is nearly the whole card (the measured 8B peak was 65 of 80 GB at
     # 3 ranks); a state-only estimate keeps the conservative fraction for what it does not count
-    cap = (0.92 if act else w.train_mem_frac) * c.gpu_mem_gb * 1e9
+    frac = 0.92 if act else w.train_mem_frac
+    cap = frac * c.gpu_mem_gb * 1e9
     for shard in (d for d in range(1, gpus + 1) if gpus % d == 0):  # any divisor: 3 ranks shard 3 ways (FSDP needs no power of two)
-        if (need / shard + act) * over <= cap:
+        if (need / shard + act) * over <= cap and shard_local(c, gpus, shard):
             return gpus // shard, shard
-    raise PlacementError(f"trainer state {need / 1e12:.1f} TB does not fit {gpus} GPUs at {w.train_mem_frac:.0%} of {c.gpu_mem_gb} GB")
+    raise PlacementError(f"trainer state {need / 1e12:.2f} TB does not fit {gpus} GPUs at {frac:.0%} of {c.gpu_mem_gb} GB "
+                         "with node-local (or whole-node) shard groups")
+
+
+def train_comm_s(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int, mesh: tuple[int, int]) -> float:
+    """FSDP traffic per optimizer step, per rank, with no overlap (an upper bound). Layer mode: per micro batch two
+    all-gathers (forward, backward) and one reduce-scatter of the parameters over the shard group; step mode: one of
+    each per update. HSDP: an all-reduce of the gradient shard across the replicas."""
+    rep, shard = mesh
+    if gpus < 1:
+        return math.inf
+    p_bytes = m.params_b * 1e9
+    gpn = c.gpus_per_node
+    t = 0.0
+    if shard > 1:
+        spans = shard > gpn
+        bw = _link_gbps(c, shard, spans_nodes=spans) * 1e9
+        mbs = max(1, math.ceil(w.tokens / gpus / max(1, w.micro_tokens))) if w.reshard == "layer" else 1
+        gathers = 2 if w.reshard == "layer" else 1
+        t += mbs * (gathers * p_bytes * w.gather_bytes + p_bytes * 4) * (shard - 1) / shard / bw
+    if rep > 1:
+        spans = gpus > gpn
+        bw = _link_gbps(c, gpus, spans_nodes=spans) * 1e9
+        t += 2 * (p_bytes * 4 / shard) * (rep - 1) / rep / bw
+    return t
+
+
+def load_peak_gb(c: ClusterSpec, m: ModelSpec, mesh: tuple[int, int]) -> dict[str, float]:
+    """Memory while the trainer is built (H4 V4 / G5 D2). Sharded: meta-device build, the fp32 copy on the source rank's
+    host, each GPU its parameter shards plus one full tensor in flight (bounded here by 1/layers of the model, generous for
+    the embedding); replicated: the full fp32 model on every GPU and in every rank's host memory."""
+    full = 4 * m.params_b * 1e9
+    if mesh[1] > 1:
+        return {"gpu": (full / mesh[1] + full / 8) / 1e9, "host": full / 1e9}
+    return {"gpu": full / 1e9, "host": full * min(c.gpus_per_node, mesh[0] * mesh[1]) / 1e9}
 
 
 def rollout_s(c: ClusterSpec, m: ModelSpec, w: Workload, gpus: int, *, tail: bool) -> float:
@@ -258,7 +376,8 @@ def publish_s(c: ClusterSpec, m: ModelSpec, *, colocated: bool) -> float:
 
 
 def _env_workers(c: ClusterSpec, w: Workload, engines: int, seqs: int) -> int:
-    return int(min(c.nodes * c.cpu_slots_per_node, math.ceil(engines * seqs * w.env_slots_per_seq)))
+    # one node's slots at most: the runtime's environment workers are threads of the driver process (H4 V15)
+    return int(min(c.cpu_slots_per_node, math.ceil(engines * seqs * w.env_slots_per_seq)))
 
 
 def _layout(c: ClusterSpec, topology: str, eg: int, rollout_gpus: int, train_gpus: int, elastic_gpus: int) -> list[list[str]]:
@@ -286,25 +405,42 @@ def _layout(c: ClusterSpec, topology: str, eg: int, rollout_gpus: int, train_gpu
     return out
 
 
+def _fits_host(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str, mesh: tuple[int, int], eg: int) -> bool:
+    """Host memory per node: the source rank's fp32 copy at load (node 0); colocated, the offloaded trainer shards and
+    the sleeping engines' weights of that node's GPUs."""
+    cap = 0.9 * c.host_mem_gb * 1e9
+    if load_peak_gb(c, m, mesh)["host"] * 1e9 > cap:
+        return False
+    if topology.startswith("colocated"):
+        per_gpu = 16 * m.params_b * 1e9 / mesh[1] + m.weight_bytes / eg
+        if per_gpu * c.gpus_per_node > cap:
+            return False
+    return True
+
+
 def _candidate(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str, rollout_gpus: int, train_gpus: int, elastic: int) -> Placement | None:
     eg, seqs = engine_shape(c, m, w)
     try:
-        mesh = train_mesh(c, m, w, train_gpus + elastic)
+        mesh = train_mesh(c, m, w, c.gpus if topology.startswith("colocated") else train_gpus + elastic)
     except PlacementError:
+        return None
+    peak = load_peak_gb(c, m, mesh)
+    if peak["gpu"] > 0.92 * c.gpu_mem_gb or not _fits_host(c, m, w, topology, mesh, eg):
         return None
     if topology.startswith("colocated"):
         r = rollout_s(c, m, w, c.gpus, tail=topology == "colocated_sync")
-        t = train_s(c, m, w, c.gpus)
+        t = train_s(c, m, w, c.gpus) + train_comm_s(c, m, w, c.gpus, mesh)
         p = publish_s(c, m, colocated=True)
         # the role swap, each way, per GPU over PCIe: the trainer's state shard leaves while the engine's weights return
         swap = 2 * (16 * m.params_b * 1e9 / mesh[1] + m.weight_bytes / eg) / (c.pcie_gbps * 1e9)
-        times = {"rollout": r, "train": t, "publish": p, "swap": swap, "step": r + t + p + swap}
+        times = {"rollout": r, "train": t, "train_comm": train_comm_s(c, m, w, c.gpus, mesh), "publish": p, "swap": swap, "step": r + t + p + swap}
         engines = c.gpus // eg
     else:
         p = publish_s(c, m, colocated=False)
-        t = train_s(c, m, w, train_gpus + elastic)
+        comm = train_comm_s(c, m, w, train_gpus + elastic, mesh)
+        t = train_s(c, m, w, train_gpus + elastic) + comm
         r = rollout_s(c, m, w, rollout_gpus, tail=False)
-        times = {"rollout": r, "train": t, "publish": p, "step": max(r, t + p)}
+        times = {"rollout": r, "train": t, "train_comm": comm, "publish": p, "step": max(r, t + p)}
         if topology == "elastic":  # slot-seconds: rollout slots all step long, elastic slots except for t_e with the trainer
             swap = 2 * (16 * m.params_b * 1e9 / mesh[1] + m.weight_bytes / eg) / (c.pcie_gbps * 1e9)  # as colocated, on the elastic GPUs
             t_e = t + swap
@@ -322,7 +458,7 @@ def _candidate(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str, rollout
     return Placement(topology=topology, cluster=c, engine_gpus=eg, engines=engines, seqs_per_engine=seqs,
                      rollout_gpus=c.gpus if topology.startswith("colocated") else rollout_gpus,
                      train_gpus=c.gpus if topology.startswith("colocated") else train_gpus, elastic_gpus=elastic, mesh=mesh,
-                     env_workers=_env_workers(c, w, engines, seqs), times=times)
+                     env_workers=_env_workers(c, w, engines, seqs), times=times, reshard=w.reshard, load_peak=peak)
 
 
 def candidates(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str) -> list[Placement]:
@@ -351,10 +487,16 @@ def candidates(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str) -> list
     return out
 
 
-def plan(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str | None = None) -> Placement:
-    """The fastest feasible placement (of ``topology``, or over all four); ``alternatives`` lists each topology's best."""
+HOLDING_ENGINES = ("torch",)  # engines that can lend their GPUs to the trainer mid-run (``EnginePool.hold``): elastic plans
+
+
+def plan(c: ClusterSpec, m: ModelSpec, w: Workload, topology: str | None = None, *, engine: str = "vllm") -> Placement:
+    """The fastest feasible placement (of ``topology``, or over all four); ``alternatives`` lists each topology's best.
+    ``engine``: the rollout engine kind (``vllm`` / ``sglang`` / ``torch``); elastic plans need one that can hold."""
+    if topology == "elastic" and engine not in HOLDING_ENGINES:
+        raise PlacementError(f"elastic needs engines that can hold their GPUs for the trainer ({', '.join(HOLDING_ENGINES)}); a {engine} server cannot")
     best: dict[str, Placement] = {}
-    for topo in ([topology] if topology else TOPOLOGIES):
+    for topo in ([topology] if topology else [t for t in TOPOLOGIES if t != "elastic" or engine in HOLDING_ENGINES]):
         cs = candidates(c, m, w, topo)
         if cs:
             best[topo] = min(cs, key=lambda p: (p.step_s, p.train_gpus))

@@ -167,6 +167,10 @@ class LeaseController:
                 n += 1
                 self.stats["expired"] += 1
                 j.worker, j.attempt = None, j.attempt + 1
+                # the dead attempt's model calls die with its lease (M12 audit V16: one finishing after the reset wrote its
+                # version and length into the live attempt's pool tag and kept holding the engine)
+                for t in self._gens.pop(j.rid, set()):
+                    t.cancel()
                 if j.attempt >= self.max_attempts:
                     self.stats["masked"] += 1
                     j.future.set_result(None)  # masked: never scored 0

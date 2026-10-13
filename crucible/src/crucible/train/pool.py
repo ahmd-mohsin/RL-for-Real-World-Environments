@@ -10,8 +10,10 @@ Status machine of one rollout::
     pending --admit--> running --finish--> finished
                           |-----fail----> failure     (agent-caused or policy failure: trainable, reward 0)
                           |-----mask----> masked      (infrastructure: never trained, reward None)
-                          `-----evict---> evicted     (staleness drop / dynamic-sampling filter / group dropped)
+                          `-----evict---> evicted     (staleness drop / dynamic-sampling filter / group dropped /
+                                                       doomed under ``drop`` / ``group_redundancy`` spare)
     finished|failure --train--> trained
+    masked (member of a trained group) --train--> evicted   (never "trained": M12 audit H2 V17)
 
 A **group** (GRPO prompt group of n samples, or n = 1 in critic mode) is terminal when every member is finished,
 failure or masked. Groups are an admission and advantage unit, never a dispatch barrier: members run independently.
@@ -218,13 +220,23 @@ class DataPool:
                 out.append(r)
         return out
 
+    def evict_members(self, gid: str, rids: list[str]) -> None:
+        """Evict some members of an open group (``group_redundancy`` spares); the group turns terminal if the rest are."""
+        for r in rids:
+            if self.tags[r].status not in ("trained", "evicted"):
+                self._set_status(r, "evicted")
+        self._update_group(gid)
+
     def mark_trained(self, gid: str) -> None:
         g = self.groups[gid]
         g.status = "trained"
         self._terminal.discard(gid)
         for r in g.members:
-            if self.tags[r].status in TERMINAL:
-                self._set_status(r, "trained")
+            st = self.tags[r].status
+            if st in TERMINAL:
+                # a masked member (``pad`` backfill) was never trained: it leaves the untrained index as evicted, so tags
+                # keep the masked-versus-trained distinction for accounting (M12 audit H2 V17)
+                self._set_status(r, "evicted" if st == "masked" else "trained")
 
     # ---- reads (tags only) --------------------------------------------------------------------------------------
     def _rids(self, index: dict[str, set[str]], source: str | None) -> list[str]:

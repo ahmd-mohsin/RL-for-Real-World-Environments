@@ -1,6 +1,16 @@
 # M12 `train` — the RL infrastructure layer
 
-**Status: core built (2026-10-10).**
+**Status: core built (2026-10-10); audited 2026-10-13 (`docs/audit/2026-10-12/M12-train.md`, study index
+`M12-study-sweep.md`).**
+- **Audit:** five source sweeps (the article with all 56 formulas, MiMo / verl, slime / AReaL / ROLL, prime-rl /
+  NeMo-RL / SkyRL / rLLM, TRL / OpenRLHF / checkpoint-engine) and four hunts. The per-token loss math already matched
+  every upstream (≤ 1e-8); the defects were around it: one extreme behaviour logprob NaN'd the model, non-token-mean
+  aggregations counted calls as sequences and could not micro-batch or run under DP, the trainer trained token-incomplete
+  calls and never checked the temperature, GAR after GRS failed passing solutions, the critic added R to the
+  truncation bootstrap, two scheduler options broke τ or deadlocked, rollout exceptions vanished, TITO could splice
+  episodes, vLLM swapped weights under running calls, an empty DP rank hung every trainer, multi-node had no launch
+  path, and no bridge ran against its upstream. All fixed with regression tests failing on the M11 commit; ledger L1–L15
+  in the audit report.
 - **CPU end to end ✅:** every topology learns.
 - **Checklist (52 items, `docs/research/m11-m12/06-article-systems.md` §8):** audited 2026-10-10. The earlier "implemented as tests where it applies" overstated it. Status table in §9: 41 done, 11 partial, 0 missing; the gaps are being closed in order.
 - **GPU learning run ✅ (2026-10-11), gate flag ❌:** Qwen3-0.6B, colocated partial, on the lab RTX 5090 (`reports/m12_gpu_gate.json`). Held-out eval (32 seeds × 4) went from 0.44 (56/128) to 1.00 (128/128); train pass rate went from 0.48 to 1.00 by step 5; staleness max 2 (τ = 2); 0 masked rollouts; 22 publishes; peak 13.2 GB. The gate flag is false only because the 600 s wall clock stopped the run at step 22 of the 60 requested (`stop_reason: wall_clock`).
@@ -69,6 +79,12 @@
 | `disaggregated_stream` | B selectable groups | **keep generating** (trainer in a thread / another process) | every `publish_every` steps | in-flight calls finish on their pinned version; new calls get the new one | **memory split** (engine at a fixed fraction, trainer resident): real overlap |
 | `elastic` (M12-infra A; LongCat DORA) | B selectable groups | the last `elastic_engines` engines are **aborted + held** for the trainer; the resident group **keeps generating** (new calls route around the held group) | every `publish_every` steps | elastic: re-issued / resumed; resident: finish on their version | resident group on its own devices, elastic group time-shared with the trainer |
 
+**Audit additions (2026-10-13):** `loss_agg="auto"` and per-rollout row weights (§5); groups at their staleness
+bound bypass the windowed-FIFO window and `max_offpolicy_frac`, the window counts untrained groups, `bound_overflow="allow"`
+trains at most τ + 1; `max_refills` (default 2n), a zero-variance resampling round cap, `group_redundancy` r (admit n + r,
+keep the first n scored), `drop` cancels doomed in-flight groups after a publish; every rollout exception masks under a
+named kind; aborted calls re-issue at most `max_call_reissues` times. MiMo's T maps to τ = T − 1; AReaL's η to S − 1.
+
 **Partial-rollout round boundaries** (`RuntimeConfig.partial_barrier`, M12-infra A):
 - `groups` (default): B selectable groups.
 - `completion_frac` (Kimi K3): the finished share of untrained rollouts reaches `barrier_frac` λ.
@@ -119,6 +135,12 @@ Facts behind the table:
 - `critic.pretrain_value`.
 
 
+- **Audit (2026-10-13):** log ratios clamp at ±20, non-finite behaviour logprobs drop their token, a non-finite grad
+  norm skips the step; every aggregation is an exact per-rollout row weight (`objectives.row_weights`), so it
+  micro-batches and splits over DP ranks, and `loss_agg="auto"` picks GSPO's sequence mean and HisPO's per-group
+  G·max|y|; GSPO / MIS-PO / HisPO statistics are per rollout (`seq_ids`); new `ipo` (prime-rl), `tis` / `icepop` at
+  `level="sequence"` (TRL, NeMo-RL), CISPO `mask=True`, DAPO `overlong` + `overlong_filter`, `std_ddof`,
+  `reinforce_pp_baseline`; the k3 KL has the reverse-KL gradient (`kl_grad`) and clamps; dual clip c = 3 by default.
 - **Corrections** (`mismatch.py`), each a pure function with the article's numbers as golden tests: ppo (clip-higher, dual clip), tis, icepop, kpop, dis, mimo4, mispo, hispo, cispo, gspo.
 - **Metrics logged every step:** `rollout_probs_diff`, r_dis quantiles, masked and clipped token shares. Without π_θold, `rollout_probs_diff` includes drift since sampling.
 - **Aggregation:** token-mean global (default), seq-mean, prompt-mean, HisPO constant.
@@ -182,6 +204,21 @@ Facts behind the table:
 | Control plane at DORA scale | ✅ simulator with the real scheduler at 1,024–2,048 engines and 32k environments (`docs/research/m12-infra/01-scale-sweeps.md`) |
 | One colocated async GRPO run on the toy pack on the lab RTX 5090, with staleness and `rollout_probs_diff` recorded | ❌→⏳ first run (2026-10-10): 0 steps, 228k masked rollouts (transformers-5 chat-codec bug, swallowed silently); fixed + failure accounting + circuit breaker; re-staged. Second run (2026-10-11): ✅ learns, held-out 0.44 → 1.00, staleness ≤ 2, `rollout_probs_diff` on every step; stopped by the wall clock at step 22 of 60, so the strict flag reads false |
 
+## 7a. Multi-GPU plan (REPACSS, not run; needs approval)
+
+REPACSS nodes are 4 × H100 NVL 94 GB, so 8 GPUs = 2 nodes. `STAGE=stageN sbatch scripts/repacss_train.sbatch` (repo
+root; `RUN_ROOT` on shared storage; models pre-downloaded, `HF_HUB_OFFLINE=1`); `crucible/scripts/slurm_check.py`.
+
+| stage | checks | GPU-h |
+|---|---|---|
+| 0 | rendezvous at W = 8, `nvidia-smi topo`, bus bandwidth, `NCCL_CUMEM_ENABLE` 0 vs 1 | ~2 |
+| 1 | NCCL parity: fsdp, hsdp, hf_layer, an empty rank, spmd_run at W = 4 and 8 (Δ ≤ 5e-6) | ~3 |
+| 2 | Qwen3-8B bf16 weight broadcast to 3 / 7 receivers (bitwise, < 10 s); disk publish | ~3 |
+| 3 | Qwen3-1.7B (1,8) vs (2,4) vs 1 GPU (rel. Δ ≤ 1e-4); Qwen3-8B (2,4) peak ≤ 85 GB | ~6 |
+| 4 | vLLM sleep / load / wake × 50 at TP1 and TP2 (drift ≤ 1 GB) | ~3 |
+| 5 | GRPO Qwen3-1.7B, node 0 trains (4 FSDP ranks), node 1 serves, 20 steps | ~6 |
+| 6 | Qwen3-8B backlog task, 60 steps, checkpoint every 10 | 24–32 |
+
 ## 8. Remaining
 
 - the prime-rl algorithm bridge (mapping `steps.jsonl` rows to sampled nodes);
@@ -219,10 +256,10 @@ Facts behind the table:
 | 22 | in-flight ≤ S × B | done | |
 | 23 | GLM example | done | |
 | 24 | staleness metric set | **done** | `staleness_worst/*`, `evicted_staleness/*` (incl. evictions at blocked barriers — a bug found), `admission_blocked_s` |
-| 25 | max_offpolicy_frac | done | |
-| 26 | windowed FIFO rule | done | |
+| 25 | max_offpolicy_frac | done (audit 2026-10-13) | the old test was vacuous and the option trained past τ; at-bound groups now bypass the cap (`test_m12_audit_control`) |
+| 26 | windowed FIFO rule | done (audit 2026-10-13) | deadlocked at default settings; the window now counts untrained groups |
 | 27 | Fig. 9 reproduction | **done** | W = 1 ≡ strict FIFO, W = N ≡ greedy tested |
-| 28 | windowed lag ≤ 10 | done | |
+| 28 | windowed lag ≤ 10 | done (audit 2026-10-13) | the old test ran 0 steps; the 'batch 8, W 4' example is not in the article's Chinese text |
 | 29 | length-bias monitor | partial | first-10-batch hard share; drop_early_short test |
 | 30 | source mix ± 10 % | partial | sim mix test |
 | 31 | mismatch metrics every step | done | |

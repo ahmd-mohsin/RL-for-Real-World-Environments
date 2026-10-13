@@ -132,7 +132,8 @@ async def test_top_p_candidates_rebuilt_from_top_k_logprobs():
         async def handler(req: httpx.Request) -> httpx.Response:
             body = json.loads(req.content)
             assert body["logprobs"] == 4 and body["return_tokens_as_token_ids"] and body["top_p"] == 0.8
-            top = [{"token_id:10": math.log(0.6), "token_id:11": math.log(0.25), "token_id:12": math.log(top_mass), "token_id:13": math.log(0.01)}] * 2
+            # processed logprobs: renormalized over the nucleus {10, 11} (0.6 + 0.25 >= 0.8), filtered tokens at vLLM's -9999 floor
+            top = [{"token_id:10": math.log(0.6 / 0.85), "token_id:11": math.log(0.25 / 0.85), "token_id:12": -9999.0, "token_id:13": -9999.0}] * 2
             return httpx.Response(200, json={"choices": [{"token_ids": [10, 11], "finish_reason": "length", "logprobs": {"token_logprobs": [-0.5, -1.4],
                                                                                                                         "top_logprobs": top}}]})
         eng = VLLMServerEngine("http://vllm", "m", nucleus_k=4)
@@ -146,7 +147,12 @@ async def test_top_p_candidates_rebuilt_from_top_k_logprobs():
         await eng.generate(GenRequest(rid="r", call_id="c", prompt_ids=[1], max_tokens=2, top_p=0.8))
     from crucible.train.vllm_http import _nuclei
 
-    with pytest.raises(ValueError, match="raise nucleus_k"):
-        _nuclei([10], [{"token_id:10": math.log(0.3), "token_id:11": math.log(0.2)}], 0.8)
+    with pytest.raises(ValueError, match="raise nucleus_k"):  # top-2 all finite, mass < 1: the nucleus may continue past k
+        _nuclei([10], [{"token_id:10": math.log(0.5), "token_id:11": math.log(0.3)}], 0.8)
     with pytest.raises(ValueError, match="outside"):
-        _nuclei([12], [{"token_id:10": math.log(0.6), "token_id:11": math.log(0.3)}], 0.8)
+        _nuclei([12], [{"token_id:10": math.log(0.7), "token_id:11": math.log(0.3), "token_id:12": -9999.0}], 0.8)
+    # M12 audit: the old rebuild summed renormalized probabilities to top_p and dropped the nucleus's last member
+    assert _nuclei([2], [{"token_id:0": math.log(0.5), "token_id:1": math.log(0.3), "token_id:2": math.log(0.2), "token_id:3": -9999.0}], 0.8) == [[0, 1, 2]]
+    # raw logprobs (no --logprobs-mode processed_logprobs) never close the nucleus: refused, not guessed
+    with pytest.raises(ValueError, match="raw logprobs"):
+        _nuclei([0], [{"token_id:0": math.log(0.5), "token_id:1": math.log(0.3), "token_id:2": math.log(0.1), "token_id:3": math.log(0.05)}], 0.8)

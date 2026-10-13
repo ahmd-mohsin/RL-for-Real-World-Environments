@@ -1,6 +1,6 @@
 """One rank of an FSDP scenario (``test_fsdp.py`` launches WORLD_SIZE of these over gloo):
 ``python _fsdp_worker.py <scenario> <out_dir>`` with RANK / WORLD_SIZE set (rendezvous: a file store in <out_dir>).
-``CRUCIBLE_DIST_BACKEND=nccl``: every scenario on ``cuda:<rank>`` over NCCL (``scripts/modal_infra_check.py``)."""
+``CRUCIBLE_DIST_BACKEND=nccl``: every scenario on ``cuda:<LOCAL_RANK>`` over NCCL (``scripts/modal_infra_check.py``)."""
 
 from __future__ import annotations
 
@@ -62,10 +62,14 @@ def compare(tr: FSDPTrainer, ref: TorchTrainer, rank: int) -> float:
 def main() -> None:
     scenario, out = sys.argv[1], Path(sys.argv[2])
     backend = os.environ.get("CRUCIBLE_DIST_BACKEND", "gloo")
-    dist.init_process_group(backend, init_method=f"file://{out / 'store'}", rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
+    # ``CRUCIBLE_RENDEZVOUS=env``: MASTER_ADDR / MASTER_PORT (multi-node under Slurm: ``scripts/slurm_check.py unit``)
+    init = "env://" if os.environ.get("CRUCIBLE_RENDEZVOUS") == "env" else f"file://{out / 'store'}"
+    dist.init_process_group(backend, init_method=init, rank=int(os.environ["RANK"]), world_size=int(os.environ["WORLD_SIZE"]),
                             timeout=timedelta(seconds=300))
     rank, world = dist.get_rank(), dist.get_world_size()
-    dev = torch.device(f"cuda:{rank}") if backend == "nccl" else torch.device("cpu")
+    # the node-local device (LOCAL_RANK, else rank modulo the visible GPUs): ``cuda:{rank}`` is invalid on a second node (G5 D6)
+    local = int(os.environ.get("LOCAL_RANK", rank % max(1, torch.cuda.device_count()) if backend == "nccl" else 0))
+    dev = torch.device(f"cuda:{local}") if backend == "nccl" else torch.device("cpu")
     if dev.type == "cuda":
         torch.cuda.set_device(dev)
     mesh_dev = dev.type
@@ -107,6 +111,18 @@ def main() -> None:
             res["refused_unbatched_layer"] = False
         except ValueError:
             res["refused_unbatched_layer"] = True
+    elif scenario == "few_items":  # G5 D1 / H4 V1 at the world size of the run: fewer trained rows than ranks
+        base = BatchedTiny(48, 16, seed=0)
+        n = max(1, world - 1)
+        recs, groups = batch(48, base, n=n)
+        for mode in ("step", "layer"):
+            cfg = {"lr": 1e-2, "correction": Correction("dis"), "token_budget": 40}
+            ref = TorchTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=1))
+            ref.step(recs, groups)
+            tr = FSDPTrainer(copy.deepcopy(base).to(dev), TrainerConfig(**cfg, dp=world), reshard=mode, units=lambda m: [m.emb, m.rnn, m.head],
+                             broadcast_batch=True)
+            m1 = tr.step(*((recs, groups) if rank == 0 else ([], [])))
+            res[mode] = {"items": n, "max_abs_diff": compare(tr, ref, rank), "loss": m1["train/loss"]}
     elif scenario == "fsdp_debug":  # step mode, one update at a time: where does it leave the reference?
         base = BatchedTiny(48, 16, seed=0)
         recs, groups = batch(48, base)
@@ -166,7 +182,9 @@ def main() -> None:
 
         if rank != 0:
             res["first"] = follow(trainer())
-            res["second"] = follow(trainer())
+            t2 = trainer()
+            res["second"] = follow(t2)
+            res["updates_after_run2"] = t2.updates
         else:
             published: dict[int, dict] = {}
 
@@ -191,9 +209,9 @@ def main() -> None:
             start = asyncio.run(rt2.resume(str(ck / "step-000008")))
             got = drv2.state_dict()  # collective: the restored shards, gathered
             res.update(resumed_at=start, resumed_version=rt2.version, restore_diff=max(float((got[k].cpu() - v8[k].cpu()).abs().max()) for k in v8),
-                       resumed_updates=drv2.updates)
+                       resumed_updates=drv2.trainer.updates)  # the trainer's own counter (H4 V3: the driver kept a shadow)
             rep2 = asyncio.run(rt2.run())
-            res.update(steps2=len(rep2.steps), first_step2=rep2.steps[0].step)
+            res.update(steps2=len(rep2.steps), first_step2=rep2.steps[0].step, updates_after_run2=drv2.trainer.updates)
             drv2.stop()
     else:
         raise SystemExit(f"unknown scenario {scenario}")

@@ -20,6 +20,15 @@ A checkpoint is taken at the sample barrier (after a step's publish), the one po
 Files: ``<dir>/step-<k>/state.pt`` written to a temp dir and renamed (atomic), plus ``manifest.json`` (sha256 of the
 state file, step, version). A sharded trainer (``FSDPTrainer``) writes ``trainer/`` there instead of weights in
 ``state.pt``: every rank its own shards (``torch.distributed.checkpoint``), no gather. Loading verifies the hash. The file is a pickle: load only checkpoints this run wrote.
+
+Distributed trainers (M12 audit H4 V3): through ``spmd.SPMDDriver`` every rank loads the trainer part of the checkpoint
+(``SPMDDriver.load_state`` → ``load_trainer_state`` on each follower; the directory must be on storage every rank
+reads, as a sharded save already requires). A replicated trainer used to load on the driver only, so the replicas
+diverged after the first resumed step.
+
+Version consistency (H2 V12): a checkpoint must be taken right after a publish (``capture`` refuses a trainer that
+moved past the last published weights), so the restored weights are exactly the restored version's. Game seats (H2
+V20): the per-seat records of finished game rollouts travel with the checkpoint.
 """
 
 from __future__ import annotations
@@ -41,6 +50,13 @@ from crucible.train.pool import LIVE, Group, Tag
 
 def capture(rt: Any, step: int) -> dict:
     tr, sched, pool = rt.trainer, rt.sched, rt.pool
+    pub = getattr(rt, "publisher", None)
+    at = getattr(pub, "published_updates", None)
+    if at is not None and int(at) != int(tr.updates):
+        # H2 V12: the engines serve the weights of update ``at`` as ``rt.version``; this trainer is at ``tr.updates``. Resume
+        # would re-publish the newer weights under the old version, so one version would name two weight sets.
+        raise ValueError(f"run checkpoint at step {step}: the trainer is at update {tr.updates} but version {rt.version} was published at "
+                         f"update {at}; checkpoint right after a publish (checkpoint_every a multiple of publish_every)")
     if getattr(tr, "sharded", False):  # a sharded trainer: each rank writes its shards beside state.pt (``save``)
         trainer: dict[str, Any] = {"sharded": True, "updates": tr.updates}
     else:
@@ -64,6 +80,9 @@ def capture(rt: Any, step: int) -> dict:
         "report": {k: getattr(rt.report, k) for k in ("aborted_calls", "resumed_calls", "reprefill_tokens", "publishes", "max_untrained", "masked_rollouts",
                                                        "late_rewards", "reward_timeouts", "credit_fallbacks", "failures", "restarted_rollouts")},
         "admission_blocked_s": rt.admission_blocked_s,
+        # H2 V20: a finished game rollout's per-seat records (``Runtime._seats``); without them a resumed game trained
+        # only seat 0 under the plain group id
+        "seats": {r: list(v) for r, v in getattr(rt, "_seats", {}).items() if r in pool.tags and pool.tags[r].status not in LIVE},
     }
 
 
@@ -108,17 +127,10 @@ def restore(rt: Any, blob: dict) -> int:
     if blob.get("schema") != "crucible.run_checkpoint/v1":
         raise ValueError(f"not a run checkpoint: {blob.get('schema')}")
     tr, sched, pool = rt.trainer, rt.sched, rt.pool
-    t = blob["trainer"]
-    if t.get("sharded"):
-        tr.load_sharded(str(Path(blob["_path"]) / "trainer"))
+    if callable(getattr(type(tr), "load_state", None)):  # ``spmd.SPMDDriver``: every rank loads (H4 V3)
+        tr.load_state(blob["_path"], blob)
     else:
-        tr.model.load_state_dict(t["model"])
-        tr.opt.load_state_dict(t["opt"])
-    tr.updates = t["updates"]
-    if "critic" in t:
-        tr.critic.load_state_dict(t["critic"])
-        tr.critic_opt.load_state_dict(t["critic_opt"])
-        tr.critic_updates = t["critic_updates"]
+        apply_trainer_state(tr, blob["trainer"], blob["_path"])
     s = blob["scheduler"]
     sched.admitted.update(s["admitted"])
     sched.exhausted = set(s["exhausted"])
@@ -145,5 +157,31 @@ def restore(rt: Any, blob: dict) -> int:
         setattr(rt.report, k, v)
     rt.report.restarted_rollouts += restarted
     rt.admission_blocked_s = blob["admission_blocked_s"]
+    if hasattr(rt, "_seats"):
+        rt._seats = {r: list(v) for r, v in blob.get("seats", {}).items()}
     rt.version = blob["version"]
     return int(blob["step"])
+
+
+def apply_trainer_state(tr: Any, t: dict, path: str | Path | None = None) -> None:
+    """Install the trainer part of a run checkpoint (``blob["trainer"]``) into ``tr`` on this rank. A sharded trainer
+    reads its shards from ``<path>/trainer`` (a collective: every rank calls it)."""
+    if t.get("sharded"):
+        if path is None:
+            raise ValueError("a sharded trainer's checkpoint needs its directory")
+        tr.load_sharded(str(Path(path) / "trainer"))
+    else:
+        tr.model.load_state_dict(t["model"])
+        tr.opt.load_state_dict(t["opt"])
+    tr.updates = t["updates"]
+    if "critic" in t:
+        tr.critic.load_state_dict(t["critic"])
+        tr.critic_opt.load_state_dict(t["critic_opt"])
+        tr.critic_updates = t["critic_updates"]
+
+
+def load_trainer_state(tr: Any, path: str | Path) -> None:
+    """A follower's half of ``SPMDDriver.load_state``: read and verify the run checkpoint at ``path``, install its
+    trainer part."""
+    blob = load(Path(path))
+    apply_trainer_state(tr, blob["trainer"], blob["_path"])

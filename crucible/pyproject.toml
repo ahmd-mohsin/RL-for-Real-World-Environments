@@ -62,6 +62,11 @@ crucible_ref = "crucible.interop.agentenv.plugin.artifacts:CrucibleRefArtifact"
 [project.entry-points."agent_env.explorer_plugins"]
 crucible = "crucible.studio.explorer:CrucibleExplorerPlugin"
 
+# verl imports this group on `import verl` (verl/__init__.py:55-75), in every Ray actor: the crucible_delta estimator and
+# the crucible_agent agent loop (train/bridges/verl_plugin.py)
+[project.entry-points."verl.plugins"]
+crucible = "crucible.train.bridges.verl_plugin"
+
 [project.entry-points."crucible.packs"]
 
 [build-system]

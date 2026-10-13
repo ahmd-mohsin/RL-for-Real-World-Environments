@@ -57,8 +57,9 @@ async def test_tito_interleaved_conversations_extend_exactly(tmp_path, monkeypat
         assert r.tokens["policy_version"] == 3 and len(r.tokens["logprobs"]) == len(r.tokens["completion_token_ids"])
         first[k] = r.tokens["prompt_token_ids"] + r.tokens["completion_token_ids"]
         c = r.tool_calls[0]
-        conv[k] += [{"role": "assistant", "content": r.text, "tool_calls": [{"id": c["id"], "type": "function",
-                                                                                "function": {"name": c["name"], "arguments": "{}"}}]},
+        # the assistant turn replays ``raw_message`` as ``LLMToolPolicy`` does: its reply nonce names the served conversation
+        conv[k] += [{**r.raw_message, "role": "assistant", "content": r.text, "tool_calls": [{"id": c["id"], "type": "function",
+                                                                                               "function": {"name": c["name"], "arguments": "{}"}}]},
                     {"role": "tool", "tool_call_id": c["id"], "content": "result"}]
     for k in ("A", "B"):
         r = await llm.complete(conv[k], tools=tools, temperature=1.0, max_tokens=64)
