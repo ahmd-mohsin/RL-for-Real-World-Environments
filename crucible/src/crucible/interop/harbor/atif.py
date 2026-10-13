@@ -50,7 +50,9 @@ def episode_to_atif(trace: Trace, actor: str, *, instruction: str | None = None,
         elif e.actor == actor and e.type == "message":
             add(source="agent", timestamp=_ts(e.time), message=e.text or "", model_name=model_name, extra={"to": to, "crucible_seq": e.seq})
         elif e.actor == actor and e.type == "done":
-            add(source="agent", timestamp=_ts(e.time), message=e.text or "", model_name=model_name, extra={"done": True, "crucible_seq": e.seq})
+            # the full final answer, not the 2,000-character ``reason`` (M11 audit G5 D2b)
+            add(source="agent", timestamp=_ts(e.time), message=(e.data or {}).get("answer") or e.text or "", model_name=model_name,
+                extra={"done": True, "crucible_seq": e.seq})
         elif e.type == "message" and to == actor:
             add(source="user", timestamp=_ts(e.time), message=f"[from {e.actor}] {e.text or ''}", extra={"from": e.actor, "citations": e.data.get("citations") or [], "crucible_seq": e.seq})
         elif e.type == "event:nl" and (to in (None, actor)):

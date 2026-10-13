@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import functools
 import importlib.util
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,9 +12,26 @@ from pathlib import Path
 import pytest
 
 # Optional frameworks: a test module that imports one at top level is not collected where it is not installed (CI runs
-# without the agentenv checkout). Detected from the source, so a new test needs no list update.
+# without the agentenv checkout). Detected from the module's own top-level import statements (parsed, so a code string
+# that a test runs in a framework's Python does not count: M11 audit, a regex over the text silently dropped
+# test_interop_gate.py and test_m11_audit.py from every full run).
 _OPTIONAL = ("agent_env", "agentenv_protocol", "verifiers", "openenv", "nemo_gym", "torch", "transformers")
-_TOP_IMPORT = re.compile(r"^(?:from|import)\s+(" + "|".join(_OPTIONAL) + r")\b", re.MULTILINE)
+
+
+def _top_imports(text: str) -> set[str]:
+    import ast
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    out: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            out |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            out.add(node.module.split(".")[0])
+    return out
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
@@ -25,7 +41,7 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
         text = collection_path.read_text()
     except OSError:
         return None
-    missing = {m for m in _TOP_IMPORT.findall(text) if importlib.util.find_spec(m) is None}
+    missing = {m for m in _top_imports(text) if m in _OPTIONAL and importlib.util.find_spec(m) is None}
     return True if missing else None
 
 

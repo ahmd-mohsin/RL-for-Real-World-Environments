@@ -8,8 +8,9 @@ into a World (its generated FastAPI service as an App over a SQLite session DB);
   ``verify_task_completion(initial_db_path, final_db_path, final_answer) -> {"result": "complete" | "others"}``) runs in
   AWM's own out-of-process runner (``_vendor/openenv_awm/verifier_runner.py``: import allowlist, CPU / memory / file /
   process limits) against the initial DB and the episode's final DB, both read-only. ``complete`` -> 1, ``others`` -> 0,
-  and a runner error is masked (a verifier failure is never the policy's 0). ``final_answer`` is the policy's final
-  message. The LLM-judged SQL mode is not used: the code mode is deterministic.
+  and a runner error is masked only when the verifier also fails on the untouched database (a broken verifier); one
+  that runs there failed on the episode's own output, which is scored 0. ``final_answer`` is the policy's final
+  message, cut to ``ANSWER_CAP`` characters; the function is the code's first ``def verify_...`` (upstream's rule). The LLM-judged SQL mode is not used: the code mode is deterministic.
 """
 
 from __future__ import annotations
@@ -35,9 +36,22 @@ def verifier_for(scenario: str, task_idx: int, *, cache_dir: Path | None = None)
     raise KeyError(f"no code verifier for {key} task {task_idx}")
 
 
+ANSWER_CAP = 4000  # characters of the final answer a verifier sees (H3 V16: a long answer pushed regex verifiers past their CPU limit)
+
+
+def function_name(code: str, default: str = "verify_task_completion") -> str:
+    """Upstream's rule (``agent_world_model_env/server/verifier.py``): the first ``def verify_...`` in the code (H3 V17: one
+    verifier names its function ``verify_task_complete`` and was masked on every sample)."""
+    for line in code.split("\n"):
+        line = line.strip()
+        if line.startswith("def verify_") and "(" in line:
+            return line.split("(")[0].replace("def ", "").strip()
+    return default
+
+
 def run_verifier(code: str, initial_db: Path, final_db: Path, final_answer: str | None, *, timeout_s: float = 30.0) -> dict:
     """AWM's runner, out of process; returns its JSON (``result``, ``execution_status``, ``error_message``?)."""
-    payload = {"verifier_code": code, "function_name": "verify_task_completion", "initial_db_path": str(initial_db), "final_db_path": str(final_db),
+    payload = {"verifier_code": code, "function_name": function_name(code), "initial_db_path": str(initial_db), "final_db_path": str(final_db),
                "final_answer": final_answer, "mode": "code"}
     modes = {}
     for p in (initial_db, final_db):  # read-only for the verifier (AWM's own verifier.py does the same)
@@ -95,9 +109,16 @@ class AwmTask:
             final = Path(world.apps["api"].state_params["path"])
             snap = ctx.trusted.work / "final.db"  # a copy: the live service keeps its handle on the session DB
             shutil.copyfile(final, snap)
-            out = run_verifier(self.verifier["verification"]["code"], world._awm_initial, snap, self.final_answer(world))
+            code = self.verifier["verification"]["code"]
+            answer = self.final_answer(world)
+            out = run_verifier(code, world._awm_initial, snap, answer[:ANSWER_CAP] if answer else answer)
             if out.get("execution_status") != "success":
-                raise InfraError(f"AWM verifier failed: {out.get('error_message', 'unknown')}"[:500])
+                # a verifier that also fails on the untouched database with no answer is broken (masked); one that runs
+                # there failed on what the episode produced, which is the policy's outcome (H3 V16)
+                selfcheck = run_verifier(code, world._awm_initial, world._awm_initial, None)
+                if selfcheck.get("execution_status") != "success":
+                    raise InfraError(f"AWM verifier failed: {out.get('error_message', 'unknown')}"[:500])
+                return Verdict(False, {"result": "others", "policy_error": str(out.get("error_message"))[:500]})
             ok = out.get("result") == "complete"
             return Verdict(ok, {"result": out.get("result"), "raw": str(out.get("raw_result"))[:500]})
 

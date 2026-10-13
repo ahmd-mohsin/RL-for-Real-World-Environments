@@ -37,6 +37,12 @@ NORMALIZE = {
     "ApiInternalServerError": ("provider_unavailable", "ApiInternalServerError"), "ApiOverloadedError": ("provider_unavailable", "ApiOverloadedError"),
     # MiMo verl categories
     "setup/failed": ("crucible:backend_error", "mimo:setup/failed"), "rollout/pod_conn_timeout": ("transport_peer_drop", "mimo:pod_conn_timeout"),
+    # M11 importers and clients (M11 audit G5 D10: these normalized to unmapped and counted toward the unknown-blame stop)
+    "ambiguous_reward": ("verifier_error", "ambiguous_reward"), "no_reward": ("verifier_error", "no_reward"), "mask_sample": ("verifier_error", "mask_sample"),
+    "AddTestsDirError": ("crucible:backend_error", "AddTestsDirError"), "DownloadVerifierDirError": ("crucible:backend_error", "DownloadVerifierDirError"),
+    "env_unreachable": ("transport_unreachable", "env_unreachable"), "env_session_lost": ("session_lost", "env_session_lost"),
+    "env_admission_timeout": ("transport_timeout", "env_admission_timeout"), "env_seed_failed": ("crucible:backend_error", "env_seed_failed"),
+    "env_server_error": ("crucible:backend_error", "env_server_error"),
     # LLM client
     "UsageBlank": ("crucible:usage_blank", "UsageBlank"), "BudgetExceeded": ("crucible:credits_exhausted", "BudgetExceeded"),
     "ContextOverflow": ("agent_timeout", "context_overflow"),

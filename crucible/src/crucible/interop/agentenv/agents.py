@@ -86,13 +86,23 @@ class LLMToolAgent(AgentEnvAgent):
                                         json={"model": cfg.model, "messages": messages, "tools": tools, "max_tokens": cfg.max_tokens,
                                               "temperature": cfg.temperature})
                     if r.status_code != 200:
-                        return TaskResult.builder().failed("model_error", f"model endpoint {r.status_code}: {r.text[:300]}", error_type="infra_error").build()
-                    body = r.json()
+                        # a 4xx the request's own content caused (an overlong context, a malformed message) is the agent's
+                        # error, scored; auth, rate limits and server errors are infrastructure (M11 audit H2 V15)
+                        own = 400 <= r.status_code < 500 and r.status_code not in (401, 403, 404, 408, 429)
+                        return TaskResult.builder().failed("model_error", f"model endpoint {r.status_code}: {r.text[:300]}",
+                                                           error_type="agent_error" if own else "infra_error").build()
+                    try:
+                        body = r.json()
+                    except ValueError:
+                        return TaskResult.builder().failed("model_error", "model endpoint returned no JSON", error_type="infra_error").build()
                     u = body.get("usage") or {}
                     usage["in"] += int(u.get("prompt_tokens") or 0)
                     usage["out"] += int(u.get("completion_tokens") or 0)
                     msg = (body.get("choices") or [{}])[0].get("message") or {}
                     calls = msg.get("tool_calls") or []
+                    if not isinstance(calls, list) or any(not isinstance(c, dict) or not isinstance(c.get("function"), dict) or not c["function"].get("name") for c in calls):
+                        # malformed model output is the policy's own failure, never a framework exception (masked)
+                        return TaskResult.builder().failed("format_error", "the model returned a malformed tool call", error_type="agent_error").build()
                     messages.append({"role": "assistant", "content": msg.get("content") or "", **({"tool_calls": calls} if calls else {})})
                     trajectory.append({"turn": turn, "text": (msg.get("content") or "")[:2000], "tool_calls": [c["function"]["name"] for c in calls]})
                     if not calls:
@@ -102,7 +112,11 @@ class LLMToolAgent(AgentEnvAgent):
                         try:
                             args = json.loads(c["function"].get("arguments") or "{}")
                         except ValueError:
-                            args = {}
+                            args = None
+                        if not isinstance(args, dict):  # never run a call with invented arguments: the model sees its format error
+                            messages.append({"role": "tool", "tool_call_id": c.get("id") or "", "content": "error: the arguments are not a JSON object"})
+                            trajectory.append({"turn": turn, "tool": c["function"]["name"], "format_error": True})
+                            continue
                         res = _text(await session.call_tool(c["function"]["name"], args))
                         usage["tools"] += 1
                         if len(res) > cfg.max_tool_output:

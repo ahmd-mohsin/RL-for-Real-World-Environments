@@ -46,7 +46,7 @@ async def test_toy_same_reward_and_steps_across_runtimes(tmp_path):
 
     client = TestClient(make_app({"toy/helpdesk": HelpdeskTask()}))
     r = client.post("/seed_session", json={"resources_session_id": "s1", "task_id": "toy/helpdesk"})
-    assert r.status_code == 200 and any(t["name"] == "tickets__issue_refund" for t in r.json()["tools"])
+    assert r.status_code == 200 and any(t["name"] == "tickets__issue_refund" for t in client.get("/crucible/session", headers={"X-Resources-Session-Id": "s1"}).json()["tools"])
     items = []
     for a in GOLD:
         name = a.function_name.replace(".", "__", 1)
@@ -220,7 +220,8 @@ async def test_agentenv_plugin_world_and_verify_through_the_gateway(tmp_path):
         assert [{k: v for k, v in r.items() if k != "harness" and k not in VOLATILE_ROW_KEYS} for r in ver["crucible"]["steps"]] == \
             [{k: v for k, v in r.items() if k != "harness"} for r in nat_rows]
     finally:
-        await WORLDS.pop("hd")["world"].close()
+        for k in [k for k, v in WORLDS.items() if v["env_id"] == "hd"]:  # closed by crucible_verify unless it failed first
+            await WORLDS.pop(k)["world"].close()
     from importlib.metadata import entry_points
 
     assert {e.name for e in entry_points(group="agent_env.task_steps")} >= {"crucible_world", "crucible_verify"}

@@ -12,3 +12,7 @@
   - `verifier_runner.py` — verbatim copy of `_verifier_runner.py` (out-of-process verifier execution: import allowlist,
     CPU / memory / file / process limits). Used by `crucible.interop.openenv.awm_task` for AWM's deterministic
     code-mode verifiers (`gen_verifier.pure_code.jsonl`).
+
+Crucible change (M11 audit, 2026-10-12): `db_manager.create_database` takes `on_connect`, a hook called on the new
+connection before the schema and sample data run. `interop/openenv/awm.py` uses it to pin SQLite's `now` to a fixed
+instant, because 531 of 1,000 scenarios seed rows with `datetime('now', ...)`.

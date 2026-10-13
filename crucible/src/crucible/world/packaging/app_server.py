@@ -67,7 +67,10 @@ class AppMcpServer:
                 raise ValueError(f"Unknown tool: {name}")
             res = await self.caller(t.name, arguments or {})
             if not res.ok:
-                raise ValueError(res.content)  # becomes isError=True with this text
+                # an error result that keeps the World's fault label across the MCP hop (M11 audit H2 V2: a crash and a
+                # transport loss arrived as a plain tool error, so they were scored on the agentenv backend, masked locally)
+                return types.CallToolResult(content=[types.TextContent(type="text", text=res.content)], isError=True,
+                                            structuredContent={"crucible_error": res.error, "crucible_fault": res.fault})
             content = [types.TextContent(type="text", text=res.content)]
             if isinstance(res.data, dict):
                 return content, res.data

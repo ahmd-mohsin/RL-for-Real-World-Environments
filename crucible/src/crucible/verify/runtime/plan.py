@@ -248,9 +248,12 @@ class Plan:
             reward = self.abstain.credit() if all_hard else 0.0
             meta["abstained"] = {"feasibility": self.abstain.feasibility, "credit": reward}
         else:
-            outcome = float(all(status.get(g) == "pass" for g in outs + scores)) if outs or scores else float(all_hard)
-            if self.abstain and self.abstain.feasibility == "infeasible":
-                outcome = 0.0  # the task cannot be done: any claimed solution is wrong
+            base = all(status.get(g) == "pass" for g in outs + scores) if outs or scores else all_hard
+            infeasible = bool(self.abstain and self.abstain.feasibility == "infeasible")  # any claimed solution is wrong
+            # a score check may say whether its score is a success (``detail["success"]``): an imported environment's own
+            # reward of 0 is measured (the gate passes) but is not task success (M11 audit G5: outcome was 1.0 for reward 0)
+            success = all(r.detail.get("success", True) for r in results if r.gate in scores and r.status == "pass")
+            outcome = 0.0 if infeasible else float(base and success)
             term = 1.0
             if scores:  # record-style: reward grows with the normalized score instead of clearing a bar
                 per_gate = []  # averaged within each gate, then across gates (M7 audit V15: two checks in one gate paid 2.0)
@@ -259,7 +262,7 @@ class Plan:
                     per_gate.append(sum(vs) / max(1, len([r for r in results if r.gate == g])) if vs else 0.0)
                 term = sum(per_gate) / len(scores)
                 meta["score"] = {r.id: {k: r.detail.get(k) for k in ("score", "normalized", "new_record")} for r in results if r.gate in scores}
-            reward = term if infra["status"] == "ok" and all_hard and (not outs or all(status.get(g) == "pass" for g in outs)) and outcome > 0 else 0.0
+            reward = term if infra["status"] == "ok" and all_hard and (not outs or all(status.get(g) == "pass" for g in outs)) and base and not infeasible else 0.0
             if not scores:
                 reward = 1.0 if reward and outcome == 1.0 else 0.0
         if tier == "fast" and self.fast_unmeasured_hard:

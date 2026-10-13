@@ -51,9 +51,13 @@ class AwmServiceApp(App):
         if not self.ctx.exec.is_local:
             raise RuntimeError("openenv/awm_service runs locally (local or agentenv backend)")
         from crucible._vendor.openenv_awm.db_manager import create_database
+        from crucible.world.apps.sqlite_app import pin_now
 
         ld = loader(self.cache_dir)
-        create_database(self.state_params["path"], ld.get_db_schema(self.scenario), ld.get_sample_data(self.scenario))
+        # one fixed instant for the sample data's datetime('now', ...): the initial database is the same on every
+        # provision (M11 audit H3 V18: 531 of 1,000 scenarios seeded from the wall clock)
+        epoch = str(self.spec.params.get("virtual_epoch", "2026-01-05 09:00:00"))
+        create_database(self.state_params["path"], ld.get_db_schema(self.scenario), ld.get_sample_data(self.scenario), on_connect=lambda c: pin_now(c, epoch))
 
     async def start(self) -> None:
         from crucible._vendor.openenv_awm.patch import _patch_env_code

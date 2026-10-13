@@ -39,6 +39,7 @@ column types and constraints beyond the inferred primary keys, and row visibilit
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import sqlite3
@@ -153,6 +154,20 @@ def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+_INT_TEXT = re.compile(r"-?(?:0|[1-9][0-9]*)")
+_REAL_TEXT = re.compile(r"-?(?:0|[1-9][0-9]*)\.[0-9]+")
+
+
+def _value_kind(v: Any) -> str:
+    if isinstance(v, bool | int):
+        return "int"
+    if isinstance(v, float):
+        return "real"
+    if isinstance(v, str):
+        return "int" if _INT_TEXT.fullmatch(v) else "real" if _REAL_TEXT.fullmatch(v) else "text"
+    return "blob"
+
+
 def infer_schema(seed_sql: str, *, extra: dict[str, list[str]] | None = None, now: str = "2026-01-05 09:00:00") -> tuple[str, dict[str, str]]:
     """DDL for a data-only dump: (schema SQL, table -> primary-key column). See the module docstring for the rules."""
     from crucible.world.apps.sqlite_app import pin_now
@@ -183,6 +198,22 @@ def infer_schema(seed_sql: str, *, extra: dict[str, list[str]] | None = None, no
                                                    f"SUM({_q(c0)} IS NULL) FROM {_q(t)}").fetchone()
             if n and distinct == n and not nulls:
                 pk[t] = c0 if ints == n else c0 + " TEXT"
+        # each column's affinity from its seed values, as the benchmark's typed tables have (M11 audit H3 V12: a typeless
+        # column kept '427' as text, so the same write graded differently). The dumps quote numbers ('177'), so a value
+        # counts as an integer when it is one or is written as one (no leading zero, which a code like '0123' keeps):
+        # all integers -> INTEGER, all numbers -> REAL, all text -> TEXT; mixed or empty columns stay typeless
+        aff: dict[tuple[str, str], str] = {}
+        for t, cs in cols.items():
+            if t not in seeded:
+                continue
+            for c in cs:
+                vals = [v for (v,) in con.execute(f"SELECT DISTINCT {_q(c)} FROM {_q(t)} WHERE {_q(c)} IS NOT NULL")]
+                if not vals:
+                    continue
+                kinds = {_value_kind(v) for v in vals}
+                aff[(t, c)] = "INTEGER" if kinds == {"int"} else "REAL" if kinds <= {"int", "real"} else "TEXT" if "blob" not in kinds else ""
+                if not aff[(t, c)]:
+                    del aff[(t, c)]
     finally:
         con.close()
     ddl = []
@@ -193,7 +224,7 @@ def infer_schema(seed_sql: str, *, extra: dict[str, list[str]] | None = None, no
             if key.split(" ")[0] == c:
                 defs.append(f"{_q(c)} INTEGER PRIMARY KEY" if " " not in key else f"{_q(c)} PRIMARY KEY")
             else:
-                defs.append(_q(c))
+                defs.append(f"{_q(c)} {aff[(t, c)]}" if (t, c) in aff else _q(c))
         ddl.append(f"CREATE TABLE IF NOT EXISTS {_q(t)} ({', '.join(defs)});")
     return "\n".join(ddl) + "\n", {t: k.split(" ")[0] for t, k in pk.items()}
 
@@ -309,7 +340,7 @@ def import_eog_task(src: str | Path | dict[str, Any], *, seeds: str | Path, cach
         if a.app not in app_of.values():
             if only is None:
                 raise ValueError(f"{tid}: verifier {i} names gym {v.get('gym_name')!r}, not one of {sorted(app_of)}")
-            a = SqlAssertion(a.id, only, a.query, a.expected, a.compare, a.description)
+            a = dataclasses.replace(a, app=only)
         assertions.append(a)
     seed_paths: dict[str, Path] = {}
     for g in servers:
@@ -352,6 +383,12 @@ def import_eog_task(src: str | Path | dict[str, Any], *, seeds: str | Path, cach
     zero = bool(db_checks) and all((v.get("validation_config") or {}).get("comparison_type", "equals") == "equals"
                                    and (v.get("validation_config") or {}).get("expected_value") == 0
                                    and re.match(r"^\s*SELECT\s+COUNT\s*\(", (v.get("validation_config") or {}).get("query", ""), re.IGNORECASE) for v in db_checks)
+    # a refusal task only when every zero-count check already holds on the seeded database: a "delete the record" task has
+    # the same shape and must stay winnable (M11 audit H3 V11, G3 D11: it became a refusal no action could pass)
+    if zero and not _hold_at_seed(db_checks, apps, now):
+        zero = False
+    if verifiers and not assertions:  # every verifier unported: nothing to grade, refused now, not at grade time (H3 V20)
+        raise ValueError(f"{tid}: no verifier Crucible can grade" + (f" ({'; '.join(problems)})" if problems else ""))
     refusal = infeasible if infeasible is not None else (zero or not verifiers)
     who = ""
     ident = actor.get("identity")
@@ -368,13 +405,43 @@ def import_eog_task(src: str | Path | dict[str, Any], *, seeds: str | Path, cach
                    assertions=assertions, refusal=refusal, pk=pks, meta=meta)
 
 
+def _hold_at_seed(checks: list[dict], apps: list[dict], now: str) -> bool:
+    """Do these ``COUNT(*) = 0`` checks already pass on the seeded databases (schema + seed, pinned ``now``)?"""
+    from crucible.world.apps.sqlite_app import pin_now
+
+    dbs = {}
+    try:
+        for a in apps:
+            con = sqlite3.connect(":memory:")
+            pin_now(con, now)
+            con.executescript(Path(a["params"]["schema_sql"]).read_text())
+            for f in a["params"]["seed_sql"]:
+                con.executescript(Path(f).read_text())
+            dbs[a["id"]] = con
+        only = next(iter(dbs.values())) if len(dbs) == 1 else None
+        for v in checks:
+            con = dbs.get(app_id_for(v.get("gym_name") or ""), only)
+            if con is None:
+                return False
+            try:
+                row = con.execute((v.get("validation_config") or {})["query"]).fetchone()
+            except sqlite3.Error:
+                return False
+            if not row or row[0] != 0:
+                return False
+        return True
+    finally:
+        for con in dbs.values():
+            con.close()
+
+
 def import_eog_dir(root: str | Path, *, seeds: str | Path, cache_dir: str | Path, pattern: str = "**/*.json") -> tuple[list[EogTask], dict[str, str]]:
     """Every task JSON under ``root`` -> (imported tasks, {path: why skipped})."""
     tasks, skipped = [], {}
     for p in sorted(Path(root).glob(pattern)):
         try:
             tasks.append(import_eog_task(p, seeds=seeds, cache_dir=cache_dir))
-        except (ValueError, FileNotFoundError, KeyError) as e:
+        except (ValueError, FileNotFoundError, KeyError, sqlite3.Error) as e:  # one malformed seed skips its task, not the directory
             skipped[str(p)] = str(e)
     return tasks, skipped
 
@@ -385,7 +452,7 @@ def import_hf_rows(rows: list[dict[str, Any]], *, seeds: str | Path, cache_dir: 
     for r in rows:
         try:
             tasks.append(import_eog_task(r, seeds=seeds, cache_dir=cache_dir))
-        except (ValueError, FileNotFoundError, KeyError) as e:
+        except (ValueError, FileNotFoundError, KeyError, sqlite3.Error) as e:
             skipped[str(r.get("task_id"))] = str(e)
     return tasks, skipped
 

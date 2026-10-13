@@ -14,7 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def create_database(db_path: str, db_schema: dict, sample_data: Any) -> str:
+def create_database(db_path: str, db_schema: dict, sample_data: Any, on_connect: Any = None) -> str:
     """Create a SQLite database from schema and populate with sample data.
 
     Args:
@@ -31,6 +31,8 @@ def create_database(db_path: str, db_schema: dict, sample_data: Any) -> str:
         os.remove(db_path)
 
     conn = sqlite3.connect(db_path)
+    if on_connect is not None:  # Crucible: pin SQLite's 'now' (see ORIGIN.md)
+        on_connect(conn)
     try:
         _create_schema(conn, db_schema)
         _insert_sample_data(conn, db_path, sample_data)

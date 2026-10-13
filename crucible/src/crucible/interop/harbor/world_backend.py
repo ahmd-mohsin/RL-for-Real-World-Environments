@@ -38,6 +38,36 @@ from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
 
 
+# Worlds sharing one remote daemon in a process share ``DOCKER_HOST`` by reference count: the first sets it, the last
+# restores what was there before (M11 audit H1 V8: the first World to tear down unset it under the others)
+_DOCKER_HOST: dict[str, object] = {"value": None, "users": 0, "before": None}
+
+
+def _acquire_docker_host(host: str) -> None:
+    current = os.environ.get("DOCKER_HOST")
+    if _DOCKER_HOST["users"]:
+        if _DOCKER_HOST["value"] != host:
+            raise RuntimeError(f"DOCKER_HOST is held for {_DOCKER_HOST['value']!r} by another World in this process; refusing {host!r}")
+    else:
+        if current and current != host:
+            raise RuntimeError(f"DOCKER_HOST already set to {current!r} in this process; refusing to switch to {host!r}")
+        _DOCKER_HOST.update(value=host, before=current)
+        os.environ["DOCKER_HOST"] = host
+    _DOCKER_HOST["users"] = int(_DOCKER_HOST["users"]) + 1  # type: ignore[call-overload]
+
+
+def _release_docker_host(host: str) -> None:
+    if not _DOCKER_HOST["users"] or _DOCKER_HOST["value"] != host:
+        return
+    _DOCKER_HOST["users"] = int(_DOCKER_HOST["users"]) - 1  # type: ignore[call-overload]
+    if not _DOCKER_HOST["users"]:
+        if _DOCKER_HOST["before"] is None:
+            os.environ.pop("DOCKER_HOST", None)
+        else:
+            os.environ["DOCKER_HOST"] = str(_DOCKER_HOST["before"])
+        _DOCKER_HOST.update(value=None, before=None)
+
+
 class HarborExec(Exec):
     """Exec over a Harbor ``BaseEnvironment`` (stderr is merged into stdout by Harbor's Docker exec)."""
 
@@ -97,7 +127,6 @@ class HarborBackend(Backend):
         self._exec: HarborExec | None = None
         self.session_id = f"crucible-{spec.world.replace('/', '-')[:40]}-{uuid.uuid4().hex[:8]}".lower()
         self._needs_gpu = any(a.resources.gpus for a in spec.apps)
-        self._prev_docker_host: str | None = None
 
     @property
     def capabilities(self) -> BackendCapabilities:
@@ -163,11 +192,7 @@ class HarborBackend(Backend):
             docker_host = host.docker_host or f"ssh://{host.ssh}"
             self.params["docker_host"] = docker_host
         if docker_host:
-            current = os.environ.get("DOCKER_HOST")
-            if current and current != docker_host:
-                raise RuntimeError(f"DOCKER_HOST already set to {current!r} in this process; refusing to switch to {docker_host!r}")
-            self._prev_docker_host = current
-            os.environ["DOCKER_HOST"] = docker_host  # Harbor's compose + docker CLI subprocesses inherit it
+            _acquire_docker_host(docker_host)  # Harbor's compose + docker CLI subprocesses inherit it
         env_dir, cfg, name = self._env_config()
         trial = TrialPaths(trial_dir=self.workdir / "harbor_trial")
         trial.mkdir()
@@ -267,7 +292,4 @@ class HarborBackend(Backend):
                 await asyncio.shield(self.env.stop(delete=not self.params.get("keep_containers")))
         finally:
             if self.params.get("docker_host"):
-                if self._prev_docker_host is None:
-                    os.environ.pop("DOCKER_HOST", None)
-                else:
-                    os.environ["DOCKER_HOST"] = self._prev_docker_host
+                _release_docker_host(self.params["docker_host"])

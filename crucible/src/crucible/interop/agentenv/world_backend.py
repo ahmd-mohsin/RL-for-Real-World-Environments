@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import hashlib
 import hmac
 import json
@@ -55,6 +56,11 @@ def gw_name(app: str, tool: str) -> str:
     return f"{app}__{tool}"
 
 
+# set while the World steps for an outside agent's call: the gateway already holds that call (and its consistent-mode tool
+# lock), so the World's own tool calls in that step (the call itself, responders, events) go straight to the Apps
+_DIRECT: contextvars.ContextVar[bool] = contextvars.ContextVar("crucible_agentenv_direct", default=False)
+
+
 class GatewayRouter(ToolRouter):
     def __init__(self, backend: AgentEnvBackend):
         self.b = backend
@@ -64,6 +70,13 @@ class GatewayRouter(ToolRouter):
             assert self.b._world is not None
             return await self.b._world.apps[app].call(tool, args, actor=actor, call_id=call_id)
         name = gw_name(app, tool)
+        if _DIRECT.get():
+            # inside an outside agent's gateway call: the gateway's role rules, read back, decide (they were applied to
+            # that call); the App raises into the World's choke point, which records the fault
+            if name not in self.b._allowed.get(actor, set()):
+                return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=f"Permission denied: {app}.{tool}", error="permission_denied")
+            assert self.b._world is not None
+            return await self.b._world.apps[app].call(tool, args, actor=actor, call_id=call_id)
         t0 = time.monotonic()
         try:
             r = await self.b.http.post("/step", headers={ROLE_HEADER: actor},
@@ -77,8 +90,12 @@ class GatewayRouter(ToolRouter):
         if r.status_code != 200:
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=str(body.get("error", body)), error="gateway_error", duration_s=dt)
         text = "\n".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
-        return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=not body.get("isError", False), content=text,
-                          data=body.get("structuredContent"), error="tool_error" if body.get("isError") else None, duration_s=dt)
+        sc = body.get("structuredContent") if isinstance(body.get("structuredContent"), dict) else None
+        if body.get("isError"):  # the App server's fault label survives the hop (H2 V2)
+            sc = sc or {}
+            return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=text, error=sc.get("crucible_error") or "tool_error",
+                              fault=sc.get("crucible_fault"), duration_s=dt)
+        return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=True, content=text, data=sc, duration_s=dt)
 
 
 class AgentEnvBackend(Backend):
@@ -107,6 +124,7 @@ class AgentEnvBackend(Backend):
         self._secret = secrets.token_bytes(32)  # signs the actor identity carried to App servers (spoof-proof __actor)
         self.sandbox_spec = SandboxSpec.model_validate(params["sandbox"]) if params.get("sandbox") else None
         self.sandbox = None
+        self.proxies: dict[str, AgentProxy] = {}
 
     def sign_actor(self, actor: str) -> str:
         return f"{actor}:{hmac.new(self._secret, actor.encode(), hashlib.sha256).hexdigest()[:32]}"
@@ -194,8 +212,25 @@ class AgentEnvBackend(Backend):
 
     @property
     def mcp_url(self) -> str:
-        """Aggregate MCP endpoint for external harnesses (send header AgentEnv-Role: <actor>)."""
+        """The gateway's aggregate MCP endpoint: for Crucible itself and trusted orchestration. Never hand it to a policy:
+        the same port serves the unauthenticated control plane (use ``agent_mcp_url``)."""
         return f"{self.gateway_url}/mcp"
+
+    async def agent_mcp_url(self, actor: str | None = None) -> str:
+        """The MCP endpoint for an outside agent acting as ``actor``: a proxy that forwards only ``/mcp`` and REST
+        ``call_tool`` / ``list_tools``, with the role pinned (M11 audit H2 V6, G4 D5: the agent re-enabled a revoked tool
+        through ``/tools/enable`` and could set the clock and read the trajectory, which carries actor tokens)."""
+        assert self._world is not None
+        actor = actor or self.params.get("default_actor") or self._world.spec.policy_actors[0].id
+        if actor not in self.proxies:
+            px = AgentProxy(self.gateway_url, actor, host=self.params.get("gateway_bind", "127.0.0.1"))
+            await px.start()
+            self.proxies[actor] = px
+        return self.proxies[actor].mcp_url
+
+    async def agent_url(self, actor: str | None = None) -> str:
+        """The agent proxy's base URL (``agent_mcp_url`` without ``/mcp``)."""
+        return (await self.agent_mcp_url(actor)).removesuffix("/mcp")
 
     async def after_apps_started(self, world: World) -> None:
         self._world = world
@@ -207,10 +242,21 @@ class AgentEnvBackend(Backend):
                                                  egress_targets=[["host.docker.internal", self.gateway_port], ["172.17.0.1", self.gateway_port]])
         default_actor = self.params.get("default_actor") or world.spec.policy_actors[0].id
         for app_id, app in world.apps.items():
-            async def caller(name: str, args: dict[str, Any], _app=app) -> ToolResult:
-                # only the World's own router can name an actor (HMAC); any other MCP client acts as the default actor
-                actor = self.verify_actor(args.pop(ACTOR_ARG, None)) or default_actor
-                return await _app.call(name, args, actor=actor, call_id=f"gw-{time.monotonic_ns()}")
+            async def caller(name: str, args: dict[str, Any], _app=app, _app_id=app_id) -> ToolResult:
+                signed = self.verify_actor(args.pop(ACTOR_ARG, None))
+                if signed is not None:
+                    # the World's own router: the World already ran its choke point for this call. A crash is labelled
+                    # infra so the label crosses the MCP hop (H2 V2)
+                    try:
+                        return await _app.call(name, args, actor=signed, call_id=f"gw-{time.monotonic_ns()}")
+                    except Exception as e:  # noqa: BLE001
+                        return ToolResult(tool_call_id="gw", function_name=f"{_app_id}.{name}", ok=False, content=f"internal error in {_app_id}.{name}: {type(e).__name__}",
+                                          error="internal_error", fault="infra")
+                # an outside agent through the gateway (MCP or REST): the call is a World step, so the choke point (schema,
+                # catalog, RBAC, interceptors, quotas, fault labels), the log, the clock, events and responders all run
+                # (H2 V3, G4 D3: these calls reached App.call directly; a crash scored 0 and no event fired). Unsigned
+                # clients act as the default actor.
+                return await self._external_step(world, default_actor, _app_id, name, args)
 
             srv = AppMcpServer(app_id, world._tools[app_id], caller, prefix=True)
             await srv.start()
@@ -224,6 +270,21 @@ class AgentEnvBackend(Backend):
             await self._register_triggers(world)
         await self._refresh_allowed(world)
         self._acl_changed.clear()
+
+    async def _external_step(self, world: World, actor: str, app_id: str, tool: str, args: dict[str, Any]) -> ToolResult:
+        from crucible.core.schema.actions import ToolCall
+        from crucible.world.world import WorldError
+
+        cid = f"ext-{time.monotonic_ns()}"
+        token = _DIRECT.set(True)
+        try:
+            res = await world.step(actor, ToolCall(tool_call_id=cid, function_name=f"{app_id}.{tool}", arguments=args))
+        except WorldError as e:  # e.g. the actor already declared done: the agent's own call, refused
+            return ToolResult(tool_call_id=cid, function_name=f"{app_id}.{tool}", ok=False, content=str(e), error="refused", fault="policy")
+        finally:
+            _DIRECT.reset(token)
+        tr = res.observation.tool_results
+        return tr[0] if tr else ToolResult(tool_call_id=cid, function_name=f"{app_id}.{tool}", ok=False, content="no result", error="refused", fault="policy")
 
     async def _start_gateway(self) -> None:
         env = {
@@ -330,8 +391,9 @@ class AgentEnvBackend(Backend):
         app, _, tool = qualified.partition(".")
         return gw_name(app, tool)
 
-    def _gw_check(self, check: dict) -> dict:
-        return {"steps": [{**st, "tool": self._gw_tool(st["tool"])} for st in check["steps"]]}
+    def _gw_check(self, check: dict, actor: str | None = None) -> dict:
+        signed = {ACTOR_ARG: self.sign_actor(actor or SYSTEM_ROLE)}  # the gateway's own reads: environment dynamics, not an agent's step
+        return {"steps": [{**st, "tool": self._gw_tool(st["tool"]), "args": {**(st.get("args") or {}), **signed}} for st in check["steps"]]}
 
     def _trigger(self, world: World, ev: EventSpec) -> dict[str, Any] | None:
         """An EventSpec as an agentenv trigger (the whole urn:agentenv:triggers/v1 language, m13 C8). None keeps the event
@@ -349,7 +411,7 @@ class AgentEnvBackend(Backend):
             if w.where:
                 when["where"] = dict(w.where)
         elif w.state:
-            when = {"type": "state", "check": self._gw_check(w.state)}
+            when = {"type": "state", "check": self._gw_check(w.state, ev.actor)}
         else:
             if world.spec.clock is None or world.spec.clock.mode != "wall":
                 return None  # time triggers need the gateway clock armed
@@ -369,9 +431,11 @@ class AgentEnvBackend(Backend):
                 when["count"] = w.count
             if w.until:
                 when["until"] = w.until if not w.until.startswith("P") else (t0 + parse_duration(w.until)).isoformat().replace("+00:00", "Z")
-        extra: dict[str, Any] = {"verify": self._gw_check(a.verify)} if a.verify else {}
+        extra: dict[str, Any] = {"verify": self._gw_check(a.verify, ev.actor)} if a.verify else {}
         if a.type == "tool":
-            actions = [{"type": "tool", "tool": self._gw_tool(a.tool or ""), "args": a.args, **extra}]
+            # signed as the event's actor: the gateway executes it, and an unsigned call is an outside agent's World step
+            # (M11 audit), which would wait on the step that provoked this trigger
+            actions = [{"type": "tool", "tool": self._gw_tool(a.tool or ""), "args": {**(a.args or {}), ACTOR_ARG: self.sign_actor(ev.actor or SYSTEM_ROLE)}, **extra}]
         elif a.type == "permission":
             target = a.to or ev.actor
             actions = []
@@ -516,24 +580,109 @@ class AgentEnvBackend(Backend):
         self._acl_changed.clear()
 
     async def teardown(self) -> None:
-        self._keepalive_stop.set()
-        if self._keepalive is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(self._keepalive, 5)
-        if self.gateway is not None and self.gateway.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.gateway.pid, 15)
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(self.gateway.wait(), 5)
-        if self.relay is not None:
-            await self.relay.stop()
-        for s in self.servers.values():
-            await s.stop()
-        await self.http.aclose()
-        if self.sandbox is not None:
-            await self.sandbox.close()
-            self.sandbox = None
-        if not self.params.get("keep_workdir"):
-            import shutil
+        """Each stage contained, the sandbox closed last whatever failed before it (H2 V16: one failing stop skipped a paid
+        sandbox's close), and the gateway killed if SIGTERM does not stop it."""
+        try:
+            self._keepalive_stop.set()
+            if self._keepalive is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(self._keepalive, 5)
+            if self.gateway is not None and self.gateway.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(self.gateway.pid, 15)
+                try:
+                    await asyncio.wait_for(self.gateway.wait(), 5)
+                except Exception:  # noqa: BLE001
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(self.gateway.pid, 9)
+            for stop in [*(p.stop for p in self.proxies.values()), *([self.relay.stop] if self.relay is not None else []), *(s.stop for s in self.servers.values()),
+                         self.http.aclose]:
+                with contextlib.suppress(Exception):
+                    await stop()
+        finally:
+            if self.sandbox is not None:
+                try:
+                    await self.sandbox.close()
+                finally:
+                    self.sandbox = None
+            if not self.params.get("keep_workdir"):
+                import shutil
 
-            shutil.rmtree(self.apps_dir, ignore_errors=True)
+                shutil.rmtree(self.apps_dir, ignore_errors=True)
+
+
+class AgentProxy:
+    """An outside agent's only door into the gateway: ``/mcp`` (streamed both ways) and REST ``/step`` limited to
+    ``call_tool`` / ``list_tools``, with ``AgentEnv-Role`` forced to one actor. The control plane (``/tools/*``,
+    ``/clock/*``, ``/triggers/*``, ``/trajectory``, ``/state``) is not reachable through it."""
+
+    def __init__(self, upstream: str, actor: str, *, host: str = "127.0.0.1"):
+        self.upstream, self.actor, self.host, self.port = upstream.rstrip("/"), actor, host, free_port()
+        self._server: Any = None
+        self._task: asyncio.Task | None = None
+        self._client: httpx.AsyncClient | None = None
+
+    @property
+    def url(self) -> str:
+        return f"http://{'127.0.0.1' if self.host in ('0.0.0.0', '') else self.host}:{self.port}"
+
+    @property
+    def mcp_url(self) -> str:
+        return f"{self.url}/mcp"
+
+    def app(self):
+        from starlette.applications import Starlette
+        from starlette.background import BackgroundTask
+        from starlette.responses import JSONResponse, StreamingResponse
+        from starlette.routing import Route
+
+        drop = {"host", "content-length", ROLE_HEADER.lower(), "connection", "transfer-encoding"}
+
+        async def forward(request):
+            assert self._client is not None
+            body = await request.body()
+            if request.url.path == "/step":
+                try:
+                    action = json.loads(body or b"{}").get("action")
+                except (ValueError, AttributeError):
+                    action = None
+                if action not in ("call_tool", "list_tools"):
+                    return JSONResponse({"error": "only call_tool and list_tools are served to agents"}, status_code=403)
+            headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}
+            headers[ROLE_HEADER] = self.actor
+            url = self.upstream + request.url.path + (f"?{request.url.query}" if request.url.query else "")
+            r = await self._client.send(self._client.build_request(request.method, url, headers=headers, content=body), stream=True)
+            out = {k: v for k, v in r.headers.items() if k.lower() not in ("connection", "transfer-encoding")}
+            return StreamingResponse(r.aiter_raw(), status_code=r.status_code, headers=out, background=BackgroundTask(r.aclose))
+
+        async def refuse(request):
+            return JSONResponse({"error": "not served to agents"}, status_code=404)
+
+        from agent_env.env.gateway.constants import WELL_KNOWN_PATH
+
+        return Starlette(routes=[Route("/mcp", forward, methods=["GET", "POST", "DELETE"]), Route("/mcp/{rest:path}", forward, methods=["GET", "POST", "DELETE"]),
+                                 Route("/step", forward, methods=["POST"]), Route(WELL_KNOWN_PATH, forward, methods=["GET"]),
+                                 Route("/{rest:path}", refuse, methods=["GET", "POST", "PUT", "DELETE"])])
+
+    async def start(self) -> None:
+        import uvicorn
+
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0))
+        self._server = uvicorn.Server(uvicorn.Config(self.app(), host=self.host, port=self.port, log_level="warning", lifespan="off"))
+        self._task = asyncio.create_task(self._server.serve())
+        for _ in range(400):
+            if self._server.started:
+                return
+            if self._task.done():
+                raise RuntimeError(f"agent proxy failed: {self._task.exception()}")
+            await asyncio.sleep(0.025)
+        raise TimeoutError("agent proxy did not start")
+
+    async def stop(self) -> None:
+        if self._server is not None:
+            self._server.should_exit = True
+        if self._task is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._task, 5)
+        if self._client is not None:
+            await self._client.aclose()

@@ -27,10 +27,11 @@ from crucible.verify.progress import ProgressTracker, Subgoal
 
 @dataclass
 class Action:
-    tool: str | None  # canonical "<app>.<tool>"; None for a message
+    tool: str | None  # canonical "<app>.<tool>"; None for a message or the final answer
     args: dict
     to: str | None = None  # message recipient
     text: str | None = None
+    final: bool = False  # the policy's final answer (``Done``): answer-graded tasks grade it (M11 audit G5)
 
 
 class PlanSubgoals:
@@ -72,16 +73,18 @@ async def replay(task: Any, actions: Sequence[Action], out_dir: Path, *, episode
                  max_steps: int = 500) -> dict:
     """Re-issue ``actions`` in a fresh World of ``task`` (M10 RunTask), write the canonical reward files and steps.jsonl."""
     from crucible.actors.policy import EpisodeLimits, ScriptedPolicy, run_episode
-    from crucible.core.schema.actions import Message, ToolCall
+    from crucible.core.schema.actions import Done, Message, ToolCall
     from crucible.credit.steps import write as write_steps
     from crucible.verify.runtime.plan import write_reward_files
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    d = Path(tempfile.mkdtemp(prefix="replay-"))
+    tmp = tempfile.TemporaryDirectory(prefix="replay-")  # removed when the replay ends (H1 V18: 4,986 were left behind)
+    d = Path(tmp.name)
     world = await task.open(d / "work")
     try:
-        script = [ToolCall(tool_call_id=f"r{i}", function_name=a.tool, arguments=a.args) if a.tool else Message(to=a.to or "", text=a.text or "")
+        script = [Done(reason=(a.text or "")[:2000], answer=a.text) if a.final else
+                  ToolCall(tool_call_id=f"r{i}", function_name=a.tool, arguments=a.args) if a.tool else Message(to=a.to or "", text=a.text or "")
                   for i, a in enumerate(actions)]
         sg = getattr(task, "subgoals", None) or PlanSubgoals(plan or task.plan_for_progress(), workdir=d / "p")
         tracker = (ProgressTracker if hasattr(task, "subgoals") else _AllKeys)(sg, out=d / "progress.jsonl", full_every=1)
@@ -89,8 +92,15 @@ async def replay(task: Any, actions: Sequence[Action], out_dir: Path, *, episode
                                reset=False, observers=[tracker])
         rep = await task.grade(world, d / "grade")
         rj = rep.reward_json()
+        # a transcript the replay could not reproduce is not a result (H1 V9: a cut transcript or an unmapped foreign tool
+        # name graded as a real 0): fewer actions issued than recorded, or a call naming no app of this World
+        unmapped = [e.data.get("function") for e in world.log if e.type == "tool_result" and e.data.get("error") in ("bad_tool_name", "unknown_app")]
+        issued = sum(1 for e in world.log if e.type in ("tool_call", "message", "done") and e.actor == "agent")
         if ep.masked:
             rj["infra"] = {"status": "masked", "failure_kind": next((f.get("kind") for f in ep.failures if f.get("kind")), "agent_run_error"), "reason": "episode masked"}
+        elif unmapped or issued < len(script):
+            rj["infra"] = {"status": "masked", "failure_kind": "crucible:replay_incomplete",
+                           "reason": f"replayed {issued} of {len(script)} actions; unmapped tools {sorted(set(map(str, unmapped)))[:5]}"}
         write_reward_files(out_dir, rj, rep.to_dict())
         from crucible.verify.progress import read_rows
 
@@ -102,6 +112,7 @@ async def replay(task: Any, actions: Sequence[Action], out_dir: Path, *, episode
                 "fingerprint": await _fingerprint(world)}
     finally:
         await world.close()
+        tmp.cleanup()
 
 
 async def _fingerprint(world: Any) -> str:
@@ -121,6 +132,10 @@ def from_world_trace(trace: Any, actor: str = "agent") -> list[Action]:
             out.append(Action(canonical_tool(e.data["function"]), canonical_args(e.data.get("arguments"))))
         elif e.type == "message":
             out.append(Action(None, {}, to=e.data.get("to"), text=e.text))
+        elif e.type == "done" and e.text not in ("environment_terminal", "game_over", "script finished"):
+            answer = (e.data or {}).get("answer")
+            if answer is not None or e.text:
+                out.append(Action(None, {}, text=answer if answer is not None else e.text, final=True))
     return out
 
 
@@ -138,9 +153,17 @@ def from_atif(traj: Any, *, known: Iterable[str] = ()) -> list[Action]:
 
 
 def from_responses(output_items: Sequence[dict], *, known: Iterable[str] = ()) -> list[Action]:
-    """NeMo-Gym / OpenAI Responses ``output`` items: ``{"type": "function_call", "name", "arguments"}``."""
+    """NeMo-Gym / OpenAI Responses ``output`` items: ``{"type": "function_call", "name", "arguments"}``; a trailing
+    assistant ``message`` is the final answer."""
     out = []
-    for it in output_items:
+    items = list(output_items)
+    last_msg = max((i for i, it in enumerate(items) if it.get("type") == "message" and it.get("role", "assistant") == "assistant"), default=None)
+    for i, it in enumerate(items):
+        if i == last_msg and i == len(items) - 1:
+            text = "".join(c.get("text", "") for c in it.get("content") or [] if isinstance(c, dict) and c.get("type") in ("output_text", "text"))
+            if text:
+                out.append(Action(None, {}, text=text, final=True))
+            continue
         if it.get("type") == "function_call":
             name = it.get("name", "")
             if name == "send_message":

@@ -123,10 +123,65 @@ def restore(a):
         src.close()
 
 
+def _guard(con, read_only):
+    """A policy's SQL may touch only this database (M11 audit H3 V15: ``VACUUM INTO`` and ``ATTACH`` wrote files outside
+    the World, even from the read-only tool, which creates the target before it fails): no ATTACH/DETACH (VACUUM INTO
+    attaches), no PRAGMA that sets a value; read-only allows only SELECT, reads, functions and reading pragmas."""
+    allowed_ro = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_PRAGMA, getattr(sqlite3, "SQLITE_RECURSIVE", 33)}
+
+    def auth(action, arg1, arg2, db, trigger):
+        if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):
+            return sqlite3.SQLITE_DENY
+        if action == sqlite3.SQLITE_PRAGMA and arg2 is not None:
+            return sqlite3.SQLITE_DENY
+        if read_only and action not in allowed_ro:
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    con.set_authorizer(auth)
+
+
+def _pin(con, now):
+    """SQLite's ``now`` is the World's time, not the host's (H3 V14): the date/time functions get ``now`` for 'now'."""
+    if not now:
+        return
+    aux = sqlite3.connect(":memory:", check_same_thread=False)
+
+    def wrap(name, at):
+        def f(*args):
+            v = list(args)
+            if len(v) <= at:
+                v.append(now)
+            elif isinstance(v[at], str) and v[at].strip().lower() == "now":
+                v[at] = now
+            return aux.execute(f"SELECT {name}({','.join('?' * len(v))})", v).fetchone()[0]
+
+        return f
+
+    for name in ("datetime", "date", "time", "julianday", "unixepoch"):
+        con.create_function(name, -1, wrap(name, 0), deterministic=True)
+    con.create_function("strftime", -1, wrap("strftime", 1), deterministic=True)
+
+
+def execute(a):
+    con = sqlite3.connect(a["path"])
+    try:
+        _pin(con, a.get("now"))
+        _guard(con, False)
+        cur = con.execute(a["sql"], a.get("params") or [])
+        con.commit()
+        return {"rowcount": cur.rowcount, "lastrowid": cur.lastrowid}
+    finally:
+        con.close()
+
+
 def query(a):
     con = _ro(a["path"])
     try:
         con.execute("PRAGMA query_only=ON")
+        if a.get("guard"):
+            _pin(con, a.get("now"))
+            _guard(con, True)
         cur = con.execute(a["sql"], a.get("params") or [])
         cols = [d[0] for d in (cur.description or [])]
         max_rows = int(a.get("max_rows", 1000))
@@ -136,7 +191,7 @@ def query(a):
         con.close()
 
 
-OPS = {"dump": dump, "backup": backup, "restore": restore, "query": query}
+OPS = {"dump": dump, "backup": backup, "restore": restore, "query": query, "execute": execute}
 
 
 def main(a):

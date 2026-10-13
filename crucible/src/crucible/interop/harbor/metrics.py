@@ -13,7 +13,6 @@ rLLM's ``ShellScriptEvaluator`` cannot mask at all: no reward file means 0 there
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 MASKED_MEAN_PY = '''# /// script
@@ -26,31 +25,44 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-i", required=True)
 ap.add_argument("-o", required=True)
 a = ap.parse_args()
-vals, masked, n = [], 0, 0
+vals, masked, ambiguous, n = [], 0, 0, 0
 for line in open(a.i):
     line = line.strip()
     if not line:
         continue
     n += 1
     row = json.loads(line)
-    v = row.get("reward") if isinstance(row, dict) else None
-    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
-        vals.append(float(v))
+    ok = isinstance(row, dict) and row and all(isinstance(x, (int, float)) and math.isfinite(x) for x in row.values())
+    if ok and ("reward" in row or len(row) == 1):  # Harbor's scalar rule: ``reward``, else the single key (bools count)
+        vals.append(float(row["reward"] if "reward" in row else next(iter(row.values()))))
+    elif ok:
+        ambiguous += 1  # several keys and no ``reward``: not a mask, not a score
     else:
         masked += 1
-out = {"masked_mean": sum(vals) / len(vals) if vals else None, "graded": len(vals), "masked": masked,
+out = {"masked_mean": sum(vals) / len(vals) if vals else None, "graded": len(vals), "masked": masked, "ambiguous": ambiguous,
        "mask_rate": masked / n if n else 0.0}
 json.dump(out, open(a.o, "w"))
 '''
 
 
 def masked_mean(rows: list[dict | None]) -> dict:
-    """One row per trial (``None`` or a row without a finite ``reward`` is masked)."""
-    vals = [float(r["reward"]) for r in rows if isinstance(r, dict) and isinstance(r.get("reward"), (int, float))
-            and not isinstance(r.get("reward"), bool) and math.isfinite(r["reward"])]
+    """One row per trial. ``None`` or a row with a non-finite value is masked; the scalar is Harbor's (``reward``, else
+    the single key; booleans count), and a several-key row without ``reward`` is ambiguous, counted apart (M11 audit
+    H1 V12: single-key and boolean rows were masked)."""
+    from crucible.interop.harbor.rewards import _finite, row_scalar
+
+    vals, masked, ambiguous = [], 0, 0
+    for r in rows:
+        v = row_scalar(r)
+        if v is not None:
+            vals.append(v)
+        elif isinstance(r, dict) and r and all(_finite(x) for x in r.values()):
+            ambiguous += 1
+        else:
+            masked += 1
     n = len(rows)
-    return {"masked_mean": sum(vals) / len(vals) if vals else None, "graded": len(vals), "masked": n - len(vals),
-            "mask_rate": (n - len(vals)) / n if n else 0.0}
+    return {"masked_mean": sum(vals) / len(vals) if vals else None, "graded": len(vals), "masked": masked, "ambiguous": ambiguous,
+            "mask_rate": masked / n if n else 0.0}
 
 
 def write_masked_mean(dest: Path) -> Path:

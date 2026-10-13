@@ -178,9 +178,17 @@ class SqliteApp(App):
             return await self._client.call(self.id, name, args, call_id=call_id)
         return await super().call(name, args, actor=actor, call_id=call_id)
 
+    def _now(self) -> str:
+        """The World's current time for SQLite's ``now`` (the seed's t0 when the World has no clock)."""
+        clock = self.ctx.clock
+        if clock is not None and clock.spec is not None:
+            return clock.now().strftime("%Y-%m-%d %H:%M:%S")
+        return self._seed_now()
+
     async def tool_sql_query(self, sql: str, max_rows: int = 200) -> Any:
         try:
-            r = await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "query", "path": self.db_path, "sql": sql, "max_rows": min(max_rows, 2000)})
+            r = await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "query", "path": self.db_path, "sql": sql, "max_rows": min(max_rows, 2000),
+                                                             "guard": True, "now": self._now()})
         except Exception as e:
             raise ToolError(str(e).split("python snippet failed: ")[-1]) from e
         return {"columns": r["columns"], "rows": r["rows"], "truncated": r["truncated"]}
@@ -188,18 +196,7 @@ class SqliteApp(App):
     async def tool_sql_execute(self, sql: str, params: list[Any] | None = None) -> Any:
         if not self.spec.params.get("sql_write"):
             raise ToolError("writes are disabled")
-        code = (
-            "import sqlite3\n"
-            "def main(a):\n"
-            "    con = sqlite3.connect(a['path'])\n"
-            "    try:\n"
-            "        cur = con.execute(a['sql'], a.get('params') or [])\n"
-            "        con.commit()\n"
-            "        return {'rowcount': cur.rowcount, 'lastrowid': cur.lastrowid}\n"
-            "    finally:\n"
-            "        con.close()\n"
-        )
-        try:
-            return await self.ctx.exec.run_python(code, {"path": self.db_path, "sql": sql, "params": params or []})
+        try:  # guarded (no ATTACH, VACUUM INTO or setting PRAGMAs) and on the World's clock
+            return await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "execute", "path": self.db_path, "sql": sql, "params": params or [], "now": self._now()})
         except Exception as e:
             raise ToolError(str(e).split("python snippet failed: ")[-1]) from e

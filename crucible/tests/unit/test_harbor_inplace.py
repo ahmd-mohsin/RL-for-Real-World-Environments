@@ -62,7 +62,9 @@ async def test_multi_key_missing_reward_and_network_phase(tmp_path):
     rep = await _grade(HarborInPlaceTask(F / "multikey", reward_key="correctness"), tmp_path / "b", oracle=True)
     assert rep.reward == 1.0 and rep.meta["components"] == {"harbor/correctness": 1.0, "harbor/style": 0.5}
     rep = await _grade(HarborInPlaceTask(F / "noreward"), tmp_path / "c", oracle=True)
-    assert rep.infra["status"] == "masked" and rep.infra["failure_kind"] == "RewardFileNotFoundError"
+    # in the agent's own container a missing reward is the agent's outcome (M11 audit H1 V4: a policy could break the
+    # grader to mask its 0); a grader that never writes one fails acceptance A1 (the oracle scores 0)
+    assert rep.infra["status"] == "ok" and rep.reward == 0.0 and rep.meta["failure"]["kind"] == "crucible:RewardFileNotFoundError"
     rep = await _grade(HarborInPlaceTask(F / "netphase"), tmp_path / "d", oracle=True)
     # the verifier's network phase differs from the agent's: Harbor's egress control applies it (A-3); a daemon that cannot
     # would mask (check_infra), never score a silent 0 offline

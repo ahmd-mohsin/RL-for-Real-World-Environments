@@ -21,8 +21,12 @@ no-op get the same (pristine-image) grade: a silent wrong reward.
   phase policy the environment cannot apply masks the grade (``check_infra``) instead of scoring 0.
 - **reward**: Harbor's ``reward.json`` is a flat dict of named numbers (``reward.txt`` one number). The scalar is
   ``reward`` when present, else the single key, else ``reward_key``; with several keys and no rule the grade masks
-  (``ambiguous_reward``) rather than invent a scalar. Every key is kept in ``components`` (``harbor/<key>``). No
-  reward file, an unparseable one, or a verifier timeout masks the grade.
+  (``ambiguous_reward``) rather than invent a scalar. Every key is kept in ``components`` (``harbor/<key>``).
+- **the agent shares the grader's container** (M11 audit): ``/logs/verifier`` and ``/tests`` are emptied before the grade
+  (Harbor's multi-step reset), the agent's own network phase is applied after ``open``, and tasks whose verifier runs
+  in a separate environment are refused. After the agent ran, a container in which the verifier user can no longer
+  write its reward (``agent_broke_env``) or a verifier that writes no valid reward is the agent's outcome, scored 0;
+  a timeout, an upload failure or a lost container masks.
 """
 
 from __future__ import annotations
@@ -79,28 +83,29 @@ class TerminalApp(App):
         return f"wrote {len(content)} characters to {path}"
 
 
-def scalar_reward(rewards: dict[str, float] | None, reward_key: str | None = None) -> tuple[float | None, str | None]:
-    """Harbor reward dict → (scalar, problem). ``reward`` key, else the single key, else ``reward_key``."""
-    if not rewards:
-        return None, "no_reward"
-    if "reward" in rewards:
-        return float(rewards["reward"]), None
-    if len(rewards) == 1:
-        return float(next(iter(rewards.values()))), None
-    if reward_key and reward_key in rewards:
-        return float(rewards[reward_key]), None
-    return None, f"ambiguous_reward: keys {sorted(rewards)} and no reward / reward_key"
+from crucible.interop.harbor.rewards import scalar_reward
+
+# reward-file errors after the agent ran in the same container: its outcome (the dirs were emptied first, so the grader
+# alone wrote there), never a mask (M11 audit H1 V4)
+REWARD_FILE_ERRORS = ("RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError")
 
 
 class HarborInPlaceTask:
     def __init__(self, task_dir: Path, *, docker_host: str | None = None, gpu_host: str | None = None, reward_key: str | None = None,
                  environment_type: str = "docker", environment_kwargs: dict | None = None, user: str | None = None, keep_containers: bool = False):
         from harbor.models.task.task import Task
+        from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_task_verifier_mode
 
         self.dir = Path(task_dir).resolve()
         self.task = Task(self.dir)
         cfg = self.task.config
-        name = self.task.short_name if hasattr(self.task, "short_name") else self.dir.name
+        if not cfg.steps and resolve_task_verifier_mode(cfg) == VerifierEnvironmentMode.SEPARATE:
+            # Harbor grades it in a fresh container after the collect hooks, with only the declared artifacts; grading it in
+            # the agent's container lets a plant score and a real solve fail (M11 audit H1 V2, G1 D4, G5)
+            raise ValueError(f"{self.dir}: the verifier runs in a separate environment ([verifier].environment_mode = \"separate\"), "
+                             "which the in-place World (one container) cannot host; grade it in patch mode (verify_dir) or on Harbor")
+        # the full name keeps two orgs' same-named tasks apart (H1 V11: ``short_name`` drops the org)
+        name = getattr(self.task, "name", None) or self.dir.name
         self.id, self.world_id = f"harbor/{name}", f"harbor:{name}"
         self.instruction = self.task.instruction if hasattr(self.task, "instruction") else (self.dir / "instruction.md").read_text()
         self.reward_key = reward_key
@@ -133,6 +138,9 @@ class HarborInPlaceTask:
         mode = getattr(base.network_mode, "value", str(base.network_mode))
         return {"no-network": "no-network", "allowlist": "allowlist"}.get(mode, "public"), list(base.allowed_hosts or [])
 
+    def _agent_public(self) -> bool:
+        return getattr(self.plan.agent_phase.network_mode, "value", str(self.plan.agent_phase.network_mode)) not in ("no-network", "allowlist")
+
     def spec(self, workdir: Path):
         from crucible.core.schema.world import WorldSpec
 
@@ -143,8 +151,9 @@ class HarborInPlaceTask:
         if gpus:
             app["resources"] = {"gpus": gpus}
         doc = {"world": self.world_id, "backend": "harbor", "backend_params": self.backend_params, "network": net, "apps": [app],
-               # internet is part of a public-network Harbor task: only the verifier-path rule applies (m13 C-4)
-               **({"intercept": ["grader_paths"]} if net == "public" else {}),
+               # internet is part of a task whose *agent* phase is public: only the verifier-path rule applies (m13 C-4); a
+               # public baseline with a restricted agent phase keeps the fetch rule (H1 V3)
+               **({"intercept": ["grader_paths"]} if net == "public" and self._agent_public() else {}),
                "actors": [{"id": "agent", "kind": "policy", "tools": ["term.*"]}],
                "limits": {"tool_timeout_s": 3600}}
         if net == "allowlist":
@@ -161,7 +170,44 @@ class HarborInPlaceTask:
         await w.start()
         await w.reset()
         await self._healthcheck(w)
+        if not self.task.config.steps:
+            await self._apply_agent_phase(w)
         return w
+
+    async def _apply_agent_phase(self, world) -> None:
+        """The agent's own network phase (H1 V3: only the verifier phase was ever applied, so ``[agent] network_mode =
+        "no-network"`` on a public baseline ran the agent with the internet). Fails closed."""
+        plan = self.plan
+        if plan.agent_phase == plan.agent_env_baseline:
+            return
+        env = world.backend.env
+        if not getattr(getattr(env, "capabilities", None), "dynamic_network_policy", False):
+            await world.close()
+            raise RuntimeError(f"the agent phase needs network {plan.agent_phase} but this environment cannot change its policy")
+        await env.set_network_policy(plan.agent_phase)
+
+    def _env_paths(self):
+        from harbor.models.trial.paths import EnvironmentPaths
+
+        return EnvironmentPaths.for_os(self.task.config.environment.os)
+
+    async def _reset_shared_dirs(self, env) -> None:
+        """Harbor ``_reset_shared_step_verifier_dirs``: empty ``/logs/verifier`` and ``/tests`` in the agent container, so
+        the grader reads only what it writes (H1 V1: a planted ``reward.json`` or ``/tests/conftest.py`` scored 1)."""
+        paths = self._env_paths()
+        await env.empty_dirs([paths.verifier_dir], chmod=True)
+        await env.empty_dirs([paths.tests_dir], chmod=False)
+
+    async def _probe(self, env, user) -> str | None:
+        """Can the verifier user still run a shell and write its reward? None when yes, else what is broken (the agent
+        broke its own container: scored 0). An exception (the container is gone) propagates: infrastructure."""
+        paths = self._env_paths()
+        f = f"{paths.verifier_dir}/.crucible_probe"
+        with env.with_default_user(user):
+            r = await env.exec(f"sh -c 'echo ok > {f} && cat {f} && rm -f {f}'")
+        if r.return_code != 0 or "ok" not in (r.stdout or ""):
+            return f"the verifier user cannot write {paths.verifier_dir} or run a shell after the agent ran: {(r.stderr or r.stdout or '')[-200:]}"
+        return None
 
     async def _healthcheck(self, world) -> None:
         env = world.backend.env
@@ -198,26 +244,39 @@ class HarborInPlaceTask:
 
         from harbor.verifier.verifier import Verifier
 
+        def zero(kind: str, reason: str) -> GradeReport:  # the policy's own outcome in its container: scored 0
+            return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
+                               elapsed_s=round(time.monotonic() - t0, 2), meta={"failure": {"kind": kind, "reason": reason[:500]}})
+
         env = world.backend.env
-        tp = self._trial_paths(world)
         plan = self.plan
-        phase, base = plan.verifier_phase, plan.agent_env_baseline
+        phase, current = plan.verifier_phase, plan.agent_phase
+        dynamic = getattr(getattr(env, "capabilities", None), "dynamic_network_policy", False)
         try:
-            if phase != base:
-                caps = getattr(env, "capabilities", None)
-                if not getattr(caps, "dynamic_network_policy", False):
-                    return masked("check_infra", f"the verifier needs network {phase} but this environment cannot change its policy ({base})")
+            tp = self._trial_paths(world)
+            await self._reset_shared_dirs(env)
+            broken = await self._probe(env, self.task.config.verifier.user)
+            if broken:
+                return zero("crucible:agent_broke_env", broken)
+            if phase != current:
+                if not dynamic:
+                    return masked("check_infra", f"the verifier needs network {phase} but this environment cannot change its policy ({current})")
                 await env.set_network_policy(phase)
             with env.with_default_user(self.task.config.verifier.user):
                 verifier = Verifier(task=self.task, trial_paths=tp, environment=env)
                 result = await asyncio.wait_for(verifier.verify(), timeout=self.verifier_timeout + 60)
         except TimeoutError:
             return masked("verifier_timeout", f"verifier exceeded {self.verifier_timeout:.0f}s")
-        except Exception as e:  # noqa: BLE001 -- Harbor's typed verifier errors (no / empty / unparseable reward file): never a 0
+        except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors are the agent's (H1 V4)
+            if type(e).__name__ in REWARD_FILE_ERRORS:
+                return zero(f"crucible:{type(e).__name__}", f"the verifier wrote no valid reward after the agent ran: {e}")
             return masked(type(e).__name__, str(e))
         finally:
-            if phase != base and getattr(getattr(env, "capabilities", None), "dynamic_network_policy", False):
-                await env.set_network_policy(base)
+            if phase != current and dynamic:
+                try:
+                    await env.set_network_policy(current)
+                except Exception:  # noqa: BLE001, S110 -- restoring the phase never overrides the grade (H1 V19)
+                    pass
         rewards = dict(result.rewards or {})
         reward, problem = scalar_reward(rewards, self.reward_key)
         if reward is None:

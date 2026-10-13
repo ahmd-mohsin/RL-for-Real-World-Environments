@@ -51,6 +51,8 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         # added with the M10 audit (2026-10-12)
         "crucible:policy_error",  # the policy's own code or output raised inside the episode (bad tool arguments): scored 0
         "crucible:harness_unsupported",  # the harness cannot run this task (configuration): masked, never retried
+        "crucible:replay_incomplete",  # a foreign transcript could not be replayed whole (cut, unmapped tool names): masked
+        "crucible:replay_divergence",  # the replayed episode grades differently from the live one: masked
     }
 )
 # Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
@@ -72,7 +74,8 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:stale_image": "infra", "crucible:node_contention": "infra", "crucible:snapshot_mismatch": "infra", "crucible:backend_error": "infra",
     "crucible:sim_failure": "task", "crucible:answer_exposed": "task", "crucible:tool_crashed": "task", "crucible:policy_misbehavior": "policy",
     "crucible:stale_build": "task", "crucible:harness_self_kill": "harness", "crucible:capture_incomplete": "infra", "crucible:agent_broke_env": "policy",
-    "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness",
+    "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness", "crucible:replay_incomplete": "harness",
+    "crucible:replay_divergence": "harness",
 }
 
 

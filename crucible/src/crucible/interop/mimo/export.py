@@ -12,7 +12,11 @@ from crucible.interop.mimo.importer import MimoEnv, tree_hashes
 
 
 def export(env: MimoEnv, out: Path) -> dict:
-    out = Path(out)
+    """Re-emit the source env's bytes. This proves the import never altered its source, not that a World round-trips:
+    there is no Crucible-World → MiMo writer yet (M11 audit G3 D13, H3 V10)."""
+    out, src = Path(out).resolve(), Path(env.path).resolve()
+    if out == src or src.is_relative_to(out) or out.is_relative_to(src):  # rmtree(out) would delete the source (H3 V10)
+        raise ValueError(f"export target {out} overlaps the source env {src}")
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(env.path, out, ignore=shutil.ignore_patterns("__pycache__", ".cache"))

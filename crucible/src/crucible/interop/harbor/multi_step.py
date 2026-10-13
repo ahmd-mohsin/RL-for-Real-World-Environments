@@ -47,7 +47,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from crucible.interop.harbor.inplace import HarborInPlaceTask, scalar_reward
+from crucible.interop.harbor.inplace import REWARD_FILE_ERRORS, HarborInPlaceTask, scalar_reward
 from crucible.runtime.harness.native import TaskStep
 
 MIN_REWARD_GATE = "harbor_min_reward"
@@ -106,17 +106,6 @@ class HarborMultiStepTask(HarborInPlaceTask):
         p = self.task.paths.discovered_step_test_path_for(name, os_) or self.task.paths.discovered_test_path_for(os_)
         return str(p.relative_to(self.dir)) if p else ""
 
-    def _env_paths(self):
-        from harbor.models.trial.paths import EnvironmentPaths
-
-        return EnvironmentPaths.for_os(self.task.config.environment.os)
-
-    async def _reset_shared_dirs(self, env) -> None:
-        """Harbor ``_reset_shared_step_verifier_dirs``: empty ``/logs/verifier`` and ``/tests`` in the agent container."""
-        paths = self._env_paths()
-        await env.empty_dirs([paths.verifier_dir], chmod=True)
-        await env.empty_dirs([paths.tests_dir], chmod=False)
-
     @staticmethod
     def _state(world) -> dict[str, Any]:
         """Per-World step state (the task object is shared by concurrent attempts): the network phase in force and whether
@@ -174,11 +163,15 @@ class HarborMultiStepTask(HarborInPlaceTask):
                                infra={"status": "masked", "failure_kind": kind, "reason": reason[:500]}, trusted=True, elapsed_s=round(time.monotonic() - t0, 2))
 
         env = world.backend.env
-        tp = self._trial_paths(world)
         timeout = float(step.verifier.timeout_sec)
         user = step.verifier.user if step.verifier.user is not None else self.task.config.verifier.user
         try:
+            tp = self._trial_paths(world)
             await self._reset_shared_dirs(env)
+            broken = await self._probe(env, user)
+            if broken:
+                return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
+                                   elapsed_s=round(time.monotonic() - t0, 2), meta={"failure": {"kind": "crucible:agent_broke_env", "reason": broken}})
             self._state(world)["dirty"] = True  # set before verifying: a failed verifier may still leave files behind
             await self._set_phase(world, self.step_plans[step.name].verifier_phase)
             with env.with_default_user(user):
@@ -186,7 +179,11 @@ class HarborMultiStepTask(HarborInPlaceTask):
                 result = await asyncio.wait_for(verifier.verify(), timeout=timeout + 60)
         except TimeoutError:
             return masked("verifier_timeout", f"step {step.name!r} verifier exceeded {timeout:.0f}s")
-        except Exception as e:  # noqa: BLE001 -- Harbor's typed verifier errors (no / unparseable reward file): never a 0
+        except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors after a reset are the agent's (H1 V4)
+            if type(e).__name__ in REWARD_FILE_ERRORS:
+                return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
+                                   elapsed_s=round(time.monotonic() - t0, 2),
+                                   meta={"failure": {"kind": f"crucible:{type(e).__name__}", "reason": f"step {step.name!r}: {e}"[:500]}})
             return masked(type(e).__name__, f"step {step.name!r}: {e}")
         finally:
             try:

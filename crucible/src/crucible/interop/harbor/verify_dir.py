@@ -3,8 +3,11 @@
 ``HarborDirTask`` is a ``RunTask`` for the workspace seam: the agent's work arrives as a patch and ``grade_patch`` runs
 ``[verifier].command`` in a fresh container of the task image with Harbor's layout (``/tests`` read-only,
 ``/logs/artifacts/model.patch``, ``/logs/verifier``), the declared network mode, limits and GPU flags, on any Docker
-host (``GpuHost``: local, or the lab over ``DOCKER_HOST=ssh://``). The reward is Harbor's: ``reward.json`` (flat) or
-``reward.txt``. No reward file, a timeout, or a stale image is masked, never 0 (``verify.stage`` conventions).
+host (``GpuHost``: local, or the lab over ``DOCKER_HOST=ssh://``), with ``[verifier].env`` (an env file), ``user`` and
+Harbor's verifier network phase (the environment baseline, default public, unless ``[verifier].network_mode``). The
+reward follows Harbor's rules (``rewards.parse_reward_dir``): ``reward.json`` (flat, finite numbers) or ``reward.txt``
+(one number); no reward, a non-finite or unparseable one, a timeout or a stale image is masked, never 0 (``verify.stage``
+conventions). ``mask.json`` is honoured only from Crucible's grading kit.
 
 The task can be pinned to a git ref (``ref=``): a historical run is re-graded against the task *as it was* when the
 run was graded (research m9-m10/02 §6.1: task02's suite was tightened after its frontier run).
@@ -24,13 +27,24 @@ from crucible.verify.runtime.plan import GradeReport
 
 
 def export_ref(repo: Path, task_dir: Path, ref: str, dest: Path) -> Path:
-    """The task directory as of ``ref`` (``git archive``), cached under ``dest``."""
+    """The task directory as of ``ref`` (``git archive``), cached under ``dest`` by the commit the ref names, extracted to
+    a temporary directory and renamed into place (M11 audit H1 V20: a moved branch reused the old grader, and a crash
+    mid-extract left a partial tree that was reused)."""
+    import tempfile
+
     rel = Path(task_dir).resolve().relative_to(Path(repo).resolve())
-    out = Path(dest) / f"{rel.name}@{ref}"
+    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", f"{ref}^{{commit}}"], capture_output=True, text=True, check=True).stdout.strip()
+    immutable = len(ref) >= 7 and sha.startswith(ref)  # a commit id: the name is already the content
+    out = Path(dest) / f"{rel.name}@{ref if immutable else sha[:12]}"
     if not (out / "task.toml").exists():
-        out.mkdir(parents=True, exist_ok=True)
-        arch = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", ref, str(rel)], capture_output=True, check=True).stdout
-        subprocess.run(["tar", "-x", f"--strip-components={len(rel.parts)}", "-C", str(out)], input=arch, check=True)
+        Path(dest).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=dest, prefix=".extract-") as tmp:
+            arch = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", sha, str(rel)], capture_output=True, check=True).stdout
+            subprocess.run(["tar", "-x", f"--strip-components={len(rel.parts)}", "-C", tmp], input=arch, check=True)
+            if out.exists():
+                shutil.rmtree(out)
+            Path(tmp).rename(out)
+            Path(tmp).mkdir()  # the context manager removes it
     return out
 
 
@@ -46,9 +60,33 @@ def _gates(report: dict) -> dict[str, str]:
     return out
 
 
+def _resolve_env(env: dict) -> dict[str, str]:
+    """Harbor ``resolve_env_vars``: ``${VAR}`` and ``${VAR:-default}`` from the host environment."""
+    import os
+    import re
+
+    def sub(m: re.Match) -> str:
+        name, _, default = m.group(1).partition(":-")
+        return os.environ.get(name, default if m.group(1).find(":-") >= 0 else "")
+
+    return {str(k): re.sub(r"\$\{([^}]+)\}", sub, str(v)) for k, v in (env or {}).items()}
+
+
+def _memory_mb(text: object) -> int | None:
+    """Harbor's legacy ``memory = "2G"`` (migrated to ``memory_mb``)."""
+    if text is None:
+        return None
+    t = str(text).strip().upper().removesuffix("B")
+    mult = {"K": 1 / 1024, "M": 1, "G": 1024, "T": 1024 * 1024}.get(t[-1:], None)
+    try:
+        return int(float(t[:-1]) * mult) if mult else int(float(t) / (1024 * 1024))
+    except ValueError:
+        return None
+
+
 class HarborDirTask:
     def __init__(self, task_dir: Path, *, image: str, host: GpuHost | None = None, expected_image: str | None = None, ref: str | None = None,
-                 perf: bool = False, timeout: float | None = None):
+                 perf: bool = False, timeout: float | None = None, trust_mask: bool | None = None):
         self.dir = Path(task_dir)
         self.cfg = tomllib.loads((self.dir / "task.toml").read_text())
         name = (self.cfg.get("task") or {}).get("name") or self.dir.name
@@ -62,8 +100,21 @@ class HarborDirTask:
         venv = v.get("environment") or {}
         env = self.cfg.get("environment") or {}
         self.gpus = int(venv.get("gpus") or env.get("gpus") or 0)
-        self.cpus, self.memory_mb = venv.get("cpus") or env.get("cpus"), venv.get("memory_mb") or env.get("memory_mb")
-        self.network = v.get("network_mode") or "no-network"
+        self.cpus = venv.get("cpus") or env.get("cpus")
+        self.memory_mb = venv.get("memory_mb") or env.get("memory_mb") or _memory_mb(venv.get("memory") or env.get("memory"))
+        # Harbor's verifier phase: ``[verifier].network_mode``, else the environment baseline (``network_mode``, or the
+        # deprecated ``allow_internet``), whose default is public (H1 V6: this defaulted to no-network)
+        base = env.get("network_mode") or ("no-network" if env.get("allow_internet") is False else "public")
+        self.network = v.get("network_mode") or base
+        if self.network == "allowlist":
+            raise ValueError(f"{self.dir}: an allowlist verifier network cannot be enforced in a plain container; grade it on Harbor")
+        self.verifier_env = _resolve_env(v.get("env") or {})  # merged into the test run, as Harbor does
+        self.user = v.get("user")
+        # ``mask.json`` comes only from Crucible's grading kit; a foreign test.sh runs the code under test with
+        # ``/logs/verifier`` writable, so its mask could be the candidate's own (H1 V7)
+        test_sh = self.dir / "tests" / "test.sh"
+        kit = (self.dir / "tests" / "crucible" / "verify" / "runtime").is_dir() or (test_sh.exists() and "crucible_verify" in test_sh.read_text(errors="replace"))
+        self.trust_mask = kit if trust_mask is None else trust_mask
 
     def _docker(self, *a: str, timeout: float = 120) -> subprocess.CompletedProcess:
         env = None
@@ -108,31 +159,54 @@ class HarborDirTask:
             argv += ["--cpus", str(self.cpus)]
         if self.memory_mb:
             argv += ["--memory", f"{int(self.memory_mb)}m"]
+        if self.user:
+            argv += ["--user", str(self.user)]
+        envfile = None
+        if self.verifier_env:  # an env file, never ``-e K=V`` (values would sit on the command line)
+            import os
+            import tempfile
+
+            fd, envfile = tempfile.mkstemp(prefix="crucible-venv-", suffix=".env")
+            with os.fdopen(fd, "w") as f:
+                f.write("".join(f"{k}={v}\n" for k, v in self.verifier_env.items()))
+            argv += ["--env-file", envfile]
         argv += ["--entrypoint", "bash", self.image, "-c", self.command]
         try:
-            p = await asyncio.to_thread(self._docker, *argv, timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            self._docker("rm", "-f", name)
-            return self._masked("verifier_timeout", f"grade exceeded {self.timeout:.0f}s; container {name} removed", t0)
-        local = gdir / "verifier"
-        self.host.get(f"{key}/verifier", local)
-        self.host.exec(f"rm -rf {self.host.workroot}/{key}")
-        (gdir / "console.log").write_text((p.stdout + p.stderr)[-50000:])
-        report = json.loads((local / "report.json").read_text()) if (local / "report.json").exists() else {}
-        if (local / "mask.json").exists():  # the grader itself masked the grade (Crucible kit): keep its failure kind
-            mk = json.loads((local / "mask.json").read_text())
-            return self._masked(mk.get("failure_kind") or "check_infra", mk.get("reason") or "masked by the grader", t0)
-        reward = None
-        if (local / "reward.json").exists():
-            reward = float(json.loads((local / "reward.json").read_text()).get("reward"))
-        elif (local / "reward.txt").exists() and (local / "reward.txt").read_text().strip():
             try:
-                reward = float((local / "reward.txt").read_text().strip().splitlines()[-1])
+                p = await asyncio.to_thread(self._docker, *argv, timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                self._docker("rm", "-f", name)
+                return self._masked("verifier_timeout", f"grade exceeded {self.timeout:.0f}s; container {name} removed", t0)
+            local = gdir / "verifier"
+            self.host.get(f"{key}/verifier", local)
+        finally:  # staged files never stay on the host (H1 V21: a timeout returned before the cleanup)
+            if envfile:
+                Path(envfile).unlink(missing_ok=True)
+            try:
+                self.host.exec(f"rm -rf {self.host.workroot}/{key}")
+            except Exception:  # noqa: BLE001, S110 -- cleanup never overrides the grade
+                pass
+        (gdir / "console.log").write_text((p.stdout + p.stderr)[-50000:])
+        try:
+            report = json.loads((local / "report.json").read_text()) if (local / "report.json").exists() else {}
+        except ValueError:
+            report = {}
+        if self.trust_mask and (local / "mask.json").exists():  # Crucible's kit masked the grade: keep its failure kind
+            try:
+                mk = json.loads((local / "mask.json").read_text())
             except ValueError:
-                reward = None
-        if reward is None:
-            return self._masked("no_reward_json", f"the verifier left no reward (rc {p.returncode})", t0)
-        gates = _gates(report)
+                mk = {}
+            return self._masked(mk.get("failure_kind") or "check_infra", mk.get("reason") or "masked by the grader", t0)
+        from crucible.interop.harbor.rewards import parse_reward_dir, scalar_reward
+
+        rewards, problem = parse_reward_dir(local)
+        reward = None
+        if rewards is not None:
+            reward, problem = scalar_reward(rewards)
+        if reward is None:  # Harbor's rules: no, empty, unparseable, non-finite or ambiguous rewards are verifier errors
+            kind = (problem or "no_reward").split(":")[0]
+            return self._masked("no_reward_json" if kind == "RewardFileNotFoundError" else kind, f"{problem} (rc {p.returncode})", t0)
+        gates = _gates(report if isinstance(report, dict) else {})
         shutil.rmtree(gdir / "stage", ignore_errors=True)
         return GradeReport(task=self.id, tier="full", checks=[], gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=round(time.monotonic() - t0, 2), meta={"report": report, "rc": p.returncode})

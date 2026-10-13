@@ -49,6 +49,7 @@ import fnmatch
 import hashlib
 import importlib
 import json
+import math
 import posixpath
 import shlex
 from collections.abc import Callable, Sequence
@@ -389,6 +390,14 @@ class OpenEnvApp(App):
     async def list_tools(self) -> list[ToolSpec]:
         return self._tools
 
+    async def _healthy(self) -> bool:
+        """Rebuild the environment to the journal (every digest verified): True when it replays exactly."""
+        try:
+            await self._replay(json.loads(json.dumps(self.journal)))
+            return True
+        except Exception:  # noqa: BLE001 -- any failure to reproduce the journal: the environment is not healthy
+            return False
+
     def _obs_text(self, obs: Any, *, reset: bool = False) -> str:
         if not reset and hasattr(obs, "tool_name"):  # CallToolObservation
             if obs.error is not None:
@@ -431,7 +440,11 @@ class OpenEnvApp(App):
         return out
 
     def _step_digest(self, obs: Any, text: str) -> str:
-        return _digest(text + "".join(f"|image:{hashlib.sha256(b).hexdigest()}" for b, _ in self._images(obs)))
+        """The step's whole observation: the policy's text, images, and the hidden parts a restore must reproduce too
+        (``metadata``, ``reward``, ``done``; M11 audit H3 V1: a restore that drew a different hidden card was accepted)."""
+        hidden = {"metadata": getattr(obs, "metadata", None), "reward": getattr(obs, "reward", None), "done": bool(getattr(obs, "done", False))}
+        return _digest(text + "".join(f"|image:{hashlib.sha256(b).hexdigest()}" for b, _ in self._images(obs))
+                       + "|" + json.dumps(hidden, sort_keys=True, default=str, ensure_ascii=False))
 
     async def call(self, name: str, args: dict[str, Any], *, actor: str, call_id: str) -> ToolResult:
         q = f"{self.id}.{name}"
@@ -457,6 +470,14 @@ class OpenEnvApp(App):
             # journal (every digest verified), then issue the call once more.
             await self._replay(json.loads(json.dumps(self.journal)))
             obs, text, reward, done = await self._issue(name, args)
+        except Exception as e:
+            # OpenEnv environments raise on actions they reject (Atari's out-of-range action_id; H3 V2: one bad action
+            # masked the policy's own episode). Rebuild the environment from the journal: if every digest replays, the
+            # environment is healthy and the action was the policy's error (not journaled); if not, it is infra.
+            if not await self._healthy():
+                raise
+            return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=f"Invalid action: {type(e).__name__}: {e}"[:2000],
+                              error="invalid_action", fault="policy")
         self._update_turn(obs)
         self._sim_time(obs)
         err = getattr(obs, "error", None)
@@ -472,6 +493,8 @@ class OpenEnvApp(App):
         if err is not None:
             et = _err_type(err)
             fault = {"invalid_args": "policy", "tool_not_found": "policy", "execution_error": "tool"}.get(et, "infra")
+            if et == "timeout" and await self._healthy():  # a call the policy made slow (OpenEnv's MCP deadline), on a healthy env
+                fault = "policy"
             return ToolResult(tool_call_id=call_id, function_name=q, ok=False, content=text, error=et or "tool_error", fault=fault, ends_episode=done,
                               ends_for=ends_for)
         if self.mcp and _is_error(obs.result):
@@ -577,7 +600,10 @@ class OpenEnvTask:
     def episode_reward(self, j: dict) -> float | None:
         if not j.get("done"):
             return None
-        return j.get("final_reward") if self.reward_mode == "last" else sum(r or 0.0 for r in j.get("rewards", []))
+        if self.reward_mode == "last":
+            return j.get("final_reward")
+        rs = j.get("rewards", [])
+        return None if any(r is not None and not math.isfinite(r) for r in rs) else sum(r or 0.0 for r in rs)
 
     def plan(self):
         from crucible.verify.runtime.plan import Check, Gate, Plan, Verdict
@@ -585,12 +611,19 @@ class OpenEnvTask:
         lo, hi = self.reward_range
 
         async def env_reward(ctx) -> Verdict:
+            from crucible.verify.runtime.trusted import InfraError
+
             j = await self.journal(ctx.params["view"], self.app)
-            r = self.episode_reward(j)
-            if r is None:
+            if not j.get("done"):
                 return Verdict(False, {"reason": "the episode never terminated (no final answer): scored 0", "steps": len(j.get("steps", []))})
+            r = self.episode_reward(j)
+            # a terminal step without a reward, or a non-finite one, is the environment's bug: masked (H3 V3: NaN scored 0,
+            # inf 1, None "never terminated")
+            if r is None or not math.isfinite(r):
+                raise InfraError(f"crucible:invalid_reward: the environment ended the episode with reward {r!r}")
             norm = min(1.0, max(0.0, (r - lo) / (hi - lo))) if hi > lo else float(r > lo)
-            return Verdict(True, {"score": r, "normalized": norm, "normalized_reward": norm, "steps": len(j.get("steps", [])),
+            # ``success``: full credit only (G5: every terminated episode was an outcome pass, so a 0 read as solved)
+            return Verdict(True, {"score": r, "normalized": norm, "normalized_reward": norm, "success": norm >= 1.0, "steps": len(j.get("steps", [])),
                                   **({"actor_rewards": self.actor_rewards(j)} if self.players else {})})
 
         return Plan(self.id, [Gate("env_reward", kind="score", description="the OpenEnv environment's own reward")],

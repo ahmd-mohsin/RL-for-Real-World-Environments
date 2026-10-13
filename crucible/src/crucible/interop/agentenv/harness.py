@@ -100,14 +100,25 @@ class A2AHarness:
         return json.loads(text)
 
     async def _ask(self, url: str, text: str) -> tuple[str, str, Any]:
-        from agent_env.a2a_agent.protocol import TerminalResponse, poll_a2a_task, send_a2a_message
+        """Send the task and wait for a terminal state. The agent's own overrun (or a park in ``input-required``) is a
+        limit stop, ``("timeout", None)``, and the remote task is cancelled (M11 audit G4 D8: the poll's TimeoutError was
+        a transport fault, masked and retried)."""
+        from agent_env.a2a_agent.protocol import TerminalResponse, cancel_a2a_task, poll_a2a_task, send_a2a_message
 
         task_id, _ = await send_a2a_message(url, [{"kind": "text", "text": text}], uuid.uuid4().hex, None, self.timeout_s)
-        task = await poll_a2a_task(url, task_id, self.timeout_s, 1)
+        try:
+            task = await poll_a2a_task(url, task_id, self.timeout_s, 1)
+        except TimeoutError:
+            try:
+                await cancel_a2a_task(url, task_id)
+            except Exception:  # noqa: BLE001, S110 -- best effort; the agent may already be gone
+                pass
+            return task_id, "timeout", None
         status = task.get("status") or {}
         return task_id, str(status.get("state") or ""), TerminalResponse.from_message(status.get("message") or {})
 
     async def run(self, attempt: Attempt) -> HarnessResult:
+        from crucible.core.secrets import scrub_json, scrub_secrets
         from crucible.interop.agentenv.a2a import ServedAgent
 
         t: dict[str, float] = {}
@@ -118,9 +129,10 @@ class A2AHarness:
             with boundary("seed"):
                 world = await attempt.task.open(attempt.dir / "work")
                 world.stream_trace(attempt.dir / "trace.jsonl")
-            mcp_url = getattr(world.backend, "mcp_url", None)
-            if not mcp_url:
+            if not hasattr(world.backend, "agent_mcp_url"):
                 raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="seed", reason="the A2A harness needs a World served over MCP (agentenv backend)"))
+            # the role-pinned proxy, never the gateway root (M11 audit H2 V6: the agent re-enabled a revoked tool there)
+            mcp_url = await world.backend.agent_mcp_url(self.actor)
             t["seed"] = time.monotonic() - t0
             t0 = time.monotonic()
             with boundary("agent"):
@@ -133,9 +145,16 @@ class A2AHarness:
                 session = (re.sub(r"[^A-Za-z0-9._-]", "_", attempt.id).lstrip("._-") or "attempt") + f"-{tag}"
                 key = self.capture.register(session) if self.capture is not None else None
                 async with httpx.AsyncClient(timeout=60) as c:
-                    r = await c.post(f"{url}/ext/mcp-config", json={"url": mcp_url, "headers": {"AgentEnv-Role": self.actor}, "name": "world"})
-                    if r.status_code not in (200, 409):
+                    # one server per attempt (H2 V7: the fixed name "world" got 409 on a reused agent, which kept the first
+                    # attempt's World). agentenv cannot remove a registration, so an agent holding another World is refused
+                    r = await c.post(f"{url}/ext/mcp-config", json={"url": mcp_url, "headers": {"AgentEnv-Role": self.actor}, "name": f"world-{tag}"})
+                    if r.status_code != 200:
                         raise StageFailure(Failure(kind="agent_run_error", stage="agent", reason=f"mcp-config refused: {r.status_code} {r.text[:200]}", blame="harness"))
+                    listed = await c.get(f"{url}/ext/mcp-config")
+                    others = [n for n in ((listed.json() or {}).get("mcp_servers") or {}) if n != f"world-{tag}"] if listed.status_code == 200 else []
+                    if others:
+                        raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="agent", retryable=False,
+                                                   reason=f"the agent already holds other MCP servers {others[:3]}: serve a fresh agent per attempt"))
                     cfg = self._config(key)
                     if cfg:
                         r = await c.post(f"{url}/ext/agent-config", json=cfg)
@@ -143,27 +162,34 @@ class A2AHarness:
                             raise StageFailure(Failure(kind="agent_run_error", stage="agent", reason=f"agent-config refused: {r.status_code} {r.text[:200]}", blame="harness"))
                 task_id, state, term = await self._ask(url, getattr(attempt.task, "instruction", ""))
                 res.artifacts["a2a_reply"] = "a2a_reply.txt"
-                (attempt.dir / "a2a_reply.txt").write_text(term.response_text or "")
+                # scrubbed like the native harness's records (H2 V14: a provider-echoed key reached these files)
+                (attempt.dir / "a2a_reply.txt").write_text(scrub_secrets(term.response_text or "") if term is not None else "")
                 async with httpx.AsyncClient(timeout=60) as c:
                     tr = await c.post(f"{url}/ext/trajectory", json={"task_id": task_id})
                     if tr.status_code == 200:
-                        (attempt.dir / "agent_trajectory.json").write_text(tr.text)
+                        try:
+                            (attempt.dir / "agent_trajectory.json").write_text(scrub_json(tr.text))
+                        except ValueError:
+                            (attempt.dir / "agent_trajectory.json").write_text(scrub_secrets(tr.text))
                         res.artifacts["agent_trajectory"] = "agent_trajectory.json"
                 if self.capture is not None:
                     res.calls = {self.actor: calls_from_capture(Path(self.capture.capture_dir) / f"{session}.jsonl", self.actor, self.policy_version)}
                     if any(res.calls.values()):
-                        (attempt.dir / "calls.json").write_text(json.dumps(res.calls, default=str))
+                        (attempt.dir / "calls.json").write_text(scrub_json(json.dumps(res.calls, default=str)))
                         res.artifacts["calls"] = "calls.json"
-                if state in FAILED_STATES:
+                if state == "timeout":  # the agent's own overrun: a limit stop, graded like the native harness's
+                    res.stop, res.truncated = "timeout", True
+                elif state in FAILED_STATES:
                     # the agent is the policy: its own agent_error is an outcome (scored); an infra_error, a cancel or a
                     # rejection is the harness's infrastructure (masked)
                     own = state == "failed" and (term.error_type or "agent_error") == "agent_error"
                     raise StageFailure(Failure(kind="agent_run_error", stage="agent", blame="policy" if own else "infra",
                                                reason=f"A2A task {state}: {term.error_code or term.error_type or ''} {term.error_message or term.response_text or ''}"[:400]))
-                res.steps = term.tool_call_count or 0
-                res.stop = "agent_done"
+                else:
+                    res.steps = term.tool_call_count or 0
+                    res.stop = "agent_done"
             t["agent"] = time.monotonic() - t0
-            (attempt.dir / "trace.json").write_text(world.to_trace().model_dump_json())
+            (attempt.dir / "trace.json").write_text(scrub_json(world.to_trace().model_dump_json()))
             res.artifacts["trace"] = "trace.json"
             t0 = time.monotonic()
             with boundary("verification"):

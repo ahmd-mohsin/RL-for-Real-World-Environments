@@ -841,7 +841,7 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
   - The actions are replayed in a fresh World and graded through the single reward producer.
   - Progress is measured online over the task's subgoals or its plan's checks.
 - Exports:
-  - **NeMo-Gym resources server** (`interop/nemo_gym/server.py`): grades the live World session from its state. Masked grades go out as `mask_sample` in both NeMo-RL locations. Responses validate against NeMo-Gym's own pydantic models in its Python 3.13 env.
+  - **NeMo-Gym resources server** (`interop/nemo_gym/server.py`): grades the live World session from its state, once per session; an infra fault in the World or a grading exception masks. Masked grades go out as `mask_sample` in both NeMo-RL locations (NeMo-RL still counts their 0.0 in group baselines: the M12 bridge fills them). Every route's reply validates against NeMo-Gym's own pydantic models in its Python 3.13 env (M11 audit; before it, only the unmasked verify body did).
   - **OpenEnv `Environment`** (`interop/openenv/export.py`): on OpenEnv's own base and MCP types. Per-step rewards Ψ-telescope to the final reward, with Ψ₋₁ = 0 because a plan's invariants can hold at the start. A masked grade yields reward None.
   - **verifiers taskset** (`interop/verifiers/taskset.py`): subclasses verifiers' `HarborTask`/`HarborTaskset`. A masked grade raises a typed `TaskError`, which prime-rl drops; components are recorded as `crucible/` metrics.
 - **Framework environments:** `crucible/.envs/{openenv,verifiers,nemo}`. verifiers pins mcp 2, agentenv and OpenEnv mcp < 2, and NeMo-Gym Python ≥ 3.13.14. Each path runs in its own environment, and the gate compares the outputs.
@@ -863,9 +863,9 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
   - A crash or an unavailable judge is masked (MiMo's own contract), never 0. Items map to `check/<id>` channels.
   - MiMo's verifier output is captured and scrubbed: it prints a judge-key prefix.
   - The export emits the original bytes and checks them against the manifest.
-  - **Gate ✅:** one env imported, run, graded (masked without a judge; 0.5 with a cheap judge for a placeholder answer) and re-exported byte-identical.
+  - **Gate ✅:** one env imported, run, graded (masked without a judge; 0.5 with a cheap judge for a placeholder answer) and re-exported byte-identical. The re-export copies the source bytes: it proves the import left the source untouched, not a World round trip (M11 audit; a World → MiMo writer is open).
 - **Canonical episode key** `"<task id>|<episode>"`: derived `call_id`s agree across runtimes.
-- **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, agentenv (real gateway REST transport), NeMo-Gym and OpenEnv, with the same final state fingerprint. verifiers keeps the reward and raises a typed error on a mask.
+- **Gate (toy) ✅** (`tests/unit/test_interop_gate.py`): the oracle trajectory gives byte-identical `reward.json` and `steps.jsonl` through native, Harbor ATIF, agentenv (real gateway REST transport), NeMo-Gym and OpenEnv, with the same final state fingerprint. verifiers keeps the reward and raises a typed error on a mask. What each leg proves (M11 audit): the Harbor and OpenEnv legs compare replays of the same oracle actions, so they test the transcript formats, not the runtimes; the NeMo-Gym leg drives Crucible's server with a test client (NeMo-Gym's own environment server is not run); the verifiers leg runs verifiers' classes on a stub runtime (the plugin now loads through verifiers' own loader); no leg covers task02.
 
 **As built, M11 part 4: OpenEnv import (2026-10-10; research `docs/research/m11-m12/05` §3.5, §4).** The reverse of the
 export, so any environment in the OpenEnv / FineEnvs catalogue (simulations, games, planners, MCP services) runs as a
@@ -2831,6 +2831,27 @@ cap, at least the dearest settled attempt); uncertain spend above tolerance stop
 crashes and process deaths and charges only new calls. Credentials are scrubbed at the source (`LLMError`) and at the
 record boundary (`core/secrets.py`). Registered pack kinds keep their blame; unmapped names are `unknown`; stale images,
 stale builds, 4xx rejections and masked limit stops are not retried. Details: `docs/audit/2026-10-12/M10-runtime.md`.
+
+**M11 audit (2026-10-12).** Every foreign path follows the M10 rule: masks travel as masks, policy failures are scored.
+An infrastructure fault recorded in the World masks the NeMo-Gym export's `/verify`, the OpenEnv export's final step
+and agentenv's `crucible_verify`; App servers carry the fault label across the MCP hop. An imported framework's own
+failure (a NeMo-Gym 500 or dead server, a missing, non-finite or out-of-range reward, a NaN OpenEnv reward, a MiMo score
+outside [0, 1]) masks. The policy's own failures are scored, with a health check where it is ambiguous: a raising
+OpenEnv action on an environment whose journal replays exactly, a 4xx NeMo-Gym tool reply, an answer that breaks an AWM
+verifier which runs on the untouched database, a Harbor container in which the verifier user can no longer write its
+reward. The policy no longer reaches the grader or the control plane: one grade per NeMo-Gym session ends it (the model
+could call `verify` as a tool), agents get a role-pinned `/mcp`-only proxy instead of the agentenv gateway root, Harbor
+in place empties `/logs/verifier` and `/tests` before grading and refuses separate-verifier tasks, the verifiers export
+removes grader-only files before `test.sh`, and policy SQL runs under an SQLite authorizer (no ATTACH, VACUUM INTO or
+setting PRAGMAs). Outside agents' gateway calls are World steps (choke point, log, clock, events). Framework semantics
+are the framework's: Harbor's reward rules everywhere (`interop/harbor/rewards.py`), its verifier network phase,
+env and user; NeMo-Gym's pydantic models for every route; verifiers' `ok`, branches and our exact logprobs; EOG's
+`_compare_values` and typed columns; MiMo's `detail.passed`, with `verify.py` in an isolated subprocess. A score check
+may report `success`, so an imported environment's 0 is no longer an outcome pass. Corrections to earlier claims in this
+document: NeMo-RL counts a masked sample's 0.0 in its GRPO group baselines (`grpo.py:3458-3499`), so the M12 NeMo-RL
+bridge must fill masked rows first; NeMo-Gym's `harbor_agent` scores a missing reward 0 (unsupported path); the MiMo
+"byte-identical re-export" proves only that the import left its source untouched; the verifiers gate runs verifiers'
+classes on a stub runtime. Details: `docs/audit/2026-10-12/M11-interop.md`.
 
 ## 14. Repository layout
 

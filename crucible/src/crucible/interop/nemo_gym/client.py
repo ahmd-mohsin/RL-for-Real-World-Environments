@@ -2,8 +2,10 @@
 env-server processes (``interop/nemo_gym/server.py``, any host) instead of in-process.
 
 - ``remote_episode(urls, task_id, policy, rid=...)`` drives any Crucible ``Policy`` (``act(Observation) -> Action``):
-  ``/seed_session`` gives the tools and the instruction; each ``ToolCall`` becomes ``POST /<app>__<tool>``; the episode ends
-  when the policy is done or at ``max_steps``; ``/verify`` grades **from the World's state** on the server;
+  ``/seed_session`` opens the session and ``GET /crucible/session`` gives the tools and the instruction; each ``ToolCall``
+  becomes ``POST /<app>__<tool>``, each ``Message`` ``POST /crucible/message`` and the ``Done`` ``POST /crucible/done`` (the
+  server's World sees every action); the episode ends when the policy is done or at ``max_steps``; any server failure
+  (lost session, 5xx, transport) is a masked episode, never a raise; ``/verify`` grades **from the World's state** on the server;
   ``/close_session`` frees the slot. ``LLMToolPolicy`` therefore runs remotely unchanged: its context management,
   compaction and token capture (``model_calls``) are the in-process ones.
 - **Session affinity**: a rollout's session lives on one server (``crc32(rid) % len(urls)``), and every call carries
@@ -58,8 +60,15 @@ async def remote_episode(urls: list[str], task_id: str, policy: Any, *, rid: str
             return RemoteEpisode(None, True, "env_unreachable", 0, f"seed failed: {e}", server=url)
         if r.status_code == 503:
             return RemoteEpisode(None, True, "env_admission_timeout", 0, "admission", server=url)
-        r.raise_for_status()
-        seed = r.json()
+        if r.status_code >= 400:
+            return RemoteEpisode(None, True, "env_seed_failed", 0, f"seed HTTP {r.status_code}", server=url)
+        try:
+            info = await c.get(url + "/crucible/session", headers=hdr)
+        except httpx.HTTPError as e:
+            return RemoteEpisode(None, True, "env_unreachable", 0, f"session info failed: {e}", server=url)
+        if info.status_code >= 400:
+            return RemoteEpisode(None, True, "env_session_lost", 0, f"session info HTTP {info.status_code}", server=url)
+        seed = info.json()
         tools = []
         for t in seed.get("tools", []):
             app, _, name = str(t["name"]).partition("__")
@@ -69,25 +78,44 @@ async def remote_episode(urls: list[str], task_id: str, policy: Any, *, rid: str
         while steps < max_steps:
             a = await policy.act(obs)
             steps += 1
-            if isinstance(a, Done):
-                stop = "agent_done"
-                break
-            results = []
-            if isinstance(a, ToolCall):
-                try:
+            results, inbox = [], []
+            try:
+                if isinstance(a, Done):  # the World sees the Done (H2 V12: answer-graded tasks graded nothing remotely)
+                    stop = "agent_done"
+                    d = await c.post(url + "/crucible/done", json={"reason": a.reason, "answer": a.answer}, headers=hdr)
+                    if d.status_code == 404:
+                        return RemoteEpisode(None, True, "env_session_lost", steps, "session lost", server=url)
+                    break
+                if isinstance(a, ToolCall):
                     tr = await c.post(f"{url}/{a.function_name.replace('.', '__', 1)}", json=a.arguments, headers=hdr)
-                except httpx.HTTPError as e:
-                    return RemoteEpisode(None, True, "env_unreachable", steps, f"tool call failed: {e}", server=url)
+                elif isinstance(a, Message):  # peers and responders run on the server (H2 V12: messages were dropped)
+                    tr = await c.post(url + "/crucible/message", json={"to": a.to, "text": a.text}, headers=hdr)
+                else:
+                    tr = None
+            except httpx.HTTPError as e:
+                return RemoteEpisode(None, True, "env_unreachable", steps, f"call failed: {e}", server=url)
+            if tr is not None:
                 if tr.status_code == 404:  # reaped or lost on the server: infrastructure, masked
                     return RemoteEpisode(None, True, "env_session_lost", steps, "session lost", server=url)
-                tr.raise_for_status()
-                d = tr.json()
-                results.append(ToolResult(tool_call_id=a.tool_call_id, function_name=a.function_name, ok=bool(d.get("ok", True)), content=str(d.get("output", ""))))
-            elif isinstance(a, Message):
-                pass  # no peers on a resources server: the message is acknowledged by the policy itself
-            obs = Observation(actor=actor, step=steps, tool_results=results)
-        v = await c.post(url + "/verify", json={"resources_session_id": sid, "responses_create_params": {}, "response": {}}, headers=hdr)
-        v.raise_for_status()
+                if tr.status_code >= 500:
+                    return RemoteEpisode(None, True, "env_server_error", steps, f"HTTP {tr.status_code}", server=url)
+                d = tr.json() if tr.status_code < 400 else {"ok": False, "output": tr.text[:2000]}
+                if isinstance(a, ToolCall):
+                    results.append(ToolResult(tool_call_id=a.tool_call_id, function_name=a.function_name, ok=bool(d.get("ok", True)),
+                                              content=str(d.get("output", "")), fault=d.get("fault")))
+                else:
+                    from crucible.core.schema.actions import Inbound
+
+                    inbox = [Inbound.model_validate(m) for m in d.get("inbox") or []]
+            obs = Observation(actor=actor, step=steps, tool_results=results, inbox=inbox)
+        try:
+            v = await c.post(url + "/verify", json={"resources_session_id": sid, "responses_create_params": {}, "response": {}}, headers=hdr)
+        except httpx.HTTPError as e:
+            return RemoteEpisode(None, True, "env_unreachable", steps, f"verify failed: {e}", server=url)
+        if v.status_code == 404:  # reaped before the grade: the environment lost it (H2 V12: this raised)
+            return RemoteEpisode(None, True, "env_session_lost", steps, "session lost before verify", server=url)
+        if v.status_code >= 400:
+            return RemoteEpisode(None, True, "env_server_error", steps, f"verify HTTP {v.status_code}", server=url)
         doc = v.json()
         masked = bool(doc.get("mask_sample"))
         return RemoteEpisode(None if masked else float(doc["reward"]), masked, doc.get("failure_kind") if masked else None, steps, stop, doc, url)

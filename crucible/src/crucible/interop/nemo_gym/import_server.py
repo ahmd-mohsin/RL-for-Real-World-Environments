@@ -98,6 +98,7 @@ class NemoGymApp(App):
         import httpx
 
         if self.client is not None:
+            await self.close_session()
             await self.client.aclose()
         self.client = httpx.AsyncClient(base_url=self.spec.params["url"].rstrip("/"), timeout=self.spec.params.get("timeout_s", 120.0),
                                         headers=dict(self.spec.params.get("headers") or {}))
@@ -111,6 +112,7 @@ class NemoGymApp(App):
 
     async def stop(self) -> None:
         if self.client is not None:
+            await self.close_session()
             await self.client.aclose()
             self.client = None
 
@@ -126,31 +128,66 @@ class NemoGymApp(App):
                 out.append(ToolSpec(app=self.id, name=t["name"], description=t.get("description") or "", input_schema=t.get("parameters") or {"type": "object"}))
         return out
 
-    async def _issue(self, tool: str, args: dict) -> str:
+    async def _issue(self, tool: str, args: dict) -> tuple[str, int]:
+        """The server's reply as NeMo-Gym's agent shows it to the model: any status, the body verbatim. Transport loss and
+        gateway errors (502-504) raise (infrastructure: the World masks the episode)."""
         r = await self.client.post(f"/{tool}", json=args)
-        r.raise_for_status()
-        d = r.json()
-        out = d.get("output", d)
-        return out if isinstance(out, str) else json.dumps(out, sort_keys=True, default=str)
+        if r.status_code in (502, 503, 504):
+            r.raise_for_status()
+        try:
+            d = r.json()
+        except ValueError:
+            return r.text, r.status_code
+        out = d.get("output", d) if isinstance(d, dict) else d
+        return (out if isinstance(out, str) else json.dumps(out, sort_keys=True, default=str)), r.status_code
 
     async def call(self, tool: str, args: dict, *, actor: str, call_id: str) -> ToolResult:
-        text = await self._issue(tool, args)
-        self.journal["calls"].append({"tool": tool, "args": args, "digest": _digest(text), "id": call_id, "output": text[:65536]})
+        text, status = await self._issue(tool, args)
+        # the full output: ``/verify`` must see what the policy saw (M11 audit G3 D21: it was cut at 64 KiB)
+        self.journal["calls"].append({"tool": tool, "args": args, "digest": _digest(text), "id": call_id, "output": text, "status": status})
         await self._write()
+        if status >= 400:  # NeMo-Gym shows an error body to the model; a 4xx is the policy's call, a 5xx the tool's (G3 D9: both masked)
+            return ToolResult(tool_call_id=call_id, function_name=f"{self.id}.{tool}", ok=False, content=text, error=f"HTTP {status}",
+                              fault="policy" if status < 500 else "tool")
         return ToolResult(tool_call_id=call_id, function_name=f"{self.id}.{tool}", ok=True, content=text)
 
     async def after_restore(self) -> None:
         doc = json.loads(await self.ctx.exec.read_text(self.state_params["path"]))
         await self._seed()
         for i, c in enumerate(doc["calls"]):
-            if _digest(await self._issue(c["tool"], c["args"])) != c["digest"]:
+            if _digest((await self._issue(c["tool"], c["args"]))[0]) != c["digest"]:
                 raise SnapshotMismatch(f"{self.id}: replayed call {i} ({c['tool']}) gave a different result: the server is not deterministic")
         self.journal = doc
 
     async def verify(self, response: dict) -> dict:
-        r = await self.client.post("/verify", json={**self._row(), "response": response})
-        r.raise_for_status()
-        return r.json()
+        """The server's verify document. Its own failures (transport, non-2xx, no JSON) are infrastructure, never the
+        candidate's 0 (M11 audit H2 V4, G5: a 500, a dead server or a missing reward scored 0)."""
+        import httpx
+
+        from crucible.verify.runtime.trusted import InfraError
+
+        try:
+            r = await self.client.post("/verify", json={**self._row(), "response": response})
+        except httpx.HTTPError as e:
+            raise InfraError(f"nemo-gym /verify unreachable: {type(e).__name__}: {e}") from e
+        if r.status_code >= 300:
+            raise InfraError(f"nemo-gym /verify HTTP {r.status_code}: {r.text[:300]}")
+        try:
+            doc = r.json()
+        except ValueError as e:
+            raise InfraError("nemo-gym /verify returned no JSON") from e
+        if not isinstance(doc, dict):
+            raise InfraError("nemo-gym /verify returned no JSON object")
+        return doc
+
+    async def close_session(self) -> None:
+        """Release the server's session state (G3 D21: sessions were never closed, so stateful servers grew all run)."""
+        if self.client is None:
+            return
+        try:
+            await self.client.post("/close_session", json={})
+        except Exception:  # noqa: BLE001, S110 -- best effort; the server may not implement it
+            pass
 
 
 def trace_to_response(trace: Any, row: dict, *, actor: str = "agent", calls: list[dict] | None = None) -> dict:
@@ -174,8 +211,9 @@ def trace_to_response(trace: Any, row: dict, *, actor: str = "agent", calls: lis
                         "id": f"fc_{len(out)}", "status": "completed"})
         elif calls is None and e.type == "tool_result" and e.actor == actor:
             out.append({"type": "function_call_output", "call_id": str(e.data.get("id")), "output": e.text or ""})
-        elif e.type == "done" and e.actor == actor and e.text and e.text not in ("environment_terminal", "script finished"):
-            final = e.text
+        elif e.type == "done" and e.actor == actor and e.text not in ("environment_terminal", "script finished"):
+            # the full answer, not the 2,000-character ``reason`` cut (M11 audit G5: a correct long answer scored 0)
+            final = (e.data or {}).get("answer") or e.text or final
     if final:
         out.append({"id": f"msg_{len(out)}", "type": "message", "role": "assistant", "status": "completed",
                     "content": [{"type": "output_text", "text": final, "annotations": []}]})
@@ -190,8 +228,9 @@ def load_rows(path: str | Path) -> list[dict]:
 
 
 class NemoGymTask:
-    def __init__(self, id: str, url: str, row: dict, *, app: str = "gym", tool_timeout_s: float = 120.0):
+    def __init__(self, id: str, url: str, row: dict, *, app: str = "gym", tool_timeout_s: float = 120.0, reward_range: tuple[float, float] = (0.0, 1.0)):
         self.id, self.world_id, self.url, self.row, self.app, self.tool_timeout_s = id, f"nemo_gym/{id.split('/')[1] if '/' in id else id}", url, row, app, tool_timeout_s
+        self.reward_range = reward_range  # the server manifest's ``reward.range``
 
     @property
     def instruction(self) -> str:
@@ -202,7 +241,8 @@ class NemoGymTask:
         for m in msgs:
             c = m.get("content")
             text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
-            parts.append(f"[{m.get('role', 'user')}] {text}" if m.get("role") == "system" else text)
+            role = m.get("role", "user")
+            parts.append(text if role == "user" else f"[{role}] {text}")  # every non-user turn keeps its role (G5)
         return "\n\n".join(parts)
 
     def spec(self, workdir: Path):
@@ -248,9 +288,21 @@ class NemoGymTask:
                 from crucible.verify.runtime.trusted import InfraError
 
                 raise InfraError(f"nemo-gym masked the sample: {doc.get('failure_kind') or 'mask_sample'}")
-            r = float(doc.get("reward", 0.0))
-            return Verdict(True, {"score": r, "normalized": min(1.0, max(0.0, r)), "normalized_reward": min(1.0, max(0.0, r)),
-                                  "components": {k: v for k, v in doc.items() if isinstance(v, int | float) and k != "reward"}})
+            import math
+
+            from crucible.verify.runtime.trusted import InfraError
+
+            raw = doc.get("reward")
+            if isinstance(raw, bool) or not isinstance(raw, int | float) or not math.isfinite(raw):
+                raise InfraError(f"nemo-gym /verify gave no finite reward ({raw!r})")  # G3 D10: missing or NaN scored 0
+            lo, hi = self.reward_range
+            if not lo <= raw <= hi:  # outside the declared range: the server is broken or the range is wrong; never clamped
+                raise InfraError(f"nemo-gym reward {raw} outside the declared range [{lo}, {hi}]")
+            r = float(raw)
+            norm = (r - lo) / (hi - lo) if hi > lo else 0.0
+            # ``passed`` is the server's own full-credit verdict (G5: every graded episode was a pass, so A1 could never fail)
+            return Verdict(True, {"score": r, "normalized": norm, "normalized_reward": norm, "success": norm >= 1.0,
+                                         "components": {k: v for k, v in doc.items() if isinstance(v, int | float) and not isinstance(v, bool) and k != "reward"}})
 
         return Plan(self.id, [Gate("nemo_reward", kind="score", description="the NeMo-Gym server's own /verify reward")],
                     [Check("nemo_reward", "nemo_reward", nemo_verify, tier="fast", provenance="nemo-gym:/verify")])

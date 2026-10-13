@@ -61,7 +61,26 @@ def _eq(a: Any, b: Any) -> bool:
     return a == b
 
 
-def compare(actual: Any, expected: Any, op: str) -> bool:
+def _eog_compare(actual: Any, expected: Any, op: str) -> bool:
+    """EnterpriseOps-Gym ``_compare_values`` exactly (``benchmark/verifier.py``, Apache-2.0): Python ``==``, ``>``, ``<``
+    and ``expected in str(actual)``; a comparison that raises is a failure."""
+    try:
+        if op == "equals":
+            return bool(actual == expected)
+        if op == "gt":
+            return bool(actual > expected)
+        if op == "lt":
+            return bool(actual < expected)
+        if op == "contains":
+            return bool(expected in str(actual))
+    except TypeError:
+        return False
+    return False
+
+
+def compare(actual: Any, expected: Any, op: str, semantics: str = "crucible") -> bool:
+    if semantics == "eog":  # an imported EnterpriseOps-Gym verifier grades as the benchmark does (M11 audit H3 V13, G3 D12)
+        return _eog_compare(actual, expected, op)
     if op == "equals":
         return _eq(actual, expected)
     if op == "not_equals":
@@ -91,6 +110,7 @@ class SqlAssertion:
     expected: Any
     compare: str = "equals"
     description: str = ""
+    semantics: str = "crucible"  # "eog": EnterpriseOps-Gym's own comparison rules
 
     def __post_init__(self) -> None:
         if self.compare not in COMPARISONS:
@@ -103,7 +123,7 @@ class SqlAssertion:
         if not r.ok:
             return Verdict(False, {"query": self.query, "error": (r.error or "query failed")[:500]})
         actual = reduce_result(r.value or {})
-        ok = compare(actual, self.expected, self.compare)
+        ok = compare(actual, self.expected, self.compare, self.semantics)
         return Verdict(ok, {"query": self.query, "expected": self.expected, "actual": actual if _small(actual) else f"{len(actual)} rows",
                             "compare": self.compare})
 
@@ -224,4 +244,4 @@ def from_enterpriseops(v: dict[str, Any], *, app_of: dict[str, str] | None = Non
     name = v.get("name") or f"check {index}"
     return SqlAssertion(id=f"sql/{index:02d}-" + "".join(c if c.isalnum() else "_" for c in name.lower())[:40],
                         app=(app_of or {}).get(gym, gym), query=cfg["query"], expected=cfg.get("expected_value"), compare=op,
-                        description=v.get("description") or name)
+                        description=v.get("description") or name, semantics="eog")

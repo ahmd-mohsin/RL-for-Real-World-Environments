@@ -7,8 +7,10 @@ engines, so verifiers' traces carry exact token records, and they become ``cruci
 
 - ``trace_to_record(trace, rid)``: a v1 trace is a token graph. Each node has ``token_ids``, a trainable ``mask`` (the
   sampled tokens) and ``logprobs``, and its prompt is the concatenation of its ancestors. Every sampled node becomes a
-  ``Turn``: the prompt delta since the previous completion, the masked tokens as the completion and their logprobs. The
-  reward is the trace's weighted rubric (``sum(score * weight)``); a trace with errors is masked.
+  ``Turn``: the prompt delta since the previous completion, the masked tokens as the completion and their logprobs (the
+  generate server's exact values: ``traces.jsonl`` rounds them to 4 decimals). The reward is the trace's weighted rubric
+  (``sum(score * weight)``); a trace that is not ``ok``, has an unscored reward, several trainable branches or an
+  incomplete token record is masked.
 - ``RolloutGenerateServer``: one HTTP server per runtime, routing ``/r/<rid>/inference/v1/generate`` to that rollout's
   ``gen`` (``Runtime._call``: versions, sample-barrier aborts, staleness). Each completion is stamped with its policy
   version, which ``trace_to_record`` puts on the turn.
@@ -31,12 +33,17 @@ from crucible.core.schema.rollout import RolloutRecord, Turn
 VF_PY = Path(__file__).resolve().parents[4] / ".envs" / "verifiers" / "bin"
 
 
-def _chain(nodes: list[dict]) -> list[dict]:
+def _leaves(nodes: list[dict]) -> list[int]:
+    parents = {str(n.get("parent")) for n in nodes if n.get("parent") is not None}
+    return [i for i in range(len(nodes)) if str(i) not in parents]
+
+
+def _chain(nodes: list[dict], leaf: int | None = None) -> list[dict]:
     """The single branch root -> leaf (``parent`` links)."""
     if not nodes:
         return []
     by = {str(i): n for i, n in enumerate(nodes)}
-    out, cur = [], nodes[-1]
+    out, cur = [], nodes[-1 if leaf is None else leaf]
     seen = set()
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
@@ -46,15 +53,36 @@ def _chain(nodes: list[dict]) -> list[dict]:
     return list(reversed(out))
 
 
+# verifiers error classes -> Crucible failure kinds (M11 audit G2 D15: the raw class name of the oldest error was kept)
+VF_ERRORS = {"ProviderError": "provider_unavailable", "SandboxError": "crucible:backend_error", "HarnessError": "agent_run_error",
+             "ToolsetError": "crucible:tool_crashed", "InterceptionError": "transport_peer_drop", "TaskError": "verifier_error"}
+
+
+def _trainable(n: dict) -> bool:
+    return bool(n.get("sampled")) and any(n.get("mask") or [])
+
+
 def trace_to_record(trace: dict, rid: str, *, policy_version: int | None = None, task: str = "", harness: str = "verifiers:v1@1") -> RolloutRecord:
+    """One record per trace. Masked, never guessed (M11 audit G2 D4-D6, H2 V13), when: the trace is not ``ok`` (verifiers'
+    success stamp: earlier attempts' errors stay in ``errors`` after a successful retry); any reward is ``None`` (scoring
+    did not run); the trace has more than one trainable branch (subagents, parallel samples); a sampled node has no token
+    record; or a completion's tokens differ from what Crucible's generate server returned."""
     turns: list[Turn] = []
     pending: list[int] = []  # tokens since the previous completion (the next prompt delta)
     versions = list(trace.get("_crucible_versions") or [])
+    served = trace.get("_crucible_completions")  # [(ids, logprobs)] in call order: exact, unlike traces.jsonl's 4 decimals (D3)
+    nodes = trace.get("nodes") or []
+    problem: str | None = None
+    branches = [i for i in _leaves(nodes) if any(_trainable(n) for n in _chain(nodes, i))]
+    if len(branches) > 1:
+        problem = f"{len(branches)} trainable branches (one record per trace)"
     k = 0
-    for n in _chain(trace.get("nodes") or []):
+    for n in _chain(nodes, branches[0] if branches else None):
         ids = list(n.get("token_ids") or [])
         mask = list(n.get("mask") or [False] * len(ids))
-        if not n.get("sampled") or not any(mask):
+        if n.get("sampled") and not any(mask):
+            problem = problem or "a sampled node without a token record"
+        if not _trainable(n):
             pending += ids
             continue
         first = mask.index(True)
@@ -64,6 +92,11 @@ def trace_to_record(trace: dict, rid: str, *, policy_version: int | None = None,
         comp = ids[first:last + 1]
         lps = list(n.get("logprobs") or [])
         lps = lps[first:last + 1] if len(lps) == len(ids) else lps
+        if served is not None:
+            if k < len(served) and list(served[k][0]) == comp:
+                lps = list(served[k][1])
+            else:
+                problem = problem or f"completion {k + 1} differs from what the generate server returned"
         if len(lps) != len(comp):
             raise ValueError(f"{rid}: {len(lps)} logprobs for {len(comp)} sampled tokens")
         k += 1
@@ -73,11 +106,27 @@ def trace_to_record(trace: dict, rid: str, *, policy_version: int | None = None,
         pending = ids[last + 1:]
     errors = trace.get("errors") or []
     rewards = trace.get("rewards") or {}
-    reward = sum(float(v.get("score", 0.0)) * float(v.get("weight", 1.0)) for v in rewards.values()) if rewards else None
-    masked = bool(errors) or reward is None
+    unscored = [k for k, v in rewards.items() if v is None or not isinstance(v, dict) or v.get("score") is None]
+    ok = bool(trace["ok"]) if "ok" in trace else not errors
+    reward = sum(float(v["score"]) * float(v.get("weight", 1.0)) for v in rewards.values()) if rewards and not unscored else None
+    kind = None
+    if not ok:
+        last_err = errors[-1] if errors else {}
+        t = str(last_err.get("type") or "")
+        kind = VF_ERRORS.get(t, f"vf:{t}" if t else "agent_run_error")
+    elif unscored:
+        kind = "verifier_timeout" if trace.get("stop_condition") == "scoring_timeout" else "verifier_error"
+    elif reward is None:
+        kind = "verifier_error"
+    elif problem:
+        kind = "crucible:capture_incomplete"
+    masked = kind is not None
     return RolloutRecord(rollout_id=rid, sample=rid, task=task, harness=harness, policy="crucible", turns=turns, reward=None if masked else reward,
-                         reward_components={f"vf/{k}": float(v.get("score", 0.0)) for k, v in rewards.items()}, mask_sample=masked,
-                         failure_kind=(errors[0].get("type") if errors else None), stop=trace.get("stop_condition"))
+                         reward_components={f"vf/{k}": float(v["score"]) for k, v in rewards.items() if isinstance(v, dict) and v.get("score") is not None},
+                         mask_sample=masked, failure_kind=kind, stop=trace.get("stop_condition"),
+                         # a turn or token limit stop is a truncation (G5 D11: verifiers' ``is_truncated`` was dropped)
+                         truncated=bool(trace.get("is_truncated")) or str(trace.get("stop_condition") or "") in ("max_turns", "max_tokens", "max_total_tokens",
+                                                                                                                   "compaction_failed"))
 
 
 class RolloutGenerateServer:
@@ -87,6 +136,7 @@ class RolloutGenerateServer:
         self.model, self.max_model_len = model, max_model_len
         self.gens: dict[str, Callable] = {}
         self.versions: dict[str, list[int]] = {}
+        self.completions: dict[str, list[tuple[list[int], list[float]]]] = {}  # exact ids and logprobs per route, in call order
         self._server = None
         self._task: asyncio.Task | None = None
         self.url: str | None = None
@@ -109,6 +159,7 @@ class RolloutGenerateServer:
             res = await gen(list(body["token_ids"]), int(sp.get("max_tokens") or 512), float(sp.get("temperature", 1.0)))
             self.versions.setdefault(rid, []).append(int(res.version))
             ids, lps = list(res.completion_ids), list(res.logprobs)
+            self.completions.setdefault(rid, []).append((ids, [float(x) for x in lps]))
             stops = set(sp.get("stop_token_ids") or ())
             finish = "stop" if (res.finish == "stop" or (ids and ids[-1] in stops)) else "length"
             return {"request_id": rid, "prompt_token_ids": list(body["token_ids"]),
@@ -150,7 +201,12 @@ async def run_vf_eval(env_id: str, base_url: str, model: str, *, out_dir: Path, 
            *(["--select.limit", str(limit)] if limit is not None else []), *(extra or [])]
     p = await asyncio.create_subprocess_exec(*cmd, env={**os.environ, "CRUCIBLE_VF_KEY": "crucible"}, stdout=asyncio.subprocess.PIPE,
                                              stderr=asyncio.subprocess.STDOUT)
-    out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout_s)
+    try:
+        out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout_s)
+    except TimeoutError:  # never leave the child running (G2 D14)
+        p.kill()
+        await p.wait()
+        raise
     files = list(Path(out_dir).rglob("traces.jsonl"))
     if p.returncode != 0 or not files:
         raise RuntimeError(f"vf-eval {env_id} failed (rc {p.returncode}): {out.decode(errors='replace')[-2000:]}")
@@ -175,13 +231,18 @@ def vf_rollout(env_id: str, model: str, *, server: RolloutGenerateServer | None 
         try:
             with tempfile.TemporaryDirectory(prefix="vf-") as d:
                 rows = await run_vf_eval(env_id, f"{base}/r/{key}/v1", model, out_dir=Path(d), select_idx=str(prompt), extra=extra)
-            trace = rows[0]["traces"][0]
+            traces = rows[0]["traces"]
+            if len(traces) != 1:  # a multi-agent episode: one record per trace needs an actor map (G2 D6)
+                return None
+            trace = traces[0]
             trace["_crucible_versions"] = srv.versions.pop(key, [])
+            trace["_crucible_completions"] = srv.completions.pop(key, [])
             rec = trace_to_record(trace, rid, task=f"{env_id}:{prompt}", harness=harness)
             return None if rec.mask_sample else rec
         finally:
             srv.gens.pop(key, None)
             srv.versions.pop(key, None)
+            srv.completions.pop(key, None)
 
     rollout.server = srv  # type: ignore[attr-defined]
     return rollout

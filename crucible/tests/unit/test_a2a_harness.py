@@ -56,7 +56,7 @@ class ToolAgent(AgentEnvAgent):
             r = await c.post(f"{cfg.llm_base_url}/chat/completions", headers={"authorization": f"Bearer {cfg.llm_api_key}"},
                              json={"model": cfg.model, "messages": [{"role": "user", "content": request.parts[0].text}]})
             r.raise_for_status()
-        srv = request.mcp_servers["world"]
+        srv = next(iter(request.mcp_servers.values()))  # one server per attempt, named world-<tag>
         async with streamablehttp_client(srv["url"], headers=srv.get("headers") or {}) as (rd, wr, _), ClientSession(rd, wr) as s:
             await s.initialize()
             for a in GOLD:
