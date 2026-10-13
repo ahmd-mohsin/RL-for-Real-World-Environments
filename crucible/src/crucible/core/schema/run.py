@@ -54,6 +54,12 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:replay_incomplete",  # a foreign transcript could not be replayed whole (cut, unmapped tool names): masked
         "crucible:replay_divergence",  # the replayed episode grades differently from the live one: masked
         "crucible:reissue_limit",  # an engine call kept aborting with no sample barrier (M12 audit H3 V9): masked
+        # added with the M13 audit (2026-10-13; bench campaign B1, B2, B12)
+        "crucible:grader_tampered",  # the policy changed the grader's own toolchain (a shadowed or replaced tool, a startup hook): scored 0
+        "crucible:env_container_lost",  # the task container was removed or stopped from outside, or its daemon failed: masked
+        "crucible:grader_network_error",  # the grader's own grade-time setup lost the network (container detached, DNS down): masked
+        "crucible:env_image_unavailable",  # the task image could not be pulled (missing, access denied, registry down): masked
+        "crucible:env_build_failed",  # the task's Dockerfile did not build: masked
     }
 )
 # Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
@@ -63,7 +69,7 @@ NON_RETRYABLE_KINDS = frozenset({"crucible:stale_image", "crucible:stale_build",
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
 # Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
 POLICY_OUTCOME_KINDS = frozenset({"agent_timeout", "agent_command_not_allowed", "crucible:policy_misbehavior", "crucible:agent_broke_env",
-                                  "crucible:policy_error"})
+                                  "crucible:policy_error", "crucible:grader_tampered"})
 FailureStage = Literal["admission", "seed", "agent", "collect", "verification", "cleanup"]
 Blame = Literal["infra", "harness", "task", "policy", "unknown"]
 # The blame a kind carries by default (M10 taxonomy; research m9-m10/02 §3.3). policy => scored; everything else => masked.
@@ -77,6 +83,8 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:stale_build": "task", "crucible:harness_self_kill": "harness", "crucible:capture_incomplete": "infra", "crucible:agent_broke_env": "policy",
     "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness", "crucible:replay_incomplete": "harness",
     "crucible:replay_divergence": "harness", "crucible:reissue_limit": "infra",
+    "crucible:grader_tampered": "policy", "crucible:env_container_lost": "infra", "crucible:grader_network_error": "infra",
+    "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra",
 }
 
 

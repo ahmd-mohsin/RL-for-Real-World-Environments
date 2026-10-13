@@ -82,6 +82,7 @@ class RunJournal:
         self.events = self.dir / "journal.jsonl"
         self.results = self.dir / "results.jsonl"
         self.failures = self.dir / "failures.jsonl"
+        self.live: set[Path] = set()  # attempt dirs running in this process: next_attempt never moves them (M13 audit B7)
 
     def event(self, event_type: str, /, **data: Any) -> None:
         _append(self.events, {"ts": round(time.time(), 3), "event": event_type, **data})
@@ -114,7 +115,7 @@ class RunJournal:
             return 1
         seen = [int(p.name[1:]) for p in d.iterdir() if p.is_dir() and p.name.startswith("a") and p.name[1:].isdigit()]
         for p in d.iterdir():  # attempts that never wrote a record are kept as evidence, not reused
-            if p.is_dir() and p.name.startswith("a") and p.name[1:].isdigit() and not (p / "record.json").exists():
+            if p.is_dir() and p.name.startswith("a") and p.name[1:].isdigit() and not (p / "record.json").exists() and p not in self.live:
                 dest = d / "aborted" / p.name
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(p), str(dest))

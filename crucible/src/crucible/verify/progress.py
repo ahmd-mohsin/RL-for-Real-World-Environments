@@ -115,6 +115,10 @@ class ProgressTracker:
         if self.out is not None:
             self.out.parent.mkdir(parents=True, exist_ok=True)
             self.out.write_text("")
+        # the start state as row 0 (M13 audit H1 V2): the subgoals already held and Φ_0, so a reader sees milestones that
+        # were never "gained" (a fault-start task begins at an expert state) and losing one counts as a regression.
+        # ΔΦ = 0, so the stream still telescopes to Φ_T − Φ_0; per-step consumers skip it (step 0 is no action).
+        self._emit(ProgressRow(step=0, phi=round(self.phi, 9), delta_phi=0.0, gained=sorted(i for i, v in self.state.items() if v), lost=[]))
 
     async def on_step(self, world: Any, step: int, actor: str, action: Any, result: Any) -> ProgressRow:
         new_events = world.log[self._log_pos:]

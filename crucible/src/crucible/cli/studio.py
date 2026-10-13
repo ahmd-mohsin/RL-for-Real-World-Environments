@@ -224,58 +224,155 @@ def bench() -> None:
     """M13: run, report and compare benchmarks."""
 
 
-async def _bench_pack(pack_ref: str, out: Path, n_fresh: int, k: int, key: bytes, policies: str | None) -> dict[str, Any]:
+def _ks(text: str | None) -> list[int] | None:
+    return [int(x) for x in text.split(",") if x.strip()] if text else None
+
+
+def _model_lines(summary: dict[str, Any]) -> list[str]:
+    """One line per model: the verifiers dual headline with its denominators (G1 §4), then every warning (H1 V5)."""
+    from crucible.bench.report import headline, warnings
+
+    lines = []
+    for m in summary["models"]:
+        d = m["overall"]["deterministic"]
+        ks = summary.get("ks") or [1]
+        lines.append(f"{m['policy']}@{m['harness']}{' (control)' if m.get('control') else ''}: mean {headline(d)}; "
+                     + ", ".join(f"pass@{k} {d.get(f'pass@{k}')}" for k in ks) + f"; AUC {d.get('progress_auc')}")
+    return lines + [f"  warning: {w}" for w in (summary.get("warnings") if summary.get("warnings") is not None else warnings(summary))]
+
+
+def _import(ref: str) -> Any:
+    import importlib
+
+    mod, attr = ref.split(":", 1)
+    obj: Any = importlib.import_module(mod)
+    for part in attr.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _harbor_tasks(dirs: tuple[Path, ...]) -> list[Any]:
+    """Harbor task dirs in place (campaign B17). Two dirs with the same task name get their parent's name as a prefix
+    (B7: Lego-X and PI-Lego ``task_00000`` collided); the oracle is the task's own ``solution/`` replayed under /tmp."""
+    from crucible.core.schema.actions import ToolCall
+    from crucible.interop.harbor.inplace import HarborInPlaceTask
+
+    tasks = [HarborInPlaceTask(d) for d in dirs]
+    ids = [t.id for t in tasks]
+    for t in tasks:
+        if ids.count(t.id) > 1:
+            t.id, t.world_id = f"harbor/{t.dir.parent.name}/{t.id.split('/', 1)[1]}", f"harbor:{t.dir.parent.name}/{t.world_id.split(':', 1)[1]}"
+
+        def oracle(t=t) -> list[Any] | None:
+            sol = t.dir / "solution"
+            if not (sol / "solve.sh").exists():
+                return None
+            acts = [ToolCall(tool_call_id=f"o{i}", function_name="term.write_file",
+                             arguments={"path": f"/tmp/crucible_oracle/{f.relative_to(sol).as_posix()}", "content": f.read_text()})
+                    for i, f in enumerate(sorted(p for p in sol.rglob("*") if p.is_file()))]
+            return [*acts, ToolCall(tool_call_id="orun", function_name="term.exec",
+                                    arguments={"command": "bash /tmp/crucible_oracle/solve.sh > /tmp/crucible_oracle/oracle.txt 2>&1; echo rc=$?", "timeout_s": 1800})]
+
+        t.oracle_actions = oracle
+    return tasks
+
+
+async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key_file: Path | None, policies: str | None, ks: list[int] | None,
+                      *, controls: bool = True, anchors_path: Path | None = None, harbor: tuple[Path, ...] = (), tasks_ref: str | None = None) -> dict[str, Any]:
+    """A pack (anchors + fresh validated items) or plain tasks (``--harbor`` dirs, ``--tasks module:attr``), with the
+    oracle / no-op controls first (campaign B4/B5) and the anchor parameters saved for the next version (V12)."""
     from crucible.actors.policy import EpisodeLimits
-    from crucible.bench import dynamic
-    from crucible.bench.run import run_bench
+    from crucible.bench import dynamic, irt
+    from crucible.bench.run import bench_key, gold_and_noop_check, run_bench
     from crucible.runtime.harness.native import NativeHarness
     from crucible.studio.pack import find_pack, load_manifest, resolve
 
+    anchors = irt.load_anchors(anchors_path) if anchors_path else None
+    harness = NativeHarness(limits=EpisodeLimits(max_steps=1000))
+    if pack_ref is None:  # plain tasks: no generator, no fresh items
+        tasks = _harbor_tasks(harbor) if harbor else [x[0] if isinstance(x, tuple) else x for x in _import(tasks_ref)()]  # type: ignore[arg-type]
+        if not policies:
+            raise ValueError("plain tasks need --policies module:attr returning PolicyRefs")
+        name = "harbor" if harbor else tasks_ref.split(":")[0].rsplit(".", 1)[-1]  # type: ignore[union-attr]
+        return await run_bench(name, root=out, tasks=tasks, policies=_import(policies)(), harnesses=[harness], k=k, ks=ks, controls=controls,
+                               anchors=anchors)
     d = find_pack(pack_ref)
     m = load_manifest(d)
     if not m.hooks.tasks and not m.hooks.generator:
         raise ValueError(f"pack {m.name} declares neither hooks.tasks nor hooks.generator: nothing to benchmark")
-    anchors = [(getattr(t, "id", str(i)), "anchor", t) for i, (t, _) in enumerate(resolve(d, m.hooks.tasks)())] if m.hooks.tasks else []
-    gens = {"generated": resolve(d, m.hooks.generator)} if m.hooks.generator and n_fresh else {}
-    bm = await dynamic.build(f"{m.name}-bench", "v1", key=key, anchors=anchors, generators=gens, n_fresh=n_fresh if gens else 0)
+    anchor_items = []
+    for i, (t, gold) in enumerate(resolve(d, m.hooks.tasks)() if m.hooks.tasks else []):
+        if gold and not hasattr(t, "bench_gold"):
+            t.bench_gold = list(gold)  # the oracle control replays the pack's gold (hooks.tasks pairs a task with it)
+        anchor_items.append((getattr(t, "id", str(i)), "anchor", t))
+    gens = {"generated": resolve(d, m.hooks.generator)} if m.hooks.generator and n_fresh else {}  # called with item_id= (dynamic V3)
+    rdir = Path(out) / f"bench-{m.name}-bench"
+    key = bench_key(rdir, key_file=key_file)
+    try:
+        bm = await dynamic.build(f"{m.name}-bench", "v1", key=key, anchors=anchor_items, generators=gens, n_fresh=n_fresh if gens else 0,
+                                 checks=[gold_and_noop_check(rdir / "validate")] if gens else (), registry=Path(out) / "bench.keys.jsonl")
+    except dynamic.ShortBenchmark as e:
+        man = e.benchmark.manifest()
+        raise ValueError(f"only {man['counts']['fresh']} of {n_fresh} fresh items passed validation; yields {man['yields']}; "
+                         f"rejected {[r.get('reason') or r for r in man['rejected']][:5]}") from None
     pols = resolve(d, policies or m.hooks.policies)() if (policies or m.hooks.policies) else None
     if not pols:
         raise ValueError(f"pack {m.name} has no hooks.policies; pass --policies module:attr returning PolicyRefs")
     try:
-        res = await run_bench(f"{m.name}-bench", root=out, tasks=[i.task for i in bm.items], policies=pols, harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=1000))],
-                              k=k, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None, extras={"manifest": bm.manifest()})
+        res = await run_bench(f"{m.name}-bench", root=out, tasks=[i.task for i in bm.items], policies=pols, harnesses=[harness],
+                              k=k, ks=ks, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None, extras={"manifest": bm.manifest()},
+                              controls=controls, anchors=anchors)
     finally:
         for i in bm.items:
             if callable(getattr(i.task, "cleanup", None)):
                 i.task.cleanup()
+    fit = res.get("irt_fit")
+    ids = [i.id for i in bm.items if i.kind == "anchor"]
+    if fit is not None and all(i in fit.items for i in ids) and ids:
+        res["paths"]["anchors"] = str(irt.save_anchors(rdir / "anchors.json", {i: fit.items[i] for i in ids}, meta={"bench": f"{m.name}-bench", "version": "v1"}))
     return res
 
 
 @bench.command("run")
-@click.argument("pack_ref")
+@click.argument("pack_ref", required=False)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("data/runs"), show_default=True)
 @click.option("--fresh", "n_fresh", type=int, default=2, show_default=True)
 @click.option("--k", type=int, default=2, show_default=True)
-@click.option("--key", default="crucible-bench-v1", show_default=True, help="the item-seed key (keep it secret for a published version)")
+@click.option("--ks", default=None, help="pass@k columns, comma-separated (default: 1, powers of two up to k, and k)")
+@click.option("--key-file", type=click.Path(path_type=Path, exists=True), default=None,
+              help="the item-seed key (else $CRUCIBLE_BENCH_KEY / $CRUCIBLE_BENCH_KEY_FILE, else a new key kept in the run's bench.key)")
 @click.option("--policies", default=None, help="module:attr returning PolicyRefs (default: the pack's hooks.policies)")
+@click.option("--controls/--no-controls", default=True, show_default=True,
+              help="run the oracle and no-op controls first; tasks whose oracle fails or whose no-op passes are excluded")
+@click.option("--anchors", "anchors_path", type=click.Path(path_type=Path, exists=True), default=None, help="anchors.json of an earlier version (IRT linking)")
+@click.option("--harbor", type=click.Path(path_type=Path, exists=True, file_okay=False), multiple=True, help="a Harbor task dir, run in place (repeatable)")
+@click.option("--tasks", "tasks_ref", default=None, help="module:attr returning tasks (NeMo-Gym rows, EOG, OpenEnv, ... wrapped as RunTasks)")
 @click.option("--json", "as_json", is_flag=True)
-def bench_run(pack_ref, out, n_fresh, k, key, policies, as_json) -> None:
-    """A benchmark on a pack: its tasks as anchors + fresh generated items, every step metric, an HTML report."""
-    res = asyncio.run(_bench_pack(pack_ref, out, n_fresh, k, key.encode(), policies))
-    lines = [f"{m['policy']}: mean {m['overall']['deterministic'].get('mean_reward')} pass@1 {m['overall']['deterministic'].get('pass@1')} "
-             f"AUC {m['overall']['deterministic'].get('progress_auc')}" for m in res["summary"]["models"]]
-    _emit({"summary": res["summary"], "paths": res["paths"], "next": [f"open {res['paths']['report']}"]}, as_json, lines + [f"report {res['paths']['report']}"])
+def bench_run(pack_ref, out, n_fresh, k, ks, key_file, policies, controls, anchors_path, harbor, tasks_ref, as_json) -> None:
+    """A benchmark on a pack (its tasks as anchors + fresh validated items) or on plain tasks (--harbor / --tasks):
+    controls first, every step metric, an HTML report."""
+    if sum(x is not None and x != () for x in (pack_ref, harbor or None, tasks_ref)) != 1:
+        raise click.UsageError("give exactly one of PACK_REF, --harbor or --tasks")
+    res = asyncio.run(_bench_pack(pack_ref, out, n_fresh, k, key_file, policies, _ks(ks), controls=controls, anchors_path=anchors_path,
+                                  harbor=tuple(harbor), tasks_ref=tasks_ref))
+    _emit({"summary": res["summary"], "paths": res["paths"], "next": [f"open {res['paths']['report']}"]}, as_json,
+          _model_lines(res["summary"]) + [f"report {res['paths']['report']}"])
 
 
 @bench.command("report")
 @click.argument("run_dir", type=click.Path(path_type=Path, exists=True))
-@click.option("--name", default=None)
-def bench_report(run_dir, name) -> None:
-    """(Re)compute every metric and the HTML report for an existing M10 run directory."""
-    from crucible.bench.run import report_run
+@click.option("--out", type=click.Path(path_type=Path), default=None, help="default: <run>/bench-report (the run's own report is kept)")
+@click.option("--force", is_flag=True, help="overwrite the run's own report in <run>/bench")
+@click.option("--ks", default=None, help="pass@k columns, comma-separated (default: the saved report's, else from the run's k)")
+@click.option("--threshold", type=float, default=None)
+@click.option("--json", "as_json", is_flag=True)
+def bench_report(run_dir, out, force, ks, threshold, as_json) -> None:
+    """(Re)compute every metric and the HTML report for an existing M10 run directory, from what its report saved
+    (title, stage maps, validity, extras), into a new directory unless --force (campaign B10)."""
+    from crucible.bench.run import report_saved
 
-    res = report_run(name or Path(run_dir).name, Path(run_dir))
-    click.echo(res["paths"]["report"])
+    res = report_saved(Path(run_dir), out_dir=out, ks=_ks(ks), threshold=threshold, force=force)
+    _emit({"summary": res["summary"], "paths": res["paths"]}, as_json, _model_lines(res["summary"]) + [res["paths"]["report"]])
 
 
 @bench.command("compare")
@@ -283,17 +380,30 @@ def bench_report(run_dir, name) -> None:
 @click.argument("cand_dir", type=click.Path(path_type=Path, exists=True))
 @click.option("--base-policy", default=None)
 @click.option("--cand-policy", default=None)
+@click.option("--base-harness", default=None)
+@click.option("--cand-harness", default=None)
 @click.option("--threshold", type=float, default=1.0, show_default=True)
 @click.option("--json", "as_json", is_flag=True)
-def bench_compare(base_dir, cand_dir, base_policy, cand_policy, threshold, as_json) -> None:
-    """Paired comparison of two runs (or two policies in one run): flips, exact McNemar, paired bootstrap CI."""
+def bench_compare(base_dir, cand_dir, base_policy, cand_policy, base_harness, cand_harness, threshold, as_json) -> None:
+    """Task-level comparison of one model per side (two runs, or two policies in one run): task flips, exact McNemar
+    over tasks, a t interval and a sign-flip test on per-task deltas. A side holding several models is refused, and
+    tasks a validity manifest marks invalid are left out."""
     from crucible.bench.compare import compare, to_markdown
     from crucible.bench.metrics import load_run
+    from crucible.bench.run import load_validity
 
-    b = [e for e in load_run(base_dir) if base_policy in (None, e.policy)]
-    c = [e for e in load_run(cand_dir) if cand_policy in (None, e.policy)]
-    r = compare(b, c, threshold=threshold)
-    click.echo(json.dumps(r, indent=1, sort_keys=True) if as_json else to_markdown(base_policy or str(base_dir), cand_policy or str(cand_dir), r))
+    sides = []
+    for side, d, pol, har in (("base", base_dir, base_policy, base_harness), ("candidate", cand_dir, cand_policy, cand_harness)):
+        if not (Path(d) / "results.jsonl").exists() and not (Path(d) / "run.json").exists():
+            raise ValueError(f"{d} holds no run (no run.json or results.jsonl)")
+        eps = load_run(d)
+        got = [e for e in eps if pol in (None, e.policy) and har in (None, e.harness)]
+        if not got:  # campaign B14: a misspelled policy gave pairs 0, p = 1.0, exit 0
+            raise ValueError(f"no {side} episodes for policy {pol!r} harness {har!r} in {d}; it holds {sorted({f'{e.policy}@{e.harness}' for e in eps})}")
+        sides.append(got)
+    invalid = {t for d in (base_dir, cand_dir) for t, v in (load_validity(Path(d)) or {}).items() if v.get("valid") is False}
+    r = compare(*sides, threshold=threshold, exclude_tasks=invalid)
+    click.echo(json.dumps(r, indent=1, sort_keys=True) if as_json else to_markdown(r["base"] or str(base_dir), r["candidate"] or str(cand_dir), r))
 
 
 @click.command("model")

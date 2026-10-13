@@ -79,6 +79,14 @@ class Runner:
         self.root = Path(root)
 
     def plan(self, spec: RunSpec) -> list[tuple[SampleKey, Any, Any, Any]]:
+        """Every planned sample. Duplicate task, policy or harness ids in one run are refused (M13 audit B7: two Harbor
+        tasks named after the same directory shared one sample id, the second attempt moved the first's live work dir
+        to ``aborted/`` and the report kept one of the two datasets): namespace ids by source before running."""
+        for what, items in (("task", spec.tasks), ("policy", spec.policies), ("harness", spec.harnesses)):
+            ids = [str(getattr(x, "id", x)) for x in items]
+            dup = sorted({i for i in ids if ids.count(i) > 1})
+            if dup:
+                raise ValueError(f"duplicate {what} ids in run {spec.run_id}: {dup}; give each a distinct id (e.g. prefix the dataset or path)")
         out = []
         for t in spec.tasks:
             for p in spec.policies:
@@ -127,6 +135,13 @@ class Runner:
             aid = attempt_id(sid, n)
             adir = journal.attempt_dir(sid, n)
             adir.mkdir(parents=True, exist_ok=True)
+            journal.live.add(adir)  # B7: a running attempt's dir is never moved to aborted/ by another attempt's bookkeeping
+            try:
+                return await _attempt(sk, task, policy, harness, n, aid, adir)
+            finally:
+                journal.live.discard(adir)
+
+        async def _attempt(sk: SampleKey, task, policy, harness, n: int, aid: str, adir: Path) -> tuple[str, int]:
             scopes = ["run", f"run/policy/{policy.id}", f"run/task/{task.id}"]
             est = float(getattr(policy, "estimate_usd", 0.0) or 0.0)
             if spec.budget_usd is not None:
@@ -152,9 +167,15 @@ class Runner:
             except asyncio.CancelledError:
                 raise
             except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
+                # M13 audit G1 D13: a run past attempt_timeout_s stays masked. The clock wraps the whole harness (seed,
+                # agent, verification, cleanup), so it cannot tell a slow policy from a hung container or verifier
+                # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
+                # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
+                timeout = isinstance(ex, TimeoutError)
                 hr = HarnessResult(failure=Failure(kind="agent_run_error", stage="agent", blame="harness",
                                                    reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500]
-                                                   if not isinstance(ex, TimeoutError) else f"harness {harness.id} ran past {spec.attempt_timeout_s}s"),
+                                                   if not timeout else f"harness {harness.id} ran past {spec.attempt_timeout_s}s",
+                                                   detail="attempt_timeout" if timeout else None),
                                    cost_uncertain_usd=est)
             if hr.failure is not None and hr.failure.delivery == "not_sent" and not hr.cost_usd:
                 ledger.release(aid)  # the request never left: it cost nothing

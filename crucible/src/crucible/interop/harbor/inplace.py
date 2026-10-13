@@ -27,6 +27,17 @@ no-op get the same (pristine-image) grade: a silent wrong reward.
   in a separate environment are refused. After the agent ran, a container in which the verifier user can no longer
   write its reward (``agent_broke_env``) or a verifier that writes no valid reward is the agent's outcome, scored 0;
   a timeout, an upload failure or a lost container masks.
+- **the grader's own toolchain** (M13 audit B1, ``grader_guard``): captured from the pristine container at ``open`` and
+  checked host-side (``docker diff`` / ``docker cp``) before and after the verifier. A policy that shadowed, replaced or
+  hooked a tool the verifier runs is ``crucible:grader_tampered`` (scored 0, flagged ``grader_tampered``, never 1.0);
+  the verifier runs with the pristine ``PATH`` and a fresh ``PYTHONPYCACHEPREFIX``. Environments the host cannot inspect
+  (non-Docker providers) are refused in place unless ``grader_integrity="off"``.
+- **infrastructure is told apart from the policy by host-side evidence** (M13 audit B2): a container that is gone,
+  stopped through the daemon API, or whose daemon cannot be reached masks ``crucible:env_container_lost`` (mid-episode
+  too: the terminal raises instead of returning compose's "service is not running" as the policy's failed command); a
+  container that exited from inside, or one alive whose verifier user cannot work, is ``agent_broke_env``. A grade whose
+  test script needs the network fails while the host shows the container detached or the network unreachable: masked
+  ``crucible:grader_network_error``.
 """
 
 from __future__ import annotations
@@ -34,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -92,10 +104,19 @@ REWARD_FILE_ERRORS = ("RewardFileNotFoundError", "RewardFileEmptyError", "Verifi
 
 class HarborInPlaceTask:
     def __init__(self, task_dir: Path, *, docker_host: str | None = None, gpu_host: str | None = None, reward_key: str | None = None,
-                 environment_type: str = "docker", environment_kwargs: dict | None = None, user: str | None = None, keep_containers: bool = False):
+                 environment_type: str = "docker", environment_kwargs: dict | None = None, user: str | None = None, keep_containers: bool = False,
+                 grader_integrity: str = "verify"):
         from harbor.models.task.task import Task
         from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_task_verifier_mode
 
+        if grader_integrity not in ("verify", "off"):
+            raise ValueError("grader_integrity: 'verify' | 'off'")
+        if grader_integrity == "verify" and environment_type != "docker":
+            # the grader runs in the agent's container; only a host-side Docker CLI can tell whether the policy changed the
+            # grader's toolchain (M13 audit B1). Without it a stubbed pytest would grade 1.0 unseen
+            raise ValueError(f"{task_dir}: in-place grading on {environment_type!r} cannot verify the grader's toolchain (needs a host-side "
+                             "Docker CLI); grade it in patch mode (verify_dir), or pass grader_integrity='off' to accept unverified grades")
+        self.grader_integrity = grader_integrity
         self.dir = Path(task_dir).resolve()
         self.task = Task(self.dir)
         cfg = self.task.config
@@ -170,9 +191,43 @@ class HarborInPlaceTask:
         await w.start()
         await w.reset()
         await self._healthcheck(w)
+        if self.grader_integrity == "verify":
+            await self._capture_grader(w, workdir)
         if not self.task.config.steps:
             await self._apply_agent_phase(w)
         return w
+
+    def grader_scripts(self) -> list[Path]:
+        """The task's test scripts (shared and per step): the commands they run are the grader's toolchain."""
+        out = []
+        for p in sorted(self.dir.rglob("*")):
+            rel = p.relative_to(self.dir).parts
+            if p.is_file() and "tests" in rel[:-1] and (p.suffix in (".sh", ".bash") or (not p.suffix and p.read_bytes()[:2] == b"#!")):
+                out.append(p)
+        return out
+
+    async def _capture_grader(self, world, workdir: Path) -> None:
+        """The grader surface of the pristine container (before the policy acts): ``grader_guard.capture``."""
+        from crucible.interop.harbor import grader_guard
+
+        try:
+            surf = await grader_guard.capture(self, world)
+            if surf is None:
+                raise RuntimeError("this environment has no host-side Docker CLI to verify the grader's toolchain")
+        except BaseException:
+            await world.close()
+            raise
+        world.__dict__["_grader_surface"] = surf
+        grader_guard.save(surf, Path(workdir))
+
+    async def infra_cause(self, world):
+        """Host-side: why an episode the World masked was the infrastructure's (the container is gone, was stopped from
+        outside, or its daemon is unreachable): a typed ``Failure``, or None (M13 audit B2)."""
+        from crucible.core.schema.run import Failure
+
+        lost = getattr(world.backend, "container_lost", None)
+        why = await lost() if lost is not None else None
+        return Failure(kind="crucible:env_container_lost", stage="agent", reason=why) if why else None
 
     async def _apply_agent_phase(self, world) -> None:
         """The agent's own network phase (H1 V3: only the verifier phase was ever applied, so ``[agent] network_mode =
@@ -233,54 +288,176 @@ class HarborInPlaceTask:
         with env.with_default_user(self.task.config.agent.user):
             await agent.run(self.instruction, env, AgentContext())
 
+    # ---- grading -------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _masked(tid: str, t0: float, kind: str, reason: str, **meta):
+        from crucible.verify.runtime.plan import GradeReport
+
+        return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0,
+                           infra={"status": "masked", "failure_kind": kind, "reason": reason[:1800]}, trusted=True,
+                           elapsed_s=round(time.monotonic() - t0, 2), meta=meta)
+
+    @staticmethod
+    def _zero(tid: str, t0: float, kind: str, reason: str, **meta):
+        """The policy's own outcome in its container: scored 0 (never masked); ``meta.failure`` names it."""
+        from crucible.verify.runtime.plan import GradeReport
+
+        return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
+                           elapsed_s=round(time.monotonic() - t0, 2), meta={"failure": {"kind": kind, "reason": reason[:1800]}, **meta})
+
+    async def _liveness(self, world, tid: str, t0: float):
+        """Host-side container facts before blaming the policy (M13 audit B2): gone / stopped through the daemon API /
+        daemon unreachable masks; exited from inside is the policy's. None when the container runs (or cannot be asked)."""
+        state = getattr(world.backend, "container_state", None)
+        if state is None:
+            return None
+        st = await state()
+        if not st.get("supported"):
+            return None
+        lost = await world.backend.container_lost()
+        if lost:
+            return self._masked(tid, t0, "crucible:env_container_lost", lost, container=st)
+        if st.get("exists") and not st.get("running"):
+            how = "killed for memory (OOM)" if st.get("oom") else f"its main process exited (code {st.get('exit_code')})"
+            return self._zero(tid, t0, "crucible:agent_broke_env", f"the task container stopped from inside during the episode: {how}", container=st)
+        return None
+
+    def _verifier_needs_network(self, phase) -> bool:
+        return getattr(phase.network_mode, "value", str(phase.network_mode)) != "no-network"
+
+    async def _network_lost(self, world, surf, phase, *, host: bool = True) -> str | None:
+        """Host-side evidence that the grader's own grade-time setup had no network (M13 audit B2): the container is
+        detached from every network, or the host itself cannot reach the hosts the test script names. Only for test
+        scripts that use the network in a verifier phase that allows it; in-container symptoms alone never mask (a
+        policy can forge those)."""
+        if surf is None or not surf.needs_network or not self._verifier_needs_network(phase):
+            return None
+        nets = await world.backend.networks()
+        if nets is not None and not nets:
+            return "the task container is attached to no network (detached from outside) while its test script needs the network"
+        hosts = list(surf.hosts) or ["deb.debian.org", "archive.ubuntu.com", "pypi.org"]
+        if host and not await _host_reaches(hosts):
+            return f"the host cannot reach {', '.join(hosts[:4])}: no network for the grader's own setup"
+        return None
+
+    async def _verify(self, world, *, tid: str, user, timeout: float, t0: float, phase, phase_in, phase_out, verifier_kw: dict | None = None):
+        """Harbor's ``Verifier`` in the agent's container, guarded (M11 audit H1, M13 audit B1, B2): returns
+        ``(VerifierResult, None, flags)`` or ``(None, GradeReport, flags)`` when the grade ends without a verifier result."""
+        from harbor.verifier.verifier import Verifier
+
+        from crucible.interop.harbor import grader_guard
+
+        env = world.backend.env
+        surf = world.__dict__.get("_grader_surface")
+        if surf is None and self.grader_integrity == "verify":
+            return None, self._masked(tid, t0, "crucible:harness_unsupported", "the grader's toolchain was never captured (open() did not run on this World)"), []
+        tag = uuid.uuid4().hex[:12]
+        moved: list[tuple[str, str]] = []
+        flags: list[dict] = []
+        dead = await self._liveness(world, tid, t0)
+        if dead is not None:
+            return None, dead, flags
+        try:
+            tp = self._trial_paths(world)
+            await self._reset_shared_dirs(env)
+            broken = await self._probe(env, user)
+            if broken:
+                return None, (await self._liveness(world, tid, t0)) or self._zero(tid, t0, "crucible:agent_broke_env", broken), flags
+            if surf is not None:
+                findings, before = await grader_guard.check(world.backend, surf)
+                flags = findings.flags()
+                if findings.verdicts:
+                    return None, self._zero(tid, t0, "crucible:grader_tampered", "the policy changed the grader's toolchain: " + "; ".join(
+                        f"{v['path']} ({v['why']})" for v in findings.verdicts[:8]), flags=flags, integrity={"verdicts": findings.verdicts,
+                                                                                                            "suspicions": findings.suspicions}), flags
+                moved = await grader_guard.hide(env, findings.hide, tag)
+            net = await self._network_lost(world, surf, phase, host=False)  # cheap host-side fact before a long install
+            if net:
+                return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
+            await phase_in()
+            pins = grader_guard.pinned_env(surf, tag) if surf is not None else {}
+            with env.with_default_user(user):
+                verifier = Verifier(task=self.task, trial_paths=tp, environment=env, override_env=pins, **(verifier_kw or {}))
+                result = await asyncio.wait_for(verifier.verify(), timeout=timeout + 60)
+            if surf is not None:  # a tool swapped while the verifier ran (a background process of the policy)
+                post, after = await grader_guard.check(world.backend, surf, after_grade=True, since=before)
+                if post.verdicts:
+                    flags = [*flags, *post.flags()]
+                    return None, self._zero(tid, t0, "crucible:grader_tampered", "the grader's toolchain changed during the grade: " + "; ".join(
+                        f"{v['path']} ({v['why']})" for v in post.verdicts[:8]), flags=flags, integrity={"verdicts": post.verdicts}), flags
+                surf.advance(after, rejudge=[p for p, _ in moved])
+        except TimeoutError:
+            return None, (await self._liveness(world, tid, t0)) or self._masked(tid, t0, "verifier_timeout", f"{tid}: verifier exceeded {timeout:.0f}s", flags=flags), flags
+        except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors after a reset are the agent's (H1 V4)
+            dead = await self._liveness(world, tid, t0)
+            if dead is not None:
+                return None, dead, flags
+            if type(e).__name__ in REWARD_FILE_ERRORS:
+                net = await self._network_lost(world, surf, phase)
+                if net:
+                    return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
+                return None, self._zero(tid, t0, f"crucible:{type(e).__name__}", f"{tid}: the verifier wrote no valid reward after the agent ran: {e}", flags=flags), flags
+            if isinstance(e, grader_guard.GuardError):  # the host could not inspect the container: never an unverified grade
+                return None, self._masked(tid, t0, "crucible:backend_error", f"{tid}: the grader's toolchain could not be verified: {e}", flags=flags), flags
+            return None, self._masked(tid, t0, type(e).__name__, f"{tid}: {e}", flags=flags), flags
+        finally:
+            try:
+                await phase_out()
+            except Exception:  # noqa: BLE001, S110 -- restoring the phase never overrides the grade (H1 V19)
+                pass
+            if moved:
+                await grader_guard.unhide(env, moved)
+        dead = await self._liveness(world, tid, t0)
+        if dead is not None:
+            return None, dead, flags
+        reward, _ = scalar_reward(dict(result.rewards or {}), self.reward_key)
+        if reward is None or reward < 1.0:  # a failed grade: was the grader's own network gone?
+            net = await self._network_lost(world, surf, phase)
+            if net:
+                return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
+        return result, None, flags
+
     async def grade(self, world, workdir: Path):
         from crucible.verify.runtime.plan import GradeReport
 
         t0 = time.monotonic()
-
-        def masked(kind: str, reason: str) -> GradeReport:
-            return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0,
-                               infra={"status": "masked", "failure_kind": kind, "reason": reason[:500]}, trusted=True, elapsed_s=round(time.monotonic() - t0, 2))
-
-        from harbor.verifier.verifier import Verifier
-
-        def zero(kind: str, reason: str) -> GradeReport:  # the policy's own outcome in its container: scored 0
-            return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
-                               elapsed_s=round(time.monotonic() - t0, 2), meta={"failure": {"kind": kind, "reason": reason[:500]}})
-
         env = world.backend.env
         plan = self.plan
         phase, current = plan.verifier_phase, plan.agent_phase
         dynamic = getattr(getattr(env, "capabilities", None), "dynamic_network_policy", False)
-        try:
-            tp = self._trial_paths(world)
-            await self._reset_shared_dirs(env)
-            broken = await self._probe(env, self.task.config.verifier.user)
-            if broken:
-                return zero("crucible:agent_broke_env", broken)
+        if phase != current and not dynamic:
+            return self._masked(self.id, t0, "check_infra", f"the verifier needs network {phase} but this environment cannot change its policy ({current})")
+
+        async def phase_in():
             if phase != current:
-                if not dynamic:
-                    return masked("check_infra", f"the verifier needs network {phase} but this environment cannot change its policy ({current})")
                 await env.set_network_policy(phase)
-            with env.with_default_user(self.task.config.verifier.user):
-                verifier = Verifier(task=self.task, trial_paths=tp, environment=env)
-                result = await asyncio.wait_for(verifier.verify(), timeout=self.verifier_timeout + 60)
-        except TimeoutError:
-            return masked("verifier_timeout", f"verifier exceeded {self.verifier_timeout:.0f}s")
-        except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors are the agent's (H1 V4)
-            if type(e).__name__ in REWARD_FILE_ERRORS:
-                return zero(f"crucible:{type(e).__name__}", f"the verifier wrote no valid reward after the agent ran: {e}")
-            return masked(type(e).__name__, str(e))
-        finally:
-            if phase != current and dynamic:
-                try:
-                    await env.set_network_policy(current)
-                except Exception:  # noqa: BLE001, S110 -- restoring the phase never overrides the grade (H1 V19)
-                    pass
+
+        async def phase_out():
+            if phase != current:
+                await env.set_network_policy(current)
+
+        result, ended, flags = await self._verify(world, tid=self.id, user=self.task.config.verifier.user, timeout=self.verifier_timeout, t0=t0,
+                                                  phase=phase, phase_in=phase_in, phase_out=phase_out)
+        if ended is not None:
+            return ended
         rewards = dict(result.rewards or {})
         reward, problem = scalar_reward(rewards, self.reward_key)
         if reward is None:
-            return masked(problem.split(":")[0], problem)
+            return self._masked(self.id, t0, problem.split(":")[0], problem, flags=flags)
         comps: dict[str, Any] = {f"harbor/{k}": float(v) for k, v in rewards.items()}
         return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
-                           elapsed_s=round(time.monotonic() - t0, 2), meta={"rewards": rewards, "components": comps, "verifier": json.loads(result.model_dump_json())})
+                           elapsed_s=round(time.monotonic() - t0, 2), meta={"rewards": rewards, "components": comps, "flags": flags,
+                                                                            "verifier": json.loads(result.model_dump_json())})
+
+
+async def _host_reaches(hosts: list[str], timeout: float = 5.0) -> bool:
+    """Can the host itself open a TCP connection to any of these hosts (443, then 80)?"""
+    for h in hosts[:4]:
+        for port in (443, 80):
+            try:
+                _, w = await asyncio.wait_for(asyncio.open_connection(h, port), timeout)
+                w.close()
+                return True
+            except (OSError, TimeoutError):
+                continue
+    return False

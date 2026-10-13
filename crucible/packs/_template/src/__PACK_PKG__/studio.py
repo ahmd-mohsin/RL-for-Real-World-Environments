@@ -55,8 +55,14 @@ def tasks() -> list:
     return [(t, t.gold()) for t in (GreetingTask(0), GreetingTask(1))]
 
 
-def generate(seed: int) -> GreetingTask:
-    return GreetingTask(seed)
+def generate(seed: int, item_id: str | None = None) -> GreetingTask:
+    """A fresh benchmark item. ``crucible.bench.dynamic.build`` passes the published opaque ``item_id``: a generated id
+    must never spell its seed (M13 audit V3), so without one it is a one-way hash of the seed."""
+    import hashlib
+
+    t = GreetingTask(seed)
+    t.id = item_id or f"__PACK_NAME__/greeting/g{hashlib.sha256(f'__PACK_NAME__/greeting|{seed}'.encode()).hexdigest()[:16]}@1"
+    return t
 
 
 def policies() -> list[PolicyRef]:

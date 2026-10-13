@@ -64,6 +64,14 @@ async def episodes() -> list[Episode]:
 
     eps: list[Episode] = []
     listed: set[tuple[str, str]] = set()
+    nxt: dict[tuple[str, str], int] = {}
+
+    def idx(task: str, policy: str) -> int:
+        """One sample index per recorded run of a (task, model): every run used to be sample 0, so a comparison collapsed
+        GPT-5.6 Sol's 7 runs on one task into one (M13 audit H1 V7)."""
+        i = nxt.get((task, policy), 0)
+        nxt[(task, policy)] = i + 1
+        return i
     for task, seed in SEEDS.items():
         for fr in seed["frontier"]:
             run = (fr.run_ref or "").split("/")[-1]
@@ -74,7 +82,8 @@ async def episodes() -> list[Episode]:
                 phi = await _phi(task, patch.read_text(errors="replace") if patch.exists() else None)
             except Exception:  # noqa: BLE001 - a patch that does not apply leaves Φ unknown
                 phi = None
-            eps.append(Episode(task=f"{task}@{fr.task_version}", policy=MODEL.get(fr.model, fr.model), harness=HARNESS, sample_idx=0, attempt=f"{task}/{run}",
+            pol = MODEL.get(fr.model, fr.model)
+            eps.append(Episode(task=f"{task}@{fr.task_version}", policy=pol, harness=HARNESS, sample_idx=idx(f"{task}@{fr.task_version}", pol), attempt=f"{task}/{run}",
                                reward=fr.score, gates=_gates_of(task, run), steps=fr.steps or calls, cost_usd=fr.cost_usd or cost, tool_calls=calls,
                                phi_final=None if phi is None else round(phi, 6), progress_tracked=False))
     for rd in sorted(TASKS.glob("*/runs/*")):  # recorded attempts SEEDS does not list: no grade = masked (infra ended them)
@@ -84,13 +93,14 @@ async def episodes() -> list[Episode]:
         calls, cost = _stats(task, run)
         model = next((v for k, v in MODEL.items() if run.startswith(k)), run)
         version = next((v for v in ("v3", "v2") if f"-{v}-" in run), "v1")
-        eps.append(Episode(task=f"{task}@{version}", policy=model, harness=HARNESS, sample_idx=1, attempt=f"{task}/{run}", reward=None, steps=calls,
-                           cost_usd=cost, tool_calls=calls, progress_tracked=False, tags=["masked:no_grade"]))
+        eps.append(Episode(task=f"{task}@{version}", policy=model, harness=HARNESS, sample_idx=idx(f"{task}@{version}", model), attempt=f"{task}/{run}", reward=None, steps=calls,
+                           cost_usd=cost, tool_calls=calls, progress_tracked=False, tags=["masked:no_grade"], failure_kind="agent_run_error", failure_detail="no_grade"))
     spans = json.loads((CRUCIBLE / "docs" / "modules" / "reports" / "m8_coding_gpu.json").read_text())["grades"]
     for name, g in sorted(spans.items()):
         span, sol = name.split("/", 1)
         if sol == "trap_sol_v3" and g.get("reward") is not None:
-            eps.append(Episode(task=f"task04_span/{span}@v3", policy="gpt-5.6-sol", harness=HARNESS, sample_idx=0, attempt=f"span/{name}", reward=float(g["reward"]),
+            eps.append(Episode(task=f"task04_span/{span}@v3", policy="gpt-5.6-sol", harness=HARNESS, sample_idx=idx(f"task04_span/{span}@v3", "gpt-5.6-sol"),
+                               attempt=f"span/{name}", reward=float(g["reward"]),
                                gates={k: int(v) for k, v in (g.get("gates") or {}).items()}, progress_tracked=False))
     return eps
 
@@ -98,6 +108,7 @@ async def episodes() -> list[Episode]:
 def main() -> dict:
     eps = asyncio.run(episodes())
     summary = summarize(eps, ks=(1,), horizon_of=lambda t: "span" if t.startswith("task04_span") else "H3/H4")
+    summary["config"] = {"harnesses": [HARNESS], "source": "recorded runs", "judge": None, "threshold": 1.0, "ks": [1]}
     counts = irt_counts(eps)
     extras = {"sources": "recorded frontier runs (SEEDS, run dirs, grade reports, task04 history, M8 span grades); no new spend",
               "open_model": "not run: no recorded open-model attempt; needs a live run on the GPU Worlds",

@@ -106,7 +106,7 @@ async def replay(task: Any, actions: Sequence[Action], out_dir: Path, *, episode
 
         rows = [StepRow(step=r["step"], call_id=call_id(episode_key, i), harness=harness, actor="agent", phi=r["phi"], delta_phi=r["delta_phi"],
                         milestones_new=r["gained"], milestones_lost=r["lost"])
-                for i, r in enumerate(x for x in read_rows(d / "progress.jsonl") if x["step"] >= 0)]
+                for i, r in enumerate(x for x in read_rows(d / "progress.jsonl") if x["step"] > 0)]  # step 0 is the start state, -1 the end correction
         write_steps(rows, out_dir / "steps.jsonl")
         return {"reward": None if rj.get("infra", {}).get("status") == "masked" else rep.reward, "steps": len(rows),
                 "fingerprint": await _fingerprint(world)}

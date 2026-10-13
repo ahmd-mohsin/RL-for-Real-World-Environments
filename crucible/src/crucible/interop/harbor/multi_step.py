@@ -18,7 +18,9 @@ App) with one ``TaskStep`` per ``[[steps]]`` entry, in declared order, so ``Nati
 - **grade** (Harbor ``_run_step_verifier``, shared mode): Harbor's ``Verifier`` with ``step_name`` (it merges the shared
   ``tests/`` and ``steps/<name>/tests/`` into ``/tests`` and runs the step's ``test.sh``, else the shared one), the
   step's ``verifier.env``, ``user`` and ``timeout_sec``, under the step's verifier network phase. The reward follows
-  ``inplace.scalar_reward``; every key is kept as ``harbor/<key>``. No reward file, a timeout or a crash masks.
+  ``inplace.scalar_reward``; every key is kept as ``harbor/<key>``. A timeout or a crash masks; after the shared dirs
+  are reset a missing reward is the agent's. The grader's toolchain and the container's liveness are checked host-side
+  as in place (``HarborInPlaceTask._verify``, M13 audit B1, B2).
 - **min_reward**: Harbor's own ``MultiStepTrial._min_reward_failure`` judges the step's reward dict (a float gates
   ``reward``; a dict gates each key, a missing key counting as -inf) and reports it as the outcome gate
   ``harbor_min_reward``; the ``TaskStep`` gates on ``check/harbor_min_reward``, so a failing step ends the task exactly
@@ -40,14 +42,13 @@ stopped early scores 0 (Harbor reports the last executed step's reward).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from crucible.interop.harbor.inplace import REWARD_FILE_ERRORS, HarborInPlaceTask, scalar_reward
+from crucible.interop.harbor.inplace import HarborInPlaceTask, scalar_reward
 from crucible.runtime.harness.native import TaskStep
 
 MIN_REWARD_GATE = "harbor_min_reward"
@@ -149,51 +150,39 @@ class HarborMultiStepTask(HarborInPlaceTask):
                     raise RuntimeError(f"step {step.name!r} setup.sh exited {r.return_code}: {(r.stderr or r.stdout or '')[-500:]}")
             if step.healthcheck is not None:
                 await env.run_healthcheck(step.healthcheck)
+        surf = world.__dict__.get("_grader_surface")
+        if surf is not None:  # the step's own setup is the task's, not the policy's: a new baseline for the grader check
+            from crucible.interop.harbor import grader_guard
+
+            surf.advance(await grader_guard.diff(world.backend, surf.container))
 
     async def _grade_step(self, step, world, workdir: Path):
-        from harbor.verifier.verifier import Verifier
-
         from crucible.verify.runtime.plan import CheckResult, GradeReport
 
         t0 = time.monotonic()
         tid = f"{self.id}/{step.name}"
-
-        def masked(kind: str, reason: str) -> GradeReport:
-            return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0,
-                               infra={"status": "masked", "failure_kind": kind, "reason": reason[:500]}, trusted=True, elapsed_s=round(time.monotonic() - t0, 2))
-
-        env = world.backend.env
         timeout = float(step.verifier.timeout_sec)
         user = step.verifier.user if step.verifier.user is not None else self.task.config.verifier.user
-        try:
-            tp = self._trial_paths(world)
-            await self._reset_shared_dirs(env)
-            broken = await self._probe(env, user)
-            if broken:
-                return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
-                                   elapsed_s=round(time.monotonic() - t0, 2), meta={"failure": {"kind": "crucible:agent_broke_env", "reason": broken}})
+        plan = self.step_plans[step.name]
+
+        async def phase_in():
             self._state(world)["dirty"] = True  # set before verifying: a failed verifier may still leave files behind
-            await self._set_phase(world, self.step_plans[step.name].verifier_phase)
-            with env.with_default_user(user):
-                verifier = Verifier(task=self.task, trial_paths=tp, environment=env, verifier_env=dict(step.verifier.env) or None, step_name=step.name)
-                result = await asyncio.wait_for(verifier.verify(), timeout=timeout + 60)
-        except TimeoutError:
-            return masked("verifier_timeout", f"step {step.name!r} verifier exceeded {timeout:.0f}s")
-        except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors after a reset are the agent's (H1 V4)
-            if type(e).__name__ in REWARD_FILE_ERRORS:
-                return GradeReport(task=tid, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
-                                   elapsed_s=round(time.monotonic() - t0, 2),
-                                   meta={"failure": {"kind": f"crucible:{type(e).__name__}", "reason": f"step {step.name!r}: {e}"[:500]}})
-            return masked(type(e).__name__, f"step {step.name!r}: {e}")
-        finally:
-            try:
-                await self._set_phase(world, self.plan.agent_env_baseline)
-            except Exception:  # noqa: BLE001, S110 -- restoring the baseline never overrides the grade
-                pass
+            await self._set_phase(world, plan.verifier_phase)
+
+        async def phase_out():
+            await self._set_phase(world, self.plan.agent_env_baseline)
+
+        # Harbor's Verifier with ``step_name`` under the shared guard (liveness, the grader's toolchain, the network:
+        # M13 audit B1, B2); a reward-file error after the reset is the agent's (H1 V4)
+        result, ended, flags = await self._verify(world, tid=tid, user=user, timeout=timeout, t0=t0, phase=plan.verifier_phase,
+                                                  phase_in=phase_in, phase_out=phase_out,
+                                                  verifier_kw={"verifier_env": dict(step.verifier.env) or None, "step_name": step.name})
+        if ended is not None:
+            return ended
         rewards = dict(result.rewards or {})
         reward, problem = scalar_reward(rewards, self.reward_key)
         if reward is None:
-            return masked(problem.split(":")[0], f"step {step.name!r}: {problem}")
+            return self._masked(tid, t0, problem.split(":")[0], f"step {step.name!r}: {problem}", flags=flags)
         checks, gates, kinds = [], {}, {}
         if step.min_reward is not None:
             why = min_reward_failure(rewards, step.min_reward)
@@ -204,7 +193,7 @@ class HarborMultiStepTask(HarborInPlaceTask):
         return GradeReport(task=tid, tier="full", checks=checks, gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=round(time.monotonic() - t0, 2),
                            meta={"step": step.name, "rewards": rewards, "kinds": kinds, "components": {f"harbor/{k}": float(v) for k, v in rewards.items()},
-                                 "verifier": json.loads(result.model_dump_json())})
+                                 "flags": flags, "verifier": json.loads(result.model_dump_json())})
 
     async def grade(self, world, workdir: Path):
         """A multi-step task is graded step by step (``steps``); this grades the last step alone, for callers that

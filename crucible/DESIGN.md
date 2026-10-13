@@ -1396,7 +1396,9 @@ What the study found:
 
 **M13 (`src/crucible/bench/`):**
 - every §11.1 metric from an M10 run, plus pass^k and max@k;
-- paired comparison (exact McNemar, paired bootstrap; NeMo-Gym's Welch interval is unpaired);
+- task-level comparison (exact McNemar over task flips, t interval and sign-flip test on per-task deltas; NeMo-Gym's
+  Welch interval is unpaired, and per-sample pairs pseudo-replicate);
+- validity: oracle and no-op controls (or M9 / import evidence) exclude broken and vacuous tasks; exposures score 0;
 - lineage-keyed HMAC splits with a seal;
 - 2PL MAP IRT with fixed-anchor calibration (the gdpval anchored-BT idea, item-level) and drift quarantine;
 - contamination: canary, 13-gram, code substring, MinHash LSH, tree fingerprint, leak regex;
@@ -2867,6 +2869,47 @@ document: NeMo-RL counts a masked sample's 0.0 in its GRPO group baselines (`grp
 bridge must fill masked rows first; NeMo-Gym's `harbor_agent` scores a missing reward 0 (unsupported path); the MiMo
 "byte-identical re-export" proves only that the import left its source untouched; the verifiers gate runs verifiers'
 classes on a stub runtime. Details: `docs/audit/2026-10-12/M11-interop.md`.
+
+**M13 audit (2026-10-13).** Benchmarks now measure what they claim. A hack never outranks an honest model: exposed
+answers score 0 with a flag in bench views, and in Harbor in place a grader-toolchain manifest taken before the policy acts
+is checked host-side at grade time, so stubbing the grader's own tools is the policy's scored 0 (`crucible:grader_tampered`;
+it scored 1.0 on every Harbor set before). Infra faults mask by host-side evidence (a lost container or a grade-time
+network drop scored 0 before). Only valid tasks count: a validity manifest (oracle and no-op controls by default, or M9
+acceptance) removes broken, flaky and no-op-passing tasks from every metric, IRT and compare. Every number states its
+denominator: the headline is the mean of per-task means, one task set serves every k, planned / run / owed and the stop
+reason are reported, spend includes masked retries, CIs are t intervals over tasks with the task count shown, and
+comparisons pair per task (McNemar on task flips, a sign-flip test on per-task deltas). Splits close over lineage
+components and the seal covers every label; dynamic item ids never derive from seeds and need a secret key; the IRT fit is
+a converged joint MAP with anchor-centred priors and honest SEs, and drift is robust with multiplicity control; the
+contamination tools know the real canaries in the local datasets and subtract template boilerplate. Details:
+`docs/audit/2026-10-13/M13-bench.md`.
+
+**M13 audit: Harbor in place, OpenEnv runs, environment starts (2026-10-13; bench campaign B1, B2, B8, B12).** P23 now
+holds in place too: Harbor's verifier runs in the agent's container, so the grader's toolchain is held to the pristine
+image (`interop/harbor/grader_guard.py`). At `open`, before the policy acts, the container is trusted: the verifier
+user's `PATH`/`HOME`, every command the test scripts run (plus `sh`/`bash`/`env` and install chains: `apt-get` →
+`dpkg`, `curl | sh` → coreutils) resolved with real paths and interpreters, the venvs they name, each grader Python's
+stdlib and `sys.path`, and a host-side `docker diff` baseline are recorded. At the grade only the host is trusted
+(`docker diff`, `docker cp`): a changed grader tool, a new executable ahead of one on `PATH`, anything in a verifier venv
+or grader stdlib, a Python startup hook, `/etc/ld.so.preload`, a root pytest config, an apt hook or local apt source, an
+index-redirecting pip/uv config, or a replaced `PATH` directory is `crucible:grader_tampered` (policy blame, scored 0,
+rollout flag `grader_tampered` with the paths). A change a package manager explains (dpkg md5sums or a pip `RECORD` of a
+package the policy installed) is a suspicion flag (`grader_tool_repackaged`), and a grader-only tool the image lacks
+that the policy pre-placed is moved aside for the grade, whose own install provides it (`grader_tool_preinstalled`). The
+verifier runs with the pristine `PATH` and a fresh `PYTHONPYCACHEPREFIX` (planted bytecode is never read), and the check
+runs again after it. Non-Docker providers are refused in place unless `grader_integrity="off"`. Residual: shared
+libraries, a forged package database, project config in the agent's workdir, `.pth` files of a system Python the
+grader shares with the policy by design, and a process racing a check. Infrastructure is told apart by host-side
+evidence: a container that is gone, stopped through the daemon API, or whose daemon is unreachable masks
+`crucible:env_container_lost` (mid-episode too: `HarborExec` raises and the task's `infra_cause` names it); one that
+exited from inside is `agent_broke_env`; a failed grade whose test script needs the network, with the container
+detached or the host offline, masks `crucible:grader_network_error`. A grade's `meta.flags` join the rollout's flags
+and a policy-blamed `meta.failure` becomes the attempt's failure (`runtime/harness/native._take_grade_findings`).
+`credit/hack_detector` adds `shadows_grader_tool`. Image pulls and Dockerfile builds that fail are
+`crucible:env_image_unavailable` / `crucible:env_build_failed` (infra, not retried when deterministic) with the cause,
+the tail and the full log (`env_start_error.log`). OpenEnv tasks run through the runner: ATIF gets the World's rendered
+instruction, and Harbor's ATIF modules load lazily (skipped where Harbor is absent). Tests:
+`tests/unit/test_m13_audit_harbor.py`.
 
 **M12 audit (2026-10-13).** The per-token loss math already matched verl, MiMo-verl, NeMo-RL, SkyRL, prime-rl, TRL
 and AReaL to 1e-8; the defects were in what surrounds it. Numerics: log ratios clamp at ±20, gated tokens multiply a

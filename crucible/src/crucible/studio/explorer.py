@@ -111,9 +111,10 @@ class CrucibleExplorerPlugin(ExplorerPlugin):
 
         @r.get("/runs/{run_id}/summary")
         def summary(run_id: str) -> dict[str, Any]:
-            from crucible.bench.metrics import deterministic_digest, load_run, summarize
+            from crucible.bench.metrics import deterministic_digest
+            from crucible.bench.run import summarize_run
 
-            s = summarize(load_run(_run_dir(self.root, run_id)))
+            s, _ = summarize_run(_run_dir(self.root, run_id))  # the plan, owed samples and stop reason ride along (M13 H1 V5)
             return {"run_id": run_id, "digest": deterministic_digest(s), "summary": s}
 
         @r.get("/runs/{run_id}/report", response_class=HTMLResponse)

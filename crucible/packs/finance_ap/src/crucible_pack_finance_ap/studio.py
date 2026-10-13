@@ -89,14 +89,21 @@ def tasks() -> list:
     return [(t, _acts(t.oracle)) for t in (APTask(1), APTask(2))]
 
 
-def generate(seed: int) -> APTask:
-    t = APTask(seed % 100_000)
+def generate(seed: int, item_id: str | None = None) -> APTask:
+    """A fresh benchmark item. ``crucible.bench.dynamic.build`` passes the published opaque ``item_id``; otherwise the id
+    is a one-way hash of the full seed (M13 audit V3: ``s{seed % 100_000}`` published the seed and an enumerable pool)."""
+    import hashlib
+
+    t = APTask(seed)
+    t.id = item_id or f"finance_ap/invoices/g{hashlib.sha256(f'finance_ap/invoices|{seed}'.encode()).hexdigest()[:16]}-n{len(t.w.cases)}@1"
     _MADE[t.id] = t
     return t
 
 
 def stages(task_id: str):
     t = _MADE.get(task_id)
+    if t is None:  # re-keyed after generate
+        t = next((x for x in _MADE.values() if getattr(x, "id", None) == task_id), None)
     if t is None:
         return None
     ids = [g.id for g in t.subgoals.subgoals]

@@ -37,16 +37,31 @@ def tasks() -> list:
     return [(HelpdeskTask(), list(GOLD))]
 
 
-def generate(seed: int):
+def _opaque(prefix: str, seed: int, suffix: str) -> str:
+    """M13 audit V3: a generated id never spells its seed (a one-way hash of the full seed when no item id is given)."""
+    import hashlib
+
+    return f"{prefix}/g{hashlib.sha256(f'{prefix}|{seed}'.encode()).hexdigest()[:16]}{suffix}"
+
+
+def generate(seed: int, item_id: str | None = None):
+    """A fresh benchmark item. ``crucible.bench.dynamic.build`` passes the published opaque ``item_id``; the full 64-bit
+    seed is used (``seed % 100_000`` made the fresh pool enumerable: V3)."""
     from crucible_pack_toy.longhorizon.task import BacklogTask
 
-    t = BacklogTask(seed=seed % 100_000, n=12)
+    t = BacklogTask(seed=seed, n=12)
+    t.id = item_id or _opaque("toy/helpdesk_backlog", seed, "-n12@1")
     _MADE[t.id] = t
     return t
 
 
-def stages(task_id: str):
+def _made(task_id: str):
     t = _MADE.get(task_id)
+    return t if t is not None else next((x for x in _MADE.values() if getattr(x, "id", None) == task_id), None)  # re-keyed after generate
+
+
+def stages(task_id: str):
+    t = _made(task_id)
     if t is None or not hasattr(t, "subgoals"):
         return None
     ids = [g.id for g in t.subgoals.subgoals]

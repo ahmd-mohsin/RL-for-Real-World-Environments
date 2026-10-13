@@ -10,11 +10,12 @@ joins ATIF steps to M5 steps, ``steps.jsonl`` rows and model calls (``crucible.i
 
 from __future__ import annotations
 
-from typing import Any
-
-from harbor.models.trajectories import Agent, Observation, ObservationResult, Step, ToolCall, Trajectory
+from typing import TYPE_CHECKING, Any
 
 from crucible.core.schema.trace import Trace
+
+if TYPE_CHECKING:  # Harbor is imported where it is used: ``runtime.run`` loads this module in venvs without Harbor (M13 B8)
+    from harbor.models.trajectories import Trajectory
 
 
 def _ts(t: str | None) -> str | None:
@@ -23,6 +24,8 @@ def _ts(t: str | None) -> str | None:
 
 def episode_to_atif(trace: Trace, actor: str, *, instruction: str | None = None, agent_name: str = "crucible-policy",
                     agent_version: str = "0.1.0", model_name: str | None = None, session_id: str | None = None) -> Trajectory:
+    from harbor.models.trajectories import Agent, Observation, ObservationResult, Step, ToolCall, Trajectory
+
     steps: list[Step] = []
 
     def add(**kw: Any) -> Step:
@@ -65,4 +68,6 @@ def episode_to_atif(trace: Trace, actor: str, *, instruction: str | None = None,
 
 def parse_trajectory(text: str) -> Trajectory:
     """An ATIF trajectory from its JSON text (``runtime.run`` resolves this through a pointer)."""
+    from harbor.models.trajectories import Trajectory
+
     return Trajectory.model_validate_json(text)

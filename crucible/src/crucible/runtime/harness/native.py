@@ -63,13 +63,30 @@ def _below(flat: dict[str, float], gate: float | dict[str, float] | None) -> str
     return None
 
 
-def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str, policies: dict[str, Any] | None = None) -> None:
+def instruction_for(task: Any, actor: str, world: Any = None) -> str | None:
+    """The instruction text an actor was given: the task's own when it is text (or a per-actor dict of texts), else what
+    the World rendered at reset. A callable instruction (OpenEnv renders it from the reset observation) is never passed
+    on: ATIF wants text (M13 audit B8: every OpenEnv attempt was masked by the validation error and retried)."""
+    ins = getattr(task, "instruction", None)
+    if isinstance(ins, dict):
+        ins = ins.get(actor)
+    if isinstance(ins, str):
+        return ins
+    rendered = (getattr(world, "instructions", None) or {}).get(actor) if world is not None else None
+    return rendered if isinstance(rendered, str) else None
+
+
+def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str, policies: dict[str, Any] | None = None, world: Any = None) -> None:
     """The episode's evidence in the attempt dir: the World trace, the model calls, and one joined ATIF trajectory per
-    policy actor (``interop.harbor.trajectories``)."""
-    from crucible.core.registry import load_impl
+    policy actor (``interop.harbor.trajectories``; skipped, and noted, where Harbor is not installed: an OpenEnv or
+    verifiers venv runs episodes without it, M13 audit B8)."""
+    from crucible.core.registry import RegistryError, load_impl
     from crucible.core.secrets import scrub_json  # records leave the process (M10 audit V12)
 
-    to_atif = load_impl("crucible.interop.harbor.trajectories:to_atif")  # an interop exporter: runtime never imports Harbor
+    try:
+        to_atif = load_impl("crucible.interop.harbor.trajectories:to_atif")  # an interop exporter: runtime never imports Harbor
+    except (ImportError, RegistryError):  # Harbor is not installed here
+        to_atif = None
 
     (attempt.dir / "trace.json").write_text(scrub_json(ep.trace.model_dump_json()))
     res.artifacts["trace"] = "trace.json"
@@ -79,12 +96,49 @@ def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str,
     if any(res.calls.values()):
         (attempt.dir / "calls.json").write_text(scrub_json(json.dumps(res.calls, default=str)))
         res.artifacts["calls"] = "calls.json"
+    if to_atif is None:
+        if res.calls:
+            res.artifacts["trajectory_skipped"] = "Harbor (ATIF) is not installed in this environment"
+        return
     for actor, cs in res.calls.items():
         model = next((c.get("model") for c in cs if c.get("model")), None)
-        traj = to_atif(ep.trace, actor, calls=cs, instruction=getattr(attempt.task, "instruction", None), harness=harness_id,
+        traj = to_atif(ep.trace, actor, calls=cs, instruction=instruction_for(attempt.task, actor, world), harness=harness_id,
                        model_name=model, session_id=attempt.id)
         (attempt.dir / f"trajectory.{actor}.json").write_text(scrub_json(traj.model_dump_json(exclude_none=True)))
         res.artifacts[f"trajectory.{actor}"] = f"trajectory.{actor}.json"
+
+
+async def _masked_episode(task: Any, world: Any, ep: Any, *, prefix: str = "") -> Failure:
+    """The failure of an episode the World masked. A task that can see the infrastructure from the host
+    (``infra_cause``: Harbor in place asks Docker whether its container is gone) names the cause; else the World's first
+    recorded fault (M13 audit B2: a removed container was a generic tool crash, or worse, the policy's failed command)."""
+    cause = None
+    if hasattr(task, "infra_cause") and world is not None:
+        try:
+            cause = await task.infra_cause(world)
+        except Exception:  # noqa: BLE001 -- asking the host is best effort; the World's own fault still masks
+            cause = None
+    if cause is not None:
+        return cause.model_copy(update={"reason": prefix + cause.reason}) if prefix else cause
+    f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
+    return failure(f["kind"], "agent", prefix + f.get("reason", ""))
+
+
+def _take_grade_findings(rep: Any, res: HarnessResult, *, prefix: str = "") -> None:
+    """What a grade found about the policy beyond its reward: rule flags (``meta.flags``, e.g. ``grader_tampered`` with
+    its evidence) join the rollout's flags, and a policy-blamed outcome in ``meta.failure`` (``crucible:grader_tampered``,
+    ``crucible:agent_broke_env``) becomes the attempt's failure: scored 0, never masked, and visible to bench and the
+    hack detector (M13 audit B1: the grade's verdict was only a 0 in report.json)."""
+    from crucible.core.schema.run import default_blame, is_failure_kind
+
+    meta = getattr(rep, "meta", None) or {}
+    flags = [f for f in meta.get("flags") or [] if isinstance(f, dict) and f.get("rule")]
+    if flags:
+        res.flags = [*res.flags, *flags]
+    f = meta.get("failure") or {}
+    kind = f.get("kind")
+    if rep.infra.get("status") != "masked" and kind and is_failure_kind(kind) and default_blame(kind) == "policy":
+        raise StageFailure(Failure(kind=kind, stage="verification", reason=prefix + str(f.get("reason", "")), blame="policy", mask=False))
 
 
 @dataclass
@@ -186,8 +240,7 @@ class NativeHarness:
                 ep = await run_episode(world, policies, limits=limits, reset=False, start_obs=obs, sample_key=attempt.id)
             total_steps += ep.steps
             if ep.masked:
-                f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
-                raise StageFailure(failure(f["kind"], "agent", f"step {st.name}: {f.get('reason', '')}"))
+                raise StageFailure(await _masked_episode(attempt.task, world, ep, prefix=f"step {st.name}: "))
             if any(f.get("kind") == "crucible:policy_misbehavior" for f in ep.failures):
                 raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="agent", reason=f"step {st.name}", blame="policy", mask=False))
             if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
@@ -198,6 +251,7 @@ class NativeHarness:
             t0 = time.monotonic()
             rep = await self._grade(attempt, world, st.grade, sdir / "verifier", sdir / "grade", sdir / "artifacts", res,
                                     close_source=i == len(steps) - 1)
+            _take_grade_findings(rep, res, prefix=f"step {st.name}: ")
             if rep.infra.get("status") == "masked":
                 raise StageFailure(classify_verifier(rep.infra))
             flat = flat_reward(rep.reward_json()) or {"reward": rep.reward}
@@ -277,12 +331,11 @@ class NativeHarness:
             trace = world.to_trace()
             res.flags = rule_flags(trace)  # m13 C-4 level 1 (intercepts, tampering rules)
             res.format_errors = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: charged to the issuing call's tokens
-            save_episode(attempt, ep, res, self.id, policies)
+            save_episode(attempt, ep, res, self.id, policies, world=world)
             if getattr(world, "turns", None) is not None and world.turns.rewards:  # per-seat outcomes of a turn-based World (M1 item 7)
                 res.grade["seat_rewards"] = dict(world.turns.rewards)
             if ep.masked:
-                f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
-                raise StageFailure(failure(f["kind"], "agent", f.get("reason", "")))
+                raise StageFailure(await _masked_episode(attempt.task, world, ep))
             pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
@@ -299,6 +352,7 @@ class NativeHarness:
                 rep = await self._grade(attempt, world, attempt.task.grade, attempt.dir / "verifier", attempt.dir / "grade", attempt.dir / "artifacts", res)
                 t["verification"] = time.monotonic() - t0
                 res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
+                _take_grade_findings(rep, res)
                 if rep.infra.get("status") == "masked":
                     raise StageFailure(classify_verifier(rep.infra))
                 res.reward, res.gates = rep.reward, rep.gate_bits()

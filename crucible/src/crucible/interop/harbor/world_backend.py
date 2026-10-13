@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -36,6 +37,38 @@ from crucible.world.backends.base import Backend, BackendCapabilities
 from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
+
+# what ``docker compose exec`` / ``docker exec`` print for a container that is no longer there or no longer running
+CONTAINER_GONE = re.compile(r"service \"?main\"? is not running|No such container|is not running|container [0-9a-f]+ is (?:not running|paused)"
+                            r"|Cannot connect to the Docker daemon|error during connect", re.IGNORECASE)
+
+
+class EnvContainerLost(RuntimeError):
+    """The task container was removed or stopped from outside the episode (or its daemon is unreachable): infrastructure,
+    masked as ``crucible:env_container_lost`` (M13 audit B2)."""
+
+
+# image pulls and Dockerfile builds that fail (M13 audit B12): the deterministic causes are never retried
+_PULL = re.compile(r"pull access denied|manifest unknown|manifest for \S+ not found|repository does not exist|failed to resolve (?:source metadata|reference)"
+                   r"|not found: manifest|no matching manifest|unauthorized|denied: requested access|toomanyrequests|error pulling image"
+                   r"|failed to pull|No such image|requested access to the resource is denied|TLS handshake timeout|i/o timeout"
+                   r"|lookup [\w.-]+(?: on \S+)?: no such host|dial tcp [^:]+:\d+: connect: (?:network is unreachable|connection refused)", re.IGNORECASE)
+_PULL_FIXED = re.compile(r"pull access denied|manifest unknown|manifest for \S+ not found|repository does not exist|not found: manifest"
+                         r"|no matching manifest|requested access to the resource is denied|No such image", re.IGNORECASE)
+_BUILD = re.compile(r"failed to solve|failed to compute cache key|did not complete successfully|COPY failed|failed to build|ERROR \[|"
+                    r"dockerfile parse error|unknown instruction|failed to read dockerfile", re.IGNORECASE)
+_BUILD_FIXED = re.compile(r"failed to compute cache key|COPY failed|: not found|dockerfile parse error|unknown instruction|failed to read dockerfile", re.IGNORECASE)
+
+
+def classify_start_error(text: str) -> tuple[str, bool] | None:
+    """A failed environment start -> (failure kind, retryable), or None when it is neither a pull nor a build failure."""
+    cmd = re.search(r"Command: (.*?)\. Return code", text, re.DOTALL)  # Harbor's compose failure message names the subcommand
+    sub = next((t for t in (cmd.group(1).split() if cmd else []) if t in ("build", "up", "pull", "create", "start", "run", "exec", "down")), "")
+    if _PULL.search(text) and sub in ("", "up", "pull", "build", "create"):
+        return "crucible:env_image_unavailable", not _PULL_FIXED.search(text)
+    if sub == "build" or (not cmd and _BUILD.search(text)):
+        return "crucible:env_build_failed", not _BUILD_FIXED.search(text)
+    return None
 
 
 # Worlds sharing one remote daemon in a process share ``DOCKER_HOST`` by reference count: the first sets it, the last
@@ -73,10 +106,11 @@ class HarborExec(Exec):
 
     name = "harbor"
 
-    def __init__(self, env: Any, *, python: str = "python3", default_user: str | None = None):
+    def __init__(self, env: Any, *, python: str = "python3", default_user: str | None = None, lost: Any = None):
         self.env = env
         self.python = python
         self.default_user = default_user
+        self.lost = lost  # async () -> reason when the container is gone or was stopped from outside, else None
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None) -> ExecOut:
         import time
@@ -95,6 +129,13 @@ class HarborExec(Exec):
                 return ExecOut(rc=-9, stdout="", stderr=str(e), duration_s=time.monotonic() - t0, timed_out=True)
             raise
         out = ExecOut(rc=r.return_code, stdout=r.stdout or "", stderr=r.stderr or "", duration_s=time.monotonic() - t0)
+        if out.rc != 0 and self.lost is not None and CONTAINER_GONE.search((out.stdout + out.stderr)[-2000:]):
+            # compose answers a removed or stopped container with an ordinary non-zero exit ("service \"main\" is not
+            # running"): the policy saw it as its own failed command and the grade blamed it (M13 audit B2). The host
+            # decides: a container that is gone or was stopped from outside is the infrastructure's, never the policy's
+            why = await self.lost()
+            if why:
+                raise EnvContainerLost(why)
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
         return out
@@ -194,6 +235,9 @@ class HarborBackend(Backend):
         if docker_host:
             _acquire_docker_host(docker_host)  # Harbor's compose + docker CLI subprocesses inherit it
         env_dir, cfg, name = self._env_config()
+        import time as _time
+
+        self._started_at = _time.time()
         trial = TrialPaths(trial_dir=self.workdir / "harbor_trial")
         trial.mkdir()
         gpu_mode = self.params.get("gpu_mode", "runtime" if self._needs_gpu else "none")
@@ -217,7 +261,7 @@ class HarborBackend(Backend):
             policy = NetworkPolicy(network_mode=mode, allowed_hosts=list(self.spec.allowed_hosts) if mode == NetworkMode.ALLOWLIST else [])
             # Harbor refuses providers that cannot enforce the policy (_validate_network_policy_support) before creating anything
             self.env = EnvironmentFactory.create_environment(EnvironmentType(etype), **common, network_policy=policy, **self.params.get("environment_kwargs", {}))
-            await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
+            await self._start_env()
             self._exec = HarborExec(self.env, default_user=self.params.get("user"))
             if self.params.get("require_state_tools", True):
                 probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=120)
@@ -244,14 +288,129 @@ class HarborBackend(Backend):
         if egress and not getattr(self.env, "_enable_egress_control", False):  # fail closed: never run an unenforced allowlist
             raise RuntimeError(f"network {self.spec.network!r} needs Harbor's egress control, which this Docker daemon's kernel does not support "
                                "(nftables fib inet)")
-        await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
-        self._exec = HarborExec(self.env, default_user=self.params.get("user"))
+        await self._start_env()
+        self._exec = HarborExec(self.env, default_user=self.params.get("user"), lost=self.container_lost)
         if remote:  # no host bind mounts on a remote daemon: the dirs live in the container and Harbor downloads them
             await self._exec.run("mkdir -p /logs/verifier /logs/agent /logs/artifacts", timeout_s=60, user="root")
         if self.params.get("require_state_tools", True):  # in-place Harbor tasks (process adapter) run on any image
             probe = await self._exec.run("command -v python3 >/dev/null && command -v git >/dev/null && echo ok", timeout_s=60)
             if "ok" not in probe.stdout:
                 raise RuntimeError("sandbox image needs python3 and git for Crucible's state adapters")
+
+    async def _start_env(self) -> None:
+        """Harbor's ``start`` (build or pull, then ``up``). An image that cannot be pulled or a Dockerfile that does not build
+        is the environment's failure, named as such with its whole cause kept: the full compose output goes to
+        ``env_start_error.log`` in the World's workdir and the failure keeps its tail and that path (M13 audit B12: these
+        were ``agent_run_error`` with harness or unknown blame, the cause cut at 500 characters)."""
+        try:
+            await asyncio.wait_for(self.env.start(force_build=bool(self.params.get("force_build"))), float(self.params.get("start_timeout_s", 1800)))
+        except RuntimeError as e:
+            text = str(e)
+            got = classify_start_error(text)
+            if got is None:
+                raise
+            from crucible.core.schema.run import Failure
+            from crucible.runtime.infra import StageFailure
+
+            kind, retryable = got
+            log = self.workdir / "env_start_error.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            from crucible.core.secrets import scrub_secrets
+
+            log.write_text(scrub_secrets(text))
+            what = "the task image could not be pulled" if kind.endswith("image_unavailable") else "the task's Dockerfile did not build"
+            m = (_PULL if kind.endswith("image_unavailable") else _BUILD).search(text)
+            cause = text[max(0, m.start() - 200): m.end() + 300] if m else ""
+            reason = f"{what} ({'transient' if retryable else 'deterministic'}): …{cause}… | tail: {text[-900:]} | full log: {log}"
+            raise StageFailure(Failure(kind=kind, stage="seed", reason=reason[-1990:] if len(reason) > 1990 else reason, retryable=retryable,
+                                       detail="pull" if kind.endswith("image_unavailable") else "build")) from e
+
+    # ---- host-side container facts (Docker only; M13 audit B1, B2) -------------------------------------------------
+    @property
+    def docker_cli(self) -> bool:
+        """The container is a Docker container the host CLI can inspect (local or remote daemon)."""
+        return self.params.get("environment_type", "docker") == "docker" and self.env is not None
+
+    async def docker(self, *args: str, timeout: float = 120.0) -> tuple[int, bytes, str]:
+        proc = await asyncio.create_subprocess_exec("docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                    stdin=asyncio.subprocess.DEVNULL)
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout)
+        except TimeoutError:
+            proc.kill()
+            return -9, b"", f"docker {args[0]} timed out after {timeout:.0f}s"
+        return proc.returncode or 0, out, err.decode("utf-8", "replace")
+
+    async def main_container(self) -> str | None:
+        """The main service's container id, found once (while it exists) and remembered: a removed container keeps its id."""
+        if getattr(self, "_cid", None):
+            return self._cid
+        if not self.docker_cli:
+            return None
+        from harbor.environments.docker.docker import _sanitize_docker_compose_project_name
+
+        project = _sanitize_docker_compose_project_name(self.env.session_id)
+        rc, out, _ = await self.docker("ps", "-aq", "--no-trunc", "--filter", f"label=com.docker.compose.project={project}",
+                                       "--filter", "label=com.docker.compose.service=main", timeout=60)
+        cid = out.decode().split()[0] if rc == 0 and out.strip() else None
+        self._cid = cid
+        return cid
+
+    async def container_state(self) -> dict[str, Any]:
+        """Host-side liveness: ``{"supported", "exists", "running", "status", "exit_code", "oom", "outside", "events", "error"}``.
+        ``outside``: the daemon API stopped, killed or removed it (``docker stop`` / ``kill`` / ``rm``), which no process
+        in the container can do; a container that died without one exited from inside (its own main process)."""
+        if not self.docker_cli:
+            return {"supported": False}
+        cid = await self.main_container()
+        if cid is None:
+            return {"supported": True, "exists": False, "running": False, "outside": True, "events": [], "error": "no main container"}
+        rc, out, err = await self.docker("inspect", "--format", "{{json .State}}", cid, timeout=60)
+        if rc != 0:
+            daemon = "no such" not in err.lower()
+            return {"supported": True, "exists": False if not daemon else None, "running": False, "outside": True, "events": await self._events(cid),
+                    "error": err.strip()[-300:]}
+        import json as _json
+
+        st = _json.loads(out.decode() or "{}")
+        state = {"supported": True, "exists": True, "running": bool(st.get("Running")) and not st.get("Paused"), "status": st.get("Status"),
+                 "exit_code": st.get("ExitCode"), "oom": bool(st.get("OOMKilled")), "events": []}
+        if not state["running"]:
+            state["events"] = await self._events(cid)
+            state["outside"] = bool(set(state["events"]) & {"kill", "stop", "destroy", "pause"}) or bool(st.get("Paused"))
+        return state
+
+    async def _events(self, cid: str) -> list[str]:
+        import time as _time
+
+        rc, out, _ = await self.docker("events", "--since", str(int(getattr(self, "_started_at", _time.time() - 86400)) - 5), "--until",
+                                       str(int(_time.time()) + 1), "--filter", f"container={cid}", "--format", "{{.Action}}", timeout=30)
+        return [x.split(":")[0].strip() for x in out.decode().splitlines() if x.strip()] if rc == 0 else []
+
+    async def container_lost(self) -> str | None:
+        """Why the container is lost to the episode (gone, stopped from outside, daemon unreachable), or None."""
+        st = await self.container_state()
+        if not st.get("supported"):
+            return None
+        if st.get("exists") is None:
+            return f"the Docker daemon cannot be reached: {st.get('error', '')}"
+        if not st.get("exists"):
+            return f"the task container was removed ({', '.join(st.get('events') or []) or st.get('error', '')})"
+        if not st.get("running") and st.get("outside"):
+            return f"the task container was stopped from outside ({', '.join(st.get('events') or [])}; status {st.get('status')})"
+        return None
+
+    async def networks(self) -> dict[str, Any] | None:
+        """The main container's attached networks (host-side), or None when unknown."""
+        cid = await self.main_container()
+        if cid is None:
+            return None
+        rc, out, _ = await self.docker("inspect", "--format", "{{json .NetworkSettings.Networks}}", cid, timeout=60)
+        if rc != 0:
+            return None
+        import json as _json
+
+        return _json.loads(out.decode() or "null") or {}
 
     async def after_apps_started(self, world) -> None:
         """Isolation (Karotte-style), after Apps seeded their files as root (``crucible.world.guard.isolate``)."""

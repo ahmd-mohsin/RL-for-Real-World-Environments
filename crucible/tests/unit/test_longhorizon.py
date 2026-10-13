@@ -43,7 +43,8 @@ async def test_oracle_and_dense_progress_telescope(tmp_path):
     p = rec["meta"]["progress"]
     assert p["phi0"] == 0.0 and p["phi_final"] == 1.0 and p["drift"] == [] and abs(p["sum_delta"] - 1.0) < 1e-6  # dense rewards sum to R
     rows = read_rows(adir / "progress.jsonl")
-    assert len(rows) == rec["steps"] and all(r["delta_phi"] >= 0 for r in rows)  # the oracle never regresses
+    assert rows[0]["step"] == 0 and rows[0]["phi"] == p["phi0"]  # the start state (M13 audit H1 V2)
+    assert len([r for r in rows if r["step"] > 0]) == rec["steps"] and all(r["delta_phi"] >= 0 for r in rows)  # the oracle never regresses
     assert sum(1 for r in rows if r["delta_phi"] > 0) == 40  # one positive reward per ticket, at the step that completed it
 
 

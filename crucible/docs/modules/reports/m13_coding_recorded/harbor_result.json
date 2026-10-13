@@ -1,0 +1,104 @@
+{
+ "cost_usd": 130.50388,
+ "crucible": {
+  "digest": "4436b086e23c2bf5",
+  "exposed": "scored 0",
+  "masked": "excluded from metrics, never scored 0 (DESIGN P16); listed under exception_stats",
+  "mean": "mean of per-task means",
+  "stopped": null
+ },
+ "evals": {
+  "mini-swe-agent@2.4.6__claude-fable-5.1__crucible": {
+   "exception_stats": {},
+   "metrics": [
+    {
+     "mean": 1.0
+    }
+   ],
+   "n_errors": 0,
+   "n_retries": 0,
+   "n_trials": 1,
+   "pass_at_k": {
+    "1": 1.0
+   },
+   "reward_stats": {
+    "reward": {
+     "1.0": [
+      "task01_prims_omp/fable-5.1-run1"
+     ]
+    }
+   }
+  },
+  "mini-swe-agent@2.4.6__gpt-5.6-sol__crucible": {
+   "exception_stats": {
+    "agent_run_error": [
+     "task04_pcl_gpu_cuda12/gpt-5.6-sol-v2-run1"
+    ]
+   },
+   "metrics": [
+    {
+     "mean": 0.142857143
+    }
+   ],
+   "n_errors": 1,
+   "n_retries": 0,
+   "n_trials": 7,
+   "pass_at_k": {
+    "1": 0.142857143
+   },
+   "reward_stats": {
+    "reward": {
+     "0.0": [
+      "task01v2_tessera_omp/gpt-5.6-sol-run1",
+      "task02_pcops_triton/gpt-5.6-sol-run1",
+      "task03_mdlite_pallas/gpt-5.6-sol-run1",
+      "task04_pcl_gpu_cuda12/gpt-5.6-sol-v3-run1",
+      "span/ncv/trap_sol_v3",
+      "span/people/trap_sol_v3"
+     ],
+     "1.0": [
+      "task04_pcl_gpu_cuda12/gpt-5.6-sol-run1"
+     ]
+    }
+   }
+  },
+  "mini-swe-agent@2.4.6__gpt-6-astra__crucible": {
+   "exception_stats": {
+    "agent_run_error": [
+     "task04_pcl_gpu_cuda12/gpt-6-astra-v2-run1",
+     "task04_pcl_gpu_cuda12/gpt-6-astra-v3-aborted"
+    ]
+   },
+   "metrics": [
+    {
+     "mean": 0.5
+    }
+   ],
+   "n_errors": 2,
+   "n_retries": 0,
+   "n_trials": 2,
+   "pass_at_k": {
+    "1": 0.5
+   },
+   "reward_stats": {
+    "reward": {
+     "0.0": [
+      "task04_pcl_gpu_cuda12/gpt-6-astra-v3-run2"
+     ],
+     "1.0": [
+      "task04_pcl_gpu_cuda12/gpt-6-astra-run1"
+     ]
+    }
+   }
+  }
+ },
+ "n_cache_tokens": null,
+ "n_cancelled_trials": 0,
+ "n_completed_trials": 0,
+ "n_errored_trials": 0,
+ "n_input_tokens": 0,
+ "n_output_tokens": 0,
+ "n_pending_trials": 0,
+ "n_retries": 0,
+ "n_running_trials": 0
+}

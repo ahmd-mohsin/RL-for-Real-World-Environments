@@ -1,104 +1,167 @@
 <!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Coding tasks 01-04 + spans, recorded frontier runs</title><style>
-:root{--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--line:#e5e5ea;--card:#f7f7f9}
-@media (prefers-color-scheme:dark){:root{--bg:#111214;--fg:#ececf0;--mut:#9a9aa3;--line:#2a2b30;--card:#1a1b1f}}
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--line:#e5e5ea;--card:#f7f7f9;--warn:#fff4e5;--warnline:#f0b35a}
+@media (prefers-color-scheme:dark){:root{--bg:#111214;--fg:#ececf0;--mut:#9a9aa3;--line:#2a2b30;--card:#1a1b1f;--warn:#2b2214;--warnline:#8a6424}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:24px 16px;max-width:1200px;margin:auto}
 h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}.mut{color:var(--mut)}
 table{border-collapse:collapse;width:100%;margin:6px 0;font-variant-numeric:tabular-nums}
 th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}th{font-weight:600}
 .scroll{overflow-x:auto}.cell{width:26px;height:18px;padding:0;border:1px solid var(--bg)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0}
+.warn{background:var(--warn);border:1px solid var(--warnline);border-radius:8px;padding:10px 12px;margin:12px 0}
 .waffle span{display:inline-block;width:12px;height:12px;margin:1px;border-radius:2px}
 </style></head><body>
-<h1>Coding tasks 01-04 + spans, recorded frontier runs</h1><div class=mut>deterministic digest cefd2f4533e82eeb · threshold 1.0 · masked samples are excluded from every quality metric</div>
-<h2>Models</h2><div class=scroll><table><tr><th>policy</th><th>harness</th><th>measured / masked</th><th>mean reward (raw)</th><th>95% CI</th><th>pass@1</th><th>pass^1</th><th>progress AUC</th><th>stage reach</th><th>regressions</th><th>msgs / success</th><th>USD / success</th></tr>
-<tr><td>claude-fable-5.1</td><td>mini-swe-agent@2.4.6</td><td>1 / 0</td><td>1.000 (1.000)</td><td>—</td><td>1.000</td><td>1.000</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>50.460</td></tr>
-<tr><td>gpt-5.6-sol</td><td>mini-swe-agent@2.4.6</td><td>7 / 1</td><td>0.143 (0.125)</td><td>(0.0, 0.428571)</td><td>0.143</td><td>0.143</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>18.896</td></tr>
-<tr><td>gpt-6-astra</td><td>mini-swe-agent@2.4.6</td><td>2 / 2</td><td>0.500 (0.250)</td><td>(0.0, 1.0)</td><td>0.500</td><td>0.500</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>61.148</td></tr>
+<h1>Coding tasks 01-04 + spans, recorded frontier runs</h1><div class=mut>deterministic digest 4436b086e23c2bf5 · threshold 1.000 · planned — samples, measured —, masked —, owed — · masked samples are excluded from every quality metric; exposed samples score 0</div>
+<div class=warn role=alert><b>Read before using these numbers</b><ul><li>validity unknown: no oracle or no-op evidence for these 9 tasks, so vacuous tasks (a no-op passes) and broken ones (the oracle fails) may be counted; run with controls or pass a validity manifest</li><li>gpt-5.6-sol@mini-swe-agent@2.4.6: 1 of 8 tasks have no measured sample and are absent from every quality metric</li><li>gpt-5.6-sol@mini-swe-agent@2.4.6: the 95% interval rests on 7 tasks (fewer than 10): approximate</li><li>gpt-6-astra@mini-swe-agent@2.4.6: 1 of 3 tasks have no measured sample and are absent from every quality metric</li><li>gpt-6-astra@mini-swe-agent@2.4.6: the 95% interval rests on 2 tasks (fewer than 10): approximate</li><li>models were measured on different task sets: compare them on the 0 common tasks (common support table)</li></ul></div>
+<h2>Models</h2><div class=scroll><table><tr><th>policy</th><th>harness</th><th>measured / masked / owed</th><th>mean reward of task means (raw)</th><th>tasks</th><th>95% CI on task means</th><th>pass@1</th><th>pass^1</th><th>hacks (exposed / tampered / flagged passes)</th><th>progress AUC</th><th>stage reach (frac)</th><th>regressions</th><th>msgs / success</th><th>USD / success</th></tr>
+<tr><td>claude-fable-5.1</td><td>mini-swe-agent@2.4.6</td><td>1 / 0 / 0</td><td>1.000 (1.000)</td><td>1</td><td>—</td><td>1.000</td><td>1.000</td><td>0 / 0 / 0</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>50.460</td></tr>
+<tr><td>gpt-5.6-sol</td><td>mini-swe-agent@2.4.6</td><td>7 / 1 / 0</td><td>0.143 (0.125)</td><td>7</td><td>[-0.207, 0.492] n=7 approx.</td><td>0.143</td><td>0.143</td><td>0 / 0 / 0</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>18.896</td></tr>
+<tr><td>gpt-6-astra</td><td>mini-swe-agent@2.4.6</td><td>2 / 2 / 0</td><td>0.500 (0.333)</td><td>2</td><td>[-5.853, 6.853] n=2 approx.</td><td>0.500</td><td>0.500</td><td>0 / 0 / 0</td><td>—</td><td>—</td><td>0</td><td>0.000</td><td>61.148</td></tr>
+</table></div>
+<h2>Validity</h2><div class=mut>status unknown; valid 0, invalid 0, unknown 9; sources —</div>
+<h2>Common support</h2><div class=mut>every model on the 0 tasks measured for all models</div><div class=scroll><table><tr><th>model</th><th>mean reward</th><th>pass@1</th><th>measured tasks</th><th>dropped tasks</th></tr>
+<tr><td>claude-fable-5.1@mini-swe-agent@2.4.6</td><td>—</td><td>—</td><td>1</td><td>task01_prims_omp@v1</td></tr>
+<tr><td>gpt-5.6-sol@mini-swe-agent@2.4.6</td><td>—</td><td>—</td><td>7</td><td>task01v2_tessera_omp@v2, task02_pcops_triton@v1, task03_mdlite_pallas@v1, task04_pcl_gpu_cuda12@v1, task04_pcl_gpu_cuda12@v3, task04_span/ncv@v3, task04_span/people@v3</td></tr>
+<tr><td>gpt-6-astra@mini-swe-agent@2.4.6</td><td>—</td><td>—</td><td>2</td><td>task04_pcl_gpu_cuda12@v1, task04_pcl_gpu_cuda12@v3</td></tr>
+</table></div>
+<h2>Masked samples by kind</h2><div class=scroll><table><tr><th>model</th><th>agent_run_error/no_grade</th><th>retries</th></tr>
+<tr><td>claude-fable-5.1@mini-swe-agent@2.4.6</td><td>0</td><td>0</td></tr>
+<tr><td>gpt-5.6-sol@mini-swe-agent@2.4.6</td><td>1</td><td>0</td></tr>
+<tr><td>gpt-6-astra@mini-swe-agent@2.4.6</td><td>2</td><td>0</td></tr>
 </table></div>
 <h2>Gate profile</h2><div class=scroll><table><tr><th>model</th><th>api</th><th>app</th><th>binary</th><th>build</th><th>build_gpu</th><th>build_host</th><th>concurrency</th><th>consumers</th><th>dynamics</th><th>forces</th><th>fresh</th><th>hard</th><th>install</th><th>kinfu</th><th>link</th><th>ncv</th><th>offload</th><th>ops</th><th>people</th><th>perf</th><th>physics</th><th>sanitizer</th><th>static</th><th>tests_gpu</th><th>tests_host</th><th>verifier-level</th></tr>
 <tr><td>claude-fable-5.1</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td>1.000</td></tr>
 <tr><td>gpt-5.6-sol</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(58,65%,54%)'>0.400</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(40,65%,57%)'>0.250</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(30,65%,58%)'>0.167</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(10,65%,62%)'>0.000</td><td style='background:hsl(10,65%,62%)'>0.000</td><td>0.694</td></tr>
 <tr><td>gpt-6-astra</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(70,65%,53%)'>0.500</td><td style='background:transparent'>—</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:hsl(130,65%,44%)'>1.000</td><td style='background:transparent'>—</td><td style='background:transparent'>—</td><td>0.955</td></tr>
 </table></div>
+<h2>Per task</h2>
+<div class=card><b>claude-fable-5.1@mini-swe-agent@2.4.6</b><div class=scroll><table><tr><th>task</th><th>measured / masked / owed</th><th>mean reward</th><th>pass@1</th><th>exposed</th></tr>
+<tr><td>task01_prims_omp@v1</td><td>1 / 0 / 0</td><td>1.000</td><td>1.000</td><td>0</td></tr>
+</table></div></div>
+<div class=card><b>gpt-5.6-sol@mini-swe-agent@2.4.6</b><div class=scroll><table><tr><th>task</th><th>measured / masked / owed</th><th>mean reward</th><th>pass@1</th><th>exposed</th></tr>
+<tr><td>task01v2_tessera_omp@v2</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+<tr><td>task02_pcops_triton@v1</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+<tr><td>task03_mdlite_pallas@v1</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+<tr><td>task04_pcl_gpu_cuda12@v1</td><td>1 / 0 / 0</td><td>1.000</td><td>1.000</td><td>0</td></tr>
+<tr><td>task04_pcl_gpu_cuda12@v2</td><td>0 / 1 / 0</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>task04_pcl_gpu_cuda12@v3</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+<tr><td>task04_span/ncv@v3</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+<tr><td>task04_span/people@v3</td><td>1 / 0 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+</table></div></div>
+<div class=card><b>gpt-6-astra@mini-swe-agent@2.4.6</b><div class=scroll><table><tr><th>task</th><th>measured / masked / owed</th><th>mean reward</th><th>pass@1</th><th>exposed</th></tr>
+<tr><td>task04_pcl_gpu_cuda12@v1</td><td>1 / 0 / 0</td><td>1.000</td><td>1.000</td><td>0</td></tr>
+<tr><td>task04_pcl_gpu_cuda12@v2</td><td>0 / 1 / 0</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>task04_pcl_gpu_cuda12@v3</td><td>1 / 1 / 0</td><td>0.000</td><td>0.000</td><td>0</td></tr>
+</table></div></div>
 <h2>Progress Φ per normalized step</h2><div class=mut>mean Φ at the end of each of 10 step bins; one row per task</div>
-<h2>Episodes</h2><div class=mut>one cell per episode: colour = reward; grey = masked</div>
+<h2>Episodes</h2><div class=mut>one cell per planned sample: colour = reward; grey = masked; outlined = owed</div>
 <div class='card waffle'><b>claude-fable-5.1@mini-swe-agent@2.4.6</b><br><span title='task01_prims_omp@v1#0: 1.000' style='background:hsl(130,65%,44%)'></span></div>
-<div class='card waffle'><b>gpt-5.6-sol@mini-swe-agent@2.4.6</b><br><span title='task01v2_tessera_omp@v2#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task02_pcops_triton@v1#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task03_mdlite_pallas@v1#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_pcl_gpu_cuda12@v1#0: 1.000' style='background:hsl(130,65%,44%)'></span><span title='task04_pcl_gpu_cuda12@v2#1: —' style='background:#8884'></span><span title='task04_pcl_gpu_cuda12@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_span/ncv@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_span/people@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span></div>
-<div class='card waffle'><b>gpt-6-astra@mini-swe-agent@2.4.6</b><br><span title='task04_pcl_gpu_cuda12@v1#0: 1.000' style='background:hsl(130,65%,44%)'></span><span title='task04_pcl_gpu_cuda12@v2#1: —' style='background:#8884'></span><span title='task04_pcl_gpu_cuda12@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_pcl_gpu_cuda12@v3#1: —' style='background:#8884'></span></div>
-<h2>Reward vs cost</h2><svg viewBox="0 0 520 220" width="100%" style="max-width:520px" role="img" aria-label="reward vs cost"><line x1="36" y1="184" x2="484" y2="184" stroke="currentColor" opacity=".3"/><line x1="36" y1="36" x2="36" y2="184" stroke="currentColor" opacity=".3"/><text x="484" y="212" font-size="11" text-anchor="end">cost per episode</text><text x="8" y="26" font-size="11">mean reward</text><circle cx="484.0" cy="36.0" r="5" fill="currentColor"/><text x="492.0" y="40.0" font-size="11">claude-fable-5.1</text><circle cx="57.0" cy="162.9" r="5" fill="currentColor"/><text x="65.0" y="166.9" font-size="11">gpt-5.6-sol</text><circle cx="171.7" cy="110.0" r="5" fill="currentColor"/><text x="179.7" y="114.0" font-size="11">gpt-6-astra</text></svg>
+<div class='card waffle'><b>gpt-5.6-sol@mini-swe-agent@2.4.6</b><br><span title='task01v2_tessera_omp@v2#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task02_pcops_triton@v1#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task03_mdlite_pallas@v1#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_pcl_gpu_cuda12@v1#0: 1.000' style='background:hsl(130,65%,44%)'></span><span title='task04_pcl_gpu_cuda12@v2#0: —' style='background:#8884'></span><span title='task04_pcl_gpu_cuda12@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_span/ncv@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_span/people@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span></div>
+<div class='card waffle'><b>gpt-6-astra@mini-swe-agent@2.4.6</b><br><span title='task04_pcl_gpu_cuda12@v1#0: 1.000' style='background:hsl(130,65%,44%)'></span><span title='task04_pcl_gpu_cuda12@v2#0: —' style='background:#8884'></span><span title='task04_pcl_gpu_cuda12@v3#0: 0.000' style='background:hsl(10,65%,62%)'></span><span title='task04_pcl_gpu_cuda12@v3#1: —' style='background:#8884'></span></div>
+<h2>Reward vs cost</h2><svg viewBox="0 0 520 220" width="100%" style="max-width:520px" role="img" aria-label="reward vs cost"><line x1="36" y1="184" x2="484" y2="184" stroke="currentColor" opacity=".3"/><line x1="36" y1="36" x2="36" y2="184" stroke="currentColor" opacity=".3"/><text x="484" y="212" font-size="11" text-anchor="end">cost per planned sample</text><text x="8" y="26" font-size="11">mean reward (0 to 1)</text><circle cx="484.0" cy="36.0" r="5" fill="currentColor"/><text x="492.0" y="40.0" font-size="11">claude-fable-5.1</text><circle cx="57.0" cy="162.9" r="5" fill="currentColor"/><text x="65.0" y="166.9" font-size="11">gpt-5.6-sol</text><circle cx="171.7" cy="110.0" r="5" fill="currentColor"/><text x="179.7" y="114.0" font-size="11">gpt-6-astra</text></svg>
+<h2>Configuration</h2><div class=card><pre style='white-space:pre-wrap;margin:0'>{
+ &quot;harnesses&quot;: [
+  &quot;mini-swe-agent@2.4.6&quot;
+ ],
+ &quot;judge&quot;: null,
+ &quot;ks&quot;: [
+  1
+ ],
+ &quot;source&quot;: &quot;recorded runs&quot;,
+ &quot;threshold&quot;: 1.0
+}</pre></div>
 <h2>sources</h2><div class=card><pre style='white-space:pre-wrap;margin:0'>&quot;recorded frontier runs (SEEDS, run dirs, grade reports, task04 history, M8 span grades); no new spend&quot;</pre></div>
 <h2>open_model</h2><div class=card><pre style='white-space:pre-wrap;margin:0'>&quot;not run: no recorded open-model attempt; needs a live run on the GPU Worlds&quot;</pre></div>
 <h2>per_episode_phi</h2><div class=card><pre style='white-space:pre-wrap;margin:0'>{
  &quot;span/ncv/trap_sol_v3&quot;: null,
  &quot;span/people/trap_sol_v3&quot;: null,
- &quot;task01_prims_omp/fable-5.1-run1&quot;: 0.491667,
- &quot;task01v2_tessera_omp/gpt-5.6-sol-run1&quot;: 0.613508,
+ &quot;task01_prims_omp/fable-5.1-run1&quot;: 0.462687,
+ &quot;task01v2_tessera_omp/gpt-5.6-sol-run1&quot;: 0.618474,
  &quot;task02_pcops_triton/gpt-5.6-sol-run1&quot;: 0.42029,
  &quot;task03_mdlite_pallas/gpt-5.6-sol-run1&quot;: 0.274194,
- &quot;task04_pcl_gpu_cuda12/gpt-5.6-sol-run1&quot;: 0.316062,
+ &quot;task04_pcl_gpu_cuda12/gpt-5.6-sol-run1&quot;: 0.301408,
  &quot;task04_pcl_gpu_cuda12/gpt-5.6-sol-v2-run1&quot;: null,
- &quot;task04_pcl_gpu_cuda12/gpt-5.6-sol-v3-run1&quot;: 0.318653,
- &quot;task04_pcl_gpu_cuda12/gpt-6-astra-run1&quot;: 0.329016,
+ &quot;task04_pcl_gpu_cuda12/gpt-5.6-sol-v3-run1&quot;: 0.304225,
+ &quot;task04_pcl_gpu_cuda12/gpt-6-astra-run1&quot;: 0.315493,
  &quot;task04_pcl_gpu_cuda12/gpt-6-astra-v2-run1&quot;: null,
  &quot;task04_pcl_gpu_cuda12/gpt-6-astra-v3-aborted&quot;: null,
- &quot;task04_pcl_gpu_cuda12/gpt-6-astra-v3-run2&quot;: 0.554404
+ &quot;task04_pcl_gpu_cuda12/gpt-6-astra-v3-run2&quot;: 0.560563
 }</pre></div>
 <h2>irt</h2><div class=card><pre style='white-space:pre-wrap;margin:0'>{
  &quot;anchors&quot;: [],
+ &quot;converged&quot;: true,
+ &quot;grad_norm&quot;: 8.44e-10,
  &quot;items&quot;: {
   &quot;task01_prims_omp@v1&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: -0.792044,
-   &quot;se_b&quot;: 1.527234
+   &quot;b&quot;: -0.942004,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.576081
   },
   &quot;task01v2_tessera_omp@v2&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 0.908115,
-   &quot;se_b&quot;: 1.571091
+   &quot;b&quot;: 0.734414,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.607637
   },
   &quot;task02_pcops_triton@v1&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 0.908115,
-   &quot;se_b&quot;: 1.571091
+   &quot;b&quot;: 0.734414,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.607637
   },
   &quot;task03_mdlite_pallas@v1&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 0.908115,
-   &quot;se_b&quot;: 1.571091
+   &quot;b&quot;: 0.734414,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.607637
   },
   &quot;task04_pcl_gpu_cuda12@v1&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: -1.548985,
-   &quot;se_b&quot;: 1.316118
+   &quot;b&quot;: -1.728392,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.355532
   },
   &quot;task04_pcl_gpu_cuda12@v3&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 1.459097,
-   &quot;se_b&quot;: 1.384845
+   &quot;b&quot;: 1.288522,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.431854
   },
   &quot;task04_span/ncv@v3&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 0.908115,
-   &quot;se_b&quot;: 1.571091
+   &quot;b&quot;: 0.734414,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.607637
   },
   &quot;task04_span/people@v3&quot;: {
    &quot;a&quot;: 1.0,
-   &quot;b&quot;: 0.908115,
-   &quot;se_b&quot;: 1.571091
+   &quot;b&quot;: 0.734414,
+   &quot;se_a&quot;: null,
+   &quot;se_b&quot;: 1.607637
   }
  },
- &quot;loglik&quot;: -2.17344,
+ &quot;iterations&quot;: 4,
+ &quot;loglik&quot;: -2.129589,
+ &quot;logpost&quot;: -3.474624,
  &quot;model&quot;: &quot;1pl&quot;,
- &quot;sweeps&quot;: 8,
+ &quot;priors&quot;: {
+  &quot;b_mean&quot;: 0.0,
+  &quot;b_sd&quot;: 2.0,
+  &quot;loga_mean&quot;: 0.0,
+  &quot;loga_sd&quot;: 0.5,
+  &quot;theta_mean&quot;: 0.0,
+  &quot;theta_sd&quot;: 1.0
+ },
+ &quot;sweeps&quot;: 4,
  &quot;theta&quot;: {
-  &quot;claude-fable-5.1@mini-swe-agent@2.4.6&quot;: 0.399155,
-  &quot;gpt-5.6-sol@mini-swe-agent@2.4.6&quot;: -0.528984,
-  &quot;gpt-6-astra@mini-swe-agent@2.4.6&quot;: 0.129828
+  &quot;claude-fable-5.1@mini-swe-agent@2.4.6&quot;: 0.235501,
+  &quot;gpt-5.6-sol@mini-swe-agent@2.4.6&quot;: -0.757707,
+  &quot;gpt-6-astra@mini-swe-agent@2.4.6&quot;: -0.050343
  },
  &quot;theta_se&quot;: {
-  &quot;claude-fable-5.1@mini-swe-agent@2.4.6&quot;: 0.915956,
-  &quot;gpt-5.6-sol@mini-swe-agent@2.4.6&quot;: 0.705045,
-  &quot;gpt-6-astra@mini-swe-agent@2.4.6&quot;: 0.877887
+  &quot;claude-fable-5.1@mini-swe-agent@2.4.6&quot;: 0.951447,
+  &quot;gpt-5.6-sol@mini-swe-agent@2.4.6&quot;: 0.772432,
+  &quot;gpt-6-astra@mini-swe-agent@2.4.6&quot;: 0.908771
  }
 }</pre></div>
 </body></html>
