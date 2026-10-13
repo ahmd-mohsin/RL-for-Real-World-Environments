@@ -10,6 +10,18 @@
 Subcommands are imported only when invoked (rLLM's ``_LazyGroup``, NeMo-Gym's command table), so ``crucible --help``
 stays fast. A user error (bad input, missing pack, scaffold conflict) prints one line; ``--verbose`` shows the
 traceback (agentenv's ``_UserErrorsAreNotCrashes``).
+
+Exit codes (M15 audit H2 V16, G2 R7; OpenEnv ``validate``'s 0/1/2/3 plus a usage code):
+
+    0  ok
+    1  the command ran and something failed (a check, a rejected task, an export error, nothing measured)
+    2  click usage error; for ``pack check``: a level was skipped for a missing requirement
+    3  internal error (a bug in crucible; the traceback is printed)
+    4  user error (bad input: no such pack, an existing different run, an invalid key)
+
+With ``--json`` every failure also prints ``{"error": {"type", "message", "kind", "exit"}}`` on stdout. An exception from
+crucible's own code (``KeyError``, ``IndexError``, ``TypeError``, ``AttributeError``, a JSON decode error, ...) is an
+internal error, never shown as a one-line user error.
 """
 
 from __future__ import annotations
@@ -18,6 +30,7 @@ import asyncio
 import importlib
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -29,12 +42,36 @@ LAZY = {  # name -> (module:attr, short help)
     "ingest": ("crucible.cli.studio:ingest", "M3: ingest a pack's workflow sources."),
     "signals": ("crucible.cli.studio:signals", "M4: signals, outcomes and pivots of a pack's traces."),
     "forge": ("crucible.cli.studio:forge", "M8: construct tasks from a pack's workflows."),
-    "accept": ("crucible.cli.studio:accept", "M9: model-free acceptance checks on a pack's forged tasks."),
-    "train": ("crucible.cli.studio:train", "M12: run a training job spec."),
+    "accept": ("crucible.cli.studio:accept", "M9: the full acceptance contract on a pack's forged tasks."),
+    "train": ("crucible.cli.studio:train", "M12: run the toy training launcher (TinyPolicy) from a job spec."),
     "model": ("crucible.cli.studio:model", "M5: the workflow model (milestones, stages) of a pack's logs."),
     "export": ("crucible.cli.studio:export", "M11: export tasks (canonical, NeMo-Gym, OpenEnv) or episodes (ATIF)."),
 }
-USER_ERRORS = (ValueError, LookupError, FileNotFoundError, FileExistsError, PermissionError)
+EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_INTERNAL, EXIT_USER = 0, 1, 2, 3, 4
+
+
+class UserError(ValueError):
+    """Bad input to a command (raise this at the input checks)."""
+
+
+# ValueError stays a user error: the library's input checks raise it ("no pack ...", "use a new --out"). Its subclasses
+# that come from crucible's own parsing are bugs, as are KeyError / IndexError (LookupError was a user error: V16).
+USER_ERRORS = (UserError, ValueError, FileNotFoundError, FileExistsError, PermissionError, NotADirectoryError, IsADirectoryError)
+INTERNAL = (KeyError, IndexError, TypeError, AttributeError, json.JSONDecodeError, UnicodeError, AssertionError, NameError, ZeroDivisionError)
+
+
+class _Failed(click.ClickException):
+    def __init__(self, message: str, code: int):
+        super().__init__(message)
+        self.exit_code = code
+
+
+def _json_requested(ctx: click.Context) -> bool:
+    return "--json" in [*(getattr(ctx, "_protected_args", None) or []), *ctx.args]
+
+
+def _error_json(e: BaseException, kind: str, code: int) -> None:
+    click.echo(json.dumps({"error": {"type": type(e).__name__, "message": str(e)[:2000], "kind": kind, "exit": code}}, indent=1, sort_keys=True))
 
 
 class CrucibleGroup(click.Group):
@@ -54,18 +91,36 @@ class CrucibleGroup(click.Group):
             formatter.write_dl(sorted(rows))
 
     def invoke(self, ctx: click.Context):
+        as_json = _json_requested(ctx)
+        verbose = bool(ctx.obj and ctx.obj.get("verbose"))
         try:
             return super().invoke(ctx)
-        except USER_ERRORS as e:
-            if ctx.obj and ctx.obj.get("verbose"):
-                raise
-            raise click.ClickException(f"{type(e).__name__}: {e}") from None
+        except (click.exceptions.Exit, click.exceptions.Abort):
+            raise
+        except click.ClickException as e:
+            if as_json:
+                _error_json(e, "usage", e.exit_code)
+            raise
+        except SystemExit:  # a command that failed after printing its own result (JSON or human) sets its code
+            raise
         except Exception as e:
             from crucible.studio.pack import ScaffoldConflict
 
-            if isinstance(e, ScaffoldConflict) and not (ctx.obj and ctx.obj.get("verbose")):
-                raise click.ClickException(str(e)) from None
-            raise
+            internal = isinstance(e, INTERNAL) and not isinstance(e, UserError)
+            if not internal and isinstance(e, (*USER_ERRORS, ScaffoldConflict)):
+                if as_json:
+                    _error_json(e, "user", EXIT_USER)
+                if verbose:
+                    raise
+                msg = str(e) if isinstance(e, ScaffoldConflict) else f"{type(e).__name__}: {e}"
+                raise _Failed(msg, EXIT_USER) from None
+            import traceback
+
+            if as_json:
+                _error_json(e, "internal", EXIT_INTERNAL)
+            click.echo("internal error (a bug in crucible; please report it with this traceback):", err=True)
+            click.echo("".join(traceback.format_exception(e)), err=True)
+            raise SystemExit(EXIT_INTERNAL) from None
 
 
 @click.group(cls=CrucibleGroup)
@@ -156,12 +211,15 @@ def check_mimo(envs_root: Path, transport: str, backend: str, stride: int, out: 
 @world.command("validate")
 @click.argument("world_yaml", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--gold", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="JSON list of actions (the oracle trajectory)")
-@click.option("--forbidden", multiple=True, help="a string that must never reach the policy (repeatable)")
+@click.option("--forbidden", "forbidden_file", type=click.File("r"), default=None,
+              help="a file (or - for stdin) with one string per line that must never reach the policy; never given on argv")
 @click.option("--instruction", default=None, help="the policy's instruction (checked for fix pointers)")
 @click.option("--pack-root", type=click.Path(exists=True, file_okay=False, path_type=Path), help="where the spec's relative seeds live")
 @click.option("--out", type=click.Path(path_type=Path))
-def validate(world_yaml: Path, gold: Path | None, forbidden: tuple[str, ...], instruction: str | None, pack_root: Path | None, out: Path | None) -> None:
-    """Audit a World (OpenEnv RFC 008 check ids): reset / state contract, tools, leakage, determinism, containment."""
+def validate(world_yaml: Path, gold: Path | None, forbidden_file: Any, instruction: str | None, pack_root: Path | None, out: Path | None) -> None:
+    """Audit a World (OpenEnv RFC 008 check ids): reset / state contract, tools, leakage, determinism, containment. The
+    forbidden strings (hidden answers) come from a file or stdin, never argv (they showed in ps and shell history), and
+    the report names them by index, never by value (M15 audit H2 V18)."""
     import asyncio
 
     from pydantic import TypeAdapter
@@ -171,6 +229,7 @@ def validate(world_yaml: Path, gold: Path | None, forbidden: tuple[str, ...], in
     from crucible.world.audit import audit_world
     from crucible.world.world import World
 
+    forbidden = [x.rstrip("\n") for x in forbidden_file.read().splitlines() if x.strip()] if forbidden_file else []
     spec = WorldSpec.load(world_yaml)
     actions = TypeAdapter(list[Action]).validate_json(gold.read_text()) if gold else None
 
@@ -186,11 +245,25 @@ def validate(world_yaml: Path, gold: Path | None, forbidden: tuple[str, ...], in
 
     rep = asyncio.run(run())
     for c in rep.checks:
-        click.echo(f"  {c.status.upper():4s} {c.severity:8s} {c.id}" + (f"  {json.dumps(c.detail)[:160]}" if c.status != "pass" else ""))
+        click.echo(f"  {c.status.upper():4s} {c.severity:8s} {c.id}" + (f"  {json.dumps(_mask(c.detail, forbidden))[:160]}" if c.status != "pass" else ""))
     click.echo(rep.summary())
     if out:
-        out.write_text(json.dumps(rep.to_dict(), indent=1))
+        out.write_text(json.dumps(_mask(rep.to_dict(), forbidden), indent=1))
     raise SystemExit(0 if rep.ok else 1)
+
+
+def _mask(obj: Any, forbidden: list[str]) -> Any:
+    """Every forbidden string in a report replaced by its index (``<forbidden#2>``)."""
+    if isinstance(obj, str):
+        for i, f in sorted(enumerate(forbidden), key=lambda x: -len(x[1])):
+            if f:
+                obj = obj.replace(f, f"<forbidden#{i}>")
+        return obj
+    if isinstance(obj, dict):
+        return {_mask(k, forbidden): _mask(v, forbidden) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_mask(v, forbidden) for v in obj]
+    return obj
 
 
 @world.command("check-awm")

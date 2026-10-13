@@ -1,10 +1,11 @@
 """M15 studio. The exit gate's toy part runs through the CLI, as a new user following the README would:
 - ``crucible pack new demo`` creates a pack that passes ``crucible pack check`` at both levels (gold reaches the top
   reward, no-op does not).
-- ``crucible label --pack toy`` turns the toy ticket logs into traces with dense rewards and TRL-format SFT / KTO data
-  with loss masks and per-turn Φ credit.
+- ``crucible label --pack toy`` turns the toy ticket logs into traces with dense rewards and TRL-format SFT / KTO data,
+  one policy turn per row with per-turn Φ credit, the held-out test tickets left out.
 - ``crucible build toy`` ingests, forges (no paid calls), accepts, exports canonical outputs and reports a benchmark.
-- ``crucible label --run`` and ``crucible bench compare`` work on that benchmark run.
+- ``crucible label --run`` and ``crucible bench compare`` work on that benchmark run (label writes no rows from its
+  scripted policies; ``test_m15_audit_label.py`` covers model runs).
 
 Unit checks cover the conflict-safe scaffold, the closed filter grammar, the manifest contract and the dataset rows."""
 
@@ -53,16 +54,21 @@ def test_filter_grammar_and_rows():
         with pytest.raises(ValueError):
             ds.compile_filter(bad)
     prompt = [{"role": "user", "content": "do it"}]
-    good = ds.Labelled("t", [*prompt, {"role": "assistant", "content": "done"}], 1.0, weights=[None, 0.5])
-    bad = ds.Labelled("t", [*prompt, {"role": "assistant", "content": "nope"}], 0.0, weights=[None, -0.2])
-    sft = ds.sft_rows(ds.curate([good, bad], select="correct"))
-    assert len(sft) == 1 and sft[0]["message_loss_mask"] == [False, True] and sft[0]["resolved"] and sft[0]["traj_id"] == good.traj_id
+    good = ds.Labelled("t", [*prompt, {"role": "assistant", "content": "done"}], 1.0, weights=[None, 0.5], episode="g")
+    bad = ds.Labelled("t", [*prompt, {"role": "assistant", "content": "nope"}], 0.0, weights=[None, -0.2], episode="b")
+    sft = ds.sft_rows(ds.curate([good, bad], select="correct"))  # one prompt-completion row per policy turn (M15 G1 D11)
+    assert len(sft) == 1 and sft[0]["prompt"] == prompt and sft[0]["completion"] == [good.messages[1]] and sft[0]["weight"] == 0.5
+    assert sft[0]["resolved"] and sft[0]["traj_id"] == good.traj_id
+    (chain,) = ds.sft_rows([good], fmt="chain")  # prime-rl's multi-turn row: every message's mask, numeric weights
+    assert chain["message_loss_mask"] == [False, True] and chain["weights"] == [0.0, 0.5]
     assert ds.sft_rows([bad], mask_negative=True) == []  # its only assistant turn had negative credit
     (pair,) = ds.dpo_best_vs_worst([good, bad])
-    assert pair["prompt"] == prompt and pair["chosen"][0]["content"] == "done" and pair["rejected"][0]["content"] == "nope"
+    assert pair["prompt"] == prompt and pair["chosen"] == [good.messages[1]] and pair["rejected"] == [bad.messages[1]]
+    assert pair["chosen_episode"] == "g" and pair["rejected_episode"] == "b"
     other = ds.Labelled("t", [{"role": "user", "content": "something else"}, {"role": "assistant", "content": "x"}], 0.0)
     assert ds.dpo_best_vs_worst([good, other]) == []  # different prompts are not a preference pair
-    assert [r["label"] for r in ds.kto_rows([good, bad])] == [True, False]
+    labelled = ds.Labelled("t", [*prompt, {"role": "assistant", "content": "ok"}], 1.0, label="bad")  # outcome and reward disagree
+    assert [r["label"] for r in ds.kto_rows([good, bad, labelled])] == [True, False]  # bools; the disagreeing trace is neither
 
 
 def test_readme_path_through_the_cli(tmp_path):
@@ -76,16 +82,20 @@ def test_readme_path_through_the_cli(tmp_path):
     r = run("pack", "check", str(demo))
     assert r.exit_code == 1 and "static.license" in r.output
     r = run("bench", "run", str(tmp_path / "nowhere"))
-    assert r.exit_code != 0 and r.output.startswith("Error: ValueError: no pack")  # a user error is one line, no traceback
+    assert r.exit_code == 4 and r.output.startswith("Error: ValueError: no pack")  # a user error is one line, no traceback (exit 4: M15 H2 V16)
 
     r = run("label", "--pack", "toy", "--out", str(tmp_path / "label"), "--json")
     s = json.loads(r.output)
     assert r.exit_code == 0 and s["traces"] == 24 and s["credited"] == 24 and s["outcomes"]["good"] > s["outcomes"]["bad"] > 0
     assert s["datasets"]["sft"] > 0 and s["datasets"]["kto"] > 0 and sum(s["signals"].values()) > 0
-    row = json.loads((tmp_path / "label" / "sft.jsonl").read_text().splitlines()[0])
-    assert set(row) >= {"messages", "tools", "message_loss_mask", "weights", "task", "reward", "resolved", "traj_id"}
-    assert any(row["message_loss_mask"]) and not any(m for m, msg in zip(row["message_loss_mask"], row["messages"]) if msg["role"] != "assistant")
-    assert any(w is not None for w in row["weights"])  # dense Φ credit on the assistant turns
+    sft = [json.loads(x) for x in (tmp_path / "label" / "sft.jsonl").read_text().splitlines()]
+    for row in sft:  # every row: one prompt, one assistant turn as the target, numeric credit (not just line 0: M15 H1 V14)
+        assert set(row) >= {"prompt", "completion", "tools", "weight", "credit", "task", "reward", "resolved", "traj_id", "split", "outcome"}
+        assert row["prompt"][-1]["role"] in ("user", "tool") and [m["role"] for m in row["completion"]] == ["assistant"]
+        assert row["split"] == "train" and row["outcome"] == "good" and isinstance(row["weight"], float)
+    assert any(r["credit"] and r["weight"] for r in sft)  # dense Φ credit on the assistant turns
+    kto = [json.loads(x) for x in (tmp_path / "label" / "kto.jsonl").read_text().splitlines()]
+    assert kto and all(isinstance(r["label"], bool) for r in kto) and s["held_out"]
     assert (tmp_path / "label" / "configs" / "resolved" / "label.json").exists() and (tmp_path / "label" / "rewards.jsonl").exists()
 
     r = run("build", "toy", "--out", str(tmp_path / "build"), "--fresh", "2", "--json")
@@ -93,17 +103,21 @@ def test_readme_path_through_the_cli(tmp_path):
     a = b["accept"]
     # the full contract (M9 audit V2): without --docker/--paid the checks that need them are pending, so a sound task is
     # provisional, never "accepted"; nothing here may be rejected, and what is not rejected is exported (labelled)
-    assert r.exit_code == 0 and b["forge"]["tasks"] == 5 and a["rejected"] == 0 and a["accepted"] + a["provisional"] == 5
+    assert r.exit_code == 0 and b["forge"]["tasks"] == 5 and a["rejected"] == 0 and a["accepted"] + a["provisional"] == 5 and b["ok"]
     assert b["export"]["canonical"] == 5
     assert set(b["export"]["oracle_rewards"].values()) == {1.0} and b["bench"]["items"] == {"anchor": 5, "fresh": 2}
-    assert b["bench"]["models"]["scripted:oracle"] == 1.0 and b["bench"]["models"]["scripted:noop"] == 0.0
+    # only the bench split is benchmarked (M15 audit H2 V8); the train split is the RL training set
+    n_bench = b["bench"]["splits"]["counts"]["bench"]
+    assert sum(b["bench"]["benched"].values()) == n_bench and n_bench + b["bench"]["splits"]["counts"]["train"] == 7 and b["bench"]["splits"]["verified"]
+    assert b["bench"]["models"]["scripted:oracle"] == 1.0 and b["bench"]["models"]["scripted:noop"] == 0.0 and "contamination" in b
     run_dir = tmp_path / "build" / "runs" / "bench-toy-build"
     r = run("label", "--run", str(run_dir), "--out", str(tmp_path / "label_run"), "--json")
     lr = json.loads(r.output)
-    assert lr["datasets"]["dpo_kinds"]["best_vs_worst"] == 7
-    pair = json.loads((tmp_path / "label_run" / "dpo.jsonl").read_text().splitlines()[0])
-    names = {c["function"]["name"] for m in pair["chosen"] if m["role"] == "assistant" for c in m.get("tool_calls") or []}
-    assert names and all("." not in n for n in names)  # OpenAI-legal tool names
+    # the build's benchmark is scripted oracle / half / no-op: no model-produced episode, so no training row (M15 H1 V1)
+    assert r.exit_code == 0 and lr["datasets"]["sft"] == lr["datasets"]["dpo"] == lr["datasets"]["kto"] == 0
+    assert lr["skipped"].get("held_out") and set(lr["policies"].values()) <= {"scripted", "control", "adversary"}, lr["skipped"]
     r = run("bench", "compare", str(run_dir), str(run_dir), "--base-policy", "scripted:oracle", "--cand-policy", "scripted:noop", "--json")
     c = json.loads(r.output)
-    assert c["flips"]["pass_to_fail"] == 7 and c["mcnemar_p"] < 0.05
+    # every valid bench task flips (a contaminated or invalid one is left out of the comparison: M13 validity)
+    f = c["flips"]
+    assert 1 <= f["pass_to_fail"] <= n_bench and f["fail_to_pass"] == f["both_pass"] == 0 and (f["pass_to_fail"] < 5 or c["mcnemar_p"] < 0.05)

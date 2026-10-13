@@ -2870,6 +2870,22 @@ bridge must fill masked rows first; NeMo-Gym's `harbor_agent` scores a missing r
 "byte-identical re-export" proves only that the import left its source untouched; the verifiers gate runs verifiers'
 classes on a stub runtime. Details: `docs/audit/2026-10-12/M11-interop.md`.
 
+**M15 audit (2026-10-13): the studio.** The datasets `crucible label` wrote trained the wrong things: it rebuilt rows
+from the ATIF transcript and the bench reward, never the runner's training view, so oracle, no-op and adversary
+episodes became SFT positives and DPO chosen (every toy pair was oracle against no-op), held-out benchmark items and
+flagged or invalid episodes were kept, RLM episodes were rewritten into chats the model never produced, DPO and KTO
+completions carried the rest of the episode (61% of the tokens TRL would train were World output), and no SFT file loaded
+with HF `datasets`. Now label reads `rollout.json`, `validity.json` and the sealed `splits.json`, takes positives only from
+the model's own unflagged episodes under one rule, emits one policy turn per completion in formats TRL, verl and
+prime-rl train correctly (checked with their own preprocessing and the real Qwen and gemma templates), and the runner
+writes the World's tool cards into ATIF. Build and export fail loudly: an oracle crash, a rejected-everything forge or an
+empty bench is a non-zero exit, rebuilds are staged, train-split items are never benched, and the contamination step runs
+in build. Exports copy an allowlist and scan for secrets (they shipped the pack's `.env` and raw logs, and could delete the
+source pack). The explorer contains every file read and serves reports under a sandbox CSP (a symlink escaped its root
+and a planted report ran script on its origin). Every command records its resolved config with provenance (version,
+git sha, pack hash) and refuses a changed rerun before writing. The public site follows the copy rules (no allusions to
+other work, no module codes in anchors, impersonal), enforced by a test. Details: `docs/audit/2026-10-13/M15-studio.md`.
+
 **M14 audit (2026-10-13): packs and the RLM agent.** A pack is accepted only if it can fail: `crucible pack check`
 passed 19 of 25 deliberately broken packs and 17 of 21 broken finance_ap copies (a grader that always pays once fixtures
 were missing, NaN and out-of-range rewards, a self-declared `requires` that turned the semantic level into a silent skip,

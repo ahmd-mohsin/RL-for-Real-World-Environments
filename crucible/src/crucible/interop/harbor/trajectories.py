@@ -48,7 +48,9 @@ def _metrics(call: dict[str, Any]) -> Metrics:
 
 
 def to_atif(trace: Trace, actor: str, *, calls: Sequence[dict[str, Any]] = (), instruction: str | None = None, harness: str | None = None,
-            model_name: str | None = None, session_id: str | None = None) -> Trajectory:
+            model_name: str | None = None, session_id: str | None = None, tool_definitions: Sequence[dict[str, Any]] | None = None) -> Trajectory:
+    """``tool_definitions``: the tool cards the actor was offered (OpenAI function format), written to ATIF
+    ``agent.tool_definitions`` so datasets built from the trajectory carry the real schema (M15 audit G1 D13)."""
     base = episode_to_atif(trace, actor, instruction=instruction, model_name=model_name, session_id=session_id)
     expected = [(c, a) for c in calls for a in (c.get("actions") or [])]
     pending_empty = [c for c in calls if not c.get("actions")]
@@ -90,7 +92,8 @@ def to_atif(trace: Trace, actor: str, *, calls: Sequence[dict[str, Any]] = (), i
                       total_steps=len(out),
                       extra={"model_calls": len(calls), "unjoined_steps": [out[k].step_id for k in unjoined], "unconsumed_actions": len(expected) - i}
                       if calls else None)
-    return Trajectory(session_id=base.session_id, agent=base.agent, steps=out, final_metrics=fm,
+    agent = base.agent.model_copy(update={"tool_definitions": list(tool_definitions)}) if tool_definitions else base.agent
+    return Trajectory(session_id=base.session_id, agent=agent, steps=out, final_metrics=fm,
                       extra={**(base.extra or {}), **({"harness": harness} if harness else {})})
 
 

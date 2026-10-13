@@ -63,6 +63,15 @@ def _below(flat: dict[str, float], gate: float | dict[str, float] | None) -> str
     return None
 
 
+def tool_cards(world: Any, actor: str) -> list[dict[str, Any]]:
+    """The tools ``actor`` was offered, as OpenAI function cards (the shape chat templates and TRL take)."""
+    try:
+        specs = world.tools_for(actor) if world is not None else []
+    except (AttributeError, KeyError, TypeError):  # a World without per-actor tools: the trajectory simply carries none
+        return []
+    return [{"type": "function", "function": {"name": t.qualified, "description": t.description, "parameters": t.input_schema}} for t in specs]
+
+
 def instruction_for(task: Any, actor: str, world: Any = None) -> str | None:
     """The instruction text an actor was given: the task's own when it is text (or a per-actor dict of texts), else what
     the World rendered at reset. A callable instruction (OpenEnv renders it from the reset observation) is never passed
@@ -103,7 +112,7 @@ def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str,
     for actor, cs in res.calls.items():
         model = next((c.get("model") for c in cs if c.get("model")), None)
         traj = to_atif(ep.trace, actor, calls=cs, instruction=instruction_for(attempt.task, actor, world), harness=harness_id,
-                       model_name=model, session_id=attempt.id)
+                       model_name=model, session_id=attempt.id, tool_definitions=tool_cards(world, actor))
         (attempt.dir / f"trajectory.{actor}.json").write_text(scrub_json(traj.model_dump_json(exclude_none=True)))
         res.artifacts[f"trajectory.{actor}"] = f"trajectory.{actor}.json"
 

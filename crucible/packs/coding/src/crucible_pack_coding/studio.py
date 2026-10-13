@@ -123,12 +123,35 @@ async def _phi(task: str, patch: str | None) -> float:
     return await phi_of_state(task, fs)
 
 
+# the one tool the recorded runs were offered: mini-swe-agent 2.x tool-call mode (``src/minisweagent/models/utils/
+# actions_toolcall.py:11-27``, MIT, SWE-agent/mini-swe-agent 04d809c). Label rows carry it as ``tools`` (M15 audit G1 D13).
+MSWEA_BASH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "bash",
+        "description": "Execute a bash command",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The bash command to execute",
+                }
+            },
+            "required": ["command"],
+        },
+    },
+}
+
+
 async def credit(traces: list) -> dict[str, dict[str, Any]]:
     """For each recorded agent run: Φ of its final patch over the seed's oracle-derived milestones, the recorded outcome,
     and the composed dense reward. Other families (pull requests) carry no task-relative Φ here. A run graded under an
-    earlier task version has no outcome for the current task (M14 audit V9), so it gets no reward."""
+    earlier task version has no outcome for the current task (M14 audit V9), so it gets no reward. A run on a bench seed
+    has ``split: bench``: ``crucible label`` leaves it out unless ``include_bench`` (M15 audit H1 V9)."""
     from crucible.credit.compose import compose
     from crucible_pack_coding.m56.task_properties import TASKS, recorded_outcome
+    from crucible_pack_coding.seeds import SEEDS as SEED_INFO
 
     out = {}
     for t in traces:
@@ -146,7 +169,9 @@ async def credit(traces: list) -> dict[str, dict[str, Any]]:
         last = max((e.seq for e in t.events), default=0)
         reward = compose(gates={}, outcome=bool(y), phi=phi).reward if y is not None else None
         out[t.trace_id] = {"reward": reward, "phi_by_seq": {last: round(phi, 6)}, "phi_final": round(phi, 6),
-                           "outcome": None if y is None else ("good" if y >= 1 else "bad")}
+                           "outcome": None if y is None else ("good" if y >= 1 else "bad"), "tools": [MSWEA_BASH_TOOL],
+                           # a run on a bench seed is that seed's benchmark evidence: never training data (M15 audit H1 V9)
+                           "split": "bench" if SEED_INFO.get(task.split("@")[0], {}).get("bench", True) else "train"}
     return out
 
 

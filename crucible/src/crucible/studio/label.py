@@ -3,23 +3,27 @@
 Two sources:
 - **a pack** (``--pack``). This runs M3 ingest over the pack's ``ingest`` sources, which is redacted and idempotent. Then:
   1. M4 signals and pivots (when the family has a signal mapper);
-  2. the pack's ``credit`` hook (M5 milestones → M6 Φ per event and a gated reward);
-  3. the conversation from the policy role's side (``credit.datasets.from_trace``).
-- **a run** (``--run``): an M10 run directory. Scored episodes become datasets, masked episodes are skipped, and DPO
-  pairs come from best vs worst of k on the same task.
+  2. the pack's ``credit`` hook (M5 milestones → M6 Φ per event, a gated reward, the outcome and the trace's
+     ``split``: only ``train`` traces become data);
+  3. the conversation from the policy role's side (``studio.datasets.from_trace``).
+- **a run** (``--run``): an M10 run directory, read through the runner's training view (``rollout.json`` token turns,
+  ``mask_sample``, flags), its ``validity.json`` and the build's ``splits.json``: only valid, train-split, unmasked,
+  unflagged, model-produced episodes become data, decoded with the policy's own tokenizer and redacted like the pack
+  path (``studio.datasets.from_run``).
 
-Outputs in ``out/``:
+Rows are one decision each (``studio.datasets``). Outputs in ``out/``, each replaced atomically:
 - ``configs/resolved/label.json``;
-- ``store/`` (the traces);
-- ``traces.jsonl`` (the labelled traces: signals, outcome);
-- ``rewards.jsonl`` (per trace: reward, gates, Φ per event);
-- ``sft.jsonl``, ``dpo.jsonl``, ``kto.jsonl``;
-- ``summary.json``.
+- ``store/`` (the traces; pack only);
+- ``traces.jsonl`` (the labelled traces: signals, outcome; pack only);
+- ``rewards.jsonl`` (per trace: reward, gates, Φ per event, split; pack only);
+- ``sft.jsonl``, ``dpo.jsonl``, ``kto.jsonl`` (each loads with ``datasets.load_dataset("json")``);
+- ``summary.json`` (counts, what was left out and why).
 """
 
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -83,22 +87,56 @@ def ingest(pack_dir: Path, manifest: Any, store_dir: Path, *, labelled_only: boo
     return sorted(out, key=lambda t: t.trace_id)
 
 
-def _resolved(out: Path, cmd: str, cfg: dict[str, Any]) -> None:
-    p = out / "configs" / "resolved" / f"{cmd}.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, indent=1, sort_keys=True, default=str) + "\n")
+def _write_rows(rows: list[dict[str, Any]], out: Path, name: str) -> tuple[Path | None, int]:
+    """One shape per file: TRL decides text vs conversational from a dataset's first row (``is_conversational``), so
+    the policy's token rows (text) and chat rows (workflow traces, scripted demonstrations) never share a file. Text rows
+    go to ``<name>.jsonl``; chat rows too when there are no text rows, else to ``<name>.chat.jsonl``. Returns the chat
+    file (when written) and its row count."""
+    chat = [r for r in rows if not isinstance(r.get("prompt", r.get("input_ids")), str) and "input_ids" not in r]
+    text = [r for r in rows if not any(r is c for c in chat)]
+    side = out / f"{name}.chat.jsonl"
+    if text and chat:
+        ds.write_jsonl(text, out / f"{name}.jsonl")
+        ds.write_jsonl(chat, side)
+        return side, len(chat)
+    ds.write_jsonl(rows, out / f"{name}.jsonl")
+    side.unlink(missing_ok=True)
+    return None, 0
 
 
 async def label(*, out: Path, pack: str | Path | None = None, run: Path | None = None, filter: str | None = None, select: str = "correct",
                 max_per_task: int | None = None, threshold: float | None = None, margin: float = 0.25, mask_negative: bool = False,
-                dry_run: bool = False) -> dict[str, Any]:
+                dry_run: bool = False, allow_scripted: bool = False, include_bench: bool = False, allow_unknown: bool = False,
+                allow_state_shift: bool = False, policies: list[str] | None = None, tokenizer: str | None = None,
+                redaction_env: Path | None = None, sft_format: str = "turns", template: str | None = None,
+                validity: Path | None = None) -> dict[str, Any]:
+    """Label a pack's workflow logs or a run's episodes into SFT / DPO / KTO rows (``studio.datasets``). Only
+    train-split, valid, unmasked, unflagged, model-produced trajectories become data (M15 audit H1 V1-V19, G1 D1-D15);
+    everything left out is counted by reason in ``summary.json`` ``skipped``. Nothing is written before every input
+    check passed, and each output file is replaced atomically."""
     if (pack is None) == (run is None):
         raise ValueError("label needs exactly one source: --pack <pack> or --run <run dir>")
+    if max_per_task is not None and max_per_task < 1:
+        raise ValueError(f"--max-per-task must be >= 1 (got {max_per_task}); omit it for no cap")
+    if margin <= 0:
+        raise ValueError(f"--margin must be > 0 (got {margin}): a preference pair needs a reward gap")
+    if select not in ("correct", "best", "all"):
+        raise ValueError("--select: correct | best | all")
+    if sft_format not in ("turns", "chain"):
+        raise ValueError("--sft-format: turns | chain")
     out = Path(out)
     ds.compile_filter(filter)  # a bad filter fails before any work
     cfg = {"pack": str(pack) if pack else None, "run": str(run) if run else None, "filter": filter, "select": select, "max_per_task": max_per_task,
-           "threshold": threshold, "margin": margin, "mask_negative": mask_negative}
+           "threshold": threshold, "margin": margin, "mask_negative": mask_negative, "allow_scripted": allow_scripted, "include_bench": include_bench,
+           "allow_unknown": allow_unknown, "allow_state_shift": allow_state_shift, "policies": policies, "tokenizer": tokenizer,
+           "redaction_env": str(redaction_env) if redaction_env else None, "sft_format": sft_format, "template": template,
+           "validity": str(validity) if validity else None}
     summary: dict[str, Any] = {"command": "label", "config": cfg}
+    skipped: Counter = Counter()
+    from crucible.studio import runs
+
+    if not dry_run:  # a re-run into this --out with other flags is refused before anything is written (M15 G2 D6)
+        runs.check(out, "label", cfg)
     if pack is not None:
         from crucible.signals.extract import extract
         from crucible.studio.pack import find_pack, load_manifest, resolve
@@ -114,8 +152,8 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
             got = [ingest_problems(pack_dir, s) for s in m.ingest if s.connector == "file_drop"]
             return {**summary, "dry_run": True, "would_ingest": sorted(str(p) for _, fs in got for p in fs),
                     "refused": [p for bad, _ in got for p in bad], "credit_hook": m.hooks.credit}
-        out.mkdir(parents=True, exist_ok=True)
-        _resolved(out, "label", cfg | {"pack_dir": str(pack_dir), "threshold": thr})
+        # the resolved config is the first write: compared with an existing one (``runs.ConfigChanged``), then stamped
+        runs.record(out, "label", cfg | {"threshold_used": thr, "pack_dir": str(pack_dir)}, identity=cfg, pack_dir=pack_dir, manifest=m)
         redaction: dict[str, Any] = {}
         traces = ingest(pack_dir, m, out / "store", labelled_only=True, redaction=redaction)
         summary["redaction_env"] = redaction
@@ -135,28 +173,70 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
             lab = (credit.get(t.trace_id) or {}).get("outcome")
             if lab in ("good", "bad") and t.outcome.label == "unknown":
                 labelled_traces[i] = t.model_copy(update={"outcome": t.outcome.model_copy(update={"label": lab, "label_source": f"pack {m.name} credit hook"})})
-        items = [ds.from_trace(t, policy_roles=m.label.policy_roles, phi_by_seq=(credit.get(t.trace_id) or {}).get("phi_by_seq"),
-                               reward=(credit.get(t.trace_id) or {}).get("reward")) for t in labelled_traces]
-        (out / "traces.jsonl").write_text("".join(t.model_dump_json() + "\n" for t in labelled_traces))
-        ds.write_jsonl([{"trace_id": t.trace_id, "outcome": t.outcome.label, **{k: v for k, v in (credit.get(t.trace_id) or {}).items()}}
-                        for t in labelled_traces], out / "rewards.jsonl")
+        all_items = [ds.from_trace(t, policy_roles=m.label.policy_roles, phi_by_seq=(credit.get(t.trace_id) or {}).get("phi_by_seq"),
+                                   reward=(credit.get(t.trace_id) or {}).get("reward"), tools=(credit.get(t.trace_id) or {}).get("tools"),
+                                   split=str((credit.get(t.trace_id) or {}).get("split") or "train")) for t in labelled_traces]
+        # the credit hook's split: held-out (test) traces grade the pack's gates, never train (V9)
+        held = sorted(x.episode for x in all_items if x.split != "train" and not include_bench)
+        skipped["held_out"] += len(held)
+        items = [x for x in all_items if x.split == "train" or include_bench]
+        ds_payload = {"traces.jsonl": "".join(t.model_dump_json() + "\n" for t in labelled_traces),
+                      "rewards.jsonl": [{"trace_id": t.trace_id, "outcome": t.outcome.label, **dict(credit.get(t.trace_id) or {})} for t in labelled_traces]}
         summary |= {"pack": m.name, "traces": len(traces), "signals": dict(sorted(sig_counts.items())), "credited": len(credit), "extract_failed": failed,
                     "outcomes": {k: sum(t.outcome.label == k for t in labelled_traces) for k in ("good", "bad", "unknown")},
+                    "held_out": held, "used": len(items),
                     "pivots": {"pairs": sum(len(x.pivots) for x in items), "without_policy_fix": sum(x.pivots_unpaired for x in items)}}
     else:
         thr = 1.0 if threshold is None else threshold
-        items = ds.from_run(Path(run))
+        from crucible.connectors.redact import RedactionPolicy
+
+        policy = RedactionPolicy.with_env_file(redaction_env) if redaction_env else RedactionPolicy()
+        info: dict[str, Any] = {}
+        items = ds.from_run(Path(run), tokenizer=tokenizer, policies=policies, allow_scripted=allow_scripted, include_bench=include_bench,
+                            redaction=policy, validity=validity, skipped=skipped, info=info)
+        summary |= {"run": str(run), "episodes": len(items), "considered": len(items) + sum(skipped.values()), **info,
+                    "redaction_env": {"env": str(redaction_env), "values": len(policy.secret_values)} if redaction_env else None}
+        ds_payload = {}
         if dry_run:
-            return {**summary, "dry_run": True, "episodes": len(items)}
-        out.mkdir(parents=True, exist_ok=True)
-        _resolved(out, "label", cfg | {"threshold": thr})
-        summary |= {"run": str(run), "episodes": len(items)}
-    sft = ds.sft_rows(ds.curate(items, filter=filter, select=select, max_per_task=max_per_task, threshold=thr), threshold=thr, mask_negative=mask_negative)
-    dpo = ds.dpo_best_vs_worst(items, threshold=thr, margin=margin) + ds.dpo_pivots(items)
-    kto = ds.kto_rows(items, threshold=thr)
-    summary["datasets"] = {"sft": ds.write_jsonl(sft, out / "sft.jsonl"), "dpo": ds.write_jsonl(dpo, out / "dpo.jsonl"), "kto": ds.write_jsonl(kto, out / "kto.jsonl"),
-                           "dpo_kinds": {k: sum(r["kind"] == k for r in dpo) for k in ("best_vs_worst", "correction_pivot")}}
-    summary["files"] = {k: str(out / f) for k, f in (("sft", "sft.jsonl"), ("dpo", "dpo.jsonl"), ("kto", "kto.jsonl"), ("summary", "summary.json"))}
-    summary["next"] = [f"python -m crucible.train.launch <job.toml>  # train on {out / 'sft.jsonl'}", f"crucible build {pack or '<pack>'}"]
-    (out / "summary.json").write_text(json.dumps(summary, indent=1, sort_keys=True, default=str) + "\n")
+            return {**summary, "dry_run": True, "skipped": dict(sorted(skipped.items()))}
+    sft = ds.sft_rows(ds.curate(items, filter=filter, select=select, max_per_task=max_per_task, threshold=thr, allow_unknown=allow_unknown),
+                      threshold=thr, mask_negative=mask_negative, fmt=sft_format, skipped=skipped)
+    dpo = (ds.dpo_best_vs_worst(items, threshold=thr, margin=margin, allow_unknown=allow_unknown, skipped=skipped)
+           + ds.dpo_pivots(items, allow_state_shift=allow_state_shift, skipped=skipped))
+    kto = ds.kto_rows(items, threshold=thr, allow_unknown=allow_unknown, skipped=skipped)
+    if template:  # fit the chat rows to a consumer's template (Gemma-2 has no system or tool role) and keep what renders
+        tok = ds.load_tokenizer(template)
+        roles = ds.template_roles(tok)
+        sft, dpo, kto = (ds.check_render(ds.adapt_rows(r, roles), tok, skipped, n) for r, n in ((sft, "sft"), (dpo, "dpo"), (kto, "kto")))
+        summary["template"] = {"tokenizer": template, "roles": roles}
+    out.mkdir(parents=True, exist_ok=True)
+    if pack is None:  # the run path's first write (it read and checked everything above)
+        runs.record(out, "label", cfg | {"threshold_used": thr}, identity=cfg)
+    for name, payload in ds_payload.items():
+        if isinstance(payload, str):
+            tmp = out / f".{name}.tmp"
+            tmp.write_text(payload)
+            tmp.replace(out / name)
+        else:
+            ds.write_jsonl(payload, out / name)
+    files = {n: _write_rows(r, out, n) for r, n in ((sft, "sft"), (dpo, "dpo"), (kto, "kto"))}
+    summary["datasets"] = {"sft": len(sft), "dpo": len(dpo), "kto": len(kto), "chat_rows": {n: f[1] for n, f in files.items() if f[1]},
+                           "dpo_kinds": {k: sum(r["kind"] == k for r in dpo) for k in ("best_vs_worst", "correction_pivot")},
+                           "kto_balance": {"desirable": sum(r["label"] for r in kto), "undesirable": sum(not r["label"] for r in kto)},
+                           "sft_format": sft_format,
+                           "text_inexact": sum(1 for r in [*sft, *dpo, *kto] if r.get("text_exact") is False),
+                           "redacted_rows": sum(1 for r in [*sft, *dpo, *kto] if r.get("redacted"))}
+    summary["skipped"] = dict(sorted(skipped.items()))
+    summary["files"] = {**{k: str(out / f"{k}.jsonl") for k in ("sft", "dpo", "kto")}, **{f"{k}_chat": str(f[0]) for k, f in files.items() if f[0]},
+                        "summary": str(out / "summary.json")}
+    n_rows = len(sft) + len(dpo) + len(kto)
+    # what consumes these files (G1 D15: ``crucible.train.launch`` reads no dataset): HF datasets -> TRL's trainers
+    summary["next"] = [f"datasets.load_dataset('json', data_files='{f}')  # TRL {t}" for k, t, n in
+                       (("sft", "SFTTrainer", len(sft)), ("dpo", "DPOTrainer", len(dpo)), ("kto", "KTOTrainer", len(kto)))
+                       for f, m in ((out / f"{k}.jsonl", n - files[k][1]), (files[k][0], files[k][1])) if f and m]
+    if not n_rows:
+        summary["warning"] = "no training rows: every trajectory was left out (see skipped)"
+    tmp = out / ".summary.json.tmp"
+    tmp.write_text(json.dumps(summary, indent=1, sort_keys=True, default=str) + "\n")
+    tmp.replace(out / "summary.json")
     return summary

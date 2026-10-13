@@ -150,27 +150,52 @@ async def run_bench(name: str, *, root: Path, tasks: Sequence[Any], policies: Se
                       validity=validity)
 
 
-def bench_key(out: Path, *, key_file: Path | None = None) -> bytes:
+def check_key_file(f: Path) -> Path:
+    """A key file must be a regular file only its owner can read (M15 audit H2 V15, as ssh treats private keys): a symlink
+    or a group- / world-accessible file is refused, never used silently."""
+    import os
+    import stat
+
+    f = Path(f)
+    st = os.lstat(f)
+    if stat.S_ISLNK(st.st_mode):
+        raise PermissionError(f"bench key file {f} is a symlink: give the key file itself")
+    if not stat.S_ISREG(st.st_mode):
+        raise PermissionError(f"bench key file {f} is not a regular file")
+    if st.st_mode & 0o077:
+        raise PermissionError(f"bench key file {f} has mode {oct(st.st_mode & 0o777)}: other users can read it; run chmod 600 {f}")
+    return f
+
+
+def bench_key(out: Path, *, key_file: Path | None = None, notes: list[str] | None = None) -> bytes:
     """The HMAC item key for a bench or build under ``out`` (G2-4 with the dynamic batch: there is no public default).
     ``key_file`` or ``$CRUCIBLE_BENCH_KEY`` / ``$CRUCIBLE_BENCH_KEY_FILE`` first; otherwise ``out/bench.key`` (0600),
-    created with a fresh random key on first use, so the key holder can regenerate the items and nobody else can."""
+    created with a fresh random key on first use, so the key holder can regenerate the items and nobody else can.
+
+    M15 audit: every key file must be 0600 and not a symlink (H2 V15); a key set in the environment that is invalid is an
+    error, never replaced by a random one (G2 D9); a new key inside ``out`` is announced in ``notes`` (the CLI prints it),
+    since ``out`` is what gets shared (keep ``bench.key`` out of it, or set ``$CRUCIBLE_BENCH_KEY_FILE`` to a key kept
+    elsewhere)."""
     import os
 
     from crucible.bench import dynamic
 
     if key_file is not None:
-        return dynamic.load_key(file=key_file)
-    try:
-        return dynamic.load_key()
-    except ValueError:
-        pass
+        return dynamic.load_key(file=check_key_file(Path(key_file)))
+    if os.environ.get(dynamic.KEY_FILE_ENV):
+        return dynamic.load_key(file=check_key_file(Path(os.environ[dynamic.KEY_FILE_ENV])))
+    if os.environ.get(dynamic.KEY_ENV):
+        return dynamic.load_key()  # an invalid key raises (G2 D9)
     f = Path(out) / "bench.key"
-    if f.exists():
-        return dynamic.load_key(file=f)
+    if f.exists() or f.is_symlink():
+        return dynamic.load_key(file=check_key_file(f))
     f.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(dynamic.new_key().hex())
+    if notes is not None:
+        notes.append(f"created the bench key {f} (mode 0600); it is a secret: keep it out of what you share, or set "
+                     f"${dynamic.KEY_FILE_ENV} to a key kept elsewhere")
     return dynamic.load_key(file=f)
 
 

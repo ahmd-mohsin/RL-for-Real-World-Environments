@@ -11,6 +11,24 @@ from typing import Any
 import click
 
 
+def _record(out: Path | None, cmd: str, cfg: dict[str, Any], *, identity: dict[str, Any] | None = None, pack_dir: Path | None = None,
+            manifest: Any = None) -> None:
+    """``out/configs/resolved/<cmd>.json`` for every command that writes outputs (H2 V17, G2 D12): scrubbed, stamped with
+    the provenance, compared with an existing one before anything else is written (G2 D6)."""
+    if out is None:
+        return
+    from crucible.studio.runs import record
+
+    record(Path(out), cmd.replace(" ", "_"), cfg, identity=identity, pack_dir=pack_dir, manifest=manifest)
+
+
+def _shown(p: Path | str) -> str:
+    """A path a next-step hint can be pasted with (G2 D10): absolute, or ``./``-prefixed, never a bare name that ``find_pack``
+    would read as another pack's name."""
+    s = str(p)
+    return s if Path(s).is_absolute() or s.startswith(("./", "../")) else f"./{s}"
+
+
 def _emit(obj: dict[str, Any], as_json: bool, lines: list[str]) -> None:
     if as_json:
         click.echo(json.dumps(obj, indent=1, sort_keys=True, default=str))
@@ -35,7 +53,9 @@ def pack_new(name: str, dest: Path | None, as_json: bool) -> None:
     """Scaffold a pack from packs/_template (conflict-safe: identical files are kept, any conflict writes nothing)."""
     from crucible.studio.pack import PACKS_ROOT, new
 
-    r = new(name, dest or PACKS_ROOT / name)
+    where = dest or PACKS_ROOT / name
+    r = new(name, where)
+    r["next"] = [f"crucible pack check {_shown(where)}", f"crucible pack check {_shown(where)} --level semantic", f"crucible bench run {_shown(where)}"]
     _emit(r, as_json, [f"created {len(r['created'])} file(s), kept {len(r['existing'])} identical: {r['path']}"])
 
 
@@ -90,14 +110,30 @@ def pack_check(ref: str | None, level: str, all_: bool, allow: str, allow_skip: 
 @click.option("--threshold", type=float, default=None, help="reward that counts as solved (default: the pack's)")
 @click.option("--margin", type=float, default=0.25, show_default=True, help="minimum reward gap for a best-vs-worst DPO pair")
 @click.option("--mask-negative", is_flag=True, help="exclude assistant turns with negative credit from the SFT loss")
+@click.option("--sft-format", type=click.Choice(["turns", "chain"]), default="turns", show_default=True,
+              help="turns: one prompt-completion row per policy turn; chain: one multi-turn row with a loss mask (prime-rl)")
+@click.option("--allow-scripted", is_flag=True, help="--run: keep scripted policies' episodes as demonstrations (labelled scripted_demo)")
+@click.option("--include-bench", is_flag=True, help="also label held-out (bench / test) tasks and traces")
+@click.option("--allow-unknown", is_flag=True, help="traces with an unknown outcome may be positives")
+@click.option("--allow-state-shift", is_flag=True, help="keep correction pivots whose fix followed feedback the prompt lacks")
+@click.option("--policy", "policies", multiple=True, help="--run: only these policies (repeatable)")
+@click.option("--tokenizer", default=None, help="--run: the policy's tokenizer (default: the model named in the run)")
+@click.option("--redaction-env", type=click.Path(path_type=Path, exists=True, dir_okay=False), default=None,
+              help="--run: a dotenv whose values are redacted from every row")
+@click.option("--validity", type=click.Path(path_type=Path, exists=True, dir_okay=False), default=None,
+              help="--run: a validity manifest (default: the run's validity.json)")
+@click.option("--template", default=None, help="fit chat rows to this tokenizer's chat template and keep only rows it renders")
 @click.option("--dry-run", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
-def label(pack_ref, run_dir, out, expr, select, max_per_task, threshold, margin, mask_negative, dry_run, as_json) -> None:
+def label(pack_ref, run_dir, out, expr, select, max_per_task, threshold, margin, mask_negative, sft_format, allow_scripted, include_bench, allow_unknown,
+          allow_state_shift, policies, tokenizer, redaction_env, validity, template, dry_run, as_json) -> None:
     """Workflows -> traces with dense rewards, plus SFT / DPO / KTO datasets (TRL formats)."""
     from crucible.studio.label import label as run
 
     s = asyncio.run(run(out=out, pack=pack_ref, run=run_dir, filter=expr, select=select, max_per_task=max_per_task, threshold=threshold, margin=margin,
-                        mask_negative=mask_negative, dry_run=dry_run))
+                        mask_negative=mask_negative, dry_run=dry_run, sft_format=sft_format, allow_scripted=allow_scripted, include_bench=include_bench,
+                        allow_unknown=allow_unknown, allow_state_shift=allow_state_shift, policies=list(policies) or None, tokenizer=tokenizer,
+                        redaction_env=redaction_env, validity=validity, template=template))
     if dry_run:
         return _emit(s, as_json, [json.dumps(s, indent=1, default=str)])
     d = s["datasets"]
@@ -105,34 +141,61 @@ def label(pack_ref, run_dir, out, expr, select, max_per_task, threshold, margin,
              f"  sft {d['sft']}  dpo {d['dpo']} ({', '.join(f'{k} {v}' for k, v in d['dpo_kinds'].items())})  kto {d['kto']}"]
     if "outcomes" in s:
         lines.append(f"  outcomes {s['outcomes']}  signals {sum(s['signals'].values())}  credited {s['credited']}")
+    if s.get("skipped"):
+        lines.append(f"  left out {sum(s['skipped'].values())}: " + ", ".join(f"{k} {v}" for k, v in s["skipped"].items()))
+    lines += [f"  warning: {w}" for w in [*s.get("warnings", []), *([s["warning"]] if s.get("warning") else [])]]
     _emit(s, as_json, lines)
 
 
 @click.command("build")
 @click.argument("pack_ref")
 @click.option("--out", type=click.Path(path_type=Path), default=Path("data/build"), show_default=True)
-@click.option("--fresh", "n_fresh", type=int, default=2, show_default=True, help="fresh benchmark items from the pack's generator")
-@click.option("--k", type=int, default=1, show_default=True, help="samples per task and policy")
+@click.option("--fresh", "n_fresh", type=click.IntRange(min=0), default=2, show_default=True, help="fresh benchmark items from the pack's generator")
+@click.option("--k", type=click.IntRange(min=1), default=1, show_default=True, help="samples per task and policy")
 @click.option("--dry-run", is_flag=True)
 @click.option("--docker", is_flag=True, help="Docker is available: run the acceptance checks that need it")
 @click.option("--paid", is_flag=True, help="allow the acceptance checks that make paid model calls")
+@click.option("--allow", default="", help="requirements of the pack this machine satisfies, e.g. gpu,paid (as bench run --allow)")
+@click.option("--allow-rejected", is_flag=True, help="exit 0 although M9 rejected some tasks or an oracle replay failed")
+@click.option("--allow-empty", is_flag=True, help="go on to a fresh-items-only bench when ingest, forge or accept leave no task")
 @click.option("--json", "as_json", is_flag=True)
-def build(pack_ref, out, n_fresh, k, dry_run, docker, paid, as_json) -> None:
-    """Workflows -> RL tasks and a benchmark: ingest, forge, accept (full contract), export, bench."""
+def build(pack_ref, out, n_fresh, k, dry_run, docker, paid, allow, allow_rejected, allow_empty, as_json) -> None:
+    """Workflows -> RL tasks and a benchmark: ingest, forge, accept (full contract), export, splits, contamination, bench
+    (of the bench split). Exit 0 = built; 1 = a stage failed (named), tasks were rejected, an oracle replay failed or
+    samples are owed (see --allow-rejected); 4 = bad input (e.g. --out holds a build with other flags)."""
     from crucible.accept.model import Need
+    from crucible.studio.build import BuildFailed
     from crucible.studio.build import build as run
 
     needs = tuple(n for n, on in ((Need.DOCKER, docker), (Need.PAID, paid)) if on)
-    s = asyncio.run(run(pack_ref, out=out, n_fresh=n_fresh, k=k, dry_run=dry_run, needs=needs))
+    progress = None if as_json else (lambda m: click.echo(f"[build] {m}", err=True))  # stdout stays pure JSON under --json
+    try:
+        s = asyncio.run(run(pack_ref, out=out, n_fresh=n_fresh, k=k, dry_run=dry_run, needs=needs, allow=tuple(x for x in allow.split(",") if x),
+                            allow_rejected=allow_rejected, allow_empty=allow_empty, progress=progress))
+    except BuildFailed as e:
+        if as_json:
+            click.echo(json.dumps({**e.summary, "ok": False, "error": {"type": "BuildFailed", "stage": e.stage, "message": e.reason, "kind": "failed",
+                                                                        "exit": 1}}, indent=1, sort_keys=True, default=str))
+        else:
+            click.echo(f"build FAILED at {e.stage}: {e.reason}", err=True)
+            click.echo("  the outputs of the previous build in --out (if any) were left as they were", err=True)
+        raise SystemExit(1) from None
     if dry_run:
         return _emit(s, as_json, [json.dumps(s, indent=1, default=str)])
-    a = s["accept"]
+    a, b = s["accept"], s["bench"]
     head = (f"ingested {s['ingest']['traces']} traces; forged {s['forge']['tasks']} tasks; accepted {a['accepted']}/{a['total']}, "
             f"provisional {a['provisional']} (checks pending on needs this run lacks), rejected {a['rejected']}")
-    _emit(s, as_json, [head,
-                       f"  exported {s['export']['canonical']} (canonical reward.json + steps.jsonl) -> {s['export']['dir']}",
-                       f"  bench {s['bench']['items']}: " + ", ".join(f"{p} {r}" for p, r in s["bench"]["models"].items()),
-                       f"  report {s['bench']['report']}"])
+    lines = [f"note: {n}" for n in s.get("notes") or []] + [head, f"  exported {s['export']['canonical']} (canonical reward.json + steps.jsonl) -> {s['export']['dir']}"]
+    lines += [f"  export error {t}: {err}" for t, err in s["export"]["errors"].items()]
+    lines += [f"  splits {b['splits']['counts']} (seal {b['splits']['seal'][:12]}); benched the bench split {b['benched']}",
+              f"  contamination: {len(s['contamination'].get('contaminated') or [])} of {s['contamination'].get('scanned')} bench items"
+              + (f" ({s['contamination']['note']})" if s["contamination"].get("note") else ""),
+              "  bench: " + ", ".join(f"{p} {r}" for p, r in b["models"].items()), f"  report {b['report']}"]
+    lines += [f"  warning: {w}" for w in b.get("warnings") or []]
+    lines += [f"  FAILED {f['stage']}: {f['reason']}" for f in s.get("failures") or []]
+    _emit(s, as_json, lines)
+    if not s.get("ok", True):
+        raise SystemExit(1)
 
 
 # ---- the module steps --------------------------------------------------------------------------------------------------
@@ -146,7 +209,9 @@ def ingest(pack_ref, out, as_json) -> None:
     from crucible.studio.pack import find_pack, load_manifest
 
     d = find_pack(pack_ref)
-    ts = run(d, load_manifest(d), out)
+    m = load_manifest(d)
+    _record(out, "ingest", {"pack": m.name}, pack_dir=d, manifest=m)
+    ts = run(d, m, out)
     _emit({"traces": len(ts), "store": str(out)}, as_json, [f"{len(ts)} traces in {out}"])
 
 
@@ -185,6 +250,7 @@ def forge(pack_ref, out, as_json) -> None:
     m = load_manifest(d)
     if not m.hooks.forge:
         raise ValueError(f"pack {m.name} has no hooks.forge")
+    _record(out, "forge", {"pack": m.name}, pack_dir=d, manifest=m)
     run(d, m, Path(out) / "store")
     col = asyncio.run(resolve(d, m.hooks.forge)(Path(out) / "forge", Path(out) / "store"))
     _emit({"tasks": [t.task_id for t, _ in col], "dir": str(Path(out) / "forge" / "tasks")}, as_json, [f"forged {len(col)} tasks in {Path(out) / 'forge' / 'tasks'}"])
@@ -208,6 +274,7 @@ def accept(pack_ref, out, docker, paid, as_json) -> None:
     d = find_pack(pack_ref)
     m = load_manifest(d)
     needs = [n for n, on in ((Need.DOCKER, docker), (Need.PAID, paid)) if on]
+    _record(out, "accept", {"pack": m.name, "needs": sorted(str(n) for n in needs)}, identity={"pack": m.name}, pack_dir=d, manifest=m)
     import contextlib
 
     from crucible.studio.pack import isolated
@@ -235,16 +302,44 @@ def accept(pack_ref, out, docker, paid, as_json) -> None:
         raise SystemExit(1)
 
 
+TRAIN_SPEC = {  # what crucible.train.launch.run_job reads (the toy launcher); anything else is refused (H2 V19)
+    "run": {"lease_s", "max_attempts", "max_restarts", "health_interval_s", "seed", "lr", "topology", "steps", "max_turn_tokens", "max_wall_s",
+            "n", "B", "max_staleness"},
+    "engines": {"count", "capacity", "decode_delay_s"},
+    "workers": {"count", "concurrency", "rollout", "cpu_s"},
+    "env_servers": {"count", "tasks", "max_concurrent"},
+}
+
+
+def train_spec_problems(spec: dict[str, Any]) -> list[str]:
+    bad = [f"[{k}]" for k in spec if k not in TRAIN_SPEC]
+    for sec, keys in TRAIN_SPEC.items():
+        v = spec.get(sec, {})
+        if not isinstance(v, dict):
+            bad.append(f"{sec} (not a table)")
+            continue
+        bad += [f"{sec}.{k}" for k in v if k not in keys]
+    return bad
+
+
 @click.command("train")
 @click.argument("job", type=click.Path(path_type=Path, exists=True))
 @click.option("--work", type=click.Path(path_type=Path), default=Path("runs/launch"), show_default=True)
 def train(job, work) -> None:
-    """M12: run a training job spec (TOML; see crucible.train.launch)."""
+    """M12: run the toy training launcher from a job spec (TOML; see crucible.train.launch): TinyPolicy over token
+    environments, with engines, rollout workers and env servers as supervised processes. It trains no other model: a
+    spec with any other section or key (a model, a trainer, an optimizer) is refused rather than ignored; real training
+    runs through crucible.train (TorchTrainer, the verl / TRL / SkyRL bridges)."""
     import tomllib
 
     from crucible.train.launch import run_job
 
-    out = asyncio.run(run_job(tomllib.loads(Path(job).read_text()), Path(work)))
+    spec = tomllib.loads(Path(job).read_text())
+    if bad := train_spec_problems(spec):
+        raise ValueError(f"{job}: crucible train runs the toy launcher (TinyPolicy) only and does not support {', '.join(bad)}; "
+                         f"supported: " + "; ".join(f"[{k}] {', '.join(sorted(v))}" for k, v in TRAIN_SPEC.items()))
+    _record(work, "train", {"job": str(job), "spec": spec})
+    out = asyncio.run(run_job(spec, Path(work)))
     click.echo(json.dumps(out, indent=1, default=str))
 
 
@@ -331,22 +426,24 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
     if pack_ref is None:  # plain tasks: no generator, no fresh items
         if not policies:
             raise ValueError("plain tasks need --policies module:attr returning PolicyRefs")
+        _record(out, "bench_run-plain", {"harbor": [str(h) for h in harbor], "tasks": tasks_ref, "policies": policies, "k": k, "ks": ks, "controls": controls},
+                identity={"harbor": [str(h) for h in harbor], "tasks": tasks_ref, "policies": policies, "k": k})
         tasks = _harbor_tasks(harbor) if harbor else [x[0] if isinstance(x, tuple) else x for x in await _awaited(_import(tasks_ref)())]  # type: ignore[arg-type]
         name = "harbor" if harbor else tasks_ref.split(":")[0].rsplit(".", 1)[-1]  # type: ignore[union-attr]
         return await run_bench(name, root=out, tasks=tasks, policies=list(await _awaited(_import(policies)())), harnesses=[harness], k=k, ks=ks,
                                controls=controls, anchors=anchors)
-    from crucible.studio.pack import missing_requirements, policy_refs
+    from crucible.studio.build import bench_preflight
+    from crucible.studio.pack import policy_refs
 
     d = find_pack(pack_ref)
     m = load_manifest(d)
-    if miss := missing_requirements(m, allow):  # M14 campaign B6: the bench ran a pack's live tasks whatever it requires
-        raise ValueError(f"pack {m.name} requires {', '.join(miss)}, which this machine does not provide: pass --allow {','.join(miss)} "
-                         "where it does (its tasks may not run, or may not mean what they claim, without it)")
+    # M14 campaign B6 (requires) and audit V12 (higher_is_better): one preflight, shared with build (M15 audit H2 V5)
+    bench_preflight(m, allow)
     if not m.hooks.tasks and not m.hooks.generator:
         raise ValueError(f"pack {m.name} declares neither hooks.tasks nor hooks.generator: nothing to benchmark")
-    if not m.reward.higher_is_better:  # M14 audit V12: every bench metric counts reward >= threshold as solved
-        raise ValueError(f"pack {m.name} declares reward.higher_is_better: false; bench metrics (pass@k, IRT, controls) assume higher is "
-                         "better, so a lower-is-better pack is refused rather than reported upside down")
+    _record(out, f"bench_run-{m.name}", {"pack": m.name, "pack_dir": str(d), "n_fresh": n_fresh, "k": k, "ks": ks, "policies": policies, "controls": controls,
+                                          "anchors": str(anchors_path) if anchors_path else None, "allow": list(allow), "key_file": str(key_file) if key_file else None},
+            identity={"pack": m.name, "n_fresh": n_fresh, "k": k, "policies": policies, "controls": controls}, pack_dir=d, manifest=m)
     lo, hi = m.reward.range
     thr = m.label.threshold  # V12: the pack's solved threshold and top of range, not 1.0
     anchor_items = []
@@ -358,7 +455,7 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
         anchor_items.append((getattr(t, "id", str(i)), "anchor", t))
     gens = {"generated": resolve(d, m.hooks.generator)} if m.hooks.generator and n_fresh else {}  # called with item_id= (dynamic V3)
     rdir = Path(out) / f"bench-{m.name}-bench"
-    key = bench_key(rdir, key_file=key_file)
+    key = bench_key(rdir, key_file=key_file, notes=notes)
     try:
         bm = await dynamic.build(f"{m.name}-bench", "v1", key=key, anchors=anchor_items, generators=gens, n_fresh=n_fresh if gens else 0,
                                  checks=[gold_and_noop_check(rdir / "validate", best=hi, threshold=thr)] if gens else (), registry=Path(out) / "bench.keys.jsonl")
@@ -379,10 +476,12 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
                 PolicyRef(id="pack:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
         if notes is not None:
             notes.append(f"pack {m.name} has no hooks.policies: benchmarked its gold and a no-op; pass --policies module:attr for models")
+    from crucible.studio.runs import provenance
+
     try:
         res = await run_bench(f"{m.name}-bench", root=out, tasks=[i.task for i in bm.items], policies=pols, harnesses=[harness],
                               k=k, ks=ks, threshold=thr, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None,
-                              extras={"manifest": bm.manifest(), "reward_range": [lo, hi]}, controls=controls, anchors=anchors)
+                              extras={"manifest": bm.manifest(), "reward_range": [lo, hi], "provenance": provenance(d, m)}, controls=controls, anchors=anchors)
     finally:
         for i in bm.items:
             if callable(getattr(i.task, "cleanup", None)):
@@ -397,8 +496,8 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
 @bench.command("run")
 @click.argument("pack_ref", required=False)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("data/runs"), show_default=True)
-@click.option("--fresh", "n_fresh", type=int, default=2, show_default=True)
-@click.option("--k", type=int, default=2, show_default=True)
+@click.option("--fresh", "n_fresh", type=click.IntRange(min=0), default=2, show_default=True)
+@click.option("--k", type=click.IntRange(min=1), default=2, show_default=True)
 @click.option("--ks", default=None, help="pass@k columns, comma-separated (default: 1, powers of two up to k, and k)")
 @click.option("--key-file", type=click.Path(path_type=Path, exists=True), default=None,
               help="the item-seed key (else $CRUCIBLE_BENCH_KEY / $CRUCIBLE_BENCH_KEY_FILE, else a new key kept in the run's bench.key)")
@@ -435,6 +534,7 @@ def bench_report(run_dir, out, force, ks, threshold, as_json) -> None:
     (title, stage maps, validity, extras), into a new directory unless --force (campaign B10)."""
     from crucible.bench.run import report_saved
 
+    _record(out or Path(run_dir) / ("bench" if force else "bench-report"), "bench_report", {"run": str(run_dir), "ks": ks, "threshold": threshold, "force": force}, identity={})
     res = report_saved(Path(run_dir), out_dir=out, ks=_ks(ks), threshold=threshold, force=force)
     _emit({"summary": res["summary"], "paths": res["paths"]}, as_json, _model_lines(res["summary"]) + [res["paths"]["report"]])
 
@@ -485,6 +585,7 @@ def model(pack_ref, out, as_json) -> None:
     m = load_manifest(d)
     if not m.hooks.model:
         raise ValueError(f"pack {m.name} has no hooks.model")
+    _record(out, "model", {"pack": m.name}, pack_dir=d, manifest=m)
     with tempfile.TemporaryDirectory() as tmp:
         traces = run(d, m, Path(tmp), labelled_only=True)
     wm = asyncio.run(resolve(d, m.hooks.model)(traces))
@@ -499,10 +600,38 @@ def model(pack_ref, out, as_json) -> None:
 @click.option("--pack", "pack_ref", default=None)
 @click.option("--run", "run_dir", type=click.Path(path_type=Path, exists=True), default=None)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("data/export"), show_default=True)
+@click.option("--no-validate", is_flag=True, help="atif: copy trajectories without Harbor's validator (when Harbor is not installed)")
 @click.option("--json", "as_json", is_flag=True)
-def export(target, pack_ref, run_dir, out, as_json) -> None:
-    """M11: export a pack's tasks (canonical replay, NeMo-Gym server, OpenEnv environment) or a run's episodes (ATIF)."""
+def export(target, pack_ref, run_dir, out, no_validate, as_json) -> None:
+    """M11: export a pack's tasks (canonical replay, NeMo-Gym server, OpenEnv environment) or a run's episodes (ATIF).
+    Exit 1 when a task's replay fails, nothing was exported, or a trajectory is invalid."""
     from crucible.studio.export import export as run
 
-    r = asyncio.run(run(target, out=out, pack=pack_ref, run=run_dir))
-    _emit(r, as_json, [json.dumps(r, indent=1, default=str)])
+    if target == "atif" and pack_ref:
+        raise click.UsageError("--to atif exports a run: give --run, not --pack")
+    if target != "atif" and run_dir:
+        raise click.UsageError(f"--to {target} exports a pack: give --pack, not --run")
+    prov: dict[str, Any] = {}
+    if pack_ref:
+        from crucible.studio.export import refuse_overlap
+        from crucible.studio.pack import find_pack, load_manifest
+
+        d = find_pack(pack_ref)
+        m = load_manifest(d)
+        refuse_overlap(d, out)  # before the resolved config is written: an --out inside the pack gets nothing (V2)
+        prov = {"pack_dir": d, "manifest": m}
+    _record(out, f"export-{target}", {"target": target, "pack": pack_ref, "run": str(run_dir) if run_dir else None, "validate": not no_validate},
+            identity={"target": target, "pack": getattr(prov.get("manifest"), "name", None), "run": str(Path(run_dir).resolve()) if run_dir else None}, **prov)
+    r = asyncio.run(run(target, out=out, pack=pack_ref, run=run_dir, validate=not no_validate))
+    lines = [f"export {target} -> {out}"]
+    if target == "canonical":
+        lines += [f"  {t}: reward {v['reward']} in {v['steps']} steps" for t, v in r["tasks"].items()]
+        lines += [f"  skipped {t}: {why}" for t, why in r["skipped"].items()] + [f"  ERROR {t}: {e}" for t, e in r["errors"].items()]
+        lines += [f"  FAILED: {r['reason']}"] if r.get("reason") else []
+    elif target == "atif":
+        lines += [f"  {r['trajectories']} trajectories (validated: {r['validated']})"] + [f"  INVALID {n}: {why}" for n, why in r["invalid"].items()]
+    else:
+        lines += [f"  {len(r['tasks'])} tasks; bundle {r['bundle']}"] + ([f"  run: {r['run']}"] if r.get("run") else []) + ([f"  note: {r['note']}"] if r.get("note") else [])
+    _emit(r, as_json, lines)
+    if r.get("ok") is False:
+        raise SystemExit(1)

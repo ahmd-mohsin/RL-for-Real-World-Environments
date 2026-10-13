@@ -12,11 +12,18 @@
 
 ## CLI
 
-click, as Crucible and agentenv already use it. Every command does one module's job and writes a run directory
-(`configs/resolved/<cmd>.json`, outputs, `summary.json`; the verifiers convention).
+click, as Crucible and agentenv already use it. Every command does one module's job. Every command that writes
+outputs (`--out` / `--work`) writes `configs/resolved/<cmd>.json` first (`studio/runs.py`: scrubbed of credentials,
+stamped with the crucible version, git sha and dirty flag, Python, agentenv and the pack's name, version and content
+hash). A re-run into the same `--out` with different identity flags is refused before anything is written ("use a new
+--out"; the verifiers / Repo2RLEnv resume receipt). `build` and the export manifests carry the same provenance.
 - **Lazy subcommands:** a command table imported on use (rLLM `_LazyGroup`, NeMo-Gym `COMMANDS`).
-- **User errors:** one line; `--verbose` shows the traceback (agentenv).
-- **Output:** `--json` on reporting commands, `--dry-run` on `label` and `build`, and the next commands printed.
+- **Exit codes:** 0 ok; 1 the command ran and something failed (a check, a rejected task, an export error, nothing
+  exported); 2 click usage (and `pack check`'s skipped level); 3 internal error (traceback printed); 4 user error.
+- **User errors:** one line; `--verbose` shows the traceback (agentenv). An exception from crucible's own code
+  (`KeyError`, `TypeError`, a JSON decode error, ...) is an internal error, never a one-line user error.
+- **Output:** `--json` on reporting commands (on failure a JSON `{"error": ...}` object on stdout), `--dry-run` on
+  `label` and `build`, and the next commands printed with paths (`./x` or absolute), never bare names.
 
 **Commands:**
 - `label`, `build`;
@@ -26,6 +33,24 @@ click, as Crucible and agentenv already use it. Every command does one module's 
 - plus `registry`, `task`, `seeds`, `world`.
 
 ## `crucible label`
+
+**Audit (2026-10-13; `docs/audit/2026-10-13/M15-studio.md`).** A row is what the policy produced, as it saw it:
+- **The run path reads the runner's training view** (`rollout.json`: trainable turns, kinds, segments, `mask_sample`,
+  flags), plus `validity.json` and `splits.json` (sealed). It no longer rebuilds rows from ATIF and the bench reward, which
+  had made every DPO pair in the toy build oracle-vs-no-op and kept RLM, flagged and held-out episodes.
+- **Positives** come only from model-produced episodes: controls, scripted, oracle, no-op and adversary policies need
+  `--allow-scripted` and go to a separate `<name>.chat.jsonl`. Flagged (`hack/*`, `answer_exposed`, `grader_tampered`),
+  masked, invalid and bench-split episodes are never positives; one rule (outcome and reward agree, reward ≥ the pack
+  threshold) serves SFT, DPO and KTO; skipped episodes are counted per reason.
+- **One policy turn per completion.** SFT defaults to one row per kept assistant turn (prompt = everything before it), so
+  TRL, verl and prime-rl all train exactly the policy's tokens (the multi-turn `messages` + `message_loss_mask` format
+  stays as `--sft-format messages` for prime-rl); DPO chosen / rejected and the KTO completion hold only the policy's
+  turn, with identical prompts and tools; KTO `label` is a bool.
+- **Formats consumers accept:** dict tool arguments, the World's tool cards in `tools` (ATIF `agent.tool_definitions`,
+  now written by the runner), `reasoning_content` kept, no consecutive same-role turns (`--template` adapts for strict
+  templates such as gemma-2), numeric weights so every file loads with HF `datasets`.
+- **Runs are identities:** `studio/runs.py` records the resolved config with provenance before any write and refuses a
+  rerun with different output-changing flags (exit 4, "use a new --out").
 
 **From a pack:**
 1. M3 ingest of `pack.yaml` sources (idempotent, redacted).
@@ -47,12 +72,39 @@ correct|best|all` and `--max-per-task`.
 
 ## `crucible build`
 
+0. Preflight: the pack's `requires` and `reward.higher_is_better`, as `bench run` (`--allow`); the run identity
+   (`configs/resolved/build.json`) is compared before anything is written.
 1. M3 ingest.
 2. The pack's `forge` hook (toy: world_synth with scripted roles, no paid calls).
-3. M9 model-free contract checks: A1, A2, A3, A4-lite, A5, A7, A8.
+3. The full M9 contract per task: accepted, provisional (nothing failed; checks that need Docker or paid calls are
+   pending without `--docker` / `--paid`) or rejected.
 4. M11 canonical export: oracle replayed into `reward.json` + `steps.jsonl`, the outputs every runtime adapter must
-   reproduce. A World task is not a Harbor-native directory; Harbor reaches it through ATIF replay.
-5. An M13 benchmark: accepted tasks as anchors, plus fresh generated items, with scripted policies.
+   reproduce. A World task is not a Harbor-native directory; Harbor reaches it through ATIF replay. An anchor whose
+   oracle did not replay to the top of `reward.range` is invalid in the benchmark.
+5. M13 splits (lineage-closed, sealed; when the fractional draw leaves the bench empty, the lineage ranked lowest under
+   the key is sealed to bench, so a re-run with the same key reproduces the seal) and the contamination scan of the bench split against the training corpus (the
+   train split and the ingested traces; the template is learnt over the whole benchmark, so a family preamble is not a
+   hit, and an exact copy always is); a contaminated bench item is invalid.
+6. An M13 benchmark of the bench split only (anchors and fresh generated items), with scripted policies; the seal rides
+   in the run's report and is verified.
+
+No traces, no forged task or no accepted task stops the build at that stage (exit 1, stage named; `--allow-empty` goes
+on to a fresh-items-only bench). Rejected tasks, oracle replay errors or owed samples exit 1 after the bench
+(`--allow-rejected`); so does a bench split with no valid item. Outputs are written to a staging dir and swapped in only when the build completes, so a failed
+rebuild leaves the previous build whole.
+
+## Exports and the explorer
+
+- **`export`:** the NeMo-Gym / OpenEnv bundle is an allowlist (`pack.yaml`, README, LICENSE, `pyproject.toml`,
+  `src/<package>`, `data` / `worlds` / `families`) without dotfiles, env and key files, ingest-source files or the
+  `redaction_env`, scanned for credentials (a hit refuses the export); an `out/pack` it did not write, or the source pack
+  itself, is never replaced. Async `hooks.tasks` are awaited (also in the launchers). OpenEnv's manifest names an ASGI
+  app (`openenv_env:app`, OpenEnv's `create_app`, port 8000). Task ids become safe, distinct directory names. ATIF
+  export refuses a dir without trajectories or a missing validator (`--no-validate`), and writes a `.result.json`
+  (task, policy, reward, run identity) beside each trajectory.
+- **Explorer plugin:** pack checks by index name only, in a subprocess; run ids are paths under the data root; every
+  file read is resolved and contained; reports are served under `Content-Security-Policy: sandbox` (rendered in memory
+  when absent; a GET never writes).
 
 ## Packs (ARCHITECTURE M14)
 
@@ -73,7 +125,7 @@ correct|best|all` and `--max-per-task`.
 **`pack new demo` → `pack check --level semantic`:**
 - passes;
 - a license set to `unknown` fails with exit 1;
-- an unknown pack is a one-line error.
+- an unknown pack is a one-line error (exit 4).
 
 **`label --pack toy`:**
 - 24 traces, all credited;
@@ -83,13 +135,15 @@ correct|best|all` and `--max-per-task`.
 - 22 KTO rows.
 
 **`build toy`:**
-- 5 tasks forged, 5 accepted;
+- 5 tasks forged; 0 accepted and 5 provisional without `--docker` / `--paid` (A10 pending), none rejected;
 - 5 canonical exports with oracle reward 1.0;
-- a 5-anchor + 2-fresh benchmark (oracle 1.0, no-op 0).
+- 5 anchors + 2 fresh items split into train and bench (sealed); the bench split is benchmarked (oracle 1.0, no-op 0).
 
-**`label --run`:** 7 best-vs-worst DPO pairs with OpenAI-legal tool names.
+**`label --run`:** one best-vs-worst DPO pair per benchmarked task, with OpenAI-legal tool names.
 
-**`bench compare`:** 7 regressions, McNemar p < 0.05.
+**`bench compare`:** every benchmarked task regresses from oracle to no-op.
+
+The M15 audit's regression tests are `tests/unit/test_m15_audit_studio.py`.
 
 Also: the scaffold conflict rules, the filter grammar refusing anything outside its whitelist, the manifest contract,
 and the row shapes.
@@ -111,7 +165,8 @@ and the row shapes.
     - an OpenEnv environment module (it builds and resets in `.envs/openenv`);
   - the agentenv explorer plugin (`crucible.studio.explorer:CrucibleExplorerPlugin`, entry point
     `agent_env.explorer_plugins`), serving packs, pack checks, runs, M13 summaries and reports, episodes and label
-    datasets under `/api/v1/crucible`. Run ids are validated and resolved inside the data root;
+    datasets under `/api/v1/crucible`. Run ids are paths relative to the data root, and every file read is resolved
+    and contained in it;
   - `pack check --level fixture` (see `M14-packs.md`).
 - **`crucible label --pack coding`:** the 11 recorded frontier runs and 55 PCL PRs give 66 traces, 11 credited (end-state
   Φ, recorded outcome), 62 KTO rows. **The `build` part of the task02 gate needs the lab GPU** (the coding forge's tasks
