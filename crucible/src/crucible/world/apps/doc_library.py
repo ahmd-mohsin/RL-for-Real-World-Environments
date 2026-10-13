@@ -9,13 +9,10 @@ library is missing the tool says so instead of returning bytes. State: ``fs`` ad
 from __future__ import annotations
 
 import shlex
-import tarfile
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
-from crucible.world.apps.base import App, ToolError, confine
+from crucible.world.apps.base import App, ToolError, confine, push_seed_tree
 from crucible.world.state.base import snippet
 
 WS_SNIPPET = snippet("ws")
@@ -100,14 +97,7 @@ class DocLibraryApp(App):
 
                 shutil.copytree(src, self.root, dirs_exist_ok=True, symlinks=True)
                 return
-            with tempfile.TemporaryDirectory() as d:
-                tar = Path(d) / "seed.tar"
-                with tarfile.open(tar, "w") as tf:
-                    for p in sorted(src.rglob("*")):
-                        tf.add(p, arcname=str(p.relative_to(src)), recursive=False)
-                remote = f"/tmp/.crucible_seed_{self.id}.tar"
-                await self.ctx.exec.push_file(tar, remote)
-                await self.ctx.exec.run(f"tar -xf {remote} -C {shlex.quote(self.root)} && rm -f {remote}")
+            await push_seed_tree(self, src, self.root)  # unique per World, removed after, a failure is infra (M14 campaign B3)
 
     async def list_tools(self) -> list[ToolSpec]:
         s, i = {"type": "string"}, {"type": "integer"}

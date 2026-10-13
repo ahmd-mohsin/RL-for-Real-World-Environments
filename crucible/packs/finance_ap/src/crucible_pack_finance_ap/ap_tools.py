@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 _DB = Path(__file__).resolve().parent.parent / "db" / "erp.db"
-HOLD_REASONS = {"price_variance", "missing_receipt", "bank_verification"}
+HOLD_REASONS = {"price_variance", "missing_receipt", "bank_verification", "po_mismatch"}
 REJECT_REASONS = {"duplicate", "vendor_blocked"}
 
 
@@ -13,20 +13,29 @@ def _con():
     return con
 
 
+def _int(x, name: str) -> int:
+    """An integer argument the database can bind (M14 audit V1: 10**20 raised OverflowError inside sqlite3)."""
+    if isinstance(x, bool) or not isinstance(x, int) or not -2**63 <= x < 2**63:
+        raise ValueError(f"{name} must be an integer between -2**63 and 2**63-1")
+    return x
+
+
 def list_invoices(status: str = "pending", offset: int = 0, limit: int = 25) -> dict:
     """List invoices with a status (pending, approved, on_hold, rejected), a page at a time."""
     if status not in {"pending", "approved", "on_hold", "rejected"}:
         raise ValueError("status must be pending, approved, on_hold or rejected")
-    limit = max(1, min(int(limit), 50))
+    limit = max(1, min(_int(limit, "limit"), 50))
+    offset = max(0, _int(offset, "offset"))
     with _con() as c:
         total = c.execute("SELECT COUNT(*) FROM invoices WHERE status = ?", (status,)).fetchone()[0]
         rows = [dict(r) for r in c.execute("SELECT id, vendor_id, invoice_number, amount, status FROM invoices WHERE status = ? ORDER BY id LIMIT ? OFFSET ?",
-                                           (status, limit, int(offset)))]
-    return {"total": total, "offset": int(offset), "invoices": rows}
+                                           (status, limit, offset))]
+    return {"total": total, "offset": offset, "invoices": rows}
 
 
 def get_invoice(invoice_id: int) -> dict:
     """One invoice: vendor, invoice number, the purchase order it bills, amount, status."""
+    invoice_id = _int(invoice_id, "invoice_id")
     with _con() as c:
         r = c.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
     if r is None:
@@ -51,7 +60,7 @@ def get_receipts(po_id: str) -> dict:
 
 
 def get_vendor(vendor_id: str) -> dict:
-    """A vendor: status (active or blocked) and whether its bank details changed without verification."""
+    """A vendor: name, status (active or blocked), bank account, and whether its bank details changed without verification."""
     with _con() as c:
         r = c.execute("SELECT * FROM vendors WHERE id = ?", (vendor_id,)).fetchone()
     if r is None:
@@ -59,15 +68,39 @@ def get_vendor(vendor_id: str) -> dict:
     return dict(r)
 
 
+def list_vendors(status: str | None = None, bank_account: str | None = None) -> dict:
+    """The vendor master: every vendor record (id, name, status, bank account), optionally only those with a status
+    (active or blocked) or a bank account."""
+    if status is not None and status not in {"active", "blocked"}:
+        raise ValueError("status must be active or blocked")
+    sql, args = "SELECT id, name, status, bank_account, bank_changed_unverified FROM vendors WHERE 1 = 1", []
+    if status is not None:
+        sql, args = sql + " AND status = ?", [*args, status]
+    if bank_account is not None:
+        sql, args = sql + " AND bank_account = ?", [*args, str(bank_account)]
+    with _con() as c:
+        rows = [dict(r) for r in c.execute(sql + " ORDER BY id", args)]
+    return {"vendors": rows}
+
+
 def find_invoices(vendor_id: str, invoice_number: str) -> dict:
-    """Every invoice (any status) a vendor sent with this invoice number."""
+    """Every invoice (any status) a vendor sent with exactly this invoice number (an exact string match)."""
     with _con() as c:
         rows = [dict(r) for r in c.execute("SELECT id, invoice_number, amount, status FROM invoices WHERE vendor_id = ? AND invoice_number = ? ORDER BY id",
                                            (vendor_id, invoice_number))]
     return {"invoices": rows}
 
 
+def list_vendor_invoices(vendor_id: str) -> dict:
+    """Every invoice (any status) a vendor has sent, oldest first: number, purchase order, amount, status and reason."""
+    with _con() as c:
+        rows = [dict(r) for r in c.execute("SELECT id, invoice_number, po_id, amount, status, reason FROM invoices WHERE vendor_id = ? ORDER BY id",
+                                           (vendor_id,))]
+    return {"vendor_id": vendor_id, "invoices": rows}
+
+
 def _decide(invoice_id: int, status: str, reason: str | None) -> dict:
+    invoice_id = _int(invoice_id, "invoice_id")
     with _con() as c:
         r = c.execute("SELECT status FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
         if r is None:
@@ -84,7 +117,7 @@ def approve_invoice(invoice_id: int) -> dict:
 
 
 def hold_invoice(invoice_id: int, reason: str) -> dict:
-    """Put a pending invoice on hold. reason: price_variance, missing_receipt or bank_verification."""
+    """Put a pending invoice on hold. reason: price_variance, missing_receipt, bank_verification or po_mismatch."""
     if reason not in HOLD_REASONS:
         raise ValueError(f"reason must be one of {sorted(HOLD_REASONS)}")
     return _decide(invoice_id, "on_hold", reason)

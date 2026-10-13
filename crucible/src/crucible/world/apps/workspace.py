@@ -15,13 +15,10 @@ so ``shell`` on the local backend requires ``params.allow_unsafe_local_shell``.
 from __future__ import annotations
 
 import shlex
-import tarfile
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
-from crucible.world.apps.base import App, ToolError, confine
+from crucible.world.apps.base import App, ToolError, confine, push_seed_tree
 from crucible.world.state.base import snippet
 
 WS_SNIPPET = snippet("ws")
@@ -62,17 +59,7 @@ class WorkspaceApp(App):
         seed = self.spec.params.get("seed_dir")
         await self.ctx.exec.run(f"mkdir -p {shlex.quote(self.root)}")
         if seed:
-            src = self.ctx.host_seed(seed)
-            with tempfile.TemporaryDirectory() as d:
-                tar = Path(d) / "seed.tar"
-                with tarfile.open(tar, "w") as tf:
-                    for p in sorted(src.rglob("*")):
-                        tf.add(p, arcname=str(p.relative_to(src)), recursive=False)
-                remote = f"/tmp/.crucible_seed_{self.id}.tar"
-                await self.ctx.exec.push_file(tar, remote)
-                out = await self.ctx.exec.run(f"tar -xf {remote} -C {shlex.quote(self.root)} && rm -f {remote}")
-                if not out.ok:
-                    raise RuntimeError(f"seeding {self.id} failed: {out.stderr[-500:]}")
+            await push_seed_tree(self, self.ctx.host_seed(seed), self.root)  # a tarball unique to this World (M14 campaign B3)
         if self.spec.params.get("init_git"):
             out = await self.ctx.exec.run(
                 "git init -q -b main . && git add -A && git -c user.email=crucible@local -c user.name=crucible commit -qm base --allow-empty && git tag -f base",

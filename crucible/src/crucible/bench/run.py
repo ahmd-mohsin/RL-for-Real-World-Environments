@@ -70,14 +70,52 @@ async def run_controls(root: Path, run_id: str, tasks: Sequence[Any], harnesses:
     oracle actions is ``valid: None`` (unknown: its oracle cannot be checked), never valid by default."""
     from crucible.runtime.run import Runner, RunSpec
 
-    await Runner(root).run(RunSpec(run_id=f"{run_id}-controls", tasks=list(tasks), policies=control_policies(), harnesses=list(harnesses), k=k,
+    # M14 campaign B14: a step limit below the oracle's length cut the oracle off, and the task was dropped silently as
+    # broken_oracle. The controls run with a step limit sized to the longest oracle, so they test the task, and a task
+    # whose oracle is longer than the run's own limit is reported as oracle_truncated (no policy can finish it under it)
+    lengths = {t.id: len(a) for t in tasks if (a := _oracle_actions(t)) is not None}
+    limit = _step_limit(harnesses)
+    sized = [_sized(h, max(lengths.values(), default=0) + 1) for h in harnesses]
+    await Runner(root).run(RunSpec(run_id=f"{run_id}-controls", tasks=list(tasks), policies=control_policies(), harnesses=sized, k=k,
                                    **dict(spec or {})))
-    man = validity_from_controls(load_run(Path(root) / f"{run_id}-controls"), oracle=ORACLE, noop=NOOP, threshold=threshold)
+    eps = load_run(Path(root) / f"{run_id}-controls")
+    man = validity_from_controls(eps, oracle=ORACLE, noop=NOOP, threshold=threshold)
+    for t in tasks:
+        e = man.get(t.id)
+        n = lengths.get(t.id)
+        if e is None or n is None:
+            continue
+        cut = [x for x in eps if x.task == t.id and x.policy == ORACLE and x.stop == "max_steps" and not x.passed(threshold)]
+        if (limit is not None and n > limit) or (cut and "broken_oracle" in e["reasons"]):
+            fits = not any(r in e["reasons"] for r in ("broken_oracle", "flaky_oracle")) or bool(cut)
+            reasons = [r for r in e["reasons"] if not (fits and r in ("broken_oracle", "flaky_oracle"))]
+            e |= {"valid": False, "reasons": ["oracle_truncated", *reasons], "oracle_steps": n, "max_steps": limit,
+                  "note": f"the oracle takes {n} steps and the run's step limit is {limit}: no policy can finish this task under it; "
+                          "raise max_steps to measure it"}
     for t in tasks:
         if _oracle_actions(t) is None and t.id in man:
             man[t.id] |= {"valid": False if "noop_passes" in man[t.id]["reasons"] else None, "reasons": [r for r in man[t.id]["reasons"] if r == "noop_passes"],
                           "note": "no oracle actions: the oracle could not be checked"}
     return man
+
+
+def _step_limit(harnesses: Sequence[Any]) -> int | None:
+    """The smallest step limit among the run's harnesses (None when none declares one)."""
+    caps = [m for h in harnesses if isinstance(m := getattr(getattr(h, "limits", None), "max_steps", None), int)]
+    return min(caps) if caps else None
+
+
+def _sized(h: Any, need: int) -> Any:
+    """``h`` with a step limit of at least ``need`` (a copy; the run's own harness is untouched)."""
+    import copy
+    import dataclasses
+
+    lim = getattr(h, "limits", None)
+    if not dataclasses.is_dataclass(lim) or not isinstance(getattr(lim, "max_steps", None), int) or lim.max_steps >= need:
+        return h
+    c = copy.copy(h)
+    c.limits = dataclasses.replace(lim, max_steps=need)
+    return c
 
 
 async def run_bench(name: str, *, root: Path, tasks: Sequence[Any], policies: Sequence[Any], harnesses: Sequence[Any], k: int = 1,
@@ -149,9 +187,14 @@ def _oracle_actions(task: Any) -> list[Any] | None:
             if a.get("kind", "tool_call") == "tool_call" else Message(to=a["to"], text=a["text"]) for i, a in enumerate(raw)]
 
 
-def gold_and_noop_check(work: Path, *, max_steps: int = 1000) -> tuple[str, Callable[[Any], Any]]:
-    """The validation floor every fresh item passes before it counts (R:21/58/72: gold scores 1.0, a no-op does not):
-    the task's own oracle replayed, then an empty episode. A task without an oracle is rejected (fail closed)."""
+def gold_and_noop_check(work: Path, *, max_steps: int = 1000, best: float = 1.0, threshold: float | None = None) -> tuple[str, Callable[[Any], Any]]:
+    """The validation floor every fresh item passes before it counts (R:21/58/72: gold scores the top of the pack's reward
+    range, a no-op does not count as solved): the task's own oracle replayed, then an empty episode. A task without an
+    oracle is rejected (fail closed). ``best`` / ``threshold`` are the pack's ``reward.range`` top and ``label.threshold``
+    (M14 audit V12: a pack on [0, 10] was validated against 1.0); a non-finite reward never passes."""
+    import math
+
+    thr = best if threshold is None else threshold
 
     async def check(task: Any) -> tuple[bool, str]:
         from crucible.actors.policy import EpisodeLimits, ScriptedPolicy, run_episode
@@ -168,7 +211,8 @@ def gold_and_noop_check(work: Path, *, max_steps: int = 1000) -> tuple[str, Call
                 rewards.append((await task.grade(w, d / "grade")).reward)
             finally:
                 await w.close()
-        ok = rewards[0] == 1.0 and (rewards[1] or 0.0) < 1.0
+        fin = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+        ok = fin(rewards[0]) and abs(rewards[0] - best) <= 1e-9 and (rewards[1] is None or (fin(rewards[1]) and rewards[1] < thr))
         return ok, "pass" if ok else f"gold {rewards[0]} / noop {rewards[1]}"
 
     return ("gold_and_noop", check)

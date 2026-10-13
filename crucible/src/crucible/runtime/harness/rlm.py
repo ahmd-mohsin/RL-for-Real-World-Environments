@@ -20,12 +20,16 @@ inherited):
   to see what the code did between World steps.
 
 Training: every root, sub and compaction call keeps its token record (``LLMToolPolicy``'s schema, with ``step`` and
-linear capture). Sub-calls are tree nodes that share their root turn's advantage (``runtime.record.build``). A rollout
-with a missing token record is masked ``capture_incomplete`` by the runner, never trained on.
+linear capture). Sub-calls are tree nodes that share their root turn's advantage and turn credit (``runtime.record.build``,
+``train.credit.turn_credit_map``). A sub-call answered by another model (``sub_llm``) is recorded with that model and is
+not trainable (``Turn.trainable``). A rollout with a missing token record is masked ``capture_incomplete`` by the runner,
+never trained on.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -52,9 +56,16 @@ class RLMConfig:
     max_stalls: int = 3
     tool_index: bool = True  # a one-line-per-tool index after the task (schemas stay in TOOLS)
     # where model-written code runs: "docker" (a no-network, read-only, capability-free container; the default for any
-    # rollout) or "local" (a host subprocess in an empty directory: trusted code and unit tests only)
+    # rollout) or "local" (a host subprocess: trusted code and unit tests only, refused unless ``allow_host``; M14 audit H3 V1)
     kernel: str = "docker"
     kernel_image: str = "python:3.12-slim"
+    allow_host: bool = False
+    # the sub-LLM budget (H3 V4, G1 D10; VF's RLM caps concurrent subagents at 4): per episode, per python call, in flight,
+    # and prompt + completion tokens per episode; ``sub_max_tokens`` caps each call
+    max_sub_calls: int = 256
+    max_sub_calls_per_cell: int = 64
+    sub_concurrency: int = 4
+    max_sub_tokens: int = 2_000_000
     # compaction (ContextConfig, mode "compact", strategy "summary"); 0 disables it (an overflow ends the episode, scored)
     budget_tokens: int = 128_000
     trigger: float = 0.8
@@ -70,8 +81,17 @@ class RLMConfig:
         if self.kernel == "docker":
             return DockerLauncher(self.kernel_image)
         if self.kernel == "local":
-            return LocalLauncher()
+            if not self.allow_host:
+                raise ValueError("RLMConfig.kernel='local' runs model-written code on the host: refused unless allow_host=True "
+                                 "(trusted code only; rollouts and evaluations use kernel='docker')")
+            return LocalLauncher(allow_host=True)
         raise ValueError(f"RLMConfig.kernel: docker | local (got {self.kernel!r})")
+
+    def policy_kwargs(self) -> dict[str, Any]:
+        return {"max_output_chars": self.max_output_chars, "cell_timeout_s": self.cell_timeout_s, "max_tokens": self.max_tokens,
+                "sub_max_tokens": self.sub_max_tokens, "context": self.context(), "max_continuations": self.max_continuations,
+                "max_stalls": self.max_stalls, "max_turns": self.max_turns, "tool_index": self.tool_index, "max_sub_calls": self.max_sub_calls,
+                "max_sub_calls_per_cell": self.max_sub_calls_per_cell, "sub_concurrency": self.sub_concurrency, "max_sub_tokens": self.max_sub_tokens}
 
     def context(self) -> ContextConfig:
         if not self.budget_tokens:
@@ -90,6 +110,10 @@ class RLMHarness(NativeHarness):
         super().__init__(f"rlm:{self.config.digest()}", version, limits=limits or EpisodeLimits(max_steps=10_000), limit_policy=limit_policy,
                          checkpoint_every=checkpoint_every, progress_full_every=progress_full_every)
         self.launcher = launcher
+        if launcher is None:
+            # M14 campaign B9: kernel='local' without allow_host was refused only inside each attempt, where it became an
+            # unknown-blame mask (retried, and counted toward the run's stop rule). A config that cannot run is refused here
+            self.config.launcher()
 
     def wrap(self, attempt: Attempt, actor: str, x: Any) -> Any:
         from crucible.actors.rlm.policy import RLMPolicy
@@ -98,10 +122,9 @@ class RLMHarness(NativeHarness):
             return x  # already an RLM, or a scripted / responder policy
         llm = x if hasattr(x, "complete") and not hasattr(x, "act") else x.llm
         c = self.config
+        # a sub_llm other than the policy's own model answers sub-calls that are recorded with their model and never trained (G1 D1)
         return RLMPolicy(actor, llm, sub_llm=getattr(x, "sub_llm", None), launcher=self.launcher(attempt, actor) if self.launcher else c.launcher(),
-                         seed=zlib.crc32(f"{attempt.sample}:{actor}".encode()), max_output_chars=c.max_output_chars, cell_timeout_s=c.cell_timeout_s,
-                         max_tokens=c.max_tokens, sub_max_tokens=c.sub_max_tokens, temperature=c.temperature, context=c.context(),
-                         max_continuations=c.max_continuations, max_stalls=c.max_stalls, max_turns=c.max_turns, tool_index=c.tool_index)
+                         seed=zlib.crc32(f"{attempt.sample}:{actor}".encode()), temperature=c.temperature, **c.policy_kwargs())
 
     async def run(self, attempt: Attempt) -> HarnessResult:
         from crucible.actors.rlm.policy import RLMPolicy
@@ -117,10 +140,15 @@ class RLMHarness(NativeHarness):
         ref = PolicyRef(id=inner.id, make=make, spend=inner.spend, estimate_usd=getattr(inner, "estimate_usd", 0.0))
         try:
             res = await super().run(dataclasses.replace(attempt, policy=ref))
-        finally:
-            for p in made.values():
-                if isinstance(p, RLMPolicy):
-                    await p.aclose()
+        finally:  # every kernel and container closed, even when the attempt is cancelled mid-flight (M14 campaign B4)
+            closes = [asyncio.ensure_future(p.aclose()) for p in made.values() if isinstance(p, RLMPolicy)]
+            if closes:
+                try:
+                    await asyncio.shield(asyncio.gather(*closes, return_exceptions=True))
+                except asyncio.CancelledError:
+                    with contextlib.suppress(BaseException):
+                        await asyncio.wait_for(asyncio.gather(*closes, return_exceptions=True), 120)
+                    raise
         for actor, p in made.items():
             if not isinstance(p, RLMPolicy):
                 continue

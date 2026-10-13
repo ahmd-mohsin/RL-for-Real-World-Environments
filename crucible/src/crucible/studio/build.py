@@ -32,7 +32,7 @@ async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, ke
     from crucible.bench.run import bench_key, gold_and_noop_check, run_bench
     from crucible.runtime.harness.native import NativeHarness
     from crucible.studio.label import _resolved, ingest
-    from crucible.studio.pack import find_pack, load_manifest, resolve
+    from crucible.studio.pack import find_pack, load_manifest, policy_refs, resolve
 
     pack_dir = find_pack(pack)
     m = load_manifest(pack_dir)
@@ -95,7 +95,7 @@ async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, ke
         gens = {}
     try:
         bm = await dynamic.build(f"{m.name}-build", "v1", key=key, anchors=anchors, generators=gens, n_fresh=n_fresh if gens else 0,
-                                 checks=[gold_and_noop_check(out / "validate")] if gens else (), registry=out / "bench.keys.jsonl")
+                                 checks=[gold_and_noop_check(out / "validate", best=m.reward.range[1], threshold=m.label.threshold)] if gens else (), registry=out / "bench.keys.jsonl")
     except dynamic.ShortBenchmark as e:
         man = e.benchmark.manifest()
         raise ValueError(f"only {man['counts']['fresh']} of {n_fresh} fresh items passed validation; yields {man['yields']}; rejected {man['rejected'][:5]}") from None
@@ -117,7 +117,7 @@ async def build(pack: str | Path, *, out: Path, n_fresh: int = 2, k: int = 1, ke
     splits.write_splits(out / "splits.json", sp)
     stages = resolve(pack_dir, m.hooks.stages) if m.hooks.stages else None
     try:
-        res = await run_bench(f"{m.name}-build", root=out / "runs", tasks=[i.task for i in bm.items], policies=resolve(pack_dir, m.hooks.policies)(),
+        res = await run_bench(f"{m.name}-build", root=out / "runs", tasks=[i.task for i in bm.items], policies=policy_refs(resolve(pack_dir, m.hooks.policies)()), threshold=m.label.threshold,
                               harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=1000))], k=k, stages_of=stages, extras={"manifest": bm.manifest()},
                               validity=validity)
     finally:

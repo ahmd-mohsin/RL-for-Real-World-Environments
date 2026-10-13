@@ -4,8 +4,11 @@
 |---|---|---|
 | ``canonical`` | per task: the gold actions replayed into ``reward.json`` + ``steps.jsonl``. Every runtime adapter must reproduce these (the M11 consistency gate) | ``hooks.tasks``; tasks with subgoals or a plan |
 | ``atif`` | per episode of an M10 run: its ATIF trajectory (Harbor's schema), validated by Harbor's validator when installed | ``--run`` |
-| ``nemo-gym`` | a launcher for ``crucible.interop.nemo_gym.server`` over the pack's tasks; the app is built here to prove the tasks load | ``hooks.tasks`` |
-| ``openenv`` | a launcher module exposing ``make_environment`` over the pack's tasks; the environment class is built when OpenEnv is importable | ``hooks.tasks``; ``openenv`` (its own environment) |
+| ``nemo-gym`` | a launcher for ``crucible.interop.nemo_gym.server`` over every task of the pack; the app is built here to prove the tasks load | ``hooks.tasks`` |
+| ``openenv`` | a launcher module exposing ``make_environment`` over every task (``reset(task_index=)``) and the generator (``reset(item_seed=)``), plus ``openenv.yaml``; the environment class is built when OpenEnv is importable | ``hooks.tasks``; ``openenv`` (its own environment) |
+
+Both pack exports are self-contained (M14 sweep G2 D11): the pack is copied to ``out/pack`` and the launchers find it
+relative to themselves, so the directory can move to another machine (it still needs ``crucible`` installed there).
 """
 
 from __future__ import annotations
@@ -38,23 +41,43 @@ async def export(target: str, *, out: Path, pack: str | Path | None = None, run:
     ref = m.hooks.tasks
     if target == "canonical":
         return await _canonical(resolve(d, ref)(), out)
+    bundle = _bundle(d, m, out)  # self-contained (G2 D11): the pack is copied, the launchers use relative paths only
+    head = (f"import sys\nfrom pathlib import Path\n\nPACK = Path(__file__).resolve().parent / {bundle.name!r}\n"
+            "sys.path.insert(0, str(PACK / 'src'))\nfrom crucible.studio.pack import resolve  # noqa: E402\n\n")
+    factory_src = ("def make_task(task_index: int = 0, item_seed: int | None = None):\n"
+                   "    \"\"\"Any of the pack's tasks (``task_index``) or, with ``item_seed``, a fresh generated item.\"\"\"\n"
+                   + (f"    if item_seed is not None:\n        return resolve(PACK, {m.hooks.generator!r})(int(item_seed))\n" if m.hooks.generator else
+                      "    if item_seed is not None:\n        raise ValueError('this pack has no generator')\n")
+                   + f"    return resolve(PACK, {ref!r})()[int(task_index)][0]\n\n\n"
+                   f"def tasks():\n    return {{getattr(t, 'id', str(i)): t for i, (t, _) in enumerate(resolve(PACK, {ref!r})())}}\n")
+    meta = {"name": m.name, "version": m.version, "license": m.license, "reward_range": list(m.reward.range),
+            "higher_is_better": m.reward.higher_is_better, "determinism": m.determinism, "requires": list(m.requires),
+            "tasks": None, "generator": bool(m.hooks.generator)}
     if target == "nemo-gym":
         from crucible.interop.nemo_gym.server import make_app
 
         tasks = {getattr(t, "id", str(i)): t for i, (t, _) in enumerate(resolve(d, ref)())}
         make_app(tasks)  # proves the tasks load into the server
+        meta["tasks"] = sorted(tasks)
         factory = out / "nemo_tasks.py"
-        factory.write_text(f'"""NeMo-Gym resources server factory for the {m.name} pack (crucible export)."""\nimport sys\nsys.path.insert(0, {str(d / "src")!r})\n'
-                           f"from crucible.studio.pack import resolve\nfrom pathlib import Path\n\n\ndef tasks():\n"
-                           f"    return {{getattr(t, 'id', str(i)): t for i, (t, _) in enumerate(resolve(Path({str(d)!r}), {ref!r})())}}\n")
-        cmd = f"PYTHONPATH={out} python -m crucible.interop.nemo_gym.server --tasks nemo_tasks:tasks --port 8000"
-        (out / "serve_nemo.sh").write_text("#!/bin/sh\n" + cmd + "\n")
-        return {"target": target, "tasks": sorted(tasks), "files": [str(factory), str(out / "serve_nemo.sh")], "run": cmd}
-    # openenv
+        factory.write_text(f'"""NeMo-Gym resources server factory for the {m.name} pack (crucible export)."""\n' + head + factory_src)
+        cmd = "PYTHONPATH=. python -m crucible.interop.nemo_gym.server --tasks nemo_tasks:tasks --port 8000"
+        (out / "serve_nemo.sh").write_text('#!/bin/sh\ncd "$(dirname "$0")"\n' + cmd + "\n")
+        (out / "crucible_export.json").write_text(json.dumps(meta | {"target": target}, indent=1) + "\n")
+        return {"target": target, "tasks": sorted(tasks), "files": [str(factory), str(out / "serve_nemo.sh"), str(out / "crucible_export.json")],
+                "bundle": str(bundle), "run": cmd}
+    # openenv: every task (reset(task_index=...)) and the generator (reset(item_seed=...)), not task 0 only
+    meta["tasks"] = [getattr(t, "id", str(i)) for i, (t, _) in enumerate(resolve(d, ref)())]
     mod = out / "openenv_env.py"
-    mod.write_text(f'"""OpenEnv environment for the {m.name} pack (crucible export)."""\nimport sys\nsys.path.insert(0, {str(d / "src")!r})\n'
-                   f"from pathlib import Path\nfrom crucible.interop.openenv.export import make_environment\nfrom crucible.studio.pack import resolve\n\n"
-                   f"_TASKS = resolve(Path({str(d)!r}), {ref!r})\nEnvironment = make_environment(lambda: _TASKS()[0][0])\n")
+    mod.write_text(f'"""OpenEnv environment for the {m.name} pack (crucible export)."""\n' + head + factory_src
+                   + "\n\nfrom crucible.interop.openenv.export import make_environment  # noqa: E402\n\nEnvironment = make_environment(make_task)\n")
+    import yaml
+
+    (out / "openenv.yaml").write_text(yaml.safe_dump({"spec_version": 1, "name": m.name, "version": m.version, "type": "space", "runtime": "fastapi",
+                                                      "app": "openenv_env:Environment", "description": m.description, "license": m.license,
+                                                      "validation": {"reward_range": list(m.reward.range), "higher_is_better": m.reward.higher_is_better,
+                                                                     "determinism": m.determinism, "requires": list(m.requires),
+                                                                     "tasks": meta["tasks"], "generator": meta["generator"]}}, sort_keys=False))
     try:
         import openenv  # noqa: F401
 
@@ -64,8 +87,23 @@ async def export(target: str, *, out: Path, pack: str | Path | None = None, run:
         built = True
     except ImportError:
         built = False
-    return {"target": target, "files": [str(mod)], "built_here": built,
+    return {"target": target, "files": [str(mod), str(out / "openenv.yaml")], "bundle": str(bundle), "tasks": meta["tasks"], "built_here": built,
             "note": None if built else "openenv is not importable here: run the module in its environment (crucible/.envs/openenv)"}
+
+
+def _bundle(pack_dir: Path, m: Any, out: Path) -> Path:
+    """A copy of the pack next to the launchers (pack.yaml, README, pyproject, src/ and any data / worlds directories)."""
+    dest = out / "pack"
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    for name in ("pack.yaml", "README.md", "pyproject.toml", "LICENSE"):
+        if (pack_dir / name).is_file():
+            shutil.copy2(pack_dir / name, dest / name)
+    for name in ("src", "data", "worlds", "families"):
+        if (pack_dir / name).is_dir():
+            shutil.copytree(pack_dir / name, dest / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"), symlinks=True)
+    return dest
 
 
 async def _canonical(tasks: list, out: Path) -> dict[str, Any]:

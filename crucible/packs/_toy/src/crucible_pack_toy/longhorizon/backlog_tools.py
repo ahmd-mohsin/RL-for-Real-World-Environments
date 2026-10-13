@@ -15,20 +15,29 @@ def _con():
     return con
 
 
+def _int(x, name: str) -> int:
+    """An integer argument the database can bind (M14 audit V1: 10**20 raised OverflowError inside sqlite3)."""
+    if isinstance(x, bool) or not isinstance(x, int) or not -2**63 <= x < 2**63:
+        raise ValueError(f"{name} must be an integer between -2**63 and 2**63-1")
+    return x
+
+
 def list_tickets(status: str = "open", offset: int = 0, limit: int = 25) -> dict:
     """List tickets with a status, a page at a time (offset/limit, at most 50)."""
     if status not in _STATUSES:
         raise ValueError(f"status must be one of {sorted(_STATUSES)}")
-    limit = max(1, min(int(limit), 50))
+    limit = max(1, min(_int(limit, "limit"), 50))
+    offset = max(0, _int(offset, "offset"))
     with _con() as c:
         total = c.execute("SELECT COUNT(*) FROM tickets WHERE status = ?", (status,)).fetchone()[0]
         rows = [dict(r) for r in c.execute("SELECT id, customer_id, subject, status FROM tickets WHERE status = ? ORDER BY id LIMIT ? OFFSET ?",
-                                           (status, limit, int(offset)))]
-    return {"total": total, "offset": int(offset), "tickets": rows}
+                                           (status, limit, offset))]
+    return {"total": total, "offset": offset, "tickets": rows}
 
 
 def get_ticket(ticket_id: int) -> dict:
     """One ticket with its customer, the customer's orders, the conversation thread and the notes."""
+    ticket_id = _int(ticket_id, "ticket_id")
     with _con() as c:
         t = c.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
         if t is None:
@@ -53,6 +62,7 @@ def get_order(order_id: str) -> dict:
 
 def add_note(ticket_id: int, body: str) -> dict:
     """Add an internal note to a ticket."""
+    ticket_id = _int(ticket_id, "ticket_id")
     with _con() as c:
         if c.execute("SELECT 1 FROM tickets WHERE id = ?", (ticket_id,)).fetchone() is None:
             raise ValueError(f"no ticket {ticket_id}")
@@ -62,11 +72,14 @@ def add_note(ticket_id: int, body: str) -> dict:
 
 def set_status(ticket_id: int, status: str) -> dict:
     """Set a ticket's status (open, pending, resolved, escalated)."""
+    ticket_id = _int(ticket_id, "ticket_id")
     if status not in _STATUSES:
         raise ValueError(f"status must be one of {sorted(_STATUSES)}")
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     with _con() as c:
-        n = c.execute("UPDATE tickets SET status = ?, resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE resolved_at END WHERE id = ?",
+        # the FIRST resolution time is kept (M14 audit V11: a re-close overwrote it, so closing an awaiting ticket before the
+        # customer's reply and closing it again afterwards graded as waiting for the reply)
+        n = c.execute("UPDATE tickets SET status = ?, resolved_at = CASE WHEN ? = 'resolved' THEN COALESCE(resolved_at, ?) ELSE resolved_at END WHERE id = ?",
                       (status, status, now, ticket_id)).rowcount
     if not n:
         raise ValueError(f"no ticket {ticket_id}")
@@ -75,6 +88,7 @@ def set_status(ticket_id: int, status: str) -> dict:
 
 def issue_refund(ticket_id: int, order_id: str, amount_usd: float, approved_by: str = "") -> dict:
     """Refund (part of) an order linked to a ticket. Record approved_by when the policy requires a supervisor's approval."""
+    ticket_id = _int(ticket_id, "ticket_id")
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     with _con() as c:
         t = c.execute("SELECT customer_id FROM tickets WHERE id = ?", (ticket_id,)).fetchone()

@@ -89,7 +89,7 @@ async def test_tool_quota_is_a_policy_fault_and_survives_snapshot_restore(tmp_pa
 async def test_no_quota_keeps_spec_hash_and_world_fingerprint_unchanged(tmp_path):
     from crucible_pack_toy import helpdesk_spec
 
-    assert helpdesk_spec().content_hash() == "a58d2f478a60db1c31a960847377377b778b9d3b608d90cf614bdb16e8087804"  # hash before tool_quota existed
+    assert helpdesk_spec().content_hash() == "7e080902fa45bf1c6b115e76bbdb7e41a79f241b40346f485a3257a7ab42cbf2"  # no quota field in the hash (re-pinned at the M14 audit: toy 0.3 seeds its supervisor from data/staff.sql)
     w = await _world(tmp_path)
     try:
         ref = await w.snapshot()

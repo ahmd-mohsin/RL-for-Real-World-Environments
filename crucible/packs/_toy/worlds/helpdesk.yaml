@@ -9,7 +9,7 @@ apps:
 - id: tickets
   template: common/sqlite_app
   state: {adapter: sql, params: {path: helpdesk/db/tickets.db}}
-  params: {schema_sql: data/tickets.sql, tools_module: helpdesk/tools/tickets.py, transport: inprocess}
+  params: {schema_sql: data/tickets.sql, seed_sql: data/staff.sql, tools_module: helpdesk/tools/tickets.py, transport: inprocess}
   description: ticketing system of record
 - id: kb
   template: common/doc_library

@@ -14,6 +14,7 @@ from crucible_pack_toy.verify import GOLD
 
 from crucible.actors.llm import LLMResponse
 from crucible.actors.policy import EpisodeLimits, run_episode
+from crucible.actors.rlm.kernel import LocalLauncher
 from crucible.actors.rlm.policy import RLMPolicy
 from crucible.runtime.inject import FakeLLM
 
@@ -22,12 +23,15 @@ def code(src: str, i: int = 0) -> LLMResponse:
     return LLMResponse(text="", tool_calls=[{"id": f"py{i}", "name": "python", "arguments": {"code": src}}], usage={"completion_tokens": 10})
 
 
-GOLD_CODE = "\n".join(f"await world.call({a.function_name!r}, **{a.arguments!r})" for a in GOLD)
+GOLD_CODE = "\n".join(f"await world.call({a.function_name!r}, **{a.arguments!r})" if hasattr(a, "function_name") else f"await world.send({a.to!r}, {a.text!r})"
+                      for a in GOLD)
+N_TOOLS = sum(hasattr(a, "function_name") for a in GOLD)
 
 
 async def episode(tmp_path, script, *, sub=None, limits=None, **kw):
     task = HelpdeskTask()
     w = await task.open(tmp_path / "work")
+    kw.setdefault("launcher", LocalLauncher(allow_host=True))  # trusted scripted code: the host launcher is opted into explicitly
     p = RLMPolicy("agent", FakeLLM(script), sub_llm=sub, **kw)
     try:
         ep = await run_episode(w, {"agent": p}, limits=limits or EpisodeLimits(max_steps=60))
@@ -48,7 +52,7 @@ async def test_rlm_solves_the_task_through_code(tmp_path):
     calls = ep.model_calls["agent"]
     turns, subs = [c for c in calls if c["kind"] == "turn"], [c for c in calls if c["kind"] == "sub"]
     assert len(turns) == 2 and len(subs) == 2 and all(s["parent"] == turns[1]["call_id"] for s in subs)
-    assert turns[1]["actions"][-1] == "done" and len([a for a in turns[1]["actions"] if a.startswith("tool:")]) == len(GOLD)
+    assert turns[1]["actions"][-1] == "done" and len([a for a in turns[1]["actions"] if a.startswith("tool:")]) == N_TOOLS
     tool_msgs = [m for m in p.messages if m["role"] == "tool"]
     assert "(1, True)" in tool_msgs[0]["content"]
 
@@ -93,7 +97,7 @@ async def test_crash_mid_cell_resumes_to_the_same_end_state(tmp_path):
     task = HelpdeskTask()
     w = await task.open(tmp_path / "run" / "work")
     w.stream_trace(tmp_path / "run" / "trace.jsonl")
-    p = RLMPolicy("agent", FakeLLM(list(script)))
+    p = RLMPolicy("agent", FakeLLM(list(script)), launcher=LocalLauncher(allow_host=True))
     ck = checkpoint.Checkpointer(tmp_path / "run", w, {"agent": p}, [], every=3)
 
     class Crash(Exception):
@@ -112,7 +116,7 @@ async def test_crash_mid_cell_resumes_to_the_same_end_state(tmp_path):
     assert saved["step"] == 3 and saved["policies"]["agent"]["in_cell"]
     # resume in a fresh process-equivalent: new World object on the same store, new policy, no further model calls needed
     w2 = await task.open(tmp_path / "run" / "work")
-    p2 = RLMPolicy("agent", FakeLLM([]))
+    p2 = RLMPolicy("agent", FakeLLM([]), launcher=LocalLauncher(allow_host=True))
     try:
         start = await checkpoint.resume(w2, {"agent": p2}, [], saved, prev_dir=tmp_path / "run", new_dir=tmp_path / "run2")
         ep2 = await run_episode(w2, {"agent": p2}, limits=EpisodeLimits(max_steps=60), reset=False, start_steps=start)
@@ -120,7 +124,7 @@ async def test_crash_mid_cell_resumes_to_the_same_end_state(tmp_path):
         assert rep2.reward == ref_rep.reward == 1.0
         assert ep2.final.fingerprint == ref_ep.final.fingerprint and ep2.steps == ref_ep.steps
         tool_events = [e for e in w2.log if e.kind == "action" and e.type == "tool_call"]
-        assert len(tool_events) == len(GOLD)  # nothing was stepped twice
+        assert len(tool_events) == N_TOOLS  # nothing was stepped twice
     finally:
         await w2.close()
         await p2._close_kernel()
@@ -134,10 +138,13 @@ async def test_state_dict_is_json(tmp_path):
 
 async def test_train_rollout_complete_with_token_records(tmp_path):
     """Through the runtime (NativeHarness, rollout_mode="train"): root turns and sub-LLM calls carry token records, so the
-    rollout is trainable; sub-calls appear as their own turns."""
+    rollout is trainable; sub-calls appear as their own turns. A sub-LLM that is the policy's own model is trained; one
+    answered by another model (a separate ``sub_llm``) is recorded with its model and never trained (M14 audit G1 D1: the
+    old version of this test asserted that a separate FakeLLM's tokens were trainable)."""
     from crucible.core.schema.rollout import RolloutRecord
     from crucible.runtime.harness.native import NativeHarness, PolicyRef
     from crucible.runtime.run import Runner, RunSpec
+    from crucible.train.credit import token_credit
 
     tok = {"prompt_token_ids": [1, 2, 3], "completion_token_ids": [7, 8], "logprobs": [-0.1, -0.2], "policy_version": 1}
 
@@ -145,14 +152,27 @@ async def test_train_rollout_complete_with_token_records(tmp_path):
         r.tokens = dict(tok)
         return r
 
-    def make(attempt):
-        script = [with_tok(code("s = await rlm.query('summarize the open tickets')\n" + GOLD_CODE + "\nrlm.finish('done')", 1))]
-        sub = FakeLLM([with_tok(LLMResponse(text="three open tickets"))])
-        return {"agent": RLMPolicy("agent", FakeLLM(script), sub_llm=sub)}
+    cell = "s = await rlm.query('summarize the open tickets')\n" + GOLD_CODE + "\nrlm.finish('done')"
 
-    await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[HelpdeskTask()], policies=[PolicyRef(id="rlm:fake", make=make)], harnesses=[NativeHarness()],
-                                       k=1, rollout_mode="train"))
-    adir = min((tmp_path / "r" / "samples").glob("*/a*"))
-    ro = RolloutRecord.model_validate_json((adir / "rollout.json").read_text())
+    def make_same(attempt):  # one model answers root and sub-calls
+        llm = FakeLLM([with_tok(code(cell, 1)), with_tok(LLMResponse(text="three open tickets"))])
+        return {"agent": RLMPolicy("agent", llm, launcher=LocalLauncher(allow_host=True))}
+
+    def make_other(attempt):  # a separate (frozen) helper model answers the sub-call
+        sub = FakeLLM([with_tok(LLMResponse(text="three open tickets", model="frozen-helper"))])
+        return {"agent": RLMPolicy("agent", FakeLLM([with_tok(code(cell, 1))]), sub_llm=sub, launcher=LocalLauncher(allow_host=True))}
+
+    out = {}
+    for name, make in (("same", make_same), ("other", make_other)):
+        await Runner(tmp_path / name).run(RunSpec(run_id="r", tasks=[HelpdeskTask()], policies=[PolicyRef(id="rlm:fake", make=make)],
+                                                  harnesses=[NativeHarness()], k=1, rollout_mode="train"))
+        adir = min((tmp_path / name / "r" / "samples").glob("*/a*"))
+        out[name] = RolloutRecord.model_validate_json((adir / "rollout.json").read_text())
+    ro = out["same"]
     assert not ro.mask_sample and ro.reward == 1.0, (ro.failure_kind, ro.stop)
-    assert [t.kind for t in ro.turns] == ["turn", "sub"] and all(t.completion_token_ids == [7, 8] for t in ro.turns)
+    assert [t.kind for t in ro.turns] == ["turn", "sub"] and all(t.completion_token_ids == [7, 8] and t.trainable for t in ro.turns)
+    other = out["other"]
+    assert not other.mask_sample and other.reward == 1.0 and other.valid_for_training()[0], (other.failure_kind, other.stop)
+    sub = next(t for t in other.turns if t.kind == "sub")
+    assert not sub.trainable and sub.model == "frozen-helper" and not sub.completion_token_ids
+    assert all(sum(c.loss_mask) == 0 for c in token_credit(other, 1.0) if c.call_id == sub.call_id)

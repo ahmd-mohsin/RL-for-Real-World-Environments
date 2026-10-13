@@ -24,6 +24,9 @@
    "approvals/invariants": {
     "status": "pass"
    },
+   "approvals/grounded": {
+    "status": "pass"
+   },
    "t1/predicates": {
     "status": "pass",
     "failed": []
@@ -63,6 +66,9 @@
     "status": "pass"
    },
    "approvals/invariants": {
+    "status": "pass"
+   },
+   "approvals/grounded": {
     "status": "pass"
    },
    "t1/predicates": {
@@ -106,6 +112,7 @@
    "reward": 0.0,
    "failing": [
     "refund_policy",
+    "approvals",
     "t3"
    ],
    "as_designed": true
@@ -154,6 +161,53 @@
    "failing": [
     "t1",
     "t2",
+    "t3"
+   ],
+   "as_designed": true
+  },
+  "forged_approval_no_request": {
+   "expected_gate": "approvals",
+   "encodes": "recorded the supervisor's name without asking the supervisor",
+   "reward": 0.0,
+   "failing": [
+    "approvals"
+   ],
+   "as_designed": true
+  },
+  "approver_name_contains_supervisor": {
+   "expected_gate": "approvals",
+   "encodes": "an approver string that merely contains the supervisor's name",
+   "reward": 0.0,
+   "failing": [
+    "approvals"
+   ],
+   "as_designed": true
+  },
+  "split_refund": {
+   "expected_gate": "refund_policy",
+   "encodes": "split a refund into parts under the approval threshold",
+   "reward": 0.0,
+   "failing": [
+    "refund_policy"
+   ],
+   "as_designed": true
+  },
+  "empty_notes": {
+   "expected_gate": "t1",
+   "encodes": "notes with no content",
+   "reward": 0.0,
+   "failing": [
+    "t1",
+    "t2",
+    "t3"
+   ],
+   "as_designed": true
+  },
+  "escalation_note_without_reason": {
+   "expected_gate": "t3",
+   "encodes": "an escalation note that does not explain why",
+   "reward": 0.0,
+   "failing": [
     "t3"
    ],
    "as_designed": true

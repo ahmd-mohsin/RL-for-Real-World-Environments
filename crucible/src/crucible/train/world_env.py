@@ -24,6 +24,7 @@ call adds in ``tokens["media"]`` (``Turn.media``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import inspect
 import json
@@ -282,9 +283,16 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             try:
                 ep = await run_episode(world, pols, limits=EpisodeLimits(max_steps=max_steps), reset=True, observers=observers)
             finally:
-                for pol in pols.values():
-                    if hasattr(pol, "aclose"):
-                        await pol.aclose()
+                # M14 campaign B4: a rollout cancelled mid-flight (a stopped trainer, a process ending) still closes every
+                # policy's kernel and container: each close is shielded from the cancellation and run whatever the others do
+                closes = [asyncio.ensure_future(pol.aclose()) for pol in pols.values() if hasattr(pol, "aclose")]
+                if closes:
+                    try:
+                        await asyncio.shield(asyncio.gather(*closes, return_exceptions=True))
+                    except asyncio.CancelledError:
+                        with contextlib.suppress(BaseException):
+                            await asyncio.wait_for(asyncio.gather(*closes, return_exceptions=True), 120)
+                        raise
             if ep.masked:
                 return None
             rep = await task.grade(world, d / "grade")
@@ -336,21 +344,50 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
 
 
 def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: Any = None, *, max_steps: int = 10_000, workroot: Path | None = None,
-                      limit_policy: Any = None, launcher: Any = None) -> Callable:
+                      limit_policy: Any = None, launcher: Callable[[], Any] | None = None) -> Callable:
     """The M12 rollout under the RLM harness (m14): the engine's model drives an ``RLMPolicy`` configured by ``RLMConfig``;
-    root, sub and compaction calls carry the engine's token records; the harness label is ``rlm:<config digest>@1``."""
+    root, sub and compaction calls carry the engine's token records; the harness label is ``rlm:<config digest>@1``.
+
+    ``launcher``: a factory called once per rollout (M14 audit H3 V12, G1 D9: one shared instance gave concurrent rollouts
+    one container, and one rollout's ``aclose`` removed it under the others); default ``RLMConfig.launcher``. Each rollout's
+    kernel is seeded from its rollout id and seed (every kernel used seed 0). Model code never runs on the host here unless
+    ``RLMConfig(kernel="local", allow_host=True)`` says so; without Docker the default is refused when the rollout is built."""
+    import contextvars
+    import shutil
+    import zlib
+
     from crucible.actors.rlm.policy import RLMPolicy
     from crucible.runtime.harness.rlm import RLMConfig
 
     c = config or RLMConfig()
+    if launcher is not None and (hasattr(launcher, "start") or not callable(launcher)):
+        raise TypeError("rlm_world_rollout(launcher=...) takes a factory (called once per rollout), not a launcher instance")
+    if launcher is None and c.kernel == "docker" and not shutil.which("docker"):
+        from crucible.actors.rlm.kernel import IsolationRefused
+
+        raise IsolationRefused("rlm_world_rollout: no isolated kernel (docker not found); pass launcher=<factory> (e.g. an ExecLauncher "
+                               "into the World's sandbox) or RLMConfig(kernel='local', allow_host=True) for trusted code only")
+    if launcher is None:
+        c.launcher()  # refuses kernel='local' without allow_host now, not at the first rollout
+    current: contextvars.ContextVar[tuple[str, int] | None] = contextvars.ContextVar("rlm_rollout", default=None)
 
     def make(llm: Any, temperature: float) -> Any:
-        return RLMPolicy("agent", llm, launcher=launcher or c.launcher(), max_output_chars=c.max_output_chars, cell_timeout_s=c.cell_timeout_s, max_tokens=c.max_tokens,
-                         sub_max_tokens=c.sub_max_tokens, temperature=temperature, context=c.context(), max_continuations=c.max_continuations,
-                         max_stalls=c.max_stalls, max_turns=c.max_turns, tool_index=c.tool_index)
+        rid, seed = current.get() or ("", 0)
+        return RLMPolicy("agent", llm, launcher=launcher() if launcher is not None else c.launcher(), temperature=temperature,
+                         seed=zlib.crc32(f"{rid}:{seed}".encode()), **c.policy_kwargs())
 
-    return world_rollout(task_for, codec, max_steps=max_steps, workroot=workroot, limit_policy=limit_policy, make_policy=make,
-                         harness_id=f"rlm:{c.digest()}@1")
+    inner = world_rollout(task_for, codec, max_steps=max_steps, workroot=workroot, limit_policy=limit_policy, make_policy=make,
+                          harness_id=f"rlm:{c.digest()}@1")
+
+    async def rollout(rid: str, prompt: str, seed: int, gen: Callable, **kw: Any) -> Any:
+        tok = current.set((rid, seed))
+        try:
+            return await inner(rid, prompt, seed, gen, **kw)
+        finally:
+            current.reset(tok)
+
+    rollout.codec = codec
+    return rollout
 
 
 def tito_llm(provider: Any, model: str, *, timeout_s: float, seed: int | None = None) -> EngineLLM:

@@ -65,6 +65,8 @@ def build_env(arch: Architecture) -> EnvBuild:
                         "text": f"I am {c['name']} ({c['id']}). My orders: {facts}."})
     files = {
         "data/tickets.sql": sql,
+        # the world's approver, seeded apart from the agent-visible schema and rows (M9 A5: the supervisor is hidden)
+        "data/staff.sql": f"INSERT INTO staff(role, name) VALUES ('refund_supervisor', {_sql_str(sc['supervisor'])});\n",
         "data/kb/refund_policy.md": CURRENT_POLICY,
         "data/kb/escalation.md": (PACK_ROOT / "data" / "kb" / "escalation.md").read_text(),
         "data/kb/archive/refund_policy_2025-01.md": DECOY_POLICY,
@@ -78,7 +80,7 @@ def build_env(arch: Architecture) -> EnvBuild:
         "backend": "local", "backend_params": {"bundles": [{"src": "data/helpdesk", "dest": "helpdesk"}]},
         "apps": [
             {"id": "tickets", "template": "common/sqlite_app", "state": {"adapter": "sql", "params": {"path": "helpdesk/db/tickets.db"}},
-             "params": {"schema_sql": "data/tickets.sql", "tools_module": "helpdesk/tools/tickets.py", "transport": "inprocess"}, "description": "ticketing system of record"},
+             "params": {"schema_sql": "data/tickets.sql", "seed_sql": "data/staff.sql", "tools_module": "helpdesk/tools/tickets.py", "transport": "inprocess"}, "description": "ticketing system of record"},
             {"id": "kb", "template": "common/doc_library", "state": {"adapter": "fs", "params": {"root": "kb"}}, "params": {"seed_dir": "data/kb"},
              "description": "policy documents"},
         ],

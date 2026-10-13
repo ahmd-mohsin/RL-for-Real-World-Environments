@@ -146,12 +146,13 @@ def env_files(b: dict[str, Any]) -> dict[str, str]:
              "description": "Helpdesk world rebuilt from recorded ticket cases (G-hindsight): their requests, accounts and the policies corrections revealed.",
              "backend": "local", "backend_params": {"bundles": [{"src": "data/helpdesk", "dest": "helpdesk"}]},
              "apps": [{"id": "tickets", "template": "common/sqlite_app", "state": {"adapter": "sql", "params": {"path": "helpdesk/db/tickets.db"}},
-                       "params": {"schema_sql": "data/tickets.sql", "tools_module": "helpdesk/tools/tickets.py", "transport": "inprocess"}},
+                       "params": {"schema_sql": "data/tickets.sql", "seed_sql": "data/staff.sql", "tools_module": "helpdesk/tools/tickets.py", "transport": "inprocess"}},
                       {"id": "kb", "template": "common/doc_library", "state": {"adapter": "fs", "params": {"root": "kb"}}, "params": {"seed_dir": "data/kb"}}],
              "actors": [{"id": "agent", "kind": "policy", "tools": ["tickets.*", "kb.*"]}, {"id": "supervisor", "kind": "system"},
                         *({"id": f"customer_{L.lower()}", "kind": "simulated", "grounded_on": ["data/customers.jsonl"]} for L in sc["customers"])],
              "clock": {"mode": "step", "t0": T0, "step_dt_s": 300}}
-    return {"data/tickets.sql": sql, "data/kb/refund_policy.md": CURRENT_POLICY, "data/kb/billing_corrections.md": EXTRA_POLICY,
+    return {"data/tickets.sql": sql, "data/staff.sql": f"INSERT INTO staff(role, name) VALUES ('refund_supervisor', '{SUPERVISOR}');\n",
+            "data/kb/refund_policy.md": CURRENT_POLICY, "data/kb/billing_corrections.md": EXTRA_POLICY,
             "data/customers.jsonl": records, "data/helpdesk/tools/tickets.py": (PACK_ROOT / "data" / "helpdesk" / "tools" / "tickets.py").read_text(),
             "worlds/helpdesk_hindsight.yaml": yaml.safe_dump(world, sort_keys=False)}
 

@@ -57,6 +57,7 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
             if cid:
                 steps_of.setdefault(cid, []).append(s.step_id)
     turns = []
+    frozen: list[Turn] = []
     for actor, cs in calls.items():
         prev_full: list[int] | None = None
         prev_seg = None
@@ -65,10 +66,21 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
             full = tok.get("prompt_token_ids")
             seg = int(c.get("segment") or 0)
             if c.get("kind") == "sub":  # an RLM sub-LLM call (m14) is its own sequence: a tree node, not a link of the actor's chain
+                parent = c.get("parent")
+                if c.get("trainable") is False:
+                    # answered by another model (G1 D1): recorded with that model, never trained. Its tokens are not the policy's,
+                    # so none are kept; it goes after the actor chains so no packing path splits a chain around it
+                    frozen.append(Turn(call_id=c["call_id"], actor=actor, kind="sub", segment=seg, world_step=c.get("step"), model=c.get("model"),
+                                       trainable=False, sampling=dict(sampling or {}), finish=c.get("finish"),
+                                       depends_on=[parent] if parent else None, atif_step_ids=[]))
+                    continue
+                # it shares its parent turn's ΔΦ (the cell that issued it) and keeps its version spans (G1 D4, D14)
                 turns.append(Turn(call_id=c["call_id"], actor=actor, kind="sub", segment=seg, world_step=c.get("step"), prompt_is_delta=False,
                                   prefix_break=False, prompt_token_ids=full, completion_token_ids=tok.get("completion_token_ids"),
-                                  logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"), sampling=dict(sampling or {}),
-                                  finish=c.get("finish"), advantage=adv.get(c.get("parent") or c["call_id"]), atif_step_ids=[]))
+                                  logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"),
+                                  version_spans=[tuple(x) for x in tok["version_spans"]] if tok.get("version_spans") else None,
+                                  sampling=dict(sampling or {}), finish=c.get("finish"), advantage=adv.get(parent or c["call_id"]),
+                                  depends_on=[parent] if parent else None, model=None, atif_step_ids=[]))
                 continue
             chained = prev_full is not None and seg == prev_seg and len(prev_full) == tok.get("prompt_prefix_len")
             if full is None and tok.get("prompt_delta") is not None and chained:  # linear capture (policy._compress): rebuild from the chain
@@ -88,6 +100,7 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
                               version_spans=[tuple(x) for x in tok["version_spans"]] if tok.get("version_spans") else None,
                               sampling=dict(sampling or {}), finish=c.get("finish"), advantage=adv.get(c["call_id"]),
                               atif_step_ids=steps_of.get(c["call_id"], [])))
+    turns += frozen
     segs = [Segment(index=sg["index"], summary_call=sg.get("summary_call"), context_before=sg.get("context_before"), context_after=sg.get("context_after"))
             for sgs in (segments or {}).values() for sg in sgs]
     failure, m = rec.failure, rec.meta

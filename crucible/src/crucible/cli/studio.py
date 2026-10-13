@@ -41,27 +41,42 @@ def pack_new(name: str, dest: Path | None, as_json: bool) -> None:
 
 @pack.command("check")
 @click.argument("ref", required=False)
-@click.option("--level", type=click.Choice(["static", "fixture", "semantic"]), default="static", show_default=True)
-@click.option("--all", "all_", is_flag=True, help="every pack under packs/")
-@click.option("--allow", default="", help="requirements this machine satisfies, e.g. gpu,paid (docker is detected)")
+@click.option("--level", type=click.Choice(["static", "fixture", "semantic", "accept"]), default="static", show_default=True)
+@click.option("--all", "all_", is_flag=True, help="every pack under packs/, each checked in its own process")
+@click.option("--allow", default="", help="requirements this machine satisfies, e.g. gpu,paid (docker and gpu are detected)")
+@click.option("--allow-skip", is_flag=True, help="exit 0 although a requested level was skipped for a missing requirement")
+@click.option("--publish", is_flag=True, help="publication gate: template text, no authors, no README and a wheel without pack.yaml fail")
 @click.option("--json", "as_json", is_flag=True)
-def pack_check(ref: str | None, level: str, all_: bool, allow: str, as_json: bool) -> None:
-    """Validate a pack. static: manifest, placeholders, entry point, hooks, ingest; fixture: designed cases grade exactly;
-    semantic: gold passes and no-op fails. Exit 0 = pass or warn, 1 = a check failed."""
-    from crucible.studio.pack import all_packs, check
+def pack_check(ref: str | None, level: str, all_: bool, allow: str, allow_skip: bool, publish: bool, as_json: bool) -> None:
+    """Validate a pack. static: manifest, placeholders, licence, pyproject, entry point, hooks, ingest; fixture: designed
+    cases grade exactly, in range, deterministically; semantic: gold reaches the top, no-op the floor, generated items have
+    an oracle, adversaries stay bounded; accept: the M9 contract. Exit 0 = pass or warn, 1 = a check failed, 2 = a level
+    was skipped (missing requirement, without --allow-skip), 3 = internal error."""
+    from crucible.studio.pack import EXIT_INTERNAL, all_packs, check, check_in_subprocess
 
-    refs = [str(p) for p in all_packs()] if all_ else [ref or "."]
     allowed = tuple(x for x in allow.split(",") if x)
-    reports = [asyncio.run(check(r, level=level, allow=allowed)) for r in refs]
+    kw = {"level": level, "allow": allowed, "allow_skip": allow_skip, "publish": publish}
+    if all_:  # one process per pack (M14 audit V7 / G2 pick 5): every report, whatever another pack does
+        reports = [check_in_subprocess(p, **kw) for p in all_packs()]
+    else:
+        try:
+            reports = [asyncio.run(check(ref or ".", **kw))]
+        except (ValueError, LookupError, FileNotFoundError, PermissionError):
+            raise  # a user error (no such pack): one line, exit 1
+        except Exception as e:  # noqa: BLE001 - not the pack's code (its hooks are caught as check failures): crucible's
+            click.echo(f"internal error: {type(e).__name__}: {e}", err=True)
+            raise SystemExit(EXIT_INTERNAL) from None
     if as_json:
-        click.echo(json.dumps([r.to_json() for r in reports] if all_ else reports[0].to_json(), indent=1, sort_keys=True))
+        click.echo(json.dumps([r.to_json() for r in reports] if all_ else reports[0].to_json(), indent=1, sort_keys=True, default=str))
     else:
         for r in reports:
-            click.echo(f"{r.pack} ({r.level}): {'ok' if r.ok else 'FAILED'}")
+            head = "ok" if r.ok else ("FAILED" if any(c.status == "fail" for c in r.results) else "INCOMPLETE")
+            click.echo(f"{r.pack} ({r.level}): {head}" + "".join(f"; {lv}: SKIPPED ({why})" for lv, why in r.skipped))
             for c in r.results:
                 click.echo(f"  {c.status:5s} {c.id:22s} {c.detail}")
-    if not all(r.ok for r in reports):
-        raise SystemExit(1)
+    code = max((r.exit_code for r in reports), key=lambda c: (c == EXIT_INTERNAL, c == 1, c == 2), default=0)
+    if code:
+        raise SystemExit(code)
 
 
 # ---- label / build ---------------------------------------------------------------------------------------------------------
@@ -182,8 +197,9 @@ def forge(pack_ref, out, as_json) -> None:
 @click.option("--paid", is_flag=True, help="allow the checks that make paid model calls")
 @click.option("--json", "as_json", is_flag=True)
 def accept(pack_ref, out, docker, paid, as_json) -> None:
-    """M9: the full Acceptance Contract on the pack's forged tasks. Each task is accepted, provisional (nothing failed;
-    checks that need Docker or paid calls are pending without --docker/--paid) or rejected. Exit code 1 if any is rejected."""
+    """M9: the full Acceptance Contract on the pack's forged tasks (a pack without hooks.forge: its fixture tasks, anchors
+    and a generated item). Each task is accepted, provisional (nothing failed; checks that need Docker or paid calls are
+    pending without --docker/--paid) or rejected. Exit code 1 if any is rejected."""
     from crucible.accept.model import Need
     from crucible.accept.run import accept_task, verdict
     from crucible.studio.label import ingest as run
@@ -191,13 +207,27 @@ def accept(pack_ref, out, docker, paid, as_json) -> None:
 
     d = find_pack(pack_ref)
     m = load_manifest(d)
-    run(d, m, Path(out) / "store")
-    col = asyncio.run(resolve(d, m.hooks.forge)(Path(out) / "forge", Path(out) / "store"))
     needs = [n for n, on in ((Need.DOCKER, docker), (Need.PAID, paid)) if on]
+    import contextlib
+
+    from crucible.studio.pack import isolated
+
     res = {}
-    for t, r in col:
-        rep = asyncio.run(accept_task(t, needs=needs, cache_root=Path(out) / "accept", resolve=r))
-        res[t.task_id] = {**verdict(rep), "checks": {c: str(x.status) for c, x in rep.results.items()}}
+    with isolated(d, m.package) if not m.hooks.forge else contextlib.nullcontext():
+        if m.hooks.forge:
+            run(d, m, Path(out) / "store")
+            col = asyncio.run(resolve(d, m.hooks.forge)(Path(out) / "forge", Path(out) / "store"))
+        else:  # M14 audit G2 D3: a pack without a forge hook is accepted on its own tasks (fixtures, anchors, generated items)
+            from crucible.studio.accept_adapter import pack_accept_tasks
+
+            col = [(t, lambda s: False) for t in asyncio.run(pack_accept_tasks(d, m, n_fresh=1))]
+        try:
+            for t, r in col:
+                rep = asyncio.run(accept_task(t, needs=needs, cache_root=Path(out) / "accept", resolve=r))
+                res[t.task_id] = {**verdict(rep), "checks": {c: str(x.status) for c, x in rep.results.items()}}
+        finally:
+            for t, _ in col if not m.hooks.forge else []:
+                t.cleanup()
     states = [v["state"] for v in res.values()]
     _emit({"accepted": states.count("accepted"), "provisional": states.count("provisional"), "rejected": states.count("rejected"),
            "total": len(res), "tasks": res}, as_json, [f"{k}: {v['state'].upper()} {v['blocking']}" for k, v in res.items()])
@@ -277,8 +307,17 @@ def _harbor_tasks(dirs: tuple[Path, ...]) -> list[Any]:
     return tasks
 
 
+async def _awaited(x: Any) -> Any:
+    """A hook's result, awaited when the hook is a coroutine function (M14 campaign B6: coding's ``tasks`` is async;
+    ``pack check`` awaited it and ``bench run`` iterated the coroutine)."""
+    import inspect
+
+    return await x if inspect.isawaitable(x) else x
+
+
 async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key_file: Path | None, policies: str | None, ks: list[int] | None,
-                      *, controls: bool = True, anchors_path: Path | None = None, harbor: tuple[Path, ...] = (), tasks_ref: str | None = None) -> dict[str, Any]:
+                      *, controls: bool = True, anchors_path: Path | None = None, harbor: tuple[Path, ...] = (), tasks_ref: str | None = None,
+                      allow: tuple[str, ...] = (), notes: list[str] | None = None) -> dict[str, Any]:
     """A pack (anchors + fresh validated items) or plain tasks (``--harbor`` dirs, ``--tasks module:attr``), with the
     oracle / no-op controls first (campaign B4/B5) and the anchor parameters saved for the next version (V12)."""
     from crucible.actors.policy import EpisodeLimits
@@ -290,18 +329,30 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
     anchors = irt.load_anchors(anchors_path) if anchors_path else None
     harness = NativeHarness(limits=EpisodeLimits(max_steps=1000))
     if pack_ref is None:  # plain tasks: no generator, no fresh items
-        tasks = _harbor_tasks(harbor) if harbor else [x[0] if isinstance(x, tuple) else x for x in _import(tasks_ref)()]  # type: ignore[arg-type]
         if not policies:
             raise ValueError("plain tasks need --policies module:attr returning PolicyRefs")
+        tasks = _harbor_tasks(harbor) if harbor else [x[0] if isinstance(x, tuple) else x for x in await _awaited(_import(tasks_ref)())]  # type: ignore[arg-type]
         name = "harbor" if harbor else tasks_ref.split(":")[0].rsplit(".", 1)[-1]  # type: ignore[union-attr]
-        return await run_bench(name, root=out, tasks=tasks, policies=_import(policies)(), harnesses=[harness], k=k, ks=ks, controls=controls,
-                               anchors=anchors)
+        return await run_bench(name, root=out, tasks=tasks, policies=list(await _awaited(_import(policies)())), harnesses=[harness], k=k, ks=ks,
+                               controls=controls, anchors=anchors)
+    from crucible.studio.pack import missing_requirements, policy_refs
+
     d = find_pack(pack_ref)
     m = load_manifest(d)
+    if miss := missing_requirements(m, allow):  # M14 campaign B6: the bench ran a pack's live tasks whatever it requires
+        raise ValueError(f"pack {m.name} requires {', '.join(miss)}, which this machine does not provide: pass --allow {','.join(miss)} "
+                         "where it does (its tasks may not run, or may not mean what they claim, without it)")
     if not m.hooks.tasks and not m.hooks.generator:
         raise ValueError(f"pack {m.name} declares neither hooks.tasks nor hooks.generator: nothing to benchmark")
+    if not m.reward.higher_is_better:  # M14 audit V12: every bench metric counts reward >= threshold as solved
+        raise ValueError(f"pack {m.name} declares reward.higher_is_better: false; bench metrics (pass@k, IRT, controls) assume higher is "
+                         "better, so a lower-is-better pack is refused rather than reported upside down")
+    lo, hi = m.reward.range
+    thr = m.label.threshold  # V12: the pack's solved threshold and top of range, not 1.0
     anchor_items = []
-    for i, (t, gold) in enumerate(resolve(d, m.hooks.tasks)() if m.hooks.tasks else []):
+    pol_hook = policies or m.hooks.policies
+    for i, x in enumerate(await _awaited(resolve(d, m.hooks.tasks)()) if m.hooks.tasks else []):
+        t, gold = x if isinstance(x, tuple) else (x, None)
         if gold and not hasattr(t, "bench_gold"):
             t.bench_gold = list(gold)  # the oracle control replays the pack's gold (hooks.tasks pairs a task with it)
         anchor_items.append((getattr(t, "id", str(i)), "anchor", t))
@@ -310,18 +361,28 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
     key = bench_key(rdir, key_file=key_file)
     try:
         bm = await dynamic.build(f"{m.name}-bench", "v1", key=key, anchors=anchor_items, generators=gens, n_fresh=n_fresh if gens else 0,
-                                 checks=[gold_and_noop_check(rdir / "validate")] if gens else (), registry=Path(out) / "bench.keys.jsonl")
+                                 checks=[gold_and_noop_check(rdir / "validate", best=hi, threshold=thr)] if gens else (), registry=Path(out) / "bench.keys.jsonl")
     except dynamic.ShortBenchmark as e:
         man = e.benchmark.manifest()
         raise ValueError(f"only {man['counts']['fresh']} of {n_fresh} fresh items passed validation; yields {man['yields']}; "
                          f"rejected {[r.get('reason') or r for r in man['rejected']][:5]}") from None
-    pols = resolve(d, policies or m.hooks.policies)() if (policies or m.hooks.policies) else None
-    if not pols:
-        raise ValueError(f"pack {m.name} has no hooks.policies; pass --policies module:attr returning PolicyRefs")
+    if pol_hook:
+        pols = policy_refs(await _awaited(resolve(d, pol_hook)()))
+        if not pols:
+            raise ValueError(f"{pol_hook} returned no policies; pass --policies module:attr returning PolicyRefs")
+    else:  # B6: a pack without hooks.policies benches its own gold and a no-op (model-free), and says so
+        from crucible.actors.policy import ScriptedPolicy
+        from crucible.bench.run import _oracle_actions
+        from crucible.runtime.harness.native import PolicyRef
+
+        pols = [PolicyRef(id="pack:gold", make=lambda a: {"agent": ScriptedPolicy("agent", _oracle_actions(a.task) or [])}),
+                PolicyRef(id="pack:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+        if notes is not None:
+            notes.append(f"pack {m.name} has no hooks.policies: benchmarked its gold and a no-op; pass --policies module:attr for models")
     try:
         res = await run_bench(f"{m.name}-bench", root=out, tasks=[i.task for i in bm.items], policies=pols, harnesses=[harness],
-                              k=k, ks=ks, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None, extras={"manifest": bm.manifest()},
-                              controls=controls, anchors=anchors)
+                              k=k, ks=ks, threshold=thr, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None,
+                              extras={"manifest": bm.manifest(), "reward_range": [lo, hi]}, controls=controls, anchors=anchors)
     finally:
         for i in bm.items:
             if callable(getattr(i.task, "cleanup", None)):
@@ -347,16 +408,19 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
 @click.option("--anchors", "anchors_path", type=click.Path(path_type=Path, exists=True), default=None, help="anchors.json of an earlier version (IRT linking)")
 @click.option("--harbor", type=click.Path(path_type=Path, exists=True, file_okay=False), multiple=True, help="a Harbor task dir, run in place (repeatable)")
 @click.option("--tasks", "tasks_ref", default=None, help="module:attr returning tasks (NeMo-Gym rows, EOG, OpenEnv, ... wrapped as RunTasks)")
+@click.option("--allow", default="", help="requirements of the pack this machine satisfies, e.g. gpu,paid (docker and gpu are detected)")
 @click.option("--json", "as_json", is_flag=True)
-def bench_run(pack_ref, out, n_fresh, k, ks, key_file, policies, controls, anchors_path, harbor, tasks_ref, as_json) -> None:
+def bench_run(pack_ref, out, n_fresh, k, ks, key_file, policies, controls, anchors_path, harbor, tasks_ref, allow, as_json) -> None:
     """A benchmark on a pack (its tasks as anchors + fresh validated items) or on plain tasks (--harbor / --tasks):
-    controls first, every step metric, an HTML report."""
+    controls first, every step metric, an HTML report. A pack whose ``requires`` this machine lacks is refused unless
+    --allow vouches for it."""
     if sum(x is not None and x != () for x in (pack_ref, harbor or None, tasks_ref)) != 1:
         raise click.UsageError("give exactly one of PACK_REF, --harbor or --tasks")
+    notes: list[str] = []
     res = asyncio.run(_bench_pack(pack_ref, out, n_fresh, k, key_file, policies, _ks(ks), controls=controls, anchors_path=anchors_path,
-                                  harbor=tuple(harbor), tasks_ref=tasks_ref))
-    _emit({"summary": res["summary"], "paths": res["paths"], "next": [f"open {res['paths']['report']}"]}, as_json,
-          _model_lines(res["summary"]) + [f"report {res['paths']['report']}"])
+                                  harbor=tuple(harbor), tasks_ref=tasks_ref, allow=tuple(x for x in allow.split(",") if x), notes=notes))
+    _emit({"summary": res["summary"], "paths": res["paths"], "notes": notes, "next": [f"open {res['paths']['report']}"]}, as_json,
+          [f"note: {n}" for n in notes] + _model_lines(res["summary"]) + [f"report {res['paths']['report']}"])
 
 
 @bench.command("report")

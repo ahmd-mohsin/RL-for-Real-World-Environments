@@ -10,6 +10,9 @@ CREATE TABLE tickets (
 CREATE TABLE orders (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount_usd REAL NOT NULL, status TEXT NOT NULL);
 CREATE TABLE refunds (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, order_id TEXT NOT NULL, amount_usd REAL NOT NULL, approved_by TEXT, created_at TEXT NOT NULL);
 CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, order_id TEXT NOT NULL, amount_usd REAL NOT NULL, status TEXT NOT NULL, approver TEXT, reason TEXT);
+-- who approves refunds: seeded from data/staff.sql (seed_sql), which is not an agent-visible surface (M9 A5)
+CREATE TABLE staff (role TEXT PRIMARY KEY, name TEXT NOT NULL);
 INSERT INTO customers VALUES ('C-100', 'Dana Ortiz', 'gold'), ('C-200', 'Lee Park', 'standard');
 INSERT INTO orders VALUES ('O-5001', 'C-100', 129.99, 'delivered'), ('O-5002', 'C-200', 39.50, 'delivered'), ('O-5003', 'C-200', 820.00, 'in_transit');
 INSERT INTO tickets VALUES

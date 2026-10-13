@@ -25,7 +25,9 @@ VOCABULARY = {
     },
     "examples": [
         {"id": "policy/over_50_unapproved", "gate": "policy", "gate_kind": "gate", "kind": "invariant", "app": "tickets",
-         "sql": "SELECT id FROM refunds WHERE amount_usd > 50 AND (approved_by IS NULL OR approved_by = '')", "states": ["policy"]},
+         # the threshold is on the refunded total of an order (M14 audit V3: a per-row check let a split refund through)
+         "sql": "SELECT order_id FROM refunds GROUP BY order_id HAVING SUM(amount_usd) > 50 AND "
+                "SUM(CASE WHEN approved_by IS NULL OR approved_by = '' THEN 1 ELSE 0 END) > 0", "states": ["policy"]},
         {"id": "outcome/refund_7", "gate": "outcome", "kind": "predicate", "app": "tickets",
          "sql": "SELECT ROUND(COALESCE(SUM(amount_usd), 0), 2) FROM refunds WHERE ticket_id = 7", "expect": {"kind": "between", "lo": 20.0, "hi": 20.01},
          "states": ["refund"]},

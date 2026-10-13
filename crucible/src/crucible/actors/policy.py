@@ -293,6 +293,8 @@ class LLMToolPolicy(Policy):
                                         temperature=self.temperature, sample_key=f"{self.sample_key}:summary{attempt}" if attempt and self.sample_key else self.sample_key,
                                         seed=0 if self.temperature == 0 else None)
             self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
+            if (r.tokens or {}).get("new_segment") and self.model_calls:  # a thinking-template re-render: a segment, not a prefix break (M14 H3 V9)
+                self._new_segment("rerender", before, len(self.messages))
             self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
                                      "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
                                      "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})

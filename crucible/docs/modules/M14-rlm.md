@@ -1,5 +1,16 @@
 # M14: the RLM agent (Recursive-Language-Model policy and task manager)
 
+**Audit 2026-10-13** (`docs/audit/2026-10-13/M14-packs-rlm.md`): model code ran on the host with the parent's credentials
+by default; cell code shared the protocol's fd 1 and could forge frames that turned its own failure into an infra mask;
+sub-LLMs answered by another model were trained as the policy; sub-call and sandbox faults were scored 0; killed kernels
+kept running in containers; sub-calls had no budget; the continual-harness A/B kept 58 of 100 no-effect edits; commit
+trusted a subset verification. Now: the Docker kernel by default, the protocol on a private fd (Prime Agent `repl.py`
+port, MIT), validated frames with `protocol_error` replies, interrupt and an owner watchdog; `Turn.model` /
+`Turn.trainable` (other-model sub calls recorded, never trained); faults masked; per-episode, per-cell, concurrency and
+token budgets for sub-calls; a paired, interleaved, ≥ 3-seed A/B with a noise gate; commit needs the full verification
+at the current floor; `TreeBudget` for spawns; sub turns take their parent's credit and are their own critic
+sequences; the cell deadline excludes host waits.
+
 **Research:**
 - `docs/research/m14-rlm/01-prime-agent-study.md`: Prime Agent's Rust rewrite, its Python runtime, the Prime Agent
   and Continual Harness papers, and the RLM and Rust-rewrite blogs.
@@ -10,11 +21,11 @@
 | File | What |
 |---|---|
 | `repl.py` | The kernel: a stdlib-only persistent Python REPL over NDJSON. Top-level `await`, per-cell deadline, one host bridge `await host(type, **payload)`, namespace digest, seeded `random`. It can be pushed into any sandbox. |
-| `kernel.py` | Host side. `LocalLauncher` runs a subprocess with a credential-free environment. `ExecLauncher` runs any argv prefix, e.g. `docker exec -i` into the World's sandbox. It also holds the journal, **exact restore by replay** (digest-checked; divergence raises), and kills wedged cells. |
+| `kernel.py` | Host side. **Default: the isolated Docker kernel** (`default_launcher`; no Docker → `IsolationRefused`). `LocalLauncher` runs on the host only with `allow_host=True`, with an allow-listed environment, HOME/TMPDIR/cwd in a temp dir and its process group killed on close (M14 audit: it inherited the parent's keys and was the default). `ExecLauncher` runs any argv prefix, e.g. `docker exec -i` into the World's sandbox. It also holds the journal, **exact restore by replay** (digest-checked; divergence raises), and kills wedged cells. |
 | `policy.py` | `RLMPolicy`: the RLM as a World policy. Prompt-as-variable (`TASK`, `TOOLS`, `OBS`, `INBOX`). **One World step per `world.call`.** Sub-LLMs `rlm.query/batch`, recorded as `kind="sub"` calls. `rlm.finish`, goal continuation, compaction with the kernel note, stall detection, timeout restore, mid-cell checkpoint/resume. |
 | `harness_state.py` | The continual harness: typed entries (`note`, `memory`, `skill`, `subagent`, `fsm`), whole-state versions, `rollback_to`. **Same-seed A/B evaluation before any edit is kept.** Also a ranked digest, usage counters and retirement candidates. |
 | `runtime/harness/rlm.py` | **`RLMHarness`**: the policy's model inside the RLM scaffold, as a harness for evaluation and RL rollouts. `RLMConfig` (output cap, budgets, compaction, temperature) is hashed into the harness id `rlm:<digest>@1`, so one GRPO group never mixes scaffolds. `train.world_env.rlm_world_rollout` is the M12 `rollout_fn`. |
-| `manager.py` | `RLMAgent` (the RLM loop with no World, proxy objects, `rlm.spawn`, `obj.help()`, budget wrap-up), `ForgeWorkspace` (versioned tasks; the verifier is M9; commit needs a passing verification), `TaskFSM` (Planner → Implementer (child RLM) → Reviewer (a different model) → objective Verifier, journaled and resumable) and `RLMTaskManager`. |
+| `accept/repair.py` (was `actors/rlm/manager.py`) | `RLMAgent` (the RLM loop with no World, proxy objects, `rlm.spawn`, `obj.help()`, budget wrap-up), `ForgeWorkspace` (versioned tasks; the verifier is M9; commit needs a passing verification), `TaskFSM` (Planner → Implementer (child RLM) → Reviewer (a different model) → objective Verifier, journaled and resumable) and `RLMTaskManager`. |
 
 ## Training contract
 

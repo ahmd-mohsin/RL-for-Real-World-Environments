@@ -4,7 +4,7 @@ and its full trajectory (every observation and every model reply, before any com
 
 What makes the horizon *long*, not just big:
 
-- **Revisits after hundreds of steps.** ``awaiting`` tickets must not be acted on until the customer's reply arrives as
+- **Revisits after hundreds of steps.** ``awaiting`` tickets (pending from the start) must not be acted on until the customer's reply arrives as
   a message, hours of simulated time later. The ticket is then handled by what the reply says (refund, or close).
   Acting early is wrong, forgetting it is wrong.
 - **A rule that changes mid-episode.** At ``amend_at`` the refund policy is amended (the approval threshold drops from
@@ -50,11 +50,11 @@ POLICY_V1 = """# Refund policy FIN-7 (current)
 
 1. A refund is at most the order amount, and an order is refunded at most once in total.
 2. Duplicate charges: refund the duplicate (the full order amount).
-3. **Refunds above {t1} USD need the supervisor's approval.** Ask the supervisor, wait for the approval, and record the approver's name in `approved_by`.
+3. **Refunds above {t1} USD need the supervisor's approval.** Ask the supervisor, naming the ticket, the order and the amount; wait for the approval, and record the approver's name in `approved_by`. One approval covers one refund.
 4. Orders still in transit are not refundable: add a note and set the ticket to `escalated` for a carrier trace.
 5. Damaged items: refund in full.
 6. A ticket waiting for the customer's confirmation stays `pending`; act only on the customer's reply.
-7. Every ticket you handle gets a note.
+7. Every ticket you handle gets a note that says why (what the case is and what you did).
 8. A second ticket about the same order: any refund belongs on the original ticket only; resolve the second ticket with a note.
 """
 POLICY_V2 = POLICY_V1.replace("FIN-7 (current)", "FIN-7a (current, amended {when})").replace("above {t1} USD", "above {t2} USD")
@@ -222,7 +222,8 @@ def write_pack(b: Backlog, root: Path) -> Path:
     lines.append("INSERT INTO customers VALUES " + ", ".join(f"({_q(c['id'])}, {_q(c['name'])}, {_q(c['tier'])})" for c in b.customers.values()) + ";")
     lines.append("INSERT INTO orders VALUES " + ",\n  ".join(f"({_q(o['id'])}, {_q(o['customer'])}, {o['amount']:.2f}, {_q(o['status'])})" for o in b.orders.values()) + ";")
     lines.append("INSERT INTO tickets(id, customer_id, subject, status, opened_at, thread, resolved_at) VALUES " + ",\n  ".join(
-        f"({t.id}, {_q(t.customer)}, {_q(t.subject)}, 'open', '2026-05-04T07:00:00Z', {_q(json.dumps(t.thread))}, NULL)" for t in b.tickets) + ";")
+        f"({t.id}, {_q(t.customer)}, {_q(t.subject)}, {_q('pending' if t.kind == 'awaiting' else 'open')}, '2026-05-04T07:00:00Z', {_q(json.dumps(t.thread))}, NULL)"
+        for t in b.tickets) + ";")  # a ticket waiting on the customer's reply is already pending (FIN-7 rule 6: it stays so)
     if b.prior_refunds:
         lines.append("INSERT INTO refunds(ticket_id, order_id, amount_usd, approved_by, created_at) VALUES " + ", ".join(
             f"({r['ticket_id']}, {_q(r['order_id'])}, {r['amount_usd']:.2f}, {_q(r['approved_by'])}, {_q(r['created_at'])})" for r in b.prior_refunds) + ";")
@@ -271,18 +272,32 @@ def write_pack(b: Backlog, root: Path) -> Path:
     return root
 
 
+# the instruction's stated properties (M9 A7: each is graded; the backlog's ``properties`` cite these sentences)
+WORK_SENTENCE = ("Work through every one of them until each is in its correct final state under the current refund policy in the knowledge base "
+                 "(refund_policy.md).")
+APPROVAL_SENTENCE = ("Ask the supervisor for approval whenever the policy requires it, naming the ticket, the order and the amount, and record the "
+                     "approver's name; one approval covers one refund.")
+WAIT_SENTENCE = "Some customers asked you to wait for their reply: keep those tickets pending and act only when their message arrives."
+NOTE_SENTENCE = "Add a note to every ticket you handle that says why: what the case is and what you did."
+
+
 def instruction(b: Backlog) -> str:
-    return (f"You are on the support shift of an online shop. The backlog has {b.n} open tickets (list them page by page). Work through every one "
-            "of them until each is in its correct final state under the current refund policy in the knowledge base (refund_policy.md). Read each "
-            "ticket and, before refunding, check the order's refund history. Ask the supervisor for approval whenever the policy requires it and "
-            "record the approver's name. Some customers asked you to wait for their reply: keep those tickets pending and act only when their "
-            "message arrives. The policy can be amended during the shift; announcements arrive as messages and the knowledge base is updated. "
+    waiting = sum(1 for t in b.tickets if t.kind == "awaiting")
+    return (f"You are on the support shift of an online shop. The backlog has {b.n} tickets: {b.n - waiting} open and {waiting} pending on a customer's "
+            "reply (list them page by page). " + WORK_SENTENCE + " Read each "
+            "ticket and, before refunding, check the order's refund history. " + APPROVAL_SENTENCE + " " + WAIT_SENTENCE + " " + NOTE_SENTENCE + " "
+            "The policy can be amended during the shift; announcements arrive as messages and the knowledge base is updated. "
             "When every ticket is handled, reply DONE.")
 
 
+NOTES = {"dup_small": "Duplicate charge confirmed; refunded per FIN-7.", "damaged": "Item arrived damaged; full refund per FIN-7.",
+         "in_transit": "Order still in transit: escalated for a carrier trace.", "info": "Invoice copy sent.",
+         "repeat": "This order has already been refunded; no second refund."}  # each says why (M14 campaign B8)
+
+
 def oracle(b: Backlog) -> list[dict]:
-    """A correct shift, step-timed: each action is one World step of ``STEP_DT_S``; awaiting tickets are parked (pending + note) and
-    handled after their reply has fired; every refund above the *lower* threshold asks for approval (always allowed), so the
+    """A correct shift, step-timed: each action is one World step of ``STEP_DT_S``; awaiting tickets (pending from the start) are
+    left alone and handled after their reply has fired; every refund above the *lower* threshold asks for approval (always allowed), so the
     oracle is right on both sides of the amendment."""
     acts: list[dict] = []
     n = 0
@@ -310,15 +325,14 @@ def oracle(b: Backlog) -> list[dict]:
         for p in [p for p in parked if fired(p.follow_up)]:
             parked.remove(p)
             _finish_awaiting(p, refund, T)
-        if t.kind == "awaiting":
-            T("tickets.add_note", ticket_id=t.id, body="Waiting for the customer's confirmation before acting.")
-            T("tickets.set_status", ticket_id=t.id, status="pending")
+        if t.kind == "awaiting":  # already pending: read it, then nothing to do until the customer's reply
+            T("tickets.get_ticket", ticket_id=t.id)
+            T("tickets.get_order", order_id=t.order)
             parked.append(t)
             continue
         if t.expected["refund"] is not None:
             refund(t, t.expected["refund"])
-        T("tickets.add_note", ticket_id=t.id, body={"in_transit": "Order still in transit: escalated for a carrier trace.", "info": "Invoice copy sent.",
-                                                    "repeat": "This order has already been refunded; no second refund."}.get(t.kind, "Refunded per policy FIN-7."))
+        T("tickets.add_note", ticket_id=t.id, body=NOTES[t.kind])
         T("tickets.set_status", ticket_id=t.id, status=t.expected["status"])
     while parked:
         ready = [p for p in parked if fired(p.follow_up)]
@@ -334,7 +348,8 @@ def oracle(b: Backlog) -> list[dict]:
 def _finish_awaiting(t: Ticket, refund, T) -> None:
     if t.expected["refund"] is not None:
         refund(t, t.expected["refund"])
-    T("tickets.add_note", ticket_id=t.id, body="Customer replied; handled as requested.")
+    T("tickets.add_note", ticket_id=t.id, body="Customer replied: package lost; refunded the order." if t.expected["refund"] is not None
+      else "Customer replied: package found; closing the request.")
     T("tickets.set_status", ticket_id=t.id, status="resolved")
 
 

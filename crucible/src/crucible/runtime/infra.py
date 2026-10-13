@@ -34,6 +34,8 @@ NORMALIZE = {
     "AgentTimeoutError": ("agent_timeout", "AgentTimeoutError"), "EnvironmentStartTimeoutError": ("crucible:backend_error", "EnvironmentStartTimeoutError"),
     # Crucible World readiness (M1 item 6)
     "HealthcheckError": ("crucible:backend_error", "HealthcheckError"), "ResetHookError": ("crucible:backend_error", "ResetHookError"),
+    # an App's seed copy failed (M14 campaign B3: a shared seed tarball was masked with unknown blame)
+    "WorldSeedError": ("crucible:backend_error", "WorldSeedError"),
     "ApiInternalServerError": ("provider_unavailable", "ApiInternalServerError"), "ApiOverloadedError": ("provider_unavailable", "ApiOverloadedError"),
     # MiMo verl categories
     "setup/failed": ("crucible:backend_error", "mimo:setup/failed"), "rollout/pod_conn_timeout": ("transport_peer_drop", "mimo:pod_conn_timeout"),
@@ -75,6 +77,14 @@ class StageFailure(Exception):
         self.failure = f
 
 
+def _unencodable_text(ex: BaseException) -> bool:
+    """A serialization error caused by a string with a lone surrogate (``UnicodeEncodeError``, or pydantic's
+    ``PydanticSerializationError`` wrapping one)."""
+    if isinstance(ex, UnicodeEncodeError):
+        return True
+    return type(ex).__name__ == "PydanticSerializationError" and "surrogates not allowed" in str(ex)
+
+
 @contextlib.contextmanager
 def boundary(stage: str, *, unknown_kind: str = "agent_run_error") -> Iterator[None]:
     """Typed failures pass through; known exception classes are mapped; anything else is ``unknown`` blame (masked and
@@ -87,6 +97,11 @@ def boundary(stage: str, *, unknown_kind: str = "agent_run_error") -> Iterator[N
         name = type(ex).__name__
         if name in NORMALIZE:
             raise StageFailure(failure(name, stage, str(ex))) from ex
+        if stage == "agent" and _unencodable_text(ex):
+            # M14 campaign B1: a string the policy produced that UTF-8 cannot encode (a lone surrogate) reached a writer the
+            # World's own escaping did not cover. The policy's output, not the environment: scored 0, never an unknown mask
+            raise StageFailure(failure("crucible:policy_misbehavior", stage, f"unencodable text in the policy's output: {name}: {ex}"[:500],
+                                       mask=False)) from ex
         if isinstance(ex, TimeoutError):
             raise StageFailure(failure("transport_timeout", stage, str(ex))) from ex
         if isinstance(ex, (ConnectionError, OSError)):

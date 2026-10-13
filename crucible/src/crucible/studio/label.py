@@ -26,16 +26,6 @@ from typing import Any
 from crucible.studio import datasets as ds
 
 
-def _paths(v: Any, pack_dir: Path) -> Any:
-    if isinstance(v, str) and v.startswith(("./", "../")):
-        return Path(pack_dir) / v
-    if isinstance(v, dict):
-        return {k: _paths(x, pack_dir) for k, x in v.items()}
-    if isinstance(v, list):
-        return [_paths(x, pack_dir) for x in v]
-    return v
-
-
 def connector_for(spec: Any, pack_dir: Path) -> Any:
     from crucible.connectors.file_drop import FieldMap, FileDropConnector
     from crucible.core.registry import get_registry
@@ -47,29 +37,40 @@ def connector_for(spec: Any, pack_dir: Path) -> Any:
         from crucible.studio.pack import resolve as _resolve
 
         target = _resolve(pack_dir, target)
-    return target(**_paths(spec.init, pack_dir))
+    from crucible.studio.pack import ingest_value
+
+    return target(**ingest_value(spec.init, pack_dir, init=True))
 
 
-def ingest(pack_dir: Path, manifest: Any, store_dir: Path, *, labelled_only: bool = False) -> list[Any]:
+def ingest(pack_dir: Path, manifest: Any, store_dir: Path, *, labelled_only: bool = False, redaction: dict[str, Any] | None = None) -> list[Any]:
     """M3 over every ``ingest`` source of the pack (fetch, normalize, redact, store; idempotent). Returns the traces of
-    those sources, by the keys the store returned (not by an id prefix: connectors name traces their own way)."""
+    those sources, by the keys the store returned (not by an id prefix: connectors name traces their own way). Every path
+    is confined to the pack's allowed roots and a declared ``redaction_env`` must exist, or nothing is stored.
+    ``redaction`` (when given) receives, per family, the dotenv used and how many values it loaded (never the values)."""
     from crucible.connectors.base import ingest as m3_ingest
     from crucible.connectors.redact import RedactionPolicy
     from crucible.connectors.trace_store import TraceStore
     from crucible.core.store import Store
+    from crucible.studio.pack import ingest_problems, ingest_value
 
+    specs = [s for s in manifest.ingest if s.label or not labelled_only]
+    # refuse before anything is stored (M14 audit V5, V17): a missing redaction_env, a path outside the allowed roots
+    problems = [p for s in specs for p in ingest_problems(Path(pack_dir), s)[0] if "no file matches" not in p]
+    if problems:
+        raise ValueError("ingest refused (nothing was stored): " + "; ".join(problems))
     ts = TraceStore(Store(Path(store_dir)))
     keys: list[str] = []
-    for spec in manifest.ingest:
-        if labelled_only and not spec.label:
-            continue
+    for spec in specs:
         conn = connector_for(spec, pack_dir)
         if spec.connector == "file_drop":
-            base = Path(pack_dir) / spec.root if spec.root else Path(pack_dir)
-            refs = list(conn.discover({"glob": str(base / spec.glob)}))
+            # every matched file is confined (a symlink out of the roots was refused above)
+            refs = list(conn.discover({"glob": str((Path(pack_dir) / (spec.root or ".")) / spec.glob)}))
         else:
-            refs = list(getattr(conn, spec.discover)(_paths(spec.scope, pack_dir)) if spec.scope or spec.discover != "discover" else conn.discover())
-        policy = RedactionPolicy.with_env_file(Path(pack_dir) / spec.redaction_env) if spec.redaction_env else RedactionPolicy()
+            refs = list(getattr(conn, spec.discover)(ingest_value(spec.scope, pack_dir)) if spec.scope or spec.discover != "discover" else conn.discover())
+        policy = (RedactionPolicy.with_env_file(Path(pack_dir) / spec.redaction_env, missing_ok=spec.redaction_env_optional) if spec.redaction_env
+                  else RedactionPolicy())
+        if redaction is not None:
+            redaction[spec.family] = {"env": spec.redaction_env, "values": len(policy.secret_values)} if spec.redaction_env else None
         keys += m3_ingest(conn, refs, ts, policy=policy)
     from crucible.core.schema.trace import Trace
 
@@ -108,11 +109,16 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
         if not m.ingest:
             raise ValueError(f"pack {m.name} declares no ingest sources: nothing to label (add `ingest:` to pack.yaml)")
         if dry_run:
-            files = sorted(str(p) for s in m.ingest if s.glob for p in (pack_dir / (s.root or ".")).glob(s.glob))
-            return {**summary, "dry_run": True, "would_ingest": files, "credit_hook": m.hooks.credit}
+            from crucible.studio.pack import ingest_problems
+
+            got = [ingest_problems(pack_dir, s) for s in m.ingest if s.connector == "file_drop"]
+            return {**summary, "dry_run": True, "would_ingest": sorted(str(p) for _, fs in got for p in fs),
+                    "refused": [p for bad, _ in got for p in bad], "credit_hook": m.hooks.credit}
         out.mkdir(parents=True, exist_ok=True)
         _resolved(out, "label", cfg | {"pack_dir": str(pack_dir), "threshold": thr})
-        traces = ingest(pack_dir, m, out / "store", labelled_only=True)
+        redaction: dict[str, Any] = {}
+        traces = ingest(pack_dir, m, out / "store", labelled_only=True, redaction=redaction)
+        summary["redaction_env"] = redaction
         labelled_traces = []
         sig_counts: dict[str, int] = {}
         failed: list[dict[str, str]] = []

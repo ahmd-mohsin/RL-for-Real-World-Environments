@@ -9,7 +9,9 @@ import time
 
 import pytest
 
-from crucible.actors.rlm.kernel import ExecLauncher, Kernel, KernelDivergence
+from crucible.actors.rlm.kernel import ExecLauncher, Kernel, KernelDivergence, LocalLauncher
+
+HOST = LocalLauncher(allow_host=True)  # trusted test code only: model code never runs on the host by default
 
 
 async def echo(data):
@@ -18,7 +20,7 @@ async def echo(data):
 
 async def test_cells_bridge_deadline_and_replay(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-should-not-leak")
-    k = Kernel(cell_timeout_s=5)
+    k = Kernel(HOST, cell_timeout_s=5)
     try:
         r = await k.execute("x = 1\nprint('hi', x)\nx + 1", echo)
         assert r.ok and r.stdout == "hi 1\n" and r.result == "2"
@@ -31,24 +33,26 @@ async def test_cells_bridge_deadline_and_replay(monkeypatch):
         r = await k.execute("import os\n[k for k in os.environ if 'KEY' in k or 'TOKEN' in k]", echo)
         assert r.result == "[]"  # the kernel never sees the operator's credentials
         d = await k.digest()
-        k2 = Kernel()
+        k2 = Kernel(HOST)
         await k2.replay(k.state()["journal"])
         assert await k2.digest() == d  # replayed with recorded host replies, the seeded random included
         bad = k.state()["journal"]
         bad[1]["replies"][0]["request"]["type"] = "other"
         with pytest.raises(KernelDivergence):
-            await Kernel().replay(bad)
+            await Kernel(HOST).replay(bad)
         await k2.close()
     finally:
         await k.close()
 
 
 async def test_wedged_cell_is_killed():
-    k = Kernel(cell_timeout_s=1, kill_grace_s=1)
+    k = Kernel(HOST, cell_timeout_s=1, kill_grace_s=1)
     try:
         t0 = time.monotonic()
-        r = await k.execute("import time\nwhile True: time.sleep(0.05)", echo)  # blocks the kernel's event loop: only a kill stops it
-        assert r.killed and r.timed_out and time.monotonic() - t0 < 10
+        r = await k.execute("import time\nwhile True: time.sleep(0.05)", echo)  # blocks the kernel's event loop: interrupted (else killed)
+        assert r.timed_out and (r.interrupted or r.killed) and time.monotonic() - t0 < 10
+        r = await k.execute("import time\nwhile True:\n    try:\n        time.sleep(0.05)\n    except BaseException:\n        pass", echo)
+        assert r.killed and r.timed_out  # a cell that swallows the interrupt is killed
         r = await k.execute("1 + 1", echo)  # a fresh kernel starts on demand
         assert r.result == "2"
     finally:

@@ -28,7 +28,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crucible.actors.rlm.kernel import Kernel
+from crucible.actors.rlm.kernel import Kernel, default_launcher
 from crucible.actors.rlm.policy import PYTHON_TOOL
 
 AGENT_SYSTEM = """You are {name}, an agent that works through a persistent Python REPL: the `python` tool. Everything is code.
@@ -67,6 +67,38 @@ CONTINUE = ("[goal: continuation] You stopped without calling rlm.finish(). Chec
 
 
 @dataclass
+class TreeBudget:
+    """One budget shared by every agent of a spawn tree (M14 audit H3 V11: depth was the only limit; one cell spawned 25
+    children). ``max_spawns`` children in the whole tree, ``max_total_turns`` root turns, ``max_sub_calls`` sub-LLM calls
+    and ``max_tokens`` prompt + completion tokens across it; ``max_cost_usd`` when the client reports cost."""
+
+    max_spawns: int = 8
+    max_total_turns: int = 200
+    max_sub_calls: int = 256
+    max_tokens: int = 4_000_000
+    max_cost_usd: float | None = None
+    spawns: int = 0
+    turns: int = 0
+    sub_calls: int = 0
+    tokens: int = 0
+    cost_usd: float = 0.0
+
+    def charge(self, usage: dict[str, Any] | None, cost: float | None) -> None:
+        u = usage or {}
+        self.tokens += int(u.get("prompt_tokens") or 0) + int(u.get("completion_tokens") or 0)
+        self.cost_usd += float(cost or 0.0)
+
+    def exhausted(self) -> str | None:
+        if self.turns >= self.max_total_turns:
+            return f"the agent tree's turn budget ({self.max_total_turns}) is spent"
+        if self.tokens >= self.max_tokens:
+            return f"the agent tree's token budget ({self.max_tokens}) is spent"
+        if self.max_cost_usd is not None and self.cost_usd >= self.max_cost_usd:
+            return f"the agent tree's cost budget (${self.max_cost_usd}) is spent"
+        return None
+
+
+@dataclass
 class AgentRun:
     answer: str | None
     finished: bool
@@ -80,8 +112,14 @@ class RLMAgent:
     def __init__(self, name: str, llm: Any, *, handlers: dict[str, Callable[..., Awaitable[Any]]] | None = None, objects: tuple[str, ...] = (),
                  sub_llm: Any = None, roles: dict[str, dict[str, Any]] | None = None, depth: int = 0, max_depth: int = 2, max_turns: int = 40,
                  max_output_chars: int = 8192, cell_timeout_s: float = 120.0, max_continuations: int = 2, launcher: Any = None, seed: int = 0,
-                 system: str | None = None, max_tokens: int = 2000, extra_context: str = ""):
+                 system: str | None = None, max_tokens: int = 2000, extra_context: str = "", budget: TreeBudget | None = None,
+                 sub_max_tokens: int = 1000, sub_concurrency: int = 4):
+        """``launcher``: where the kernel runs (default ``kernel.default_launcher()``, an isolated container: the agents run
+        LLM-written code, H3 V1). ``budget``: shared by every child this agent spawns."""
         self.name, self.llm, self.sub_llm = name, llm, sub_llm or llm
+        self.budget = budget if budget is not None else TreeBudget()
+        self.sub_max_tokens, self.sub_concurrency = sub_max_tokens, max(1, int(sub_concurrency))
+        self._sub_sem = None
         self.handlers, self.objects, self.roles = dict(handlers or {}), objects, dict(roles or {})
         self.depth, self.max_depth, self.max_turns = depth, max_depth, max_turns
         self.max_output_chars, self.cell_timeout_s, self.max_continuations = max_output_chars, cell_timeout_s, max_continuations
@@ -93,12 +131,20 @@ class RLMAgent:
 
     async def _host(self, data: dict[str, Any]) -> Any:
         t = str(data.pop("type", ""))
-        if t == "llm.query":
-            return await self._sub(data.get("prompt", ""), data.get("context"), data.get("max_tokens"))
-        if t == "llm.batch":
+        if t in ("llm.query", "llm.batch"):
             import asyncio
 
-            return list(await asyncio.gather(*(self._sub(p, c, data.get("max_tokens")) for p, c in data.get("items") or [])))
+            items = [(data.get("prompt", ""), data.get("context"))] if t == "llm.query" else list(data.get("items") or [])
+            if not all(isinstance(x, (list, tuple)) and len(x) == 2 for x in items):
+                raise ValueError("rlm.batch needs a list of prompts")
+            if self.budget.sub_calls + len(items) > self.budget.max_sub_calls:
+                raise ValueError(f"the agent tree's sub-LLM call budget ({self.budget.max_sub_calls}) would be exceeded")
+            why = self.budget.exhausted()
+            if why:
+                raise ValueError(why)
+            self.budget.sub_calls += len(items)
+            res = list(await asyncio.gather(*(self._sub(str(p), None if c is None else str(c), data.get("max_tokens")) for p, c in items)))
+            return res[0] if t == "llm.query" else res
         if t == "rlm.spawn":
             return await self._spawn(str(data.get("role") or "worker"), str(data.get("prompt") or ""))
         if t.endswith(".help"):  # the proxies are opaque in the kernel (``dir`` shows nothing): help lists real signatures and docs
@@ -113,8 +159,19 @@ class RLMAgent:
         return await fn(**data)
 
     async def _sub(self, prompt: str, context: str | None, max_tokens: int | None) -> str:
+        import asyncio
+
         content = prompt if context is None else f"{prompt}\n\n<context>\n{context}\n</context>"
-        r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=int(max_tokens or 1000), temperature=0.0)
+        if self._sub_sem is None:
+            self._sub_sem = asyncio.Semaphore(self.sub_concurrency)
+        try:
+            mt = int(max_tokens) if max_tokens is not None else self.sub_max_tokens
+        except (TypeError, ValueError):
+            mt = self.sub_max_tokens
+        mt = max(1, min(mt, self.sub_max_tokens))  # the model may lower the cap, never raise it (H3 V4)
+        async with self._sub_sem:
+            r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=mt, temperature=0.0)
+        self.budget.charge(r.usage, r.cost_usd)
         self.model_calls.append({"call_id": f"{self.name}:c{len(self.model_calls) + 1}", "agent": self.name, "kind": "sub",
                                  "parent": self._call["call_id"] if self._call else None, "model": r.model, "usage": r.usage, "cost_usd": r.cost_usd,
                                  "tokens": r.tokens})
@@ -123,12 +180,19 @@ class RLMAgent:
     async def _spawn(self, role: str, prompt: str) -> str:
         if self.depth + 1 > self.max_depth:
             raise RuntimeError(f"recursion depth limit {self.max_depth} reached")
+        if self.budget.spawns >= self.budget.max_spawns:
+            raise RuntimeError(f"the agent tree's spawn budget ({self.budget.max_spawns}) is spent")
+        why = self.budget.exhausted()
+        if why:
+            raise RuntimeError(why)
+        self.budget.spawns += 1
         spec = self.roles.get(role, {})
         child = RLMAgent(f"{self.name}/{role}", spec.get("llm") or self.llm, handlers=spec.get("handlers", self.handlers),
                          objects=tuple(spec.get("objects", self.objects)), sub_llm=self.sub_llm, roles=self.roles, depth=self.depth + 1,
                          max_depth=self.max_depth, max_turns=spec.get("max_turns", self.max_turns), max_output_chars=self.max_output_chars,
                          cell_timeout_s=self.cell_timeout_s, launcher=self.launcher, seed=self.seed, system=spec.get("system"),
-                         extra_context=spec.get("instructions", ""))
+                         extra_context=spec.get("instructions", ""), budget=self.budget, sub_max_tokens=self.sub_max_tokens,
+                         sub_concurrency=self.sub_concurrency)
         run = await child.run(prompt)
         self.model_calls += run.model_calls
         if not run.finished:
@@ -143,6 +207,9 @@ class RLMAgent:
         return text if len(text) <= n else text[: n * 3 // 4] + f"\n[... {len(text) - n} characters truncated ...]\n" + text[-(n - n * 3 // 4):]
 
     async def run(self, prompt: str) -> AgentRun:
+        owned = self.launcher is None
+        if owned:  # this agent's own sandbox (its children share it); removed when the run ends
+            self.launcher = default_launcher()
         kernel = Kernel(self.launcher, seed=self.seed, cell_timeout_s=self.cell_timeout_s)
         boot = AGENT_BOOTSTRAP.replace("__TASK__", repr(prompt)) + "".join(f"\n{o} = _Proxy({o!r})" for o in self.objects)
         messages = [{"role": "system", "content": self.system},
@@ -153,10 +220,15 @@ class RLMAgent:
             if not r0.ok:
                 raise RuntimeError(f"agent bootstrap failed: {r0.error}")
             while turns < self.max_turns:
+                why = self.budget.exhausted()
+                if why:
+                    return AgentRun(None, False, turns, self.model_calls, messages, "tree_budget")
                 if turns == self.max_turns - 2:  # Prime's budget wrap-up: the m14 live implementer reached a right answer and ran out of turns
                     messages.append({"role": "user", "content": "[budget] 2 turns left. Stop exploring: call rlm.finish(...) now with your best result."})
                 r = await self.llm.complete(messages, tools=[PYTHON_TOOL], max_tokens=self.max_tokens, temperature=0.0)
                 turns += 1
+                self.budget.turns += 1
+                self.budget.charge(r.usage, r.cost_usd)
                 call = {"call_id": f"{self.name}:c{len(self.model_calls) + 1}", "agent": self.name, "kind": "turn", "model": r.model,
                         "usage": r.usage, "cost_usd": r.cost_usd, "tokens": r.tokens}
                 self.model_calls.append(call)
@@ -182,6 +254,10 @@ class RLMAgent:
             return AgentRun(None, False, turns, self.model_calls, messages, stop)
         finally:
             await kernel.close()
+            if owned:
+                launcher, self.launcher = self.launcher, None
+                if hasattr(launcher, "aclose"):
+                    await launcher.aclose()
 
 
 # ---- the forge workspace: versioned tasks, objective verification ------------------------------------------------------
@@ -190,7 +266,8 @@ class Version:
     task: Any
     parent: int | None
     note: str
-    verification: dict[str, Any] | None = None
+    verification: dict[str, Any] | None = None  # the latest verification over the workspace's full check set
+    verifications: list[dict[str, Any]] = field(default_factory=list)  # every verification, subsets included
 
 
 class ForgeWorkspace:
@@ -322,13 +399,21 @@ class ForgeWorkspace:
                     acts = [a.get("function_name") or f"message to {a.get('to')}" for a in hk.get("actions") or []]
                     findings.append(f"A16 evidence: {hk.get('strategy')} earned reward {hk.get('reward')} with only these actions: {acts}")
         out = {"task_id": task_id, "version": v, "passed": passed, "checks": rows, "findings": findings}
-        self.versions[task_id][v].verification = out
+        ver = self.versions[task_id][v]
+        ver.verifications.append({**out, "check_set": sorted(only), "floor": self.committed[task_id]})
+        if set(only) >= set(self.checks):  # a subset run never replaces a full one (H3 V8: verify(checks=["A2"]) unlocked commit)
+            ver.verification = out
         return out
 
     async def commit(self, task_id: str, version: int) -> dict[str, Any]:
+        """Needs a passing verification of this version over every check of the workspace (``self.checks``), made against
+        the current committed version's audit floor (a commit since then changes the floor)."""
         ver = self.versions[task_id][int(version)]
-        if not (ver.verification and ver.verification.get("passed")):
-            raise PermissionError(f"version {version} of {task_id} has no passing verification: run forge.verify first")
+        floor = self.committed[task_id]
+        ok = any(x.get("passed") and set(x.get("check_set") or ()) >= set(self.checks) and x.get("floor") == floor for x in ver.verifications)
+        if not ok:
+            raise PermissionError(f"version {version} of {task_id} has no passing verification over the full check set {list(self.checks)} "
+                                  f"at the current committed version {floor}: run forge.verify(task_id, version) first")
         self.committed[task_id] = int(version)
         return {"task_id": task_id, "committed": int(version)}
 

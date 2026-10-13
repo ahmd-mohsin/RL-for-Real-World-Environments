@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-PACK_ROOT = Path(__file__).resolve().parents[2]
+
+def _pack_root() -> Path:
+    """The pack's root: the source checkout (``src/<package>/../../pack.yaml``) or, in an installed wheel, the ``_pack/``
+    directory the wheel force-includes (pack.yaml, README and data next to the package)."""
+    here = Path(__file__).resolve().parent
+    return here.parents[1] if (here.parents[1] / "pack.yaml").is_file() else here / "_pack"
+
+
+PACK_ROOT = _pack_root()
 
 
 def register(registry) -> None:

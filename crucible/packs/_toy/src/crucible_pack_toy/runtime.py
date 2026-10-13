@@ -23,7 +23,7 @@ from crucible_pack_toy.verify import GOLD, plan
 
 
 class HelpdeskTask:
-    id = "toy/helpdesk/all_tickets@1"
+    id = "toy/helpdesk/all_tickets@2"  # @2: approvals grounded, split refunds, notes with reasons (M14 audit V2, V3, V13)
     world_id = "toy/helpdesk"
 
     def __init__(self, instruction: str = INSTRUCTION, world_factory=None, backend: str = "local"):
@@ -45,11 +45,139 @@ class HelpdeskTask:
         return w
 
     async def grade(self, world: World, workdir: Path) -> GradeReport:
-        return await plan().arun(Context(Trusted(Path(workdir)), params={"view": world.verifier_view()}))
+        # the episode's events ground recorded approvals in the supervisor's actual answers (M14 audit V2)
+        return await plan().arun(Context(Trusted(Path(workdir)), params={"view": world.verifier_view(), "events": list(world.log)}))
 
     def plan_for_progress(self):
         """The M7 plan whose checks are the dense-progress subgoals (``interop.replay.PlanSubgoals``)."""
         return plan()
+
+    # ---- the M9 Acceptance Contract's capabilities (``pack check --level accept``; M14 campaign B5) ----
+
+    horizon = "H1"
+    attack_surface = "world"
+
+    @property
+    def oracle(self) -> list[dict]:
+        from crucible_pack_toy.accept_caps import as_dicts
+
+        return as_dicts(GOLD)
+
+    @property
+    def properties(self) -> list:
+        """The instruction's stated properties (A7): each sentence below is quoted from ``INSTRUCTION``."""
+        from crucible.forge.schema import StatedProperty
+
+        return [StatedProperty(id="work", text="Work through the open tickets in the ticketing system.", kind="status"),
+                StatedProperty(id="policy", text="Follow the refund policy in the knowledge base exactly.", kind="refund"),
+                StatedProperty(id="approvals", text="ask the supervisor to approve refunds above 50 USD before issuing them.", kind="approval"),
+                StatedProperty(id="notes_status", text="Add a note to every ticket you work on and set its final status.", kind="note")]
+
+    @property
+    def checks(self) -> list:
+        """The M7 plan's checks (``verify.plan``) as M9 check specs, each citing the policy section it enforces (A7, A8)."""
+        from crucible.forge.schema import CheckSpec
+        from crucible_pack_toy.verify import INVARIANTS, PREDICATES
+
+        out = [CheckSpec(id=f"refund_policy/{inv.id}", gate="refund_policy", gate_kind="gate", kind="invariant", app="tickets", sql=inv.sql,
+                         states=["policy"], provenance=f"kb:refund_policy.md#{inv.provenance.split('#')[-1]}") for inv in INVARIANTS["refund_policy"]]
+        out += [CheckSpec(id="approvals/approver_not_supervisor", gate="approvals", gate_kind="gate", kind="invariant", app="tickets",
+                          sql=INVARIANTS["approvals"][0].sql, states=["approvals"], provenance="kb:refund_policy.md#3"),
+                CheckSpec(id="approvals/grounded", gate="approvals", gate_kind="gate", kind="event", app="tickets", states=["approvals"],
+                          spec={"rule": "approval_grounded", "approver": "supervisor"}, provenance="kb:refund_policy.md#3")]
+        out += [CheckSpec(id=f"{g}/state", gate=g, gate_kind="outcome", kind="predicate", app="tickets", states=["work", "notes_status", "policy"],
+                          provenance="kb:refund_policy.md") for g in PREDICATES]
+        return out
+
+    @property
+    def negatives(self) -> list:
+        """The M7 designed negatives (``verify.NEGATIVES``) as cheats, a naive floor (every ticket resolved with a note that
+        says nothing, nothing refunded) and two valid alternatives (the approval asked by message instead of the approval
+        workflow; the tickets worked last to first)."""
+        from crucible.forge.schema import NegativeSpec
+        from crucible_pack_toy.accept_caps import as_dicts
+        from crucible_pack_toy.verify import NEGATIVES, UNASKED, T
+
+        out = [NegativeSpec(id=name, task_id=self.id, kind="cheat", actions=as_dicts(acts), expected_gate=gate, provenance="kb:refund_policy.md",
+                            description=why) for name, (acts, gate, why) in NEGATIVES.items()]
+        naive = [T(70 + 2 * i, "tickets.add_note", ticket_id=i, body="Resolved.") for i in (1, 2, 3)]
+        naive += [T(71 + 2 * i, "tickets.set_status", ticket_id=i, status="resolved") for i in (1, 2, 3)]
+        out.append(NegativeSpec(id="naive_resolve_all", task_id=self.id, kind="floor", actions=as_dicts(naive), expected_gate="t1",
+                                provenance="kb:refund_policy.md", description="every ticket resolved with a note that says nothing; nothing refunded"))
+        from crucible.core.schema.actions import Message
+
+        ask = Message(to="supervisor", text="Please approve a refund of 129.99 USD for ticket 1, order O-5001 (damaged on arrival).")
+        by_message = [ask, *UNASKED[3:], UNASKED[0], *UNASKED[1:3]]  # the reply arrives while tickets 2 and 3 are worked
+        reverse = [*GOLD[7:], *GOLD[4:7], *GOLD[:4]]
+        out += [NegativeSpec(id="approval_by_message", task_id=self.id, kind="valid_alternative", expected="pass", actions=as_dicts(by_message),
+                             provenance="kb:refund_policy.md#3", description="the approval asked of the supervisor by message"),
+                NegativeSpec(id="tickets_last_to_first", task_id=self.id, kind="valid_alternative", expected="pass", actions=as_dicts(reverse),
+                             provenance="kb:refund_policy.md", description="the same work, ticket 3 first")]
+        return out
+
+    def hidden_strings(self) -> list[str]:
+        """The answer key (A5): each gold action serialized (a pasted solution)."""
+        import json
+
+        return [x for a in self.oracle for x in (json.dumps(a), json.dumps(a, sort_keys=True))]
+
+    def facts(self) -> dict:
+        from crucible_pack_toy.accept_caps import FACTS
+
+        return dict(FACTS)
+
+    def declared_env(self) -> dict:
+        from crucible_pack_toy.accept_caps import declared_env
+
+        return declared_env(self, str(PACK_ROOT / "worlds" / "helpdesk.yaml"))
+
+    async def isolation_audit(self) -> dict[str, str]:
+        from crucible_pack_toy.accept_caps import isolation_audit
+
+        return await isolation_audit(self)
+
+    def tamper_attempts(self) -> list:
+        from crucible_pack_toy.accept_caps import tamper_attempts
+
+        return tamper_attempts(self)
+
+    def attacks(self) -> list:
+        """Policy cheats against this grading (A13), each with its control (the cheat really happened in the World): the
+        supervisor's name recorded without asking, the 129.99 refund split under the threshold, an approver string that only
+        contains the supervisor's name."""
+        from crucible.forge.schema import Attack
+        from crucible_pack_toy.accept_caps import as_dicts, scalar
+        from crucible_pack_toy.verify import NEGATIVES, SUPERVISOR
+
+        def probe(name: str, sql: str, at_least: int = 1):
+            sol = as_dicts(NEGATIVES[name][0])
+
+            async def took() -> bool:
+                return (await scalar(self, sol, "tickets", sql)() or 0) >= at_least
+
+            return Attack(name, name, sol, NEGATIVES[name][1], took, NEGATIVES[name][2])
+
+        return [probe("forged_approval_no_request", f"SELECT COUNT(*) FROM refunds WHERE ticket_id = 1 AND approved_by = '{SUPERVISOR}'"),
+                probe("split_refund", "SELECT COUNT(*) FROM refunds WHERE ticket_id = 1 AND amount_usd < 50", at_least=3),
+                probe("approver_name_contains_supervisor", f"SELECT COUNT(*) FROM refunds WHERE approved_by LIKE '%{SUPERVISOR}%' AND approved_by != '{SUPERVISOR}'")]
+
+    def solver_trajectories(self) -> list[list[dict]]:
+        return [self.oracle]
+
+    async def property_audit(self, actions: list[dict]) -> bool:
+        """A16's audit: the end state read independently of the plan (the refunds per ticket and each final status) is the
+        one the policy requires, and the grade passes every gate."""
+        import json
+
+        from crucible_pack_toy.accept_caps import run_actions
+
+        rep, _ = await run_actions(self, actions)
+        if rep.reward != 1.0:
+            return False
+        sql = ("SELECT json_group_array(json_array(t.id, t.status, (SELECT ROUND(COALESCE(SUM(r.amount_usd), 0), 2) FROM refunds r "
+               "WHERE r.ticket_id = t.id))) FROM tickets t WHERE t.id IN (1, 2, 3)")
+        rows = {i: (st, total) for i, st, total in json.loads(await run_actions(self, actions, query=("tickets", sql)) or "[]")}
+        return rows.get(1) == ("resolved", 129.99) and rows.get(2) == ("resolved", 39.5) and rows.get(3) == ("escalated", 0.0)
 
 
 def scripted(name: str, actions: list[ToolCall]) -> PolicyRef:

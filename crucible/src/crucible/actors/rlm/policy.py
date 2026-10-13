@@ -45,7 +45,7 @@ from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
 from crucible.actors.policy import ContextConfig, LLMToolPolicy, Policy, approx_tokens
-from crucible.actors.rlm.kernel import CellResult, JournalEntry, Kernel, LocalLauncher
+from crucible.actors.rlm.kernel import CellResult, HostAbort, JournalEntry, Kernel, KernelDivergence, KernelStartError, default_launcher
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall
 
 PYTHON_TOOL = {"type": "function", "function": {
@@ -60,6 +60,7 @@ RLM_SYSTEM = """You are an agent working in a simulated workplace through a pers
 - Message a person: `await world.send(to, text)`. Messages to you are appended to `INBOX` (dicts with from, text, at); new ones are announced.
 - Sub-LLMs: `await rlm.query(prompt, context=None)` returns a string; `await rlm.batch([prompt, ...])` runs prompts in parallel. Use them to read, filter or analyse large data instead of printing it.
 - What you print is truncated to {max_output} characters. Keep large data in variables and print only what you need.
+- Each python call has a {timeout} s deadline for its own computation (time spent waiting on tools and sub-LLMs does not count). A call that exceeds it is stopped and the kernel is restored to before that call. One python call per reply.
 - Variables, functions and imports persist across calls, and across context compaction. After a compaction, `HISTORY` holds every earlier segment verbatim: `HISTORY[i]["summary"]` and `HISTORY[i]["turns"]` (each {"code", "output"}).
 - When the task is complete, call `rlm.finish("<short summary>")`. Before that, check the current state against every requirement."""
 
@@ -131,18 +132,33 @@ CONTINUE = ("[goal: continuation] You stopped without calling rlm.finish(). The 
 
 
 class RLMPolicy(Policy):
-    def __init__(self, actor_id: str, llm: LLMClient, *, sub_llm: LLMClient | None = None, launcher: Any = None, seed: int = 0,
+    def __init__(self, actor_id: str, llm: LLMClient, *, sub_llm: LLMClient | None = None, launcher: Any = None, seed: int | None = None,
                  max_output_chars: int = 8192, cell_timeout_s: float = 120.0, max_tokens: int = 2000, sub_max_tokens: int = 1000,
                  temperature: float = 0.0, context: ContextConfig | None = None, max_continuations: int = 2, max_stalls: int = 3,
-                 stall_repeat: int = 3, max_cell_errors: int = 4, max_turns: int = 500, system: str = RLM_SYSTEM, tool_index: bool = True):
+                 stall_repeat: int = 3, max_cell_errors: int = 4, max_turns: int = 500, system: str = RLM_SYSTEM, tool_index: bool = True,
+                 max_sub_calls: int = 256, max_sub_calls_per_cell: int = 64, sub_concurrency: int = 4, max_sub_tokens: int = 2_000_000,
+                 sub_trainable: bool | None = None):
+        """``launcher``: where the kernel runs (default: ``kernel.default_launcher()``, an isolated container; never shared
+        between episodes). ``seed``: the kernel's seed (default: derived from the episode id in ``begin_episode``).
+        Sub-call budget (H3 V4, G1 D10): ``max_sub_calls`` per episode and ``max_sub_calls_per_cell``, at most
+        ``sub_concurrency`` in flight, ``max_sub_tokens`` prompt + completion tokens per episode, ``max_tokens`` clamped
+        to ``sub_max_tokens``; an exceeded budget is an error the cell sees. ``sub_trainable``: whether sub-calls are the
+        trained policy's samples (default: True only when no separate ``sub_llm`` answers them, G1 D1)."""
         self.actor_id, self.llm, self.sub_llm = actor_id, llm, sub_llm or llm
-        self.launcher, self.seed = launcher or LocalLauncher(), seed
+        self.sub_trainable = (sub_llm is None or sub_llm is llm) if sub_trainable is None else bool(sub_trainable)
+        self.launcher = launcher if launcher is not None else default_launcher()
+        self.seed = seed
+        self._seed_fixed = seed is not None
         self.tool_index = tool_index
         self.max_output_chars, self.cell_timeout_s = max_output_chars, cell_timeout_s
         self.max_tokens, self.sub_max_tokens, self.temperature = max_tokens, sub_max_tokens, temperature
         self.context, self.max_continuations, self.max_stalls = context, max_continuations, max_stalls
         self.stall_repeat, self.max_cell_errors, self.max_turns = stall_repeat, max_cell_errors, max_turns
-        self.system = system.replace("{max_output}", str(max_output_chars))
+        self.max_sub_calls, self.max_sub_calls_per_cell, self.max_sub_tokens = max_sub_calls, max_sub_calls_per_cell, max_sub_tokens
+        self.sub_concurrency = max(1, int(sub_concurrency))
+        self._sub_sem: asyncio.Semaphore | None = None
+        self._cell_sub_calls = 0
+        self.system = system.replace("{max_output}", str(max_output_chars)).replace("{timeout}", f"{cell_timeout_s:g}")
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system}]
         self.model_calls: list[dict[str, Any]] = []
         self.kernel: Kernel | None = None
@@ -153,7 +169,8 @@ class RLMPolicy(Policy):
         self.segment, self.segments = 0, []
         self.trajectory_tokens = 0
         self.notes: list[str] = []
-        self.counters = {"turns": 0, "cells": 0, "cell_errors_in_row": 0, "continuations": 0, "stalls": 0, "world_calls": 0, "sub_calls": 0}
+        self.counters = {"turns": 0, "cells": 0, "cell_errors_in_row": 0, "continuations": 0, "stalls": 0, "world_calls": 0, "sub_calls": 0,
+                         "sub_tokens": 0, "sub_refused": 0, "refused_calls": 0, "restores": 0, "inexact_restores": 0, "protocol_errors": 0}
         self._recent_cells: list[str] = []
         self._recent_world: list[str] = []
         self._task: asyncio.Task | None = None
@@ -175,6 +192,10 @@ class RLMPolicy(Policy):
 
     def begin_episode(self, episode_id: str) -> None:
         self.sample_key = episode_id
+        if not self._seed_fixed:  # one seed per episode (H3 V12: every rlm_world_rollout kernel was seeded 0)
+            import zlib
+
+            self.seed = zlib.crc32(f"{episode_id}:{self.actor_id}".encode())
 
     # ---- the act() <-> driver bridge ----------------------------------------------------------------------------------
     _compress = LLMToolPolicy._compress  # linear token capture (m13 B-3): a call extending the last one stores only its delta
@@ -201,7 +222,9 @@ class RLMPolicy(Policy):
         getter.cancel()
         exc = self._task.exception() if self._task.done() and not self._task.cancelled() else None
         if exc is not None:
-            self.failure_kind = self.failure_kind or "crucible:policy_error"
+            # an exception out of the driver is the harness's or the sandbox's, never the policy's (H3 V6, G1 D6): a kernel or
+            # sandbox that cannot start or was lost carries its infra kind; anything else is a harness fault (masked, counted)
+            self.failure_kind = self.failure_kind or getattr(exc, "failure_kind", None) or "agent_run_error"
             self.error = self.error or f"{type(exc).__name__}: {exc}"
             await self._close_kernel()
             return Done(reason=f"policy error: {exc}")
@@ -224,6 +247,10 @@ class RLMPolicy(Policy):
 
     async def _host(self, data: dict[str, Any]) -> Any:
         t = data.get("type")
+        if t in ("world.call", "world.send") and self._current_call is None and self._replaying_pending is None:
+            # outside the model's own cells (the bootstrap, _deliver, _archive: functions model code can redefine) a World
+            # action would be stepped but attributed to no model call, shifting per-call credit (H3 V13)
+            raise PermissionError("World actions are only allowed from your own python calls")
         if self._replaying_pending is not None and t in ("world.call", "world.send"):
             # resumed inside a cell: this request was already stepped before the checkpoint; answer it from the trace
             self._replaying_pending = None
@@ -236,10 +263,14 @@ class RLMPolicy(Policy):
                 return {**res, "inbox": self._take_inbox()}
             return {"ok": True, "inbox": self._take_inbox()}
         if t == "world.call":
+            tool, args = data.get("tool"), data.get("args") if data.get("args") is not None else {}
+            if not isinstance(tool, str) or not tool or len(tool) > 200:
+                raise ValueError("world.call needs a tool name string (\"app.tool\")")
+            if not isinstance(args, dict):
+                raise ValueError("world.call arguments must be keyword arguments (a dict)")
             self._n_actions += 1
             self.counters["world_calls"] += 1
             cid = f"{self.actor_id}:rlm{self._n_actions}"
-            tool, args = str(data.get("tool") or ""), dict(data.get("args") or {})
             self._pending_action = {"kind": "tool", "id": cid, "tool": tool, "args": args}
             if self._current_call is not None:
                 self._current_call["actions"].append(f"tool:{cid}")
@@ -251,6 +282,8 @@ class RLMPolicy(Policy):
             self._recent_world = (self._recent_world + [key])[-self.stall_repeat:]
             return {**res, "inbox": self._take_inbox()}
         if t == "world.send":
+            if not isinstance(data.get("to"), str) or not isinstance(data.get("text"), str):
+                raise ValueError("world.send needs to (str) and text (str)")
             self._n_actions += 1
             if self._current_call is not None:
                 self._current_call["actions"].append("message")
@@ -258,36 +291,90 @@ class RLMPolicy(Policy):
             await self._emit_and_wait(Message(to=str(data.get("to") or ""), text=str(data.get("text") or "")))
             self._pending_action = None
             return {"ok": True, "inbox": self._take_inbox()}
-        if t == "llm.query":
-            return await self._sub(str(data.get("prompt") or ""), data.get("context"), data.get("max_tokens"))
-        if t == "llm.batch":
-            items = data.get("items") or []
-            return list(await asyncio.gather(*(self._sub(str(p), c, data.get("max_tokens")) for p, c in items)))
+        if t in ("llm.query", "llm.batch"):
+            if self._current_call is None:
+                raise PermissionError("sub-LLM calls are only allowed from your own python calls")
+            mt = data.get("max_tokens")
+            if mt is not None and (not isinstance(mt, int) or isinstance(mt, bool) or mt < 1):
+                raise ValueError("max_tokens must be a positive integer")
+            if t == "llm.query":
+                p, c = data.get("prompt"), data.get("context")
+                if not isinstance(p, str) or (c is not None and not isinstance(c, str)):
+                    raise ValueError("rlm.query needs a prompt string (and an optional context string)")
+                self._reserve_subs(1)
+                return await self._sub(p, c, mt)
+            items = data.get("items")
+            if not isinstance(items, list) or not all(isinstance(x, list) and len(x) == 2 and isinstance(x[0], str) and (x[1] is None or isinstance(x[1], str))
+                                                      for x in items):
+                raise ValueError("rlm.batch needs a list of prompts (or (prompt, context) pairs)")
+            self._reserve_subs(len(items))
+            tasks = [asyncio.ensure_future(self._sub(p, c, mt)) for p, c in items]
+            try:
+                return list(await asyncio.gather(*tasks))
+            finally:
+                for x in tasks:
+                    x.cancel()
         if t == "rlm.note":
-            self.notes.append(str(data.get("text") or ""))
+            text = data.get("text")
+            if not isinstance(text, str):
+                raise ValueError("rlm.note needs a string")
+            self.notes.append(text[:512])  # bounded here too: a direct host("rlm.note", ...) bypassed the wrapper's cap (H3 V13)
             return "noted"
         raise ValueError(f"unknown host request {t!r}")
 
+    def _reserve_subs(self, n: int) -> None:
+        """The sub-call budget (H3 V4, G1 D10): checked before any call starts, so a refused batch makes no call."""
+        why = None
+        if self.counters["sub_calls"] + n > self.max_sub_calls:
+            why = f"this episode's sub-LLM call budget ({self.max_sub_calls}) would be exceeded ({self.counters['sub_calls']} used, {n} asked)"
+        elif self._cell_sub_calls + n > self.max_sub_calls_per_cell:
+            why = f"one python call may make at most {self.max_sub_calls_per_cell} sub-LLM calls ({self._cell_sub_calls} made, {n} asked)"
+        elif self.counters["sub_tokens"] >= self.max_sub_tokens:
+            why = f"this episode's sub-LLM token budget ({self.max_sub_tokens}) is spent"
+        if why is not None:
+            self.counters["sub_refused"] += n
+            raise ValueError(why)
+        self.counters["sub_calls"] += n
+        self._cell_sub_calls += n
+
     async def _sub(self, prompt: str, context: str | None, max_tokens: int | None) -> str:
         content = prompt if context is None else f"{prompt}\n\n<context>\n{context}\n</context>"
-        r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=int(max_tokens or self.sub_max_tokens),
-                                        temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
-        self.counters["sub_calls"] += 1
         parent = self._current_call["call_id"] if self._current_call else None
+        if self._sub_sem is None:
+            self._sub_sem = asyncio.Semaphore(self.sub_concurrency)
+        mt = min(int(max_tokens or self.sub_max_tokens), int(self.sub_max_tokens))  # the model may lower the cap, never raise it
+        async with self._sub_sem:
+            try:
+                r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=mt, temperature=self.temperature,
+                                                sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+            except ContextOverflow:
+                raise  # the policy's own prompt is too long: an error the cell sees
+            except (LLMError, BudgetExceeded) as e:
+                # a provider fault is infra: the episode is masked as on the root path, with a record of the failed call (H3 V5, G1 D2)
+                kind = getattr(e, "failure_kind", None) or "provider_unavailable"
+                self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "sub", "parent": parent, "segment": self.segment,
+                                         "step": self._step, "model": None, "failed": True, "error": f"{type(e).__name__}: {str(e)[:500]}",
+                                         "trainable": self.sub_trainable, "actions": [], "tokens": None})
+                self.failure_kind = self.failure_kind or kind
+                self.error = self.error or f"{kind}: a sub-LLM call failed: {e}"
+                self.stop = "policy_error"
+                raise HostAbort(f"sub-LLM call failed: {e}", kind) from e
+        u = r.usage or {}
+        self.counters["sub_tokens"] += int(u.get("prompt_tokens") or 0) + int(u.get("completion_tokens") or 0)
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "sub", "parent": parent, "segment": self.segment,
                                  "step": self._step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                 "cached": r.cached, "actions": [], "tokens": r.tokens})
+                                 "cached": r.cached, "actions": [], "tokens": r.tokens, "trainable": self.sub_trainable})
         return r.text or ""
 
     # ---- kernel ---------------------------------------------------------------------------------------------------------
     async def _ensure_kernel(self) -> None:
         if self.kernel is not None and self.kernel.proc is not None:
             return
-        self.kernel = Kernel(self.launcher, seed=self.seed, cell_timeout_s=self.cell_timeout_s)
+        self.kernel = Kernel(self.launcher, seed=self.seed or 0, cell_timeout_s=self.cell_timeout_s)
         code = BOOTSTRAP.replace("__TASK__", repr(self._instruction)).replace("__TOOLS__", repr(self._tools))
         r = await self.kernel.execute(code, self._host, timeout_s=60)
-        if not r.ok:
-            raise RuntimeError(f"RLM bootstrap failed: {r.error}")
+        if not r.ok:  # no model code has run yet: the sandbox or the harness failed (masked)
+            raise KernelStartError(f"RLM bootstrap failed: {r.error}", "crucible:backend_error")
 
     async def _close_kernel(self) -> None:
         if self.kernel is not None:
@@ -303,11 +390,35 @@ class RLMPolicy(Policy):
         if hasattr(self.launcher, "aclose"):
             await self.launcher.aclose()  # the kernel's container or scratch directory
 
-    async def _restore_before_last(self) -> None:
-        """A cell timed out or wedged the kernel: rebuild the kernel from the journal without that cell."""
+    async def _restore_before_last(self) -> str:
+        """A cell timed out or wedged the kernel: rebuild the kernel from the journal without that cell. Exact when the
+        earlier cells are deterministic; a cell that kept the clock, random ids or other changing state replays to other
+        values (H3 V10, G1 D5): then the kernel is rebuilt leniently (the same cells, their new values) and the model is
+        told, instead of the episode dying as a policy error. A sandbox lost meanwhile raises its infra kind."""
+        from crucible.world.state.base import SnapshotMismatch
+
         assert self.kernel is not None
         journal = [e for e in self.kernel.journal[:-1]]
-        await self.kernel.replay(journal)
+        self.counters["restores"] += 1
+        try:
+            await self.kernel.replay(journal)
+            return "the kernel state was restored to before this cell"
+        except (SnapshotMismatch, KernelDivergence):
+            pass
+        self.counters["inexact_restores"] += 1
+        await self.kernel.replay(journal, strict=False)
+        n = self.kernel.replay_divergences
+        return (f"the kernel was rebuilt by re-running your earlier cells, but {n} of them produced different values (they read the "
+                "clock, random ids or other changing state): check the variables you rely on")
+
+    @staticmethod
+    def _cap(text: str, n: int) -> str:
+        if len(text) <= n:
+            return text
+        marker = f"\n[... {len(text) - n} characters truncated: keep large data in variables and print slices ...]\n"
+        keep = max(0, n - len(marker))
+        h = keep * 3 // 4
+        return text[:h] + marker + (text[-(keep - h):] if keep - h > 0 else "")
 
     def _format(self, r: CellResult) -> str:
         parts = []
@@ -319,11 +430,16 @@ class RLMPolicy(Policy):
             parts.append(r.result)
         if r.error:
             parts.append(r.error.rstrip("\n"))
-        text = "\n".join(parts) or "(no output)"
-        n = self.max_output_chars
-        if len(text) > n:
-            h = n * 3 // 4
-            text = text[:h] + f"\n[... {len(text) - n} characters truncated: keep large data in variables and print slices ...]\n" + text[-(n - h):]
+        return "\n".join(parts) or "(no output)"
+
+    def _announce(self, msgs: list[dict[str, Any]], room: int) -> str:
+        """New INBOX messages, bounded (G1 D15: 50 messages put ~11k characters past a 200-character output cap)."""
+        head = f"[{len(msgs)} new message(s) appended to INBOX]"
+        lines = "; ".join(f"from {m['from']}: {str(m['text'])[:200]}" for m in msgs)
+        text = f"{head} {lines}"
+        if len(text) > room:
+            tail = " ... (read INBOX for the rest)"
+            text = text[: max(len(head), room - len(tail))] + tail
         return text
 
     # ---- the model loop -------------------------------------------------------------------------------------------------
@@ -374,12 +490,27 @@ class RLMPolicy(Policy):
                 call["actions"].append("done")
                 await self._out.put(Done(reason=(r.text or "")[:2000]))
                 return
-            tc = code_calls[0]
-            tc_id = tc.get("id") or f"py{self.counters['cells'] + 1}"
-            code = str((tc.get("arguments") or {}).get("code") or "")
-            self.messages.append({**(r.raw_message or {}), "role": "assistant", "content": r.text or "",
-                                  "tool_calls": [{"id": tc_id, "type": "function", "function": {"name": "python", "arguments": json.dumps({"code": code})}}]})
-            if await self._run_cell(call, tc_id, code):
+            # one python call per reply; the others are kept in the message (they are in the sampled tokens and in the model's
+            # context) and answered as refused, never silently dropped (G1 D14)
+            ids, tcs = [], []
+            for i, tc in enumerate(r.tool_calls):
+                tid = tc.get("id") or f"py{self.counters['cells'] + 1}_{i}"
+                ids.append(tid)
+                args = tc.get("arguments") if isinstance(tc.get("arguments"), dict) else {}
+                tcs.append({"id": tid, "type": "function", "function": {"name": tc.get("name"), "arguments": json.dumps(args, default=str)}})
+            first = next(i for i, tc in enumerate(r.tool_calls) if tc["name"] == "python")
+            tc_id = ids[first]
+            code = str((r.tool_calls[first].get("arguments") or {}).get("code") or "")
+            self.messages.append({**(r.raw_message or {}), "role": "assistant", "content": r.text or "", "tool_calls": tcs})
+            done = await self._run_cell(call, tc_id, code)
+            extra = [i for i in range(len(ids)) if i != first]
+            if extra:
+                self.counters["refused_calls"] += len(extra)
+                call["refused_calls"] = len(extra)
+                for i in extra:
+                    self.messages.append({"role": "tool", "tool_call_id": ids[i], "content": "[not run: one python call per reply; this reply's first "
+                                                                                          "python call ran, put everything in one call]"})
+            if done:
                 return
 
     async def _run_cell(self, call: dict[str, Any], tc_id: str, code: str, entry: JournalEntry | None = None) -> bool:
@@ -388,15 +519,22 @@ class RLMPolicy(Policy):
         self._current_call = call
         self.counters["cells"] += 1
         self._cell_msgs = []
-        r = await self.kernel.execute(code, self._host, entry=entry)
-        self._current_call = None
-        out = self._format(r)
-        if self._cell_msgs:
-            out += "\n[" + str(len(self._cell_msgs)) + " new message(s) appended to INBOX] " + "; ".join(
-                f"from {m['from']}: {str(m['text'])[:200]}" for m in self._cell_msgs)
+        self._cell_sub_calls = 0
+        try:
+            r = await self.kernel.execute(code, self._host, entry=entry)
+        finally:
+            self._current_call = None
+        notes = []
+        if r.protocol_errors:  # the cell forged or garbled kernel protocol frames: dropped; its own (scored) problem (H3 V2)
+            self.counters["protocol_errors"] += r.protocol_errors
+            notes.append(f"[kernel: {r.protocol_errors} invalid protocol frame(s) from this cell were ignored]")
         if r.timed_out or r.killed:
-            await self._restore_before_last()
-            out += "\n[the cell did not finish in time; the kernel state was restored to before this cell, World actions it took still happened]"
+            how = await self._restore_before_last()
+            notes.append(f"[the cell did not finish in time; {how}; World actions it took still happened]")
+        ann = self._announce(self._cell_msgs, max(80, self.max_output_chars // 4)) if self._cell_msgs else ""
+        tail = "\n".join([ann, *notes] if ann else notes)
+        room = max(50, self.max_output_chars - len(tail) - 1) if tail else self.max_output_chars  # announcements share the cap (G1 D15)
+        out = self._cap(self._format(r), room) + ("\n" + tail if tail else "")
         self.messages.append({"role": "tool", "tool_call_id": tc_id, "content": out})
         self.trajectory_tokens += approx_tokens([self.messages[-1]])
         if r.finished is not None:
@@ -432,9 +570,10 @@ class RLMPolicy(Policy):
 
     async def _deliver_inbox(self, msgs: list[dict[str, Any]]) -> None:
         assert self.kernel is not None
-        await self.kernel.execute(f"_deliver({msgs!r})", self._host, timeout_s=10)
-        lines = "; ".join(f"from {m['from']}: {str(m['text'])[:200]}" for m in msgs)
-        self.messages.append({"role": "user", "content": f"[{len(msgs)} new message(s) appended to INBOX] {lines}"})
+        r = await self.kernel.execute(f"_deliver({msgs!r})", self._host, timeout_s=10)
+        if r.timed_out or r.killed:  # model code redefined _deliver to block: restore like any wedged cell
+            await self._restore_before_last()
+        self.messages.append({"role": "user", "content": self._announce(msgs, max(80, self.max_output_chars // 4))})
 
     async def _maybe_compact(self) -> None:
         cfg = self.context
@@ -446,6 +585,10 @@ class RLMPolicy(Policy):
         before = approx_tokens(self.messages)
         r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
                                     temperature=self.temperature, sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+        if (r.tokens or {}).get("new_segment") and self.model_calls:  # the engine re-rendered (thinking template): a segment, not a break (H3 V9)
+            self.segments.append({"index": self.segment + 1, "strategy": "rerender", "summary_call": None, "context_before": before,
+                                  "context_after": before, "kept_turns": None})
+            self.segment += 1
         self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
                                  "step": self._step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd,
                                  "latency_s": round(r.latency_s, 3), "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens),
@@ -454,7 +597,10 @@ class RLMPolicy(Policy):
         cut = starts[-k] if k and len(starts) >= k else len(self.messages)
         recent = self.messages[cut:]
         idx = await self._archive(self.messages[:cut], r.text or "")
-        names = await self.kernel.names() if self.kernel is not None else []
+        try:
+            names = await self.kernel.names() if self.kernel is not None and self.kernel.proc is not None else []
+        except Exception:  # noqa: BLE001 -- a kernel the last cell broke: the summary still goes in; the next cell restores it
+            names = []
         live = ", ".join(n for n in names if n not in ("world", "rlm", "host", "asyncio", "HISTORY"))
         state = ARCHIVED.format(i=idx, names=live) if idx is not None else "[python-state] Your kernel kept running. Live names: " + live
         self.messages = [self.messages[0], {"role": "user", "content": self._task_message()}, {"role": "user", "content": SUMMARY_HEAD + (r.text or "")},
@@ -531,6 +677,7 @@ class RLMPolicy(Policy):
         """Rebuild the kernel from the journal; if the checkpoint was taken inside a cell, finish that cell (its recorded
         replies first, then live: the pending World call's result comes from ``recover``)."""
         st, self._resume = self._resume, None
+        self.seed = st["kernel"]["seed"]
         self.kernel = Kernel(self.launcher, seed=st["kernel"]["seed"], cell_timeout_s=st["kernel"]["cell_timeout_s"])
         pending = await self.kernel.replay(st["kernel"]["journal"])
         if pending is None:

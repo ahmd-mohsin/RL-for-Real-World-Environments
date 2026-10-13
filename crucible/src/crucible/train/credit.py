@@ -41,7 +41,7 @@ def token_credit(ro: RolloutRecord, seq_adv: float, *, turn_weight: float = 0.0,
     out = []
     for t in ro.turns:
         ids = list(t.completion_token_ids or [])
-        trainable = not ro.mask_sample and t.actor not in frozen and (train_compaction or t.kind != "compaction")
+        trainable = not ro.mask_sample and t.trainable and t.actor not in frozen and (train_compaction or t.kind != "compaction")
         a = seq_adv + (turn_weight * (t.advantage or 0.0) if trainable else 0.0)
         out.append(TokenCredit(call_id=t.call_id, completion_ids=ids, logprobs=list(t.logprobs or []),
                                advantages=[a if trainable else 0.0] * len(ids), loss_mask=[1 if trainable else 0] * len(ids),
@@ -51,7 +51,11 @@ def token_credit(ro: RolloutRecord, seq_adv: float, *, turn_weight: float = 0.0,
 
 def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, eta: float, frozen_actors: Iterable[str] = ()) -> dict[tuple[str, str], float]:
     """(rollout id, call id) -> the process credit to add on that call's tokens: each call's ΔΦ (``Turn.advantage``)
-    through ``credit.compose.turn_credit`` per group, ``eta`` its weight."""
+    through ``credit.compose.turn_credit`` per group, ``eta`` its weight.
+
+    RLM sub-calls (``kind="sub"``) are tree nodes of the turn whose cell issued them, not steps of the Φ chain: they are
+    left out of the chain and get their parent's credit (M14 audit G1 D4: copying the parent's ΔΦ onto each sub turn
+    inflated Φ and diluted the root turn's credit with every sub-call its cell made)."""
     import itertools
 
     from crucible.credit.compose import Episode, turn_credit
@@ -64,13 +68,18 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
     for rs in by.values():
         eps, keys = [], []
         for r in rs:
-            ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen]
+            ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen and t.trainable and t.kind != "sub"]
             masked = r.mask_sample or r.reward is None
             eps.append(Episode(reward=None if masked else float(r.reward), phis=list(itertools.accumulate(float(t.advantage or 0.0) for t in ts)),
                                gated=bool(r.gates) and not all(r.gates.values()), hack=float((r.reward_components or {}).get("hack/confirmed", 0.0)) > 0))
             keys.append([(r.rollout_id, t.call_id) for t in ts])
         for ks, row in zip(keys, turn_credit(eps, eta=eta), strict=True):
             out.update(zip(ks, row, strict=True))
+        for r in rs:
+            for t in r.turns:
+                if t.kind == "sub" and t.trainable and t.completion_token_ids and t.actor not in frozen:
+                    parent = (t.depends_on or [None])[0]
+                    out[(r.rollout_id, t.call_id)] = out.get((r.rollout_id, parent), 0.0) if parent else 0.0
     return out
 
 

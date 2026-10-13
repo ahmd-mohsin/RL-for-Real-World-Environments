@@ -158,7 +158,7 @@ def plant(work: Path) -> list[tuple[str, Any, list[SourceRef]]]:
 
 def env_secrets() -> dict[str, str]:
     """name -> value of every credential in the workspace .env (values are compared, never printed or stored)."""
-    known = set(RedactionPolicy.with_env_file(ENV_FILE).secret_values)
+    known = set(RedactionPolicy.with_env_file(ENV_FILE, missing_ok=True).secret_values)
     out = {}
     for line in ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []:
         k, _, v = line.removeprefix("export ").partition("=")
@@ -182,7 +182,7 @@ def run() -> dict[str, Any]:
     if root.exists():
         shutil.rmtree(root)
     ts = TraceStore(Store(root / "store"))
-    policy = RedactionPolicy.with_env_file(ENV_FILE)  # what a tenant runs: format patterns + its known secret values
+    policy = RedactionPolicy.with_env_file(ENV_FILE, missing_ok=True)  # what a tenant runs: format patterns + its known secret values
     per: dict[str, dict[str, Any]] = {}
     keys: dict[str, list[str]] = {}
     for name, conn, refs in sources():

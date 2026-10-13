@@ -150,7 +150,7 @@ async def run(budget: float = 0.10) -> dict[str, Any]:
             from crucible.verify.runtime.trusted import Trusted
             from crucible_pack_toy.verify import plan as toy_plan
 
-            out = await grade_episode(toy_plan(), Context(Trusted(d / "grade"), params={"view": w.verifier_view()}), out_dir=d / "verifier",
+            out = await grade_episode(toy_plan(), Context(Trusted(d / "grade"), params={"view": w.verifier_view(), "events": list(w.log)}), out_dir=d / "verifier",
                                       milestones=MILESTONES, series=[(out5 or {}).get("phis") or {}])
             flat = json.loads((d / "verifier" / "reward.json").read_text())
             return {"reward": out.reward.reward, "gates": out.reward.gates, "failing": out.report.failing_gates(), "flat_numeric": all(isinstance(v, float) for v in flat.values()),

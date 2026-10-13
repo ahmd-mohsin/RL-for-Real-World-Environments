@@ -55,6 +55,13 @@ def base_reader(task: str):
 
 
 def recorded_outcome(task: str, run_dir: Path) -> float | None:
+    """The run's verifier outcome on the task's CURRENT version; None when it was graded under another (M14 audit V9) or
+    never graded."""
+    from crucible_pack_coding.connectors.agent_runs import task_versions
+
+    under, current = task_versions(task, run_dir.name)
+    if under != current:
+        return None
     g = run_dir / "grade_report.json"
     if g.exists():
         return 1.0 if float(json.loads(g.read_text()).get("reward", 0)) >= 1 else 0.0

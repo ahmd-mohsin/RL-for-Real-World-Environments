@@ -59,6 +59,10 @@ class Turn(CrucibleModel):
     # ``length`` locate the expanded placeholder run in the call's *full* prompt, ``grid`` is the processor's (t, h, w)
     # patch grid. Pixels never enter the record: the trainer rebuilds them from the refs (``train.vision``).
     media: list[dict[str, Any]] | None = None
+    # the model that answered this call when it is not the trained policy (an RLM ``sub_llm``: M14 audit G1 D1); such a call
+    # is ``trainable=False``: recorded, never trained, exempt from the token-record checks
+    model: str | None = None
+    trainable: bool = True
 
     def versions(self) -> list[int]:
         if self.version_spans:
@@ -86,6 +90,8 @@ class Turn(CrucibleModel):
 
     def missing(self) -> list[str]:
         """What keeps this call out of training (empty: train-valid). Named, so a masked run says why."""
+        if not self.trainable:
+            return []
         n = len(self.completion_token_ids or [])
         out = [k for k, bad in (("prompt_token_ids", self.prompt_token_ids is None), ("completion_token_ids", n == 0),
                                 ("logprobs", self.logprobs is None or len(self.logprobs) != n),

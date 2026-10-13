@@ -1,9 +1,9 @@
 [project]
 name = "crucible-pack-finance_ap"
-version = "0.1.0"
-description = "A Crucible domain pack"
+version = "0.3.0"
+description = "Crucible accounts-payable domain pack: invoices decided under a 3-way-match policy with fraud controls"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["crucible>=0.1,<0.2", "pyyaml>=6"]
 
 [project.entry-points."crucible.plugins"]
 finance_ap = "crucible_pack_finance_ap:register"
@@ -14,3 +14,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/crucible_pack_finance_ap"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"pack.yaml" = "crucible_pack_finance_ap/_pack/pack.yaml"
+"README.md" = "crucible_pack_finance_ap/_pack/README.md"

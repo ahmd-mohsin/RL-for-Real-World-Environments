@@ -39,7 +39,7 @@ def test_scaffold_is_conflict_safe_and_manifest_contract(tmp_path):
     assert (d / "README.md").read_text() == "edited by the user\n"
     with pytest.raises(ValueError, match="pack name"):
         new("Bad-Name", tmp_path / "x")
-    base = {"name": "x", "version": "1", "description": "d", "license": "MIT", "package": "p", "entry_point": "p:register"}
+    base = {"name": "xy", "version": "1", "description": "d", "license": "MIT", "package": "p", "entry_point": "p:register"}  # names are 2+ chars (M14 V10)
     with pytest.raises(ValueError, match="ingest"):
         PackManifest.model_validate(base | {"hooks": {"credit": "p:credit"}})
     with pytest.raises(ValueError, match="module:attr"):

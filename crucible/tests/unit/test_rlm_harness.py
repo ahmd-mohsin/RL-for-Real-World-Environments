@@ -55,7 +55,7 @@ def scripted_engine(task: BacklogTask, chunk: int = 6):
 def _config():
     from crucible.runtime.harness.rlm import RLMConfig
 
-    return RLMConfig(max_tokens=16_000, temperature=1.0, budget_tokens=2_500, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200, kernel="local")
+    return RLMConfig(max_tokens=16_000, temperature=1.0, budget_tokens=2_500, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200, kernel="local", allow_host=True)
 
 
 async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
@@ -119,7 +119,9 @@ async def test_step_limit_closes_the_kernel(tmp_path):
     made = []
 
     def make(a):
-        made.append(RLMPolicy("agent", EngineLLM(CODEC, gen), max_tokens=16_000))
+        from crucible.actors.rlm.kernel import LocalLauncher
+
+        made.append(RLMPolicy("agent", EngineLLM(CODEC, gen), max_tokens=16_000, launcher=LocalLauncher(allow_host=True)))
         return {"agent": made[-1]}
 
     try:

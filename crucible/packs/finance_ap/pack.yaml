@@ -1,8 +1,8 @@
 # The finance_ap pack's manifest (schema: crucible.core.schema.pack.PackManifest).
 schema_version: 1
 name: finance_ap
-version: 0.1.0
-description: Accounts payable (the thesis MVP domain) - pending invoices decided under a 3-way-match policy with fraud controls (duplicates, blocked vendors, unverified bank changes, price tolerance, missing receipts). Seeded worlds, state-graded, Φ per invoice.
+version: 0.3.0
+description: Accounts payable (the thesis MVP domain) - pending invoices decided under a 3-way-match policy with fraud controls (duplicates in their real forms, blocked vendors, unmatched purchase orders, unverified bank changes, price tolerance, missing receipts). Generator v3 draws the invoice count, the base rates, compound and near-miss cases, vendor aliases, and per-world parameters stated only in the policy. State-graded, Φ per invoice equals the grade.
 license: Apache-2.0
 authors: [crucible]
 kind: domain
@@ -18,7 +18,7 @@ label:
   threshold: 1.0
 hooks:
   tasks: crucible_pack_finance_ap.studio:tasks          # two seeded AP worlds with their gold decisions
-  generator: crucible_pack_finance_ap.studio:generate   # seed -> a fresh AP world (tolerance and cases drawn)
+  generator: crucible_pack_finance_ap.studio:generate   # seed -> a fresh AP world (generator v3: n, base rates, tolerance, rule order, compound and near-miss cases, vendor aliases drawn)
   stages: crucible_pack_finance_ap.studio:stages
   policies: crucible_pack_finance_ap.studio:policies    # scripted oracle / approve-everything / no-op
-  fixtures: crucible_pack_finance_ap.studio:fixtures    # gold + 5 control breaches (score 0) + 2 near misses (partial credit) + no-op
+  fixtures: crucible_pack_finance_ap.studio:fixtures    # gold + 9 control breaches + 5 wrong decisions (score 0) + 3 adversaries graded exactly + no-op; 8 bounded adversaries (expect_max) for semantic

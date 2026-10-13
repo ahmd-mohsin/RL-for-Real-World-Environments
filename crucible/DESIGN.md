@@ -2870,6 +2870,26 @@ bridge must fill masked rows first; NeMo-Gym's `harbor_agent` scores a missing r
 "byte-identical re-export" proves only that the import left its source untouched; the verifiers gate runs verifiers'
 classes on a stub runtime. Details: `docs/audit/2026-10-12/M11-interop.md`.
 
+**M14 audit (2026-10-13): packs and the RLM agent.** A pack is accepted only if it can fail: `crucible pack check`
+passed 19 of 25 deliberately broken packs and 17 of 21 broken finance_ap copies (a grader that always pays once fixtures
+were missing, NaN and out-of-range rewards, a self-declared `requires` that turned the semantic level into a silent skip,
+a misspelled `redaction_env` that stored the secret). Now missing or empty fixtures and tasks fail, every reward must be
+finite and in range, fixtures need a case at each end of the range, seeded packs are re-graded on fresh Worlds, each pack
+declares adversary policies with an `expect_max` bound that run at the semantic level, skips are loud, each pack is
+checked in its own process, licences are SPDX, placeholders are scanned everywhere, and `--level accept` runs the M9
+contract (finance_ap had never been through it). The packs' own graders were hackable: an out-of-range integer argument
+masked a failing episode (argument-binding errors are now the policy's scored error, in core), a typed supervisor name
+passed the toy's approval gate, a split refund dodged its threshold, comment stuffing outranked honest coding failures in
+dense Φ, and finance_ap was solvable without reading the policy (a memorized 2% tolerance solved 73% of worlds; its v3
+generator draws tolerance and rule order per world, forces compound, near-miss, restated-duplicate and aliased-vendor
+cases, and is all-or-nothing; every fixed shortcut now solves at most the share of worlds that happen to match it). Packs install as wheels. A validation campaign on the fixed tree (≈4,750 episodes) found 14 more defects, fixed before the
+commit, among them a lone surrogate in a tool argument that masked episodes and coding Φ fooled by string literals and
+dead code (now a lexer / parser code view). The RLM agent runs model code in the isolated Docker kernel by default (it ran
+on the host with the parent's credentials), speaks its protocol on a private fd with validated frames (cell code could
+forge frames and turn its failure into an infra mask), never trains sub-LLM calls answered by another model, masks
+sub-call and sandbox faults, budgets sub-calls and spawns, and keeps a harness edit only on paired, interleaved,
+multi-seed evidence. Details: `docs/audit/2026-10-13/M14-packs-rlm.md`.
+
 **M13 audit (2026-10-13).** Benchmarks now measure what they claim. A hack never outranks an honest model: exposed
 answers score 0 with a flag in bench views, and in Harbor in place a grader-toolchain manifest taken before the policy acts
 is checked host-side at grade time, so stubbing the grader's own tools is the policy's scored 0 (`crucible:grader_tampered`;

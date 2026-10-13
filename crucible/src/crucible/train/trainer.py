@@ -241,7 +241,22 @@ class TorchTrainer:
             if outcome is None:
                 continue
             prompts = full_prompts(r)
-            calls = [t for t in r.turns if t.completion_token_ids]
+            # the root chain: the policy's own calls; RLM sub-LLM calls (kind "sub") are tree nodes, each its own sequence
+            # with the episode outcome as its terminal (M14 audit G1 D14: they were chained into the root's Bellman chain)
+            calls = [t for t in r.turns if t.completion_token_ids and t.kind != "sub" and self._trains(t)]
+            for st in (t for t in r.turns if t.completion_token_ids and t.kind == "sub" and self._trains(t)):
+                comp = list(st.completion_token_ids)
+                with torch.no_grad():
+                    sv = self.critic.token_values(prompts[st.call_id], comp).detach().double().cpu()
+                srew = torch.zeros(len(comp), dtype=torch.float64)
+                srew[-1] = float(outcome)
+                sadv, _ = gae(srew, sv, torch.ones(len(comp), dtype=torch.bool), gamma=cc.gamma,
+                              lam=length_adaptive_lambda(len(comp), cc.alpha) if cc.lam_policy == "adaptive" else float(cc.lam_policy))
+                _, sret = gae(srew, sv, torch.ones(len(comp), dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic)
+                out[(r.rollout_id, st.call_id)] = sadv.tolist()
+                self._critic_data.append((prompts[st.call_id], comp, sret.float()))
+                all_ret.append(sret.float())
+                all_val.append(sv.float())
             if not calls:
                 continue
             with torch.no_grad():
@@ -351,7 +366,7 @@ class TorchTrainer:
 
             for i, r in enumerate(records):
                 if base[i] is not None:
-                    n = sum(len(t.completion_token_ids or []) for t in r.turns if t.actor not in c.frozen_actors)
+                    n = sum(len(t.completion_token_ids or []) for t in r.turns if self._trains(t))
                     pen = overlong_penalty(n, l_max=int(c.overlong.get("l_max", 20_480)), l_cache=int(c.overlong.get("l_cache", 4_096)))
                     if pen:
                         r.reward_components["shaping/overlong"] = pen
@@ -411,7 +426,7 @@ class TorchTrainer:
         ea = self.cfg.entropy_adaptive
         if not ea or self.cfg.correction.name != "mimo4":
             return {}
-        lps = [lp for r in records if not r.mask_sample for t in r.turns if t.actor not in self.cfg.frozen_actors for lp in (t.logprobs or [])]
+        lps = [lp for r in records if not r.mask_sample for t in r.turns if self._trains(t) for lp in (t.logprobs or [])]
         if not lps:
             return {}
         ent = -sum(lps) / len(lps)
@@ -427,6 +442,11 @@ class TorchTrainer:
         for k in ("pos_high", "neg_high"):
             p[k] = min(max(get(k, 5.0), 1.01), 20.0)
         return {"entropy_adaptive/entropy": ent, **{f"entropy_adaptive/{k}": float(p[k]) for k in ("pos_low", "pos_high", "neg_low", "neg_high")}}
+
+    def _trains(self, t: Any) -> bool:
+        """A call the policy gradient may touch: not a frozen actor's, and produced by the policy itself (``Turn.trainable``
+        is False for a sub-LLM answered by another model; M14 audit G1 D1)."""
+        return t.actor not in self.cfg.frozen_actors and bool(getattr(t, "trainable", True))
 
     def _kl_coef(self, r: RolloutRecord) -> float:
         return float(self.cfg.kl_coef_by_source.get(r.source, self.cfg.kl_coef)) if r.source in self.cfg.kl_coef_by_source else float(self.cfg.kl_coef)
@@ -525,7 +545,7 @@ class TorchTrainer:
 
                 media = prompt_media(r)
             for t in r.turns:
-                if not t.completion_token_ids or t.actor in self.cfg.frozen_actors:
+                if not t.completion_token_ids or not self._trains(t):
                     continue
                 if not t.candidates_valid():
                     raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
@@ -686,7 +706,7 @@ class TorchTrainer:
             why = None
             for t in r.turns:
                 n = len(t.completion_token_ids or [])
-                if not n or t.actor in self.cfg.frozen_actors:
+                if not n or not self._trains(t):
                     continue
                 temp = t.sampling.get("temperature") if t.sampling else None
                 if temp is not None and abs(float(temp) - float(self.cfg.temperature)) > 1e-6:

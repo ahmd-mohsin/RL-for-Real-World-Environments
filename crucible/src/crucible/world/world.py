@@ -67,6 +67,60 @@ def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
     return "; ".join(f"{'/'.join(map(str, e.path)) or '(arguments)'}: {e.message}" for e in errors[:5])
 
 
+def _encodable(s: str) -> bool:
+    try:
+        s.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def unencodable(x: Any, path: str = "") -> str | None:
+    """Where ``x`` holds a string that UTF-8 cannot encode (a lone surrogate such as ``"\\udcff"``, which a model emits as
+    plain ASCII inside tool-call JSON), else None. M14 campaign B1: such an argument made the trace write raise
+    ``PydanticSerializationError`` inside ``World.step``, which masked the policy's own failing episode (unknown blame)."""
+    if isinstance(x, str):
+        return None if x.isascii() or _encodable(x) else (path or "(value)")
+    if isinstance(x, dict):
+        for k, v in x.items():
+            if isinstance(k, str) and unencodable(k) is not None:
+                return f"{path}/{safe_text(k)}" if path else safe_text(k)
+            if (p := unencodable(v, f"{path}/{k}" if path else str(k))) is not None:
+                return p
+    elif isinstance(x, list | tuple):
+        for i, v in enumerate(x):
+            if (p := unencodable(v, f"{path}/{i}" if path else str(i))) is not None:
+                return p
+    return None
+
+
+def safe_text(s: str) -> str:
+    """``s`` with every code point UTF-8 cannot encode escaped as ``\\udcff`` text (lossless to read, always writable)."""
+    return s if s.isascii() or _encodable(s) else s.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def safe_json(x: Any) -> Any:
+    """``x`` with every string (keys included) passed through ``safe_text``; the same object when nothing needs escaping."""
+    if isinstance(x, str):
+        return safe_text(x)
+    if unencodable(x) is None:
+        return x
+    if isinstance(x, dict):
+        return {safe_text(k) if isinstance(k, str) else k: safe_json(v) for k, v in x.items()}
+    if isinstance(x, list | tuple):
+        return [safe_json(v) for v in x]
+    return x
+
+
+def _event_json(ev: TraceEvent) -> str:
+    """One trace line. Events are escaped when logged; one that still cannot be encoded (a prefix from elsewhere) is
+    escaped here rather than failing the episode."""
+    try:
+        return ev.model_dump_json(exclude_none=True)
+    except Exception:  # noqa: BLE001 - PydanticSerializationError on an unencodable string
+        return json.dumps(safe_json(ev.model_dump(mode="python", exclude_none=True)), ensure_ascii=False, default=str)
+
+
 def _inbound_json(m: Inbound) -> dict[str, Any]:
     d = m.model_dump(mode="json", by_alias=True)
     if d.get("attachments") is None:
@@ -425,8 +479,16 @@ class World:
         fault label that decides whether a failure is the policy's (scored) or the infrastructure's (masked)."""
 
         def fail(name: str, content: str, error: str, fault: str = "policy") -> ToolResult:
-            return ToolResult(tool_call_id=call.tool_call_id, function_name=name, ok=False, content=content, error=error, fault=fault)
+            return ToolResult(tool_call_id=safe_text(call.tool_call_id), function_name=safe_text(name), ok=False, content=safe_text(content), error=error, fault=fault)
 
+        # M14 campaign B1: a string UTF-8 cannot encode (a lone surrogate) is the caller's malformed call, refused before
+        # anything runs; the episode continues and is scored (it raised while the trace was written and masked the episode)
+        bad = "function name" if unencodable(call.function_name) is not None else (
+            "tool_call_id" if unencodable(call.tool_call_id) is not None else unencodable(call.arguments))
+        if bad is not None:
+            name = safe_text(call.function_name)
+            return fail(name, f"Invalid arguments for {name}: {bad} holds a string that is not valid UTF-8 (a lone surrogate). "
+                              "Resend the call with valid text.", "invalid_arguments")
         try:
             app_id, tool = self._split(call.function_name)
         except WorldError as e:
@@ -501,7 +563,11 @@ class World:
         cap = self.spec.limits.max_tool_output_chars
         if len(r.content) <= cap:
             return r
-        key = self.store.put_bytes(r.content.encode("utf-8", "surrogateescape"))
+        try:
+            raw = r.content.encode("utf-8", "surrogateescape")
+        except UnicodeEncodeError:  # a surrogate outside the escape range (\ud800): escaped, never a crash (M14 campaign B1)
+            raw = r.content.encode("utf-8", "backslashreplace")
+        key = self.store.put_bytes(raw)
         head, tail = r.content[: cap * 2 // 3], r.content[-(cap // 3):]
         cut = len(r.content) - len(head) - len(tail)
         banner = f"\n\n[... {cut} characters truncated; narrow the command or read the output in parts ...]\n\n"
@@ -593,6 +659,8 @@ class World:
             from pydantic import TypeAdapter
 
             action = TypeAdapter(Action).validate_python(action)
+        if isinstance(action, Message | Done) and unencodable(d := action.model_dump(mode="python", by_alias=True)) is not None:
+            action = type(action).model_validate(safe_json(d))  # M14 campaign B1: the policy's unencodable text is escaped, never a crash
         spec = self.spec.actor(actor)
         if spec.kind != "policy":
             raise WorldError(f"{actor!r} is not a policy actor")
@@ -865,11 +933,13 @@ class World:
         return self.clock.now_iso() if self.spec.clock else None
 
     def _log(self, kind: str, actor: str | None, typ: str, *, text: str | None = None, data: dict[str, Any] | None = None) -> None:
-        ev = TraceEvent(seq=len(self.log), time=self._now(), kind=kind, actor=actor, type=typ, text=text, data=data or {})
+        # every string the trace holds is UTF-8 writable (M14 campaign B1): a policy's lone surrogate is kept as escaped text
+        ev = TraceEvent(seq=len(self.log), time=self._now(), kind=kind, actor=actor, type=typ, text=safe_text(text) if isinstance(text, str) else text,
+                        data=safe_json(data or {}))
         self.log.append(ev)
         if self.trace_sink is not None:
             with self.trace_sink.open("a") as f:
-                f.write(ev.model_dump_json(exclude_none=True) + "\n")
+                f.write(_event_json(ev) + "\n")
 
     def stream_trace(self, path: Path, *, prefix: list[TraceEvent] | None = None) -> None:
         """Stream trace events to ``path`` (JSONL). ``prefix``: the events of an episode resumed from a checkpoint, which
@@ -878,7 +948,7 @@ class World:
         path.parent.mkdir(parents=True, exist_ok=True)
         if prefix is not None:
             self.log = list(prefix)
-        path.write_text("".join(e.model_dump_json(exclude_none=True) + "\n" for e in self.log))
+        path.write_text("".join(_event_json(e) + "\n" for e in self.log))
         self.trace_sink = path
 
     @staticmethod

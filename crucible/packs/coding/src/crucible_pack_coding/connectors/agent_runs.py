@@ -80,6 +80,11 @@ class AgentRunConnector:
         if reward is None and rec:
             reward = rec["score"]
             details["failing_gates"] = rec.get("failing_gates", [])
+        # M14 audit V9: the task version the run was graded under, against the seed's current one (task04 v1 passes were
+        # labelled ``good`` for v3, where the same models fail)
+        graded_under, current = task_versions(task, run)
+        details["task_version"] = graded_under
+        details["current_task_version"] = current
         if reward is None and p.get("result_md"):
             m = re.search(r"\*\*Reward:\s*([0-9.]+)", p["result_md"])
             reward = float(m.group(1)) if m else None
@@ -89,7 +94,10 @@ class AgentRunConnector:
         except (TypeError, ValueError):
             reward = None
         exit_status = str((p["trajectory"].get("info") or {}).get("exit_status") or "")
-        if reward is not None and (math.isnan(reward) or reward < 0):  # NaN, or a harness's -1 "not graded" (M4 audit: both were "bad")
+        if reward is not None and graded_under and current and graded_under != current:
+            outcome = TraceOutcome(label="unknown", label_source=f"graded under {graded_under}; the task is now {current}",
+                                   details={**details, "reward": reward, "stale_version": True})
+        elif reward is not None and (math.isnan(reward) or reward < 0):  # NaN, or a harness's -1 "not graded" (M4 audit: both were "bad")
             outcome = TraceOutcome(label="unknown", label_source=f"reward {reward} is not a grade", details=details)
         elif reward is not None and reward < 1.0 and exit_status in ("LimitsExceeded", "TimeExceeded"):  # the run never finished: not a verdict on the work
             outcome = TraceOutcome(label="unknown", label_source=f"the run stopped on {exit_status} before it was done", details={**details, "reward": reward, "exit_status": exit_status})
@@ -111,3 +119,13 @@ def _recorded(task: str, run: str) -> dict[str, Any] | None:
         if f.run_ref.rstrip("/").endswith(f"runs/{run}"):
             return {"score": f.score, "model": f.model, "failing_gates": list(f.failing_gates or []), "task_version": f.task_version}
     return None
+
+
+def task_versions(task: str, run: str) -> tuple[str | None, str | None]:
+    """(the version a run was graded under, the seed's current version). The calibration record names the version; a
+    run without one was graded by a report next to it, under the current version."""
+    from crucible_pack_coding.seeds import SEEDS
+
+    current = SEEDS.get(task, {}).get("version")
+    rec = _recorded(task, run)
+    return (rec.get("task_version") if rec else current) or current, current

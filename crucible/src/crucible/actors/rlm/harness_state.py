@@ -7,11 +7,14 @@ the study found missing there: **edits are measured before they are kept**.
   ``helped``) so entries that never help can be retired (CH: 99 skills created, 5 ever succeeded).
 - **Versions:** the store is an append-only list of whole-state versions with content hashes; ``rollback_to(v)`` restores a
   recorded state exactly (Prime's per-edit inverse can overwrite later edits).
-- **Measured edits:** ``propose(edits)`` validates (kind, required fields, no base-prompt edits, skills must compile) and
-  returns a candidate state; ``evaluate(candidate, fn, seeds)`` runs ``fn(state, seed) -> {metric: value}`` for the current
-  and the candidate state on the **same seeds** and accepts only if the primary metric improves by ``margin`` and no guard
-  metric regresses by more than ``tolerance``; the decision and every metric are recorded either way (Prime stores
-  ``expectedOutcome`` and never checks it).
+- **Measured edits:** ``propose(edits)`` validates (kind, required fields, no base-prompt edits, no kind changes, skills
+  must compile) and returns a candidate state; ``evaluate(candidate, fn, seeds)`` runs ``fn(state, seed) -> {metric:
+  value}`` for the current and the candidate state on the **same seeds**, interleaved with alternating order, and accepts
+  only if, paired per seed, the primary metric improves by more than ``margin`` plus the measured noise (the base re-run
+  on one seed), on most seeds, and no guard regresses by more than ``tolerance``. A missing or NaN value on either arm is
+  a rejection, and fewer than ``min_seeds`` (3) distinct seeds is a rejection (M14 audit H3 V7, G1 D11; Continual Harness
+  uses >= 3 seeds, the Rust-rewrite swarm a noise gate and alternating order). The decision and every metric are recorded
+  either way (Prime stores ``expectedOutcome`` and never checks it).
 - **Digest:** ``digest(query, per_kind)`` ranks entries by term overlap with the query (goal + recent text), Prime's ranked
   ``[harness-digest]``, and counts what was shown.
 - Persistence: one JSON file, atomic write; loading a corrupt file raises (no silent empty store for a manager that must
@@ -130,7 +133,10 @@ class HarnessState:
             why.append(f"{eid} does not exist")
         if act in ("create", "update") and not (edit.get("title") or (eid in entries)) :
             why.append("create needs a title")
-        if act in ("create", "update") and kind == "skill" and edit.get("content"):
+        if act in ("update", "delete") and eid in entries and kind != entries[eid].kind:
+            why.append(f"{eid} is a {entries[eid].kind}; an edit cannot change its kind (G1 D11: a note-kind update skipped a skill's compile check)")
+        eff = entries[eid].kind if act == "update" and eid in entries else kind
+        if act in ("create", "update") and eff == "skill" and edit.get("content"):
             try:
                 compile(edit["content"], f"<skill {eid}>", "exec", flags=0x2000)  # PyCF_ALLOW_TOP_LEVEL_AWAIT
             except SyntaxError as e:
@@ -162,34 +168,66 @@ class HarnessState:
 
     async def evaluate(self, edits: Sequence[dict[str, Any]], fn: Callable[[dict[str, Entry], int], Awaitable[dict[str, float]]],
                        seeds: Sequence[int], *, primary: str, margin: float = 0.0, guards: Sequence[str] = (), tolerance: float = 0.0,
-                       higher_is_better: dict[str, bool] | None = None, trigger: str = "", evidence: str = "") -> dict[str, Any]:
-        """A/B on the same seeds: accept iff the candidate improves ``primary`` by > ``margin`` and no guard regresses by more
-        than ``tolerance``. Records the event and commits the candidate only when accepted."""
+                       higher_is_better: dict[str, bool] | None = None, trigger: str = "", evidence: str = "", min_seeds: int = 3,
+                       noise_check: bool = True) -> dict[str, Any]:
+        """A paired A/B on the same seeds (see the module doc). Records the event and commits the candidate only when
+        accepted."""
         cand = self.propose(edits)
         hib = {primary: True, **(higher_is_better or {})}
-        base_runs = [await fn(self.entries, s) for s in seeds]
-        cand_runs = [await fn(cand, s) for s in seeds]
+        keys = list(dict.fromkeys([primary, *guards]))
+        uniq = list(dict.fromkeys(int(s) for s in seeds))
+        runs: dict[str, dict[int, dict[str, Any]]] = {"base": {}, "candidate": {}}
+        order: list[str] = []
+        for i, sd in enumerate(uniq):  # interleaved, alternating which arm runs first (drift hits both arms alike)
+            for arm in (("base", "candidate") if i % 2 == 0 else ("candidate", "base")):
+                runs[arm][sd] = dict(await fn(self.entries if arm == "base" else cand, sd) or {})
+                order.append(f"{arm}:{sd}")
 
-        def mean(rs, k):
-            vals = [r[k] for r in rs if k in r and r[k] is not None and not (isinstance(r[k], float) and math.isnan(r[k]))]
-            return sum(vals) / len(vals) if vals else float("nan")
+        def val(r: dict[str, Any], k: str) -> float | None:
+            v = r.get(k)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)):
+                return None
+            return float(v)
 
-        metrics = {k: {"base": mean(base_runs, k), "candidate": mean(cand_runs, k)} for k in {primary, *guards}}
-
-        def gain(k):
-            m = metrics[k]
-            d = m["candidate"] - m["base"]
-            return d if hib.get(k, True) else -d
-
-        reasons = []
-        if not gain(primary) > margin:
-            reasons.append(f"{primary} did not improve by more than {margin} ({metrics[primary]['base']:.4g} -> {metrics[primary]['candidate']:.4g})")
+        noise = 0.0
+        if noise_check and uniq:  # fn's own noise: the base again on one seed
+            again = dict(await fn(self.entries, uniq[0]) or {})
+            order.append(f"base:{uniq[0]}:again")
+            for k in keys:
+                a, b = val(again, k), val(runs["base"][uniq[0]], k)
+                noise = max(noise, abs(a - b)) if a is not None and b is not None else (math.inf if (a is None) != (b is None) else noise)
+        reasons: list[str] = []
+        if len(uniq) < min_seeds:
+            reasons.append(f"{len(uniq)} distinct seed(s): at least {min_seeds} are needed")
+        missing = [f"{k}@{arm}:{sd}" for k in keys for sd in uniq for arm in ("base", "candidate") if val(runs[arm][sd], k) is None]
+        if missing:
+            reasons.append(f"metric values missing or NaN count as a regression: {missing[:6]}")
+        gains: dict[str, list[float]] = {}
+        metrics: dict[str, dict[str, Any]] = {}
+        for k in keys:
+            sign = 1.0 if hib.get(k, True) else -1.0
+            pairs = [(val(runs["base"][sd], k), val(runs["candidate"][sd], k)) for sd in uniq]
+            pairs = [(b, c) for b, c in pairs if b is not None and c is not None]
+            gains[k] = [sign * (c - b) for b, c in pairs]
+            metrics[k] = {"base": sum(b for b, _ in pairs) / len(pairs) if pairs else float("nan"),
+                          "candidate": sum(c for _, c in pairs) / len(pairs) if pairs else float("nan"),
+                          "paired_gain": sum(gains[k]) / len(gains[k]) if gains[k] else float("nan"), "n": len(pairs)}
+        pg = gains[primary]
+        mean_pg = sum(pg) / len(pg) if pg else float("nan")
+        if not (mean_pg > margin + noise):
+            reasons.append(f"{primary} did not improve by more than {margin} + noise {noise:.4g} ({metrics[primary]['base']:.4g} -> "
+                           f"{metrics[primary]['candidate']:.4g}, paired gain {mean_pg:.4g})")
+        if pg and sum(g > 0 for g in pg) * 2 <= len(pg):
+            reasons.append(f"{primary} improved on {sum(g > 0 for g in pg)} of {len(pg)} seeds (a majority must improve)")
+        if noise > 0 and pg and min(pg) <= noise:
+            reasons.append(f"not every seed improved {primary} by more than the measured noise ({noise:.4g})")
         for g in guards:
-            if gain(g) < -tolerance:
+            gg = gains[g]
+            if gg and sum(gg) / len(gg) < -tolerance:
                 reasons.append(f"guard {g} regressed ({metrics[g]['base']:.4g} -> {metrics[g]['candidate']:.4g})")
         accepted = not reasons
-        event = {"kind": "refinement", "trigger": trigger, "evidence": evidence[:2000], "edits": list(edits), "seeds": list(seeds),
-                 "metrics": metrics, "accepted": accepted, "reasons": reasons, "base_version": self.version, "at": time.time()}
+        event = {"kind": "refinement", "trigger": trigger, "evidence": evidence[:2000], "edits": list(edits), "seeds": uniq, "order": order,
+                 "noise": noise, "metrics": metrics, "accepted": accepted, "reasons": reasons, "base_version": self.version, "at": time.time()}
         self.events.append(event)
         if accepted:
             self.entries = cand

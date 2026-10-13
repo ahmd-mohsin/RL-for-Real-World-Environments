@@ -117,12 +117,15 @@ class RedactionPolicy(CrucibleModel):
     secret_values: list[str] = Field(default_factory=list, exclude=True, repr=False)
 
     @classmethod
-    def with_env_file(cls, path: str | Path, **kw: Any) -> RedactionPolicy:
+    def with_env_file(cls, path: str | Path, *, missing_ok: bool = False, **kw: Any) -> RedactionPolicy:
         """A policy that also removes every credential-like value (``*TOKEN*``, ``*KEY*``, ``*SECRET*``, ``*PASSWORD*``,
-        ``*PAT*``) defined in a dotenv file."""
+        ``*PAT*``) defined in a dotenv file. A path that does not exist raises ``FileNotFoundError`` unless ``missing_ok``
+        (M14 audit V5: a misspelled path was a silent no-op and the secret it named was stored verbatim)."""
         vals = []
         p = Path(path)
-        for line in p.read_text().splitlines() if p.exists() else []:
+        if not p.is_file() and not missing_ok:
+            raise FileNotFoundError(f"redaction env file {p} does not exist (its secret values could not be redacted)")
+        for line in p.read_text().splitlines() if p.is_file() else []:
             k, _, v = line.strip().removeprefix("export ").partition("=")
             v = v.strip()
             if v[:1] in "'\"" and v[:1] and v[1:].find(v[0]) >= 0:  # a quoted value ends at its closing quote

@@ -3,7 +3,7 @@ name = "crucible-pack-__PACK_NAME__"
 version = "0.1.0"
 description = "A Crucible domain pack"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["crucible>=0.1,<0.2", "pyyaml>=6"]
 
 [project.entry-points."crucible.plugins"]
 __PACK_NAME__ = "__PACK_PKG__:register"
@@ -14,3 +14,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/__PACK_PKG__"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"pack.yaml" = "__PACK_PKG__/_pack/pack.yaml"
+"README.md" = "__PACK_PKG__/_pack/README.md"

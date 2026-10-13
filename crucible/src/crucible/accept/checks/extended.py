@@ -172,8 +172,15 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
                 if a.get("function_name") else Message(to=a["to"], text=a.get("text", "")) for i, a in enumerate(actions) if a.get("function_name") or a.get("to")]
         return PolicyRef(id=f"a11:{name}", make=lambda a: {"agent": ScriptedPolicy("agent", list(acts))})
 
+    # the oracle must fit the episode: a step cap below its length would score the control 0 (M14 audit: finance_ap
+    # oracles take 37–85 steps against the default 30, so A11's "oracle is scored 1" control failed)
+    import dataclasses as _dc
+
+    base = NativeHarness()
+    harness = NativeHarness(limits=_dc.replace(base.limits, max_steps=max(int(base.limits.max_steps or 30), len(list(t.oracle or [])) + 10)))
+
     async def one(name, task, pol):
-        s = await Runner(root).run(RunSpec(run_id=name, tasks=[task], policies=[pol], harnesses=[NativeHarness()], k=1))
+        s = await Runner(root).run(RunSpec(run_id=name, tasks=[task], policies=[pol], harnesses=[harness], k=1))
         import json
 
         f = root / name / "failures.jsonl"

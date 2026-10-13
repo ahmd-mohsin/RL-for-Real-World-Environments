@@ -139,6 +139,11 @@ def _register(registry: Path, key: bytes, bench: str, version: str) -> None:
     rows = [json.loads(x) for x in registry.read_text().splitlines() if x.strip()] if registry.exists() else []
     for r in rows:
         if r.get("fp") == fp and (r.get("bench"), r.get("version")) != (bench, version):
+            # M14 campaign B12: the message named a new version when the clash was another benchmark. One key builds one
+            # benchmark version: revealing it at retirement must not open any other
+            if r.get("bench") != bench:
+                raise ValueError(f"this key already built another benchmark, {r.get('bench')}@{r.get('version')}: one key builds one benchmark, "
+                                 f"so {bench}@{version} needs its own key (a different --key-file) (V11)")
             raise ValueError(f"this key already built {r.get('bench')}@{r.get('version')}: a new version needs a new key (V11)")
     if not any(r.get("fp") == fp for r in rows):
         registry.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +224,8 @@ async def build(name: str, version: str, *, key: bytes, anchors: Sequence[tuple[
         iid = item_id(key, fam, n, bench=name, version=version)
         gen = generators[fam]
         task = gen(seed, item_id=iid) if _accepts_item_id(gen) else gen(seed)
+        if inspect.isawaitable(task):  # an async generator hook (M14 campaign B6)
+            task = await task
         if id_of(task) != iid:
             try:
                 task.id = iid

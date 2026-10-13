@@ -50,6 +50,51 @@ class ToolError(Exception):
     """Raised by App tool implementations; becomes ok=False with the message as content."""
 
 
+class ArgumentError(ToolError):
+    """A ``ToolError`` the caller's arguments caused (a path outside the workspace, an id that does not exist): the
+    policy's malformed call, ``invalid_arguments`` with policy fault (M14 campaign B13)."""
+
+
+class WorldSeedError(RuntimeError):
+    """Copying an App's seed into the World failed: infrastructure (``crucible:backend_error``), never unknown blame
+    (M14 campaign B3)."""
+
+
+async def push_seed_tree(app: App, src: Path, dest: str) -> None:
+    """Copy the host directory ``src`` into ``dest`` in the App's exec as one tarball under a name unique to this call
+    (M14 campaign B3: a fixed ``/tmp/.crucible_seed_<app>.tar`` was shared by every World on the host, so concurrent
+    Worlds truncated or deleted each other's seed). The tarball is removed whatever happens."""
+    import shlex
+    import tarfile
+    import tempfile
+    import uuid
+
+    ex = app.ctx.exec
+    with tempfile.TemporaryDirectory(prefix="crucible-seed-") as d:
+        tar = Path(d) / "seed.tar"
+        try:
+            with tarfile.open(tar, "w") as tf:
+                for p in sorted(src.rglob("*")):
+                    tf.add(p, arcname=str(p.relative_to(src)), recursive=False)
+        except OSError as e:
+            raise WorldSeedError(f"seeding {app.id}: cannot pack {src}: {e}") from e
+        remote = str(tar) if ex.is_local else f"{ex.staging_dir}/.crucible_seed_{app.id}_{uuid.uuid4().hex}.tar"
+        try:
+            if not ex.is_local:
+                await ex.push_file(tar, remote)
+            out = await ex.run(f"mkdir -p {shlex.quote(dest)} && tar -xf {shlex.quote(remote)} -C {shlex.quote(dest)}")
+        except Exception as e:
+            raise WorldSeedError(f"seeding {app.id} failed: {type(e).__name__}: {e}"[:600]) from e
+        finally:
+            if not ex.is_local:
+                try:
+                    await ex.run(f"rm -f {shlex.quote(remote)}")
+                except Exception:  # noqa: BLE001, S110 - best effort; the staging dir dies with the World
+                    pass
+        if not out.ok:
+            raise WorldSeedError(f"seeding {app.id} failed: {out.stderr[-500:]}")
+
+
 class App(ABC):
     template: ClassVar[str]
     PATH_PARAMS: ClassVar[tuple[str, ...]] = ("root", "path")
@@ -112,6 +157,8 @@ class App(ABC):
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=f"Unknown tool: {name}", error="unknown_tool")
         try:
             out = await fn(**args)
+        except ArgumentError as e:  # the caller's arguments: the policy's error (M14 campaign B13)
+            return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="invalid_arguments", fault="policy")
         except ToolError as e:
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="tool_error")
         except TypeError as e:
@@ -136,5 +183,5 @@ def confine(root: str, path: str) -> str:
         full = posixpath.normpath(posixpath.join(root, path))
     root_n = posixpath.normpath(root)
     if full != root_n and not full.startswith(root_n.rstrip("/") + "/"):
-        raise ToolError(f"path {path!r} is outside the workspace")
+        raise ArgumentError(f"path {path!r} is outside the workspace")
     return full

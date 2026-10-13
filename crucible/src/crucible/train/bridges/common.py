@@ -65,7 +65,7 @@ def untrainable(ro: RolloutRecord, frozen_actors: Sequence[str] = ()) -> str | N
     if ro.mask_sample or ro.reward is None:
         return f"masked ({ro.failure_kind or 'no reward'})"
     frozen = set(frozen_actors)
-    live = [t for t in ro.turns if t.actor not in frozen]
+    live = [t for t in ro.turns if t.actor not in frozen and t.trainable]  # another model's calls (Turn.trainable False) are context
     if not live:
         return "no trained call"
     bad = [(t.call_id, t.missing()) for t in live if t.missing()]
@@ -96,7 +96,7 @@ def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0
             cur.logprobs += [0.0] * len(obs)
             cur.advantages += [0.0] * len(obs)
             cur.versions += [None] * len(obs)
-        trainable = 0 if t.actor in frozen else 1
+        trainable = 0 if (t.actor in frozen or not t.trainable) else 1
         a = seq_adv + turn_weight * (t.advantage or 0.0)
         start = len(cur.response_ids)
         cur.response_ids += comp

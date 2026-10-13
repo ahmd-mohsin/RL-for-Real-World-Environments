@@ -38,16 +38,15 @@ def test_finance_ap_pack_semantic_and_controls(tmp_path):
     assert by["scripted:approve_all"]["mean_reward"] == 0.0 and by["scripted:approve_all"]["gate_profile"]["gates"]["controls"]["pass_rate"] == 0.0
 
 
-async def test_all_packs_fixture_level():
-    from crucible.studio.pack import all_packs, check
+@pytest.mark.parametrize("name", ["_toy", "coding", "finance_ap"])
+async def test_all_packs_fixture_level(name):
+    from crucible.studio.pack import PACKS_ROOT, all_packs, check
 
-    names = {p.name for p in all_packs()}
-    assert {"_toy", "coding", "finance_ap"} <= names
-    for p in all_packs():
-        if p.name == "coding" and not (MT / "task02_pcops_triton" / "solution" / "solution.patch").exists():
-            continue  # the coding fixtures read the seed repositories
-        rep = await check(p, level="fixture")
-        assert rep.ok, (p.name, rep.to_json()["problems"])
+    assert {"_toy", "coding", "finance_ap"} <= {p.name for p in all_packs()}
+    if name == "coding" and not (MT / "task02_pcops_triton" / "solution" / "solution.patch").exists():
+        pytest.skip("the coding fixtures read the seed repositories in ../migration_tasks")  # M14 audit V16: was a silent pass
+    rep = await check(PACKS_ROOT / name, level="fixture")
+    assert rep.ok, (name, rep.to_json()["problems"])
 
 
 @pytest.mark.skipif(not (MT / "task02_pcops_triton" / "runs").exists(), reason="needs ../migration_tasks recorded runs")
