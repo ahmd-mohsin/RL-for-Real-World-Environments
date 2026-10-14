@@ -24,8 +24,9 @@ import pytest
 from crucible_pack_toy.longhorizon.ladder import LadderConfig
 
 from crucible.runtime.scripted_rlm import CallView
-from crucible.runtime.scripted_rlm_tree import CHILD_MARK, DelegatingRLM, LockedTitoLLM, tree_beliefs
+from crucible.runtime.scripted_rlm_tree import CHILD_MARK, DelegatingRLM, tree_beliefs
 from crucible.train.chat import ByteChatCodec
+from crucible.train.tito_scripted import LockedTitoLLM
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("lh_campaign", ROOT / "scripts" / "lh_campaign.py")

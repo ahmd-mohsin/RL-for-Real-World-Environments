@@ -120,8 +120,9 @@ async def test_h10_resume_hides_the_abandoned_ledger_events_and_stays_train_vali
     from crucible.actors.rlm.agent import RLMConfig
     from crucible.runtime.harness.rlm import RLMHarness
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.runtime.scripted_rlm import TitoLLM, crash_then_resume_ref
+    from crucible.runtime.scripted_rlm import crash_then_resume_ref
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM
 
     ref, fired = crash_then_resume_ref(lambda attempt: TitoLLM(_mark_model(attempt.n), ByteChatCodec()), crash_at_call=9)
     h = RLMHarness(RLMConfig(window_tokens=200_000, max_tokens=4_000, kernel="local", allow_host=True, temperature=0.0),
@@ -245,8 +246,9 @@ def _tree_model(n_cells: int):
 
 
 def _tito(decide):
-    from crucible.runtime.scripted_rlm import Reply, ScriptedRLM, TitoLLM
+    from crucible.runtime.scripted_rlm import Reply, ScriptedRLM
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM
     from tests.unit.test_m16_f_agent import role_of
 
     class M(ScriptedRLM):
@@ -444,8 +446,9 @@ async def test_h8_a_diverging_resumed_cell_is_restored_not_masked(tmp_path):
     from crucible.core.schema.rollout import RolloutRecord
     from crucible.runtime.harness.rlm import RLMHarness
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.runtime.scripted_rlm import TitoLLM, crash_then_resume_ref
+    from crucible.runtime.scripted_rlm import crash_then_resume_ref
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM
 
     flag = tmp_path / "flag"
     ref, fired = crash_then_resume_ref(lambda attempt: TitoLLM(_flag_model(attempt.n, flag), ByteChatCodec()), crash_at_call=9)

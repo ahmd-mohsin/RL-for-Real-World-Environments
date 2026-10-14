@@ -107,8 +107,8 @@ def test_summary_schema_faithful_vs_forgetful():
 
 
 def test_variants_and_tito_engine():
-    from crucible.runtime.scripted_rlm import TitoLLM
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM
 
     with pytest.raises(ValueError):
         backlog_model("nope")
@@ -317,8 +317,8 @@ def test_pathological_ledger_search_is_bounded(tmp_path):
 
 
 async def test_crash_then_resume_and_kill_mid_cell(tmp_path):
-    from crucible.runtime.scripted_rlm import TitoLLM
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM
 
     model = backlog_model("faithful")
     ref, fired = crash_then_resume_ref(lambda attempt: TitoLLM(model, ByteChatCodec()), crash_at_call=10)

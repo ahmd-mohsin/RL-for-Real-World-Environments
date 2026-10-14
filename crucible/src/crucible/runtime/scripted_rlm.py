@@ -152,49 +152,6 @@ class ScriptedRLM:
                            model=self.model, raw_finish="stop")
 
 
-class TitoLLM:
-    """Exact TITO for a scripted model: ``EngineLLM`` over ``codec`` serves the model's reply as the sampled completion."""
-
-    def __init__(self, model: ScriptedRLM, codec: Any, *, name: str | None = None):
-        from crucible.train.world_env import EngineLLM
-
-        self.model, self.codec = model, codec
-        self._next: list[int] = []
-        self.engine = EngineLLM(codec, self._gen, model=name or model.model)
-        self.spend = self.engine.spend
-
-    def _encode(self, text: str) -> list[int]:
-        enc = getattr(self.codec, "encode_text", None)
-        ids = enc(text) if callable(enc) else self.codec.tok.encode(text, add_special_tokens=False)
-        return list(ids) + [self.codec.eos_ids[0]]
-
-    async def _gen(self, prompt: list[int], max_tokens: int, temperature: float, *, seed: int | None = None, stop_ids: Any = ()) -> Any:
-        from crucible.train.engine import GenResult
-
-        ids = self._next
-        if self.model.log:
-            self.model.log[-1].update(prompt_tokens=len(prompt), completion_tokens=len(ids), usage_source="tito")
-        return GenResult(completion_ids=ids, logprobs=[-0.1] * len(ids), version=0, finish="stop", prompt_tokens=len(prompt))
-
-    async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kw: Any) -> LLMResponse:
-        r = self.model.reply_for(messages, tools)
-        self._next = self._encode(self.model.hermes(r))
-        return await self.engine.complete(messages, tools=tools, **kw)
-
-
-def qwen_codec(name: str = "Qwen/Qwen2.5-0.5B-Instruct") -> Any:
-    """The real Qwen2.5 chat codec from the local Hugging Face cache (offline)."""
-    import os
-
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-    from transformers import AutoTokenizer
-
-    from crucible.train.chat import HFChatCodec
-
-    return HFChatCodec(AutoTokenizer.from_pretrained(name))
-
-
 # ---------------------------------------------------------------------------------------------------------------------------
 # The backlog model
 # ---------------------------------------------------------------------------------------------------------------------------

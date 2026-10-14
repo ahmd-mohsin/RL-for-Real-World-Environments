@@ -69,6 +69,7 @@ async def faults(a: argparse.Namespace) -> dict[str, Any]:
     from crucible_pack_toy.longhorizon import ladder as L
 
     from crucible.runtime import scripted_rlm as S
+    from crucible.train import tito_scripted as T
 
     cases: dict[str, dict[str, Any]] = {
         "overflow_root": {"faults": {"overflow_at": [40, 41]}},
@@ -90,14 +91,14 @@ async def faults(a: argparse.Namespace) -> dict[str, Any]:
                 model, _ = orig(cfg, codec)
                 inj = inject_cells(model, _at)
                 injected.append(inj)
-                return model, (lambda: S.TitoLLM(inj, codec))
+                return model, (lambda: T.TitoLLM(inj, codec))
 
             L.make_model = make_model
         try:
             cfg = L.LadderConfig(rung=1000, variant="faithful", kernel=a.kernel, faults=spec.get("faults", {}),
                                  checkpoint_every=spec.get("checkpoint_every", 500))
             t0 = time.perf_counter()
-            r = await L.run_rung(cfg, codec=S.qwen_codec())
+            r = await L.run_rung(cfg, codec=T.qwen_codec())
             r["case_s"] = round(time.perf_counter() - t0, 2)
             if injected:
                 r["injected"] = injected[0].fired

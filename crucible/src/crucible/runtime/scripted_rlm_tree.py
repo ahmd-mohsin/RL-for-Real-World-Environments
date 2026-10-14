@@ -34,7 +34,6 @@ so two agents calling at once could swap replies).
 
 from __future__ import annotations
 
-import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,7 +48,6 @@ from crucible.runtime.scripted_rlm import (
     BacklogRLM,
     CallView,
     Reply,
-    TitoLLM,
     _fmt,
     _ids,
     message_text,
@@ -688,18 +686,4 @@ class DelegatingRLM(BacklogRLM):
         return Reply("sleep", "Waiting.", f"import asyncio as _asyncio\nawait _asyncio.sleep(1.0)\nprint('IDLE {k}')")
 
 
-class LockedTitoLLM(TitoLLM):
-    """``TitoLLM`` for a tree of concurrent agents: the decision and the served completion are paired under one lock."""
-
-    def __init__(self, model: Any, codec: Any, *, name: str | None = None):
-        super().__init__(model, codec, name=name)
-        self._lock: asyncio.Lock | None = None
-
-    async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kw: Any) -> Any:
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            return await super().complete(messages, tools=tools, **kw)
-
-
-__all__ = ["DelegatingRLM", "LockedTitoLLM", "TreeBeliefs", "_ids", "tree_beliefs"]
+__all__ = ["DelegatingRLM", "TreeBeliefs", "_ids", "tree_beliefs"]

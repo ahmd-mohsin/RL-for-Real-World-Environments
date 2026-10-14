@@ -152,8 +152,9 @@ class WindowedLLM:
 def make_model(cfg: LadderConfig, codec: Any = None) -> tuple[Any, Callable[[], Any]]:
     """(the scripted model, a factory of the LLM client the harness gets: one per attempt, as a restarted worker has no
     conversation; the model itself is stateless)."""
-    from crucible.runtime.scripted_rlm import TitoLLM, backlog_model, qwen_codec
+    from crucible.runtime.scripted_rlm import backlog_model
     from crucible.train.chat import ByteChatCodec
+    from crucible.train.tito_scripted import TitoLLM, qwen_codec
 
     model = backlog_model(cfg.variant, **cfg.model_kwargs)
     if cfg.tito is None:
@@ -488,7 +489,7 @@ async def run_ladder(rungs: list[int], variants: list[str], *, base: LadderConfi
     """Every (rung, variant) pair in order; the report is rewritten after each run, so a long ladder keeps what it finished."""
     base = base or LadderConfig()
     if base.tito == "qwen" and codec is None:
-        from crucible.runtime.scripted_rlm import qwen_codec
+        from crucible.train.tito_scripted import qwen_codec
 
         codec = qwen_codec()
     report: dict[str, Any] = {"ladder": "toy/helpdesk_backlog step ladder (M16 §4)", "runs": []}

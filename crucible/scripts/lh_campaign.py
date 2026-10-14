@@ -241,7 +241,7 @@ async def run_tree(cfg: Any, model: Any, codec: Any, *, keep: Path | None = None
 
     from crucible.runtime.harness.native import PolicyRef
     from crucible.runtime.run import Runner, RunSpec
-    from crucible.runtime.scripted_rlm_tree import LockedTitoLLM
+    from crucible.train.tito_scripted import LockedTitoLLM
 
     task = BacklogTask(cfg.seed, cfg.n)
     work = Path(tempfile.mkdtemp(prefix="lh-camp-")) if keep is None else keep
@@ -283,8 +283,8 @@ def _short(r: dict[str, Any]) -> str:
 async def children(a: argparse.Namespace) -> dict[str, Any]:
     from crucible_pack_toy.longhorizon.ladder import LadderConfig
 
-    from crucible.runtime.scripted_rlm import qwen_codec
     from crucible.runtime.scripted_rlm_tree import DelegatingRLM
+    from crucible.train.tito_scripted import qwen_codec
 
     codec = qwen_codec()
     rep: dict[str, Any] = {"campaign": "M16 child agents on the backlog ladder", "runs": []}
@@ -306,8 +306,8 @@ async def children(a: argparse.Namespace) -> dict[str, Any]:
 async def adversarial(a: argparse.Namespace) -> dict[str, Any]:
     from crucible_pack_toy.longhorizon.ladder import LadderConfig
 
-    from crucible.runtime.scripted_rlm import qwen_codec
     from crucible.runtime.scripted_rlm_tree import DelegatingRLM
+    from crucible.train.tito_scripted import qwen_codec
 
     codec = qwen_codec()
     rep: dict[str, Any] = {"campaign": "M16 adversarial tree probe", "runs": []}
@@ -498,7 +498,7 @@ async def qwen(a: argparse.Namespace) -> dict[str, Any]:
 async def scale(a: argparse.Namespace) -> dict[str, Any]:
     from crucible_pack_toy.longhorizon.ladder import LadderConfig, run_rung
 
-    from crucible.runtime.scripted_rlm import qwen_codec
+    from crucible.train.tito_scripted import qwen_codec
 
     cfg = LadderConfig(rung=a.rung, tickets=a.tickets, variant="faithful", kernel="docker", checkpoint_every=a.checkpoint_every)
     keep = Path(tempfile.mkdtemp(prefix="lh-scale-"))

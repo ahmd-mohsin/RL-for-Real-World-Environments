@@ -19,8 +19,9 @@ from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.actors.rlm.agent import RLMConfig
 from crucible.actors.rlm.kernel import LocalLauncher
 from crucible.actors.rlm.policy import RLMPolicy
-from crucible.runtime.scripted_rlm import TitoLLM, backlog_model, crash_then_resume_ref
+from crucible.runtime.scripted_rlm import backlog_model, crash_then_resume_ref
 from crucible.train.chat import ByteChatCodec
+from crucible.train.tito_scripted import TitoLLM
 
 LOCAL = {"kernel": "local", "allow_host": True, "temperature": 0.0}
 
