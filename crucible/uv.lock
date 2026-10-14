@@ -489,6 +489,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "dill" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -567,6 +568,7 @@ requires-dist = [
     { name = "agentenv-framework", marker = "extra == 'agentenv'", editable = "../agentenv-framework" },
     { name = "agentenv-framework-protocol", extras = ["agent"], marker = "extra == 'agentenv'", editable = "../agentenv-framework/packages/agentenv-protocol" },
     { name = "click", specifier = ">=8.1" },
+    { name = "dill", specifier = ">=0.3.8" },
     { name = "fastapi", marker = "extra == 'openenv-awm'", specifier = ">=0.110" },
     { name = "fastapi-mcp", marker = "extra == 'openenv-awm'", specifier = ">=0.3" },
     { name = "gymnasium", marker = "extra == 'control'", specifier = ">=1.0" },
@@ -613,13 +615,33 @@ packs = [
 
 [[package]]
 name = "crucible-pack-coding"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "packs/coding" }
+dependencies = [
+    { name = "crucible" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crucible", editable = "." },
+    { name = "pyyaml", specifier = ">=6" },
+]
 
 [[package]]
 name = "crucible-pack-toy"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "packs/_toy" }
+dependencies = [
+    { name = "crucible" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crucible", editable = "." },
+    { name = "pyyaml", specifier = ">=6" },
+]
 
 [[package]]
 name = "cryptography"
@@ -756,6 +778,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/d3/8ae2869247df154b64c1884d7346d412fed0c49df84db635aab2d1c40e62/deprecation-2.1.0.tar.gz", hash = "sha256:72b3bde64e5d778694b0cf68178aed03d15e15477116add3fb773e581f9518ff", size = 173788 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/02/c3/253a89ee03fc9b9682f1541728eb66db7db22148cd94f89ab22528cd1e1b/deprecation-2.1.0-py2.py3-none-any.whl", hash = "sha256:a10811591210e1fb0e768a8c25517cabeabcba6f0bf96564f8ff45189f90b14a", size = 11178 },
+]
+
+[[package]]
+name = "dill"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/e1/56027a71e31b02ddc53c7d65b01e68edf64dea2932122fe7746a516f75d5/dill-0.4.1.tar.gz", hash = "sha256:423092df4182177d4d8ba8290c8a5b640c66ab35ec7da59ccfa00f6fa3eea5fa", size = 187315 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl", hash = "sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d", size = 120019 },
 ]
 
 [[package]]
