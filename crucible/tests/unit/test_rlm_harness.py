@@ -5,7 +5,8 @@ long-horizon backlog with a context budget small enough to compact several times
 - within a segment each prompt extends the last one (stored as a delta), and every compaction starts a fresh sequence;
 - sub-calls are tree nodes, and turns record their World step.
 
-The compacted turns stay reachable in the kernel's ``HISTORY`` (the model reads them back after the summary replaced them).
+The compacted turns stay reachable in the ledger (M16: ``history`` / ``OUT`` replace the m14 in-kernel ``HISTORY``; the model
+reads them back after the summary replaced them).
 The harness id is the config's digest, and the kernel journal is saved as evidence. The same RLM runs as an M12
 ``rollout_fn``. An episode stopped by a step limit closes its kernel."""
 
@@ -28,7 +29,9 @@ def scripted_engine(task: BacklogTask, chunk: int = 6):
         cells.append(f"for a in ACTS[{i}:{i + chunk}]:\n"
                      "    r = await (world.call(a['function_name'], **a['arguments']) if a['kind'] == 'tool_call' else world.send(a['to'], a['text']))\n"
                      f"print('chunk {i}', 'x' * 1200)")
-    cells += ["print('HIST', len(HISTORY), HISTORY[0]['turns'][0]['code'][:7])", "rlm.finish('backlog done')"]
+    # M16: the ledger replaces the m14 in-kernel HISTORY archive: the first cell's code is read back from history
+    cells += ["h = await history.search('ACTS = ', kinds=['assistant'])\nprint('HIST', len(h), (await history.get(h[-1]['i']))['code'][:7])",
+              "rlm.finish('backlog done')"]
     seen = {"root": 0, "sub": 0, "compact": 0, "last_prompt": ""}
 
     def body(text: str) -> list[int]:
@@ -55,7 +58,10 @@ def scripted_engine(task: BacklogTask, chunk: int = 6):
 def _config():
     from crucible.runtime.harness.rlm import RLMConfig
 
-    return RLMConfig(max_tokens=16_000, temperature=1.0, budget_tokens=2_500, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200, kernel="local", allow_host=True)
+    # M16 B1: the window is in the engine's real tokens (the byte codec: one per byte), compared with usage-anchored counts; the
+    # m14 2,500 was in chars/4 units, below what the system prompt and the task alone take in bytes
+    return RLMConfig(max_tokens=16_000, temperature=1.0, budget_tokens=24_000, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200, kernel="local",
+                     allow_host=True)
 
 
 async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
@@ -82,7 +88,8 @@ async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
     assert kinds.count("compaction") >= 2 and kinds.count("sub") == 1 and seen["compact"] == kinds.count("compaction"), kinds
     assert len(ro.segments) == kinds.count("compaction") and max(t.segment for t in ro.turns) == len(ro.segments)
     for prev, t in zip(ro.turns, ro.turns[1:]):
-        if t.kind != "sub" and prev.kind != "sub" and t.segment == prev.segment:
+        # M16 §3.5: a summary request is a tree node (its prompt is the bounded summary view), like a sub-call
+        if not t.node() and not prev.node() and t.segment == prev.segment:
             assert t.prompt_is_delta and not t.prefix_break, t.call_id  # one exact-prefix sequence per segment
     assert all(t.policy_version == 3 and t.logprobs for t in ro.turns)
     assert [t.world_step for t in ro.turns if t.kind == "turn"][-1] > 0
@@ -90,7 +97,9 @@ async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
     assert "HIST " in seen["last_prompt"] and "ACTS = " in seen["last_prompt"].split("HIST ")[-1][:40]
     doc = json.loads((adir / "rlm.agent.json").read_text())
     assert doc["harness"] == h.id and doc["counters"]["sub_calls"] == 1 and doc["stop"] == "agent_done"
-    assert sum(e["code"].startswith("_archive(") for e in doc["kernel"]["journal"]) == len(ro.segments)
+    # M16: no _archive cells; every compaction opened a ledger window and is counted in the context-health metrics
+    assert doc["context_health"]["num_compactions"] == len(ro.segments) and doc["ledger"]["windows"] >= 1 + len(ro.segments)
+    assert not any(e["code"].startswith("_archive(") for e in doc["kernel"]["journal"])
 
 
 async def test_rlm_world_rollout_for_m12(tmp_path):
@@ -180,5 +189,8 @@ async def test_tool_index_and_docker_sandboxed_kernel(tmp_path):
     assert "[tools] Everything in this workplace" in seen["first"] and "- tickets." in seen["first"]
     line = seen["last"].split("PROBE ")[-1].splitlines()[0]
     assert line.startswith("blocked read-only 65534 /tmp ['crucible_rlm_repl.py'] True"), line  # no network, read-only root, nobody, nothing of the host
-    left = (await sh("docker", "ps", "-aq", "--filter", "label=crucible.rlm=1")).stdout.split()
+    from crucible.actors.rlm.kernel import OWNER_LABEL, owner_id
+
+    # (M16 hunt H13) only this process's containers: another process's live RLM container (a campaign) failed the assertion
+    left = (await sh("docker", "ps", "-aq", "--filter", "label=crucible.rlm=1", "--filter", f"label={OWNER_LABEL}={owner_id()}")).stdout.split()
     assert not left, left

@@ -1,0 +1,229 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {
+     "overflow_summaries": 1
+    },
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 978,
+   "attempts": 2,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 2,
+   "compaction_steps": [
+    342,
+    694
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      342
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.325,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 1,
+     "steps": [
+      342,
+      694
+     ],
+     "phi_start": 0.325,
+     "phi_end": 0.68125,
+     "delta_phi": 0.35625
+    },
+    {
+     "segment": 2,
+     "steps": [
+      694,
+      978
+     ],
+     "phi_start": 0.68125,
+     "phi_end": 1.0,
+     "delta_phi": 0.31875
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 86,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 165,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 87,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 78,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 65,
+     "entered": 40777,
+     "max_prompt": 39760,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 41226,
+     "max_prompt": 40185,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 53,
+     "entered": 24339,
+     "max_prompt": 24308,
+     "kinds": {
+      "turn": 53
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39614,
+    "max_compaction_prompt": 40185,
+    "over_window_calls": 40,
+    "max_prompt_over_window": 1.256
+   },
+   "rereads_after_compaction": 2,
+   "model_calls": 244,
+   "cells": {
+    "define": 2,
+    "finish": 1,
+    "list_pending": 2,
+    "read_policy": 2,
+    "reply": 21,
+    "reread": 2,
+    "summary": 2,
+    "work": 212
+   },
+   "wall_s": 7.95,
+   "ms_per_world_call": 8.13,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 999726,
+    "total_bytes": 999726,
+    "max_save_s": 0.0198
+   },
+   "rlm_counters": {
+    "turns": 178,
+    "cells": 178,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 1,
+    "world_calls": 908,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    "agent_run_error",
+    null
+   ],
+   "faults": {
+    "llm": [
+     {
+      "call": 64,
+      "fault": "overflow",
+      "role": "summary",
+      "silent": false
+     }
+    ],
+    "kills": []
+   },
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.295,
+    "cells": 181,
+    "journal_bytes": 785833,
+    "error": null
+   },
+   "dir": null
+  }
+ ]
+}

@@ -1,0 +1,114 @@
+{
+ "campaign": "M16 scale probe",
+ "run": {
+  "label": "r10000-n1640-s0-rlm-faithful-b32000",
+  "tickets": 1640,
+  "world_calls": 9906,
+  "reward": 1.0,
+  "stop": "agent_done",
+  "mask": false,
+  "failure_kind": null,
+  "valid_for_training": [
+   true,
+   "ok"
+  ],
+  "compactions": 180,
+  "constraints": {
+   "lost_constraint_rate": 0.0,
+   "missed_awaiting": 0,
+   "awaiting": 278
+  },
+  "b1": {
+   "window": 32000,
+   "trigger_tokens": 25600,
+   "source": "tito",
+   "max_turn_prompt": 22604,
+   "max_compaction_prompt": 23435,
+   "over_window_calls": 0,
+   "max_prompt_over_window": 0.732,
+   "harness_threshold": 24000,
+   "harness_window": 32000
+  },
+  "wall_s": 189.92,
+  "ms_per_world_call": 19.17,
+  "checkpoints": {
+   "saves": 0,
+   "last_bytes": null,
+   "total_bytes": 0,
+   "max_save_s": null
+  },
+  "restore": {
+   "method": "policy.restore_probe",
+   "s": 2.191,
+   "restore": "snapshot",
+   "restore_s": 1.834,
+   "mode": "lenient",
+   "cells": 24,
+   "snapshot_cells": 1929,
+   "snapshot_bytes": 4043235,
+   "journal_bytes": 21661,
+   "fallback": [
+    "snapshot: SnapshotMismatch: RLM kernel snapshot restore is not exact (names lost: ['h'])"
+   ],
+   "error": null
+  },
+  "rlm_counters": {
+   "turns": 1952,
+   "cells": 1952,
+   "continuations": 0,
+   "stalls": 3,
+   "world_calls": 9215,
+   "world_sends": 690,
+   "sub_calls": 0,
+   "sub_tokens": 0,
+   "sub_refused": 0,
+   "refused_calls": 0,
+   "misrouted_calls": 0,
+   "restores": 0,
+   "inexact_restores": 0,
+   "lost_between_cells": 0,
+   "killed_mid_cell": 0,
+   "protocol_errors": 0,
+   "compactions": 180,
+   "compaction_attempts": 180,
+   "compaction_failures": 0,
+   "overflow_retries": 0,
+   "history_reads": 180,
+   "history_reads_after_compaction": 180,
+   "context_reads": 0,
+   "snapshots": 189,
+   "snapshot_failures": 0,
+   "renewals": 0,
+   "agent_requests": 0,
+   "completion_tokens": 148759,
+   "discarded_cost_usd": 0.0
+  },
+  "attempts": 1,
+  "total_s": 201.3,
+  "ledger_dir_bytes": 26813515,
+  "ledger_stats": {
+   "events": 15514,
+   "bytes": 21963552,
+   "windows": 181,
+   "blobs": 0,
+   "blob_bytes": 0,
+   "dedup_hits": 0,
+   "children": [],
+   "agent": "",
+   "abandoned": 0,
+   "abandons": []
+  },
+  "snapshot_files": 1,
+  "snapshot_bytes_last": 4043235,
+  "calls_stream_bytes": 0,
+  "largest_prompt": {
+   "turn": 22604,
+   "compaction": 23435
+  },
+  "threshold": 24000,
+  "largest_over_threshold": 0.9765,
+  "leftover_containers": 0
+ },
+ "containers_before": 0,
+ "containers_after": 0
+}

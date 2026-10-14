@@ -1,0 +1,1637 @@
+{
+ "campaign": "M16 adversarial tree probe",
+ "runs": [
+  {
+   "reward": 0.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 1,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 0,
+   "constraints": {
+    "lost_constraint_rate": null,
+    "before": null,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "tree": {
+    "turns": 31,
+    "new_tokens": 2305,
+    "spawns": 64,
+    "refused": 17,
+    "peak_running": 8,
+    "by_depth": {
+     "0": {
+      "turns": 5,
+      "new_tokens": 767,
+      "prompt_tokens": 10348,
+      "summary_calls": 0,
+      "spawns": 64
+     },
+     "1": {
+      "turns": 26,
+      "new_tokens": 1538,
+      "prompt_tokens": 26238,
+      "summary_calls": 0,
+      "spawns": 0
+     }
+    },
+    "fraction": 1.0,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 1,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/prober": {
+     "stop": "agent_done",
+     "turns": 2,
+     "cells": 2,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1453
+     }
+    },
+    "root/s0": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s1": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s2": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s3": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s4": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s5": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s6": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s7": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1061
+     }
+    },
+    "root/s8": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s9": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s10": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s11": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s12": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s13": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s14": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s15": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s16": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s17": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s18": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s19": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s20": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s21": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s22": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s23": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s24": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s25": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s26": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s27": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s28": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s29": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s30": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s31": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s32": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s33": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s34": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s35": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s36": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s37": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s38": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s39": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s40": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s41": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s42": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s43": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s44": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s45": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s46": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s47": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s48": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s49": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s50": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s51": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s52": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s53": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s54": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s55": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s56": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s57": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s58": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s59": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s60": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s61": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s62": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    }
+   },
+   "child_compactions": 0,
+   "root": {
+    "turns": 5,
+    "cells": 5,
+    "world_calls": 0,
+    "compactions": 0,
+    "agent_requests": 89,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 2611
+   },
+   "threshold": 24000,
+   "tokens": {
+    "forwarded": 12987,
+    "entered": 12987,
+    "nodes": 0,
+    "ratio": 1.0,
+    "sequences": 10,
+    "sequences_by_agent": {
+     "root": 1,
+     "prober": 1,
+     "s0": 1,
+     "s1": 1,
+     "s2": 1,
+     "s3": 1,
+     "s4": 1,
+     "s5": 1,
+     "s6": 1,
+     "s7": 1
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 0,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {},
+    "ledger_world_calls": {
+     "root": 0,
+     "s34": 0,
+     "s33": 0,
+     "prober": 0,
+     "s58": 0,
+     "s60": 0,
+     "s56": 0,
+     "s5": 0,
+     "s51": 0,
+     "s2": 0,
+     "s32": 0,
+     "s35": 0,
+     "s50": 0,
+     "s3": 0,
+     "s57": 0,
+     "s4": 0,
+     "s61": 0,
+     "s59": 0,
+     "s44": 0,
+     "s43": 0,
+     "s26": 0,
+     "s19": 0,
+     "s21": 0,
+     "s17": 0,
+     "s28": 0,
+     "s10": 0,
+     "s42": 0,
+     "s45": 0,
+     "s11": 0,
+     "s16": 0,
+     "s29": 0,
+     "s20": 0,
+     "s27": 0,
+     "s18": 0,
+     "s8": 0,
+     "s52": 0,
+     "s1": 0,
+     "s55": 0,
+     "s6": 0,
+     "s39": 0,
+     "s30": 0,
+     "s37": 0,
+     "s54": 0,
+     "s7": 0,
+     "s53": 0,
+     "s0": 0,
+     "s9": 0,
+     "s62": 0,
+     "s36": 0,
+     "s31": 0,
+     "s38": 0,
+     "s22": 0,
+     "s25": 0,
+     "s13": 0,
+     "s14": 0,
+     "s40": 0,
+     "s47": 0,
+     "s49": 0,
+     "s15": 0,
+     "s12": 0,
+     "s24": 0,
+     "s23": 0,
+     "s48": 0,
+     "s46": 0,
+     "s41": 0
+    },
+    "ledger_checked": 0,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 0.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 0,
+    "exact_vs_record_max_abs": 0.0,
+    "mismatch_examples": {},
+    "message_rows": 1
+   },
+   "segments_by_agent": {},
+   "tickets": 15,
+   "attempts": 1,
+   "wall_s": 8.38,
+   "rlm_applied": {
+    "tree_max_depth": 1
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 5,
+    "prober": 2,
+    "sleeper": 24
+   },
+   "cells_by_kind": {
+    "adv_probe": 1,
+    "prober_probe": 1,
+    "prober_finish": 1,
+    "adv_args": 1,
+    "adv_spawn": 1,
+    "adv_wait": 1,
+    "sleep": 24,
+    "adv_finish": 1
+   },
+   "leftover_containers": 0,
+   "probe": {
+    "root_lines": {
+     "ADV-PROBE-RESULT": "ADV-PROBE-RESULT done PROBE-RESULT {\"world_call\": \"refused RuntimeError: PermissionError: this child agent has no World access (spawned with world='none')\", \"spawn_shared_grandchild\": \"refused RuntimeError: ValueError: child agents are off at this depth (tree_max_depth)\", \"spawn_none_grandchild\": \"refused RuntimeError: ValueError: child agents are off at this depth (tree_max_depth)\"}",
+     "ADV-ARGS": "ADV-ARGS {\"world_admin\": \"refused RuntimeError: ValueError: world must be one of ('none', 'shared'), got 'admin'\", \"max_turns_huge\": \"refused RuntimeError: ValueError: max_turns must be an int in [1, 2000], got 1000000000\", \"duplicate_name\": \"refused RuntimeError: ValueError: a child named 'prober' already exists; names are unique among siblings\", \"bad_name\": \"refused RuntimeError: ValueError: child name must match [A-Za-z0-9_-]{1,64}, got '../../etc'\", \"persistent_str\": \"refused RuntimeError: TypeError: persistent must be a bool, got 'yes'\", \"empty_brief\": \"refused RuntimeError: ValueError: brief must be a non-empty string: a self-contained task for the child (it sees none of your context)\"}",
+     "ADV-SPAWNED": "ADV-SPAWNED 63 REFUSED 17 {\"RuntimeError: BudgetExhausted: budget:spawns: the agent tree's spawn budget (64) is spent\": 17}",
+     "ADV-LIST": "ADV-LIST 64 {\"done\": 1, \"running\": 63} queued 55"
+    },
+    "escalator_ledgers": [],
+    "escalator_world_calls": 0,
+    "child_stops": {
+     "agent_done": 1,
+     "None": 63
+    },
+    "children_known": 64
+   },
+   "depth": 1
+  },
+  {
+   "reward": 0.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 1,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 0,
+   "constraints": {
+    "lost_constraint_rate": null,
+    "before": null,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "tree": {
+    "turns": 30,
+    "new_tokens": 2536,
+    "spawns": 64,
+    "refused": 18,
+    "peak_running": 7,
+    "by_depth": {
+     "0": {
+      "turns": 5,
+      "new_tokens": 767,
+      "prompt_tokens": 10792,
+      "summary_calls": 0,
+      "spawns": 63
+     },
+     "1": {
+      "turns": 24,
+      "new_tokens": 1508,
+      "prompt_tokens": 27718,
+      "summary_calls": 0,
+      "spawns": 1
+     },
+     "2": {
+      "turns": 1,
+      "new_tokens": 261,
+      "prompt_tokens": 934,
+      "summary_calls": 0,
+      "spawns": 0
+     }
+    },
+    "fraction": 1.0,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 2,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/prober": {
+     "stop": "agent_done",
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1881
+     }
+    },
+    "root/prober/esc": {
+     "stop": "agent_done",
+     "turns": 1,
+     "cells": 1,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 934
+     }
+    },
+    "root/s0": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s1": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s2": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s3": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s4": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s5": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s6": {
+     "stop": null,
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 1172
+     }
+    },
+    "root/s7": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s8": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s9": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s10": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s11": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s12": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s13": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s14": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s15": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s16": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s17": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s18": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s19": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s20": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s21": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s22": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s23": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s24": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s25": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s26": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s27": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s28": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s29": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s30": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s31": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s32": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s33": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s34": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s35": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s36": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s37": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s38": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s39": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s40": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s41": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s42": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s43": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s44": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s45": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s46": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s47": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s48": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s49": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s50": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s51": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s52": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s53": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s54": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s55": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s56": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s57": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s58": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s59": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s60": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    },
+    "root/s61": {
+     "stop": null,
+     "turns": 0,
+     "cells": 0,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {}
+    }
+   },
+   "child_compactions": 0,
+   "root": {
+    "turns": 5,
+    "cells": 5,
+    "world_calls": 0,
+    "compactions": 0,
+    "agent_requests": 89,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 2722
+   },
+   "threshold": 24000,
+   "tokens": {
+    "forwarded": 14392,
+    "entered": 14392,
+    "nodes": 0,
+    "ratio": 1.0,
+    "sequences": 10,
+    "sequences_by_agent": {
+     "root": 1,
+     "prober": 1,
+     "prober/esc": 1,
+     "s0": 1,
+     "s1": 1,
+     "s2": 1,
+     "s3": 1,
+     "s4": 1,
+     "s5": 1,
+     "s6": 1
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 0,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {},
+    "ledger_world_calls": {
+     "root": 0,
+     "s34": 0,
+     "s33": 0,
+     "prober": 0,
+     "s58": 0,
+     "s60": 0,
+     "s56": 0,
+     "s5": 0,
+     "s51": 0,
+     "s2": 0,
+     "s32": 0,
+     "s35": 0,
+     "s50": 0,
+     "s3": 0,
+     "s57": 0,
+     "s4": 0,
+     "s61": 0,
+     "s59": 0,
+     "s44": 0,
+     "s43": 0,
+     "s26": 0,
+     "s19": 0,
+     "s21": 0,
+     "s17": 0,
+     "s28": 0,
+     "s10": 0,
+     "s42": 0,
+     "s45": 0,
+     "s11": 0,
+     "s16": 0,
+     "s29": 0,
+     "s20": 0,
+     "s27": 0,
+     "s18": 0,
+     "s8": 0,
+     "s52": 0,
+     "s1": 0,
+     "s55": 0,
+     "s6": 0,
+     "s39": 0,
+     "s30": 0,
+     "s37": 0,
+     "s54": 0,
+     "s7": 0,
+     "s53": 0,
+     "s0": 0,
+     "s9": 0,
+     "s36": 0,
+     "s31": 0,
+     "s38": 0,
+     "s22": 0,
+     "s25": 0,
+     "s13": 0,
+     "s14": 0,
+     "s40": 0,
+     "s47": 0,
+     "s49": 0,
+     "s15": 0,
+     "s12": 0,
+     "s24": 0,
+     "s23": 0,
+     "s48": 0,
+     "s46": 0,
+     "s41": 0,
+     "prober/esc": 0
+    },
+    "ledger_checked": 0,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 0.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 0,
+    "exact_vs_record_max_abs": 0.0,
+    "mismatch_examples": {},
+    "message_rows": 1
+   },
+   "segments_by_agent": {},
+   "tickets": 15,
+   "attempts": 1,
+   "wall_s": 8.67,
+   "rlm_applied": {
+    "tree_max_depth": 2
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 5,
+    "prober": 3,
+    "escalator": 1,
+    "sleeper": 21
+   },
+   "cells_by_kind": {
+    "adv_probe": 1,
+    "prober_probe": 1,
+    "prober_wait": 1,
+    "escalator": 1,
+    "prober_finish": 1,
+    "adv_args": 1,
+    "adv_spawn": 1,
+    "adv_wait": 1,
+    "sleep": 21,
+    "adv_finish": 1
+   },
+   "leftover_containers": 0,
+   "probe": {
+    "root_lines": {
+     "ADV-PROBE-RESULT": "ADV-PROBE-RESULT done PROBE-RESULT {\"world_call\": \"refused RuntimeError: PermissionError: this child agent has no World access (spawned with world='none')\", \"spawn_shared_grandchild\": \"refused RuntimeError: PermissionError: a child agent without World access cannot give World access to its own children\", \"spawn_none_grandchild\": \"ALLOWED {'name': 'esc', 'status': 'running', 'depth': 2, 'world': 'none', 'persistent': True, 'max_turns': 2000}\", \"escalator\": {\"status\": \"done\", \"answer\": \"ESCALATOR {\\\"world_call\\\": \\\"refused RuntimeError: PermissionError: this child agent has no World access (spawned with world='none')\\\", \\\"spawn_depth_plus_1\\\": \\\"refused RuntimeError: ValueError: child agents are off at this depth (tree_max_depth)\\\"}\", \"error\": null}}",
+     "ADV-ARGS": "ADV-ARGS {\"world_admin\": \"refused RuntimeError: ValueError: world must be one of ('none', 'shared'), got 'admin'\", \"max_turns_huge\": \"refused RuntimeError: ValueError: max_turns must be an int in [1, 2000], got 1000000000\", \"duplicate_name\": \"refused RuntimeError: ValueError: a child named 'prober' already exists; names are unique among siblings\", \"bad_name\": \"refused RuntimeError: ValueError: child name must match [A-Za-z0-9_-]{1,64}, got '../../etc'\", \"persistent_str\": \"refused RuntimeError: TypeError: persistent must be a bool, got 'yes'\", \"empty_brief\": \"refused RuntimeError: ValueError: brief must be a non-empty string: a self-contained task for the child (it sees none of your context)\"}",
+     "ADV-SPAWNED": "ADV-SPAWNED 62 REFUSED 18 {\"RuntimeError: BudgetExhausted: budget:spawns: the agent tree's spawn budget (64) is spent\": 18}",
+     "ADV-LIST": "ADV-LIST 63 {\"done\": 1, \"running\": 62} queued 55"
+    },
+    "escalator_ledgers": [
+     "prober/esc"
+    ],
+    "escalator_world_calls": 0,
+    "child_stops": {
+     "agent_done": 2,
+     "None": 62
+    },
+    "children_known": 64
+   },
+   "depth": 2
+  }
+ ],
+ "containers_before": 0,
+ "containers_after": 0
+}

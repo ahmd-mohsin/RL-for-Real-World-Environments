@@ -22,11 +22,22 @@ from crucible.core.schema.base import CrucibleModel
 SCHEMA = "crucible.rollout/v1"
 
 
+# How a call relates to the one before it in the episode's message graph (M16 §3.5; research long-horizon-rlm/01 R9:
+# verifiers ``trace.py`` / nano-rlm ``semantic.py`` edges). Typed for readers; only ``compaction_attempt`` changes packing.
+EDGES = ("continuation", "compaction_attempt", "compaction", "subagent_call", "subagent_return", "agent_message", "subagent_cancel", "sub")
+
+
 class Turn(CrucibleModel):
     call_id: str
     actor: str
-    kind: str = "turn"  # turn | compaction (the policy's own summary: trained with the episode's advantage)
+    kind: str = "turn"  # turn | compaction (the policy's own summary: trained with the episode's advantage) | sub
     segment: int = 0
+    # M16 (very-long-horizon RLM, design §3.5): the agent of the RLM tree that made the call ("" = the root, a child = its
+    # path "scan", "scan/sub2") and the typed edge to its predecessor. A linear chain is keyed (actor, agent, segment):
+    # a child's turns, the root's turns and the sub-calls interleave in the record without breaking each other's chain
+    # (M16 stress B7: one shared chain made the trainer forward 7x the entered tokens, 19.7x with 256 sub-calls).
+    agent: str = ""
+    edge: str | None = None
     world_step: int | None = None
     # Token storage is linear in the trajectory, not quadratic (research long-horizon/01: verifiers MessageNode): within a
     # segment a call stores only the prompt tokens it adds after the previous call's prompt + completion; the first call of
@@ -63,6 +74,17 @@ class Turn(CrucibleModel):
     # is ``trainable=False``: recorded, never trained, exempt from the token-record checks
     model: str | None = None
     trainable: bool = True
+
+    def node(self) -> bool:
+        """A stand-alone sequence (a tree node), never a link of an agent's linear chain: an RLM sub-LLM call, or a
+        summary request (edge ``compaction_attempt``) whose prompt is the summarizer's bounded view of the context, not
+        the context itself (several attempts share one prefix, so none extends another; M16 §3.5). The first call of a
+        segment stores its whole prompt; a node always does."""
+        return self.kind == "sub" or (self.kind == "compaction" and self.edge in ("compaction_attempt", "compaction"))
+
+    def chain(self) -> tuple[Any, ...]:
+        """The linear chain this call extends: (actor, agent, segment); a node is its own chain."""
+        return (self.actor, self.agent, "node", self.call_id) if self.node() else (self.actor, self.agent, self.segment)
 
     def versions(self) -> list[int]:
         if self.version_spans:
@@ -106,7 +128,8 @@ class Turn(CrucibleModel):
 
 
 class Segment(CrucibleModel):
-    """A context-compaction segment: the turns generated under one context (``compaction.py``)."""
+    """A context-compaction segment: the turns generated under one context (``compaction.py``). Per agent of an RLM tree
+    (``agent``: "" = the root, a child's path): every agent numbers its own segments (M16 §3.5)."""
 
     index: int
     start_call: str | None = None
@@ -114,6 +137,16 @@ class Segment(CrucibleModel):
     summary_call: str | None = None  # the compaction call that opened it
     context_before: int | None = None
     context_after: int | None = None
+    agent: str = ""
+    # why the context was rebuilt: compaction | compaction_failed | rerender | resume | restore | sub (H13). A resume opens
+    # a new segment whose first call stores its whole prompt (M16 stress B3: it kept the segment and every resumed
+    # rollout was masked capture_incomplete as a prefix break)
+    boundary_reason: str | None = None
+    attempts: int | None = None  # summary requests made at this boundary (accepted or not)
+    failed: bool = False  # every attempt failed: the episode ended here (compaction_failed, a truncation)
+    # the unit of context_before / context_after: "usage" (engine-measured prompt + completion tokens) or "estimate"
+    # (chars/4); None = not stated (M16 stress B8: estimates read 102.4k against 146-148k real tokens)
+    tokens_source: Literal["usage", "estimate"] | None = None
 
 
 class RolloutRecord(CrucibleModel):
@@ -172,14 +205,15 @@ class RolloutRecord(CrucibleModel):
 
 def full_prompts(ro: RolloutRecord) -> dict[str, list[int]]:
     """Reconstruct each call's full prompt from linear (delta) storage: within a segment a delta prompt extends the previous
-    call's prompt + completion; the first call of a segment stores its whole prompt. Per actor."""
+    call's prompt + completion; the first call of a segment stores its whole prompt. Per chain (actor, agent, segment):
+    a child agent's calls never extend the root's (M16 §3.5)."""
     out: dict[str, list[int]] = {}
-    prev: dict[tuple[str, int], list[int]] = {}
+    prev: dict[tuple[Any, ...], list[int]] = {}
     for t in ro.turns:
-        if t.kind == "sub":  # RLM sub-LLM calls are stand-alone sequences (m14): never part of the actor's linear chain
+        if t.node():  # RLM sub-LLM calls and summary attempts are stand-alone sequences (m14, M16): never a chain link
             out[t.call_id] = list(t.prompt_token_ids or [])
             continue
-        key = (t.actor, t.segment)
+        key = t.chain()
         if t.prompt_is_delta and key in prev:
             full = prev[key] + list(t.prompt_token_ids or [])
         else:

@@ -76,7 +76,9 @@ async def test_stall_detected_and_stops(tmp_path):
     bad = "await world.call('tickets.get_ticket', ticket_id=999)"
     script = [code(bad, i) for i in range(12)]
     ep, _, p = await episode(tmp_path, script, max_stalls=2, stall_repeat=3)
-    assert ep.stop_condition == "too_many_errors" and p.counters["stalls"] == 2
+    # M16 (design §3.2 stall.py, stress B6): the scored stop is the typed "stalled" (it was "too_many_errors", the World's
+    # tool-error stop); max_stalls is the windowed detector's stop_after (a streak of verdicts), not an episode-wide count
+    assert ep.stop_condition == "stalled" and p.counters["stalls"] == 2
     assert any("[stall-detected:" in str(m.get("content")) for m in p.messages)
 
 

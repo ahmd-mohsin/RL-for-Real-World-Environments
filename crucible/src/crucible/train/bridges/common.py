@@ -12,6 +12,12 @@ with ``response_mask`` = 1 exactly on sampled tokens (observations / tool output
 sampled token + M6 turn credit on its own call's span), and the per-token ``versions`` (from ``version_spans`` when a call
 crossed a publish). A segment whose calls do not chain (``prefix_break``) is split at the break: never stitched.
 
+Chains are keyed (actor, agent, segment) (M16 §3.5): the root's turns of one segment form one sequence even when RLM
+sub-calls and child-agent turns interleave with them in the record; each sub-call and each summary attempt is a sequence
+of its own, each child agent's segment one more. M16 stress B7: the single open chain broke at every interleaved sub
+turn, so the next root turn re-opened a sequence with its whole prompt: the trainer forwarded 7.0x the entered tokens
+(19.7x with 256 sub-calls). The rollout's final root sequence is emitted last (``last``: the outcome closes there).
+
 A rollout yields **no** sequences when it is masked (``mask_sample`` or reward None: never trained as 0) or when a call of
 a trained actor is not token-complete (``Turn.missing()``: no completion, logprobs missing or of the wrong length, no
 policy version, a prefix break, impure version spans, top-p without candidates). M12 audit G4 §5: the behaviour logprobs
@@ -47,6 +53,8 @@ class TrainSeq:
     finish: str | None = None  # the finish reason of this sequence's last call (stop | length | abort | None)
     last: bool = True  # the rollout's final sequence (its outcome closes here)
     versions_seen: list[int] = field(default_factory=list)  # every policy version that produced a sampled token
+    agent: str = ""  # the RLM tree agent ("" = root, a child's path): M16
+    node: bool = False  # a stand-alone tree node (a sub-call or a summary attempt), not an agent's chain
 
 
 def _call_versions(t, n: int) -> list[int | None]:
@@ -79,18 +87,23 @@ def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0
         return []
     prompts = full_prompts(ro)
     out: list[TrainSeq] = []
-    cur: TrainSeq | None = None
+    open_: dict[tuple, TrainSeq] = {}  # the open sequence of each chain (actor, agent, segment); a node is its own chain
+    final: TrainSeq | None = None  # the sequence holding the last root-chain turn: where the outcome closes
     frozen = set(frozen_actors)
     for t in ro.turns:
+        key = t.chain()
+        cur = open_.get(key)
         full = prompts[t.call_id]
         comp = list(t.completion_token_ids or [])
-        chains = cur is not None and cur.actor == t.actor and cur.segment == t.segment and not t.prefix_break and \
-            full[: len(cur.prompt_ids) + len(cur.response_ids)] == cur.prompt_ids + cur.response_ids
+        n = len(cur.prompt_ids) + len(cur.response_ids) if cur is not None else 0
+        chains = cur is not None and not t.prefix_break and len(full) >= n and full[: len(cur.prompt_ids)] == cur.prompt_ids and \
+            full[len(cur.prompt_ids): n] == cur.response_ids
         if not chains:
-            cur = TrainSeq(ro.rollout_id, t.actor, t.segment, list(full), reward=ro.reward, truncated=bool(ro.truncated))
+            cur = TrainSeq(ro.rollout_id, t.actor, t.segment, list(full), reward=ro.reward, truncated=bool(ro.truncated), agent=t.agent, node=t.node())
             out.append(cur)
+            open_[key] = cur
         else:
-            obs = full[len(cur.prompt_ids) + len(cur.response_ids):]
+            obs = full[n:]
             cur.response_ids += obs
             cur.response_mask += [0] * len(obs)
             cur.logprobs += [0.0] * len(obs)
@@ -110,6 +123,10 @@ def flatten(ro: RolloutRecord, seq_adv: float = 0.0, *, turn_weight: float = 0.0
         cur.finish = t.finish
         if trainable:
             cur.versions_seen = sorted(set(cur.versions_seen) | {int(v) for v in t.versions()})
+        if not cur.node and not cur.agent:
+            final = cur
+    if final is not None and out and out[-1] is not final:  # an episode can end on a sub-call or a child's turn: the root closes it
+        out = [s for s in out if s is not final] + [final]  # by identity: two sequences may compare equal
     for s in out[:-1]:
         s.last = False
     return out

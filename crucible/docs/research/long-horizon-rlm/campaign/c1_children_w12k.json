@@ -1,0 +1,1809 @@
+{
+ "campaign": "M16 child agents on the backlog ladder",
+ "runs": [
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 468,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 3,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": 0.0,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "tree": {
+    "turns": 146,
+    "new_tokens": 15544,
+    "spawns": 4,
+    "refused": 0,
+    "peak_running": 4,
+    "by_depth": {
+     "0": {
+      "turns": 63,
+      "new_tokens": 8913,
+      "prompt_tokens": 301923,
+      "summary_calls": 3,
+      "spawns": 4
+     },
+     "1": {
+      "turns": 83,
+      "new_tokens": 6631,
+      "prompt_tokens": 440307,
+      "summary_calls": 10,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.0625,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 1,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/w0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 52,
+     "compactions": 2,
+     "segments": 3,
+     "largest_prompt": {
+      "child_turn": 6606,
+      "compaction": 7347
+     }
+    },
+    "root/w1": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 48,
+     "compactions": 3,
+     "segments": 4,
+     "largest_prompt": {
+      "child_turn": 6358,
+      "compaction": 7560
+     }
+    },
+    "root/w2": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 54,
+     "compactions": 3,
+     "segments": 4,
+     "largest_prompt": {
+      "child_turn": 6614,
+      "compaction": 7377
+     }
+    },
+    "root/w3": {
+     "stop": "agent_done",
+     "turns": 20,
+     "cells": 20,
+     "world_calls": 52,
+     "compactions": 2,
+     "segments": 3,
+     "largest_prompt": {
+      "child_turn": 6602,
+      "compaction": 7282
+     }
+    }
+   },
+   "child_compactions": 10,
+   "root": {
+    "turns": 63,
+    "cells": 63,
+    "world_calls": 217,
+    "compactions": 3,
+    "agent_requests": 9,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6700,
+    "compaction": 6861
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 200815,
+    "entered": 107838,
+    "nodes": 92977,
+    "ratio": 1.0,
+    "sequences": 31,
+    "sequences_by_agent": {
+     "root": 7,
+     "w0": 5,
+     "w1": 7,
+     "w2": 7,
+     "w3": 5
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 423,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 217,
+     "w0": 52,
+     "w3": 52,
+     "w1": 48,
+     "w2": 54
+    },
+    "ledger_world_calls": {
+     "root": 217,
+     "w3": 52,
+     "w2": 54,
+     "w0": 52,
+     "w1": 48
+    },
+    "ledger_checked": 423,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 14,
+    "exact_vs_record_max_abs": 0.0125,
+    "mismatch_examples": {
+     "agent:c104": 0.0125,
+     "agent:c105": -0.0125,
+     "agent:c120": 0.0125,
+     "agent:c121": -0.0125,
+     "agent:c122": 0.0125,
+     "agent:c123": -0.0125
+    },
+    "message_rows": 45
+   },
+   "segments_by_agent": {
+    "w3": 2,
+    "w1": 3,
+    "w0": 2,
+    "w2": 3,
+    "root": 3
+   },
+   "tickets": 80,
+   "attempts": 1,
+   "wall_s": 7.92,
+   "rlm_applied": {
+    "tree_max_depth": 1,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 66,
+    "worker": 93
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "spawn": 1,
+    "poll": 1,
+    "worker_define": 4,
+    "worker_step": 75,
+    "child_summary": 10,
+    "worker_finish": 4,
+    "execute": 48,
+    "summary": 3,
+    "reread": 3,
+    "reply": 5,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 500,
+   "depth": 1,
+   "mode": "shared"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 467,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 5,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": null,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "tree": {
+    "turns": 181,
+    "new_tokens": 17296,
+    "spawns": 4,
+    "refused": 0,
+    "peak_running": 4,
+    "by_depth": {
+     "0": {
+      "turns": 98,
+      "new_tokens": 12212,
+      "prompt_tokens": 489965,
+      "summary_calls": 5,
+      "spawns": 4
+     },
+     "1": {
+      "turns": 83,
+      "new_tokens": 5084,
+      "prompt_tokens": 277336,
+      "summary_calls": 0,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.0625,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 1,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/w0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4336
+     }
+    },
+    "root/w1": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4361
+     }
+    },
+    "root/w2": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4349
+     }
+    },
+    "root/w3": {
+     "stop": "agent_done",
+     "turns": 20,
+     "cells": 20,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4204
+     }
+    }
+   },
+   "child_compactions": 0,
+   "root": {
+    "turns": 98,
+    "cells": 98,
+    "world_calls": 422,
+    "compactions": 5,
+    "agent_requests": 18,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6877,
+    "compaction": 6861
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 88620,
+    "entered": 53379,
+    "nodes": 35241,
+    "ratio": 1.0,
+    "sequences": 15,
+    "sequences_by_agent": {
+     "root": 11,
+     "w0": 1,
+     "w1": 1,
+     "w2": 1,
+     "w3": 1
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 422,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 422
+    },
+    "ledger_world_calls": {
+     "root": 422,
+     "w3": 0,
+     "w2": 0,
+     "w0": 0,
+     "w1": 0
+    },
+    "ledger_checked": 422,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 44,
+    "exact_vs_record_max_abs": 0.025,
+    "mismatch_examples": {
+     "agent:c100": 0.025,
+     "agent:c101": -0.0125,
+     "agent:c104": -0.0125,
+     "agent:c109": 0.025,
+     "agent:c110": -0.0125,
+     "agent:c111": -0.0125
+    },
+    "message_rows": 45
+   },
+   "segments_by_agent": {
+    "root": 5
+   },
+   "tickets": 80,
+   "attempts": 1,
+   "wall_s": 8.03,
+   "rlm_applied": {
+    "tree_max_depth": 1,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 103,
+    "worker": 83
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "fetch_spawn": 4,
+    "poll": 4,
+    "worker_define": 4,
+    "worker_step": 75,
+    "worker_finish": 4,
+    "summary": 5,
+    "reread": 5,
+    "execute": 75,
+    "reply": 5,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 500,
+   "depth": 1,
+   "mode": "none"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 468,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 3,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": 0.0,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "tree": {
+    "turns": 153,
+    "new_tokens": 16889,
+    "spawns": 6,
+    "refused": 0,
+    "peak_running": 6,
+    "by_depth": {
+     "0": {
+      "turns": 64,
+      "new_tokens": 8938,
+      "prompt_tokens": 311898,
+      "summary_calls": 3,
+      "spawns": 2
+     },
+     "1": {
+      "turns": 6,
+      "new_tokens": 1320,
+      "prompt_tokens": 11999,
+      "summary_calls": 0,
+      "spawns": 4
+     },
+     "2": {
+      "turns": 83,
+      "new_tokens": 6631,
+      "prompt_tokens": 437072,
+      "summary_calls": 10,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.09375,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 2,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/lead0": {
+     "stop": "agent_done",
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 2615
+     }
+    },
+    "root/lead1": {
+     "stop": "agent_done",
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 2624
+     }
+    },
+    "root/lead1/sub0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 54,
+     "compactions": 3,
+     "segments": 4,
+     "largest_prompt": {
+      "child_turn": 6570,
+      "compaction": 7333
+     }
+    },
+    "root/lead1/sub1": {
+     "stop": "agent_done",
+     "turns": 20,
+     "cells": 20,
+     "world_calls": 52,
+     "compactions": 2,
+     "segments": 3,
+     "largest_prompt": {
+      "child_turn": 6558,
+      "compaction": 7238
+     }
+    },
+    "root/lead0/sub0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 52,
+     "compactions": 2,
+     "segments": 3,
+     "largest_prompt": {
+      "child_turn": 6653,
+      "compaction": 7303
+     }
+    },
+    "root/lead0/sub1": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 48,
+     "compactions": 3,
+     "segments": 4,
+     "largest_prompt": {
+      "child_turn": 6314,
+      "compaction": 7516
+     }
+    }
+   },
+   "child_compactions": 10,
+   "root": {
+    "turns": 64,
+    "cells": 64,
+    "world_calls": 217,
+    "compactions": 3,
+    "agent_requests": 7,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6824,
+    "compaction": 6835
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 206068,
+    "entered": 112698,
+    "nodes": 93370,
+    "ratio": 1.0,
+    "sequences": 33,
+    "sequences_by_agent": {
+     "root": 7,
+     "lead0": 1,
+     "lead0/sub0": 5,
+     "lead0/sub1": 7,
+     "lead1": 1,
+     "lead1/sub0": 7,
+     "lead1/sub1": 5
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 423,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 217,
+     "lead1/sub1": 52,
+     "lead0/sub0": 52,
+     "lead1/sub0": 54,
+     "lead0/sub1": 48
+    },
+    "ledger_world_calls": {
+     "root": 217,
+     "lead1": 0,
+     "lead0": 0,
+     "lead1/sub1": 52,
+     "lead1/sub0": 54,
+     "lead0/sub1": 48,
+     "lead0/sub0": 52
+    },
+    "ledger_checked": 423,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 2,
+    "exact_vs_record_max_abs": 0.0125,
+    "mismatch_examples": {
+     "agent:c165": -0.0125,
+     "agent:c5": 0.0125
+    },
+    "message_rows": 45
+   },
+   "segments_by_agent": {
+    "lead1/sub1": 2,
+    "lead0/sub1": 3,
+    "lead0/sub0": 2,
+    "lead1/sub0": 3,
+    "root": 3
+   },
+   "tickets": 80,
+   "attempts": 1,
+   "wall_s": 8.16,
+   "rlm_applied": {
+    "tree_max_depth": 2,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 67,
+    "lead": 6,
+    "worker": 93
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "spawn": 1,
+    "poll": 2,
+    "lead_spawn": 2,
+    "lead_poll": 2,
+    "worker_define": 4,
+    "worker_step": 75,
+    "child_summary": 10,
+    "worker_finish": 4,
+    "lead_finish": 2,
+    "execute": 48,
+    "summary": 3,
+    "reread": 3,
+    "reply": 5,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 500,
+   "depth": 2,
+   "mode": "shared"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 467,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 4,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": 0.0,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "tree": {
+    "turns": 183,
+    "new_tokens": 17759,
+    "spawns": 6,
+    "refused": 0,
+    "peak_running": 6,
+    "by_depth": {
+     "0": {
+      "turns": 93,
+      "new_tokens": 11097,
+      "prompt_tokens": 445820,
+      "summary_calls": 4,
+      "spawns": 2
+     },
+     "1": {
+      "turns": 7,
+      "new_tokens": 1578,
+      "prompt_tokens": 24067,
+      "summary_calls": 0,
+      "spawns": 4
+     },
+     "2": {
+      "turns": 83,
+      "new_tokens": 5084,
+      "prompt_tokens": 273850,
+      "summary_calls": 0,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.09375,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 2,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/l0": {
+     "stop": "agent_done",
+     "turns": 3,
+     "cells": 3,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 3972
+     }
+    },
+    "root/l1": {
+     "stop": "agent_done",
+     "turns": 4,
+     "cells": 4,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4231
+     }
+    },
+    "root/l0/sub0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4294
+     }
+    },
+    "root/l0/sub1": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4319
+     }
+    },
+    "root/l1/sub0": {
+     "stop": "agent_done",
+     "turns": 21,
+     "cells": 21,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4307
+     }
+    },
+    "root/l1/sub1": {
+     "stop": "agent_done",
+     "turns": 20,
+     "cells": 20,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 4162
+     }
+    }
+   },
+   "child_compactions": 0,
+   "root": {
+    "turns": 93,
+    "cells": 93,
+    "world_calls": 422,
+    "compactions": 4,
+    "agent_requests": 7,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6834,
+    "compaction": 6843
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 83705,
+    "entered": 55932,
+    "nodes": 27773,
+    "ratio": 1.0,
+    "sequences": 15,
+    "sequences_by_agent": {
+     "root": 9,
+     "l0": 1,
+     "l0/sub0": 1,
+     "l0/sub1": 1,
+     "l1": 1,
+     "l1/sub0": 1,
+     "l1/sub1": 1
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 422,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 422
+    },
+    "ledger_world_calls": {
+     "root": 422,
+     "l0": 0,
+     "l1": 0,
+     "l0/sub1": 0,
+     "l0/sub0": 0,
+     "l1/sub1": 0,
+     "l1/sub0": 0
+    },
+    "ledger_checked": 422,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 18,
+    "exact_vs_record_max_abs": 0.025,
+    "mismatch_examples": {
+     "agent:c103": 0.0125,
+     "agent:c106": -0.0125,
+     "agent:c110": 0.0125,
+     "agent:c111": -0.0125,
+     "agent:c124": 0.0125,
+     "agent:c125": -0.0125
+    },
+    "message_rows": 45
+   },
+   "segments_by_agent": {
+    "root": 4
+   },
+   "tickets": 80,
+   "attempts": 1,
+   "wall_s": 9.72,
+   "rlm_applied": {
+    "tree_max_depth": 2,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 97,
+    "lead": 7,
+    "worker": 83
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "fetch_spawn": 2,
+    "poll": 2,
+    "lead_spawn": 2,
+    "lead_poll": 3,
+    "worker_define": 4,
+    "worker_step": 75,
+    "worker_finish": 4,
+    "lead_finish": 2,
+    "execute": 75,
+    "summary": 4,
+    "reread": 4,
+    "reply": 5,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 500,
+   "depth": 2,
+   "mode": "none"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 892,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 15,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": 0.0,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "tree": {
+    "turns": 269,
+    "new_tokens": 39701,
+    "spawns": 4,
+    "refused": 0,
+    "peak_running": 4,
+    "by_depth": {
+     "0": {
+      "turns": 122,
+      "new_tokens": 29661,
+      "prompt_tokens": 669058,
+      "summary_calls": 15,
+      "spawns": 4
+     },
+     "1": {
+      "turns": 147,
+      "new_tokens": 10040,
+      "prompt_tokens": 853988,
+      "summary_calls": 23,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.0625,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 1,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/w0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 92,
+     "compactions": 6,
+     "segments": 7,
+     "largest_prompt": {
+      "child_turn": 6726,
+      "compaction": 7373
+     }
+    },
+    "root/w1": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 100,
+     "compactions": 6,
+     "segments": 7,
+     "largest_prompt": {
+      "child_turn": 6760,
+      "compaction": 7170
+     }
+    },
+    "root/w2": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 104,
+     "compactions": 6,
+     "segments": 7,
+     "largest_prompt": {
+      "child_turn": 6510,
+      "compaction": 7539
+     }
+    },
+    "root/w3": {
+     "stop": "agent_done",
+     "turns": 36,
+     "cells": 36,
+     "world_calls": 106,
+     "compactions": 5,
+     "segments": 6,
+     "largest_prompt": {
+      "child_turn": 6576,
+      "compaction": 7334
+     }
+    }
+   },
+   "child_compactions": 23,
+   "root": {
+    "turns": 122,
+    "cells": 122,
+    "world_calls": 411,
+    "compactions": 15,
+    "agent_requests": 16,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6577,
+    "compaction": 5601
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 514030,
+    "entered": 255727,
+    "nodes": 258303,
+    "ratio": 1.0,
+    "sequences": 81,
+    "sequences_by_agent": {
+     "root": 31,
+     "w0": 13,
+     "w1": 13,
+     "w2": 13,
+     "w3": 11
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 813,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 411,
+     "w3": 106,
+     "w0": 92,
+     "w1": 100,
+     "w2": 104
+    },
+    "ledger_world_calls": {
+     "root": 411,
+     "w3": 106,
+     "w2": 104,
+     "w0": 92,
+     "w1": 100
+    },
+    "ledger_checked": 813,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 32,
+    "exact_vs_record_max_abs": 0.00625,
+    "mismatch_examples": {
+     "agent:c181": 0.00625,
+     "agent:c182": -0.00625,
+     "agent:c188": 0.00625,
+     "agent:c189": -0.00625,
+     "agent:c194": 0.00625,
+     "agent:c197": -0.00625
+    },
+    "message_rows": 79
+   },
+   "segments_by_agent": {
+    "w3": 5,
+    "w0": 6,
+    "w2": 6,
+    "w1": 6,
+    "root": 15
+   },
+   "tickets": 160,
+   "attempts": 1,
+   "wall_s": 11.29,
+   "rlm_applied": {
+    "tree_max_depth": 1,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 137,
+    "worker": 170
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "spawn": 1,
+    "poll": 3,
+    "worker_define": 4,
+    "worker_step": 139,
+    "child_summary": 23,
+    "worker_finish": 4,
+    "summary": 15,
+    "reread": 15,
+    "execute": 77,
+    "reply": 21,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 1000,
+   "depth": 1,
+   "mode": "shared"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 893,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 21,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": null,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "tree": {
+    "turns": 341,
+    "new_tokens": 48791,
+    "spawns": 4,
+    "refused": 0,
+    "peak_running": 3,
+    "by_depth": {
+     "0": {
+      "turns": 194,
+      "new_tokens": 41067,
+      "prompt_tokens": 1065833,
+      "summary_calls": 21,
+      "spawns": 4
+     },
+     "1": {
+      "turns": 147,
+      "new_tokens": 7724,
+      "prompt_tokens": 696561,
+      "summary_calls": 4,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.0625,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 1,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/w0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6669,
+      "compaction": 6573
+     }
+    },
+    "root/w1": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6671,
+      "compaction": 6661
+     }
+    },
+    "root/w2": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6684,
+      "compaction": 6672
+     }
+    },
+    "root/w3": {
+     "stop": "agent_done",
+     "turns": 36,
+     "cells": 36,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6626,
+      "compaction": 6618
+     }
+    }
+   },
+   "child_compactions": 4,
+   "root": {
+    "turns": 194,
+    "cells": 194,
+    "world_calls": 814,
+    "compactions": 21,
+    "agent_requests": 14,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6926,
+    "compaction": 5936
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 327353,
+    "entered": 164734,
+    "nodes": 162619,
+    "ratio": 1.0,
+    "sequences": 55,
+    "sequences_by_agent": {
+     "root": 43,
+     "w0": 3,
+     "w1": 3,
+     "w2": 3,
+     "w3": 3
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 814,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 814
+    },
+    "ledger_world_calls": {
+     "root": 814,
+     "w3": 0,
+     "w2": 0,
+     "w0": 0,
+     "w1": 0
+    },
+    "ledger_checked": 814,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 93,
+    "exact_vs_record_max_abs": 0.0125,
+    "mismatch_examples": {
+     "agent:c165": 0.00625,
+     "agent:c167": -0.00625,
+     "agent:c170": 0.0125,
+     "agent:c173": -0.00625,
+     "agent:c174": -0.00625,
+     "agent:c175": 0.0125
+    },
+    "message_rows": 79
+   },
+   "segments_by_agent": {
+    "w0": 1,
+    "w1": 1,
+    "root": 21,
+    "w2": 1,
+    "w3": 1
+   },
+   "tickets": 160,
+   "attempts": 1,
+   "wall_s": 13.99,
+   "rlm_applied": {
+    "tree_max_depth": 1,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 215,
+    "worker": 151
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "fetch_spawn": 4,
+    "worker_define": 4,
+    "worker_step": 139,
+    "child_summary": 4,
+    "worker_finish": 4,
+    "poll": 3,
+    "summary": 21,
+    "reread": 21,
+    "execute": 140,
+    "reply": 21,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 1000,
+   "depth": 1,
+   "mode": "none"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 892,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 14,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": 0.0,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "tree": {
+    "turns": 274,
+    "new_tokens": 39882,
+    "spawns": 6,
+    "refused": 0,
+    "peak_running": 6,
+    "by_depth": {
+     "0": {
+      "turns": 119,
+      "new_tokens": 28090,
+      "prompt_tokens": 651811,
+      "summary_calls": 14,
+      "spawns": 2
+     },
+     "1": {
+      "turns": 8,
+      "new_tokens": 1836,
+      "prompt_tokens": 18996,
+      "summary_calls": 0,
+      "spawns": 4
+     },
+     "2": {
+      "turns": 147,
+      "new_tokens": 9956,
+      "prompt_tokens": 838737,
+      "summary_calls": 22,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.09375,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 2,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/lead0": {
+     "stop": "agent_done",
+     "turns": 4,
+     "cells": 4,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 3107
+     }
+    },
+    "root/lead1": {
+     "stop": "agent_done",
+     "turns": 4,
+     "cells": 4,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 3105
+     }
+    },
+    "root/lead0/sub0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 92,
+     "compactions": 5,
+     "segments": 6,
+     "largest_prompt": {
+      "child_turn": 6682,
+      "compaction": 7263
+     }
+    },
+    "root/lead0/sub1": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 100,
+     "compactions": 6,
+     "segments": 7,
+     "largest_prompt": {
+      "child_turn": 6717,
+      "compaction": 7127
+     }
+    },
+    "root/lead1/sub0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 104,
+     "compactions": 6,
+     "segments": 7,
+     "largest_prompt": {
+      "child_turn": 6465,
+      "compaction": 7494
+     }
+    },
+    "root/lead1/sub1": {
+     "stop": "agent_done",
+     "turns": 36,
+     "cells": 36,
+     "world_calls": 106,
+     "compactions": 5,
+     "segments": 6,
+     "largest_prompt": {
+      "child_turn": 6532,
+      "compaction": 7290
+     }
+    }
+   },
+   "child_compactions": 22,
+   "root": {
+    "turns": 119,
+    "cells": 119,
+    "world_calls": 411,
+    "compactions": 14,
+    "agent_requests": 5,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6866,
+    "compaction": 5642
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 495745,
+    "entered": 250961,
+    "nodes": 244784,
+    "ratio": 1.0,
+    "sequences": 79,
+    "sequences_by_agent": {
+     "root": 29,
+     "lead0": 1,
+     "lead0/sub0": 11,
+     "lead0/sub1": 13,
+     "lead1": 1,
+     "lead1/sub0": 13,
+     "lead1/sub1": 11
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 813,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 411,
+     "lead0/sub0": 92,
+     "lead1/sub0": 104,
+     "lead1/sub1": 106,
+     "lead0/sub1": 100
+    },
+    "ledger_world_calls": {
+     "root": 411,
+     "lead1": 0,
+     "lead0": 0,
+     "lead1/sub1": 106,
+     "lead1/sub0": 104,
+     "lead0/sub1": 100,
+     "lead0/sub0": 92
+    },
+    "ledger_checked": 813,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 2,
+    "exact_vs_record_max_abs": 0.00625,
+    "mismatch_examples": {
+     "agent:c309": -0.00625,
+     "agent:c5": 0.00625
+    },
+    "message_rows": 79
+   },
+   "segments_by_agent": {
+    "lead0/sub0": 5,
+    "lead1/sub0": 6,
+    "lead1/sub1": 5,
+    "lead0/sub1": 6,
+    "root": 14
+   },
+   "tickets": 160,
+   "attempts": 1,
+   "wall_s": 13.42,
+   "rlm_applied": {
+    "tree_max_depth": 2,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 133,
+    "lead": 8,
+    "worker": 169
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "spawn": 1,
+    "poll": 1,
+    "lead_spawn": 2,
+    "lead_poll": 4,
+    "worker_define": 4,
+    "worker_step": 139,
+    "child_summary": 22,
+    "worker_finish": 4,
+    "lead_finish": 2,
+    "execute": 77,
+    "summary": 14,
+    "reread": 14,
+    "reply": 21,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 1000,
+   "depth": 2,
+   "mode": "shared"
+  },
+  {
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "steps": 893,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "root_compactions": 20,
+   "constraints": {
+    "lost_constraint_rate": 0.0,
+    "before": null,
+    "broken_total": 0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "tree": {
+    "turns": 345,
+    "new_tokens": 49067,
+    "spawns": 6,
+    "refused": 0,
+    "peak_running": 6,
+    "by_depth": {
+     "0": {
+      "turns": 190,
+      "new_tokens": 39507,
+      "prompt_tokens": 1044265,
+      "summary_calls": 20,
+      "spawns": 2
+     },
+     "1": {
+      "turns": 8,
+      "new_tokens": 1836,
+      "prompt_tokens": 39935,
+      "summary_calls": 0,
+      "spawns": 4
+     },
+     "2": {
+      "turns": 147,
+      "new_tokens": 7724,
+      "prompt_tokens": 693411,
+      "summary_calls": 4,
+      "spawns": 0
+     }
+    },
+    "fraction": 0.09375,
+    "limits": {
+     "max_spawns": 64,
+     "max_depth": 2,
+     "max_concurrent": 8,
+     "max_total_turns": 20000,
+     "max_total_new_tokens": 10000000,
+     "child_max_turns": 2000
+    }
+   },
+   "children": {
+    "root/l0": {
+     "stop": "agent_done",
+     "turns": 4,
+     "cells": 4,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 5749
+     }
+    },
+    "root/l1": {
+     "stop": "agent_done",
+     "turns": 4,
+     "cells": 4,
+     "world_calls": 0,
+     "compactions": 0,
+     "segments": 1,
+     "largest_prompt": {
+      "child_turn": 5712
+     }
+    },
+    "root/l0/sub0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6627,
+      "compaction": 6631
+     }
+    },
+    "root/l0/sub1": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6629,
+      "compaction": 6619
+     }
+    },
+    "root/l1/sub0": {
+     "stop": "agent_done",
+     "turns": 37,
+     "cells": 37,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6642,
+      "compaction": 6630
+     }
+    },
+    "root/l1/sub1": {
+     "stop": "agent_done",
+     "turns": 36,
+     "cells": 36,
+     "world_calls": 0,
+     "compactions": 1,
+     "segments": 2,
+     "largest_prompt": {
+      "child_turn": 6678,
+      "compaction": 6576
+     }
+    }
+   },
+   "child_compactions": 4,
+   "root": {
+    "turns": 190,
+    "cells": 190,
+    "world_calls": 814,
+    "compactions": 20,
+    "agent_requests": 7,
+    "misrouted_calls": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "restores": 0
+   },
+   "root_largest_prompt": {
+    "turn": 6795,
+    "compaction": 5953
+   },
+   "threshold": 7500,
+   "tokens": {
+    "forwarded": 327098,
+    "entered": 170665,
+    "nodes": 156433,
+    "ratio": 1.0,
+    "sequences": 55,
+    "sequences_by_agent": {
+     "root": 41,
+     "l0": 1,
+     "l0/sub0": 3,
+     "l0/sub1": 3,
+     "l1": 1,
+     "l1/sub0": 3,
+     "l1/sub1": 3
+    }
+   },
+   "attribution": {
+    "world_tool_calls": 814,
+    "unattributed": 0,
+    "double_attributed": 0,
+    "by_agent": {
+     "root": 814
+    },
+    "ledger_world_calls": {
+     "root": 814,
+     "l0": 0,
+     "l1": 0,
+     "l0/sub1": 0,
+     "l0/sub0": 0,
+     "l1/sub1": 0,
+     "l1/sub0": 0
+    },
+    "ledger_checked": 814,
+    "ledger_agent_mismatch": 0,
+    "attributed_ok": true
+   },
+   "credit": {
+    "root_chain_credit": 1.0,
+    "unattributed": 0.0,
+    "phi0": 0.0,
+    "telescopes": true,
+    "exact_vs_record_mismatched_calls": 46,
+    "exact_vs_record_max_abs": 0.0125,
+    "mismatch_examples": {
+     "agent:c170": 0.00625,
+     "agent:c171": -0.00625,
+     "agent:c175": 0.00625,
+     "agent:c176": -0.00625,
+     "agent:c178": 0.00625,
+     "agent:c180": -0.00625
+    },
+    "message_rows": 79
+   },
+   "segments_by_agent": {
+    "l0/sub0": 1,
+    "l0/sub1": 1,
+    "l1/sub0": 1,
+    "l1/sub1": 1,
+    "root": 20
+   },
+   "tickets": 160,
+   "attempts": 1,
+   "wall_s": 13.34,
+   "rlm_applied": {
+    "tree_max_depth": 2,
+    "window_tokens": 12000
+   },
+   "rlm_ignored": {},
+   "model_calls_by_role": {
+    "root": 210,
+    "lead": 8,
+    "worker": 151
+   },
+   "cells_by_kind": {
+    "read_policy": 1,
+    "list_pending": 1,
+    "list_open": 1,
+    "define": 1,
+    "fetch_spawn": 2,
+    "poll": 2,
+    "lead_spawn": 2,
+    "lead_poll": 4,
+    "worker_define": 4,
+    "worker_step": 139,
+    "child_summary": 4,
+    "worker_finish": 4,
+    "lead_finish": 2,
+    "summary": 20,
+    "reread": 20,
+    "execute": 140,
+    "reply": 21,
+    "finish": 1
+   },
+   "leftover_containers": 0,
+   "rung": 1000,
+   "depth": 2,
+   "mode": "none"
+  }
+ ],
+ "containers_before": 0,
+ "containers_after": 0
+}

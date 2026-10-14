@@ -1,0 +1,271 @@
+{
+ "ladder": "long-context (M16 \u00a74)",
+ "runs": [
+  {
+   "family": "oolong",
+   "tokens": 2000000,
+   "seed": 0,
+   "chars": 8000071,
+   "generate_s": 0.23,
+   "meta": {
+    "kind": "user_count",
+    "answer_type": "ANSWER_TYPE.NUMERIC",
+    "records": 63985
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 125,
+    "wall_s": 8.94,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.1,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 2000000,
+   "seed": 0,
+   "chars": 8000341,
+   "generate_s": 0.22,
+   "meta": {
+    "needles": 8,
+    "pick": 2,
+    "ask": "write a haiku about harbor cranes",
+    "turns": 19919
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 125,
+    "wall_s": 8.47,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 2000000,
+   "seed": 0,
+   "chars": 8003545,
+   "generate_s": 0.24,
+   "meta": {
+    "docs": 10,
+    "questions": 20
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 125,
+    "wall_s": 8.36,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.1,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 4000000,
+   "seed": 0,
+   "chars": 16000100,
+   "generate_s": 0.46,
+   "meta": {
+    "kind": "compare",
+    "answer_type": "",
+    "records": 127759
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 247,
+    "wall_s": 17.26,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.11,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 4000000,
+   "seed": 0,
+   "chars": 16000311,
+   "generate_s": 0.42,
+   "meta": {
+    "needles": 8,
+    "pick": 6,
+    "ask": "write a limerick about lighthouses",
+    "turns": 39719
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 247,
+    "wall_s": 15.27,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.11,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 4000000,
+   "seed": 0,
+   "chars": 16002328,
+   "generate_s": 0.49,
+   "meta": {
+    "docs": 10,
+    "questions": 20
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 247,
+    "wall_s": 16.19,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.32,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  }
+ ],
+ "summary": [
+  {
+   "family": "oolong",
+   "tokens": 2000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 125,
+   "solver_wall_s": 8.94,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 2000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 125,
+   "solver_wall_s": 8.47,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 2000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 125,
+   "solver_wall_s": 8.36,
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 4000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 247,
+   "solver_wall_s": 17.26,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 4000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 247,
+   "solver_wall_s": 15.27,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 4000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 247,
+   "solver_wall_s": 16.19,
+   "controls_ok": true
+  }
+ ]
+}

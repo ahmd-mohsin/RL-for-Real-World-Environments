@@ -1,0 +1,274 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r1000-n160-s0-native-faithful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "native",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "native:llm-tool@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {}
+   },
+   "tickets": 160,
+   "world_calls": 918,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    false,
+    "token record incomplete for 923/923 calls (first: agent:c1: prompt_token_ids, completion_token_ids, logprobs, policy_version (set the provider's policy_version for a served checkpoint))"
+   ],
+   "compactions": 5,
+   "compaction_steps": [
+    156,
+    335,
+    507,
+    675,
+    840
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      156
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.16875,
+     "delta_phi": 0.16875
+    },
+    {
+     "segment": 1,
+     "steps": [
+      156,
+      335
+     ],
+     "phi_start": 0.16875,
+     "phi_end": 0.3625,
+     "delta_phi": 0.19375
+    },
+    {
+     "segment": 2,
+     "steps": [
+      335,
+      507
+     ],
+     "phi_start": 0.3625,
+     "phi_end": 0.55,
+     "delta_phi": 0.1875
+    },
+    {
+     "segment": 3,
+     "steps": [
+      507,
+      675
+     ],
+     "phi_start": 0.55,
+     "phi_end": 0.7375,
+     "delta_phi": 0.1875
+    },
+    {
+     "segment": 4,
+     "steps": [
+      675,
+      840
+     ],
+     "phi_start": 0.7375,
+     "phi_end": 0.9125,
+     "delta_phi": 0.175
+    },
+    {
+     "segment": 5,
+     "steps": [
+      840,
+      918
+     ],
+     "phi_start": 0.9125,
+     "phi_end": 1.0,
+     "delta_phi": 0.0875
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 45,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 206,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 45,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 52,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 49,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 43,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 42,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 20,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 157,
+     "entered": 6280,
+     "max_prompt": 25701,
+     "kinds": {
+      "turn": 156,
+      "compaction": 1
+     },
+     "source": "estimate"
+    },
+    {
+     "segment": 1,
+     "calls": 180,
+     "entered": 7200,
+     "max_prompt": 25671,
+     "kinds": {
+      "turn": 179,
+      "compaction": 1
+     },
+     "source": "estimate"
+    },
+    {
+     "segment": 2,
+     "calls": 173,
+     "entered": 6920,
+     "max_prompt": 25669,
+     "kinds": {
+      "turn": 172,
+      "compaction": 1
+     },
+     "source": "estimate"
+    },
+    {
+     "segment": 3,
+     "calls": 169,
+     "entered": 6760,
+     "max_prompt": 25778,
+     "kinds": {
+      "turn": 168,
+      "compaction": 1
+     },
+     "source": "estimate"
+    },
+    {
+     "segment": 4,
+     "calls": 166,
+     "entered": 6640,
+     "max_prompt": 25714,
+     "kinds": {
+      "turn": 165,
+      "compaction": 1
+     },
+     "source": "estimate"
+    },
+    {
+     "segment": 5,
+     "calls": 78,
+     "entered": 3120,
+     "max_prompt": 11431,
+     "kinds": {
+      "turn": 78
+     },
+     "source": "estimate"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "estimate",
+    "max_turn_prompt": 25557,
+    "max_compaction_prompt": 25778,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.0
+   },
+   "rereads_after_compaction": 0,
+   "history_reads_harness": null,
+   "model_calls": null,
+   "cells": null,
+   "wall_s": 3.87,
+   "ms_per_world_call": 4.21,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 299108,
+    "total_bytes": 299108,
+    "max_save_s": 0.0139
+   },
+   "rlm_counters": null,
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": null,
+   "dir": null
+  }
+ ]
+}

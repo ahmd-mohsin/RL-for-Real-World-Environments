@@ -1,0 +1,303 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": true,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 274,
+   "attempts": 3,
+   "reward": null,
+   "mask": true,
+   "failure_kind": "agent_run_error",
+   "stop": "context_overflow",
+   "mean_reward": null,
+   "valid_for_training": [
+    false,
+    "masked (agent_run_error)"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      274
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.2625,
+     "delta_phi": 0.2625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 69,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 21,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 52,
+     "entered": 31595,
+     "max_prompt": 31553,
+     "kinds": {
+      "turn": 52
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": null,
+    "max_turn_prompt": 31553,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.986
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 159,
+   "cells": {
+    "define": 3,
+    "list_pending": 3,
+    "read_policy": 3,
+    "work": 150
+   },
+   "wall_s": 7.04,
+   "ms_per_world_call": 25.69,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 52,
+    "cells": 52,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 260,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    "agent_run_error",
+    "agent_run_error",
+    "agent_run_error"
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.618,
+    "cells": 53,
+    "journal_bytes": 178578,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": true,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 274,
+   "attempts": 3,
+   "reward": null,
+   "mask": true,
+   "failure_kind": "agent_run_error",
+   "stop": "context_overflow",
+   "mean_reward": null,
+   "valid_for_training": [
+    false,
+    "masked (agent_run_error)"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      274
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.2625,
+     "delta_phi": 0.2625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 69,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 21,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 52,
+     "entered": 31595,
+     "max_prompt": 31553,
+     "kinds": {
+      "turn": 52
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": null,
+    "max_turn_prompt": 31553,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.986
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 159,
+   "cells": {
+    "define": 3,
+    "list_pending": 3,
+    "read_policy": 3,
+    "work": 150
+   },
+   "wall_s": 6.54,
+   "ms_per_world_call": 23.86,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 52,
+    "cells": 52,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 260,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    "agent_run_error",
+    "agent_run_error",
+    "agent_run_error"
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.566,
+    "cells": 53,
+    "journal_bytes": 178578,
+    "error": null
+   },
+   "dir": null
+  }
+ ]
+}

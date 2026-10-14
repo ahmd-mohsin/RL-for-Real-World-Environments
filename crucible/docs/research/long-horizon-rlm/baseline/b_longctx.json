@@ -1,0 +1,667 @@
+{
+ "ladder": "long-context (M16 \u00a74)",
+ "runs": [
+  {
+   "family": "oolong",
+   "tokens": 8000,
+   "seed": 0,
+   "chars": 32000,
+   "generate_s": 0.01,
+   "meta": {
+    "kind": "compare",
+    "answer_type": "",
+    "records": 256
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 3,
+    "wall_s": 1.0,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 8000,
+   "seed": 0,
+   "chars": 32073,
+   "generate_s": 0.0,
+   "meta": {
+    "needles": 8,
+    "pick": 6,
+    "ask": "write a limerick about sandstorms",
+    "turns": 80
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 3,
+    "wall_s": 0.71,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 8000,
+   "seed": 0,
+   "chars": 32210,
+   "generate_s": 0.0,
+   "meta": {
+    "docs": 2,
+    "questions": 4
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 3,
+    "wall_s": 0.73,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 32000,
+   "seed": 0,
+   "chars": 128070,
+   "generate_s": 0.01,
+   "meta": {
+    "kind": "most_common",
+    "answer_type": "",
+    "records": 1021
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 4,
+    "wall_s": 0.72,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.06,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 32000,
+   "seed": 0,
+   "chars": 128221,
+   "generate_s": 0.01,
+   "meta": {
+    "needles": 8,
+    "pick": 3,
+    "ask": "write a toast about old maps",
+    "turns": 319
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 4,
+    "wall_s": 0.86,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 32000,
+   "seed": 0,
+   "chars": 129550,
+   "generate_s": 0.01,
+   "meta": {
+    "docs": 8,
+    "questions": 16
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 4,
+    "wall_s": 0.81,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 128000,
+   "seed": 0,
+   "chars": 512016,
+   "generate_s": 0.03,
+   "meta": {
+    "kind": "count",
+    "answer_type": "ANSWER_TYPE.NUMERIC",
+    "records": 4082
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 10,
+    "wall_s": 1.47,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.1,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 128000,
+   "seed": 0,
+   "chars": 512423,
+   "generate_s": 0.02,
+   "meta": {
+    "needles": 8,
+    "pick": 5,
+    "ask": "write a toast about copper kettles",
+    "turns": 1293
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 10,
+    "wall_s": 1.12,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 128000,
+   "seed": 0,
+   "chars": 515510,
+   "generate_s": 0.02,
+   "meta": {
+    "docs": 10,
+    "questions": 20
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 10,
+    "wall_s": 1.17,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 512000,
+   "seed": 0,
+   "chars": 2048048,
+   "generate_s": 0.06,
+   "meta": {
+    "kind": "most_common",
+    "answer_type": "",
+    "records": 16311
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 34,
+    "wall_s": 2.55,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.1,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 512000,
+   "seed": 0,
+   "chars": 2048274,
+   "generate_s": 0.06,
+   "meta": {
+    "needles": 8,
+    "pick": 8,
+    "ask": "write a riddle about old maps",
+    "turns": 5091
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 34,
+    "wall_s": 2.48,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 512000,
+   "seed": 0,
+   "chars": 2051063,
+   "generate_s": 0.07,
+   "meta": {
+    "docs": 10,
+    "questions": 20
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 34,
+    "wall_s": 2.56,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 1000000,
+   "seed": 0,
+   "chars": 4000088,
+   "generate_s": 0.12,
+   "meta": {
+    "kind": "most_common",
+    "answer_type": "",
+    "records": 31840
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 64,
+    "wall_s": 4.5,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 1000000,
+   "seed": 0,
+   "chars": 4000085,
+   "generate_s": 0.12,
+   "meta": {
+    "needles": 8,
+    "pick": 3,
+    "ask": "write a short story about paper boats",
+    "turns": 9921
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 64,
+    "wall_s": 4.39,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.1,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 1000000,
+   "seed": 0,
+   "chars": 4003975,
+   "generate_s": 0.13,
+   "meta": {
+    "docs": 10,
+    "questions": 20
+   },
+   "solver": {
+    "reward": 1.0,
+    "steps": 64,
+    "wall_s": 4.59,
+    "score": null,
+    "failure": null
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.09,
+    "score": null,
+    "failure": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "score": null,
+    "failure": null
+   },
+   "controls_ok": true
+  }
+ ],
+ "summary": [
+  {
+   "family": "oolong",
+   "tokens": 8000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 3,
+   "solver_wall_s": 1.0,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 8000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 3,
+   "solver_wall_s": 0.71,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 8000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 3,
+   "solver_wall_s": 0.73,
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 32000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 4,
+   "solver_wall_s": 0.72,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 32000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 4,
+   "solver_wall_s": 0.86,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 32000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 4,
+   "solver_wall_s": 0.81,
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 128000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 10,
+   "solver_wall_s": 1.47,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 128000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 10,
+   "solver_wall_s": 1.12,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 128000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 10,
+   "solver_wall_s": 1.17,
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 512000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 34,
+   "solver_wall_s": 2.55,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 512000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 34,
+   "solver_wall_s": 2.48,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 512000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 34,
+   "solver_wall_s": 2.56,
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 1000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 64,
+   "solver_wall_s": 4.5,
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 1000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 64,
+   "solver_wall_s": 4.39,
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 1000000,
+   "solver": 1.0,
+   "gold": 1.0,
+   "noop": 0.0,
+   "solver_world_calls": 64,
+   "solver_wall_s": 4.59,
+   "controls_ok": true
+  }
+ ]
+}

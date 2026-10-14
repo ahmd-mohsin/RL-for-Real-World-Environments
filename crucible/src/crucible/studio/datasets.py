@@ -301,8 +301,10 @@ def _enc(tok: Any, text: str) -> list[int]:
 
 def token_steps(rollout: Mapping[str, Any], tok: Any, *, redact: Any = None) -> tuple[list[Step], list[dict[str, Any]], list[str]]:
     """The policy's own turns from ``rollout.json``: per trainable turn the full prompt it saw (delta storage rebuilt
-    per actor and segment, as ``core.schema.rollout.full_prompts``) and the completion it sampled, decoded. Sub-calls
-    are standalone; non-trainable turns (another model's sub-calls) are never targets. A string the redactor changes is
+    per chain (actor, agent, segment), as ``core.schema.rollout.full_prompts``) and the completion it sampled, decoded.
+    Sub-calls and summary attempts are standalone; an RLM child agent's turns are their own chain and never splice into
+    the root's rows (M16 §3.5); non-trainable turns (another model's calls) are never targets, but a non-trainable call
+    inside a chain stays in that chain as context (later deltas extend it). A string the redactor changes is
     re-encoded (``redacted``; the text then no longer is the sampled ids). Returns the steps, the linear chains (one
     multi-turn token row each) and the problems (a trainable turn without a token record refuses the episode)."""
     from crucible.core.schema.rollout import RolloutRecord
@@ -313,7 +315,7 @@ def token_steps(rollout: Mapping[str, Any], tok: Any, *, redact: Any = None) -> 
     if problems:
         return [], [], problems
     eos = getattr(tok, "eos_token", None)
-    prev: dict[tuple[str, int], str] = {}
+    prev: dict[tuple[Any, ...], str] = {}
     steps: list[Step] = []
     chains: dict[str, dict[str, Any]] = {}
 
@@ -326,24 +328,31 @@ def token_steps(rollout: Mapping[str, Any], tok: Any, *, redact: Any = None) -> 
         return list(ids), text, False
 
     for k, t in enumerate(ro.turns):
-        if not t.trainable or not t.completion_token_ids:
+        if not t.completion_token_ids:
             continue
-        key = (t.actor, t.segment)
-        if t.kind != "sub" and t.prompt_is_delta and key in prev:
+        # chains keyed (actor, agent, segment) (M16 §3.5): a child agent's delta turn used to extend the root's row (and
+        # the root's next turn the child's) because both shared (actor, segment)
+        key = t.chain()
+        if not t.trainable and t.node():
+            continue  # another model's stand-alone call: never a target
+        if not t.node() and t.prompt_is_delta and key in prev:
             ck = prev[key]
         else:
-            ck = f"{t.actor}:{t.segment}:{t.call_id}"
+            ck = f"{t.actor}:{t.agent + ':' if t.agent else ''}{t.segment}:{t.call_id}"
             chains[ck] = {"pieces": [], "kind": t.kind}
-        if t.kind != "sub":
+        if not t.node():
             prev[key] = ck
         ch = chains[ck]
         p_ids, p_text, p_red = piece(list(t.prompt_token_ids or []))
-        ch["pieces"].append((p_ids, p_text, None, p_red))
-        prompt_ids = [i for ids, _, _, _ in ch["pieces"] for i in ids]
-        prompt_text = "".join(x for _, x, _, _ in ch["pieces"])
+        ch["pieces"].append((p_ids, p_text, None, p_red, False))
         c_ids, c_text, c_red = piece(list(t.completion_token_ids))
+        if not t.trainable:  # context of the chain (mask 0), never a step
+            ch["pieces"].append((c_ids, c_text, None, c_red, False))
+            continue
+        prompt_ids = [i for ids, *_ in ch["pieces"] for i in ids]
+        prompt_text = "".join(p[1] for p in ch["pieces"])
         w = float(t.advantage) if t.advantage is not None else None
-        ch["pieces"].append((c_ids, c_text, w, c_red))
+        ch["pieces"].append((c_ids, c_text, w, c_red, True))
         exact = _enc(tok, prompt_text) == prompt_ids and _enc(tok, prompt_text + c_text) == prompt_ids + c_ids
         steps.append(Step(prompt=prompt_text, completion=c_text, prompt_ids=prompt_ids, completion_ids=c_ids, weight=w, kind=t.kind, call_id=t.call_id,
                           index=k, ends_eos=bool(eos) and c_text.endswith(eos), exact=exact, redacted=any(p[3] for p in ch["pieces"]),
@@ -353,13 +362,14 @@ def token_steps(rollout: Mapping[str, Any], tok: Any, *, redact: Any = None) -> 
         ids: list[int] = []
         mask: list[int] = []
         weights: list[float] = []
-        for k, (p, _text, w, _r) in enumerate(ch["pieces"]):
-            pol = k % 2 == 1  # prompt piece, completion piece, prompt piece, ...
+        if not any(x[4] for x in ch["pieces"]):
+            continue
+        for p, _text, w, _r, pol in ch["pieces"]:  # pol: a completion the policy sampled (trained); else context
             ids += p
             mask += [1 if pol else 0] * len(p)
             weights += [float(w or 0.0) if pol else 0.0] * len(p)
         out_chains.append({"chain": ck, "kind": ch["kind"], "input_ids": ids, "mask": mask, "weights": weights,
-                           "credit": any(p[2] is not None for p in ch["pieces"][1::2])})
+                           "credit": any(p[2] is not None for p in ch["pieces"] if p[4])})
     return steps, out_chains, []
 
 

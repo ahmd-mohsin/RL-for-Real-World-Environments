@@ -1,0 +1,2277 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r5000-n820-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {
+     "max_stalls": 1000000
+    }
+   },
+   "harness_id": "rlm:041b65509c@1",
+   "rlm_fields": {
+    "applied": {
+     "max_stalls": 1000000
+    },
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 4976,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 15,
+   "compaction_steps": [
+    367,
+    665,
+    950,
+    1218,
+    1497,
+    1767,
+    2048,
+    2330,
+    2613,
+    2917,
+    3225,
+    3526,
+    3826,
+    4146,
+    4744
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      665
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.132927,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 2,
+     "steps": [
+      665,
+      950
+     ],
+     "phi_start": 0.132927,
+     "phi_end": 0.187805,
+     "delta_phi": 0.054878
+    },
+    {
+     "segment": 3,
+     "steps": [
+      950,
+      1218
+     ],
+     "phi_start": 0.187805,
+     "phi_end": 0.239024,
+     "delta_phi": 0.05122
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1218,
+      1497
+     ],
+     "phi_start": 0.239024,
+     "phi_end": 0.292683,
+     "delta_phi": 0.053659
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1497,
+      1767
+     ],
+     "phi_start": 0.292683,
+     "phi_end": 0.343902,
+     "delta_phi": 0.05122
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1767,
+      2048
+     ],
+     "phi_start": 0.343902,
+     "phi_end": 0.397561,
+     "delta_phi": 0.053659
+    },
+    {
+     "segment": 7,
+     "steps": [
+      2048,
+      2330
+     ],
+     "phi_start": 0.397561,
+     "phi_end": 0.44878,
+     "delta_phi": 0.05122
+    },
+    {
+     "segment": 8,
+     "steps": [
+      2330,
+      2613
+     ],
+     "phi_start": 0.44878,
+     "phi_end": 0.503659,
+     "delta_phi": 0.054878
+    },
+    {
+     "segment": 9,
+     "steps": [
+      2613,
+      2917
+     ],
+     "phi_start": 0.503659,
+     "phi_end": 0.563415,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 10,
+     "steps": [
+      2917,
+      3225
+     ],
+     "phi_start": 0.563415,
+     "phi_end": 0.62439,
+     "delta_phi": 0.060976
+    },
+    {
+     "segment": 11,
+     "steps": [
+      3225,
+      3526
+     ],
+     "phi_start": 0.62439,
+     "phi_end": 0.686585,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 12,
+     "steps": [
+      3526,
+      3826
+     ],
+     "phi_start": 0.686585,
+     "phi_end": 0.74878,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 13,
+     "steps": [
+      3826,
+      4146
+     ],
+     "phi_start": 0.74878,
+     "phi_end": 0.810976,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 14,
+     "steps": [
+      4146,
+      4744
+     ],
+     "phi_start": 0.810976,
+     "phi_end": 0.946341,
+     "delta_phi": 0.135366
+    },
+    {
+     "segment": 15,
+     "steps": [
+      4744,
+      4976
+     ],
+     "phi_start": 0.946341,
+     "phi_end": 1.0,
+     "delta_phi": 0.053659
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 1176,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 70,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 60,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 64,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 65,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 68,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 7,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 8,
+      "actions": 67,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 9,
+      "actions": 79,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 10,
+      "actions": 80,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 11,
+      "actions": 76,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 12,
+      "actions": 78,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 13,
+      "actions": 84,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 14,
+      "actions": 174,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 15,
+      "actions": 73,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 42828,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 58,
+     "entered": 43574,
+     "max_prompt": 40902,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 56,
+     "entered": 43406,
+     "max_prompt": 40677,
+     "kinds": {
+      "turn": 55,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 54,
+     "entered": 42707,
+     "max_prompt": 39933,
+     "kinds": {
+      "turn": 53,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 55,
+     "entered": 42744,
+     "max_prompt": 39882,
+     "kinds": {
+      "turn": 54,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 51,
+     "entered": 42875,
+     "max_prompt": 39956,
+     "kinds": {
+      "turn": 50,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 52,
+     "entered": 42948,
+     "max_prompt": 39999,
+     "kinds": {
+      "turn": 51,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 7,
+     "calls": 52,
+     "entered": 42622,
+     "max_prompt": 39640,
+     "kinds": {
+      "turn": 51,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 8,
+     "calls": 52,
+     "entered": 42732,
+     "max_prompt": 39714,
+     "kinds": {
+      "turn": 51,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 9,
+     "calls": 51,
+     "entered": 42897,
+     "max_prompt": 39878,
+     "kinds": {
+      "turn": 50,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 10,
+     "calls": 52,
+     "entered": 42775,
+     "max_prompt": 39756,
+     "kinds": {
+      "turn": 51,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 11,
+     "calls": 53,
+     "entered": 42814,
+     "max_prompt": 39795,
+     "kinds": {
+      "turn": 52,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 12,
+     "calls": 53,
+     "entered": 43105,
+     "max_prompt": 40087,
+     "kinds": {
+      "turn": 52,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 13,
+     "calls": 53,
+     "entered": 42996,
+     "max_prompt": 39978,
+     "kinds": {
+      "turn": 52,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 14,
+     "calls": 113,
+     "entered": 38753,
+     "max_prompt": 36857,
+     "kinds": {
+      "turn": 112,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 15,
+     "calls": 46,
+     "entered": 10481,
+     "max_prompt": 10450,
+     "kinds": {
+      "turn": 46
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40006,
+    "max_compaction_prompt": 40902,
+    "over_window_calls": 237,
+    "max_prompt_over_window": 1.278
+   },
+   "rereads_after_compaction": 15,
+   "model_calls": 917,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 125,
+    "reread": 15,
+    "summary": 15,
+    "work": 758
+   },
+   "wall_s": 42.85,
+   "ms_per_world_call": 8.61,
+   "checkpoints": {
+    "saves": 9,
+    "last_bytes": 8658661,
+    "total_bytes": 44802728,
+    "max_save_s": 0.0824
+   },
+   "rlm_counters": {
+    "turns": 902,
+    "cells": 902,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 5,
+    "world_calls": 4619,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 9.809,
+    "cells": 918,
+    "journal_bytes": 4577895,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {
+     "max_stalls": 1000000
+    }
+   },
+   "harness_id": "rlm:041b65509c@1",
+   "rlm_fields": {
+    "applied": {
+     "max_stalls": 1000000
+    },
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 4259,
+   "attempts": 1,
+   "reward": 0.741463,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.741463,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 12,
+   "compaction_steps": [
+    367,
+    690,
+    1016,
+    1330,
+    1677,
+    1992,
+    2332,
+    2689,
+    3062,
+    3441,
+    3806,
+    4178
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      690
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.139024,
+     "delta_phi": 0.063415
+    },
+    {
+     "segment": 2,
+     "steps": [
+      690,
+      1016
+     ],
+     "phi_start": 0.139024,
+     "phi_end": 0.20122,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 3,
+     "steps": [
+      1016,
+      1330
+     ],
+     "phi_start": 0.20122,
+     "phi_end": 0.260976,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1330,
+      1677
+     ],
+     "phi_start": 0.260976,
+     "phi_end": 0.32561,
+     "delta_phi": 0.064634
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1677,
+      1992
+     ],
+     "phi_start": 0.32561,
+     "phi_end": 0.37561,
+     "delta_phi": 0.05
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1992,
+      2332
+     ],
+     "phi_start": 0.37561,
+     "phi_end": 0.42439,
+     "delta_phi": 0.04878
+    },
+    {
+     "segment": 7,
+     "steps": [
+      2332,
+      2689
+     ],
+     "phi_start": 0.42439,
+     "phi_end": 0.484146,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 8,
+     "steps": [
+      2689,
+      3062
+     ],
+     "phi_start": 0.484146,
+     "phi_end": 0.543902,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 9,
+     "steps": [
+      3062,
+      3441
+     ],
+     "phi_start": 0.543902,
+     "phi_end": 0.613415,
+     "delta_phi": 0.069512
+    },
+    {
+     "segment": 10,
+     "steps": [
+      3441,
+      3806
+     ],
+     "phi_start": 0.613415,
+     "phi_end": 0.680488,
+     "delta_phi": 0.067073
+    },
+    {
+     "segment": 11,
+     "steps": [
+      3806,
+      4178
+     ],
+     "phi_start": 0.680488,
+     "phi_end": 0.731707,
+     "delta_phi": 0.05122
+    },
+    {
+     "segment": 12,
+     "steps": [
+      4178,
+      4259
+     ],
+     "phi_start": 0.731707,
+     "phi_end": 0.741463,
+     "delta_phi": 0.009756
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 977,
+     "broken": 87,
+     "rate": 0.089,
+     "by_rule": {
+      "approval_missing": 87
+     }
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 75,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 81,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 82,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 72,
+      "broken": 8,
+      "rate": 0.1111,
+      "by_rule": {
+       "approval_missing": 8
+      }
+     },
+     {
+      "segment": 6,
+      "actions": 87,
+      "broken": 13,
+      "rate": 0.1494,
+      "by_rule": {
+       "approval_missing": 13
+      }
+     },
+     {
+      "segment": 7,
+      "actions": 90,
+      "broken": 10,
+      "rate": 0.1111,
+      "by_rule": {
+       "approval_missing": 10
+      }
+     },
+     {
+      "segment": 8,
+      "actions": 100,
+      "broken": 14,
+      "rate": 0.14,
+      "by_rule": {
+       "approval_missing": 14
+      }
+     },
+     {
+      "segment": 9,
+      "actions": 100,
+      "broken": 6,
+      "rate": 0.06,
+      "by_rule": {
+       "approval_missing": 6
+      }
+     },
+     {
+      "segment": 10,
+      "actions": 96,
+      "broken": 9,
+      "rate": 0.0938,
+      "by_rule": {
+       "approval_missing": 9
+      }
+     },
+     {
+      "segment": 11,
+      "actions": 103,
+      "broken": 21,
+      "rate": 0.2039,
+      "by_rule": {
+       "approval_missing": 21
+      }
+     },
+     {
+      "segment": 12,
+      "actions": 22,
+      "broken": 6,
+      "rate": 0.2727,
+      "by_rule": {
+       "approval_missing": 6
+      }
+     }
+    ],
+    "lost_constraint_rate": 0.089,
+    "missed_awaiting": 125,
+    "awaiting": 125,
+    "examples": [
+     {
+      "step": 1690,
+      "fn": "issue_refund",
+      "ticket": 418,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1710,
+      "fn": "issue_refund",
+      "ticket": 421,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1778,
+      "fn": "issue_refund",
+      "ticket": 433,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1858,
+      "fn": "issue_refund",
+      "ticket": 450,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1889,
+      "fn": "issue_refund",
+      "ticket": 455,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1912,
+      "fn": "issue_refund",
+      "ticket": 461,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1935,
+      "fn": "issue_refund",
+      "ticket": 466,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 1977,
+      "fn": "issue_refund",
+      "ticket": 474,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 2009,
+      "fn": "issue_refund",
+      "ticket": 480,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 6
+     },
+     {
+      "step": 2015,
+      "fn": "issue_refund",
+      "ticket": 481,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 6
+     }
+    ]
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 40832,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 40949,
+     "max_prompt": 40747,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 62,
+     "entered": 40988,
+     "max_prompt": 40786,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 63,
+     "entered": 40736,
+     "max_prompt": 40534,
+     "kinds": {
+      "turn": 62,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 64,
+     "entered": 41054,
+     "max_prompt": 40852,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 63,
+     "entered": 40902,
+     "max_prompt": 40700,
+     "kinds": {
+      "turn": 62,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 63,
+     "entered": 40700,
+     "max_prompt": 40498,
+     "kinds": {
+      "turn": 62,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 7,
+     "calls": 64,
+     "entered": 41249,
+     "max_prompt": 41047,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 8,
+     "calls": 64,
+     "entered": 41466,
+     "max_prompt": 41264,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 9,
+     "calls": 64,
+     "entered": 40865,
+     "max_prompt": 40662,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 10,
+     "calls": 65,
+     "entered": 41125,
+     "max_prompt": 40923,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 11,
+     "calls": 64,
+     "entered": 41097,
+     "max_prompt": 40895,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 12,
+     "calls": 15,
+     "entered": 11312,
+     "max_prompt": 11281,
+     "kinds": {
+      "turn": 15
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40457,
+    "max_compaction_prompt": 41264,
+    "over_window_calls": 179,
+    "max_prompt_over_window": 1.29
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 779,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 12,
+    "work": 763
+   },
+   "wall_s": 35.77,
+   "ms_per_world_call": 8.4,
+   "checkpoints": {
+    "saves": 8,
+    "last_bytes": 6708704,
+    "total_bytes": 31359413,
+    "max_save_s": 0.0706
+   },
+   "rlm_counters": {
+    "turns": 767,
+    "cells": 767,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 7,
+    "world_calls": 4060,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 6.816,
+    "cells": 780,
+    "journal_bytes": 3747799,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {
+     "max_stalls": 1000000
+    }
+   },
+   "harness_id": "rlm:041b65509c@1",
+   "rlm_fields": {
+    "applied": {
+     "max_stalls": 1000000
+    },
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 4976,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 13,
+   "compaction_steps": [
+    367,
+    670,
+    967,
+    1261,
+    1569,
+    1865,
+    2189,
+    2499,
+    2840,
+    3182,
+    3521,
+    3856,
+    4208
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      670
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.134146,
+     "delta_phi": 0.058537
+    },
+    {
+     "segment": 2,
+     "steps": [
+      670,
+      967
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.191463,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 3,
+     "steps": [
+      967,
+      1261
+     ],
+     "phi_start": 0.191463,
+     "phi_end": 0.247561,
+     "delta_phi": 0.056098
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1261,
+      1569
+     ],
+     "phi_start": 0.247561,
+     "phi_end": 0.306098,
+     "delta_phi": 0.058537
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1569,
+      1865
+     ],
+     "phi_start": 0.306098,
+     "phi_end": 0.363415,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1865,
+      2189
+     ],
+     "phi_start": 0.363415,
+     "phi_end": 0.423171,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 7,
+     "steps": [
+      2189,
+      2499
+     ],
+     "phi_start": 0.423171,
+     "phi_end": 0.480488,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 8,
+     "steps": [
+      2499,
+      2840
+     ],
+     "phi_start": 0.480488,
+     "phi_end": 0.547561,
+     "delta_phi": 0.067073
+    },
+    {
+     "segment": 9,
+     "steps": [
+      2840,
+      3182
+     ],
+     "phi_start": 0.547561,
+     "phi_end": 0.615854,
+     "delta_phi": 0.068293
+    },
+    {
+     "segment": 10,
+     "steps": [
+      3182,
+      3521
+     ],
+     "phi_start": 0.615854,
+     "phi_end": 0.685366,
+     "delta_phi": 0.069512
+    },
+    {
+     "segment": 11,
+     "steps": [
+      3521,
+      3856
+     ],
+     "phi_start": 0.685366,
+     "phi_end": 0.754878,
+     "delta_phi": 0.069512
+    },
+    {
+     "segment": 12,
+     "steps": [
+      3856,
+      4208
+     ],
+     "phi_start": 0.754878,
+     "phi_end": 0.823171,
+     "delta_phi": 0.068293
+    },
+    {
+     "segment": 13,
+     "steps": [
+      4208,
+      4976
+     ],
+     "phi_start": 0.823171,
+     "phi_end": 1.0,
+     "delta_phi": 0.176829
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 1176,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 71,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 72,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 70,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 81,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 7,
+      "actions": 71,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 8,
+      "actions": 89,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 9,
+      "actions": 88,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 10,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 11,
+      "actions": 87,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 12,
+      "actions": 92,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 13,
+      "actions": 231,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 42828,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 58,
+     "entered": 43096,
+     "max_prompt": 40424,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 57,
+     "entered": 42899,
+     "max_prompt": 40170,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 57,
+     "entered": 42791,
+     "max_prompt": 40011,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 59,
+     "entered": 43281,
+     "max_prompt": 40413,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 56,
+     "entered": 42870,
+     "max_prompt": 39956,
+     "kinds": {
+      "turn": 55,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 57,
+     "entered": 42597,
+     "max_prompt": 39653,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 7,
+     "calls": 58,
+     "entered": 42677,
+     "max_prompt": 39676,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 8,
+     "calls": 56,
+     "entered": 42705,
+     "max_prompt": 39704,
+     "kinds": {
+      "turn": 55,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 9,
+     "calls": 57,
+     "entered": 42801,
+     "max_prompt": 39799,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 10,
+     "calls": 58,
+     "entered": 42661,
+     "max_prompt": 39659,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 11,
+     "calls": 58,
+     "entered": 42867,
+     "max_prompt": 39866,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 12,
+     "calls": 57,
+     "entered": 43099,
+     "max_prompt": 40098,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 13,
+     "calls": 146,
+     "entered": 30992,
+     "max_prompt": 30961,
+     "kinds": {
+      "turn": 146
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39966,
+    "max_compaction_prompt": 40630,
+    "over_window_calls": 170,
+    "max_prompt_over_window": 1.27
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 900,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 125,
+    "summary": 13,
+    "work": 758
+   },
+   "wall_s": 40.7,
+   "ms_per_world_call": 8.18,
+   "checkpoints": {
+    "saves": 9,
+    "last_bytes": 8129108,
+    "total_bytes": 42419137,
+    "max_save_s": 0.0852
+   },
+   "rlm_counters": {
+    "turns": 887,
+    "cells": 887,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 5,
+    "world_calls": 4619,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 8.151,
+    "cells": 901,
+    "journal_bytes": 4361547,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {
+     "max_stalls": 1000000
+    }
+   },
+   "harness_id": "rlm:041b65509c@1",
+   "rlm_fields": {
+    "applied": {
+     "max_stalls": 1000000
+    },
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 4762,
+   "attempts": 1,
+   "reward": 0.935366,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.935366,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 13,
+   "compaction_steps": [
+    367,
+    685,
+    999,
+    1292,
+    1603,
+    1908,
+    2222,
+    2539,
+    2881,
+    3225,
+    3566,
+    3908,
+    4251
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      685
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.137805,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 2,
+     "steps": [
+      685,
+      999
+     ],
+     "phi_start": 0.137805,
+     "phi_end": 0.197561,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 3,
+     "steps": [
+      999,
+      1292
+     ],
+     "phi_start": 0.197561,
+     "phi_end": 0.253659,
+     "delta_phi": 0.056098
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1292,
+      1603
+     ],
+     "phi_start": 0.253659,
+     "phi_end": 0.310976,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1603,
+      1908
+     ],
+     "phi_start": 0.310976,
+     "phi_end": 0.371951,
+     "delta_phi": 0.060976
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1908,
+      2222
+     ],
+     "phi_start": 0.371951,
+     "phi_end": 0.429268,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 7,
+     "steps": [
+      2222,
+      2539
+     ],
+     "phi_start": 0.429268,
+     "phi_end": 0.489024,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 8,
+     "steps": [
+      2539,
+      2881
+     ],
+     "phi_start": 0.489024,
+     "phi_end": 0.556098,
+     "delta_phi": 0.067073
+    },
+    {
+     "segment": 9,
+     "steps": [
+      2881,
+      3225
+     ],
+     "phi_start": 0.556098,
+     "phi_end": 0.62439,
+     "delta_phi": 0.068293
+    },
+    {
+     "segment": 10,
+     "steps": [
+      3225,
+      3566
+     ],
+     "phi_start": 0.62439,
+     "phi_end": 0.695122,
+     "delta_phi": 0.070732
+    },
+    {
+     "segment": 11,
+     "steps": [
+      3566,
+      3908
+     ],
+     "phi_start": 0.695122,
+     "phi_end": 0.764634,
+     "delta_phi": 0.069512
+    },
+    {
+     "segment": 12,
+     "steps": [
+      3908,
+      4251
+     ],
+     "phi_start": 0.764634,
+     "phi_end": 0.831707,
+     "delta_phi": 0.067073
+    },
+    {
+     "segment": 13,
+     "steps": [
+      4251,
+      4762
+     ],
+     "phi_start": 0.831707,
+     "phi_end": 0.935366,
+     "delta_phi": 0.103659
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 1091,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 74,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 77,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 66,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 72,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 74,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 77,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 7,
+      "actions": 73,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 8,
+      "actions": 89,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 9,
+      "actions": 89,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 10,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 11,
+      "actions": 90,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 12,
+      "actions": 90,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 13,
+      "actions": 134,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 53,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 40832,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 41331,
+     "max_prompt": 41129,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 61,
+     "entered": 41416,
+     "max_prompt": 41214,
+     "kinds": {
+      "turn": 60,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 59,
+     "entered": 40675,
+     "max_prompt": 40473,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 60,
+     "entered": 41057,
+     "max_prompt": 40855,
+     "kinds": {
+      "turn": 59,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 57,
+     "entered": 40869,
+     "max_prompt": 40667,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 57,
+     "entered": 40292,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 7,
+     "calls": 60,
+     "entered": 41029,
+     "max_prompt": 40827,
+     "kinds": {
+      "turn": 59,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 8,
+     "calls": 57,
+     "entered": 41150,
+     "max_prompt": 40948,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 9,
+     "calls": 58,
+     "entered": 40977,
+     "max_prompt": 40774,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 10,
+     "calls": 60,
+     "entered": 41084,
+     "max_prompt": 40881,
+     "kinds": {
+      "turn": 59,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 11,
+     "calls": 59,
+     "entered": 41104,
+     "max_prompt": 40902,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 12,
+     "calls": 57,
+     "entered": 40808,
+     "max_prompt": 40606,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 13,
+     "calls": 147,
+     "entered": 41266,
+     "max_prompt": 41235,
+     "kinds": {
+      "turn": 147
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 41235,
+    "max_compaction_prompt": 41214,
+    "over_window_calls": 220,
+    "max_prompt_over_window": 1.289
+   },
+   "rereads_after_compaction": 13,
+   "model_calls": 920,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 72,
+    "reread": 13,
+    "summary": 13,
+    "wait": 60,
+    "work": 758
+   },
+   "wall_s": 39.04,
+   "ms_per_world_call": 8.2,
+   "checkpoints": {
+    "saves": 9,
+    "last_bytes": 7665130,
+    "total_bytes": 40128777,
+    "max_save_s": 0.0828
+   },
+   "rlm_counters": {
+    "turns": 907,
+    "cells": 907,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 5,
+    "world_calls": 4435,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 9.561,
+    "cells": 921,
+    "journal_bytes": 4148248,
+    "error": null
+   },
+   "dir": null
+  }
+ ]
+}

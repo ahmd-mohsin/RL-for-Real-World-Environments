@@ -302,9 +302,13 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             pen = limit_policy.penalty(ep.stop_condition) if limit_policy is not None else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty
                 reward = pen
+            from crucible.actors.rlm.agent import truncating_stop
+
+            # an RLM policy's budget:<kind> / compaction_failed stops are truncations too (M16 §3.6)
+            truncated = ep.truncated or any(truncating_stop(getattr(p, "stop", None)) for p in pols.values())
             rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at=started_at, steps=ep.steps,
                             outcome="completed", reward=reward, attempt=f"{rid}-a1",
-                            meta={"harness": harness, "stop": ep.stop_condition, "truncated": ep.truncated, "gates": rep.gate_bits()})
+                            meta={"harness": harness, "stop": ep.stop_condition, "truncated": truncated, "gates": rep.gate_bits()})
             segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
             ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature})
             ro.group = None
@@ -345,8 +349,9 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
 
 def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: Any = None, *, max_steps: int = 10_000, workroot: Path | None = None,
                       limit_policy: Any = None, launcher: Callable[[], Any] | None = None) -> Callable:
-    """The M12 rollout under the RLM harness (m14): the engine's model drives an ``RLMPolicy`` configured by ``RLMConfig``;
-    root, sub and compaction calls carry the engine's token records; the harness label is ``rlm:<config digest>@1``.
+    """The M12 rollout under the RLM harness (m14; the M16 loop): the engine's model drives an ``RLMPolicy`` configured by
+    ``RLMConfig``; root, child, sub and compaction calls carry the engine's token records; the harness label is
+    ``rlm:<config digest>@1``. The ledger lives in a temporary directory the policy removes at ``aclose``.
 
     ``launcher``: a factory called once per rollout (M14 audit H3 V12, G1 D9: one shared instance gave concurrent rollouts
     one container, and one rollout's ``aclose`` removed it under the others); default ``RLMConfig.launcher``. Each rollout's
@@ -373,7 +378,8 @@ def rlm_world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, config: 
 
     def make(llm: Any, temperature: float) -> Any:
         rid, seed = current.get() or ("", 0)
-        return RLMPolicy("agent", llm, launcher=launcher() if launcher is not None else c.launcher(), temperature=temperature,
+        factory = launcher if launcher is not None else c.launcher  # the root's kernel and every child agent's (M16 §3.3)
+        return RLMPolicy("agent", llm, launcher=factory(), child_launcher=factory, temperature=temperature,
                          seed=zlib.crc32(f"{rid}:{seed}".encode()), **c.policy_kwargs())
 
     inner = world_rollout(task_for, codec, max_steps=max_steps, workroot=workroot, limit_policy=limit_policy, make_policy=make,

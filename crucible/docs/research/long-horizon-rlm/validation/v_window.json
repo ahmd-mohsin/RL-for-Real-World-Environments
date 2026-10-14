@@ -1,0 +1,918 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": true,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:141b2f959f@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 978,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 7,
+   "compaction_steps": [
+    182,
+    288,
+    400,
+    497,
+    604,
+    707,
+    807
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      182
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.175,
+     "delta_phi": 0.175
+    },
+    {
+     "segment": 1,
+     "steps": [
+      182,
+      288
+     ],
+     "phi_start": 0.175,
+     "phi_end": 0.275,
+     "delta_phi": 0.1
+    },
+    {
+     "segment": 2,
+     "steps": [
+      288,
+      400
+     ],
+     "phi_start": 0.275,
+     "phi_end": 0.38125,
+     "delta_phi": 0.10625
+    },
+    {
+     "segment": 3,
+     "steps": [
+      400,
+      497
+     ],
+     "phi_start": 0.38125,
+     "phi_end": 0.475,
+     "delta_phi": 0.09375
+    },
+    {
+     "segment": 4,
+     "steps": [
+      497,
+      604
+     ],
+     "phi_start": 0.475,
+     "phi_end": 0.58125,
+     "delta_phi": 0.10625
+    },
+    {
+     "segment": 5,
+     "steps": [
+      604,
+      707
+     ],
+     "phi_start": 0.58125,
+     "phi_end": 0.69375,
+     "delta_phi": 0.1125
+    },
+    {
+     "segment": 6,
+     "steps": [
+      707,
+      807
+     ],
+     "phi_start": 0.69375,
+     "phi_end": 0.8,
+     "delta_phi": 0.10625
+    },
+    {
+     "segment": 7,
+     "steps": [
+      807,
+      978
+     ],
+     "phi_start": 0.8,
+     "phi_end": 1.0,
+     "delta_phi": 0.2
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 46,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 205,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 46,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 26,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 30,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 22,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 28,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 7,
+      "actions": 49,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 37,
+     "entered": 47216,
+     "max_prompt": 23577,
+     "kinds": {
+      "turn": 36,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 21,
+     "entered": 46281,
+     "max_prompt": 23183,
+     "kinds": {
+      "turn": 20,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 20,
+     "entered": 45704,
+     "max_prompt": 22755,
+     "kinds": {
+      "turn": 19,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 20,
+     "entered": 45259,
+     "max_prompt": 22353,
+     "kinds": {
+      "turn": 19,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 19,
+     "entered": 43941,
+     "max_prompt": 21556,
+     "kinds": {
+      "turn": 18,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 20,
+     "entered": 45133,
+     "max_prompt": 22187,
+     "kinds": {
+      "turn": 19,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 19,
+     "entered": 43782,
+     "max_prompt": 21522,
+     "kinds": {
+      "turn": 18,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 7,
+     "calls": 34,
+     "entered": 20663,
+     "max_prompt": 20632,
+     "kinds": {
+      "turn": 34
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "rereads_after_compaction": 7,
+   "history_reads_harness": {
+    "history_reads": 7,
+    "history_reads_after_compaction": 7
+   },
+   "model_calls": 190,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 21,
+    "reread": 7,
+    "summary": 7,
+    "work": 151
+   },
+   "wall_s": 6.48,
+   "ms_per_world_call": 6.63,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 138668,
+    "total_bytes": 138668,
+    "max_save_s": 0.0217
+   },
+   "rlm_counters": {
+    "turns": 183,
+    "cells": 183,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 7,
+    "compaction_attempts": 7,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 7,
+    "history_reads_after_compaction": 7,
+    "context_reads": 0,
+    "snapshots": 7,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 11730,
+    "discarded_cost_usd": 0.0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.925,
+    "restore": "snapshot",
+    "restore_s": 0.709,
+    "mode": "snapshot",
+    "cells": 34,
+    "snapshot_cells": 150,
+    "snapshot_bytes": 354007,
+    "journal_bytes": 31642,
+    "fallback": [],
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": true,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:141b2f959f@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 856,
+   "attempts": 1,
+   "reward": 0.8,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.8,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 5,
+   "compaction_steps": [
+    182,
+    307,
+    440,
+    583,
+    723
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      182
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.175,
+     "delta_phi": 0.175
+    },
+    {
+     "segment": 1,
+     "steps": [
+      182,
+      307
+     ],
+     "phi_start": 0.175,
+     "phi_end": 0.29375,
+     "delta_phi": 0.11875
+    },
+    {
+     "segment": 2,
+     "steps": [
+      307,
+      440
+     ],
+     "phi_start": 0.29375,
+     "phi_end": 0.425,
+     "delta_phi": 0.13125
+    },
+    {
+     "segment": 3,
+     "steps": [
+      440,
+      583
+     ],
+     "phi_start": 0.425,
+     "phi_end": 0.5375,
+     "delta_phi": 0.1125
+    },
+    {
+     "segment": 4,
+     "steps": [
+      583,
+      723
+     ],
+     "phi_start": 0.5375,
+     "phi_end": 0.66875,
+     "delta_phi": 0.13125
+    },
+    {
+     "segment": 5,
+     "steps": [
+      723,
+      856
+     ],
+     "phi_start": 0.66875,
+     "phi_end": 0.8,
+     "delta_phi": 0.13125
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 46,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 170,
+     "broken": 11,
+     "rate": 0.0647,
+     "by_rule": {
+      "approval_missing": 11
+     }
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 46,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 31,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 33,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 38,
+      "broken": 4,
+      "rate": 0.1053,
+      "by_rule": {
+       "approval_missing": 4
+      }
+     },
+     {
+      "segment": 4,
+      "actions": 35,
+      "broken": 4,
+      "rate": 0.1143,
+      "by_rule": {
+       "approval_missing": 4
+      }
+     },
+     {
+      "segment": 5,
+      "actions": 33,
+      "broken": 3,
+      "rate": 0.0909,
+      "by_rule": {
+       "approval_missing": 3
+      }
+     }
+    ],
+    "lost_constraint_rate": 0.0647,
+    "missed_awaiting": 21,
+    "awaiting": 21,
+    "examples": [
+     {
+      "step": 451,
+      "fn": "issue_refund",
+      "ticket": 176,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 462,
+      "fn": "issue_refund",
+      "ticket": 179,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 525,
+      "fn": "issue_refund",
+      "ticket": 189,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 564,
+      "fn": "issue_refund",
+      "ticket": 195,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 592,
+      "fn": "issue_refund",
+      "ticket": 201,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 4
+     },
+     {
+      "step": 637,
+      "fn": "issue_refund",
+      "ticket": 213,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 4
+     },
+     {
+      "step": 680,
+      "fn": "issue_refund",
+      "ticket": 221,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 4
+     },
+     {
+      "step": 697,
+      "fn": "issue_refund",
+      "ticket": 226,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 4
+     },
+     {
+      "step": 748,
+      "fn": "issue_refund",
+      "ticket": 237,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     },
+     {
+      "step": 795,
+      "fn": "issue_refund",
+      "ticket": 246,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 5
+     }
+    ]
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 37,
+     "entered": 46656,
+     "max_prompt": 23577,
+     "kinds": {
+      "turn": 36,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 23,
+     "entered": 45918,
+     "max_prompt": 23378,
+     "kinds": {
+      "turn": 22,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 24,
+     "entered": 46870,
+     "max_prompt": 23846,
+     "kinds": {
+      "turn": 23,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 25,
+     "entered": 46481,
+     "max_prompt": 23718,
+     "kinds": {
+      "turn": 24,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 26,
+     "entered": 46684,
+     "max_prompt": 23713,
+     "kinds": {
+      "turn": 25,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 25,
+     "entered": 22787,
+     "max_prompt": 22756,
+     "kinds": {
+      "turn": 25
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23846,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.745,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "rereads_after_compaction": 0,
+   "history_reads_harness": {
+    "history_reads": 0,
+    "history_reads_after_compaction": 0
+   },
+   "model_calls": 160,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 5,
+    "work": 151
+   },
+   "wall_s": 5.18,
+   "ms_per_world_call": 6.05,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 145937,
+    "total_bytes": 145937,
+    "max_save_s": 0.0229
+   },
+   "rlm_counters": {
+    "turns": 155,
+    "cells": 155,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 810,
+    "world_sends": 45,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 5,
+    "compaction_attempts": 5,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 0,
+    "history_reads_after_compaction": 0,
+    "context_reads": 0,
+    "snapshots": 5,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 8097,
+    "discarded_cost_usd": 0.0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.854,
+    "restore": "snapshot",
+    "restore_s": 0.63,
+    "mode": "snapshot",
+    "cells": 25,
+    "snapshot_cells": 131,
+    "snapshot_bytes": 309261,
+    "journal_bytes": 22852,
+    "fallback": [],
+    "error": null
+   },
+   "dir": null
+  }
+ ],
+ "summary": [
+  {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 7,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 6.48,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 138668,
+    "total_bytes": 138668,
+    "max_save_s": 0.0217
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.925,
+    "restore": "snapshot",
+    "restore_s": 0.709,
+    "mode": "snapshot",
+    "cells": 34,
+    "snapshot_cells": 150,
+    "snapshot_bytes": 354007,
+    "journal_bytes": 31642,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 7,
+    "history_reads_after_compaction": 7
+   },
+   "faults": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-forgetful-b32000",
+   "reward": 0.8,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 856,
+   "compactions": 5,
+   "lost": 0.0647,
+   "missed": 21,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23846,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.745,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 5.18,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 145937,
+    "total_bytes": 145937,
+    "max_save_s": 0.0229
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.854,
+    "restore": "snapshot",
+    "restore_s": 0.63,
+    "mode": "snapshot",
+    "cells": 25,
+    "snapshot_cells": 131,
+    "snapshot_bytes": 309261,
+    "journal_bytes": 22852,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 0,
+    "history_reads_after_compaction": 0
+   },
+   "faults": null
+  }
+ ]
+}

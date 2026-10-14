@@ -13,6 +13,8 @@ dependencies = [
   "httpx>=0.27",
   "rich>=13",
   "click>=8.1",
+  # RLM kernel snapshots (M16 §3.4; BSD-3-Clause): pure Python, pushed into the Docker kernel as a zip
+  "dill>=0.3.8",
 ]
 
 [project.optional-dependencies]
@@ -90,6 +92,7 @@ members = ["packs/coding", "packs/_toy"]
 packs = ["crucible-pack-coding", "crucible-pack-toy"]
 
 [tool.uv.sources]
+crucible = { workspace = true }  # the packs depend on crucible (M14 wheels); uv needs the root named as a source
 crucible-pack-coding = { workspace = true }
 crucible-pack-toy = { workspace = true }
 harbor = { path = "../RL-Environments/06-frameworks-and-env-code/harbor-framework-harbor", editable = true }

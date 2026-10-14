@@ -1,0 +1,389 @@
+{
+ "ladder": "long-context via CONTEXT through the M16 RLM harness",
+ "runs": [
+  {
+   "family": "oolong",
+   "tokens": 8000,
+   "chars": 32000,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.95,
+    "failure": null,
+    "context_reads": 2,
+    "largest_prompt": {
+     "turn": 1471
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 8000,
+   "chars": 32073,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.75,
+    "failure": null,
+    "context_reads": 2,
+    "largest_prompt": {
+     "turn": 1470
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 8000,
+   "chars": 32210,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.71,
+    "failure": null,
+    "context_reads": 2,
+    "largest_prompt": {
+     "turn": 1653
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 32000,
+   "chars": 128070,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.75,
+    "failure": null,
+    "context_reads": 3,
+    "largest_prompt": {
+     "turn": 1435
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 32000,
+   "chars": 128221,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.74,
+    "failure": null,
+    "context_reads": 3,
+    "largest_prompt": {
+     "turn": 1469
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 32000,
+   "chars": 129550,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.74,
+    "failure": null,
+    "context_reads": 3,
+    "largest_prompt": {
+     "turn": 2147
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 128000,
+   "chars": 512016,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.85,
+    "failure": null,
+    "context_reads": 9,
+    "largest_prompt": {
+     "turn": 1402
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 128000,
+   "chars": 512423,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.85,
+    "failure": null,
+    "context_reads": 9,
+    "largest_prompt": {
+     "turn": 1473
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 128000,
+   "chars": 515510,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.85,
+    "failure": null,
+    "context_reads": 9,
+    "largest_prompt": {
+     "turn": 2317
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.06,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "oolong",
+   "tokens": 512000,
+   "chars": 2048048,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 1.32,
+    "failure": null,
+    "context_reads": 33,
+    "largest_prompt": {
+     "turn": 1437
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.09,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.08,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "mrcr",
+   "tokens": 512000,
+   "chars": 2048274,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 1.4,
+    "failure": null,
+    "context_reads": 33,
+    "largest_prompt": {
+     "turn": 1471
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.1,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.09,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  },
+  {
+   "family": "docqa",
+   "tokens": 512000,
+   "chars": 2051063,
+   "solver": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 1.39,
+    "failure": null,
+    "context_reads": 33,
+    "largest_prompt": {
+     "turn": 2311
+    }
+   },
+   "gold": {
+    "reward": 1.0,
+    "steps": 2,
+    "wall_s": 0.08,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "noop": {
+    "reward": 0.0,
+    "steps": 1,
+    "wall_s": 0.07,
+    "failure": null,
+    "context_reads": null,
+    "largest_prompt": null
+   },
+   "controls_ok": true
+  }
+ ]
+}

@@ -433,7 +433,8 @@ async def test_V9_compaction_under_a_rerendering_template_is_trainable(tmp_path)
                      f"else world.send(a['to'], a['text']))\nprint('chunk', 'x' * 1200)")
     cells.append("rlm.finish('done')")
     gen, seen = engine(cells, think=True)
-    cfg = rlm_config(budget_tokens=2_500, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200)
+    # M16 B1: the window is in the engine's real (byte) tokens now, compared with usage-anchored counts; 2,500 was chars/4 units
+    cfg = rlm_config(budget_tokens=24_000, trigger=0.8, keep_recent_turns=1, summary_max_tokens=200)
     try:
         ro = await rlm_world_rollout(lambda p: task, Interleaved(), cfg, workroot=tmp_path)("rid", "p", 0, gen, temperature=1.0)
     finally:

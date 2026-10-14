@@ -55,7 +55,9 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
 
     RLM sub-calls (``kind="sub"``) are tree nodes of the turn whose cell issued them, not steps of the Φ chain: they are
     left out of the chain and get their parent's credit (M14 audit G1 D4: copying the parent's ΔΦ onto each sub turn
-    inflated Φ and diluted the root turn's credit with every sub-call its cell made)."""
+    inflated Φ and diluted the root turn's credit with every sub-call its cell made). The same holds for summary attempts
+    and for the calls of a child agent of an RLM tree (M16 §3.5): only the root chain (``agent`` "", not a node) is Φ's
+    chain; a child's calls take the credit of the call they depend on (their spawning root turn, through any depth)."""
     import itertools
 
     from crucible.credit.compose import Episode, turn_credit
@@ -68,7 +70,7 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
     for rs in by.values():
         eps, keys = [], []
         for r in rs:
-            ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen and t.trainable and t.kind != "sub"]
+            ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen and t.trainable and not t.node() and not t.agent]
             masked = r.mask_sample or r.reward is None
             eps.append(Episode(reward=None if masked else float(r.reward), phis=list(itertools.accumulate(float(t.advantage or 0.0) for t in ts)),
                                gated=bool(r.gates) and not all(r.gates.values()), hack=float((r.reward_components or {}).get("hack/confirmed", 0.0)) > 0))
@@ -77,7 +79,7 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
             out.update(zip(ks, row, strict=True))
         for r in rs:
             for t in r.turns:
-                if t.kind == "sub" and t.trainable and t.completion_token_ids and t.actor not in frozen:
+                if (t.node() or t.agent) and t.trainable and t.completion_token_ids and t.actor not in frozen:
                     parent = (t.depends_on or [None])[0]
                     out[(r.rollout_id, t.call_id)] = out.get((r.rollout_id, parent), 0.0) if parent else 0.0
     return out

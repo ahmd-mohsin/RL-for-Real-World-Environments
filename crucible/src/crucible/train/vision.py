@@ -33,16 +33,17 @@ from crucible.train.hf import HFPolicy
 
 
 def prompt_media(ro: RolloutRecord) -> dict[str, list[dict[str, Any]]]:
-    """Every image in each call's full prompt: within an (actor, segment) chain a delta prompt keeps the images of the
-    previous calls (their offsets are absolute in the growing prompt) and adds its own; a whole prompt starts afresh."""
+    """Every image in each call's full prompt: within an (actor, agent, segment) chain a delta prompt keeps the images of
+    the previous calls (their offsets are absolute in the growing prompt) and adds its own; a whole prompt starts afresh.
+    Chains as in ``rollout.full_prompts`` (M16 §3.5)."""
     out: dict[str, list[dict[str, Any]]] = {}
-    prev: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    prev: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for t in ro.turns:
         own = [dict(m) for m in t.media or []]
-        if t.kind == "sub":
+        if t.node():
             out[t.call_id] = own
             continue
-        key = (t.actor, t.segment)
+        key = t.chain()
         full = [*prev.get(key, []), *own] if t.prompt_is_delta else own
         out[t.call_id] = full
         prev[key] = full

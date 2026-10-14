@@ -2626,6 +2626,27 @@ The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M
 - a real-model run;
 - cross-segment GAE (M12).
 
+### 10.5 The very-long-horizon RLM harness (M16, built 2026-10-13)
+
+§10.4 made long episodes possible for a transcript policy. M16 does it for the RLM policy, where the model's work lives in a persistent Python kernel. It was built after three studies (`docs/research/long-horizon-rlm/01`–`03`): 17 frameworks, the papers and articles, and a stress test of the m14 harness to 7,161 steps. The stress test found that the m14 prompt ran 1.42× over its budget, overflows and kernel kills were masked, resumed rollouts never trained, restores slowed with every cell, checkpoints held the whole episode, and episode-wide counters ended honest long runs. Module doc: `docs/modules/M16-long-horizon-rlm.md`.
+
+1. **Three tiers of state.** The prompt holds the system prompt, the task verbatim, a summary, a python-state row and the recent tail. The kernel holds variables. An append-only ledger on the host (`actors/rlm/ledger.py`) holds every message, the full output of every cell and every World result, stored once. The kernel reads the ledger with `history.*` and `OUT(i, cursor)`. A compaction therefore loses nothing; the summary is an index.
+2. **Bounded prompt by construction** (`actors/rlm/context.py`). Tokens are the last call's provider usage plus an estimate of what was appended since, scaled by the measured ratio. The threshold is `max(W/2, min(0.95·W, W − max_out − reserve))`, never above `seq_len − max_out`, and the trigger includes the summary request's own size. A raised or silent overflow discards the reply, compacts and retries. The summarizer sees tool outputs (head + tail), retries up to 5 times, and a total failure is a clean truncation stop.
+3. **The rebuilt context:** system, the task verbatim, a schema summary in update mode (rules in force with when each changed, every supervisor message verbatim, pending items with their triggers, the next step), the python-state row, a boundary marker that names the history API, and about 20k tokens of recent turns cut only before an assistant row.
+4. **Durable kernel** (`kernel.py`, `repl.py`). dill snapshots every 200 cells and at each compaction; restore = snapshot + journal suffix (flat 0.5–0.7 s at any length), with full and lenient replay as fallbacks. History, `CONTEXT` and World replies are journaled as small markers and rebuilt from the ledger. A checkpoint is one context window, the state of each component, and offsets.
+5. **Child agents** (`tree.py`). Persistent children up to depth 3 (default 1) with their own kernel, ledger and context; World access only when granted, then serialized through the root's action queue. One supervisor enforces tree-wide budgets with concurrency reserved per depth, so nesting cannot deadlock.
+6. **Records that stay correct.** Chains are keyed `(actor, agent, segment)`. Sub-calls and summary attempts are nodes that never break a chain (the m14 records forwarded 7–20× the entered tokens; now 1×). A summary is trained only when accepted. A resume opens a segment on every agent, so a resumed rollout trains. Loss weight is per logical rollout, whatever the number of segments. Over-length rows are dropped and counted, never cut.
+7. **Stops are typed.** Outcome: `agent_done`, `agent_gave_up`, `stalled`, and `context_overflow` when compaction is off. Truncation: `compaction_failed`, `budget:<kind>`. Masked: infra faults with their kind. Stall detection is windowed and uses only what the policy observes, never Φ.
+
+**Gate** (`docs/research/long-horizon-rlm/06-validation.md`): on the backlog ladder with a 32k window and real Qwen2.5 tokens, a scripted model that keeps no hidden memory scores 1.0 at 5,000 World calls with the default config (m14: 0.227). No call goes above the window (m14: 237). Restore takes 0.69 s (m14: 9.8 s), and the checkpoints total 1.9 MB (m14: 44.8 MB). A model whose summary drops a rule still loses 15–27% of the reward, so the ladder measures summary quality. Every injected fault is scored and train-valid.
+
+Also measured (`07-campaign.md`):
+- 10,000 World calls at 1.0;
+- child-agent trees of depth 1 and 2 at 1.0, every World step attributed once;
+- with Qwen2.5-0.5B, the model's summaries accepted while its calls were corrected (it never wrote a cell).
+
+A red-team hunt found 12 defects and fixed all of them. Among them, a policy could mask its own episode, a no-World child could grant the World, a stray task's World call was credited to the wrong cell, and the ledger had no disk cap (`ledger_max_bytes`, 2 GiB).
+
 ## 11. Layer 6: benchmarks
 
 ### 11.1 Step-level metrics

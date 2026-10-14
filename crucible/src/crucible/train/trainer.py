@@ -66,6 +66,12 @@ class TrainerConfig:
     # "segment" (default): one causal sequence per (rollout, actor, compaction segment), loss only on sampled tokens:
     # forward tokens O(turns) instead of O(turns²) (m13 B-1). "call": one item per model call with its full prompt.
     item_unit: str = "segment"
+    # the longest row (prompt + completion tokens) the trainer forwards; None = no cap (every row goes whole, in a micro
+    # batch of its own when over ``token_budget``). A row over it is masked and counted (``train/rows_overlength``,
+    # ``train/tokens_overlength``: trained tokens lost), never tail-cut: a cut row would keep its rollout's full advantage
+    # on a prefix (prime-rl batch.py:385-406, slime, verl; research long-horizon-rlm/01 §0 item 6). Set it to the
+    # harness's ``seq_len`` and keep the compaction threshold under it (M16 §3.2 ContextSpec.seq_len). The critic obeys it too
+    max_seq_len: int | None = None
     # on-policy distillation (m13 C-5, route ④): ``opd_coef`` β mixes the teacher signal with the RL advantage scaled by
     # ``rl_coef`` (0 = pure distillation). "token": per sampled token the dense advantage rl_coef·A + β(log π_T − log
     # π_behaviour) (Kimi / MiMo MOPD; needs ``Turn.teacher_logprobs`` from a teacher pool). "full_vocab": a loss term
@@ -236,15 +242,33 @@ class TorchTrainer:
         out: dict[tuple[str, str], list[float]] = {}
         self._critic_data: list[tuple[list[int], list[int], torch.Tensor]] = []
         all_ret, all_val = [], []
+        # max_seq_len holds for the critic too (M16 §3.5): a call whose full prompt + completion is over it is never forwarded
+        # nor regressed (left out of its chain's GAE, counted), never tail-cut. Its policy row is at least as long, so it is
+        # dropped there as well
+        cap = self.cfg.max_seq_len
+        self._critic_over = [0, 0]
+
+        def fits(t: Any, prompts: dict[str, list[int]]) -> bool:
+            n = len(prompts[t.call_id]) + len(t.completion_token_ids)
+            if cap is None or n <= cap:
+                return True
+            self._critic_over[0] += 1
+            self._critic_over[1] += len(t.completion_token_ids)
+            return False
+
         for j, r in enumerate(records):
             outcome = shaped[j] if shaped is not None else (None if (r.mask_sample or r.reward is None) else float(r.reward))
             if outcome is None:
                 continue
             prompts = full_prompts(r)
-            # the root chain: the policy's own calls; RLM sub-LLM calls (kind "sub") are tree nodes, each its own sequence
-            # with the episode outcome as its terminal (M14 audit G1 D14: they were chained into the root's Bellman chain)
-            calls = [t for t in r.turns if t.completion_token_ids and t.kind != "sub" and self._trains(t)]
-            for st in (t for t in r.turns if t.completion_token_ids and t.kind == "sub" and self._trains(t)):
+            # the root chain: the policy's own calls; RLM sub-LLM calls (kind "sub") and summary attempts are tree nodes, each
+            # its own sequence with the episode outcome as its terminal (M14 audit G1 D14: they were chained into the root's
+            # Bellman chain); each child agent of an RLM tree is a Bellman chain of its own with the same terminal (M16 §3.5)
+            chains: dict[str, list[Any]] = {}
+            for t in r.turns:
+                if t.completion_token_ids and not t.node() and self._trains(t) and fits(t, prompts):
+                    chains.setdefault(t.agent, []).append(t)
+            for st in (t for t in r.turns if t.completion_token_ids and t.node() and self._trains(t) and fits(t, prompts)):
                 comp = list(st.completion_token_ids)
                 with torch.no_grad():
                     sv = self.critic.token_values(prompts[st.call_id], comp).detach().double().cpu()
@@ -257,45 +281,52 @@ class TorchTrainer:
                 self._critic_data.append((prompts[st.call_id], comp, sret.float()))
                 all_ret.append(sret.float())
                 all_val.append(sv.float())
-            if not calls:
-                continue
-            with torch.no_grad():
-                vals = [self.critic.token_values(prompts[t.call_id], list(t.completion_token_ids)).detach().double().cpu() for t in calls]
-            lens = [len(t.completion_token_ids) for t in calls]
-            v = torch.cat(vals)
-            T = int(v.shape[0])
-            rewards = torch.zeros(T, dtype=torch.float64)
-            end = 0
-            for t, n in zip(calls, lens, strict=True):
-                end += n
-                if t.step_reward:
-                    rewards[end - 1] += float(t.step_reward)
-            trunc_boot = bool(r.truncated) and cc.truncation == "bootstrap"
-            final = 0.0 if trunc_boot else float(outcome)
-            seg = torch.tensor([t.segment for t, n in zip(calls, lens, strict=True) for _ in range(n)])
-            multi = len(set(seg.tolist())) > 1
-            kw = {"segments": seg, "shared_terminal": final} if multi else {}
-            if not multi:
-                rewards[-1] += final  # multi-segment: the shared terminal carries the outcome to every segment's end
-            lam_p = length_adaptive_lambda(T, cc.alpha) if cc.lam_policy == "adaptive" else float(cc.lam_policy)
-            v_T = 0.0
-            if trunc_boot:  # V(s_T): the value at a position after the last token (any next token: the model is causal)
-                last = calls[-1]
-                comp = list(last.completion_token_ids)
-                with torch.no_grad():
-                    v_T = float(self.critic.token_values(prompts[last.call_id], comp + [comp[-1]])[-1])
-            trunc = {"truncated": trunc_boot, "bootstrap_value": v_T}
-            adv, _ = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=lam_p, **kw, **trunc)
-            _, ret = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic, **kw, **trunc)
-            k = 0
-            for t, n in zip(calls, lens, strict=True):
-                out[(r.rollout_id, t.call_id)] = adv[k:k + n].tolist()
-                self._critic_data.append((prompts[t.call_id], list(t.completion_token_ids), ret[k:k + n].float()))
-                k += n
-            all_ret.append(ret.float())
-            all_val.append(v.float())
+            for calls in chains.values():
+                self._gae_chain(r, calls, prompts, outcome, out, all_ret, all_val)
         self._ev = explained_variance(torch.cat(all_ret), torch.cat(all_val)) if all_ret else 0.0
         return out
+
+    def _gae_chain(self, r: RolloutRecord, calls: list[Any], prompts: dict[str, list[int]], outcome: float, out: dict, all_ret: list, all_val: list) -> None:
+        """GAE over one agent's chain of calls (the root's, or one child's): completion tokens in call order, the outcome at
+        the end (a shared terminal per segment when the chain spans several), step rewards at each call's last token."""
+        from crucible.train.objectives import gae, length_adaptive_lambda
+
+        cc = self.critic_cfg
+        with torch.no_grad():
+            vals = [self.critic.token_values(prompts[t.call_id], list(t.completion_token_ids)).detach().double().cpu() for t in calls]
+        lens = [len(t.completion_token_ids) for t in calls]
+        v = torch.cat(vals)
+        T = int(v.shape[0])
+        rewards = torch.zeros(T, dtype=torch.float64)
+        end = 0
+        for t, n in zip(calls, lens, strict=True):
+            end += n
+            if t.step_reward:
+                rewards[end - 1] += float(t.step_reward)
+        trunc_boot = bool(r.truncated) and cc.truncation == "bootstrap"
+        final = 0.0 if trunc_boot else float(outcome)
+        seg = torch.tensor([t.segment for t, n in zip(calls, lens, strict=True) for _ in range(n)])
+        multi = len(set(seg.tolist())) > 1
+        kw = {"segments": seg, "shared_terminal": final} if multi else {}
+        if not multi:
+            rewards[-1] += final  # multi-segment: the shared terminal carries the outcome to every segment's end
+        lam_p = length_adaptive_lambda(T, cc.alpha) if cc.lam_policy == "adaptive" else float(cc.lam_policy)
+        v_T = 0.0
+        if trunc_boot:  # V(s_T): the value at a position after the last token (any next token: the model is causal)
+            last = calls[-1]
+            comp = list(last.completion_token_ids)
+            with torch.no_grad():
+                v_T = float(self.critic.token_values(prompts[last.call_id], comp + [comp[-1]])[-1])
+        trunc = {"truncated": trunc_boot, "bootstrap_value": v_T}
+        adv, _ = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=lam_p, **kw, **trunc)
+        _, ret = gae(rewards, v, torch.ones(T, dtype=torch.bool), gamma=cc.gamma, lam=cc.lam_critic, **kw, **trunc)
+        k = 0
+        for t, n in zip(calls, lens, strict=True):
+            out[(r.rollout_id, t.call_id)] = adv[k:k + n].tolist()
+            self._critic_data.append((prompts[t.call_id], list(t.completion_token_ids), ret[k:k + n].float()))
+            k += n
+        all_ret.append(ret.float())
+        all_val.append(v.float())
 
     def _critic_step(self) -> dict[str, float]:
         """TTUR: K critic regressions (MSE to the λ_critic returns, global token mean) per policy update."""
@@ -502,7 +533,8 @@ class TorchTrainer:
                     n = len(t.completion_token_ids or [])
                     if not n:
                         continue
-                    base = [self.cfg.rl_coef * x for x in (per_token[(r.rollout_id, t.call_id)] if per_token is not None else [a] * n)]
+                    # a call the critic left out as over max_seq_len has no GAE: 0 here, and its row is dropped (and counted) in step
+                    base = [self.cfg.rl_coef * x for x in (per_token.get((r.rollout_id, t.call_id), [0.0] * n) if per_token is not None else [a] * n)]
                     tl, bl = t.teacher_logprobs, t.logprobs
                     if self.cfg.opd_coef and self.cfg.opd_mode == "token" and tl is not None and bl is not None and len(tl) == n == len(bl):
                         base = [b + self.cfg.opd_coef * (x - y) for b, x, y in zip(base, tl, bl, strict=True)]
@@ -554,7 +586,9 @@ class TorchTrainer:
                     raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
                 credit = self.cfg.turn_weight * (t.advantage or 0.0)
-                adv = [x + credit for x in per_token[(r.rollout_id, t.call_id)]] if per_token is not None else a + credit
+                # absent: the critic left the call out as over max_seq_len; its item is over the cap too, dropped and counted in step
+                pt = per_token.get((r.rollout_id, t.call_id), [0.0] * len(t.completion_token_ids)) if per_token is not None else None
+                adv = [x + credit for x in pt] if pt is not None else a + credit
                 it = _Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
                            t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
                            t.routing if self.cfg.routing_replay == "r3" else None, seq=r.rollout_id,
@@ -758,8 +792,17 @@ class TorchTrainer:
         self._saved_tokens = 0
         records, n_invalid = self._gate(records)
         items = self._items(records, groups)
+        over: dict[str, float] = {}
+        if self.cfg.max_seq_len is not None:  # M16 §3.5: over-length rows are masked whole and counted, never tail-cut
+            cap = int(self.cfg.max_seq_len)
+            long_ = [it for it in items if len(it.prompt) + len(it.completion) > cap]
+            items = [it for it in items if len(it.prompt) + len(it.completion) <= cap]
+            over = {"train/rows_overlength": float(len(long_)),
+                    "train/tokens_overlength": float(sum(sum(it.mask) if it.mask is not None else len(it.completion) for it in long_))}
+            if self.critic is not None:
+                over["critic/rows_overlength"], over["critic/tokens_overlength"] = map(float, getattr(self, "_critic_over", (0, 0)))
         if not items:
-            return {"train/items": 0.0, "train/records_invalid": float(n_invalid)}
+            return {"train/items": 0.0, "train/records_invalid": float(n_invalid), **over}
         lengths = [sum(it.mask) if it.mask is not None else len(it.completion) for it in items]  # trained tokens: the loss normalizer
         seq_lens = [len(it.prompt) + len(it.completion) for it in items]  # forward tokens: memory and compute, for placement
         g_tokens = sum(lengths)
@@ -819,7 +862,7 @@ class TorchTrainer:
             metrics = {"train/loss": sums[0], "train/grad_norm": grad_norm, "train/lr": float(self.opt.param_groups[0]["lr"]),
                        "train/items": float(len(items)), "train/tokens": float(g_tokens), "train/forward_tokens": float(sum(seq_lens)),
                        "train/micro_batches": n_mb, "train/dp_imbalance": _imbalance(seq_lens, parts),
-                       "train/skipped_nonfinite": float(skipped), "train/records_invalid": float(n_invalid)}
+                       "train/skipped_nonfinite": float(skipped), "train/records_invalid": float(n_invalid), **over}
             for k, v in zip(keys, sums[2:], strict=True):
                 metrics[f"mismatch/{k}"] = v if k == "nonfinite_tokens" else v / max(n_mb, 1.0)
             if self.cfg.prefix_sharing:

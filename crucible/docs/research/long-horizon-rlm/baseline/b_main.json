@@ -1,0 +1,4608 @@
+{
+ "ladder": "toy/helpdesk_backlog step ladder (M16 \u00a74)",
+ "runs": [
+  {
+   "label": "r100-n15-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 100,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 15,
+   "world_calls": 94,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      94
+     ],
+     "phi_start": 0.0,
+     "phi_end": 1.0,
+     "delta_phi": 1.0
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 25,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 19,
+     "entered": 11612,
+     "max_prompt": 11581,
+     "kinds": {
+      "turn": 19
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 11581,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.362
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 19,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "work": 15
+   },
+   "wall_s": 1.37,
+   "ms_per_world_call": 14.61,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 19,
+    "cells": 19,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 87,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.457,
+    "cells": 20,
+    "journal_bytes": 63998,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r100-n15-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 100,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 15,
+   "world_calls": 94,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      94
+     ],
+     "phi_start": 0.0,
+     "phi_end": 1.0,
+     "delta_phi": 1.0
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 25,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 19,
+     "entered": 11612,
+     "max_prompt": 11581,
+     "kinds": {
+      "turn": 19
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 11581,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.362
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 19,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "work": 15
+   },
+   "wall_s": 1.18,
+   "ms_per_world_call": 12.61,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 19,
+    "cells": 19,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 87,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.449,
+    "cells": 20,
+    "journal_bytes": 63998,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r100-n15-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 100,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 15,
+   "world_calls": 94,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      94
+     ],
+     "phi_start": 0.0,
+     "phi_end": 1.0,
+     "delta_phi": 1.0
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 25,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 19,
+     "entered": 11612,
+     "max_prompt": 11581,
+     "kinds": {
+      "turn": 19
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 11581,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.362
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 19,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "work": 15
+   },
+   "wall_s": 1.07,
+   "ms_per_world_call": 11.39,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 19,
+    "cells": 19,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 87,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.415,
+    "cells": 20,
+    "journal_bytes": 63998,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r100-n15-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 100,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 15,
+   "world_calls": 94,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 0,
+   "compaction_steps": [],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      94
+     ],
+     "phi_start": 0.0,
+     "phi_end": 1.0,
+     "delta_phi": 1.0
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 25,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 0,
+     "broken": 0,
+     "rate": null,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 25,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": null,
+    "missed_awaiting": 0,
+    "awaiting": 0,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 19,
+     "entered": 11612,
+     "max_prompt": 11581,
+     "kinds": {
+      "turn": 19
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 11581,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.362
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 19,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "work": 15
+   },
+   "wall_s": 0.96,
+   "ms_per_world_call": 10.23,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 19,
+    "cells": 19,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 87,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.443,
+    "cells": 20,
+    "journal_bytes": 63998,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r500-n80-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 80,
+   "world_calls": 496,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 1,
+   "compaction_steps": [
+    373
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      373
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.7375,
+     "delta_phi": 0.7375
+    },
+    {
+     "segment": 1,
+     "steps": [
+      373,
+      496
+     ],
+     "phi_start": 0.7375,
+     "phi_end": 1.0,
+     "delta_phi": 0.2625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 98,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 33,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 98,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 33,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 39907,
+     "max_prompt": 39389,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 23,
+     "entered": 13855,
+     "max_prompt": 13824,
+     "kinds": {
+      "turn": 23
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 38728,
+    "max_compaction_prompt": 39389,
+    "over_window_calls": 13,
+    "max_prompt_over_window": 1.231
+   },
+   "rereads_after_compaction": 1,
+   "model_calls": 89,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 5,
+    "reread": 1,
+    "summary": 1,
+    "work": 78
+   },
+   "wall_s": 2.92,
+   "ms_per_world_call": 5.88,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 88,
+    "cells": 88,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 457,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.778,
+    "cells": 90,
+    "journal_bytes": 392880,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r500-n80-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 80,
+   "world_calls": 467,
+   "attempts": 1,
+   "reward": 0.9125,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.9125,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 1,
+   "compaction_steps": [
+    373
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      373
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.7375,
+     "delta_phi": 0.7375
+    },
+    {
+     "segment": 1,
+     "steps": [
+      373,
+      467
+     ],
+     "phi_start": 0.7375,
+     "phi_end": 0.9125,
+     "delta_phi": 0.175
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 98,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 24,
+     "broken": 2,
+     "rate": 0.0833,
+     "by_rule": {
+      "approval_missing": 2
+     }
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 98,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 24,
+      "broken": 2,
+      "rate": 0.0833,
+      "by_rule": {
+       "approval_missing": 2
+      }
+     }
+    ],
+    "lost_constraint_rate": 0.0833,
+    "missed_awaiting": 5,
+    "awaiting": 5,
+    "examples": [
+     {
+      "step": 377,
+      "fn": "issue_refund",
+      "ticket": 163,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 390,
+      "fn": "issue_refund",
+      "ticket": 165,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     }
+    ]
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 39590,
+     "max_prompt": 39389,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 17,
+     "entered": 12286,
+     "max_prompt": 12255,
+     "kinds": {
+      "turn": 17
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 38728,
+    "max_compaction_prompt": 39389,
+    "over_window_calls": 13,
+    "max_prompt_over_window": 1.231
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 83,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 1,
+    "work": 78
+   },
+   "wall_s": 3.07,
+   "ms_per_world_call": 6.57,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 82,
+    "cells": 82,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 433,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.927,
+    "cells": 84,
+    "journal_bytes": 374512,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r500-n80-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 80,
+   "world_calls": 496,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 1,
+   "compaction_steps": [
+    373
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      373
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.7375,
+     "delta_phi": 0.7375
+    },
+    {
+     "segment": 1,
+     "steps": [
+      373,
+      496
+     ],
+     "phi_start": 0.7375,
+     "phi_end": 1.0,
+     "delta_phi": 0.2625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 98,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 33,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 98,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 33,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 39907,
+     "max_prompt": 39389,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 22,
+     "entered": 13197,
+     "max_prompt": 13166,
+     "kinds": {
+      "turn": 22
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 38728,
+    "max_compaction_prompt": 39389,
+    "over_window_calls": 13,
+    "max_prompt_over_window": 1.231
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 88,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 5,
+    "summary": 1,
+    "work": 78
+   },
+   "wall_s": 3.37,
+   "ms_per_world_call": 6.8,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 87,
+    "cells": 87,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 457,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.724,
+    "cells": 89,
+    "journal_bytes": 391821,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r500-n80-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 80,
+   "world_calls": 496,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 1,
+   "compaction_steps": [
+    373
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      373
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.7375,
+     "delta_phi": 0.7375
+    },
+    {
+     "segment": 1,
+     "steps": [
+      373,
+      496
+     ],
+     "phi_start": 0.7375,
+     "phi_end": 1.0,
+     "delta_phi": 0.2625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 98,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 33,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 98,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 33,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 5,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 39590,
+     "max_prompt": 39389,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 23,
+     "entered": 13538,
+     "max_prompt": 13507,
+     "kinds": {
+      "turn": 23
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 38728,
+    "max_compaction_prompt": 39389,
+    "over_window_calls": 13,
+    "max_prompt_over_window": 1.231
+   },
+   "rereads_after_compaction": 1,
+   "model_calls": 89,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 5,
+    "reread": 1,
+    "summary": 1,
+    "work": 78
+   },
+   "wall_s": 3.22,
+   "ms_per_world_call": 6.48,
+   "checkpoints": {
+    "saves": 0,
+    "last_bytes": null,
+    "total_bytes": 0,
+    "max_save_s": null
+   },
+   "rlm_counters": {
+    "turns": 88,
+    "cells": 88,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 457,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 0.739,
+    "cells": 90,
+    "journal_bytes": 391843,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 978,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 2,
+   "compaction_steps": [
+    342,
+    694
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      342
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.325,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 1,
+     "steps": [
+      342,
+      694
+     ],
+     "phi_start": 0.325,
+     "phi_end": 0.68125,
+     "delta_phi": 0.35625
+    },
+    {
+     "segment": 2,
+     "steps": [
+      694,
+      978
+     ],
+     "phi_start": 0.68125,
+     "phi_end": 1.0,
+     "delta_phi": 0.31875
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 86,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 165,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 87,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 78,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 65,
+     "entered": 40777,
+     "max_prompt": 39760,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 41226,
+     "max_prompt": 40185,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 53,
+     "entered": 24339,
+     "max_prompt": 24308,
+     "kinds": {
+      "turn": 53
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39614,
+    "max_compaction_prompt": 40185,
+    "over_window_calls": 28,
+    "max_prompt_over_window": 1.256
+   },
+   "rereads_after_compaction": 2,
+   "model_calls": 180,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 21,
+    "reread": 2,
+    "summary": 2,
+    "work": 151
+   },
+   "wall_s": 5.87,
+   "ms_per_world_call": 6.01,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 999724,
+    "total_bytes": 999724,
+    "max_save_s": 0.0188
+   },
+   "rlm_counters": {
+    "turns": 178,
+    "cells": 178,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 1,
+    "world_calls": 908,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.217,
+    "cells": 181,
+    "journal_bytes": 785833,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 851,
+   "attempts": 1,
+   "reward": 0.7875,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.7875,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 2,
+   "compaction_steps": [
+    342,
+    713
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      342
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.325,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 1,
+     "steps": [
+      342,
+      713
+     ],
+     "phi_start": 0.325,
+     "phi_end": 0.65,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 2,
+     "steps": [
+      713,
+      851
+     ],
+     "phi_start": 0.65,
+     "phi_end": 0.7875,
+     "delta_phi": 0.1375
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 86,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 130,
+     "broken": 13,
+     "rate": 0.1,
+     "by_rule": {
+      "approval_missing": 13
+     }
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 96,
+      "broken": 10,
+      "rate": 0.1042,
+      "by_rule": {
+       "approval_missing": 10
+      }
+     },
+     {
+      "segment": 2,
+      "actions": 34,
+      "broken": 3,
+      "rate": 0.0882,
+      "by_rule": {
+       "approval_missing": 3
+      }
+     }
+    ],
+    "lost_constraint_rate": 0.1,
+    "missed_awaiting": 21,
+    "awaiting": 21,
+    "examples": [
+     {
+      "step": 353,
+      "fn": "issue_refund",
+      "ticket": 159,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 366,
+      "fn": "issue_refund",
+      "ticket": 161,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 446,
+      "fn": "issue_refund",
+      "ticket": 176,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 457,
+      "fn": "issue_refund",
+      "ticket": 179,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 520,
+      "fn": "issue_refund",
+      "ticket": 189,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 559,
+      "fn": "issue_refund",
+      "ticket": 195,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 587,
+      "fn": "issue_refund",
+      "ticket": 201,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 632,
+      "fn": "issue_refund",
+      "ticket": 213,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 675,
+      "fn": "issue_refund",
+      "ticket": 221,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     },
+     {
+      "step": 692,
+      "fn": "issue_refund",
+      "ticket": 226,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 1
+     }
+    ]
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 65,
+     "entered": 39961,
+     "max_prompt": 39760,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 65,
+     "entered": 40748,
+     "max_prompt": 40547,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 26,
+     "entered": 17211,
+     "max_prompt": 17180,
+     "kinds": {
+      "turn": 26
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39859,
+    "max_compaction_prompt": 40547,
+    "over_window_calls": 28,
+    "max_prompt_over_window": 1.267
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 156,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 2,
+    "work": 150
+   },
+   "wall_s": 4.85,
+   "ms_per_world_call": 5.69,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 959560,
+    "total_bytes": 959560,
+    "max_save_s": 0.0175
+   },
+   "rlm_counters": {
+    "turns": 154,
+    "cells": 154,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 1,
+    "world_calls": 807,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.051,
+    "cells": 157,
+    "journal_bytes": 707901,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 978,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 2,
+   "compaction_steps": [
+    342,
+    707
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      342
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.325,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 1,
+     "steps": [
+      342,
+      707
+     ],
+     "phi_start": 0.325,
+     "phi_end": 0.69375,
+     "delta_phi": 0.36875
+    },
+    {
+     "segment": 2,
+     "steps": [
+      707,
+      978
+     ],
+     "phi_start": 0.69375,
+     "phi_end": 1.0,
+     "delta_phi": 0.30625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 86,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 165,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 74,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 65,
+     "entered": 40777,
+     "max_prompt": 39760,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 63,
+     "entered": 41127,
+     "max_prompt": 40103,
+     "kinds": {
+      "turn": 62,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 50,
+     "entered": 21887,
+     "max_prompt": 21856,
+     "kinds": {
+      "turn": 50
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39427,
+    "max_compaction_prompt": 40103,
+    "over_window_calls": 28,
+    "max_prompt_over_window": 1.253
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 178,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 21,
+    "summary": 2,
+    "work": 151
+   },
+   "wall_s": 6.35,
+   "ms_per_world_call": 6.49,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 980591,
+    "total_bytes": 980591,
+    "max_save_s": 0.0192
+   },
+   "rlm_counters": {
+    "turns": 176,
+    "cells": 176,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 1,
+    "world_calls": 908,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.324,
+    "cells": 179,
+    "journal_bytes": 783565,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r1000-n160-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 1000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 160,
+   "world_calls": 978,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 2,
+   "compaction_steps": [
+    342,
+    707
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      342
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.325,
+     "delta_phi": 0.325
+    },
+    {
+     "segment": 1,
+     "steps": [
+      342,
+      707
+     ],
+     "phi_start": 0.325,
+     "phi_end": 0.69375,
+     "delta_phi": 0.36875
+    },
+    {
+     "segment": 2,
+     "steps": [
+      707,
+      978
+     ],
+     "phi_start": 0.69375,
+     "phi_end": 1.0,
+     "delta_phi": 0.30625
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 86,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 165,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 86,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 74,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 21,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 65,
+     "entered": 39961,
+     "max_prompt": 39760,
+     "kinds": {
+      "turn": 64,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 64,
+     "entered": 40646,
+     "max_prompt": 40445,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 51,
+     "entered": 22366,
+     "max_prompt": 22335,
+     "kinds": {
+      "turn": 51
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39769,
+    "max_compaction_prompt": 40445,
+    "over_window_calls": 28,
+    "max_prompt_over_window": 1.264
+   },
+   "rereads_after_compaction": 2,
+   "model_calls": 180,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 21,
+    "reread": 2,
+    "summary": 2,
+    "work": 151
+   },
+   "wall_s": 6.05,
+   "ms_per_world_call": 6.19,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 977704,
+    "total_bytes": 977704,
+    "max_save_s": 0.0193
+   },
+   "rlm_counters": {
+    "turns": 178,
+    "cells": 178,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 1,
+    "world_calls": 908,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.192,
+    "cells": 181,
+    "journal_bytes": 780613,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r2500-n410-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 2500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 410,
+   "world_calls": 2457,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 6,
+   "compaction_steps": [
+    350,
+    650,
+    950,
+    1251,
+    1576,
+    1897
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      350
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.134146,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 1,
+     "steps": [
+      350,
+      650
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.24878,
+     "delta_phi": 0.114634
+    },
+    {
+     "segment": 2,
+     "steps": [
+      650,
+      950
+     ],
+     "phi_start": 0.24878,
+     "phi_end": 0.363415,
+     "delta_phi": 0.114634
+    },
+    {
+     "segment": 3,
+     "steps": [
+      950,
+      1251
+     ],
+     "phi_start": 0.363415,
+     "phi_end": 0.482927,
+     "delta_phi": 0.119512
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1251,
+      1576
+     ],
+     "phi_start": 0.482927,
+     "phi_end": 0.617073,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1576,
+      1897
+     ],
+     "phi_start": 0.617073,
+     "phi_end": 0.75122,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1897,
+      2457
+     ],
+     "phi_start": 0.75122,
+     "phi_end": 1.0,
+     "delta_phi": 0.24878
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 91,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 540,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 72,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 73,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 82,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 82,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 162,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 64,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 64,
+     "entered": 41720,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 59,
+     "entered": 42321,
+     "max_prompt": 40586,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 56,
+     "entered": 41957,
+     "max_prompt": 40152,
+     "kinds": {
+      "turn": 55,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 55,
+     "entered": 41940,
+     "max_prompt": 40087,
+     "kinds": {
+      "turn": 54,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 57,
+     "entered": 42191,
+     "max_prompt": 40339,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 57,
+     "entered": 42149,
+     "max_prompt": 40297,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 104,
+     "entered": 37063,
+     "max_prompt": 37032,
+     "kinds": {
+      "turn": 104
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39808,
+    "max_compaction_prompt": 40586,
+    "over_window_calls": 135,
+    "max_prompt_over_window": 1.268
+   },
+   "rereads_after_compaction": 6,
+   "model_calls": 452,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 64,
+    "reread": 6,
+    "summary": 6,
+    "work": 372
+   },
+   "wall_s": 17.14,
+   "ms_per_world_call": 6.98,
+   "checkpoints": {
+    "saves": 4,
+    "last_bytes": 3743420,
+    "total_bytes": 9675196,
+    "max_save_s": 0.0419
+   },
+   "rlm_counters": {
+    "turns": 446,
+    "cells": 446,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 2,
+    "world_calls": 2288,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 3.943,
+    "cells": 453,
+    "journal_bytes": 2106723,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r2500-n410-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 2500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 410,
+   "world_calls": 2090,
+   "attempts": 1,
+   "reward": 0.753659,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 0.753659,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 5,
+   "compaction_steps": [
+    350,
+    673,
+    1007,
+    1358,
+    1729
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      350
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.134146,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 1,
+     "steps": [
+      350,
+      673
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.258537,
+     "delta_phi": 0.12439
+    },
+    {
+     "segment": 2,
+     "steps": [
+      673,
+      1007
+     ],
+     "phi_start": 0.258537,
+     "phi_end": 0.385366,
+     "delta_phi": 0.126829
+    },
+    {
+     "segment": 3,
+     "steps": [
+      1007,
+      1358
+     ],
+     "phi_start": 0.385366,
+     "phi_end": 0.497561,
+     "delta_phi": 0.112195
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1358,
+      1729
+     ],
+     "phi_start": 0.497561,
+     "phi_end": 0.629268,
+     "delta_phi": 0.131707
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1729,
+      2090
+     ],
+     "phi_start": 0.629268,
+     "phi_end": 0.753659,
+     "delta_phi": 0.12439
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 91,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 440,
+     "broken": 37,
+     "rate": 0.0841,
+     "by_rule": {
+      "approval_missing": 37
+     }
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 75,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 80,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 92,
+      "broken": 14,
+      "rate": 0.1522,
+      "by_rule": {
+       "approval_missing": 14
+      }
+     },
+     {
+      "segment": 4,
+      "actions": 97,
+      "broken": 11,
+      "rate": 0.1134,
+      "by_rule": {
+       "approval_missing": 11
+      }
+     },
+     {
+      "segment": 5,
+      "actions": 96,
+      "broken": 12,
+      "rate": 0.125,
+      "by_rule": {
+       "approval_missing": 12
+      }
+     }
+    ],
+    "lost_constraint_rate": 0.0841,
+    "missed_awaiting": 64,
+    "awaiting": 64,
+    "examples": [
+     {
+      "step": 1011,
+      "fn": "issue_refund",
+      "ticket": 279,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1022,
+      "fn": "issue_refund",
+      "ticket": 281,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1036,
+      "fn": "issue_refund",
+      "ticket": 286,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1052,
+      "fn": "issue_refund",
+      "ticket": 290,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1070,
+      "fn": "issue_refund",
+      "ticket": 293,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1093,
+      "fn": "issue_refund",
+      "ticket": 297,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1130,
+      "fn": "issue_refund",
+      "ticket": 304,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1136,
+      "fn": "issue_refund",
+      "ticket": 305,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1163,
+      "fn": "issue_refund",
+      "ticket": 311,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     },
+     {
+      "step": 1169,
+      "fn": "issue_refund",
+      "ticket": 312,
+      "broke": [
+       "approval_missing"
+      ],
+      "segment": 3
+     }
+    ]
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 64,
+     "entered": 40292,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 40550,
+     "max_prompt": 40348,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 61,
+     "entered": 40761,
+     "max_prompt": 40559,
+     "kinds": {
+      "turn": 60,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 63,
+     "entered": 41122,
+     "max_prompt": 40920,
+     "kinds": {
+      "turn": 62,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 66,
+     "entered": 41117,
+     "max_prompt": 40916,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 64,
+     "entered": 40267,
+     "max_prompt": 40236,
+     "kinds": {
+      "turn": 64
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40288,
+    "max_compaction_prompt": 40920,
+    "over_window_calls": 87,
+    "max_prompt_over_window": 1.279
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 380,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 5,
+    "work": 371
+   },
+   "wall_s": 15.34,
+   "ms_per_world_call": 7.34,
+   "checkpoints": {
+    "saves": 4,
+    "last_bytes": 3472934,
+    "total_bytes": 9017927,
+    "max_save_s": 0.0762
+   },
+   "rlm_counters": {
+    "turns": 375,
+    "cells": 375,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 2,
+    "world_calls": 1993,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 3.772,
+    "cells": 381,
+    "journal_bytes": 1757036,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r2500-n410-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 2500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 410,
+   "world_calls": 2457,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 6,
+   "compaction_steps": [
+    350,
+    655,
+    973,
+    1299,
+    1655,
+    2008
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      350
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.134146,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 1,
+     "steps": [
+      350,
+      655
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.25122,
+     "delta_phi": 0.117073
+    },
+    {
+     "segment": 2,
+     "steps": [
+      655,
+      973
+     ],
+     "phi_start": 0.25122,
+     "phi_end": 0.373171,
+     "delta_phi": 0.121951
+    },
+    {
+     "segment": 3,
+     "steps": [
+      973,
+      1299
+     ],
+     "phi_start": 0.373171,
+     "phi_end": 0.502439,
+     "delta_phi": 0.129268
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1299,
+      1655
+     ],
+     "phi_start": 0.502439,
+     "phi_end": 0.64878,
+     "delta_phi": 0.146341
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1655,
+      2008
+     ],
+     "phi_start": 0.64878,
+     "phi_end": 0.795122,
+     "delta_phi": 0.146341
+    },
+    {
+     "segment": 6,
+     "steps": [
+      2008,
+      2457
+     ],
+     "phi_start": 0.795122,
+     "phi_end": 1.0,
+     "delta_phi": 0.204878
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 91,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 540,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 70,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 77,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 79,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 132,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 64,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 64,
+     "entered": 41720,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 59,
+     "entered": 41825,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 58,
+     "entered": 41800,
+     "max_prompt": 39995,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 58,
+     "entered": 41818,
+     "max_prompt": 39982,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 61,
+     "entered": 42333,
+     "max_prompt": 40498,
+     "kinds": {
+      "turn": 60,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 61,
+     "entered": 41934,
+     "max_prompt": 40099,
+     "kinds": {
+      "turn": 60,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 85,
+     "entered": 23477,
+     "max_prompt": 23446,
+     "kinds": {
+      "turn": 85
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39768,
+    "max_compaction_prompt": 40498,
+    "over_window_calls": 84,
+    "max_prompt_over_window": 1.266
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 446,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 64,
+    "summary": 6,
+    "work": 372
+   },
+   "wall_s": 23.36,
+   "ms_per_world_call": 9.51,
+   "checkpoints": {
+    "saves": 4,
+    "last_bytes": 3667719,
+    "total_bytes": 9379253,
+    "max_save_s": 0.0494
+   },
+   "rlm_counters": {
+    "turns": 440,
+    "cells": 440,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 2,
+    "world_calls": 2288,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 3.883,
+    "cells": 447,
+    "journal_bytes": 2096195,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r2500-n410-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 2500,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 410,
+   "world_calls": 2457,
+   "attempts": 1,
+   "reward": 1.0,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "agent_done",
+   "mean_reward": 1.0,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 6,
+   "compaction_steps": [
+    350,
+    666,
+    983,
+    1304,
+    1650,
+    1991
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      350
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.134146,
+     "delta_phi": 0.134146
+    },
+    {
+     "segment": 1,
+     "steps": [
+      350,
+      666
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.256098,
+     "delta_phi": 0.121951
+    },
+    {
+     "segment": 2,
+     "steps": [
+      666,
+      983
+     ],
+     "phi_start": 0.256098,
+     "phi_end": 0.37561,
+     "delta_phi": 0.119512
+    },
+    {
+     "segment": 3,
+     "steps": [
+      983,
+      1304
+     ],
+     "phi_start": 0.37561,
+     "phi_end": 0.504878,
+     "delta_phi": 0.129268
+    },
+    {
+     "segment": 4,
+     "steps": [
+      1304,
+      1650
+     ],
+     "phi_start": 0.504878,
+     "phi_end": 0.646341,
+     "delta_phi": 0.141463
+    },
+    {
+     "segment": 5,
+     "steps": [
+      1650,
+      1991
+     ],
+     "phi_start": 0.646341,
+     "phi_end": 0.787805,
+     "delta_phi": 0.141463
+    },
+    {
+     "segment": 6,
+     "steps": [
+      1991,
+      2457
+     ],
+     "phi_start": 0.787805,
+     "phi_end": 1.0,
+     "delta_phi": 0.212195
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 91,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 540,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 91,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 73,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 76,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 78,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 4,
+      "actions": 89,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 5,
+      "actions": 88,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 6,
+      "actions": 136,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 0,
+    "awaiting": 64,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 64,
+     "entered": 40292,
+     "max_prompt": 40090,
+     "kinds": {
+      "turn": 63,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 41015,
+     "max_prompt": 40813,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 59,
+     "entered": 40845,
+     "max_prompt": 40643,
+     "kinds": {
+      "turn": 58,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 58,
+     "entered": 40629,
+     "max_prompt": 40427,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 4,
+     "calls": 60,
+     "entered": 40898,
+     "max_prompt": 40697,
+     "kinds": {
+      "turn": 59,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 5,
+     "calls": 60,
+     "entered": 40535,
+     "max_prompt": 40334,
+     "kinds": {
+      "turn": 59,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 6,
+     "calls": 89,
+     "entered": 26590,
+     "max_prompt": 26559,
+     "kinds": {
+      "turn": 89
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40185,
+    "max_compaction_prompt": 40813,
+    "over_window_calls": 89,
+    "max_prompt_over_window": 1.275
+   },
+   "rereads_after_compaction": 6,
+   "model_calls": 452,
+   "cells": {
+    "define": 1,
+    "finish": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reply": 64,
+    "reread": 6,
+    "summary": 6,
+    "work": 372
+   },
+   "wall_s": 16.83,
+   "ms_per_world_call": 6.85,
+   "checkpoints": {
+    "saves": 4,
+    "last_bytes": 3474044,
+    "total_bytes": 9063376,
+    "max_save_s": 0.041
+   },
+   "rlm_counters": {
+    "turns": 446,
+    "cells": 446,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 2,
+    "world_calls": 2288,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 3.345,
+    "cells": 453,
+    "journal_bytes": 2071356,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-faithful-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "faithful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 1150,
+   "attempts": 1,
+   "reward": 0.226829,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "too_many_errors",
+   "mean_reward": 0.226829,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 3,
+   "compaction_steps": [
+    367,
+    665,
+    950
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      665
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.132927,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 2,
+     "steps": [
+      665,
+      950
+     ],
+     "phi_start": 0.132927,
+     "phi_end": 0.187805,
+     "delta_phi": 0.054878
+    },
+    {
+     "segment": 3,
+     "steps": [
+      950,
+      1150
+     ],
+     "phi_start": 0.187805,
+     "phi_end": 0.226829,
+     "delta_phi": 0.039024
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 183,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 70,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 69,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 44,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 125,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 42828,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 58,
+     "entered": 43574,
+     "max_prompt": 40902,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 56,
+     "entered": 43406,
+     "max_prompt": 40677,
+     "kinds": {
+      "turn": 55,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 40,
+     "entered": 30925,
+     "max_prompt": 30882,
+     "kinds": {
+      "turn": 40
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40006,
+    "max_compaction_prompt": 40902,
+    "over_window_calls": 45,
+    "max_prompt_over_window": 1.278
+   },
+   "rereads_after_compaction": 3,
+   "model_calls": 220,
+   "cells": {
+    "define": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reread": 3,
+    "summary": 3,
+    "work": 211
+   },
+   "wall_s": 7.83,
+   "ms_per_world_call": 6.81,
+   "checkpoints": {
+    "saves": 2,
+    "last_bytes": 2043369,
+    "total_bytes": 3089585,
+    "max_save_s": 0.0381
+   },
+   "rlm_counters": {
+    "turns": 217,
+    "cells": 217,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 3,
+    "world_calls": 1101,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.603,
+    "cells": 221,
+    "journal_bytes": 1050319,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-forgetful-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 1150,
+   "attempts": 1,
+   "reward": 0.226829,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "too_many_errors",
+   "mean_reward": 0.226829,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 3,
+   "compaction_steps": [
+    367,
+    690,
+    1016
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      690
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.139024,
+     "delta_phi": 0.063415
+    },
+    {
+     "segment": 2,
+     "steps": [
+      690,
+      1016
+     ],
+     "phi_start": 0.139024,
+     "phi_end": 0.20122,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 3,
+     "steps": [
+      1016,
+      1150
+     ],
+     "phi_start": 0.20122,
+     "phi_end": 0.226829,
+     "delta_phi": 0.02561
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 183,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 75,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 81,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 27,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 125,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 40832,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 40949,
+     "max_prompt": 40747,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 62,
+     "entered": 40988,
+     "max_prompt": 40786,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 27,
+     "entered": 18476,
+     "max_prompt": 18433,
+     "kinds": {
+      "turn": 27
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40120,
+    "max_compaction_prompt": 40786,
+    "over_window_calls": 43,
+    "max_prompt_over_window": 1.275
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 217,
+   "cells": {
+    "define": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 3,
+    "work": 211
+   },
+   "wall_s": 7.12,
+   "ms_per_world_call": 6.19,
+   "checkpoints": {
+    "saves": 2,
+    "last_bytes": 1951191,
+    "total_bytes": 2926754,
+    "max_save_s": 0.0356
+   },
+   "rlm_counters": {
+    "turns": 214,
+    "cells": 214,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 3,
+    "world_calls": 1101,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.369,
+    "cells": 218,
+    "journal_bytes": 1025037,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-lazy-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "lazy",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 1150,
+   "attempts": 1,
+   "reward": 0.226829,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "too_many_errors",
+   "mean_reward": 0.226829,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 3,
+   "compaction_steps": [
+    367,
+    670,
+    967
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      670
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.134146,
+     "delta_phi": 0.058537
+    },
+    {
+     "segment": 2,
+     "steps": [
+      670,
+      967
+     ],
+     "phi_start": 0.134146,
+     "phi_end": 0.191463,
+     "delta_phi": 0.057317
+    },
+    {
+     "segment": 3,
+     "steps": [
+      967,
+      1150
+     ],
+     "phi_start": 0.191463,
+     "phi_end": 0.226829,
+     "delta_phi": 0.035366
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 183,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 71,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 72,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 40,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 125,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 42828,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 58,
+     "entered": 43096,
+     "max_prompt": 40424,
+     "kinds": {
+      "turn": 57,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 57,
+     "entered": 42899,
+     "max_prompt": 40170,
+     "kinds": {
+      "turn": 56,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 36,
+     "entered": 26765,
+     "max_prompt": 26722,
+     "kinds": {
+      "turn": 36
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 39966,
+    "max_compaction_prompt": 40630,
+    "over_window_calls": 42,
+    "max_prompt_over_window": 1.27
+   },
+   "rereads_after_compaction": 0,
+   "model_calls": 217,
+   "cells": {
+    "define": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "summary": 3,
+    "work": 211
+   },
+   "wall_s": 7.04,
+   "ms_per_world_call": 6.12,
+   "checkpoints": {
+    "saves": 2,
+    "last_bytes": 1974381,
+    "total_bytes": 3004995,
+    "max_save_s": 0.0468
+   },
+   "rlm_counters": {
+    "turns": 214,
+    "cells": 214,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 3,
+    "world_calls": 1101,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.501,
+    "cells": 218,
+    "journal_bytes": 1046346,
+    "error": null
+   },
+   "dir": null
+  },
+  {
+   "label": "r5000-n820-s0-rlm-forgetful_reread-b32000",
+   "config": {
+    "rung": 5000,
+    "tickets": null,
+    "seed": 0,
+    "variant": "forgetful_reread",
+    "harness": "rlm",
+    "tito": "qwen",
+    "kernel": "docker",
+    "budget_tokens": 32000,
+    "trigger": 0.8,
+    "keep_recent_turns": 3,
+    "summary_max_tokens": 2000,
+    "enforce_window": false,
+    "checkpoint_every": 500,
+    "max_steps": 1000000,
+    "timeout_s": null,
+    "restore_probe": true,
+    "model_kwargs": {},
+    "faults": {},
+    "rlm": {}
+   },
+   "harness_id": "rlm:4472152976@1",
+   "rlm_fields": {
+    "applied": {},
+    "ignored": {},
+    "id": null
+   },
+   "tickets": 820,
+   "world_calls": 1150,
+   "attempts": 1,
+   "reward": 0.226829,
+   "mask": false,
+   "failure_kind": null,
+   "stop": "too_many_errors",
+   "mean_reward": 0.226829,
+   "valid_for_training": [
+    true,
+    "ok"
+   ],
+   "compactions": 3,
+   "compaction_steps": [
+    367,
+    685,
+    999
+   ],
+   "phi_segments": [
+    {
+     "segment": 0,
+     "steps": [
+      0,
+      367
+     ],
+     "phi_start": 0.0,
+     "phi_end": 0.07561,
+     "delta_phi": 0.07561
+    },
+    {
+     "segment": 1,
+     "steps": [
+      367,
+      685
+     ],
+     "phi_start": 0.07561,
+     "phi_end": 0.137805,
+     "delta_phi": 0.062195
+    },
+    {
+     "segment": 2,
+     "steps": [
+      685,
+      999
+     ],
+     "phi_start": 0.137805,
+     "phi_end": 0.197561,
+     "delta_phi": 0.059756
+    },
+    {
+     "segment": 3,
+     "steps": [
+      999,
+      1150
+     ],
+     "phi_start": 0.197561,
+     "phi_end": 0.226829,
+     "delta_phi": 0.029268
+    }
+   ],
+   "constraints": {
+    "before_first_compaction": {
+     "actions": 95,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "after_first_compaction": {
+     "actions": 183,
+     "broken": 0,
+     "rate": 0.0,
+     "by_rule": {}
+    },
+    "by_segment": [
+     {
+      "segment": 0,
+      "actions": 95,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 1,
+      "actions": 74,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 2,
+      "actions": 77,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     },
+     {
+      "segment": 3,
+      "actions": 32,
+      "broken": 0,
+      "rate": 0.0,
+      "by_rule": {}
+     }
+    ],
+    "lost_constraint_rate": 0.0,
+    "missed_awaiting": 125,
+    "awaiting": 125,
+    "examples": []
+   },
+   "segments": [
+    {
+     "segment": 0,
+     "calls": 66,
+     "entered": 40832,
+     "max_prompt": 40630,
+     "kinds": {
+      "turn": 65,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 1,
+     "calls": 62,
+     "entered": 41331,
+     "max_prompt": 41129,
+     "kinds": {
+      "turn": 61,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 2,
+     "calls": 61,
+     "entered": 41416,
+     "max_prompt": 41214,
+     "kinds": {
+      "turn": 60,
+      "compaction": 1
+     },
+     "source": "tito"
+    },
+    {
+     "segment": 3,
+     "calls": 31,
+     "entered": 22779,
+     "max_prompt": 22736,
+     "kinds": {
+      "turn": 31
+     },
+     "source": "tito"
+    }
+   ],
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 40485,
+    "max_compaction_prompt": 41214,
+    "over_window_calls": 45,
+    "max_prompt_over_window": 1.288
+   },
+   "rereads_after_compaction": 3,
+   "model_calls": 220,
+   "cells": {
+    "define": 1,
+    "list_pending": 1,
+    "read_policy": 1,
+    "reread": 3,
+    "summary": 3,
+    "work": 211
+   },
+   "wall_s": 8.18,
+   "ms_per_world_call": 7.11,
+   "checkpoints": {
+    "saves": 2,
+    "last_bytes": 1841825,
+    "total_bytes": 2833269,
+    "max_save_s": 0.0361
+   },
+   "rlm_counters": {
+    "turns": 217,
+    "cells": 217,
+    "cell_errors_in_row": 0,
+    "continuations": 0,
+    "stalls": 3,
+    "world_calls": 1101,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "protocol_errors": 0
+   },
+   "resumed_from": null,
+   "attempt_failures": [
+    null
+   ],
+   "faults": null,
+   "restore": {
+    "method": "journal_replay",
+    "s": 1.596,
+    "cells": 221,
+    "journal_bytes": 1028791,
+    "error": null
+   },
+   "dir": null
+  }
+ ]
+}

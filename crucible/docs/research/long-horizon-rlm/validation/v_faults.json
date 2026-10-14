@@ -1,0 +1,578 @@
+{
+ "campaign": "M16 faults at the 1000 rung (faithful)",
+ "runs": {
+  "overflow_root": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 9,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 6.83,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 178421,
+    "total_bytes": 178421,
+    "max_save_s": 0.0198
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.949,
+    "restore": "snapshot",
+    "restore_s": 0.73,
+    "mode": "snapshot",
+    "cells": 33,
+    "snapshot_cells": 152,
+    "snapshot_bytes": 356564,
+    "journal_bytes": 30774,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 8,
+    "history_reads_after_compaction": 8
+   },
+   "faults": {
+    "llm": [
+     {
+      "call": 40,
+      "fault": "overflow",
+      "role": "root",
+      "silent": false
+     },
+     {
+      "call": 41,
+      "fault": "overflow",
+      "role": "summary",
+      "silent": false
+     }
+    ],
+    "kills": []
+   },
+   "injected": null,
+   "rlm_counters": {
+    "turns": 184,
+    "cells": 184,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 8,
+    "compaction_attempts": 9,
+    "compaction_failures": 0,
+    "overflow_retries": 1,
+    "history_reads": 8,
+    "history_reads_after_compaction": 8,
+    "context_reads": 0,
+    "snapshots": 8,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 12120,
+    "discarded_cost_usd": 0.0
+   }
+  },
+  "silent_root": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 8,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 6.44,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 178412,
+    "total_bytes": 178412,
+    "max_save_s": 0.0229
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.895,
+    "restore": "snapshot",
+    "restore_s": 0.687,
+    "mode": "snapshot",
+    "cells": 33,
+    "snapshot_cells": 152,
+    "snapshot_bytes": 356564,
+    "journal_bytes": 30774,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 8,
+    "history_reads_after_compaction": 8
+   },
+   "faults": {
+    "llm": [
+     {
+      "call": 40,
+      "fault": "overflow",
+      "role": "root",
+      "silent": true
+     }
+    ],
+    "kills": []
+   },
+   "injected": null,
+   "rlm_counters": {
+    "turns": 184,
+    "cells": 184,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 8,
+    "compaction_attempts": 8,
+    "compaction_failures": 0,
+    "overflow_retries": 1,
+    "history_reads": 8,
+    "history_reads_after_compaction": 8,
+    "context_reads": 0,
+    "snapshots": 8,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 12120,
+    "discarded_cost_usd": 0.0
+   }
+  },
+  "overflow_summary": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 8,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23144,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.723,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 6.43,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 138672,
+    "total_bytes": 138672,
+    "max_save_s": 0.0205
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.908,
+    "restore": "snapshot",
+    "restore_s": 0.699,
+    "mode": "snapshot",
+    "cells": 34,
+    "snapshot_cells": 150,
+    "snapshot_bytes": 354007,
+    "journal_bytes": 31642,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 7,
+    "history_reads_after_compaction": 7
+   },
+   "faults": {
+    "llm": [
+     {
+      "call": 36,
+      "fault": "overflow",
+      "role": "summary",
+      "silent": false
+     }
+    ],
+    "kills": []
+   },
+   "injected": null,
+   "rlm_counters": {
+    "turns": 183,
+    "cells": 183,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 0,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 7,
+    "compaction_attempts": 8,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 7,
+    "history_reads_after_compaction": 7,
+    "context_reads": 0,
+    "snapshots": 7,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 11730,
+    "discarded_cost_usd": 0.0
+   }
+  },
+  "kill_mid_cell": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 7,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 7.84,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 138396,
+    "total_bytes": 138396,
+    "max_save_s": 0.0226
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.953,
+    "restore": "snapshot",
+    "restore_s": 0.714,
+    "mode": "snapshot",
+    "cells": 32,
+    "snapshot_cells": 151,
+    "snapshot_bytes": 356493,
+    "journal_bytes": 29727,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 7,
+    "history_reads_after_compaction": 7
+   },
+   "faults": {
+    "llm": [],
+    "kills": [
+     {
+      "at_world_call": 300,
+      "fired": true,
+      "seen": 300,
+      "killed": true
+     }
+    ]
+   },
+   "injected": null,
+   "rlm_counters": {
+    "turns": 183,
+    "cells": 183,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 1,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 1,
+    "protocol_errors": 0,
+    "compactions": 7,
+    "compaction_attempts": 7,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 7,
+    "history_reads_after_compaction": 7,
+    "context_reads": 0,
+    "snapshots": 7,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 11730,
+    "discarded_cost_usd": 0.0
+   }
+  },
+  "crash_resume": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 7,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 8.32,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 138669,
+    "total_bytes": 138669,
+    "max_save_s": 0.0215
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.911,
+    "restore": "snapshot",
+    "restore_s": 0.704,
+    "mode": "snapshot",
+    "cells": 34,
+    "snapshot_cells": 150,
+    "snapshot_bytes": 354235,
+    "journal_bytes": 31642,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 2,
+   "attempt_failures": [
+    "agent_run_error",
+    null
+   ],
+   "history": {
+    "history_reads": 7,
+    "history_reads_after_compaction": 7
+   },
+   "faults": {
+    "llm": [
+     {
+      "call": 100,
+      "fault": "crash",
+      "role": "root"
+     }
+    ],
+    "kills": []
+   },
+   "injected": null,
+   "rlm_counters": {
+    "turns": 183,
+    "cells": 183,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 1,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 7,
+    "compaction_attempts": 7,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 7,
+    "history_reads_after_compaction": 7,
+    "context_reads": 0,
+    "snapshots": 7,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 11730,
+    "discarded_cost_usd": 0.0
+   }
+  },
+  "cells": {
+   "label": "r1000-n160-s0-rlm-faithful-b32000",
+   "reward": 1.0,
+   "stop": "agent_done",
+   "mask": false,
+   "failure_kind": null,
+   "valid": true,
+   "world_calls": 978,
+   "compactions": 8,
+   "lost": 0.0,
+   "missed": 0,
+   "b1": {
+    "window": 32000,
+    "trigger_tokens": 25600,
+    "source": "tito",
+    "max_turn_prompt": 22834,
+    "max_compaction_prompt": 23577,
+    "over_window_calls": 0,
+    "max_prompt_over_window": 0.737,
+    "harness_threshold": 24000,
+    "harness_window": 32000
+   },
+   "wall_s": 144.7,
+   "checkpoints": {
+    "saves": 1,
+    "last_bytes": 137785,
+    "total_bytes": 137785,
+    "max_save_s": 0.0287
+   },
+   "restore": {
+    "method": "policy.restore_probe",
+    "s": 0.845,
+    "restore": "snapshot",
+    "restore_s": 0.636,
+    "mode": "snapshot",
+    "cells": 7,
+    "snapshot_cells": 180,
+    "snapshot_bytes": 411016,
+    "journal_bytes": 6101,
+    "fallback": [],
+    "error": null
+   },
+   "attempts": 1,
+   "attempt_failures": [
+    null
+   ],
+   "history": {
+    "history_reads": 9,
+    "history_reads_after_compaction": 9
+   },
+   "faults": null,
+   "injected": [
+    {
+     "call": 60,
+     "cell": "import re\nprint(bool(re.search('(a+)+$', 'aaaaaaaaaaaaaaaaaa"
+    },
+    {
+     "call": 61,
+     "cell": "r = await history.search('(a+)+$', regex=True)\nprint(len(r))"
+    },
+    {
+     "call": 62,
+     "cell": "print('x' * 50000000)"
+    }
+   ],
+   "rlm_counters": {
+    "turns": 187,
+    "cells": 187,
+    "continuations": 0,
+    "stalls": 0,
+    "world_calls": 908,
+    "world_sends": 69,
+    "sub_calls": 0,
+    "sub_tokens": 0,
+    "sub_refused": 0,
+    "refused_calls": 0,
+    "misrouted_calls": 0,
+    "restores": 1,
+    "inexact_restores": 0,
+    "lost_between_cells": 0,
+    "killed_mid_cell": 0,
+    "protocol_errors": 0,
+    "compactions": 8,
+    "compaction_attempts": 8,
+    "compaction_failures": 0,
+    "overflow_retries": 0,
+    "history_reads": 9,
+    "history_reads_after_compaction": 9,
+    "context_reads": 0,
+    "snapshots": 8,
+    "snapshot_failures": 0,
+    "renewals": 0,
+    "agent_requests": 0,
+    "completion_tokens": 12227,
+    "discarded_cost_usd": 0.0
+   }
+  }
+ }
+}
