@@ -297,7 +297,8 @@ class LLMToolPolicy(Policy):
                 self._new_segment("rerender", before, len(self.messages))
             self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
                                      "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                     "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before})
+                                     "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before,
+                                     "sampling": getattr(r, "sampling", None) or {}})
             if (r.text or "").strip():
                 note = "\n[this summary was cut off at its length limit]" if r.raw_finish == "length" else ""
                 self._new_segment(strategy, before, self._rebuild(cfg.keep_recent_turns, r.text + note), summary_call=self.model_calls[-1]["call_id"])
@@ -386,7 +387,8 @@ class LLMToolPolicy(Policy):
         call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
                 "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
-                "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens)}
+                "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),
+                "sampling": getattr(r, "sampling", None) or {}}  # what the call sent (R-3): the rollout's Turn.sampling
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
         self._measure(r.usage)

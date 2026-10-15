@@ -34,7 +34,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
-from crucible.core.schema.rollout import RolloutRecord, full_prompts
+from crucible.core.schema.rollout import RolloutRecord, SamplingParams, full_prompts
 
 
 class Teacher(Protocol):
@@ -200,17 +200,18 @@ class TeacherPool:
 
 
 def sampling_of(turns: Sequence[Any]) -> tuple[list[float | None], list[list[list[int]] | None]]:
-    """Per turn, the sampling temperature (``Turn.sampling["temperature"]``, None if unrecorded) and the top-p nucleus of
-    every completion token (``Turn.candidates`` when the turn was sampled with top_p < 1)."""
+    """Per turn, the sampling temperature (``Turn.sampling.temperature``, None if unrecorded) and the candidate set of
+    every completion token (``Turn.candidates`` when the turn was sampled truncated: top_p < 1, top_k or min_p)."""
     temps: list[float | None] = []
     cands: list[list[list[int]] | None] = []
     for t in turns:
-        s = getattr(t, "sampling", None) or {}
-        temps.append(float(s["temperature"]) if s.get("temperature") is not None else None)
-        nucleus = float(s.get("top_p", 1.0) or 1.0) < 1.0 or bool(t.candidates)
+        s = getattr(t, "sampling", None)
+        s = s if isinstance(s, SamplingParams) else SamplingParams.model_validate(s or {})
+        temps.append(float(s.temperature) if s.temperature is not None else None)
+        nucleus = s.truncated or bool(t.candidates)
         cands.append([list(c) for c in t.candidates] if nucleus and t.candidates else None)
         if nucleus and not t.candidates:
-            raise ValueError(f"{t.call_id}: sampled with top_p < 1 but no candidate sets: the teacher cannot score the student's distribution")
+            raise ValueError(f"{t.call_id}: sampled truncated (top_p < 1, top_k or min_p) but no candidate sets: the teacher cannot score the student's distribution")
     return temps, cands
 
 

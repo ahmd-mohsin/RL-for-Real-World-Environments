@@ -164,8 +164,8 @@ def test_token_credit_masks_frozen_and_masked():
     from crucible.train.credit import token_credit
 
     ro = RolloutRecord(rollout_id="r", sample="s", task="t", harness="h", policy="p", reward=1.0,
-                       turns=[Turn(call_id="a:c1", actor="agent", completion_token_ids=[1, 2], logprobs=[-0.1, -0.2], policy_version=3, advantage=0.25),
-                              Turn(call_id="b:c1", actor="sub", completion_token_ids=[3], logprobs=[-0.3], policy_version=3)])
+                       turns=[Turn(sampling={"temperature": 1.0}, call_id="a:c1", actor="agent", completion_token_ids=[1, 2], logprobs=[-0.1, -0.2], policy_version=3, advantage=0.25),
+                              Turn(sampling={"temperature": 1.0}, call_id="b:c1", actor="sub", completion_token_ids=[3], logprobs=[-0.3], policy_version=3)])
     tc = token_credit(ro, 0.5, turn_weight=1.0, frozen_actors=["sub"])
     assert tc[0].advantages == [0.75, 0.75] and tc[0].loss_mask == [1, 1] and tc[1].loss_mask == [0]
     ro.mask_sample = True
@@ -195,7 +195,7 @@ def test_micro_batch_budget_counts_forward_tokens_not_just_completions():
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     recs = [RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i),
-                          turns=[Turn(call_id=f"r{i}:c", actor="agent", prompt_token_ids=list(range(35)), completion_token_ids=[1, 2], logprobs=[-1.0, -1.0],
+                          turns=[Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c", actor="agent", prompt_token_ids=list(range(35)), completion_token_ids=[1, 2], logprobs=[-1.0, -1.0],
                                       policy_version=0)]) for i in range(2)]
     tr = TorchTrainer(TinyPolicy(48, 8, seed=0), TrainerConfig(token_budget=40))
     m = tr.step(recs, ["g", "g"])
@@ -214,7 +214,7 @@ def test_trainer_refuses_implicit_old_logprobs_for_multi_version_rollouts():
     from crucible.train.trainer import TorchTrainer, TrainerConfig
 
     def rec(i, versions):
-        turns = [Turn(call_id=f"r{i}:c{k}", actor="agent", prompt_token_ids=[1, 2, 3] if k == 0 else [4], prompt_is_delta=k > 0, completion_token_ids=[5, 6],
+        turns = [Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c{k}", actor="agent", prompt_token_ids=[1, 2, 3] if k == 0 else [4], prompt_is_delta=k > 0, completion_token_ids=[5, 6],
                       logprobs=[-1.0, -1.0], policy_version=v) for k, v in enumerate(versions)]
         return RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i % 2), turns=turns)
 
@@ -294,7 +294,7 @@ def test_r3_routing_replay_removes_the_moe_routing_mismatch():
                 gap_plain.append(abs(float(plain[t] - eng_lp[t])))
                 gap_r3.append(abs(float(r3[t] - eng_lp[t])))
         recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(i % 2),
-                                  turns=[Turn(call_id=f"c{i}", actor="agent", prompt_token_ids=prompt, completion_token_ids=res.completion_ids, logprobs=res.logprobs,
+                                  turns=[Turn(sampling={"temperature": 1.0}, call_id=f"c{i}", actor="agent", prompt_token_ids=prompt, completion_token_ids=res.completion_ids, logprobs=res.logprobs,
                                               policy_version=0, routing=res.routing)]))
     assert flips >= 3, flips  # the engine's numerics really changed expert choices
     assert sum(gap_r3) / len(gap_r3) < 0.5 * sum(gap_plain) / len(gap_plain), (sum(gap_r3), sum(gap_plain))

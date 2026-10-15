@@ -60,6 +60,9 @@ class TrainerConfig:
     grad_clip: float = 1.0
     updates_per_batch: int = 1
     temperature: float = 1.0  # must equal every trained call's sampling temperature (checked: a mismatch biases every ratio)
+    # a trained call that recorded no temperature is refused (R-3: rollouts before crucible.rollout/v1.1 copied the run's
+    # declaration, default {}); True accepts such calls as sampled at ``temperature``, knowingly
+    allow_unrecorded_sampling: bool = False
     skip_nonfinite: bool = True  # a non-finite gradient norm skips the optimizer step (AReaL, slime), counted in train/skipped_nonfinite
     routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
     prefix_sharing: bool = False  # items with the same full prompt in a micro batch encode it once (checklist #50)
@@ -353,7 +356,7 @@ class TorchTrainer:
         """Segment packing needs no per-call model inputs: truncated sampling (candidates) and R3 routing keep per-call items."""
         if self.cfg.routing_replay == "r3":
             return False
-        return all(float(t.sampling.get("top_p", 1.0)) >= 1.0 and not t.media for t in r.turns)
+        return all(not t.sampling.truncated and not t.media for t in r.turns)
 
     def _segment_items(self, r: RolloutRecord, a: float, per_token: dict | None, pid: int) -> list[_Item]:
         from crucible.train.bridges.common import flatten
@@ -580,8 +583,8 @@ class TorchTrainer:
                 if not t.completion_token_ids or not self._trains(t):
                     continue
                 if not t.candidates_valid():
-                    raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
-                                     "renormalize π_θ (record candidates or sample with top_p=1)")
+                    raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.top_p}, top_k={t.sampling.top_k}, min_p={t.sampling.min_p} but no "
+                                     "complete candidate sets; the trainer cannot renormalize π_θ (record candidates or sample untruncated)")
                 if self.cfg.routing_replay == "r3" and (t.routing is None or len(t.routing) != len(t.completion_token_ids)):
                     raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
@@ -590,7 +593,7 @@ class TorchTrainer:
                 pt = per_token.get((r.rollout_id, t.call_id), [0.0] * len(t.completion_token_ids)) if per_token is not None else None
                 adv = [x + credit for x in pt] if pt is not None else a + credit
                 it = _Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
-                           t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
+                           t.candidates if t.sampling.truncated else None,
                            t.routing if self.cfg.routing_replay == "r3" else None, seq=r.rollout_id,
                            media=(media.get(t.call_id) or None) if media else None)
                 kl = self._kl_coef(r)
@@ -742,7 +745,11 @@ class TorchTrainer:
                 n = len(t.completion_token_ids or [])
                 if not n or not self._trains(t):
                     continue
-                temp = t.sampling.get("temperature") if t.sampling else None
+                temp = t.sampling.temperature
+                if temp is None and not self.cfg.allow_unrecorded_sampling:  # R-3: an unknown temperature is not assumed to match
+                    raise ValueError(f"{r.rollout_id}/{t.call_id} recorded no sampling temperature, so its log-probs cannot be checked against "
+                                     f"the trainer's {self.cfg.temperature}; record what was sent (crucible.rollout/v1.1) or set "
+                                     "TrainerConfig.allow_unrecorded_sampling=True to accept it as sampled at the trainer's temperature")
                 if temp is not None and abs(float(temp) - float(self.cfg.temperature)) > 1e-6:
                     raise ValueError(f"{r.rollout_id}/{t.call_id} was sampled at temperature {temp} but the trainer computes log-probs at "
                                      f"{self.cfg.temperature}: every ratio would be biased (set TrainerConfig.temperature)")

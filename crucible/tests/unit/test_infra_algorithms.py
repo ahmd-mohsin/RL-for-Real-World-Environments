@@ -22,7 +22,7 @@ from crucible.train.weights import FP4_E2M1, QDQ, InprocPublisher, qdq_fp8_e4m3,
 
 
 def _turn(k, actor="agent", deps=None, step_reward=None, n=3):
-    return Turn(call_id=f"c{k}", actor=actor, prompt_is_delta=k > 0, prompt_token_ids=[1, 2] if k == 0 else [3], completion_token_ids=[4 + k % 20] * n,
+    return Turn(sampling={"temperature": 1.0}, call_id=f"c{k}", actor=actor, prompt_is_delta=k > 0, prompt_token_ids=[1, 2] if k == 0 else [3], completion_token_ids=[4 + k % 20] * n,
                 logprobs=[-1.0] * n, policy_version=0, depends_on=deps, step_reward=step_reward)
 
 

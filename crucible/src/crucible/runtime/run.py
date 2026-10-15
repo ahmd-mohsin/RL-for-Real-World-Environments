@@ -308,7 +308,7 @@ class Runner:
         trajs = {a: parse((adir / f).read_text()) for k, f in hr.artifacts.items()
                  if k.startswith("trajectory.") and (a := k.split(".", 1)[1]) and (adir / f).exists()}
         prog = adir / "progress.jsonl"
-        ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
+        ro = build(rec, calls=hr.calls, trajectories=trajs, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
                    progress=prog if prog.exists() else None, segments=hr.segments)
         ro.flags = list(hr.flags)
         for t in ro.turns:

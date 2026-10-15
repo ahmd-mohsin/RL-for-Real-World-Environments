@@ -1,4 +1,4 @@
-"""The rollout record contract ``crucible.rollout/v1`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
+"""The rollout record contract ``crucible.rollout/v1.1`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
 
 The trainer's only input from an episode. Per model call (``Turn``): the prompt and completion token ids and the
 behaviour logprobs exactly as the inference engine sampled them (token-in-token-out; never detokenized and
@@ -15,11 +15,61 @@ from __future__ import annotations
 from itertools import pairwise
 from typing import Any, ClassVar, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 
-SCHEMA = "crucible.rollout/v1"
+SCHEMA = "crucible.rollout/v1.1"  # v1.1 (R-3): Turn.sampling is typed (SamplingParams), what the call sent
+
+# Request keys that are not sampling parameters: everything else a call sent is recorded (typed, or in ``extra``).
+NOT_SAMPLING = frozenset({"model", "messages", "tools", "tool_choice", "response_format", "stream", "stream_options", "extra_headers",
+                          "extra_query", "user", "metadata", "timeout", "n", "logprobs", "top_logprobs", "return_token_ids",
+                          "chat_template_kwargs", "parallel_tool_calls"})
+_UNSET = lambda v: v is None  # exclude_if: a parameter not sent is left out, so an empty record dumps as {}
+
+
+class SamplingParams(CrucibleModel):
+    """The sampling parameters a model call was sent (R-3; PATTERN: OpenEnv ``core/harness/capture/graph.py`` records the
+    submitted parameters per call, BSD-3-Clause). ``None`` means not sent (the engine's default applied); any other key
+    the request carried is kept in ``extra``. A dict, as rollout/v1 stored it, is read with its known keys typed."""
+
+    temperature: float | None = Field(None, exclude_if=_UNSET)
+    top_p: float | None = Field(None, exclude_if=_UNSET)
+    top_k: int | None = Field(None, exclude_if=_UNSET)
+    min_p: float | None = Field(None, exclude_if=_UNSET)
+    presence_penalty: float | None = Field(None, exclude_if=_UNSET)
+    frequency_penalty: float | None = Field(None, exclude_if=_UNSET)
+    repetition_penalty: float | None = Field(None, exclude_if=_UNSET)
+    max_tokens: int | None = Field(None, exclude_if=_UNSET)
+    seed: int | None = Field(None, exclude_if=_UNSET)
+    stop: list[str] | None = Field(None, exclude_if=_UNSET)
+    extra: dict[str, Any] = Field(default_factory=dict, exclude_if=lambda v: not v)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_dict(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        known = {k: v for k, v in data.items() if k in cls.model_fields}
+        rest = {k: v for k, v in data.items() if k not in cls.model_fields}
+        if "max_completion_tokens" in rest and known.get("max_tokens") is None:
+            known["max_tokens"] = rest.pop("max_completion_tokens")
+        if isinstance(known.get("stop"), str):
+            known["stop"] = [known["stop"]]
+        return {**known, "extra": {**(known.get("extra") or {}), **rest}} if rest else known
+
+    @classmethod
+    def from_request(cls, kwargs: dict[str, Any]) -> SamplingParams:
+        """What a chat request sends, from its keyword arguments: ``extra_body`` keys are lifted (vLLM and SGLang take
+        top_k, min_p and repetition_penalty there), non-sampling keys are dropped, None values are not sent."""
+        flat = {k: v for k, v in kwargs.items() if k != "extra_body"}
+        flat.update(kwargs.get("extra_body") or {})
+        return cls.model_validate({k: v for k, v in flat.items() if k not in NOT_SAMPLING and v is not None})
+
+    @property
+    def truncated(self) -> bool:
+        """top_p < 1 (or top_k, min_p): the trainer needs each token's candidate set to renormalize π_θ."""
+        return (self.top_p is not None and self.top_p < 1.0) or bool(self.top_k and self.top_k > 0) or bool(self.min_p)
 
 
 # How a call relates to the one before it in the episode's message graph (M16 §3.5; research long-horizon-rlm/01 R9:
@@ -51,7 +101,7 @@ class Turn(CrucibleModel):
     # Token-level switching (AReaL-style abort + resubmit with the partial output, DeepSeek pause at a token boundary):
     # run-length spans [start_completion_token, version], covering every completion token, in order. Absent = one version.
     version_spans: list[tuple[int, int]] | None = None
-    sampling: dict[str, Any] = Field(default_factory=dict)  # temperature, top_p, max_tokens, seed
+    sampling: SamplingParams = Field(default_factory=SamplingParams)  # what the call sent (R-3)
     finish: str | None = None
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
     candidates: list[list[int]] | None = None  # per completion token, the top-p nucleus it was sampled from (checklist #37)
@@ -105,7 +155,7 @@ class Turn(CrucibleModel):
     def candidates_valid(self) -> bool:
         """Truncated sampling (top_p < 1) needs the candidate set of every completion token, containing that token: the
         trainer renormalizes π_θ over it, else the behaviour logprob is compared with the wrong distribution."""
-        if float(self.sampling.get("top_p", 1.0)) >= 1.0:
+        if not self.sampling.truncated:
             return True
         toks = self.completion_token_ids or []
         return self.candidates is not None and len(self.candidates) == len(toks) and all(t in c for t, c in zip(toks, self.candidates, strict=True))

@@ -353,3 +353,34 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** A task class can opt in by adding `digest()`; it must be deterministic and cheap (it runs at every
   dispatch and after every attempt). A harness that writes into its task directory would now mask every attempt as
   `crucible:task_changed`: write under the attempt directory instead.
+
+## 18. R-3: each turn records the sampling its call actually sent
+
+- **Item.** R-3 (carry-over AUD-F2 sampling; merges openenv-hf:C3, mimo-verl:MV-3, PRIME-C1's sampling part). PATTERN from
+  OpenEnv `core/harness/capture/graph.py` (BSD-3-Clause); THIRD_PARTY.md row added. Decisions: the trainer refuses an
+  unrecorded temperature by default (opt-out `allow_unrecorded_sampling`); the verl bridge's parameters wait for M12.
+- **Files.** `src/crucible/core/schema/rollout.py` (`SamplingParams`, `NOT_SAMPLING`, `Turn.sampling` typed, rollout
+  `v1.1`), `src/crucible/actors/llm.py` (`LLMResponse.sampling`; `_request` factored out of `_complete_paid`; `_sent`;
+  cache entries keep `sampling`; the token-in-token-out path records what the engine was sent),
+  `src/crucible/actors/policy.py` (call records carry `sampling`), `src/crucible/runtime/record.py` (a turn takes its
+  call's sampling; the `sampling` argument is only a fallback), `src/crucible/runtime/run.py` (no longer passes
+  `RunSpec.sampling` to the rollout), `src/crucible/train/trainer.py` (`TrainerConfig.allow_unrecorded_sampling`; the
+  temperature guard; truncation by `SamplingParams.truncated`), `src/crucible/train/teachers.py`, `schemas/crucible.rollout/v1.1.*`,
+  `tests/unit/_formats.py`, `THIRD_PARTY.md`, `tests/unit/test_sampling.py`, and test fixtures in 11 training test files
+  and 3 worker scripts (turns now record `temperature: 1.0`).
+- **Public names.** `crucible.core.schema.rollout.SamplingParams` (`from_request`, `truncated`), `LLMResponse.sampling`,
+  `TrainerConfig.allow_unrecorded_sampling`.
+- **Behaviour.** `Turn.sampling` is what the call sent: the policy's parameters plus the provider's `request_defaults`
+  and the call's extras (`extra_body` keys lifted; non-sampling keys such as `logprobs` and `return_token_ids` dropped).
+  Before, every turn held a copy of `RunSpec.sampling` (default `{}`), blind to `request_defaults`. The trainer now
+  refuses a trained turn without a recorded temperature (it used to skip the check), and treats top_k and min_p, not only
+  top_p < 1, as truncation that needs candidate sets. An unset parameter is left out, so an empty record still dumps as `{}`.
+- **Formats.** `crucible.rollout/v1` -> `v1.1` (minor): `Turn.sampling` is typed. v1 records read (their dicts mapped,
+  unknown keys in `extra`); a v1 reader refuses v1.1 records with the newer-minor message.
+- **Tests.** `test_sampling.py` (5): parameters from a request and from a v1 dict, the client records provider defaults,
+  a cached reply keeps its sampling, a turn takes its call's sampling, the trainer refuses unrecorded/different
+  temperatures and accepts with the opt-out. 42 training suites: 418 passed (63 failed before the fixtures recorded a
+  temperature); 59 other suites: 858 passed, 3 pre-existing failures.
+- **Merge notes.** Code reading `turn.sampling.get("x")` or `turn.sampling["x"]` must use attributes
+  (`turn.sampling.temperature`). Test rollouts that are trained must record a temperature, or set
+  `allow_unrecorded_sampling=True`. A new key in an LLM request that is not a sampling parameter belongs in `NOT_SAMPLING`.

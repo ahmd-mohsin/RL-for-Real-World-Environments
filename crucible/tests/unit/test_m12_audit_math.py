@@ -22,7 +22,7 @@ from crucible.train.trainer import TorchTrainer, TrainerConfig
 
 
 def _turn(cid="c0", prompt=(1, 2), comp=(3, 4, 5), lp=-1.0, **kw):
-    return Turn(call_id=cid, actor=kw.pop("actor", "agent"), prompt_token_ids=list(prompt), completion_token_ids=list(comp),
+    return Turn(sampling=kw.pop("sampling", {"temperature": 1.0}), call_id=cid, actor=kw.pop("actor", "agent"), prompt_token_ids=list(prompt), completion_token_ids=list(comp),
                 logprobs=[lp] * len(comp) if not isinstance(lp, list) else lp, policy_version=0, **kw)
 
 
@@ -93,7 +93,7 @@ def _multi_call_batch(top_p=1.0):
         for k in range(n):
             comp = [3 + (i + k) % 20, 4, 5][: 1 + (i + k) % 3]
             cand = [[c, (c + 1) % 32] for c in comp] if top_p < 1 else None
-            turns.append(_turn(f"c{k}", prompt=[1, 2] if k == 0 else [9], comp=comp, prompt_is_delta=k > 0, sampling={"top_p": top_p},
+            turns.append(_turn(f"c{k}", prompt=[1, 2] if k == 0 else [9], comp=comp, prompt_is_delta=k > 0, sampling={"temperature": 1.0, "top_p": top_p},
                                candidates=cand))
         out.append(_rec(f"r{i}", r, turns))
     return out, ["g", "g", "h", "h"]

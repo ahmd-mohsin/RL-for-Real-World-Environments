@@ -26,6 +26,7 @@ import httpx
 
 from crucible.core.config import Config, get_config, resolve_secret
 from crucible.core.ids import sha256_text
+from crucible.core.schema.rollout import SamplingParams
 
 # Spend attribution per asyncio task (M8 audit V3): every booked cost is also added to the innermost open scope, so a
 # caller that runs many roles concurrently (the forge orchestrator) charges each node its own calls, not the global delta.
@@ -139,6 +140,7 @@ class LLMResponse:
     latency_s: float = 0.0
     response_id: str | None = None
     tokens: dict[str, Any] | None = None  # token-in-token-out record when the endpoint returns it (prompt/completion ids, logprobs, policy_version)
+    sampling: dict[str, Any] = field(default_factory=dict)  # the sampling parameters the call sent (core.schema.rollout.SamplingParams, R-3)
 
 
 @dataclass
@@ -226,6 +228,33 @@ class LLMClient:
         return {"model": self.model, "base_url": p.base_url, "request_defaults": p.request_defaults, "tito": p.tito,
                 "template_kwargs": p.template_kwargs, "policy_version": self.policy_version, "cache_mode": self.cache_mode}
 
+    def _request(self, messages, tools, *, temperature, max_tokens, json_mode, seed, extra) -> dict[str, Any]:
+        """The chat request's keyword arguments: the call's parameters, then the provider's ``request_defaults`` for keys the
+        call left unset, then the call's extras (``extra_body`` merged, call-level keys winning)."""
+        kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        if seed is not None:
+            kwargs["seed"] = seed
+        if tools:
+            kwargs["tools"] = tools
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        defaults = dict(self.provider.request_defaults or {})  # provider-level defaults (token capture on vLLM / SGLang)
+        body = {**(defaults.pop("extra_body", None) or {}), **(extra.get("extra_body") or {})}  # call-level keys win
+        for k, v in defaults.items():
+            kwargs.setdefault(k, v)
+        kwargs.update({k: v for k, v in extra.items() if k != "extra_body"})
+        if body:
+            kwargs["extra_body"] = body
+        return kwargs
+
+    def _sent(self, *, temperature, max_tokens, json_mode, seed, extra) -> dict[str, Any]:
+        """The sampling parameters a call with these arguments sends (R-3): after the request_defaults merge for a chat
+        endpoint; temperature, max_tokens and seed for a token-in-token-out engine, which takes nothing else."""
+        if self.provider.tito:
+            return SamplingParams(temperature=temperature, max_tokens=max_tokens, seed=seed).model_dump()
+        return SamplingParams.from_request(self._request([], None, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
+                                                         seed=seed, extra=extra)).model_dump()
+
     def _openai(self):
         if self._client is None:
             from openai import AsyncOpenAI
@@ -276,7 +305,8 @@ class LLMClient:
         if d is not None:
             self.spend.cached_calls += 1
             return LLMResponse(text=d["text"], tool_calls=d.get("tool_calls", []), usage=d.get("usage", {}), cost_usd=0.0, model=d.get("model", self.model), cached=True,
-                               raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}))
+                               raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}),
+                               sampling=d.get("sampling") or self._sent(temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
         hold = self._reserve(messages, max_tokens)
@@ -312,20 +342,7 @@ class LLMClient:
     async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
         if self.provider.tito:
             return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
-        kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
-        if seed is not None:
-            kwargs["seed"] = seed
-        if tools:
-            kwargs["tools"] = tools
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        defaults = dict(self.provider.request_defaults or {})  # provider-level defaults (token capture on vLLM / SGLang)
-        body = {**(defaults.pop("extra_body", None) or {}), **(extra.get("extra_body") or {})}  # call-level keys win
-        for k, v in defaults.items():
-            kwargs.setdefault(k, v)
-        kwargs.update({k: v for k, v in extra.items() if k != "extra_body"})
-        if body:
-            kwargs["extra_body"] = body
+        kwargs = self._request(messages, tools, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra)
         last: Exception | None = None
         t0 = time.monotonic()
         try:
@@ -395,12 +412,12 @@ class LLMClient:
             finish = "refusal"  # the provider's refusal field: a labelled end, not an empty reply
         out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=finish,
                           raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None),
-                          tokens=token_record(resp, choice, self.policy_version))
+                          tokens=token_record(resp, choice, self.policy_version), sampling=SamplingParams.from_request(kwargs).model_dump())
         if self.cache_mode == "record":  # atomic: a concurrent reader of the same key never sees half a file
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(out)}.tmp")
             tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
-                                       "raw_message": raw_message}, ensure_ascii=False, default=str))
+                                       "raw_message": raw_message, "sampling": out.sampling}, ensure_ascii=False, default=str))
             os.replace(tmp, path)
         return out
 
@@ -430,6 +447,7 @@ class LLMClient:
         except httpx.HTTPError as e:
             raise LLMError(f"{self.model} (tito) failed: {e}") from e
         r.tokens["policy_version"] = self.policy_version  # the served checkpoint's stamp (provider config / trainer bridge)
+        r.sampling = r.sampling or SamplingParams(temperature=temperature, max_tokens=max_tokens, seed=seed).model_dump()  # what the engine was sent
         self.spend.calls += 1
         self.spend.prompt_tokens += r.usage.get("prompt_tokens", 0)
         self.spend.completion_tokens += r.usage.get("completion_tokens", 0)
