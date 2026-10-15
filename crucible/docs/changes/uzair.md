@@ -152,3 +152,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `test_source_digest_follows_content_not_bytecode`.
 - **Merge notes.** A branch that edits studio's `provenance()` or its `_git` helper conflicts; the git logic now lives in
   `core/build.py`.
+
+## 10. R-12: the store index is versioned and migrated
+
+- **Item.** R-12 (new in the audit; TC-2). PATTERN: Crucible's own document rule (refuse newer, upgrade older),
+  applied to the index; rLLM `rllm/data/dataset.py:283-318` is the counter-example (unknown versions overwritten).
+- **Files.** `src/crucible/core/store/__init__.py`, `tests/unit/test_core_audit.py`.
+- **Public names.** New `crucible.core.store.INDEX_VERSION` (now 1) and the private `_MIGRATIONS` list, which replaces
+  the `_SCHEMA` script (same tables and indexes).
+- **Behaviour.** `Store()` reads `PRAGMA user_version`: equal to `INDEX_VERSION` costs one read; lower applies the
+  missing migrations and sets the version inside one `BEGIN IMMEDIATE` (concurrent opens migrate once: checked with 8
+  processes on one unversioned index); higher raises `StoreError` ("newer than this Crucible ... upgrade") and closes
+  the connection. Existing indexes are version 0 and become 1 on first open (migration 1's CREATEs are no-ops).
+- **Formats.** The index file now carries `user_version = 1`. An older Crucible (before this change) still opens it,
+  since it ignores the pragma.
+- **Tests.** `test_a_new_index_carries_the_current_version`, `test_an_unversioned_index_is_adopted_with_its_rows`,
+  `test_an_index_from_a_newer_crucible_is_refused`, `test_a_later_migration_reaches_an_existing_index`.
+- **Merge notes.** Any schema change to the index (a new column, table or index) must be appended to `_MIGRATIONS`,
+  never made by editing migration 1. A branch that still edits `_SCHEMA` conflicts here: move its DDL into a new
+  migration. R-16 (tag revisions) is meant to be migration 2.

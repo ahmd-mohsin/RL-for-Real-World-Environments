@@ -37,19 +37,24 @@ from crucible.core.schema.base import CrucibleModel
 
 M = TypeVar("M", bound=CrucibleModel)
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS docs (
-  kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL,
-  provenance TEXT, size INTEGER, PRIMARY KEY (kind, key)
-);
-CREATE INDEX IF NOT EXISTS docs_name ON docs(kind, name);
-CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY, key TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS doc_names (
-  kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT,
-  PRIMARY KEY (kind, key, name)
-);
-CREATE INDEX IF NOT EXISTS doc_names_name ON doc_names(kind, name);
-"""
+# Index migrations (R-12), append-only: entry i takes an index from ``PRAGMA user_version`` i to i + 1. Never edit a
+# shipped entry; append one. Migration 1 is the schema every index had before versioning, so on those its CREATEs are
+# no-ops. The index is not rebuildable from the blobs (tags and names live only here), so a version newer than
+# INDEX_VERSION is refused rather than guessed at (rLLM's registry treats any unknown version as v1 and overwrites it).
+_MIGRATIONS: list[tuple[str, ...]] = [
+    (
+        """CREATE TABLE IF NOT EXISTS docs (
+             kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL,
+             provenance TEXT, size INTEGER, PRIMARY KEY (kind, key))""",
+        "CREATE INDEX IF NOT EXISTS docs_name ON docs(kind, name)",
+        "CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY, key TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        """CREATE TABLE IF NOT EXISTS doc_names (
+             kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT,
+             PRIMARY KEY (kind, key, name))""",
+        "CREATE INDEX IF NOT EXISTS doc_names_name ON doc_names(kind, name)",
+    ),
+]
+INDEX_VERSION = len(_MIGRATIONS)
 _STAGING = "staging"
 _STAGED_PREFIX = "blob-"
 _STAGED_GRACE_S = 3600.0  # a staged file this old whose lock no one holds belongs to a dead writer
@@ -117,6 +122,31 @@ class StoreError(RuntimeError):
     pass
 
 
+def _migrate(conn: sqlite3.Connection, index: Path) -> None:
+    """Bring ``index`` to INDEX_VERSION, or raise StoreError if a newer Crucible wrote it. A current index costs one read;
+    otherwise the version is re-read and the migrations applied under one write lock, so concurrent opens migrate once."""
+
+    def version() -> int:
+        v = conn.execute("PRAGMA user_version").fetchone()[0]
+        if v > INDEX_VERSION:
+            raise StoreError(f"{index}: index version {v} is newer than this Crucible's ({INDEX_VERSION}); upgrade Crucible to open this store")
+        return v
+
+    if version() == INDEX_VERSION:
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        start = version()
+        for statements in _MIGRATIONS[start:]:
+            for sql in statements:
+                conn.execute(sql)
+        conn.execute(f"PRAGMA user_version = {INDEX_VERSION}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
 def _make_private_root(root: Path) -> None:
     """Create ``root`` owner-only (0700) with a ``.gitignore`` of ``*``: stores hold traces, prompts and tool output, and
     the umask default (0755) lets every user on a shared host read them (R-6; PATTERN: agentenv
@@ -146,8 +176,11 @@ class Store:
         self._db = sqlite3.connect(index, check_same_thread=False, timeout=_BUSY_TIMEOUT_S)
         _enable_wal(self._db)
         self._db.execute(f"PRAGMA busy_timeout={int(_BUSY_TIMEOUT_S * 1000)}")
-        self._db.executescript(_SCHEMA)
-        self._db.commit()
+        try:
+            _migrate(self._db, index)
+        except BaseException:
+            self._db.close()
+            raise
 
     # ---------------- blobs ----------------
     def _blob_path(self, key: str) -> Path:

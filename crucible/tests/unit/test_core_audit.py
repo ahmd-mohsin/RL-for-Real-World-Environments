@@ -569,3 +569,67 @@ def test_source_digest_follows_content_not_bytecode(tmp_path):
     (tmp_path / "a.py").write_text("x = 2\n")
     assert source_digest(tmp_path) != d
     assert len(build_info().source_sha256) == 64
+
+
+# ------------------------------------------------------------------------------------------------ R-12: index versions
+_LEGACY_INDEX = """
+CREATE TABLE docs (kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL, provenance TEXT, size INTEGER, PRIMARY KEY (kind, key));
+CREATE INDEX docs_name ON docs(kind, name);
+CREATE TABLE tags (name TEXT PRIMARY KEY, key TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE doc_names (kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT, PRIMARY KEY (kind, key, name));
+CREATE INDEX doc_names_name ON doc_names(kind, name);
+INSERT INTO tags VALUES ('latest', 'sha256:00', '2026-01-01');
+"""
+
+
+def _user_version(root):
+    import sqlite3
+
+    with sqlite3.connect(root / "index.sqlite") as c:
+        return c.execute("PRAGMA user_version").fetchone()[0]
+
+
+def test_a_new_index_carries_the_current_version(tmp_path):
+    from crucible.core.store import INDEX_VERSION
+
+    Store(tmp_path / "s")
+    assert _user_version(tmp_path / "s") == INDEX_VERSION >= 1
+
+
+def test_an_unversioned_index_is_adopted_with_its_rows(tmp_path):
+    import sqlite3
+
+    (tmp_path / "s").mkdir()
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:  # an index written before versioning
+        c.executescript(_LEGACY_INDEX)
+    assert Store(tmp_path / "s").resolve("latest") == "sha256:00"
+    assert _user_version(tmp_path / "s") >= 1
+
+
+def test_an_index_from_a_newer_crucible_is_refused(tmp_path):
+    import sqlite3
+
+    from crucible.core.store import INDEX_VERSION
+
+    Store(tmp_path / "s")
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
+        c.execute(f"PRAGMA user_version = {INDEX_VERSION + 1}")
+    with pytest.raises(StoreError, match="newer than this Crucible"):
+        Store(tmp_path / "s")
+
+
+def test_a_later_migration_reaches_an_existing_index(tmp_path, monkeypatch):
+    import sqlite3
+
+    import crucible.core.store as store_mod
+
+    first = Store(tmp_path / "s")
+    key = first.put_bytes(b"x")
+    first.tag("latest", key)
+    v = store_mod.INDEX_VERSION
+    monkeypatch.setattr(store_mod, "_MIGRATIONS", [*store_mod._MIGRATIONS, ("ALTER TABLE tags ADD COLUMN rev INTEGER NOT NULL DEFAULT 0",)])
+    monkeypatch.setattr(store_mod, "INDEX_VERSION", v + 1)
+    s = Store(tmp_path / "s")
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
+        assert c.execute("SELECT key, rev FROM tags").fetchall() == [(key, 0)]
+    assert _user_version(tmp_path / "s") == v + 1 and s.resolve("latest") == key
