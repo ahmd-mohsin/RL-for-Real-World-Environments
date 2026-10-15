@@ -200,12 +200,16 @@ class LLMClient:
         self.config = config or get_config()
         self.provider, self.model = self.config.model(model)
         self.budget_usd = self.config.llm_budget_usd if budget_usd is None else budget_usd
-        self.cache_mode = cache_mode or os.environ.get("CRUCIBLE_LLM_CACHE", "record")
+        from crucible.core import env as knobs
+
+        self.cache_mode = cache_mode or knobs.get("CRUCIBLE_LLM_CACHE")
+        if self.cache_mode not in knobs.KNOBS["CRUCIBLE_LLM_CACHE"].choices:  # R-15: "reply" used to turn the cache off silently
+            raise ValueError(f"cache_mode {self.cache_mode!r} is not one of {knobs.KNOBS['CRUCIBLE_LLM_CACHE'].choices}")
         self.cache_dir = cache_dir or (self.config.data_path() / "llm_cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # read timeout per call (CRUCIBLE_LLM_TIMEOUT_S, default 600 s): reasoning models routinely think past the old fixed
         # 120 s, which failed the call after paying for it (M2 audit); connecting still fails fast
-        self.timeout_s = float(timeout_s if timeout_s is not None else os.environ.get("CRUCIBLE_LLM_TIMEOUT_S", "600"))
+        self.timeout_s = float(timeout_s if timeout_s is not None else knobs.get("CRUCIBLE_LLM_TIMEOUT_S"))
         self.max_retries = max_retries
         self.require_usage = require_usage  # False: tolerate blank usage, booking an upper-bound estimate as uncertain spend
         # the served checkpoint's version (provider config), replaced by the trainer bridge on every weight update; stamped on each call's token record

@@ -730,3 +730,68 @@ def test_registry_check_exits_1_on_a_broken_pointer(monkeypatch):
     monkeypatch.setattr("crucible.core.registry.get_registry", lambda: reg)
     r = CliRunner().invoke(cli, ["registry", "--check"])
     assert r.exit_code == 1 and "grader/typo" in r.output
+
+
+# ------------------------------------------------------------------------------------------------ R-15: CRUCIBLE_* knobs
+def test_a_malformed_knob_fails_loudly_naming_it(monkeypatch):
+    from crucible.core import env as knobs
+
+    monkeypatch.setenv("CRUCIBLE_LLM_CACHE", "reply")
+    with pytest.raises(knobs.EnvError, match=r"CRUCIBLE_LLM_CACHE='reply': expected one of record, replay, off"):
+        knobs.get("CRUCIBLE_LLM_CACHE")
+    monkeypatch.setenv("CRUCIBLE_LLM_TIMEOUT_S", "10m")
+    with pytest.raises(knobs.EnvError, match="CRUCIBLE_LLM_TIMEOUT_S='10m'"):
+        knobs.get("CRUCIBLE_LLM_TIMEOUT_S")
+    monkeypatch.setenv("CRUCIBLE_DOCKER_SSH_TUNNEL", "maybe")
+    with pytest.raises(knobs.EnvError, match="1/0, true/false"):
+        knobs.get("CRUCIBLE_DOCKER_SSH_TUNNEL")
+
+
+def test_knobs_parse_to_their_types_and_defaults(monkeypatch, tmp_path):
+    import os
+
+    from crucible.core import env as knobs
+
+    monkeypatch.delenv("CRUCIBLE_LLM_TIMEOUT_S", raising=False)
+    monkeypatch.setenv("CRUCIBLE_LLM_CACHE", "")
+    assert knobs.get("CRUCIBLE_LLM_TIMEOUT_S") == 600.0 and knobs.get("CRUCIBLE_LLM_CACHE") == "record"
+    monkeypatch.setenv("CRUCIBLE_CPU_ONLY", "0")  # any non-empty value used to mean "CPU only"
+    monkeypatch.setenv("CRUCIBLE_DOCKER_SSH_TUNNEL", "false")  # anything but "0" used to mean "on"
+    assert knobs.get("CRUCIBLE_CPU_ONLY") is False and knobs.get("CRUCIBLE_DOCKER_SSH_TUNNEL") is False
+    monkeypatch.setenv("CRUCIBLE_DATA_ROOTS", os.pathsep.join([str(tmp_path / "a"), " ", "~/b"]))
+    assert knobs.get("CRUCIBLE_DATA_ROOTS") == (tmp_path / "a", knobs.Path("~/b").expanduser())
+    with pytest.raises(KeyError, match="not a declared"):
+        knobs.get("CRUCIBLE_NOT_A_KNOB")
+
+
+def test_a_secret_knob_is_scrubbed_and_never_echoed(monkeypatch):
+    from crucible.core import env as knobs
+    from crucible.core.secrets import scrub_secrets
+
+    monkeypatch.setenv("CRUCIBLE_REDACTION_SALT", "r15-tenant-salt-0001")
+    assert knobs.get("CRUCIBLE_REDACTION_SALT") == "r15-tenant-salt-0001"
+    assert scrub_secrets("salt r15-tenant-salt-0001") == "salt <secret>"
+
+
+def test_an_undeclared_crucible_variable_is_named_with_the_closest_knob():
+    from crucible.core import env as knobs
+
+    assert knobs.undeclared({"CRUCIBLE_LLM_CAHCE": "replay", "CRUCIBLE_LLM_CACHE": "record", "PATH": "/bin"}) == {"CRUCIBLE_LLM_CAHCE": "CRUCIBLE_LLM_CACHE"}
+
+
+def test_every_crucible_variable_in_the_code_is_declared():
+    import re
+    from pathlib import Path
+
+    from crucible.core.env import KNOBS
+
+    root = Path(__file__).resolve().parents[2]
+    named = {m for d in ("src", "packs") for p in (root / d).rglob("*.py") for m in re.findall(r"[\"'](CRUCIBLE_[A-Z0-9_]+)[\"']", p.read_text())}
+    assert named and not named - set(KNOBS), sorted(named - set(KNOBS))
+
+
+def test_the_llm_client_refuses_an_unknown_cache_mode(tmp_path):
+    from crucible.actors.llm import LLMClient
+
+    with pytest.raises(ValueError, match="cache_mode 'reply'"):
+        LLMClient("policy-default", cache_mode="reply", cache_dir=tmp_path)

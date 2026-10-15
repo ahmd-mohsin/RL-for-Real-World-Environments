@@ -41,7 +41,7 @@ PLUGIN = '''"""Crucible verifier pytest plugin: per-test outcomes to a grader-ow
 import json, os, unittest
 import pytest
 
-_FD = int(os.environ.pop("CRUCIBLE_VERIFY_FD", "-1"))
+_FD = int(os.environ.pop("CRUCIBLE_VERIFY_FD", "-1"))  # runs in the candidate's pytest, without crucible; declared in crucible.core.env
 _seen = {"collected": 0}
 _ASSERTS = {n: getattr(unittest.TestCase, n) for n in dir(unittest.TestCase) if n.startswith(("assert", "fail"))}
 _CODES = {n: getattr(f, "__code__", None) for n, f in _ASSERTS.items()}

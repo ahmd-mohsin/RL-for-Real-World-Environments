@@ -91,7 +91,9 @@ def salt_path() -> Path:
 def tenant_salt() -> str:
     """The tenant's pseudonym key: ``CRUCIBLE_REDACTION_SALT``, else a random key created once in the data directory
     (mode 0600). Pseudonyms stay stable within the tenant and cannot be recomputed outside it."""
-    env = os.environ.get("CRUCIBLE_REDACTION_SALT")
+    from crucible.core import env as knobs
+
+    env = knobs.get("CRUCIBLE_REDACTION_SALT")
     if env:
         return env
     p = salt_path()

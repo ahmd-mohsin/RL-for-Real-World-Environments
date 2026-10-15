@@ -48,6 +48,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.core import env as knobs
 from crucible.train.placement import Placement
 
 # the launch environment every rank gets unless the caller set it: NCCL errors abort the communicator instead of hanging
@@ -117,7 +118,7 @@ def _resolve(entry: str):
 
 def run_entry() -> None:
     """Subprocess side of ``LocalLauncher``: the spec arrives as JSON in ``CRUCIBLE_SPEC``."""
-    spec = ProcSpec(**json.loads(os.environ["CRUCIBLE_SPEC"]))
+    spec = ProcSpec(**json.loads(knobs.require("CRUCIBLE_SPEC")))
     out = _resolve(sys.argv[1])(spec)
     if out is not None:
         print("CRUCIBLE_RESULT " + json.dumps(out), flush=True)
@@ -289,8 +290,8 @@ def init_rank(backend: str | None = None, *, timeout_s: float | None = None) -> 
     for k, v in NCCL_DEFAULTS.items():
         os.environ.setdefault(k, v)
     if timeout_s is None:
-        timeout_s = float(os.environ.get("CRUCIBLE_PG_TIMEOUT_S", DEFAULT_PG_TIMEOUT_S))
-    cuda = torch.cuda.is_available() and not os.environ.get("CRUCIBLE_CPU_ONLY")
+        timeout_s = knobs.get("CRUCIBLE_PG_TIMEOUT_S")
+    cuda = torch.cuda.is_available() and not knobs.get("CRUCIBLE_CPU_ONLY")
     backend = backend or ("nccl" if cuda else "gloo")
     local = int(os.environ.get("LOCAL_RANK", "0"))
     if backend == "nccl":
@@ -335,7 +336,7 @@ class RayLauncher:
                 for k, v in NCCL_DEFAULTS.items():
                     os.environ.setdefault(k, v)
                 os.environ.update(spec.env)
-                if spec.env.get("CRUCIBLE_CPU_ONLY"):
+                if knobs.parse("CRUCIBLE_CPU_ONLY", spec.env.get("CRUCIBLE_CPU_ONLY")):
                     os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 return _resolve(entry)(spec)
 

@@ -52,7 +52,9 @@ def data_root() -> Path:
         root = None
     else:
         root = (settings("crucible") or {}).get("data_root")  # a malformed config raises (never silently replaced)
-    return Path(root or os.environ.get("CRUCIBLE_DATA") or "data").resolve()
+    from crucible.core import env as knobs
+
+    return Path(root or knobs.get("CRUCIBLE_DATA") or "data").resolve()
 
 
 def contained(p: Path, root: Path) -> bool:

@@ -169,8 +169,10 @@ def _dotenv(start: Path) -> dict[str, str]:
 
 
 def _discover() -> Path | None:
-    if os.environ.get("CRUCIBLE_CONFIG"):
-        return Path(os.environ["CRUCIBLE_CONFIG"])
+    from crucible.core import env as knobs
+
+    if (path := knobs.get("CRUCIBLE_CONFIG")) is not None:
+        return path
     for d in [Path.cwd(), *Path.cwd().resolve().parents]:
         if (d / "crucible.toml").is_file():
             return d / "crucible.toml"

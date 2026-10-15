@@ -391,7 +391,9 @@ def allowed_roots(pack_dir: Path) -> list[Path]:
     """Where a pack's ingest paths may point (V17): the pack itself, the checkout that holds Crucible, and every directory in
     ``$CRUCIBLE_DATA_ROOTS`` (``os.pathsep``-separated)."""
     roots = [Path(pack_dir).resolve(), REPO_ROOT.resolve()]
-    roots += [Path(x).expanduser().resolve() for x in os.environ.get("CRUCIBLE_DATA_ROOTS", "").split(os.pathsep) if x.strip()]
+    from crucible.core import env as knobs
+
+    roots += [p.resolve() for p in knobs.get("CRUCIBLE_DATA_ROOTS")]
     return roots
 
 

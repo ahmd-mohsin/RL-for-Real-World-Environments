@@ -215,3 +215,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `test_check_separates_broken_pointers_from_missing_optional_dependencies`, `test_registry_check_exits_1_on_a_broken_pointer`.
 - **Merge notes.** When the version moves to 0.2, every pack's `crucible>=0.1,<0.2` must move with it or the packs are
   skipped (by design). A new built-in pointer to a missing Crucible module fails CI at the new step.
+
+## 13. R-15: every CRUCIBLE_* variable is declared and read typed
+
+- **Item.** R-15 (new in the audit; TC-4). PATTERN from rLLM `rllm/env.py:1-46` (Apache-2.0). Scope chosen: every
+  Crucible-side read converted, training included.
+- **Files.** New `src/crucible/core/env.py`. Reads converted in `core/config.py`, `actors/llm.py`, `world/docker_tunnel.py`,
+  `world/health.py`, `connectors/redact.py`, `studio/explorer.py`, `studio/pack.py`, `bench/dynamic.py`, `bench/run.py`,
+  `train/cluster.py`, `train/spmd.py` (its `_env_float` removed), `train/bridges/verl_agent_loop.py`,
+  `packs/_toy/.../m12/gate.py`, `packs/_toy/.../m12/gate_dist.py`. Comments only in `actors/rlm/repl.py` and
+  `verify/runtime/patterns/hidden_tests.py` (sandboxed readers that cannot import Crucible keep `os.environ`).
+  `tests/unit/test_core_audit.py`.
+- **Public names.** `crucible.core.env`: `KNOBS` (46 declared: 19 user, 8 internal, 19 test/script), `Knob`, `EnvError`,
+  `get(name)`, `parse(name, raw)`, `require(name)`, `undeclared(environ)`. Convention: `from crucible.core import env as knobs`.
+- **Behaviour.** A malformed value raises `EnvError` naming the variable (before: silent fallback or a bare
+  `ValueError` deep in a call): `CRUCIBLE_LLM_CACHE=reply` no longer turns the cache off, and `LLMClient(cache_mode=...)`
+  refuses values other than record/replay/off. Booleans accept 1/0, true/false, yes/no, on/off:
+  `CRUCIBLE_CPU_ONLY=0` now means GPU (any non-empty value meant CPU), `CRUCIBLE_DOCKER_SSH_TUNNEL=false` now disables
+  the tunnel (only "0" did). `CRUCIBLE_SPMD_*` no longer fall back on a malformed number. Secret knobs
+  (`CRUCIBLE_REDACTION_SALT`, `CRUCIBLE_BENCH_KEY`, `CRUCIBLE_VLLM_KEY`) are registered with the scrubber when read
+  and never echoed in errors. The first read warns once about undeclared `CRUCIBLE_*` variables, naming the closest knob.
+- **Formats.** none.
+- **Tests.** `test_a_malformed_knob_fails_loudly_naming_it`, `test_knobs_parse_to_their_types_and_defaults`,
+  `test_a_secret_knob_is_scrubbed_and_never_echoed`, `test_an_undeclared_crucible_variable_is_named_with_the_closest_knob`,
+  `test_every_crucible_variable_in_the_code_is_declared` (scans src/ and packs/), `test_the_llm_client_refuses_an_unknown_cache_mode`.
+  26 affected suites incl. training (cluster, FSDP, verl bridge, M12): 468 passed; failures were pre-existing (2 studio)
+  or a Ray timeout that also fails on main (`test_ray_launcher_places_per_node_groups`; passes alone on this branch).
+- **Merge notes.** A new `CRUCIBLE_*` name anywhere in src/ or packs/ must be added to `KNOBS`, or the scan test fails;
+  read it with `knobs.get(...)`. A branch still calling `os.environ.get("CRUCIBLE_...")` in the converted files will
+  conflict on those lines; `_env_float` in `train/spmd.py` no longer exists.
