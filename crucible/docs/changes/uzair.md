@@ -133,3 +133,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `test_a_failure_naming_a_non_utf8_file_reaches_the_journal`. The B1 World test still passes.
 - **Merge notes.** A branch that edits `safe_text` / `safe_json` / `unencodable` in `world/world.py` will conflict: apply
   the edit in `core/text.py`. Other free-text fields can adopt `SafeText` (not the policy's tool-call fields).
+
+## 9. R-11: build_info() identifies the running code
+
+- **Item.** R-11 (carry-over AUD-F3; PRIME-C2 corrected, AE-4, C8, NG-8, MV-1). PORT with notice of NeMo-Gym
+  `orchestration/jobs.py:78-127` (Apache-2.0); THIRD_PARTY.md row added. Plugins (the audit's fifth field) wait for R-13.
+- **Files.** New `src/crucible/core/build.py`; `src/crucible/studio/runs.py` (`provenance`, its `_git` helper removed);
+  `THIRD_PARTY.md`; `tests/unit/test_core_audit.py`.
+- **Public names.** New `crucible.core.build.BuildInfo` (crucible_version, source_sha256, git_commit, git_dirty,
+  lock_sha256), `build_info()` (cached per process) and `source_digest(package_dir)`.
+- **Behaviour.** The commit comes from PEP 610 `direct_url.json` (a git install), else from git only when the checkout
+  tracks the package's `__init__.py`; a virtualenv inside another repository gets `None`, where studio used to report
+  that repository's commit. `git_dirty` now covers `src/crucible/` only (before: the whole monorepo, tracked files).
+  Studio `provenance()` keeps `git_sha` and `git_dirty` and adds `source_sha256` and `lock_sha256`.
+- **Formats.** Studio provenance dicts (build summaries, export and bench manifests) gain two keys; nothing versioned
+  changes. `Provenance` and `RunRecord` are untouched: recording BuildInfo there waits for R-18 and R-1.
+- **Tests.** `test_a_foreign_repository_never_lends_its_commit`, `test_dirty_covers_the_package_only`,
+  `test_source_digest_follows_content_not_bytecode`.
+- **Merge notes.** A branch that edits studio's `provenance()` or its `_git` helper conflicts; the git logic now lives in
+  `core/build.py`.

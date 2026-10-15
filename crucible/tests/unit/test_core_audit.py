@@ -512,3 +512,60 @@ def test_a_failure_naming_a_non_utf8_file_reaches_the_journal(tmp_path):
     rec = RunRecord(run_id="r", world="w", policy="p", started_at="2026-01-01T00:00:00Z", attempt="s1-a1", outcome="failed", failure=f)
     RunJournal(tmp_path / "runs", "r", "identity", {}).finish(rec, terminal=True)
     assert "report_\\\\udcff.txt" in (tmp_path / "runs" / "r" / "results.jsonl").read_text()
+
+
+# ------------------------------------------------------------------------------------------------ R-11: build identity
+def _git_repo(root):
+    import subprocess
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    root.mkdir(parents=True, exist_ok=True)
+    git("init", "-q")
+    return git
+
+
+def test_a_foreign_repository_never_lends_its_commit(tmp_path):
+    from crucible.core.build import _checkout_state
+
+    git = _git_repo(tmp_path / "project")
+    (tmp_path / "project" / "README").write_text("someone else's repo\n")
+    git("add", "README")
+    git("commit", "-qm", "init")
+    pkg = tmp_path / "project" / ".venv" / "site-packages" / "crucible"  # installed inside it, never tracked
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    assert _checkout_state(pkg) == (None, None)
+
+
+def test_dirty_covers_the_package_only(tmp_path):
+    from crucible.core.build import _checkout_state
+
+    git = _git_repo(tmp_path / "mono")
+    pkg = tmp_path / "mono" / "src" / "crucible"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (tmp_path / "mono" / "other.txt").write_text("a\n")
+    git("add", ".")
+    git("commit", "-qm", "init")
+    head = git("rev-parse", "HEAD")
+    assert _checkout_state(pkg) == (head, False)
+    (tmp_path / "mono" / "other.txt").write_text("b\n")  # elsewhere in the monorepo
+    assert _checkout_state(pkg) == (head, False)
+    (pkg / "__init__.py").write_text("x = 1\n")
+    assert _checkout_state(pkg) == (head, True)
+
+
+def test_source_digest_follows_content_not_bytecode(tmp_path):
+    from crucible.core.build import build_info, source_digest
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    d = source_digest(tmp_path)
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "a.cpython-312.pyc").write_bytes(b"\0")
+    assert source_digest(tmp_path) == d
+    (tmp_path / "a.py").write_text("x = 2\n")
+    assert source_digest(tmp_path) != d
+    assert len(build_info().source_sha256) == 64
