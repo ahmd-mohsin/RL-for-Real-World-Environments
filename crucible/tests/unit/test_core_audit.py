@@ -487,3 +487,28 @@ def test_secret_headers_are_references_resolved_at_use(tmp_path, monkeypatch):
     assert "r8-gateway-token-0001" not in p.model_dump_json()  # the dump keeps the reference
     assert scrub_secrets("401 for Bearer r8-gateway-token-0001") == "401 for <secret>"  # registered by resolution (R-5)
     assert scrub_secrets("X-Title crucible") == "X-Title crucible"  # literal non-secret headers are not registered
+
+
+# ------------------------------------------------------------------------------------------------ R-10: writable text
+@settings(max_examples=200, deadline=None)
+@given(st.text(alphabet=st.sampled_from(["a", "é", "/", "\udcff", "\ud800", "\U0001f600", " "]), max_size=40))
+def test_a_validated_failure_always_serializes_and_hashes(text):
+    from crucible.core.schema.run import Failure
+
+    f = Failure(kind="agent_run_error", stage="verification", reason=text, detail=text)
+    f.model_dump_json().encode("utf-8")
+    assert f.content_hash()
+
+
+def test_a_failure_naming_a_non_utf8_file_reaches_the_journal(tmp_path):
+    import os
+
+    from crucible.core.schema.run import Failure
+    from crucible.runtime.journal import RunJournal
+
+    name = os.fsdecode(b"report_\xff.txt")  # 'report_\udcff.txt'
+    f = Failure(kind="agent_run_error", stage="verification", reason=f"cannot open {name}")
+    assert f.reason == "cannot open report_\\udcff.txt"  # escaped as visible text, not dropped
+    rec = RunRecord(run_id="r", world="w", policy="p", started_at="2026-01-01T00:00:00Z", attempt="s1-a1", outcome="failed", failure=f)
+    RunJournal(tmp_path / "runs", "r", "identity", {}).finish(rec, terminal=True)
+    assert "report_\\\\udcff.txt" in (tmp_path / "runs" / "r" / "results.jsonl").read_text()

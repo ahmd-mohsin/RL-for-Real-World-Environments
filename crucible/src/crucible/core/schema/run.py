@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from crucible.core.schema.base import CrucibleModel, VersionedDocument
+from crucible.core.text import SafeText, safe_text
 
 # --- NeMo-Gym shared names (verbatim) ---
 NEMO_GYM_FAILURE_KINDS = frozenset(
@@ -128,13 +129,14 @@ class Failure(CrucibleModel):
     mask: bool | None = None  # None: derived from blame (policy => scored, else masked)
     blame: Blame | None = None  # None: the kind's default (DEFAULT_BLAME)
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
-    detail: str | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
+    detail: SafeText | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
 
     @field_validator("reason")
     @classmethod
     def _bounded(cls, v: str) -> str:
         from crucible.core.secrets import scrub_secrets
 
+        v = safe_text(v)  # an error naming a non-UTF-8 file must not make the record unwritable (R-10)
         v = scrub_secrets(v)  # a reason is stored in records and journals: never a credential (M10 audit V12)
         return v if len(v) <= MAX_REASON_CHARS else v[: MAX_REASON_CHARS - 14] + " …[truncated]"
 

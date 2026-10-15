@@ -115,3 +115,21 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Anyone adding a file to `LICENSES/` must name it in `THIRD_PARTY.md` (and vice versa), or the new
   test fails. The wheel still ships code only (`[tool.hatch.build.targets.wheel]`); add LICENSES/ and THIRD_PARTY.md
   to it if the wheel is ever distributed outside the team.
+
+## 8. R-10: failure reasons naming non-UTF-8 text stay writable
+
+- **Item.** R-10 (new in the audit; SW-4), narrowed to free text from the environment. PATTERN from karotte
+  `src/karotte/text.py:4-24` (MIT). The model-wide variant was not taken: it would escape a policy's tool call before
+  `World._call_tool` sees it, so the World could no longer refuse the call with policy blame (M14 campaign B1).
+- **Files.** New `src/crucible/core/text.py`; `src/crucible/world/world.py` (the helpers moved out, imported back);
+  `src/crucible/core/schema/run.py` (`Failure`); `tests/unit/test_core_audit.py`.
+- **Public names.** New module `crucible.core.text` with `safe_text`, `safe_json`, `unencodable` (moved verbatim from
+  `world/world.py`, which still imports them under the same names) and the field type `SafeText`.
+- **Behaviour.** `Failure.reason` escapes lone surrogates to `\udcff` text before the secret scrub and the length cap;
+  `Failure.detail` is `SafeText`. A failure naming a non-UTF-8 file name now serializes, hashes and reaches the journal;
+  before, it validated and then raised in `RunJournal.finish`, outside the runner's try/except. Tool calls are unchanged.
+- **Formats.** none.
+- **Tests.** `test_a_validated_failure_always_serializes_and_hashes` (property test, 200 examples),
+  `test_a_failure_naming_a_non_utf8_file_reaches_the_journal`. The B1 World test still passes.
+- **Merge notes.** A branch that edits `safe_text` / `safe_json` / `unencodable` in `world/world.py` will conflict: apply
+  the edit in `core/text.py`. Other free-text fields can adopt `SafeText` (not the policy's tool-call fields).
