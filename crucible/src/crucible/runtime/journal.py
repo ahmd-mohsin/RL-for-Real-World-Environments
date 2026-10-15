@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from crucible.core.ids import child_path
 from crucible.core.schema.run import RunRecord
 
 
@@ -70,7 +71,7 @@ def atomic_write(path: Path, text: str) -> None:
 
 class RunJournal:
     def __init__(self, root: Path, run_id: str, identity: str, spec: dict[str, Any]):
-        self.dir = Path(root) / run_id
+        self.dir = child_path(Path(root), run_id)  # run_id comes from the caller: refuse "../x", "a/b" before any write
         self.dir.mkdir(parents=True, exist_ok=True)
         meta = self.dir / "run.json"
         if meta.exists():

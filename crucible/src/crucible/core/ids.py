@@ -53,6 +53,22 @@ def validate_id(entity_id: str) -> str:
     return entity_id
 
 
+def child_path(root: Path, *names: str) -> Path:
+    """``root/name/...`` for ids that become directory names, or ValueError (PATTERN: NeMo-Gym, every path builder
+    validates its id first). Each name is one ``validate_id`` segment, already NFC so every other join of the same id
+    names the same directory; the resolved result must stay under ``root``, which also refuses a symlink pointing out."""
+    path = Path(root)
+    for name in names:
+        if validate_id(name) != name:
+            raise ValueError(f"id {name!r} is not NFC-normalized")
+        if "/" in name:
+            raise ValueError(f"id {name!r} must be a single path segment (no '/')")
+        path = path / name
+    if not path.resolve().is_relative_to(Path(root).resolve()):
+        raise ValueError(f"{path} resolves outside {root}")
+    return path
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

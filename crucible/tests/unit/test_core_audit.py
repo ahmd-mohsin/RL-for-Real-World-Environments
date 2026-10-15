@@ -305,6 +305,34 @@ def test_valid_ids_pass():
         assert validate_id(ok)
 
 
+# ------------------------------------------------------------------------------------------------ R-4: ids as paths
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "..", "x\0y", "", "café"])
+def test_child_path_refuses_unsafe_names(tmp_path, bad):
+    from crucible.core.ids import child_path
+
+    with pytest.raises(ValueError):
+        child_path(tmp_path, bad)
+
+
+def test_child_path_refuses_a_symlink_out_of_root(tmp_path):
+    from crucible.core.ids import child_path
+
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "link").symlink_to(tmp_path)
+    assert child_path(tmp_path / "runs", "ok-run", "a1") == tmp_path / "runs" / "ok-run" / "a1"
+    with pytest.raises(ValueError, match="outside"):
+        child_path(tmp_path / "runs", "link")
+
+
+def test_run_journal_refuses_a_run_id_that_escapes_the_root(tmp_path):
+    from crucible.runtime.journal import RunJournal
+
+    with pytest.raises(ValueError):
+        RunJournal(tmp_path / "runs", "../escaped", "identity", {})
+    assert not (tmp_path / "escaped").exists()
+    assert RunJournal(tmp_path / "runs", "bench-toy-bench", "identity", {}).dir == tmp_path / "runs" / "bench-toy-bench"
+
+
 # ------------------------------------------------------------------------------------------------ D17: pack kinds
 def test_packs_can_register_namespaced_failure_kinds():
     from crucible.core.schema.run import Failure, register_failure_kind
