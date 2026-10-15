@@ -16,16 +16,24 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.core.secrets import register_secret
 
+# What a local engine (vLLM, SGLang) takes in place of a key; any other api_key must be an env:NAME reference (R-8).
+KEY_PLACEHOLDERS = frozenset({"", "EMPTY", "none"})
+
 
 class LLMProvider(CrucibleModel):
+    """Secrets are references only (R-8; PATTERN: Harbor templates sensitive env in its config serializer, Apache-2.0):
+    ``api_key`` is ``env:NAME`` or a placeholder, and a header whose name looks secret (``Authorization``,
+    ``X-Api-Key``, ``Cookie``) has an ``env:NAME`` value holding the whole header value. A dump of the config then
+    carries names, never keys, and ``resolved_headers`` registers what it reads with the scrubber."""
+
     base_url: str
-    api_key: str = ""  # "env:NAME"
-    headers: dict[str, str] = Field(default_factory=dict)
+    api_key: str = ""  # "env:NAME", or a placeholder in KEY_PLACEHOLDERS
+    headers: dict[str, str] = Field(default_factory=dict)  # secret-looking names take "env:NAME" values
     # merged into every chat request to this provider: self-hosted engines (vLLM / SGLang) need e.g.
     # {"logprobs": true, "extra_body": {"return_token_ids": true}} for token-in-token-out capture (train mode)
     request_defaults: dict[str, Any] = Field(default_factory=dict)
@@ -37,6 +45,27 @@ class LLMProvider(CrucibleModel):
     # round trip re-renders history lossily (prefix breaks). ``template_kwargs`` go to apply_chat_template.
     tito: bool = False
     template_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("api_key")
+    @classmethod
+    def _key_is_a_reference(cls, v: str) -> str:
+        if v in KEY_PLACEHOLDERS or (v.startswith("env:") and len(v) > 4):
+            return v
+        raise ValueError("api_key must be env:NAME (the key read from the environment or .env) or, for a local engine, one of "
+                         f"{sorted(KEY_PLACEHOLDERS)}: a literal key would sit in crucible.toml and in every dump of the config")
+
+    @field_validator("headers")
+    @classmethod
+    def _secret_headers_are_references(cls, v: dict[str, str]) -> dict[str, str]:
+        literal = sorted(k for k, val in v.items() if looks_like_secret_key(k) and not (val.startswith("env:") and len(val) > 4))
+        if literal:
+            raise ValueError(f"headers {literal} look secret: give each as env:NAME, the variable holding the whole value "
+                             "(e.g. 'Bearer ...'), not the value itself")
+        return v
+
+    def resolved_headers(self, *, search_from: Path | None = None) -> dict[str, str]:
+        """Headers to send: ``env:NAME`` values read (and registered with the scrubber), the others as written."""
+        return {k: resolve_secret(val, search_from=search_from) if val.startswith("env:") else val for k, val in self.headers.items()}
 
 
 class GpuHost(CrucibleModel):

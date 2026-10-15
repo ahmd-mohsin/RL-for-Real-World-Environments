@@ -155,9 +155,10 @@ def test_world_spec_rejects_mistakes(extra):
 
 # ------------------------------------------------------------------------------------------------ D6: redaction
 def test_redacted_config_never_contains_raw_secrets():
-    c = Config(llm_providers={"x": LLMProvider(base_url="http://h", api_key="sk-REALSECRET123", headers={"Authorization": "Bearer tok-REAL"})})
+    # api_key and secret headers cannot be literal (R-8); free-form request_defaults still can, and redaction masks them
+    c = Config(llm_providers={"x": LLMProvider(base_url="http://h", request_defaults={"extra_headers": {"Authorization": "Bearer tok-REAL"}})})
     text = str(c.redacted())
-    assert "sk-REALSECRET123" not in text and "tok-REAL" not in text
+    assert "tok-REAL" not in text
     ref = Config(llm_providers={"x": LLMProvider(base_url="http://h", api_key="env:MY_KEY")})
     assert "env:MY_KEY" in str(ref.redacted())
 
@@ -457,3 +458,32 @@ def test_documents_and_pack_manifests_load_strictly(tmp_path):
     (pack / "pack.yaml").write_text("name: demo\nname: other\n")
     with pytest.raises(yaml.YAMLError, match="duplicate key 'name'"):
         load_manifest(pack)
+
+
+# ------------------------------------------------------------------------------------------------ R-8: references only
+@pytest.mark.parametrize("key", ["sk-REALSECRET123", "env:", "Bearer x"])
+def test_a_literal_api_key_is_refused(key):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="api_key must be env:NAME"):
+        LLMProvider(base_url="http://h", api_key=key)
+
+
+@pytest.mark.parametrize("key", ["", "EMPTY", "none", "env:OPENROUTER_API_KEY"])
+def test_references_and_local_placeholders_load(key):
+    assert LLMProvider(base_url="http://127.0.0.1:8000/v1", api_key=key).api_key == key
+
+
+def test_secret_headers_are_references_resolved_at_use(tmp_path, monkeypatch):
+    from pydantic import ValidationError
+
+    from crucible.core.secrets import scrub_secrets
+
+    with pytest.raises(ValidationError, match=r"\['Authorization'\] look secret"):
+        LLMProvider(base_url="http://h", headers={"Authorization": "Bearer tok-REAL", "X-Title": "crucible"})
+    p = LLMProvider(base_url="http://h", headers={"Authorization": "env:R8_GATEWAY_AUTH", "X-Title": "crucible"})
+    monkeypatch.setenv("R8_GATEWAY_AUTH", "Bearer r8-gateway-token-0001")
+    assert p.resolved_headers(search_from=tmp_path) == {"Authorization": "Bearer r8-gateway-token-0001", "X-Title": "crucible"}
+    assert "r8-gateway-token-0001" not in p.model_dump_json()  # the dump keeps the reference
+    assert scrub_secrets("401 for Bearer r8-gateway-token-0001") == "401 for <secret>"  # registered by resolution (R-5)
+    assert scrub_secrets("X-Title crucible") == "X-Title crucible"  # literal non-secret headers are not registered

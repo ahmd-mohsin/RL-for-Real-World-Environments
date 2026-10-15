@@ -221,7 +221,7 @@ class LLMClient:
 
             self._client = AsyncOpenAI(base_url=self.provider.base_url, api_key=resolve_secret(self.provider.api_key),
                                        timeout=httpx.Timeout(self.timeout_s, connect=min(30.0, self.timeout_s)),
-                                       default_headers=self.provider.headers or None, max_retries=0)
+                                       default_headers=self.provider.resolved_headers() or None, max_retries=0)
         return self._client
 
     def _key(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, params: dict[str, Any]) -> str:

@@ -84,3 +84,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** The most likely conflict: someone else's branch adds a new `yaml.safe_load` call. Ruff then fails
   with TID251; replace it with `load_yaml(text, source=...)`. `load_manifest` and `load_registry` now go through
   `PackManifest.load` / `Defect.load` (same result for valid files).
+
+## 6. R-8: provider keys and secret headers are env: references only
+
+- **Item.** R-8 (new in the audit; H3, PRIME-C5, NEW-5). PATTERN from Harbor `models/trial/config.py:157-164` (Apache-2.0).
+- **Files.** `src/crucible/core/config.py`, `src/crucible/actors/llm.py` (one line), `tests/unit/test_core_audit.py`.
+- **Public names.** New `crucible.core.config.KEY_PLACEHOLDERS` (`""`, `"EMPTY"`, `"none"`) and
+  `LLMProvider.resolved_headers(*, search_from=None)`.
+- **Behaviour.** `LLMProvider.api_key` must be `env:NAME` or a placeholder; a literal key fails validation (so a
+  `crucible.toml` holding one no longer loads). A header whose name looks secret (`looks_like_secret_key`:
+  Authorization, X-Api-Key, Cookie, ...) must be `env:NAME`, the variable holding the whole value (e.g. `Bearer ...`);
+  other headers stay literal. `LLMClient` sends `resolved_headers()`: before, headers went out as written, so an
+  `env:` header was sent literally. Resolved header values are registered with the scrubber (R-5).
+- **Formats.** none. Config dumps now carry references only for these fields.
+- **Tests.** `test_a_literal_api_key_is_refused`, `test_references_and_local_placeholders_load`,
+  `test_secret_headers_are_references_resolved_at_use`; `test_redacted_config_never_contains_raw_secrets` now masks a
+  literal inside `request_defaults` (the provider fields can no longer hold one).
+- **Merge notes.** Anyone adding an `LLMProvider(api_key="sk-...")` or a literal `Authorization` header in tests or
+  configs will get a ValidationError; use `env:NAME` with `monkeypatch.setenv`, or `"EMPTY"` for a local engine.
+  `request_defaults` can still hold literal secrets (e.g. `extra_headers`); not covered by R-8.
