@@ -51,11 +51,22 @@ class RunSpec:
     sampling: dict = field(default_factory=dict)  # recorded on every rollout turn (temperature, top_p, max_tokens)
     attempt_timeout_s: float | None = None  # a harness that runs past this is masked (harness blame); sweep G4 D3: a hang ignored every limit
     retry_backoff_s: float = 0.25  # a retry waits backoff * 2**(n-1) outside the concurrency slot (sweep G2 D2: retries were immediate)
+    allow_change: Sequence[str] = ()  # dotpath globs of lock settings a resume may change (runtime.lock; recorded in lock.json)
 
     def identity_doc(self) -> dict:
         return {"run_id": self.run_id, "tasks": [t.id for t in self.tasks], "policies": [p.id for p in self.policies],
                 "harnesses": [h.id for h in self.harnesses], "k": self.k, "run_seed": self.run_seed, "tier": self.tier,
                 **({"rollout_mode": self.rollout_mode} if self.rollout_mode != "eval" else {})}
+
+
+def _lock(journal: RunJournal, spec: RunSpec) -> None:
+    """Write or check the run's lock before anything is dispatched (R-1): a changed setting raises RunLockMismatch."""
+    from crucible.runtime import lock
+
+    rl, status = lock.ensure(journal.dir, spec)
+    if status != "same":
+        journal.event("run_lock", status=status, fingerprint=rl.fingerprint, changed=rl.changes[-1].changed if status == "changed" else [],
+                      opaque=rl.opaque)
 
 
 @dataclass
@@ -99,6 +110,7 @@ class Runner:
 
     async def run(self, spec: RunSpec) -> RunSummary:
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
+        _lock(journal, spec)
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         plan = self.plan(spec)
         done = journal.terminal()
@@ -226,6 +238,7 @@ class Runner:
         contaminated their perf grades is quiet again. Default selection: masked at verification. Only harnesses with a
         ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is."""
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
+        _lock(journal, spec)
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
         plan = {sk.id(): (sk, t, p, h) for sk, t, p, h in self.plan(spec)}

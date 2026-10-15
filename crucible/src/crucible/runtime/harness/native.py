@@ -22,7 +22,7 @@ import dataclasses
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +156,12 @@ class PolicyRef:
     make: Callable[[Attempt], dict[str, Any]]  # attempt -> {actor_id: Policy}
     spend: Callable[[], tuple[float, float]] = lambda: (0.0, 0.0)  # (usd, uncertain usd) observed so far
     estimate_usd: float = 0.0
+    # what the policy is beyond its id: model, endpoint, request defaults, sampling (runtime.lock, R-1); empty means
+    # only the id identifies it, and the run lock lists the policy as opaque
+    settings: dict[str, Any] = field(default_factory=dict)
+
+    def lock_settings(self) -> dict[str, Any] | None:
+        return self.settings or None
 
 
 class NativeHarness:
@@ -169,6 +175,16 @@ class NativeHarness:
         self.limits = limits or EpisodeLimits(max_steps=30)
         self.limit_policy = limit_policy or LimitPolicy()
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
+
+    LOCK_EXCLUDE: tuple[str, ...] = ("progress_full_every",)  # how often progress is written, not what the episode is
+
+    def lock_settings(self) -> dict[str, Any]:
+        """Every public, non-callable attribute (subclasses' included, so a new setting counts without being listed)
+        except ``LOCK_EXCLUDE``: limits, limit policy, checkpointing, workspace mode, RLM config (runtime.lock, R-1)."""
+        from crucible.runtime.lock import jsonable
+
+        return {k: jsonable(v) for k, v in sorted(vars(self).items())
+                if not k.startswith("_") and k not in ("id", *self.LOCK_EXCLUDE) and not callable(v)}
 
     def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
         """(the previous attempt's dir, its checkpoint) when the previous attempt was masked mid-episode, or when the

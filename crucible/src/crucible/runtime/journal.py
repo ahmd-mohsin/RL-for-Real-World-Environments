@@ -76,7 +76,7 @@ class RunJournal:
         meta = self.dir / "run.json"
         if meta.exists():
             old = json.loads(meta.read_text())
-            if old.get("identity") != identity:
+            if old.get("identity") != identity and not (self.dir / "lock.json").exists():  # a lock supersedes the old allowlist (runtime.lock)
                 raise ValueError(f"run {run_id} exists with a different identity ({old.get('identity')} != {identity}): refusing to resume a different run")
         else:
             atomic_write(meta, json.dumps({"run_id": run_id, "identity": identity, "spec": spec, "created": time.time()}, indent=1, default=str))

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -202,3 +202,28 @@ class RunRecord(VersionedDocument):
     def scored_reward(self) -> float | None:
         """The only accessor aggregates use: None for masked samples."""
         return None if self.mask_sample or self.outcome in ("masked", "running") else self.reward
+
+
+class LockChange(CrucibleModel):
+    """A change of settings a resume was allowed to make (``RunSpec.allow_change``), kept in the lock's history."""
+
+    at: str
+    changed: list[str]  # the dotpaths that changed
+    before: str  # fingerprint
+    after: str
+
+
+class RunLock(VersionedDocument):
+    """What a run is (R-1): the projected settings of its whole ``RunSpec`` (``core.fingerprint``) and their fingerprint.
+    Written to ``<run>/lock.json`` before the first dispatch; a resume whose settings differ is refused unless every
+    changed setting is allowed by name, and then the change is recorded in ``changes``."""
+
+    SCHEMA: ClassVar[str] = "crucible.run_lock/v1"
+    run_id: str
+    scheme: str
+    fingerprint: str
+    excluded: list[str] = Field(default_factory=list)  # operational globs left out of the identity
+    settings: dict[str, Any] = Field(default_factory=dict)  # dotpath -> value
+    opaque: list[str] = Field(default_factory=list)  # components that declared no settings: only their id counts
+    created_at: str
+    changes: list[LockChange] = Field(default_factory=list)

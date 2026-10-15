@@ -273,3 +273,34 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Any branch that adds or changes a field on a persisted model now fails `test_formats.py` until it
   bumps the version and runs `uv run --frozen python scripts/freeze_schemas.py`; files under `schemas/` are never edited
   by hand. `--refresh` is only for a pydantic upgrade that re-renders unchanged models.
+
+## 15. R-1 (step 1 of 4): the run lock, a fail-closed run identity
+
+- **Item.** R-1 step 1 (carry-over IMP-M0-3, IMP-M0-7, AUD-F3, NEW-5). PATTERN from NeMo-RL
+  `rollout_checkpoint.py:62-204` and slime `training_recovery.py` (Apache-2.0); THIRD_PARTY.md row added. Steps left:
+  2 launch records and 3 run-record lock/launch ids (both with R-2/R-3/R-19 as `crucible.run/v2`), 4 training-checkpoint
+  identity (M12).
+- **Files.** New `src/crucible/core/fingerprint.py`, `src/crucible/runtime/lock.py`, `tests/unit/test_run_lock.py`,
+  `schemas/crucible.run_lock/v1.*`. Changed `core/schema/run.py` (`LockChange`, `RunLock`), `runtime/run.py`
+  (`RunSpec.allow_change`, `_lock` called by `Runner.run` and `Runner.regrade`), `runtime/journal.py` (the old identity
+  check is skipped once a lock exists), `runtime/harness/native.py` (`PolicyRef.settings`, `lock_settings()` on
+  `PolicyRef` and `NativeHarness`), `actors/llm.py` (`LLMClient.lock_settings()`), `runtime/single_turn.py` (the
+  single-turn policy declares its settings), `tests/unit/_formats.py`, `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.fingerprint`: `SCHEME`, `project`, `fingerprint`, `diff`, `describe`, `excluded`,
+  `flatten`. `crucible.runtime.lock`: `OPERATIONAL`, `RunLockMismatch`, `lock_doc`, `build`, `ensure`, `jsonable`.
+  `RunLock`/`LockChange` (`crucible.run_lock/v1`). `RunSpec.allow_change`, `PolicyRef.settings`, `lock_settings()`.
+- **Behaviour.** Before the first dispatch the runner writes `<run>/lock.json`: every `RunSpec` field (new fields count
+  automatically) and each policy's and harness's declared settings, minus `OPERATIONAL` (concurrency, budget, wall clock,
+  retry backoff, health thresholds, allow_change) and secrets, fingerprinted. A resume whose settings differ raises
+  `RunLockMismatch` (a `ValueError`) naming up to 20 changed dotpaths, unless each matches a glob in `allow_change`; an
+  allowed change is recorded in `lock.json` and the journal (`run_lock` event). Policies without settings (scripted refs,
+  pack-provided refs) count by id only and are listed in `opaque`. A run directory from before this change is checked by
+  its old identity, then adopted. Task content is not covered yet (R-2).
+- **Formats.** New `crucible.run_lock/v1` (lock.json). Run records unchanged.
+- **Tests.** 9 in `test_run_lock.py` (globs, projection, diff, field coverage, refusal naming temperature and max_steps,
+  operational changes, allowed change recorded, legacy adoption, opaque listing). 43 runner suites + toy e2e: 677
+  passed, 3 pre-existing failures.
+- **Merge notes.** Code that resumes a run with changed settings now raises unless it passes `allow_change`. A new
+  operational `RunSpec` field must be added to `runtime.lock.OPERATIONAL`, or it counts in the identity. A harness
+  attribute that is not a setting should be private (`_name`) or listed in the class's `LOCK_EXCLUDE`. Packs can make
+  their policies non-opaque with `PolicyRef(..., settings={...})`.

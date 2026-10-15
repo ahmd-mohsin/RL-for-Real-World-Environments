@@ -219,6 +219,13 @@ class LLMClient:
         self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
         self._client = None
 
+    def lock_settings(self) -> dict[str, Any]:
+        """What this client is for a run lock (runtime.lock, R-1): the resolved model, the endpoint and every provider
+        setting that shapes a reply, and the cache mode (a replayed reply is not a live one). Keys and headers never."""
+        p = self.provider
+        return {"model": self.model, "base_url": p.base_url, "request_defaults": p.request_defaults, "tito": p.tito,
+                "template_kwargs": p.template_kwargs, "policy_version": self.policy_version, "cache_mode": self.cache_mode}
+
     def _openai(self):
         if self._client is None:
             from openai import AsyncOpenAI
