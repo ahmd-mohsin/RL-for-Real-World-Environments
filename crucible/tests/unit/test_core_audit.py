@@ -372,3 +372,32 @@ def test_short_values_are_not_registered_as_secrets():
 
     register_secret("abc1234")  # 7 characters: would mask ordinary words
     assert scrub_secrets("abc1234 stays") == "abc1234 stays"
+
+
+# ------------------------------------------------------------------------------------------------ R-6: private stores
+def test_a_new_store_is_private_to_its_owner(tmp_path):
+    import os
+    import stat
+
+    old = os.umask(0o022)
+    try:
+        st_ = Store(tmp_path / "store")
+        key = st_.put_bytes(b"trace with customer data")
+    finally:
+        os.umask(old)
+    mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+    assert mode(tmp_path / "store") == 0o700
+    assert mode(tmp_path / "store" / "index.sqlite") == 0o600
+    assert (tmp_path / "store" / ".gitignore").read_text() == "*\n"
+    assert st_.get_bytes(key) == b"trace with customer data"
+
+
+def test_an_existing_store_root_keeps_its_mode(tmp_path):
+    import os
+    import stat
+
+    (tmp_path / "shared").mkdir(mode=0o755)
+    os.chmod(tmp_path / "shared", 0o755)
+    Store(tmp_path / "shared")
+    assert stat.S_IMODE(os.stat(tmp_path / "shared").st_mode) == 0o755
+    assert not (tmp_path / "shared" / ".gitignore").exists()

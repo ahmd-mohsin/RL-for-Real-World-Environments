@@ -117,14 +117,33 @@ class StoreError(RuntimeError):
     pass
 
 
+def _make_private_root(root: Path) -> None:
+    """Create ``root`` owner-only (0700) with a ``.gitignore`` of ``*``: stores hold traces, prompts and tool output, and
+    the umask default (0755) lets every user on a shared host read them (R-6; PATTERN: agentenv
+    ``store/local_state.py:ensure_state_dir``, Apache-2.0). A root that already exists is left as it is: it may be shared
+    on purpose."""
+    root.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(mode=0o700)
+    except FileExistsError:
+        if root.is_dir():
+            return
+        raise
+    (root / ".gitignore").write_text("*\n")
+
+
 class Store:
     def __init__(self, root: str | Path):
         self.root = Path(root)
+        _make_private_root(self.root)
         (self.root / "blobs").mkdir(parents=True, exist_ok=True)
         (self.root / _STAGING).mkdir(parents=True, exist_ok=True)
         _sweep(self.root)
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(self.root / "index.sqlite", check_same_thread=False, timeout=_BUSY_TIMEOUT_S)
+        index = self.root / "index.sqlite"
+        with contextlib.suppress(FileExistsError):  # a new index is the owner's alone; SQLite opens the empty file
+            os.close(os.open(index, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        self._db = sqlite3.connect(index, check_same_thread=False, timeout=_BUSY_TIMEOUT_S)
         _enable_wal(self._db)
         self._db.execute(f"PRAGMA busy_timeout={int(_BUSY_TIMEOUT_S * 1000)}")
         self._db.executescript(_SCHEMA)

@@ -46,3 +46,17 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** `resolve_secret` was rewritten (same behaviour, plus the register call); a conflict there means someone
   else changed secret resolution, so keep the `register_secret(value)` call on every return path. New import of
   `core.secrets` in `core/config.py` (no cycle: secrets imports only `re`).
+
+## 4. R-6: new stores are private to their owner
+
+- **Item.** R-6 (new in the audit; AE-6). PATTERN from agentenv `store/local_state.py:20-37` (Apache-2.0). Scope: the
+  core `Store` only; run directories (`RunJournal`, M10) are left for the M10 work.
+- **Files.** `src/crucible/core/store/__init__.py`, `tests/unit/test_core_audit.py`.
+- **Public names.** none (private helper `_make_private_root`).
+- **Behaviour.** A store root that `Store` creates is mode 0700 and gets a `.gitignore` of `*`; a new `index.sqlite` is
+  created 0600 before SQLite opens it. A root that already exists keeps its mode and gets no `.gitignore` (it may be
+  shared on purpose). Blobs stay 0444; others cannot reach them through a 0700 root.
+- **Formats.** none. A new `.gitignore` file appears at the root of newly created stores.
+- **Tests.** `test_a_new_store_is_private_to_its_owner`, `test_an_existing_store_root_keeps_its_mode`.
+- **Merge notes.** `Store.__init__` gained two steps (root creation, index pre-creation); a conflict there means someone
+  else changed store opening, so keep both. Anything that lists a store root's files now also sees `.gitignore`.
