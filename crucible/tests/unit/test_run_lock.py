@@ -91,3 +91,17 @@ def test_policies_without_settings_are_listed_as_opaque_and_declared_ones_count(
     llm = PolicyRef(id="single_turn:m", make=lambda a: {}, settings={"temperature": 0.7, "llm": {"model": "m", "base_url": "http://h"}})
     lock = build(_spec(policies=[llm]))
     assert lock.settings["policies.0.settings.temperature"] == 0.7 and not [o for o in lock.opaque if o.startswith("policies")]
+
+
+# ------------------------------------------------------------------------------------------------ launches (step 2)
+async def test_each_invocation_is_recorded_as_a_launch(tmp_path, monkeypatch):
+    monkeypatch.setattr("sys.argv", ["crucible", "bench", "run", "--key", "sk-or-v1-" + "a1" * 16])
+    await Runner(tmp_path).run(_spec())
+    await Runner(tmp_path).run(_spec(concurrency=1, budget_usd=2.0))
+    first, second = (json.loads((tmp_path / "r" / "launches" / f"{n}.json").read_text()) for n in (1, 2))
+    assert (first["n"], first["lock_status"], second["n"], second["lock_status"]) == (1, "created", 2, "same")
+    assert first["operational"]["concurrency"] == 4 and second["operational"] == {**second["operational"], "concurrency": 1, "budget_usd": 2.0}
+    assert first["lock"] == second["lock"] and len(first["build"]["source_sha256"]) == 64
+    assert "<secret>" in first["argv"] and not any("sk-or-v1" in a for a in first["argv"])
+    events = [json.loads(x) for x in (tmp_path / "r" / "journal.jsonl").read_text().splitlines()]
+    assert [e["n"] for e in events if e["event"] == "launch"] == [1, 2]

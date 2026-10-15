@@ -15,14 +15,18 @@ from __future__ import annotations
 import dataclasses
 import enum
 import math
+import os
+import platform
+import sys
 from pathlib import Path
 from typing import Any
 
 from crucible.core.fingerprint import SCHEME, describe, diff, excluded, fingerprint, project
 from crucible.core.prov import utc_now
-from crucible.core.schema.run import LockChange, RunLock
+from crucible.core.schema.run import LockChange, RunLaunch, RunLock
 
 LOCK_FILE = "lock.json"
+LAUNCH_DIR = "launches"
 # Fields of RunSpec that a resume may change freely: parallelism, money and time budgets, retry pacing, the health
 # stop rules' thresholds, and the allowance itself. Everything else counts.
 OPERATIONAL = ("concurrency", "budget_usd", "wall_clock_s", "retry_backoff_s", "max_mask_fraction", "max_unknown_fraction",
@@ -114,3 +118,34 @@ def ensure(run_dir: Path, spec: Any) -> tuple[RunLock, str]:
 
 def _has_attempts(run_dir: Path) -> bool:
     return (Path(run_dir) / "samples").is_dir()
+
+
+def launch(run_dir: Path, spec: Any, lock: RunLock, status: str) -> RunLaunch:
+    """Record this invocation in ``<run>/launches/<n>.json`` (R-1 step 2): n counts from 1, and each file is created
+    exclusively, so two launches never share a number. Secrets are scrubbed from argv and the configuration."""
+    from crucible.core.build import build_info
+    from crucible.core.secrets import scrub_obj
+
+    try:
+        from crucible.core.config import get_config
+
+        config = get_config().redacted()
+    except Exception as e:  # noqa: BLE001 - an unreadable configuration is recorded, never a reason not to run
+        config = {"error": f"{type(e).__name__}: {e}"[:300]}
+    folder = Path(run_dir) / LAUNCH_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    n = 1 + max((int(p.stem) for p in folder.glob("*.json") if p.stem.isdigit()), default=0)
+    while True:
+        rec = RunLaunch(run_id=spec.run_id, n=n, started_at=utc_now(), lock=lock.fingerprint, lock_status=status,
+                        argv=scrub_obj(list(sys.argv)), operational={k: jsonable(getattr(spec, k, None)) for k in OPERATIONAL},
+                        config=scrub_obj(jsonable(config)), build=build_info(), python=platform.python_version())
+        try:
+            fd = os.open(folder / f"{n}.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            n += 1
+            continue
+        with os.fdopen(fd, "w") as f:
+            f.write(rec.model_dump_json(indent=1))
+            f.flush()
+            os.fsync(f.fileno())
+        return rec

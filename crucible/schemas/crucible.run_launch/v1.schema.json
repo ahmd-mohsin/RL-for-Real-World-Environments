@@ -1,0 +1,111 @@
+{
+ "$defs": {
+  "BuildInfo": {
+   "additionalProperties": false,
+   "properties": {
+    "crucible_version": {
+     "type": "string"
+    },
+    "git_commit": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "git_dirty": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "lock_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "source_sha256": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "crucible_version",
+    "source_sha256"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "argv": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "build": {
+   "$ref": "#/$defs/BuildInfo"
+  },
+  "config": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "lock": {
+   "type": "string"
+  },
+  "lock_status": {
+   "enum": [
+    "created",
+    "adopted",
+    "same",
+    "changed"
+   ],
+   "type": "string"
+  },
+  "n": {
+   "type": "integer"
+  },
+  "operational": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "python": {
+   "type": "string"
+  },
+  "run_id": {
+   "type": "string"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "started_at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "run_id",
+  "n",
+  "started_at",
+  "lock",
+  "lock_status",
+  "build",
+  "python"
+ ],
+ "type": "object"
+}

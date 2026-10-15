@@ -60,13 +60,16 @@ class RunSpec:
 
 
 def _lock(journal: RunJournal, spec: RunSpec) -> None:
-    """Write or check the run's lock before anything is dispatched (R-1): a changed setting raises RunLockMismatch."""
+    """Write or check the run's lock, then record this launch, before anything is dispatched (R-1): a changed setting
+    raises RunLockMismatch."""
     from crucible.runtime import lock
 
     rl, status = lock.ensure(journal.dir, spec)
     if status != "same":
         journal.event("run_lock", status=status, fingerprint=rl.fingerprint, changed=rl.changes[-1].changed if status == "changed" else [],
                       opaque=rl.opaque)
+    ln = lock.launch(journal.dir, spec, rl, status)  # R-1 step 2: how this invocation ran (argv, operational settings, code)
+    journal.event("launch", n=ln.n, git_commit=ln.build.git_commit, git_dirty=ln.build.git_dirty)
 
 
 @dataclass

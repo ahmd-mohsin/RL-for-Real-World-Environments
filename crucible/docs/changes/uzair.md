@@ -304,3 +304,21 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   operational `RunSpec` field must be added to `runtime.lock.OPERATIONAL`, or it counts in the identity. A harness
   attribute that is not a setting should be private (`_name`) or listed in the class's `LOCK_EXCLUDE`. Packs can make
   their policies non-opaque with `PolicyRef(..., settings={...})`.
+
+## 16. R-1 (step 2 of 4): a launch record per invocation
+
+- **Item.** R-1 step 2 (the RunLaunch part of the audit's recommendation).
+- **Files.** `src/crucible/core/schema/run.py` (`RunLaunch`; imports `core.build.BuildInfo`), `src/crucible/runtime/lock.py`
+  (`launch`, `LAUNCH_DIR`), `src/crucible/runtime/run.py` (`_lock` records the launch), `tests/unit/_formats.py`,
+  `schemas/crucible.run_launch/v1.*`, `tests/unit/test_run_lock.py`.
+- **Public names.** `RunLaunch` (`crucible.run_launch/v1`), `crucible.runtime.lock.launch(run_dir, spec, lock, status)`.
+- **Behaviour.** Every `Runner.run` / `Runner.regrade` writes `<run>/launches/<n>.json` (n = 1, 2, ...; created
+  exclusively) after the lock check: argv with secrets scrubbed, the `OPERATIONAL` values used (concurrency, budget, ...),
+  `Config.redacted()` (scrubbed), `build_info()` (source digest, commit, dirty flag, lock hash), the Python version, the
+  lock fingerprint and its status (created/adopted/same/changed). The journal gets a `launch` event with n and the commit.
+  An unreadable configuration is recorded as an error, never a reason not to run.
+- **Formats.** New `crucible.run_launch/v1`. Run directories gain a `launches/` folder. Run records unchanged (their
+  launch id comes with `crucible.run/v2`, step 3).
+- **Tests.** `test_each_invocation_is_recorded_as_a_launch` (numbering, operational values, same lock, scrubbed argv,
+  journal events). 43 runner suites + toy e2e: 679 passed, 3 pre-existing failures.
+- **Merge notes.** Code that lists a run directory now also sees `launches/` (and `lock.json` from step 1).

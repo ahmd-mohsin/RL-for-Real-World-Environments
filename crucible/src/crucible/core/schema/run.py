@@ -14,6 +14,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from crucible.core.build import BuildInfo
 from crucible.core.schema.base import CrucibleModel, VersionedDocument
 from crucible.core.text import SafeText, safe_text
 
@@ -227,3 +228,22 @@ class RunLock(VersionedDocument):
     opaque: list[str] = Field(default_factory=list)  # components that declared no settings: only their id counts
     created_at: str
     changes: list[LockChange] = Field(default_factory=list)
+
+
+class RunLaunch(VersionedDocument):
+    """One invocation of a run (R-1 step 2), in ``<run>/launches/<n>.json``: what the lock leaves out because it may
+    change between resumes. The command line (scrubbed), the operational settings used (concurrency, budget, ...),
+    the redacted configuration and the code that ran (``core.build``). The lock says what a run is; launches say how
+    each resume ran it."""
+
+    SCHEMA: ClassVar[str] = "crucible.run_launch/v1"
+    run_id: str
+    n: int  # 1 for the first invocation
+    started_at: str
+    lock: str  # the lock fingerprint this launch ran under
+    lock_status: Literal["created", "adopted", "same", "changed"]
+    argv: list[str] = Field(default_factory=list)
+    operational: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)  # core.config.Config.redacted()
+    build: BuildInfo
+    python: str
