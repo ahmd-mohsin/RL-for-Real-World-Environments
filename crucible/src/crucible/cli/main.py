@@ -132,10 +132,18 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 
 
 @cli.command()
-def registry() -> None:
+@click.option("--check", is_flag=True, help="Resolve every pointer; exit 1 on a broken pointer or a failed plugin (CI).")
+def registry(check: bool) -> None:
     """Show everything registered (built-ins and installed plugins)."""
     from crucible.core.registry import get_registry
 
+    if check:
+        rep = get_registry().check()
+        for section, rows in rep.items():
+            click.echo(f"[{section}] {len(rows)}")
+            for name, why in rows.items():
+                click.echo(f"  {name:36s} {why}")
+        raise SystemExit(1 if rep["broken"] or rep["failed_plugins"] else 0)
     for kind, entries in get_registry().describe().items():
         click.echo(f"[{kind}]")
         for name, target in entries.items():

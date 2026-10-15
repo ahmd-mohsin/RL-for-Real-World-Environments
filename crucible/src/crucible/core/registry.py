@@ -97,6 +97,27 @@ class Registry:
             out["failed_plugins"] = dict(sorted(self.failures.items()))
         return out
 
+    def check(self) -> dict[str, dict[str, str]]:
+        """Resolve every registered pointer (``crucible registry --check``, R-14). ``broken``: the pointer's own package
+        or Crucible lacks the module or attribute, or importing it raised. ``unavailable``: it needs an optional
+        dependency not installed here. ``failed_plugins``: every plugin skipped or refused while loading."""
+        self.load_plugins()
+        broken: dict[str, str] = {}
+        unavailable: dict[str, str] = {}
+        for kind, table in sorted(self._kinds.items()):
+            for name, entry in sorted(table.items()):
+                try:
+                    entry.resolve()
+                except Exception as e:  # noqa: BLE001 - every failure is reported, none stops the check
+                    cause = e.__cause__
+                    missing = cause.name if isinstance(cause, ModuleNotFoundError) and cause.name else None
+                    own = (entry.pointer or "").partition(":")[0].split(".")[0]
+                    if missing is not None and missing.split(".")[0] not in (own, "crucible"):
+                        unavailable[f"{kind}/{name}"] = f"needs {missing.split('.')[0]}"
+                    else:
+                        broken[f"{kind}/{name}"] = f"{type(e).__name__}: {e}"[:300]
+        return {"broken": broken, "unavailable": unavailable, "failed_plugins": dict(sorted(self.failures.items()))}
+
     def load_plugins(self) -> None:
         """Plugins are staged, then merged (R-13; PATTERN: agentenv ``plugins/_registration.py:merge``, Apache-2.0), so
         the result does not depend on install order. Each ``register(registry)`` runs against a ``_Staged`` recorder: one
@@ -109,6 +130,10 @@ class Registry:
         staged: dict[str, _Staged] = {}
         for ep in sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda e: (e.name, _dist_label(e) or "")):
             rec = _Staged(source=_dist_label(ep) or f"plugin:{ep.name}")
+            if (why := _incompatible_core(ep)) is not None:  # R-14: refused before anything of it is imported
+                self.failures[ep.name] = f"incompatible core: {why}"
+                logger.warning("crucible plugin %s skipped: it %s", ep.name, why)
+                continue
             try:
                 fn: Callable[[Any], None] = ep.load()
                 fn(rec)
@@ -147,6 +172,46 @@ class _Staged:
         if any((k, n) == (kind, name) for k, n, _ in self.claims):
             raise RegistryError(f"{kind} {name!r} registered twice by {self.source}")
         self.claims.append((kind, name, impl))
+
+
+def _incompatible_core(ep: Any) -> str | None:
+    """Why the installed metadata of ``ep``'s distribution excludes the running Crucible, else None (PORT with notice of
+    agentenv ``plugins/_requirements.py:incompatibility``, Apache-2.0). Only unconditional requirements count; without
+    metadata or without ``packaging`` the plugin is not refused (logged once)."""
+    dist = getattr(ep, "dist", None)
+    if dist is None:
+        return None
+    try:
+        from packaging.requirements import InvalidRequirement, Requirement
+        from packaging.utils import canonicalize_name
+    except ImportError:  # not a declared dependency; harbor, huggingface-hub and pytest bring it
+        _warn_once("packaging is not installed: plugins' crucible requirements are not checked")
+        return None
+    from crucible import __version__
+
+    try:
+        requires = list(dist.requires or ())
+    except Exception:  # noqa: BLE001 - unreadable metadata is not a reason to refuse
+        return None
+    for line in requires:
+        try:
+            req = Requirement(line)
+        except InvalidRequirement:
+            continue
+        if canonicalize_name(req.name) != "crucible" or (req.marker is not None and not req.marker.evaluate({"extra": ""})):
+            continue
+        if not req.specifier.contains(__version__, prereleases=True):
+            return f"needs crucible{req.specifier} (installed: {__version__})"
+    return None
+
+
+_WARNED: set[str] = set()
+
+
+def _warn_once(msg: str) -> None:
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        logger.warning(msg)
 
 
 def _dist_label(ep: Any) -> str | None:

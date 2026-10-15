@@ -192,3 +192,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** A pack's `register(registry)` now receives a `_Staged` recorder, not the `Registry`: only
   `register(...)` is available during registration (all current packs use only that). Code matching on a plugin's own
   `source=` string should match `name==version` instead.
+
+## 12. R-14: plugins for another Crucible are skipped; `crucible registry --check`
+
+- **Item.** R-14 (carry-over AUD-F1, IMP-M0-5; AE-3). PORT with notice of agentenv `plugins/_requirements.py:29-55`
+  (Apache-2.0); THIRD_PARTY.md row added. `packaging` is used when installed (not a declared dependency: harbor,
+  huggingface-hub and pytest bring it); without it the gate is skipped with one warning.
+- **Files.** `src/crucible/core/registry.py` (`_incompatible_core`, `_warn_once`, `Registry.check`, a gate in
+  `load_plugins`), `src/crucible/cli/main.py` (`registry --check`), `../.github/workflows/crucible.yml` (new step),
+  `THIRD_PARTY.md`, `tests/unit/test_core_audit.py`.
+- **Public names.** New `Registry.check() -> {"broken", "unavailable", "failed_plugins"}`; CLI flag
+  `crucible registry --check` (exit 1 on a broken pointer or a failed plugin).
+- **Behaviour.** A plugin whose unconditional `crucible` requirement excludes the running `__version__` is skipped before
+  its module is imported (`failures[ep] = "incompatible core: needs crucible<0.2,>=0.1 (installed: ...)"`); a
+  requirement under an extra does not count. `check()` resolves every pointer: a missing module of the pointer's own
+  package or of Crucible, a missing attribute or an import error is `broken`; a missing third-party module is
+  `unavailable` (an optional dependency).
+- **CI.** New step "Registry pointers resolve and plugins load" after the import contracts. Checked locally with
+  CI's extras and Harbor at CI's pin a2fafbc: 0 broken, 1 unavailable (`transport/a2a`, agentenv is not in CI).
+- **Formats.** none.
+- **Tests.** `test_a_plugin_for_another_crucible_is_skipped_before_import`,
+  `test_check_separates_broken_pointers_from_missing_optional_dependencies`, `test_registry_check_exits_1_on_a_broken_pointer`.
+- **Merge notes.** When the version moves to 0.2, every pack's `crucible>=0.1,<0.2` must move with it or the packs are
+  skipped (by design). A new built-in pointer to a missing Crucible module fails CI at the new step.

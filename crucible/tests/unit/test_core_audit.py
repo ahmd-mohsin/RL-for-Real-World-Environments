@@ -637,13 +637,13 @@ def test_a_later_migration_reaches_an_existing_index(tmp_path, monkeypatch):
 
 # ------------------------------------------------------------------------------------------------ R-13: staged plugins
 class _FakeDist:
-    def __init__(self, name):
-        self.name, self.version = name, "1.0"
+    def __init__(self, name, requires=()):
+        self.name, self.version, self.requires = name, "1.0", list(requires)
 
 
 class _FakeEP:
-    def __init__(self, name, fn):
-        self.name, self._fn, self.dist = name, fn, _FakeDist(f"pack-{name}")
+    def __init__(self, name, fn, requires=()):
+        self.name, self._fn, self.dist = name, fn, _FakeDist(f"pack-{name}", requires)
 
     def load(self):
         return self._fn
@@ -692,3 +692,41 @@ def test_a_plugin_cannot_take_a_built_in_name(monkeypatch):
     monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [_FakeEP("p", lambda r: r.register("grader", "exact", "p:X", replace=True))])
     reg.load_plugins()
     assert reg.describe()["grader"]["exact"].startswith("core:Exact") and "built in" in reg.failures["p"]
+
+
+# ------------------------------------------------------------------------------------------------ R-14: core gate, --check
+def test_a_plugin_for_another_crucible_is_skipped_before_import(monkeypatch):
+    calls = []
+    reg = _plugins(monkeypatch,
+                   _FakeEP("old", lambda r: calls.append("old"), requires=["crucible>=0.0,<0.1", "pyyaml>=6"]),
+                   _FakeEP("ok", lambda r: r.register("grader", "ok_g", "ok:G"), requires=["crucible>=0.1,<0.2"]),
+                   _FakeEP("extra", lambda r: r.register("grader", "extra_g", "x:G"), requires=['crucible<0.1; extra == "dev"']))
+    assert calls == [] and reg.failures["old"] == "incompatible core: needs crucible<0.1,>=0.0 (installed: 0.1.0)"
+    assert reg.has("grader", "ok_g") and reg.has("grader", "extra_g")  # a requirement under an extra does not count
+
+
+def test_check_separates_broken_pointers_from_missing_optional_dependencies(tmp_path, monkeypatch):
+    (tmp_path / "r14_optional_mod.py").write_text("import r14_not_installed_dep\nX = 1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
+    reg = Registry()
+    reg.register("grader", "fine", "crucible.core.ids:validate_id")
+    reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
+    reg.register("grader", "gone", "crucible.core.no_such_module:X")
+    reg.register("grader", "optional", "r14_optional_mod:X")
+    rep = reg.check()
+    assert set(rep["broken"]) == {"grader/typo", "grader/gone"}
+    assert rep["unavailable"] == {"grader/optional": "needs r14_not_installed_dep"}
+
+
+def test_registry_check_exits_1_on_a_broken_pointer(monkeypatch):
+    from click.testing import CliRunner
+
+    from crucible.cli.main import cli
+
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
+    reg = Registry()
+    reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
+    monkeypatch.setattr("crucible.core.registry.get_registry", lambda: reg)
+    r = CliRunner().invoke(cli, ["registry", "--check"])
+    assert r.exit_code == 1 and "grader/typo" in r.output
