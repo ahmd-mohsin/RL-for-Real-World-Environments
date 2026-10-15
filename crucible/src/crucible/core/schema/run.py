@@ -62,11 +62,13 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:grader_network_error",  # the grader's own grade-time setup lost the network (container detached, DNS down): masked
         "crucible:env_image_unavailable",  # the task image could not be pulled (missing, access denied, registry down): masked
         "crucible:env_build_failed",  # the task's Dockerfile did not build: masked
+        # added with the M0 audit (2026-10-14, R-2)
+        "crucible:task_changed",  # the task's content digest changed between plan, dispatch and the end of the attempt: never graded, masked
     }
 )
 # Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
 NON_RETRYABLE_KINDS = frozenset({"crucible:stale_image", "crucible:stale_build", "crucible:harness_unsupported", "crucible:credits_exhausted", "agent_request_failed",
-                                 "crucible:answer_exposed"})
+                                 "crucible:answer_exposed", "crucible:task_changed"})
 
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
 # Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
@@ -86,7 +88,7 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness", "crucible:replay_incomplete": "harness",
     "crucible:replay_divergence": "harness", "crucible:reissue_limit": "infra",
     "crucible:grader_tampered": "policy", "crucible:env_container_lost": "infra", "crucible:grader_network_error": "infra",
-    "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra",
+    "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra", "crucible:task_changed": "task",
 }
 
 

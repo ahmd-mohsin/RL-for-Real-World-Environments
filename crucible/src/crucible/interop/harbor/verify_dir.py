@@ -116,6 +116,12 @@ class HarborDirTask:
         kit = (self.dir / "tests" / "crucible" / "verify" / "runtime").is_dir() or (test_sh.exists() and "crucible_verify" in test_sh.read_text(errors="replace"))
         self.trust_mask = kit if trust_mask is None else trust_mask
 
+    def digest(self) -> str:
+        """The task directory's content (R-2): ``core.ids.tree_digest``, so the digest does not depend on Harbor being installed."""
+        from crucible.core.ids import tree_digest
+
+        return tree_digest(self.dir)
+
     def _docker(self, *a: str, timeout: float = 120) -> subprocess.CompletedProcess:
         env = None
         if self.host.docker_host:

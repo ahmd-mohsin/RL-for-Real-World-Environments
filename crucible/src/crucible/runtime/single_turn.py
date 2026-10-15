@@ -64,6 +64,12 @@ class SingleTurnTask:
         self.system, self.history, self.instruction, self.media = _split_prompt(self.prompt, self.system)
 
     # ---- RunTask ---------------------------------------------------------------------------------------------------
+    def digest(self) -> str:
+        """The task's definition (prompt, answer, parser, criteria, judges, ...) in canonical JSON (R-2)."""
+        from crucible.runtime.lock import definition_digest
+
+        return definition_digest(self)
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 

@@ -322,3 +322,34 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_each_invocation_is_recorded_as_a_launch` (numbering, operational values, same lock, scrubbed argv,
   journal events). 43 runner suites + toy e2e: 679 passed, 3 pre-existing failures.
 - **Merge notes.** Code that lists a run directory now also sees `launches/` (and `lock.json` from step 1).
+
+## 17. R-2: task content digests, in the lock and checked around every attempt
+
+- **Item.** R-2 (correction of `core/schema/run.py:161-162`, documented as hashes but filled with names; merges
+  openenv-hf:C2). PATTERN from OpenEnv `validation/runner.py` (`source_digest`, BSD-3-Clause); THIRD_PARTY.md row added.
+  Decision: tasks that cannot easily be hashed declare no digest and are listed as uncovered.
+- **Files.** `src/crucible/core/ids.py` (`tree_digest`), `src/crucible/core/schema/run.py` (kind `crucible:task_changed`:
+  task blame, non-retryable), `src/crucible/runtime/lock.py` (`task_digest`, `definition_digest`; digests enter the lock;
+  tasks without one are listed in `opaque`), `src/crucible/runtime/run.py` (`_digest_now`, `_task_changed`, the checks in
+  `_attempt`, `_record(..., task_digest)`, `_lock` returns the lock), `interop/harbor/inplace.py`
+  (`HarborInPlaceTask.digest`: Harbor's `Packager.compute_content_hash`), `interop/harbor/verify_dir.py`
+  (`HarborDirTask.digest`: `tree_digest`), `runtime/single_turn.py` and `runtime/control_task.py` (`digest`: the
+  definition in canonical JSON), `THIRD_PARTY.md`, `tests/unit/test_task_digest.py`, `tests/unit/test_run_lock.py`.
+- **Public names.** `crucible.core.ids.tree_digest(root)`; the optional task method `digest() -> str`;
+  `crucible.runtime.lock.task_digest`, `definition_digest`; failure kind `crucible:task_changed`.
+- **Behaviour.** A task's digest is taken when the lock is built (so a resume with an edited task raises
+  `RunLockMismatch` naming `tasks.<i>.digest`), again at dispatch (a task edited since the lock was taken is never
+  dispatched: the attempt is recorded as `crucible:task_changed`, masked, not retried, nothing spent) and again after
+  the attempt (a task edited during it has its grade discarded: `crucible:task_changed`, cost kept). The record's
+  `meta.task_digest` holds the dispatch digest. `tree_digest` hashes regular files only (sorted
+  `relpath\0sha256\n` lines, skipping .git, __pycache__, *.pyc, .DS_Store) and refuses symlinks and files changing
+  mid-read. A Harbor task's digest equals Harbor's own task hash (checked on the task04 seed). Toy and pack Python
+  tasks declare none yet. No code was found writing into a task directory; Docker-run Harbor tasks were not run here.
+- **Formats.** none new; `RunRecord.meta` gains `task_digest` (free-form), a typed field comes with `crucible.run/v2`.
+  `Runner.regrade` does not check digests yet.
+- **Tests.** `test_task_digest.py` (8): digest stable and content-sensitive, symlink refused, Harbor equality, digest
+  recorded, edited during the attempt, edited after the lock (never dispatched), resume refused naming the task.
+  50 suites (runner, Harbor, single-turn, control): 720 passed, 3 pre-existing failures.
+- **Merge notes.** A task class can opt in by adding `digest()`; it must be deterministic and cheap (it runs at every
+  dispatch and after every attempt). A harness that writes into its task directory would now mask every attempt as
+  `crucible:task_changed`: write under the attempt directory instead.

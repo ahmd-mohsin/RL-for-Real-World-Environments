@@ -98,6 +98,45 @@ def manifest_hash(entries: Iterable[tuple[str, str]]) -> str:
     return outer.hexdigest()
 
 
+_DIGEST_SKIP = frozenset({".git", "__pycache__", ".DS_Store"})
+
+
+def tree_digest(root: Path) -> str:
+    """``sha256:<hex>`` of a directory's content (R-2; PATTERN: OpenEnv ``validation/runner.py:source_digest``,
+    BSD-3-Clause): SHA-256 over the sorted lines ``"<relpath>\\0<sha256(file)>\\n"`` (each file framed by its own hash,
+    the line form ``manifest_hash`` uses) of every regular file, skipping ``.git``, ``__pycache__``, ``*.pyc`` and
+    ``.DS_Store``. A symbolic link or another non-regular file raises ValueError, and so does a file that changes while
+    it is read: a digest describes one version of the tree or none."""
+    import os
+    import stat
+
+    root = Path(root)
+    lines = []
+    for p in root.rglob("*"):
+        rel = p.relative_to(root)
+        if any(part in _DIGEST_SKIP for part in rel.parts) or p.name.endswith(".pyc"):
+            continue
+        info = p.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"{root}: {rel} is a symbolic link; a digested tree holds regular files only")
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{root}: {rel} is not a regular file")
+        h = hashlib.sha256()
+        fd = os.open(p, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as f:
+            if not os.path.samestat(info, os.fstat(f.fileno())):
+                raise ValueError(f"{root}: {rel} changed before it could be read")
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+            after = os.fstat(f.fileno())
+        if (after.st_size, after.st_mtime_ns) != (info.st_size, info.st_mtime_ns):
+            raise ValueError(f"{root}: {rel} changed while it was read")
+        lines.append(f"{rel.as_posix()}\0{h.hexdigest()}\n")
+    return HASH_PREFIX + hashlib.sha256("".join(sorted(lines)).encode()).hexdigest()
+
+
 def tree_manifest_hash(entries: Iterable[tuple[str, str, str]]) -> str:
     """Hash of (relpath, mode, content_hash) triples; order-independent. Used for state fingerprints."""
     outer = hashlib.sha256()

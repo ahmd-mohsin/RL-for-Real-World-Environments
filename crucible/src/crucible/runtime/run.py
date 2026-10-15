@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crucible.core.schema.run import Failure, RunRecord
+from crucible.core.schema.run import Failure, RunLock, RunRecord
 from crucible.runtime.budget import BudgetLedger, Exhausted
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
@@ -59,7 +59,7 @@ class RunSpec:
                 **({"rollout_mode": self.rollout_mode} if self.rollout_mode != "eval" else {})}
 
 
-def _lock(journal: RunJournal, spec: RunSpec) -> None:
+def _lock(journal: RunJournal, spec: RunSpec) -> RunLock:
     """Write or check the run's lock, then record this launch, before anything is dispatched (R-1): a changed setting
     raises RunLockMismatch."""
     from crucible.runtime import lock
@@ -70,6 +70,25 @@ def _lock(journal: RunJournal, spec: RunSpec) -> None:
                       opaque=rl.opaque)
     ln = lock.launch(journal.dir, spec, rl, status)  # R-1 step 2: how this invocation ran (argv, operational settings, code)
     journal.event("launch", n=ln.n, git_commit=ln.build.git_commit, git_dirty=ln.build.git_dirty)
+    return rl
+
+
+def _digest_now(task) -> str | None:
+    """The task's content digest now (R-2); one that cannot be taken (a file changing mid-read) is reported, never raised."""
+    from crucible.runtime.lock import task_digest
+
+    try:
+        return task_digest(task)
+    except Exception as ex:  # noqa: BLE001 - an unreadable task cannot be the one the lock describes
+        return f"unreadable: {type(ex).__name__}: {ex}"[:200]
+
+
+def _task_changed(task_id: str, before: str | None, after: str | None, when: str, hr: HarnessResult | None = None) -> HarnessResult:
+    """R-2: a task whose content changed is never scored as itself (P16: not the policy's failure). Masked with task blame,
+    never retried; a grade taken over the changed task is discarded, its cost kept."""
+    f = Failure(kind="crucible:task_changed", stage="verification" if hr else "admission", blame="task", retryable=False,
+                delivery="delivered" if hr else "not_sent", reason=f"task {task_id} changed {when} ({before} -> {after})")
+    return HarnessResult(failure=f, steps=hr.steps if hr else 0, cost_usd=hr.cost_usd if hr else 0.0, cost_uncertain_usd=hr.cost_uncertain_usd if hr else 0.0)
 
 
 @dataclass
@@ -113,7 +132,8 @@ class Runner:
 
     async def run(self, spec: RunSpec) -> RunSummary:
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
-        _lock(journal, spec)
+        rl = _lock(journal, spec)
+        planned = {t.id: rl.settings.get(f"tasks.{i}.digest") for i, t in enumerate(spec.tasks)}
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         plan = self.plan(spec)
         done = journal.terminal()
@@ -173,36 +193,43 @@ class Runner:
 
                 shutil.rmtree(adir, ignore_errors=True)  # never dispatched: no attempt
                 return "stop", n
-            journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed)
+            want = planned.get(task.id)  # R-2: the task's content digest when the run's lock was taken
+            d0 = _digest_now(task) if want is not None else None
             state["attempts"] += 1
-            attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes)
-            try:
-                coro = harness.run(attempt)
-                hr: HarnessResult = await (asyncio.wait_for(coro, spec.attempt_timeout_s) if spec.attempt_timeout_s else coro)
-            except asyncio.CancelledError:
-                raise
-            except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
-                # M13 audit G1 D13: a run past attempt_timeout_s stays masked. The clock wraps the whole harness (seed,
-                # agent, verification, cleanup), so it cannot tell a slow policy from a hung container or verifier
-                # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
-                # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
-                timeout = isinstance(ex, TimeoutError)
-                hr = HarnessResult(failure=Failure(kind="agent_run_error", stage="agent", blame="harness",
-                                                   reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500]
-                                                   if not timeout else f"harness {harness.id} ran past {spec.attempt_timeout_s}s",
-                                                   detail="attempt_timeout" if timeout else None),
-                                   cost_uncertain_usd=est)
+            if want is not None and d0 != want:  # edited since the lock was taken: never dispatched, never graded
+                hr = _task_changed(task.id, want, d0, "since the run's lock was taken")
+            else:
+                journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed)
+                attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes)
+                try:
+                    coro = harness.run(attempt)
+                    hr: HarnessResult = await (asyncio.wait_for(coro, spec.attempt_timeout_s) if spec.attempt_timeout_s else coro)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
+                    # M13 audit G1 D13: a run past attempt_timeout_s stays masked. The clock wraps the whole harness (seed,
+                    # agent, verification, cleanup), so it cannot tell a slow policy from a hung container or verifier
+                    # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
+                    # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
+                    timeout = isinstance(ex, TimeoutError)
+                    hr = HarnessResult(failure=Failure(kind="agent_run_error", stage="agent", blame="harness",
+                                                       reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500]
+                                                       if not timeout else f"harness {harness.id} ran past {spec.attempt_timeout_s}s",
+                                                       detail="attempt_timeout" if timeout else None),
+                                       cost_uncertain_usd=est)
+                if d0 is not None and (d1 := _digest_now(task)) != d0:  # edited during the attempt: its grade is discarded
+                    hr = _task_changed(task.id, d0, d1, "during the attempt", hr)
             if hr.failure is not None and hr.failure.delivery == "not_sent" and not hr.cost_usd:
                 ledger.release(aid)  # the request never left: it cost nothing
             else:
                 ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
             state["max_cost"] = max(state["max_cost"], hr.cost_usd + hr.cost_uncertain_usd)
             try:
-                rec = self._record(spec, sk, aid, task, policy, harness, hr)
+                rec = self._record(spec, sk, aid, task, policy, harness, hr, d0)
                 self._rollout(spec, sk, rec, hr, adir)
             except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
                 rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
-                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])))
+                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])), d0)
             retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
             if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                 state["stopped"] = "budget: provider credits exhausted"
@@ -293,13 +320,13 @@ class Runner:
         (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))
 
     @staticmethod
-    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult) -> RunRecord:
+    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult, task_digest: str | None = None) -> RunRecord:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         rec = RunRecord(run_id=spec.run_id, task=task.id, world=getattr(task, "world_id", "") or task.id, policy=policy.id, seed=sk.seed, started_at=now,
                         ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd,
                         sample=sk.model_dump(mode="json"), attempt=aid,
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates, "timings": hr.timings,
-                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
+                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts, **({"task_digest": task_digest} if task_digest else {}),
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
                               **({"seat_rewards": hr.grade["seat_rewards"]} if hr.grade.get("seat_rewards") else {}),

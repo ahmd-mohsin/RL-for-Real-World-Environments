@@ -53,7 +53,24 @@ def component(obj: Any) -> dict[str, Any]:
     settings = hook() if callable(hook) else None
     if settings is not None:
         out["settings"] = jsonable(settings)
+    if (d := task_digest(obj)) is not None:
+        out["digest"] = d
     return out
+
+
+def task_digest(task: Any) -> str | None:
+    """The content digest a task declares (``digest()``, R-2), or None for a task that declares none."""
+    hook = getattr(task, "digest", None)
+    return hook() if callable(hook) else None
+
+
+def definition_digest(obj: Any) -> str:
+    """``sha256:<hex>`` of an in-memory task's definition: its data in canonical JSON (``jsonable``)."""
+    import hashlib
+
+    from crucible.core.canonical import dumps
+
+    return "sha256:" + hashlib.sha256(dumps(jsonable(obj)).encode()).hexdigest()
 
 
 def jsonable(v: Any) -> Any:
@@ -82,6 +99,7 @@ def jsonable(v: Any) -> Any:
 def build(spec: Any) -> RunLock:
     doc = lock_doc(spec)
     opaque = [f"{kind}.{i} ({c['id']})" for kind in ("policies", "harnesses") for i, c in enumerate(doc[kind]) if "settings" not in c]
+    opaque += [f"tasks.{i} ({c['id']}) content" for i, c in enumerate(doc["tasks"]) if "digest" not in c]
     settings = project(doc, OPERATIONAL)
     return RunLock(run_id=spec.run_id, scheme=SCHEME, fingerprint=fingerprint(settings), excluded=list(OPERATIONAL),
                    settings=settings, opaque=opaque, created_at=utc_now())

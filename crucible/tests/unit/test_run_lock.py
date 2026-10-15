@@ -87,7 +87,8 @@ async def test_a_run_from_before_the_lock_is_adopted_once(tmp_path):
 
 def test_policies_without_settings_are_listed_as_opaque_and_declared_ones_count():
     lock = build(_spec(policies=[ORACLE, NOOP]))
-    assert lock.opaque == [f"policies.0 ({ORACLE.id})", f"policies.1 ({NOOP.id})"]
+    task = HelpdeskTask()  # a toy task declares no digest: its content is listed as not covered (R-2)
+    assert lock.opaque == [f"policies.0 ({ORACLE.id})", f"policies.1 ({NOOP.id})", f"tasks.0 ({task.id}) content"]
     llm = PolicyRef(id="single_turn:m", make=lambda a: {}, settings={"temperature": 0.7, "llm": {"model": "m", "base_url": "http://h"}})
     lock = build(_spec(policies=[llm]))
     assert lock.settings["policies.0.settings.temperature"] == 0.7 and not [o for o in lock.opaque if o.startswith("policies")]
