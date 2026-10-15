@@ -19,7 +19,6 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
@@ -87,5 +86,5 @@ class Registry(CrucibleModel):
 
 
 def load_registry(root: Path = DEFECTS, extra: list[Defect] = ()) -> Registry:
-    ds = [Defect.model_validate(yaml.safe_load(p.read_text())) for p in sorted(Path(root).glob("*.yaml"))]
+    ds = [Defect.load(p) for p in sorted(Path(root).glob("*.yaml"))]
     return Registry(defects=[*ds, *extra])

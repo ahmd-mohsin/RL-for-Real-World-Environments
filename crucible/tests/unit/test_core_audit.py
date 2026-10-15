@@ -401,3 +401,59 @@ def test_an_existing_store_root_keeps_its_mode(tmp_path):
     Store(tmp_path / "shared")
     assert stat.S_IMODE(os.stat(tmp_path / "shared").st_mode) == 0o755
     assert not (tmp_path / "shared" / ".gitignore").exists()
+
+
+# ------------------------------------------------------------------------------------------------ R-7: strict loaders
+def test_a_duplicate_yaml_key_is_refused_naming_both_lines(tmp_path):
+    import yaml
+
+    from crucible.core.serialize import load_yaml
+
+    text = "name: seed\nnetwork: none\napps: {}\nnetwork: public\n"
+    with pytest.raises(yaml.YAMLError, match=r"duplicate key 'network'") as e:
+        load_yaml(text, source="world.yaml")
+    assert 'world.yaml", line 2' in str(e.value) and 'world.yaml", line 4' in str(e.value)
+    assert load_yaml("a: {b: 1, c: 2}\nd: [1, 2]\n") == {"a": {"b": 1, "c": 2}, "d": [1, 2]}
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'x'"):
+        load_yaml("outer:\n  x: 1\n  x: 2\n")  # nested mappings too
+
+
+def test_a_yaml_merge_is_not_a_duplicate():
+    from crucible.core.serialize import load_yaml
+
+    assert load_yaml("base: &b {x: 1, y: 2}\nleaf:\n  <<: *b\n  y: 3\n")["leaf"] == {"x": 1, "y": 3}
+
+
+def test_json_refuses_duplicate_keys_and_non_finite_numbers():
+    from crucible.core.serialize import load_json
+
+    with pytest.raises(ValueError, match="duplicate key 'network'"):
+        load_json('{"network": "none", "network": "public"}')
+    for bad in ('{"reward": NaN}', '{"reward": Infinity}', "[-Infinity]"):
+        with pytest.raises(ValueError, match="not a JSON number"):
+            load_json(bad)
+    assert load_json('{"a": [1, 2.5, null]}') == {"a": [1, 2.5, None]}
+
+
+def test_documents_and_pack_manifests_load_strictly(tmp_path):
+    import yaml
+
+    from crucible.studio.pack import load_manifest
+
+    class Doc(CrucibleModel):
+        name: str
+        network: str = "none"
+
+    (tmp_path / "w.yaml").write_text("name: seed\nnetwork: none\nnetwork: public\n")
+    (tmp_path / "w.json").write_text('{"name": "seed", "network": "none", "network": "public"}')
+    with pytest.raises(yaml.YAMLError):
+        Doc.load(tmp_path / "w.yaml")
+    with pytest.raises(ValueError, match="duplicate key"):
+        Doc.load(tmp_path / "w.json")
+    (tmp_path / "ok.json").write_text('{"name": "seed"}')
+    assert Doc.load(tmp_path / "ok.json").network == "none"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "pack.yaml").write_text("name: demo\nname: other\n")
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'name'"):
+        load_manifest(pack)

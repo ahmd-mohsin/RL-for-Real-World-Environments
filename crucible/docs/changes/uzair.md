@@ -60,3 +60,27 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_a_new_store_is_private_to_its_owner`, `test_an_existing_store_root_keeps_its_mode`.
 - **Merge notes.** `Store.__init__` gained two steps (root creation, index pre-creation); a conflict there means someone
   else changed store opening, so keep both. Anything that lists a store root's files now also sees `.gitignore`.
+
+## 5. R-7: documents with a duplicate key or a non-finite JSON number are refused
+
+- **Item.** R-7 (new in the audit; C5). PORT with notice of OpenEnv `discovery/serialization.py:19-40` (BSD-3-Clause);
+  THIRD_PARTY.md row added.
+- **Files.** New `src/crucible/core/serialize.py`. Changed `src/crucible/core/schema/base.py` (`from_yaml`, `load`),
+  `src/crucible/studio/pack.py` (3 sites, incl. `load_manifest`), `src/crucible/accept/checks/extended.py` (`s1_signoff`),
+  `src/crucible/accept/registry/model.py` (`load_registry`), `packs/coding/.../forge/forge_gpu.py`,
+  `packs/_toy/.../forge/env.py`, `packs/_toy/.../forge/calibrate.py`, `pyproject.toml` (ruff), `THIRD_PARTY.md`,
+  `tests/unit/test_core_audit.py`.
+- **Public names.** New `crucible.core.serialize.load_yaml(text, *, source)` and `load_json(text, *, source)`.
+  `CrucibleModel.from_yaml` gained an optional `source=` keyword.
+- **Behaviour.** A key given twice in one YAML mapping raises `yaml.constructor.ConstructorError` (a `yaml.YAMLError`)
+  naming both lines; a YAML merge (`<<: *base`) with overriding keys is still allowed. In JSON read by
+  `CrucibleModel.load`, a duplicate key or `NaN`/`Infinity` raises `ValueError`. The 361 YAML/JSON files in the
+  repository were scanned: none is refused.
+- **Lint.** `[tool.ruff.lint] extend-select = ["TID251"]` bans `yaml.safe_load`, `yaml.safe_load_all`, `yaml.load`,
+  `yaml.full_load` outside tests. New code that loads YAML must use `load_yaml`.
+- **Formats.** none.
+- **Tests.** `test_a_duplicate_yaml_key_is_refused_naming_both_lines`, `test_a_yaml_merge_is_not_a_duplicate`,
+  `test_json_refuses_duplicate_keys_and_non_finite_numbers`, `test_documents_and_pack_manifests_load_strictly`.
+- **Merge notes.** The most likely conflict: someone else's branch adds a new `yaml.safe_load` call. Ruff then fails
+  with TID251; replace it with `load_yaml(text, source=...)`. `load_manifest` and `load_registry` now go through
+  `PackManifest.load` / `Defect.load` (same result for valid files).

@@ -53,9 +53,9 @@ async def calibrate(forge_dir: Path, model: str, k: int, budget: float) -> dict:
         spec_doc = json.loads((td / "crucible" / "checks.json").read_text())
         cs = CheckSet.model_validate(spec_doc)
         acts = [json.loads(x) for x in (td / "solution" / "actions.jsonl").read_text().splitlines() if x.strip()]
-        import yaml
+        from crucible.core.serialize import load_yaml
 
-        card = yaml.safe_load((td / "crucible" / "card.yaml").read_text())
+        card = load_yaml((td / "crucible" / "card.yaml").read_text())
         sc = json.loads((forge_dir / "forge" / "scenario.json").read_text())
         spec = TaskSpec(task_id=cs.task_id, title=card.get("title", ""), instruction=(td / "instruction.md").read_text().strip(), properties=[])
         task = ToyForgedTask(spec, cs, acts, [], pack_root=forge_dir, world_file="worlds/helpdesk_v2.yaml", scenario=sc)

@@ -57,9 +57,9 @@ echo "$(date -Is) done" > status.txt
 def expected(span: str) -> dict[str, tuple[str | None, str]]:
     """solution name -> (gate it must fail | None, expectation)."""
     negs = json.loads((SPANS / span / "crucible" / "negatives.json").read_text()) if (SPANS / span / "crucible" / "negatives.json").exists() else None
-    import yaml
+    from crucible.core.serialize import load_yaml
 
-    task = yaml.safe_load((SPANS / span / "crucible" / "task.yaml").read_text())
+    task = load_yaml((SPANS / span / "crucible" / "task.yaml").read_text())
     out = {"solution": (None, "pass")}
     for n in negs or task.get("negatives", []):
         out[n["id"]] = (n.get("expected_gate"), n.get("expected", "fail"))

@@ -63,6 +63,7 @@ from typing import Any
 import yaml
 
 from crucible.core.schema.pack import NAME, PackManifest
+from crucible.core.serialize import load_yaml
 
 PACKS_ROOT = Path(__file__).resolve().parents[3] / "packs"
 REPO_ROOT = PACKS_ROOT.parent.parent  # the checkout that holds crucible/ (the coding pack reads ../migration_tasks)
@@ -136,7 +137,7 @@ class PackReport:
 # ---- locate ------------------------------------------------------------------------------------------------------------
 def _yaml_name(d: Path) -> str | None:
     try:
-        return (yaml.safe_load((d / "pack.yaml").read_text()) or {}).get("name")
+        return (load_yaml((d / "pack.yaml").read_text(), source=str(d / "pack.yaml")) or {}).get("name")
     except (yaml.YAMLError, OSError, AttributeError):
         return None
 
@@ -199,7 +200,7 @@ def find_pack(ref: str | Path) -> Path:
 
 
 def load_manifest(pack_dir: Path) -> PackManifest:
-    return PackManifest.model_validate(yaml.safe_load((Path(pack_dir) / "pack.yaml").read_text()))
+    return PackManifest.load(Path(pack_dir) / "pack.yaml")
 
 
 # ---- import in isolation ------------------------------------------------------------------------------------------------
@@ -1035,7 +1036,7 @@ async def check(ref: str | Path, *, level: str = "static", allow: tuple[str, ...
     pack_dir = find_pack(ref)
     want = LEVELS[: LEVELS.index(level) + 1]
     try:
-        package = str((yaml.safe_load((pack_dir / "pack.yaml").read_text()) or {}).get("package") or "")
+        package = str((load_yaml((pack_dir / "pack.yaml").read_text()) or {}).get("package") or "")
     except Exception:  # noqa: BLE001 - check_static reports it
         package = ""
     skipped: list[tuple[str, str]] = []

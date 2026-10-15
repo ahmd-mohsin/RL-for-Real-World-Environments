@@ -1,7 +1,8 @@
 """Base model for every Crucible schema.
 
 Every persisted or transmitted Crucible object is a ``CrucibleModel``:
-- unknown keys are rejected (a typo in a world spec must fail loudly, not be ignored);
+- unknown keys are rejected (a typo in a world spec must fail loudly, not be ignored), and so is a key given twice
+  in a file (``load`` and ``from_yaml`` read through ``crucible.core.serialize``);
 - it round-trips losslessly through JSON and YAML;
 - its canonical JSON (sorted keys, no whitespace, UTC timestamps) has a stable content hash,
   so two equal objects always get the same id (``crucible.core.ids``).
@@ -22,6 +23,8 @@ from typing import Any, ClassVar, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+from crucible.core.serialize import load_json, load_yaml
 
 
 class CrucibleModel(BaseModel):
@@ -47,15 +50,16 @@ class CrucibleModel(BaseModel):
         )
 
     @classmethod
-    def from_yaml(cls, text: str) -> Self:
-        return cls.model_validate(yaml.safe_load(text))
+    def from_yaml(cls, text: str, *, source: str = "<yaml>") -> Self:
+        return cls.model_validate(load_yaml(text, source=source))
 
     @classmethod
     def load(cls, path: str | Path) -> Self:
         p = Path(path)
         text = p.read_text()
         if p.suffix in (".yaml", ".yml"):
-            return cls.from_yaml(text)
+            return cls.from_yaml(text, source=str(p))
+        load_json(text, source=str(p))  # duplicate keys and NaN refused; pydantic's JSON mode below would keep the last
         return cls.model_validate_json(text)
 
     def dump(self, path: str | Path) -> Path:
