@@ -48,12 +48,29 @@ QUERY_SECRET = r"(?i)(?<=[?&])(?:key|api[_-]?key|apikey|token|access[_-]?token|a
 _SECRETS = [re.compile(x) for x in (*SECRET_PATTERNS, PRIVATE_KEY, URL_USERINFO, QUERY_SECRET)]
 _ASSIGN = re.compile(ASSIGNMENT)
 
+# Values this process resolved as secrets (``core.config.resolve_secret``), replaced by value before the patterns run: a
+# gateway key with no vendor prefix matches no pattern (PATTERN: Harbor ``trial/trial.py:_scrub_jobs_dir`` replaces resolved
+# env values, Apache-2.0). Shorter values would mask ordinary words. A tuple, swapped whole, so scrubbing threads never see
+# it change mid-iteration.
+MIN_SECRET_LEN = 8
+_KNOWN: tuple[str, ...] = ()
+
+
+def register_secret(value: str) -> None:
+    """Scrub ``value`` from every later ``scrub_secrets`` call in this process (ignored below ``MIN_SECRET_LEN``)."""
+    global _KNOWN
+    if isinstance(value, str) and len(value) >= MIN_SECRET_LEN and value not in _KNOWN:
+        _KNOWN = tuple(sorted({*_KNOWN, value}, key=len, reverse=True))  # longest first: a secret inside another goes whole
+
 
 def scrub_secrets(text: str) -> str:
-    """Every credential-shaped substring replaced by ``<secret>``; a ``key = value`` assignment keeps its key."""
+    """Every registered secret value and credential-shaped substring replaced by ``<secret>``; a ``key = value``
+    assignment keeps its key."""
     if not text:
         return text
     out = text
+    for value in _KNOWN:
+        out = out.replace(value, "<secret>")
     for rx in _SECRETS:
         out = rx.sub("<secret>", out)
 

@@ -350,3 +350,25 @@ def test_failure_reason_is_bounded():
     from crucible.core.schema.run import Failure
 
     assert len(Failure(kind="agent_timeout", stage="agent", reason="x" * 10_000).reason) <= 2000
+
+
+# ------------------------------------------------------------------------------------------------ R-5: secrets by value
+def test_a_resolved_secret_with_no_vendor_shape_is_scrubbed(tmp_path, monkeypatch):
+    from crucible.core.config import resolve_secret
+    from crucible.core.schema.run import Failure
+    from crucible.core.secrets import scrub_json, scrub_secrets
+
+    key = "gw7Kq2PzR8xLm4Tn9Qa-r5test"  # a gateway key no pattern knows
+    assert scrub_secrets(f"invalid key {key}") == f"invalid key {key}"  # before it is resolved
+    monkeypatch.setenv("R5_GATEWAY_KEY", key)
+    assert resolve_secret("env:R5_GATEWAY_KEY", search_from=tmp_path) == key
+    assert scrub_secrets(f"401 Unauthorized: invalid key {key}") == "401 Unauthorized: invalid key <secret>"
+    rec = Failure(kind="agent_run_error", stage="agent", reason=f"provider said {key}").model_dump_json()
+    assert key not in scrub_json(rec)
+
+
+def test_short_values_are_not_registered_as_secrets():
+    from crucible.core.secrets import register_secret, scrub_secrets
+
+    register_secret("abc1234")  # 7 characters: would mask ordinary words
+    assert scrub_secrets("abc1234 stays") == "abc1234 stays"

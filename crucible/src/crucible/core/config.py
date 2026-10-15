@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
+from crucible.core.secrets import register_secret
 
 
 class LLMProvider(CrucibleModel):
@@ -109,15 +110,16 @@ def _redact(node: Any, secret: bool = False) -> Any:
 
 
 def resolve_secret(value: str, *, search_from: Path | None = None) -> str:
-    if not value.startswith("env:"):
-        return value
-    name = value[4:]
-    if os.environ.get(name):
-        return os.environ[name]
-    env = _dotenv(search_from or Path.cwd())
-    if env.get(name):
-        return env[name]
-    raise KeyError(f"secret {name} is not set (environment or .env)")
+    """The secret ``value`` names (``env:NAME``, from the environment or .env) or the literal itself; either way it is
+    registered with ``core.secrets``, so scrubbed text never carries it (R-5)."""
+    if value.startswith("env:"):
+        name = value[4:]
+        resolved = os.environ.get(name) or _dotenv(search_from or Path.cwd()).get(name)
+        if not resolved:
+            raise KeyError(f"secret {name} is not set (environment or .env)")
+        value = resolved
+    register_secret(value)
+    return value
 
 
 def _dotenv(start: Path) -> dict[str, str]:
