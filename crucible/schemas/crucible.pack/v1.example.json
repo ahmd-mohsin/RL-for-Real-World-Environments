@@ -1,0 +1,28 @@
+{
+ "authors": [],
+ "description": "d",
+ "determinism": "seeded",
+ "entry_point": "crucible_pack_demo:register",
+ "hooks": {},
+ "ingest": [],
+ "kind": "domain",
+ "label": {
+  "policy_roles": [
+   "agent"
+  ],
+  "threshold": 1.0
+ },
+ "license": "Apache-2.0",
+ "name": "demo",
+ "package": "crucible_pack_demo",
+ "requires": [],
+ "reward": {
+  "higher_is_better": true,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ "schema_version": 1,
+ "version": "0.1.0"
+}

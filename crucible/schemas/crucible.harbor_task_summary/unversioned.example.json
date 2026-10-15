@@ -1,0 +1,13 @@
+{
+ "artifacts": [],
+ "baseline_network_mode": "public",
+ "collect_commands": [],
+ "gpus": 0,
+ "ignored_keys": [],
+ "metadata": {},
+ "name": "n",
+ "network_mode": "public",
+ "schema_version": "1.0",
+ "task_hash": "h",
+ "verifier_mode": "shared"
+}

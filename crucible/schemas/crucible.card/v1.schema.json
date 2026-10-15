@@ -1,0 +1,452 @@
+{
+ "$defs": {
+  "Difficulty": {
+   "additionalProperties": false,
+   "properties": {
+    "apps_used": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "clock_events": {
+     "default": 0,
+     "type": "integer"
+    },
+    "decoys": {
+     "default": 0,
+     "type": "integer"
+    },
+    "distractor_tools": {
+     "default": 0,
+     "type": "integer"
+    },
+    "infeasible": {
+     "default": false,
+     "type": "boolean"
+    },
+    "span_steps": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "traps": {
+     "default": 0,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "FlakeProof": {
+   "additionalProperties": false,
+   "properties": {
+    "draws": {
+     "type": "integer"
+    },
+    "false_negatives": {
+     "type": "integer"
+    },
+    "induced": {
+     "default": 0,
+     "type": "integer"
+    }
+   },
+   "required": [
+    "draws",
+    "false_negatives"
+   ],
+   "type": "object"
+  },
+  "ForgeRecord": {
+   "additionalProperties": false,
+   "properties": {
+    "generator": {
+     "type": "string"
+    },
+    "knobs": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "roles": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "type": "array"
+    },
+    "seed_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "state": {
+     "default": "draft",
+     "type": "string"
+    },
+    "state_hash": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "generator"
+   ],
+   "type": "object"
+  },
+  "FrontierResult": {
+   "additionalProperties": false,
+   "properties": {
+    "cost_usd": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "failing_gates": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "harness": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "model": {
+     "type": "string"
+    },
+    "note": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "passed": {
+     "type": "boolean"
+    },
+    "run_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "score": {
+     "type": "number"
+    },
+    "steps": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "task_version": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "model",
+    "score",
+    "passed"
+   ],
+   "type": "object"
+  },
+  "Grounding": {
+   "additionalProperties": false,
+   "properties": {
+    "checks_with_provenance": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "oracle_source": {
+     "default": "builder_oracle",
+     "enum": [
+      "expert_end_state",
+      "builder_oracle",
+      "both"
+     ],
+     "type": "string"
+    },
+    "traces": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "OracleProof": {
+   "additionalProperties": false,
+   "properties": {
+    "grades": {
+     "type": "integer"
+    },
+    "min_headroom": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "passes": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "grades",
+    "passes"
+   ],
+   "type": "object"
+  },
+  "Splits": {
+   "additionalProperties": false,
+   "properties": {
+    "bench": {
+     "default": false,
+     "type": "boolean"
+    },
+    "ood_axes": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "showcase": {
+     "default": false,
+     "type": "boolean"
+    },
+    "train": {
+     "default": false,
+     "type": "boolean"
+    }
+   },
+   "type": "object"
+  },
+  "ValueProof": {
+   "additionalProperties": false,
+   "properties": {
+    "flake": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/FlakeProof"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "frontier": {
+     "items": {
+      "$ref": "#/$defs/FrontierResult"
+     },
+     "type": "array"
+    },
+    "leak_audit": {
+     "default": "not_run",
+     "enum": [
+      "pass",
+      "fail",
+      "not_run"
+     ],
+     "type": "string"
+    },
+    "mutation_score": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "negatives_killed": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "oracle": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/OracleProof"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "best_known": {
+   "anyOf": [
+    {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "difficulty": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Difficulty"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "family": {
+   "type": "string"
+  },
+  "forge": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/ForgeRecord"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "grounding": {
+   "$ref": "#/$defs/Grounding"
+  },
+  "history": {
+   "items": {
+    "additionalProperties": true,
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "horizon": {
+   "enum": [
+    "H0",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5"
+   ],
+   "type": "string"
+  },
+  "id": {
+   "type": "string"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "splits": {
+   "$ref": "#/$defs/Splits"
+  },
+  "title": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "value_proof": {
+   "$ref": "#/$defs/ValueProof"
+  }
+ },
+ "required": [
+  "id",
+  "family",
+  "horizon"
+ ],
+ "type": "object"
+}

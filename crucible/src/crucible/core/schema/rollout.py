@@ -13,11 +13,11 @@ Shapes: verl ``TokenTrace`` / uni_agent ``Trajectory`` with a per-span version (
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 
 SCHEMA = "crucible.rollout/v1"
 
@@ -149,8 +149,9 @@ class Segment(CrucibleModel):
     tokens_source: Literal["usage", "estimate"] | None = None
 
 
-class RolloutRecord(CrucibleModel):
-    schema_: Literal["crucible.rollout/v1"] = Field(SCHEMA, alias="schema")
+class RolloutRecord(SchemaKeyed):
+    SCHEMA: ClassVar[str] = SCHEMA
+    schema_: str = Field(SCHEMA, alias="schema")
     rollout_id: str  # the attempt id
     sample: str
     task: str

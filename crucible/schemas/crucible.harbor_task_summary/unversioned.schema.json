@@ -1,0 +1,128 @@
+{
+ "additionalProperties": false,
+ "properties": {
+  "agent_timeout_sec": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "artifacts": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "baseline_network_mode": {
+   "default": "public",
+   "type": "string"
+  },
+  "collect_commands": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "cpus": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "docker_image": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "dockerfile": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "gpus": {
+   "default": 0,
+   "type": "integer"
+  },
+  "ignored_keys": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "memory_mb": {
+   "anyOf": [
+    {
+     "type": "integer"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "metadata": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "name": {
+   "type": "string"
+  },
+  "network_mode": {
+   "default": "public",
+   "type": "string"
+  },
+  "schema_version": {
+   "type": "string"
+  },
+  "task_hash": {
+   "type": "string"
+  },
+  "verifier_mode": {
+   "default": "shared",
+   "enum": [
+    "shared",
+    "separate"
+   ],
+   "type": "string"
+  },
+  "verifier_timeout_sec": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  }
+ },
+ "required": [
+  "name",
+  "schema_version",
+  "task_hash"
+ ],
+ "type": "object"
+}

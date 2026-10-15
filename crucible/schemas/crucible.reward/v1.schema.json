@@ -1,0 +1,108 @@
+{
+ "$defs": {
+  "InfraStatus": {
+   "additionalProperties": false,
+   "properties": {
+    "failure_kind": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "reason": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "status": {
+     "default": "ok",
+     "enum": [
+      "ok",
+      "masked"
+     ],
+     "type": "string"
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "components": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "efficiency": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "gates": {
+   "additionalProperties": {
+    "type": "integer"
+   },
+   "type": "object"
+  },
+  "infra": {
+   "$ref": "#/$defs/InfraStatus"
+  },
+  "outcome": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "progress": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "reward": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ]
+  },
+  "rubric": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  }
+ },
+ "required": [
+  "reward"
+ ],
+ "type": "object"
+}

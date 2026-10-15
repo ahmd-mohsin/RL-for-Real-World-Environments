@@ -1,0 +1,239 @@
+{
+ "$defs": {
+  "ClockState": {
+   "additionalProperties": false,
+   "properties": {
+    "frozen": {
+     "default": false,
+     "type": "boolean"
+    },
+    "mode": {
+     "default": "off",
+     "enum": [
+      "off",
+      "step",
+      "wall",
+      "sim"
+     ],
+     "type": "string"
+    },
+    "now": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "rate": {
+     "default": 1.0,
+     "type": "number"
+    },
+    "t0": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "PendingEvent": {
+   "additionalProperties": false,
+   "properties": {
+    "draws": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "due": {
+     "type": "string"
+    },
+    "fired_count": {
+     "default": 0,
+     "type": "integer"
+    },
+    "id": {
+     "type": "string"
+    },
+    "spec_index": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "id",
+    "due",
+    "spec_index"
+   ],
+   "type": "object"
+  },
+  "StateRef": {
+   "additionalProperties": false,
+   "properties": {
+    "adapter": {
+     "enum": [
+      "fs",
+      "fs_git",
+      "sql",
+      "postgres",
+      "json_doc",
+      "process",
+      "http_mock",
+      "browser",
+      "agentenv_data"
+     ],
+     "type": "string"
+    },
+    "app": {
+     "type": "string"
+    },
+    "blob": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "fingerprint": {
+     "type": "string"
+    },
+    "meta": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "size_bytes": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "app",
+    "adapter",
+    "fingerprint"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "acl_rules": {
+   "additionalProperties": {
+    "items": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "type": "array"
+   },
+   "type": "object"
+  },
+  "actors": {
+   "additionalProperties": {
+    "additionalProperties": true,
+    "type": "object"
+   },
+   "type": "object"
+  },
+  "apps": {
+   "additionalProperties": {
+    "$ref": "#/$defs/StateRef"
+   },
+   "type": "object"
+  },
+  "backend": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "clock": {
+   "$ref": "#/$defs/ClockState"
+  },
+  "done": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "fingerprint": {
+   "default": "",
+   "type": "string"
+  },
+  "fired_counts": {
+   "additionalProperties": {
+    "type": "integer"
+   },
+   "type": "object"
+  },
+  "inboxes": {
+   "additionalProperties": {
+    "items": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "type": "array"
+   },
+   "type": "object"
+  },
+  "pending_events": {
+   "items": {
+    "$ref": "#/$defs/PendingEvent"
+   },
+   "type": "array"
+  },
+  "step": {
+   "type": "integer"
+  },
+  "tool_counts": {
+   "additionalProperties": {
+    "type": "integer"
+   },
+   "type": "object"
+  },
+  "turns": {
+   "anyOf": [
+    {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "world": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "world",
+  "step",
+  "apps"
+ ],
+ "type": "object"
+}

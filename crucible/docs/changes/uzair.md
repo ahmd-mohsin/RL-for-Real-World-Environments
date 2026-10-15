@@ -244,3 +244,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** A new `CRUCIBLE_*` name anywhere in src/ or packs/ must be added to `KNOBS`, or the scan test fails;
   read it with `knobs.get(...)`. A branch still calling `os.environ.get("CRUCIBLE_...")` in the converted files will
   conflict on those lines; `_env_float` in `train/spmd.py` no longer exists.
+
+## 14. R-18: every persisted format is frozen per version
+
+- **Item.** R-18 (carry-over AUD-D8, D13, D14, SCOUT-3, DOC-gate-1, DES-M0-1). PATTERN from OpenEnv
+  `tests/test_validation/test_schema_sync.py` (BSD-3-Clause), one file per version instead of one overwritten file;
+  THIRD_PARTY.md row added. Decisions: rollout/acceptance/control keep their `schema` key; unversioned files
+  (`steps.jsonl` rows, `WorldRef`) are snapshotted, with no version field added yet.
+- **Files.** `src/crucible/core/schema/base.py` (shared `migrate_document`, `check_same_major`, new `SchemaKeyed`;
+  `VersionedDocument` uses them, same behaviour and messages), `core/schema/rollout.py`, `accept/model.py`,
+  `train/control_record.py` (`schema_: Literal[...]` becomes `str` on `SchemaKeyed`), `core/schema/pack.py`
+  (newer integer version refused by name). New: `schemas/` (16 formats: `<name>/<version>.schema.json` and
+  `.example.json`), `tests/unit/_formats.py` (the format list and rendering), `tests/unit/test_formats.py`,
+  `scripts/freeze_schemas.py`. `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.schema.base.SchemaKeyed`, `migrate_document(owner, schema, data, keys)`,
+  `check_same_major(owner, schema, v, key)`.
+- **Behaviour.** Rollout, acceptance and control records now refuse a newer major or minor version with an explicit
+  message and can be upcast from older majors (before: any other string failed a Literal); their key and key order are
+  unchanged. `pack.yaml` with `schema_version: 2` is refused as "written for a newer Crucible".
+- **Formats.** No document changes. The current shapes are frozen as v1 (rollout v1 includes the `agent` and
+  `trainable` fields added in place on 2026-10-13). Snapshots hold the shape only (JSON Schema without titles and
+  descriptions), so docstring edits are not format changes.
+- **Tests.** `test_formats.py`: each format matches its version's snapshot; every example of every version loads; every
+  `VersionedDocument`/`SchemaKeyed` class and `ALL_DOCUMENTS` entry is frozen; an unbumped change is caught; schema-keyed
+  rules; pack version refusal; the snapshot normalizer. 45 suites using these formats (training included): 706 passed;
+  3 failures pre-existing, 1 (`test_v1_oracle_replay_crash_fails_the_build`) flaky in that long batch only (passes
+  alone here and on main, and in its own file here).
+- **Merge notes.** Any branch that adds or changes a field on a persisted model now fails `test_formats.py` until it
+  bumps the version and runs `uv run --frozen python scripts/freeze_schemas.py`; files under `schemas/` are never edited
+  by hand. `--refresh` is only for a pydantic upgrade that re-renders unchanged models.

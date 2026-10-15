@@ -1,0 +1,19 @@
+{
+ "key": {
+  "contract_version": "accept-1",
+  "harbor_hash": "",
+  "images": {},
+  "kit_hash": "k",
+  "overlay_hash": "o",
+  "policy_version": "1",
+  "registry_version": "1",
+  "task_id": "p/f/n@1"
+ },
+ "key_digest": "d",
+ "overrides": [],
+ "required": [],
+ "results": {},
+ "schema": "crucible.acceptance/v1",
+ "stats": {},
+ "task_id": "p/f/n@1"
+}

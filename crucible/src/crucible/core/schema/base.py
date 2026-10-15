@@ -10,7 +10,13 @@ Every persisted or transmitted Crucible object is a ``CrucibleModel``:
 Versioned top-level documents carry ``schema_version`` (e.g. ``crucible.world/v1``). A reader
 refuses a major version it does not know instead of guessing, explains a newer minor version instead of failing on
 its unknown keys, and upgrades an older major version through registered upcasters (``register_upcaster``), as Harbor
-migrates task configs in ``mode="before"`` validators.
+migrates task configs in ``mode="before"`` validators. Rollouts, acceptance reports and control rollouts keep their
+version under ``schema`` and follow the same rules (``SchemaKeyed``).
+
+Every persisted format is frozen per version (R-18): ``schemas/<name>/<version>.schema.json`` and an example document
+per version, checked by ``tests/unit/test_formats.py``. A shape change is a new version, never an edit in place: an
+added optional field is a minor bump and takes ``exclude_if`` (so a document that leaves it unset keeps its bytes and
+content hash); anything else is a major bump with an upcaster. ``scripts/freeze_schemas.py`` writes the new files.
 
 Floats must be finite (``allow_inf_nan=False``); canonical JSON is ``crucible.core.canonical.dumps``.
 """
@@ -109,39 +115,71 @@ class VersionedDocument(CrucibleModel):
     @model_validator(mode="before")
     @classmethod
     def _migrate(cls, data: Any) -> Any:
-        if not isinstance(data, dict) or not cls.SCHEMA:
-            return data
-        got = data.get("schema_version") or cls.SCHEMA
-        name, major, minor = _parse_version(got)
-        want_name, want_major, want_minor = _parse_version(cls.SCHEMA)
-        if name != want_name:
-            raise ValueError(f"{cls.__name__} reads {cls.SCHEMA}; got schema_version={got!r}")
-        if major > want_major:
-            raise ValueError(f"{cls.__name__} reads {cls.SCHEMA}; {got!r} is a newer major version")
-        if major == want_major and minor > want_minor:
-            raise ValueError(f"{cls.__name__} reads {cls.SCHEMA}; {got!r} was written by a newer minor version")
-        data = dict(data)
-        while major < want_major:
-            fn = _UPCASTERS.get((name, major))
-            if fn is None:
-                raise ValueError(f"no upcaster from {name}/v{major} to v{major + 1}")
-            data = fn(data)
-            major += 1
-            data["schema_version"] = f"{name}/v{major}"
-        data.setdefault("schema_version", cls.SCHEMA)
-        return data
+        return migrate_document(cls.__name__, cls.SCHEMA, data, ("schema_version",))
 
     @field_validator("schema_version")
     @classmethod
     def _same_major(cls, v: str) -> str:
-        if not cls.SCHEMA or not v:
-            return v
-        name, major, _ = _parse_version(v)
-        want_name, want_major, _ = _parse_version(cls.SCHEMA)
-        if name != want_name or major != want_major:
-            raise ValueError(f"{cls.__name__} reads {cls.SCHEMA}; got schema_version={v!r}")
-        return v
+        return check_same_major(cls.__name__, cls.SCHEMA, v, "schema_version")
 
     def model_post_init(self, context: Any, /) -> None:
         if not self.schema_version:
             object.__setattr__(self, "schema_version", self.SCHEMA)
+
+
+class SchemaKeyed(CrucibleModel):
+    """The VersionedDocument rules for documents that store their version under ``schema`` (field ``schema_``): rollouts,
+    acceptance reports, control rollouts. Their on-disk key is kept; each subclass declares ``schema_: str =
+    Field(SCHEMA, alias="schema")`` where it always was, so dumps keep their key order (R-18)."""
+
+    SCHEMA: ClassVar[str] = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate(cls, data: Any) -> Any:
+        return migrate_document(cls.__name__, cls.SCHEMA, data, ("schema", "schema_"))
+
+    @field_validator("schema_", check_fields=False)
+    @classmethod
+    def _same_major(cls, v: str) -> str:
+        return check_same_major(cls.__name__, cls.SCHEMA, v, "schema")
+
+
+def migrate_document(owner: str, schema: str, data: Any, keys: tuple[str, ...]) -> Any:
+    """Read rules shared by every versioned document. The version is under the first of ``keys`` present (a missing one
+    means ``schema``: documents written before versioning). Another schema name or a newer major version is refused, a
+    newer minor version is refused with an explicit message, and an older major version is upgraded through the
+    registered upcasters, one major step at a time."""
+    if not isinstance(data, dict) or not schema:
+        return data
+    key = next((k for k in keys if k in data), keys[0])
+    got = data.get(key) or schema
+    name, major, minor = _parse_version(got)
+    want_name, want_major, want_minor = _parse_version(schema)
+    if name != want_name:
+        raise ValueError(f"{owner} reads {schema}; got {key}={got!r}")
+    if major > want_major:
+        raise ValueError(f"{owner} reads {schema}; {got!r} is a newer major version")
+    if major == want_major and minor > want_minor:
+        raise ValueError(f"{owner} reads {schema}; {got!r} was written by a newer minor version")
+    data = dict(data)
+    while major < want_major:
+        fn = _UPCASTERS.get((name, major))
+        if fn is None:
+            raise ValueError(f"no upcaster from {name}/v{major} to v{major + 1}")
+        data = fn(data)
+        major += 1
+        data[key] = f"{name}/v{major}"
+    data.setdefault(key, schema)
+    return data
+
+
+def check_same_major(owner: str, schema: str, v: str, key: str) -> str:
+    """A version assigned to a document must keep its schema name and major version."""
+    if not schema or not v:
+        return v
+    name, major, _ = _parse_version(v)
+    want_name, want_major, _ = _parse_version(schema)
+    if name != want_name or major != want_major:
+        raise ValueError(f"{owner} reads {schema}; got {key}={v!r}")
+    return v

@@ -1,0 +1,240 @@
+{
+ "$defs": {
+  "Failure": {
+   "additionalProperties": false,
+   "properties": {
+    "blame": {
+     "anyOf": [
+      {
+       "enum": [
+        "infra",
+        "harness",
+        "task",
+        "policy",
+        "unknown"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "delivery": {
+     "default": "delivered",
+     "enum": [
+      "not_sent",
+      "possibly_delivered",
+      "delivered"
+     ],
+     "type": "string"
+    },
+    "detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "kind": {
+     "type": "string"
+    },
+    "mask": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "reason": {
+     "default": "",
+     "type": "string"
+    },
+    "retryable": {
+     "default": true,
+     "type": "boolean"
+    },
+    "stage": {
+     "enum": [
+      "admission",
+      "seed",
+      "agent",
+      "collect",
+      "verification",
+      "cleanup"
+     ],
+     "type": "string"
+    }
+   },
+   "required": [
+    "kind",
+    "stage"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "attempt": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "cost_uncertain_usd": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "cost_usd": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "ended_at": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "failure": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Failure"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "final_state": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "mask_sample": {
+   "default": false,
+   "type": "boolean"
+  },
+  "meta": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "outcome": {
+   "default": "running",
+   "enum": [
+    "completed",
+    "failed",
+    "masked",
+    "running"
+   ],
+   "type": "string"
+  },
+  "policy": {
+   "type": "string"
+  },
+  "reward": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "run_id": {
+   "type": "string"
+  },
+  "sample": {
+   "anyOf": [
+    {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "seed": {
+   "default": 0,
+   "type": "integer"
+  },
+  "started_at": {
+   "type": "string"
+  },
+  "steps": {
+   "default": 0,
+   "type": "integer"
+  },
+  "task": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "tokens": {
+   "additionalProperties": {
+    "type": "integer"
+   },
+   "type": "object"
+  },
+  "trajectory": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "world": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "run_id",
+  "world",
+  "policy",
+  "started_at"
+ ],
+ "type": "object"
+}

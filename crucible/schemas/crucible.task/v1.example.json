@@ -1,0 +1,22 @@
+{
+ "card": "crucible/card.yaml",
+ "family": "f",
+ "horizon": "H1",
+ "id": "p/f/n@1",
+ "milestones": "crucible/milestones.yaml",
+ "negatives": [
+  {
+   "description": "",
+   "expected": "fail",
+   "expected_gate": "g",
+   "id": "n",
+   "kind": "negative",
+   "path": "x.patch"
+  }
+ ],
+ "oracle": "solution/solution.patch",
+ "oracle_kind": "patch",
+ "schema_version": "crucible.task/v1",
+ "seed_of": [],
+ "world": "crucible/world.yaml"
+}

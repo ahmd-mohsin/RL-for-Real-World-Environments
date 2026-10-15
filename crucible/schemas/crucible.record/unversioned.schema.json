@@ -1,0 +1,129 @@
+{
+ "$defs": {
+  "SignalTarget": {
+   "additionalProperties": false,
+   "properties": {
+    "app": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "object": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "span": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "author": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "id": {
+   "type": "string"
+  },
+  "meta": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "reply_to": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "role": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "source": {
+   "type": "string"
+  },
+  "tags": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "target": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/SignalTarget"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "text": {
+   "type": "string"
+  },
+  "time": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  }
+ },
+ "required": [
+  "id",
+  "source",
+  "text"
+ ],
+ "type": "object"
+}
