@@ -16,6 +16,8 @@ async def credit(traces: list) -> dict[str, dict[str, Any]]:
     (no unapproved refund over 50, no closure without a retention offer; outcome resolved), the outcome label (CSAT /
     reopen rule) and the ticket's ``split``: the test tickets grade the pack's gates, so ``crucible label`` never trains
     on them (M15 audit H1 V9)."""
+    from crucible.workflow.logstate import LogStateView
+    from crucible.workflow.milestones.evaluate import evaluate
     from crucible.workflow.potential import trajectory
     from crucible_pack_toy.m56 import pipeline as p
 
@@ -29,8 +31,13 @@ async def credit(traces: list) -> dict[str, dict[str, Any]]:
         traj = trajectory(ms, series.values)
         phi_by_seq = {seq: round(s.phi, 6) for seq, s in zip(series.steps, traj)}
         case = t.source.ref
-        rj = await p.reward(case, st[-1][1].objects if st else {}, ms)
-        out[t.trace_id] = {"reward": rj.reward, "phi_by_seq": phi_by_seq, "gates": rj.gates, "outcome": p.outcome(t),  # the M4 toy guideline
+        end = st[-1][1].objects if st else {}
+        rj = await p.reward(case, end, ms)
+        # reward_json lets label withhold the partial credit and the end-state φ per milestone is reported beside its
+        # verdict (M5 R1, credit.channels); the test tickets are the held-out evidence
+        out[t.trace_id] = {"reward": rj.reward, "reward_json": rj.model_dump(mode="json"), "phi_by_seq": phi_by_seq, "gates": rj.gates,
+                           "phi_end_by_milestone": await evaluate(ms, LogStateView(objects=end, case=case)),
+                           "outcome": p.outcome(t),  # the M4 toy guideline
                            "split": "train" if case in p.DEV else "test"}
     return out
 

@@ -78,6 +78,19 @@ def scalar(rj: RewardJson) -> float | None:
     return None if rj.infra.status == "masked" else rj.reward
 
 
+def without_progress(rj: RewardJson | Mapping[str, object]) -> float | None:
+    """The same composition with Φ = 0: the outcome-only reward of a composed one (its gates, outcome, rubric share,
+    efficiency and coefficients kept). What ``crucible label`` pays when the partial-credit channel is not validated
+    (``credit.channels``); ``None`` for a masked episode."""
+    rj = rj if isinstance(rj, RewardJson) else RewardJson.model_validate(rj)
+    if rj.infra.status == "masked":
+        return None
+    c = rj.components
+    coef = Coefficients(kappa=c.get("kappa", DEFAULT.kappa), alpha=c.get("alpha", DEFAULT.alpha), beta=c.get("beta", DEFAULT.beta))
+    return compose(gates={k: bool(v) for k, v in rj.gates.items()}, outcome=bool(rj.outcome), phi=0.0, rubric=rj.rubric.get("validated_items_met", 0.0),
+                   efficiency=rj.efficiency or 0.0, coef=coef).reward
+
+
 @dataclass
 class Episode:
     reward: float | None  # composed R; None = masked

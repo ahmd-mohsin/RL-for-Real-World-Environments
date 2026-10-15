@@ -93,7 +93,11 @@ def test_readme_path_through_the_cli(tmp_path):
         assert set(row) >= {"prompt", "completion", "tools", "weight", "credit", "task", "reward", "resolved", "traj_id", "split", "outcome"}
         assert row["prompt"][-1]["role"] in ("user", "tool") and [m["role"] for m in row["completion"]] == ["assistant"]
         assert row["split"] == "train" and row["outcome"] == "good" and isinstance(row["weight"], float)
-    assert any(r["credit"] and r["weight"] for r in sft)  # dense Φ credit on the assistant turns
+    # the toy's Φ does not predict held-out outcomes, so neither of its uses is released (M5 R1, credit.channels): no dense
+    # credit on the turns, and the summary says why
+    ch = s["credit_channels"]["toy/support_ticket"]
+    assert not ch["step"]["released"] and not ch["terminal"]["released"] and ch["step"]["reason"] and ch["terminal"]["reason"]
+    assert all(r["credit"] is False and r["weight"] == 0.0 for r in sft)
     kto = [json.loads(x) for x in (tmp_path / "label" / "kto.jsonl").read_text().splitlines()]
     assert kto and all(isinstance(r["label"], bool) for r in kto) and s["held_out"]
     assert (tmp_path / "label" / "configs" / "resolved" / "label.json").exists() and (tmp_path / "label" / "rewards.jsonl").exists()

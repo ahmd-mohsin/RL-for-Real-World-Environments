@@ -5,7 +5,10 @@ Two sources:
   1. M4 signals and pivots (when the family has a signal mapper);
   2. the pack's ``credit`` hook (M5 milestones → M6 Φ per event, a gated reward, the outcome and the trace's
      ``split``: only ``train`` traces become data);
-  3. the conversation from the policy role's side (``studio.datasets.from_trace``).
+  3. the validity gate (``credit.channels``): per family, Φ's two uses (per-turn weights; partial credit in the reward)
+     are released only when they predict the outcome on the hook's held-out traces; otherwise the data carries no dense
+     credit for that use;
+  4. the conversation from the policy role's side (``studio.datasets.from_trace``).
 - **a run** (``--run``): an M10 run directory, read through the runner's training view (``rollout.json`` token turns,
   ``mask_sample``, flags), its ``validity.json`` and the build's ``splits.json``: only valid, train-split, unmasked,
   unflagged, model-produced episodes become data, decoded with the policy's own tokenizer and redacted like the pack
@@ -15,9 +18,10 @@ Rows are one decision each (``studio.datasets``). Outputs in ``out/``, each repl
 - ``configs/resolved/label.json``;
 - ``store/`` (the traces; pack only);
 - ``traces.jsonl`` (the labelled traces: signals, outcome; pack only);
-- ``rewards.jsonl`` (per trace: reward, gates, Φ per event, split; pack only);
+- ``rewards.jsonl`` (per trace: reward, gates, Φ per event, split, channel verdicts, ``reward_with_progress`` when the
+  partial credit was withheld; pack only);
 - ``sft.jsonl``, ``dpo.jsonl``, ``kto.jsonl`` (each loads with ``datasets.load_dataset("json")``);
-- ``summary.json`` (counts, what was left out and why).
+- ``summary.json`` (counts, what was left out and why, ``credit_channels`` per family).
 """
 
 from __future__ import annotations
@@ -173,7 +177,18 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
             lab = (credit.get(t.trace_id) or {}).get("outcome")
             if lab in ("good", "bad") and t.outcome.label == "unknown":
                 labelled_traces[i] = t.model_copy(update={"outcome": t.outcome.model_copy(update={"label": lab, "label_source": f"pack {m.name} credit hook"})})
-        all_items = [ds.from_trace(t, policy_roles=m.label.policy_roles, phi_by_seq=(credit.get(t.trace_id) or {}).get("phi_by_seq"),
+        # M5 R1: Φ reaches the data only through a held-out verdict per channel (step weights, partial credit); an
+        # unreleased channel falls back to "no dense credit" (credit.channels)
+        from crucible.credit import channels
+
+        verdicts = {fam: channels.decide(fam, [t for t in labelled_traces if str(t.family) == fam], credit)
+                    for fam in sorted({str(t.family) for t in labelled_traces if t.trace_id in credit})}
+        trained_phi: dict[str, Any] = {}
+        for t in labelled_traces:
+            if t.trace_id in credit:
+                credit[t.trace_id], trained_phi[t.trace_id] = channels.apply(credit[t.trace_id], verdicts[str(t.family)], hook=str(m.hooks.credit))
+        summary["credit_channels"] = {fam: v.to_dict() for fam, v in verdicts.items()}
+        all_items = [ds.from_trace(t, policy_roles=m.label.policy_roles, phi_by_seq=trained_phi.get(t.trace_id),
                                    reward=(credit.get(t.trace_id) or {}).get("reward"), tools=(credit.get(t.trace_id) or {}).get("tools"),
                                    split=str((credit.get(t.trace_id) or {}).get("split") or "train")) for t in labelled_traces]
         # the credit hook's split: held-out (test) traces grade the pack's gates, never train (V9)

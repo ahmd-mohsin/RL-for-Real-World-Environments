@@ -167,8 +167,10 @@ async def credit(traces: list) -> dict[str, dict[str, Any]]:
             out[t.trace_id] = {"reward": None, "error": f"{type(e).__name__}: {str(e)[:160]}"}
             continue
         last = max((e.seq for e in t.events), default=0)
-        reward = compose(gates={}, outcome=bool(y), phi=phi).reward if y is not None else None
-        out[t.trace_id] = {"reward": reward, "phi_by_seq": {last: round(phi, 6)}, "phi_final": round(phi, 6),
+        rj = compose(gates={}, outcome=bool(y), phi=phi) if y is not None else None
+        # reward_json lets label withhold the partial credit; runs of one task share a bootstrap group (M5 R1, credit.channels)
+        out[t.trace_id] = {"reward": rj.reward if rj else None, "reward_json": rj.model_dump(mode="json") if rj else None, "group": task,
+                           "phi_by_seq": {last: round(phi, 6)}, "phi_final": round(phi, 6),
                            "outcome": None if y is None else ("good" if y >= 1 else "bad"), "tools": [MSWEA_BASH_TOOL],
                            # a run on a bench seed is that seed's benchmark evidence: never training data (M15 audit H1 V9)
                            "split": "bench" if SEED_INFO.get(task.split("@")[0], {}).get("bench", True) else "train"}
