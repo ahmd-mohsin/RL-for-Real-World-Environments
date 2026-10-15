@@ -171,3 +171,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Any schema change to the index (a new column, table or index) must be appended to `_MIGRATIONS`,
   never made by editing migration 1. A branch that still edits `_SCHEMA` conflicts here: move its DDL into a new
   migration. R-16 (tag revisions) is meant to be migration 2.
+
+## 11. R-13: plugins are staged and merged, independent of install order
+
+- **Item.** R-13 (carry-over IMP-M0-5, SCOUT-1, NEW-6; H8, AE-2, SW-3). PATTERN from agentenv
+  `plugins/_registration.py:95-187` (Apache-2.0). Decision: a contested name is withheld only from the claimants; their
+  other names still load.
+- **Files.** `src/crucible/core/registry.py` (`Registry.load_plugins`, new `_Staged`, `_dist_label`),
+  `tests/unit/test_core_audit.py`.
+- **Public names.** none new; `Registry.failures` now also holds per-plugin refusals (withheld or built-in names).
+- **Behaviour.** Entry points run sorted, each against a `_Staged` recorder: a `register()` that raises adds nothing
+  (before: names registered before the exception stayed). A `(kind, name)` claimed by two or more plugins is withheld
+  from all of them (before: the first in install order won, the second failed), a plugin claiming a built-in name is
+  refused even with `replace=True`, and a plugin registering one name twice fails. Merged entries carry
+  `source = <distribution>==<version>` (e.g. `crucible-pack-toy==0.3.0`) instead of the string the plugin passed.
+- **Formats.** none. `describe()` output shows the new source labels.
+- **Tests.** `test_a_plugin_that_fails_halfway_registers_nothing`,
+  `test_a_contested_name_is_withheld_whatever_the_install_order` (both orders),
+  `test_a_plugin_cannot_take_a_built_in_name`.
+- **Merge notes.** A pack's `register(registry)` now receives a `_Staged` recorder, not the `Registry`: only
+  `register(...)` is available during registration (all current packs use only that). Code matching on a plugin's own
+  `source=` string should match `name==version` instead.

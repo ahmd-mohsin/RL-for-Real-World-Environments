@@ -633,3 +633,62 @@ def test_a_later_migration_reaches_an_existing_index(tmp_path, monkeypatch):
     with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
         assert c.execute("SELECT key, rev FROM tags").fetchall() == [(key, 0)]
     assert _user_version(tmp_path / "s") == v + 1 and s.resolve("latest") == key
+
+
+# ------------------------------------------------------------------------------------------------ R-13: staged plugins
+class _FakeDist:
+    def __init__(self, name):
+        self.name, self.version = name, "1.0"
+
+
+class _FakeEP:
+    def __init__(self, name, fn):
+        self.name, self._fn, self.dist = name, fn, _FakeDist(f"pack-{name}")
+
+    def load(self):
+        return self._fn
+
+
+def _half(reg):
+    reg.register("pack", "half_a", "m:a")
+    raise RuntimeError("bug in register()")
+
+
+def _alpha(reg):
+    reg.register("grader", "shared", "alpha:G")
+    reg.register("grader", "alpha_only", "alpha:A")
+
+
+def _beta(reg):
+    reg.register("grader", "shared", "beta:G")
+
+
+def _plugins(monkeypatch, *eps):
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: list(eps))
+    reg = Registry()
+    reg.load_plugins()
+    return reg
+
+
+def test_a_plugin_that_fails_halfway_registers_nothing(monkeypatch):
+    reg = _plugins(monkeypatch, _FakeEP("half", _half))
+    assert not reg.has("pack", "half_a") and "bug in register()" in reg.failures["half"]
+
+
+@pytest.mark.parametrize("order", [("alpha", "beta"), ("beta", "alpha")])
+def test_a_contested_name_is_withheld_whatever_the_install_order(monkeypatch, order):
+    fns = {"alpha": _alpha, "beta": _beta}
+    reg = _plugins(monkeypatch, *(_FakeEP(n, fns[n]) for n in order))
+    assert not reg.has("grader", "shared") and reg.has("grader", "alpha_only")
+    assert "also claimed by pack-beta==1.0" in reg.failures["alpha"] and "also claimed by pack-alpha==1.0" in reg.failures["beta"]
+    assert reg.describe()["grader"]["alpha_only"].endswith("[pack-alpha==1.0]")
+    with pytest.raises(RegistryError, match="withheld"):
+        reg.get("grader", "shared")
+
+
+def test_a_plugin_cannot_take_a_built_in_name(monkeypatch):
+    reg = Registry()
+    reg.register("grader", "exact", "core:Exact")
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [_FakeEP("p", lambda r: r.register("grader", "exact", "p:X", replace=True))])
+    reg.load_plugins()
+    assert reg.describe()["grader"]["exact"].startswith("core:Exact") and "built in" in reg.failures["p"]

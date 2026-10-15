@@ -98,18 +98,66 @@ class Registry:
         return out
 
     def load_plugins(self) -> None:
+        """Plugins are staged, then merged (R-13; PATTERN: agentenv ``plugins/_registration.py:merge``, Apache-2.0), so
+        the result does not depend on install order. Each ``register(registry)`` runs against a ``_Staged`` recorder: one
+        that raises adds nothing. A name two plugins claim is withheld from both, and a built-in name from any plugin;
+        each is recorded in ``failures`` (the plugin's other names still load). Merged entries carry the installed
+        distribution as ``source`` (``name==version``). A later lookup names every failure instead of "known: none"."""
         if self._plugins_loaded:
             return
         self._plugins_loaded = True
-        # Each entry point loads on its own: one broken or conflicting plugin is recorded and skipped, every other one
-        # still loads, and a later lookup names the failure instead of "known: none".
-        for ep in entry_points(group=ENTRY_POINT_GROUP):
+        staged: dict[str, _Staged] = {}
+        for ep in sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda e: (e.name, _dist_label(e) or "")):
+            rec = _Staged(source=_dist_label(ep) or f"plugin:{ep.name}")
             try:
-                fn: Callable[[Registry], None] = ep.load()
-                fn(self)
+                fn: Callable[[Any], None] = ep.load()
+                fn(rec)
             except Exception as e:  # noqa: BLE001 - a broken plugin must not take the core down
                 self.failures[ep.name] = f"{type(e).__name__}: {e}"[:500]
                 logger.warning("crucible plugin %s failed to load: %s", ep.name, e)
+                continue
+            staged[ep.name] = rec
+        claimants: dict[tuple[str, str], list[str]] = {}
+        for ep_name, rec in staged.items():
+            for kind, name, _ in rec.claims:
+                claimants.setdefault((kind, name), []).append(ep_name)
+        for ep_name, rec in staged.items():
+            refused = []
+            for kind, name, impl in rec.claims:
+                if len(owners := claimants[(kind, name)]) > 1:
+                    refused.append(f"{kind} {name!r} withheld: also claimed by {', '.join(staged[o].source for o in owners if o != ep_name)}")
+                elif name in self._kinds.get(kind, {}):
+                    refused.append(f"{kind} {name!r} is built in ({self._kinds[kind][name].source})")
+                else:
+                    self.register(kind, name, impl, source=rec.source)
+            if refused:
+                self.failures[ep_name] = "; ".join(refused)[:500]
+                logger.warning("crucible plugin %s: %s", ep_name, self.failures[ep_name])
+
+
+@dataclass
+class _Staged:
+    """What one plugin's ``register(registry)`` asks for, held until every plugin has run. It has the registry's
+    ``register`` signature; a name registered twice by the same plugin is that plugin's bug and fails it."""
+
+    source: str
+    claims: list[tuple[str, str, str | Any]] = field(default_factory=list)
+
+    def register(self, kind: str, name: str, impl: str | Any, *, source: str = "", replace: bool = False) -> None:
+        if any((k, n) == (kind, name) for k, n, _ in self.claims):
+            raise RegistryError(f"{kind} {name!r} registered twice by {self.source}")
+        self.claims.append((kind, name, impl))
+
+
+def _dist_label(ep: Any) -> str | None:
+    """``name==version`` of the distribution that installed ``ep``, when known."""
+    dist = getattr(ep, "dist", None)
+    if dist is None:
+        return None
+    try:
+        return f"{dist.name}=={dist.version}"
+    except Exception:  # noqa: BLE001 - broken metadata leaves the label unknown
+        return None
 
 
 _REGISTRY: Registry | None = None
