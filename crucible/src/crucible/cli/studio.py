@@ -141,6 +141,8 @@ def label(pack_ref, run_dir, out, expr, select, max_per_task, threshold, margin,
              f"  sft {d['sft']}  dpo {d['dpo']} ({', '.join(f'{k} {v}' for k, v in d['dpo_kinds'].items())})  kto {d['kto']}"]
     if "outcomes" in s:
         lines.append(f"  outcomes {s['outcomes']}  signals {sum(s['signals'].values())}  credited {s['credited']}")
+    for fam, v in s.get("credit_channels", {}).items():
+        lines.append(f"  credit channels {fam}: " + "; ".join(f"{c} {'released' if v[c]['released'] else 'unreleased'} ({v[c]['reason']})" for c in ("step", "terminal")))
     if s.get("skipped"):
         lines.append(f"  left out {sum(s['skipped'].values())}: " + ", ".join(f"{k} {v}" for k, v in s["skipped"].items()))
     lines += [f"  warning: {w}" for w in [*s.get("warnings", []), *([s["warning"]] if s.get("warning") else [])]]

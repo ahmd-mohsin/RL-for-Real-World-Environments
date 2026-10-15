@@ -39,6 +39,16 @@
 2. **Checking R1–R6 on the real tasks found mining bugs.** Function bodies in brace languages were cut at the anchor line. Comment lines ("Software License Agreement (BSD License)") anchored blocks. A token counted as new because the tokenizer skipped comments while the grep check did not. The oracle's own Φ was 0.69 on task04 until these were fixed; it is 1.0 now.
 3. **Agents edit through the shell as much as through editors.** The first replay pilot reproduced 21/100 attempts. Replaying `rm`/`mv`/`cp`/here-docs/`git checkout` from command text raised it to 78/100, and separating harness-written files and execution byproducts to 99/100.
 4. **OpenHands writes `issue.md` and `.openhands/TASKS.md` itself.** They appear in the recorded final patch but come from no agent action; `swe_rebench.harness_file` lists them.
+5. **Filter (d) now guards the one customer path (2026-10-15; `docs/research/improvements/2026-10-14/M05-workflow.md` R1).**
+   M5's mined Φ reaches customers only through `crucible label` (live episodes use the grader's own subgoals). Until now
+   it was written there unchecked: on the toy, two of the three milestones hold at the end of every ticket, good or
+   bad, and the wrong answer of failed ticket T1011 was the highest-weighted KTO turn. `credit.channels` now judges
+   each use of Φ (per-turn weights; partial credit) on the hook's held-out traces and releases it only at held-out
+   AUC ≥ 0.6 with a 95 % lower bound > 0.5; otherwise the data carries no dense credit for that use. Toy: both
+   channels unreleased (midpoint AUC 0.50; end-state AUC 0.67, lower bound 0.50), with the same rows. Coding (11
+   recorded runs here): the 3 held-out bench runs all failed, so nothing is released; the per-turn placement of
+   the end-state Φ, which was never step credit, cannot be released by construction. Per-milestone AUCs are reported
+   in `summary.json`, not used as weights.
 
 ## Not done
 

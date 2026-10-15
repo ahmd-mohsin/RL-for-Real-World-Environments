@@ -56,7 +56,15 @@ hash). A re-run into the same `--out` with different identity flags is refused b
 1. M3 ingest of `pack.yaml` sources (idempotent, redacted).
 2. M4 signals and pivots.
 3. The pack's `credit` hook: M5 milestones mined from good dev logs; M6 Φ per event, a gated reward, and the outcome.
-4. `credit.datasets`.
+4. **The validity gate** (`credit.channels`, 2026-10-15, M5 R1): Φ is used two ways, and each is a channel with its own
+   verdict on the hook's held-out traces (split ≠ `train`). The **step** channel (per-turn weights) needs Φ at the
+   midpoint event to predict the outcome; the **terminal** channel (partial credit κ·(1−O)·Φ) needs Φ at the end state
+   to. A channel is released when the held-out AUC is ≥ 0.6 and its 95 % lower bound is > 0.5. An unreleased step
+   channel writes weight 0.0 with `credit: false`; an unreleased terminal channel pays the reward recomposed with Φ = 0
+   (`reward_with_progress` keeps the hook's value). Verdicts are in `summary.json` `credit_channels`, in each
+   `rewards.jsonl` row (`channels`) and in the CLI output. Toy: both unreleased (step AUC 0.50; terminal 0.67 with lower
+   bound 0.50), same rows as before, failed tickets T1011 / T1019 no longer earn 0.133.
+5. `credit.datasets`.
 
 **From a run:** M10 episodes; masked episodes are skipped.
 

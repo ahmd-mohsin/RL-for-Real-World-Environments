@@ -46,7 +46,7 @@ What each command does:
 
 | Command | Modules | Output |
 |---|---|---|
-| `crucible label --pack P` | M3 ingest → M4 signals → M5 milestones → M6 credit | `traces.jsonl`, `rewards.jsonl` (Φ per event), `sft.jsonl`, `dpo.jsonl`, `kto.jsonl`, `summary.json` |
+| `crucible label --pack P` | M3 ingest → M4 signals → M5 milestones → M6 credit → validity gate per Φ channel | `traces.jsonl`, `rewards.jsonl` (Φ per event, channel verdicts), `sft.jsonl`, `dpo.jsonl`, `kto.jsonl`, `summary.json` |
 | `crucible label --run DIR` | M10 run → datasets | SFT from solved episodes; DPO from best vs worst of k |
 | `crucible build P` | M3 → M8 forge → M9 accept (the full contract: accepted, provisional while checks that need Docker or paid calls are pending, or rejected) → M11 canonical export → M13 splits, contamination and bench of the bench split | task dirs, `accept.json`, `export/`, `splits.json`, `contamination.json`, `report.html`; exit 1 on rejected tasks or export errors (`--allow-rejected`) |
 | `crucible bench run / report / compare` | M13 | pass@k, pass^k, gate profile, progress AUC, stage reach, regressions, cost, IRT, flips |
