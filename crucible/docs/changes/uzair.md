@@ -103,3 +103,15 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Anyone adding an `LLMProvider(api_key="sk-...")` or a literal `Authorization` header in tests or
   configs will get a ValidationError; use `env:NAME` with `monkeypatch.setenv`, or `"EMPTY"` for a local engine.
   `request_defaults` can still hold literal secrets (e.g. `extra_headers`); not covered by R-8.
+
+## 7. R-9: agentenv's NOTICE is reproduced; THIRD_PARTY.md and LICENSES/ are checked against each other
+
+- **Item.** R-9 (new in the audit; AE-11). Apache-2.0 §4(d) obligation. The audit's digest manifest was not built: the
+  coverage test below catches a missing or unnamed file, which is how this one was missed.
+- **Files.** New `LICENSES/NOTICE-agentenv.txt` (agentenv-framework `NOTICE` at ac413aa, byte-identical), new
+  `tests/unit/test_third_party.py`; `THIRD_PARTY.md` gains a "Notices" section.
+- **Public names, formats, behaviour.** none.
+- **Tests.** `test_every_licence_file_is_named_and_every_named_one_exists`, `test_the_agentenv_notice_is_reproduced`.
+- **Merge notes.** Anyone adding a file to `LICENSES/` must name it in `THIRD_PARTY.md` (and vice versa), or the new
+  test fails. The wheel still ships code only (`[tool.hatch.build.targets.wheel]`); add LICENSES/ and THIRD_PARTY.md
+  to it if the wheel is ever distributed outside the team.

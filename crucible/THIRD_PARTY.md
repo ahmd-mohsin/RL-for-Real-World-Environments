@@ -59,6 +59,13 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 
 | `world/apps/desktop.py` | pattern only: Harbor `src/harbor/agents/computer_1/runtime.py` (`ComputerAction` vocabulary, coordinate scaling, xdotool), FineEnvs desktop (Anthropic `computer_20251124` tool set), OpenEnv `helium_browser_env` (Xvfb display), NeMo-Gym `osworld` (screenshot-per-step loop) | 2026-10 | Apache-2.0 / BSD-3-Clause | the action vocabulary and execution approach; written anew |
 
+## Notices
+
+Apache-2.0 §4(d): a work that ports code from a project with a NOTICE file carries that notice. Of the projects ported
+above, only agentenv-framework ships one (`store/`, `ids.py`, `env/gateway/triggers.py` ports); it is reproduced verbatim in
+`LICENSES/NOTICE-agentenv.txt` (agentenv-framework `NOTICE` at ac413aa). `tests/unit/test_third_party.py` checks that every
+file in `LICENSES/` is named here and every `LICENSES/` file named here exists.
+
 ## Frameworks we call (DEPEND), added in the hardening pass
 
 | Framework piece | Where | What for |
