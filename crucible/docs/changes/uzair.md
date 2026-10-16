@@ -615,6 +615,11 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   into a world whose id is `c2:...`, a wrong id is refused. World, core, runtime and format suites: 199 passed.
 - **Merge notes.** Code that compares a stored content id with `x.content_hash()` should use `x.matches_id(stored)`.
   Changing `core.canonical.dumps` now means registering a new scheme (the golden test fails until then).
+- **Fix (found by the final full run).** `World.restore` recomputed the id from the live spec, which a World may adjust
+  once running (the browser World does), so `test_website_browser` refused its own ref ("belongs to world dfcbe07f801b,
+  not dfcbe07f801b"). It now accepts the id taken at construction and checks any other against the spec as the World
+  was built (`core.schema.base.matches_content_id` over a dump kept at construction). Test:
+  `test_a_world_whose_spec_changed_after_it_was_built_restores_its_own_refs`.
 
 ## 26. R-22: store protocols, verified reads, a conformance kit
 

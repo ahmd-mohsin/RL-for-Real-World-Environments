@@ -51,3 +51,16 @@ async def test_a_world_ref_from_before_a_scheme_bump_still_restores(pack, tmp_pa
             await w2.restore(ref.model_copy(update={"world": "c2:" + "0" * 64}))
     finally:
         await w2.close()
+
+
+async def test_a_world_whose_spec_changed_after_it_was_built_restores_its_own_refs(pack, tmp_path):  # noqa: F811
+    """A World may adjust its spec once running (the browser World does): its refs name the spec it was built from, so
+    restore checks the id against that spec, as it compared the stored id before R-21, not against the live one."""
+    w = await _world(pack, tmp_path)
+    try:
+        await w.reset()
+        ref = await w.snapshot()
+        w.spec = w.spec.model_copy(update={"world": w.spec.world + "-adjusted"})
+        await w.restore(ref)
+    finally:
+        await w.close()

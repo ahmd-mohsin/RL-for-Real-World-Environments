@@ -33,6 +33,7 @@ from crucible.core.agent_events import annotate_probes, app_writes, writes_of
 from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, MediaRef, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
+from crucible.core.schema.base import matches_content_id
 from crucible.core.schema.run import Failure
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.state import Query, QueryResult, StateDiff, StateRef, WorldRef
@@ -193,6 +194,8 @@ class World:
             interceptors = [RuleInterceptor(rules, allow_hosts=tuple(spec.allowed_hosts))] if rules else []
         self.interceptors = list(interceptors)
         self.spec_hash = spec.content_hash()
+        # the spec as it was hashed: a ref's world id is checked against this, never the live (since mutated) spec (R-21)
+        self._spec_doc = spec.model_dump(mode="json", exclude_none=True, by_alias=True)
         self.instructions = dict(instructions or {})
         self.instruction_media = {a: list(m) for a, m in (instruction_media or {}).items()}  # actor -> media with its instruction
         self.store = store or get_store()
@@ -964,7 +967,8 @@ class World:
 
     async def restore(self, ref: WorldRef) -> None:
         try:
-            same = self.spec.matches_id(ref.world)  # by the scheme the ref's id was made with (R-21), not today's
+            # by the scheme the ref's id was made with (R-21), not today's, over the spec as this World was built from it
+            same = ref.world == self.spec_hash or matches_content_id(self._spec_doc, ref.world)
         except ValueError as e:
             raise WorldError(f"WorldRef names its world by {ref.world[:20]!r}: {e}") from e
         if not same:

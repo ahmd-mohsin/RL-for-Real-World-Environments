@@ -61,13 +61,7 @@ class CrucibleModel(BaseModel):
     def matches_id(self, content_id: str) -> bool:
         """Whether ``content_id`` is this document's id under the scheme the id names (R-21): an id stored before a
         scheme bump still matches. An id of a scheme this Crucible does not know raises ValueError."""
-        from crucible.core import ids
-        from crucible.core.canonical import SCHEMES
-
-        scheme, digest = ids.parse_content_id(content_id)
-        if scheme not in SCHEMES:
-            raise ValueError(f"content id {content_id[:20]}... is of scheme {scheme}, which this Crucible does not know; upgrade it")
-        return ids.sha256_text(SCHEMES[scheme](self.model_dump(mode="json", exclude_none=True, by_alias=True))) == digest
+        return matches_content_id(self.model_dump(mode="json", exclude_none=True, by_alias=True), content_id)
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(
@@ -97,6 +91,18 @@ class CrucibleModel(BaseModel):
         else:
             p.write_text(self.model_dump_json(indent=2, exclude_none=True, by_alias=True) + "\n")
         return p
+
+
+def matches_content_id(data: Any, content_id: str) -> bool:
+    """Whether ``content_id`` is the id of the JSON-shaped ``data`` (a model's ``model_dump(mode="json",
+    exclude_none=True, by_alias=True)``) under the scheme the id names (R-21)."""
+    from crucible.core import ids
+    from crucible.core.canonical import SCHEMES
+
+    scheme, digest = ids.parse_content_id(content_id)
+    if scheme not in SCHEMES:
+        raise ValueError(f"content id {content_id[:20]}... is of scheme {scheme}, which this Crucible does not know; upgrade it")
+    return ids.sha256_text(SCHEMES[scheme](data)) == digest
 
 
 # (schema name, major version it upgrades from) -> function from that version's dict to the next major's dict
