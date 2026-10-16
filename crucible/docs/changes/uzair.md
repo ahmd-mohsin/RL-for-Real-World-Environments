@@ -981,3 +981,15 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_a_set_aside_named_with_a_live_pid_is_settled_unless_its_lock_is_held` (fails on the previous code).
   Store, forget, tag, conformance and core-audit suites: 122 passed.
 - **Merge notes.** none.
+
+## 45. A16 gate (LED16-6): the capture test skips without torch
+
+- **Item.** The one failing M0 test in the 2026-10-16 audit's gate run (§1; ledger LED16-6), from R-17 (entry 21).
+- **Files.** `tests/unit/test_capture.py`.
+- **Public names.** none.
+- **Behaviour.** `test_a_chat_codec_records_its_tokenizer_and_template_arguments_and_old_records_read` imported
+  `crucible.train.world_env`, which imports torch through the engine, so it failed in an install without the `train`
+  extra. It is split: the codec half skips without torch; the old-record half (core only) runs everywhere.
+- **Formats.** none.
+- **Tests.** With torch hidden: 2 passed, 3 skipped (the previous file: 1 failed). With torch: 5 passed.
+- **Merge notes.** The test's name changed (two tests now).

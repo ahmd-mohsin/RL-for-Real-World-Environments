@@ -70,11 +70,15 @@ async def test_the_runtime_records_the_engine_and_its_logprob_mode(tmp_path):
     assert caps == {Capture(engine="TorchEngine", logprobs="processed", tokenizer=tr.tokenizer_id).model_dump_json()}
 
 
-def test_a_chat_codec_records_its_tokenizer_and_template_arguments_and_old_records_read():
+def test_a_chat_codec_records_its_tokenizer_and_template_arguments():
+    pytest.importorskip("torch")  # train.world_env imports the engine (M0 audit 2026-10-16: this failed without torch)
     from crucible.train.world_env import codec_capture
 
     cap = codec_capture(NS(tok=_Tok(VOCAB, "{{ m }}"), kw={"enable_thinking": False}))
     assert cap.tokenizer == TokenizerId.of(_Tok(VOCAB, "{{ m }}")) and cap.template_kwargs == {"enable_thinking": False}
     assert codec_capture(NS()) is None  # a scripted codec: nothing to say
+
+
+def test_a_record_without_capture_reads_and_keeps_its_bytes():
     old = RolloutRecord.model_validate({"schema": "crucible.rollout/v1", "rollout_id": "r", "sample": "s", "task": "t", "harness": "h@1", "policy": "p"})
     assert old.capture is None and "capture" not in old.model_dump(by_alias=True)  # a record that says nothing keeps its bytes
