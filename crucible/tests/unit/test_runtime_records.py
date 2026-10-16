@@ -12,7 +12,8 @@ from crucible.actors.llm import LLMResponse, token_record
 from crucible.actors.policy import LLMToolPolicy
 from crucible.core.schema.reward import StepRow
 from crucible.core.schema.rollout import RolloutRecord
-from crucible.interop.harbor.trajectories import align, cross_check, to_atif
+from crucible.interop.harbor.reconcile import reconcile
+from crucible.interop.harbor.trajectories import align, to_atif
 from crucible.runtime.harness.native import NativeHarness, PolicyRef
 from crucible.runtime.inject import FakeLLM
 from crucible.runtime.run import Runner, RunSpec
@@ -87,7 +88,7 @@ async def test_steps_jsonl_rows_align_to_atif(tmp_path):
     assert out and all(r.atif_step_id for r in out) and {r.call_id for r in out} <= {c["call_id"] for c in calls}
 
 
-async def test_cross_check_and_train_mode_masking(tmp_path):
+async def test_reconcile_and_train_mode_masking(tmp_path):
     s, adirs = await run(tmp_path, tokens=False, mode="train", run_id="t")
     ro = RolloutRecord.model_validate_json((adirs[0] / "rollout.json").read_text())
     assert ro.mask_sample and ro.reward is None and ro.failure_kind == "crucible:capture_incomplete" and ro.blame == "infra"
@@ -99,9 +100,16 @@ async def test_cross_check_and_train_mode_masking(tmp_path):
     from harbor.models.trajectories import Trajectory
 
     traj = Trajectory.model_validate_json((adirs2[0] / "trajectory.agent.json").read_text())
-    assert cross_check(traj, [{"completion_tokens": 2}] * 4) is None
-    assert cross_check(traj, [{"completion_tokens": 2}] * 3).kind == "crucible:capture_incomplete"
-    assert "call 2" in cross_check(traj, [{"completion_tokens": 2}, {"completion_tokens": 9}, {}, {}]).reason
+    # M10 lab audit R-1: the capture cross-check is the OpenEnv reconcile port. The trajectory has 5 agent steps for 4
+    # calls (llm_call_count [1, 1, 1, 0, 1], 2 completion tokens per call); the llm_call_count 0 step is a second action
+    # of call 3, not a model call
+    atif = json.loads(traj.model_dump_json())
+    call = lambda n, t=2: {"call_id": f"c{n}", "usage": {"completion_tokens": t}}  # noqa: E731
+    ok = reconcile(atif, [call(i) for i in range(4)])
+    assert (ok.level, ok.code) == ("info", "turns_match")
+    assert reconcile(atif, [call(i) for i in range(3)]).level == "fatal"  # ATIF logged a call the capture never saw
+    bad = reconcile(atif, [call(0), call(1, 9), call(2), call(3)])
+    assert (bad.level, bad.code) == ("fatal", "turn_mismatch")
 
 
 def test_token_record_parsing():

@@ -38,14 +38,24 @@ no-op get the same (pristine-image) grade: a silent wrong reward.
   container that exited from inside, or one alive whose verifier user cannot work, is ``agent_broke_env``. A grade whose
   test script needs the network fails while the host shows the container detached or the network unreachable: masked
   ``crucible:grader_network_error``.
+- **installed agents** (M10 lab audit R-1, ``interop/harbor/agent_harness.py``): the capture proxy's host reaches the
+  agent phase only through Harbor's ``TrialAgentConfig.extra_allowed_hosts`` (``agent_allowed_hosts=``); the plan was
+  built from a bare ``TrialAgentConfig()``, so no proxy host could pass a restricted agent phase (inplace.py:148-155).
+  ``open(before_agent=...)`` runs the harness's agent setup (the install) under the World's baseline network, before the
+  grader surface is captured and before the agent phase is applied; on a ``[[steps]]`` task.toml (``multi_step``, whose
+  agent phases ``open`` never applies) it is refused before any container starts. ``admits_agent_host``, ``multi_step``,
+  ``agent_user``, ``agent_timeout_s`` and ``agent_logs`` are the harness's view of the task. Separate-verifier tasks stay refused here;
+  ``patch_task.HarborPatchTask`` grades them from a collected patch in a fresh container.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -103,12 +113,17 @@ REWARD_FILE_ERRORS = ("RewardFileNotFoundError", "RewardFileEmptyError", "Verifi
 
 
 class HarborInPlaceTask:
+    SEPARATE_OK = False  # a separate-verifier task is refused in place (``patch_task.HarborPatchTask`` sets True)
+
     def __init__(self, task_dir: Path, *, docker_host: str | None = None, gpu_host: str | None = None, reward_key: str | None = None,
                  environment_type: str = "docker", environment_kwargs: dict | None = None, user: str | None = None, keep_containers: bool = False,
-                 grader_integrity: str = "verify"):
+                 grader_integrity: str = "verify", agent_allowed_hosts: Sequence[str] = ()):
         from harbor.models.task.task import Task
         from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_task_verifier_mode
 
+        # hosts the agent phase must admit besides the task's own (the capture proxy of an installed agent); read by
+        # ``_network_plan``, so assigned before it runs
+        self.agent_allowed_hosts = tuple(str(h) for h in agent_allowed_hosts)
         if grader_integrity not in ("verify", "off"):
             raise ValueError("grader_integrity: 'verify' | 'off'")
         if grader_integrity == "verify" and environment_type != "docker":
@@ -120,7 +135,7 @@ class HarborInPlaceTask:
         self.dir = Path(task_dir).resolve()
         self.task = Task(self.dir)
         cfg = self.task.config
-        if not cfg.steps and resolve_task_verifier_mode(cfg) == VerifierEnvironmentMode.SEPARATE:
+        if not cfg.steps and not self.SEPARATE_OK and resolve_task_verifier_mode(cfg) == VerifierEnvironmentMode.SEPARATE:
             # Harbor grades it in a fresh container after the collect hooks, with only the declared artifacts; grading it in
             # the agent's container lets a plant score and a real solve fail (M11 audit H1 V2, G1 D4, G5)
             raise ValueError(f"{self.dir}: the verifier runs in a separate environment ([verifier].environment_mode = \"separate\"), "
@@ -141,9 +156,13 @@ class HarborInPlaceTask:
         if user:
             self.backend_params["user"] = user
         self.plan = self._network_plan()
-        phases = [x for x in (self.plan.agent_phase, self.plan.verifier_phase) if x != self.plan.agent_env_baseline]
+        phases = [x for x in self._declared_phases() if x != self.plan.agent_env_baseline]
         if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
             self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
+
+    def _declared_phases(self) -> tuple[Any, ...]:
+        """The network phases this container must be able to switch to (the agent's, and the verifier's in place)."""
+        return (self.plan.agent_phase, self.plan.verifier_phase)
 
     def _network_plan(self):
         from harbor.models.task.verifier_mode import resolve_task_verifier_mode
@@ -151,8 +170,74 @@ class HarborInPlaceTask:
         from harbor.models.trial.config import EnvironmentConfig as TrialEnvironmentConfig
         from harbor.trial.network_policy import resolve_trial_network_plan
 
-        return resolve_trial_network_plan(self.task.config, TrialAgentConfig(), TrialEnvironmentConfig(), None,
+        # no extra hosts: a bare TrialAgentConfig(), exactly as before. Extra hosts are the 0.24 API (trial/network_policy.py:
+        # 105-118); an older Harbor that refuses the field, or silently drops it, fails here rather than run the agent phase
+        # without the proxy host (M10 lab audit R-1)
+        try:
+            agent_cfg = TrialAgentConfig(**({"extra_allowed_hosts": list(self.agent_allowed_hosts)} if self.agent_allowed_hosts else {}))
+            if self.agent_allowed_hosts and getattr(agent_cfg, "extra_allowed_hosts", None) is None:
+                raise TypeError("TrialAgentConfig has no extra_allowed_hosts")
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{self.dir}: this Harbor ({_harbor_version()}) cannot admit agent-phase hosts {list(self.agent_allowed_hosts)}: "
+                             f"extra_allowed_hosts is the 0.24 API (trial/network_policy.py:105-118): {e}") from e
+        return resolve_trial_network_plan(self.task.config, agent_cfg, TrialEnvironmentConfig(), None,
                                           verifier_mode=resolve_task_verifier_mode(self.task.config))
+
+    # ---- the installed-agent harness's view of the task (M10 lab audit R-1) ---------------------------------------
+    def admits_agent_host(self, host: str | None) -> bool:
+        """Whether the agent phase lets the container reach ``host``: a public phase, or an allowlist naming it exactly
+        (a wildcard or CIDR entry is not matched here: the harness refuses rather than guess)."""
+        if not host:
+            return False
+        phase = self.plan.agent_phase
+        mode = getattr(phase.network_mode, "value", str(phase.network_mode))
+        if mode == "public":
+            return True
+        if mode != "allowlist":
+            return False
+        return host.strip().casefold() in {str(h).strip().casefold() for h in (phase.allowed_hosts or [])}
+
+    @property
+    def multi_step(self) -> bool:
+        """Whether task.toml declares ``[[steps]]``, whichever adapter loaded it. ``open`` then leaves every agent phase to
+        the per-step setup (``HarborMultiStepTask``), so a plain adapter on such a dir applies none; the harness refuses
+        it rather than run an installed agent under the baseline network (M10 lab audit R-1)."""
+        return bool(self.task.config.steps)
+
+    @property
+    def agent_user(self) -> str | int | None:
+        return self.task.config.agent.user
+
+    @property
+    def agent_timeout_s(self) -> float | None:
+        t = self.task.config.agent.timeout_sec
+        return float(t) if t else None
+
+    @staticmethod
+    def _logs_bound(world) -> bool:
+        """``/logs/{agent,verifier,artifacts}`` are bind-mounted to the trial dir only for a local Docker daemon
+        (``world_backend.provision``: not on a remote ``DOCKER_HOST`` or a non-Docker provider). Decided from Crucible's
+        own backend params, never from ``env.capabilities.mounted``: Harbor's Docker environment always declares True, so
+        on the lab nothing would ever be downloaded (M10 lab audit R-1). The backend copies a ``gpu_host``'s daemon into
+        ``params["docker_host"]`` at provision."""
+        params = getattr(world.backend, "params", None) or {}
+        return not (params.get("docker_host") or params.get("environment_type", "docker") != "docker")
+
+    async def agent_logs(self, world, *, fetch: bool = False) -> Path:
+        """The host directory of the agent's ``/logs/agent`` (an installed agent's ``logs_dir``). ``fetch``: bring it up to
+        date after the agent ran: downloaded when the dirs are not bound (the lab), as Harbor's trial does for non-mounted
+        environments (trial.py:669-690); when bound, Harbor's ``prepare_logs_for_host`` (chown) is run, best effort."""
+        tp = self._trial_paths(world)
+        env = world.backend.env
+        if fetch:
+            if self._logs_bound(world):
+                prep = getattr(env, "prepare_logs_for_host", None)
+                if prep is not None:
+                    with contextlib.suppress(Exception):
+                        await prep()
+            else:
+                await env.download_dir(str(self._env_paths().agent_dir), tp.agent_dir)
+        return tp.agent_dir
 
     def _world_network(self) -> tuple[str, list[str]]:
         base = self.plan.agent_env_baseline
@@ -181,16 +266,32 @@ class HarborInPlaceTask:
             doc["allowed_hosts"] = hosts
         return WorldSpec.model_validate(doc)
 
-    async def open(self, workdir: Path):
+    async def open(self, workdir: Path, *, before_agent: Callable[[Any], Awaitable[None]] | None = None):
+        """A started, reset, healthy World in the agent's network phase. ``before_agent(world)``: the installed-agent
+        harness's setup (M10 lab audit R-1). It runs under the World's baseline network (installs need it), before the
+        grader surface is captured (an install must not read as grader tampering) and before the restricted agent phase;
+        if it raises, the World is closed and the error propagates. Refused on a ``[[steps]]`` task before any container
+        starts: its agent phases are applied per step, never here, so the install would be followed by an agent run under
+        the baseline network (M10 lab audit R-1)."""
         from crucible.core.store import Store
         from crucible.world.world import World
 
+        if before_agent is not None and self.multi_step:
+            raise ValueError(f"{self.dir}: task.toml declares [[steps]], whose agent phases are applied per step "
+                             "(HarborMultiStepTask), which no installed-agent harness drives")
         workdir = Path(workdir)
         w = World(self.spec(workdir), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", backend="harbor",
                   backend_params=self.backend_params)
         await w.start()
         await w.reset()
         await self._healthcheck(w)
+        if before_agent is not None:
+            try:
+                await before_agent(w)
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    await w.close()
+                raise
         if self.grader_integrity == "verify":
             await self._capture_grader(w, workdir)
         if not self.task.config.steps:
@@ -448,6 +549,16 @@ class HarborInPlaceTask:
         return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=round(time.monotonic() - t0, 2), meta={"rewards": rewards, "components": comps, "flags": flags,
                                                                             "verifier": json.loads(result.model_dump_json())})
+
+
+def _harbor_version() -> str:
+    """The installed Harbor's version, named in errors about API differences (Crucible codes against 0.24)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("harbor")
+    except PackageNotFoundError:
+        return "absent"
 
 
 async def _host_reaches(hosts: list[str], timeout: float = 5.0) -> bool:

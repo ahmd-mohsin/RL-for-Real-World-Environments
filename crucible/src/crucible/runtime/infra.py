@@ -37,6 +37,14 @@ NORMALIZE = {
     # an App's seed copy failed (M14 campaign B3: a shared seed tarball was masked with unknown blame)
     "WorldSeedError": ("crucible:backend_error", "WorldSeedError"),
     "ApiInternalServerError": ("provider_unavailable", "ApiInternalServerError"), "ApiOverloadedError": ("provider_unavailable", "ApiOverloadedError"),
+    # M10 lab audit R-1: Harbor's agent-setup deadline (trial/errors.py:4) is the harness's install, never the policy's; a
+    # context or output overflow is a scored limit stop, as Crucible's own ContextOverflow is. Harbor's other regex classes
+    # (ApiRateLimitError, ApiUsageLimitError, ApiConnectionClosedError, AgentAuthenticationError, ModelNotFoundError,
+    # NetworkConnectionError, NonZeroAgentExitCodeError; agents/installed/base.py:34-170) are deliberately NOT mapped: they
+    # read the agent's own output, and a non-policy blame needs proxy or host evidence (``runtime.agent_evidence``).
+    # Unmapped, an evidence-free name stays unknown blame here
+    "AgentSetupTimeoutError": ("crucible:backend_error", "AgentSetupTimeoutError"),
+    "ContextWindowExceededError": ("agent_timeout", "context_overflow"), "OutputTokenExceededError": ("agent_timeout", "context_overflow"),
     # MiMo verl categories
     "setup/failed": ("crucible:backend_error", "mimo:setup/failed"), "rollout/pod_conn_timeout": ("transport_peer_drop", "mimo:pod_conn_timeout"),
     # M11 importers and clients (M11 audit G5 D10: these normalized to unmapped and counted toward the unknown-blame stop)

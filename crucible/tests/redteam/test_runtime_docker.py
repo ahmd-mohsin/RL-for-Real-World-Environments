@@ -144,3 +144,61 @@ async def test_imported_run_through_the_runner(image, tmp_path):
                    harnesses=[ImportedHarness({"import:fib-run1": tmp_path / "p.patch"})])
     s = await Runner(tmp_path / "runs").run(spec)
     assert (s.attempts, s.scored, s.mean_reward) == (1, 1, 1.0)
+
+
+# ---- M10 lab audit R-1: the installed-agent harness's process stop, in a real container
+
+
+def _stop_harness(tmp_path):
+    from crucible.connectors.capture_proxy import CaptureProxy
+    from crucible.interop.harbor.agent_harness import HarborAgentHarness
+
+    return HarborAgentHarness("mini-swe-agent", "2.4.6", model="openai/m", proxy=CaptureProxy(tmp_path / "cap"), proxy_url="http://10.1.2.3:8788",
+                              agent_factory=lambda **k: None, harbor_version="0.24.0")
+
+
+def _running(name: str) -> bool:
+    r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True, check=False)
+    return r.stdout.strip() == "true"
+
+
+def _alive(name: str, pattern: str) -> bool:
+    return subprocess.run(["docker", "exec", name, "pgrep", "-f", pattern], capture_output=True, check=False).returncode == 0
+
+
+def test_user_stop_spares_a_keep_alive_running_as_the_agent_user(image, tmp_path):
+    """A non-root agent user's stop kills a detached (setsid) agent process and spares the keep-alive the image's USER
+    runs under docker-init: the container keeps running (a bare ``pkill -u`` stopped it, graded the policy's 0)."""
+    from types import SimpleNamespace
+
+    name = f"crucible-rt-{uuid.uuid4().hex[:8]}"
+    subprocess.run(["docker", "run", "-d", "--rm", "--init", "--user", "nobody", "--name", name, image, "sleep", "600"], check=True, capture_output=True)
+    try:
+        subprocess.run(["docker", "exec", "-d", "-u", "nobody", name, "sh", "-c", "setsid sleep 900"], check=True, capture_output=True)
+        assert _alive(name, "sleep 900")
+        cmd = _stop_harness(tmp_path)._kill_command(SimpleNamespace(agent_user="nobody"))
+        r = subprocess.run(["docker", "exec", "-u", "root", name, "sh", "-c", cmd], capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        assert _running(name) and _alive(name, "sleep 600") and not _alive(name, "sleep 900"), r.stdout
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+
+
+def test_cohort_stop_kills_only_what_started_after_the_mark(image, tmp_path):
+    """A root agent's stop kills every process started since the phase mark (a detached one included) and spares PID 1
+    and everything older (the keep-alive): the container keeps running."""
+    from types import SimpleNamespace
+
+    from crucible.interop.harbor.agent_harness import _PHASE_MARK
+
+    name = container(image, init=True)
+    try:
+        mark = int(subprocess.run(["docker", "exec", name, "sh", "-c", _PHASE_MARK], capture_output=True, text=True, check=True).stdout.strip())
+        subprocess.run(["docker", "exec", "-d", name, "sh", "-c", "setsid sleep 900"], check=True, capture_output=True)
+        assert _alive(name, "sleep 900")
+        cmd = _stop_harness(tmp_path)._kill_command(SimpleNamespace(agent_user=None), mark)
+        r = subprocess.run(["docker", "exec", "-u", "root", name, "sh", "-c", cmd], capture_output=True, text=True, check=False)
+        assert r.returncode == 0 and "killed:" in r.stdout, r.stderr
+        assert _running(name) and _alive(name, "sleep 600") and not _alive(name, "sleep 900"), r.stdout
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)

@@ -8,8 +8,8 @@ every model call, World action and ``steps.jsonl`` row can be found from the oth
   ``extra.no_action``: before this, such calls had no ATIF step and the three sequences could not be joined.
   ``FinalMetrics`` totals the calls.
 - ``align`` sets ``StepRow.atif_step_id`` and ``call_id`` from the M5 steps' trace seqs.
-- ``cross_check`` compares the trajectory to an independent capture log (proxy records; OpenEnv's proxy-vs-ATIF
-  check): a mismatch is ``crucible:capture_incomplete`` (infra; masks a training rollout, ignored in evaluation).
+- the capture cross-check is ``interop.harbor.reconcile`` (an adapted OpenEnv port; M10 lab audit R-1: ``cross_check``
+  required equal call counts, and mini-swe-agent logs 5 of 6 calls in ATIF; it also had no caller).
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from typing import Any
 from harbor.models.trajectories import FinalMetrics, Metrics, Step, Trajectory
 
 from crucible.core.schema.reward import StepRow
-from crucible.core.schema.run import Failure
 from crucible.core.schema.trace import Trace
 from crucible.interop.harbor.atif import episode_to_atif
 
@@ -115,16 +114,3 @@ def align(rows: Sequence[StepRow], steps: Sequence[Any], traj: Trajectory) -> li
         out.append(r.model_copy(update={"atif_step_id": str(last.step_id) if last else None,
                                         "call_id": (last.extra or {}).get("call_id") if last else r.call_id}))
     return out
-
-
-def cross_check(traj: Trajectory, capture: Sequence[dict[str, Any]], *, tolerance: int = 0) -> Failure | None:
-    """Compare the ATIF trajectory's model calls with an independent capture (proxy) log: same number of calls, and
-    per call the same completion-token count (within ``tolerance``). ``capture`` rows: ``{completion_tokens}``."""
-    mine = [s for s in traj.steps if s.llm_call_count == 1]
-    if len(mine) != len(capture):
-        return Failure(kind="crucible:capture_incomplete", stage="collect", reason=f"trajectory has {len(mine)} model calls, capture has {len(capture)}")
-    for n, (s, c) in enumerate(zip(mine, capture, strict=True), 1):
-        a, b = (s.metrics.completion_tokens if s.metrics else None), c.get("completion_tokens")
-        if a is not None and b is not None and abs(a - b) > tolerance:
-            return Failure(kind="crucible:capture_incomplete", stage="collect", reason=f"call {n}: {a} completion tokens in the trajectory, {b} in the capture")
-    return None

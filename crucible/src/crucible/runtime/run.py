@@ -6,7 +6,9 @@ derived seed; each attempt ``<sample>-a<N>`` gets its own directory. Per attempt
 
 1. admission: ledger reservation (the harness's estimate); a denial is the budget stop rule;
 2. the harness runs the phases (seed -> agent -> verification -> cleanup) and returns a result;
-3. the record is built: a scored reward, a policy failure (scored 0), or a masked failure (``reward=None``);
+3. the record is built: a scored reward, a policy failure (scored 0), or a masked failure (``reward=None``); a training
+   rollout whose capture does not reconcile with the agent's ATIF (``interop.harbor.reconcile`` level fatal) is masked
+   ``crucible:capture_incomplete`` (M10 lab audit R-1);
 4. a masked failure is retried while its ``RetryRule`` allows (infra/harness/task blame only), with a fresh attempt.
 
 Stop rules, checked before every dispatch: budget exhaustion (dispatch halts; resumable after ``increase_limit``),
@@ -224,7 +226,8 @@ class Runner:
     async def regrade(self, spec: RunSpec, select=None, *, max_regrades: int = 2) -> RunSummary:
         """Re-grade terminal samples from their stored artifacts (Harbor's regrade pattern), e.g. after the node that
         contaminated their perf grades is quiet again. Default selection: masked at verification. Only harnesses with a
-        ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is."""
+        ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is. In train
+        mode a FATAL capture-vs-ATIF reconcile carried by the re-grade masks it as in ``_rollout`` (M10 lab audit R-1)."""
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
@@ -247,6 +250,7 @@ class Runner:
             journal.event("regrade", attempt=aid, source=src.name)
             hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
             rec = self._record(spec, sk, aid, task, policy, harness, hr)
+            self._reconcile_mask(spec, rec, hr)  # M10 lab audit R-1: no _rollout on this path; the re-attached FATAL reconcile masks as on a grade-only retry
             journal.finish(rec, terminal=True)  # the newest terminal row of a sample wins
             n_done += 1
         recs = journal.records()
@@ -256,11 +260,34 @@ class Runner:
                           coverage=round(coverage(recs, plan_n), 4), stopped=None, attempts=n_done, spend=ledger.summary(), by_failure={})
 
     @staticmethod
+    def _reconcile_mask(spec: RunSpec, rec: RunRecord, hr: HarnessResult) -> tuple[dict, dict] | None:
+        """The capture-vs-ATIF reconcile report and its first FATAL finding when ``hr.grade["reconcile"]`` is level fatal,
+        else None; in train mode a FATAL report masks an unmasked ``rec`` crucible:capture_incomplete (M10 lab audit R-1).
+        Shared by ``_rollout`` and ``regrade``: a re-grade re-attaches the source attempt's report, and ``Runner.regrade``
+        never reaches ``_rollout``, so it scored a sample whose grade had been masked (and so never reconcile-masked)."""
+        rc = hr.grade.get("reconcile")
+        if not isinstance(rc, dict) or rc.get("level") != "fatal":
+            return None
+        fatal = next((f for f in rc.get("findings") or [] if isinstance(f, dict) and f.get("level") == "fatal"), None) or {}
+        if spec.rollout_mode == "train" and not rec.mask_sample:
+            # M10 lab audit R-1: two independent measurements of the rollout (the proxy's calls, the agent's ATIF) disagree
+            # and nothing says which is wrong; training on it is what the reconcile exists to prevent (OpenEnv
+            # atif.py:232-240). Eval keeps the grade and meta.reconcile. Unknown blame, never retried: the ATIF is derived
+            # from files the policy can write, so a policy that learns to break it stops the run through the 5%
+            # unknown-blame rule instead of being re-run until it reconciles (survivorship); subagent runs stop loudly too.
+            rec.mark_failure(Failure(kind="crucible:capture_incomplete", stage="collect", blame="unknown", retryable=False, detail="reconcile_fatal",
+                                     reason=f"capture reconcile {rc.get('code')}: {fatal.get('detail') or ''}"[:500]))
+        return rc, fatal
+
+    @staticmethod
     def _rollout(spec: RunSpec, sk: SampleKey, rec: RunRecord, hr: HarnessResult, adir: Path) -> None:
-        """Write ``rollout.json`` (crucible.rollout/v1). In train mode an incomplete token record masks the attempt."""
+        """Write ``rollout.json`` (crucible.rollout/v1). In train mode an incomplete token record masks the attempt, and so
+        does a FATAL capture-vs-ATIF reconcile (``hr.grade["reconcile"]``, M10 lab audit R-1); in eval the report is only
+        recorded (``meta.reconcile``) and flagged on the rollout (``reconcile_fatal``)."""
         from crucible.core.registry import load_impl
         from crucible.runtime.record import build
 
+        got = Runner._reconcile_mask(spec, rec, hr)  # marked before build, so rollout.json is masked as well
         parse = load_impl("crucible.interop.harbor.atif:parse_trajectory")  # ATIF models are Harbor's: an interop concern
         trajs = {a: parse((adir / f).read_text()) for k, f in hr.artifacts.items()
                  if k.startswith("trajectory.") and (a := k.split(".", 1)[1]) and (adir / f).exists()}
@@ -268,6 +295,9 @@ class Runner:
         ro = build(rec, calls=hr.calls, trajectories=trajs, sampling=spec.sampling, group=f"{sk.task}|{sk.harness}", mode=spec.rollout_mode,
                    progress=prog if prog.exists() else None, segments=hr.segments)
         ro.flags = list(hr.flags)
+        if got is not None:  # a rollout-level flag in both modes: datasets never take an uncorroborated rollout as a positive
+            rc, fatal = got
+            ro.flags.append({"rule": "reconcile_fatal", "category": "capture_integrity", "code": rc.get("code"), "evidence": str(fatal.get("detail") or "")[:300]})
         for t in ro.turns:
             t.format_errors = int(hr.format_errors.get(t.call_id, 0))
         if hr.flags:
@@ -287,6 +317,11 @@ class Runner:
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
                               **({"seat_rewards": hr.grade["seat_rewards"]} if hr.grade.get("seat_rewards") else {}),
+                              # M10 lab audit R-1: an external agent's identity (agent, config digest, Harbor version) travels on
+                              # every record, its evidence (upstream verdict) and the capture-vs-ATIF reconcile report on every
+                              # record whose agent phase ran
+                              **({"agent": hr.grade["agent"]} if hr.grade.get("agent") else {}),
+                              **({"reconcile": hr.grade["reconcile"]} if hr.grade.get("reconcile") else {}),
                               **({"trajectory_tokens": hr.trajectory_tokens} if hr.trajectory_tokens else {})})
         if hr.failure is not None:
             rec.mark_failure(hr.failure)
