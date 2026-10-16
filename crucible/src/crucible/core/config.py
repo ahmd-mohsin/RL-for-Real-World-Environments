@@ -219,18 +219,26 @@ def resolve_secret(value: str, *, search_from: Path | None = None) -> str:
 
 
 def _dotenv(start: Path) -> dict[str, str]:
-    """The nearest ``.env`` from ``start`` up, parsed with python-dotenv's grammar (R-29; vendored in
+    """The nearest ``.env`` from ``start`` up to the root of its git work tree (``start`` alone outside a repository),
+    else ``~/.config/crucible/.env``; parsed with python-dotenv's grammar (R-29; vendored in
     ``crucible._vendor.dotenv_parser``, BSD-3-Clause): quotes, escapes, ``export`` and inline comments as python-dotenv
-    reads them, no interpolation. The parser here split at the first ``=``, so ``KEY=sk-...  # note`` kept the comment in
-    the key and every call failed 401. A later binding of a key wins, as in python-dotenv; a line it cannot parse is
-    skipped."""
+    reads them, no interpolation. A later binding of a key wins, as in python-dotenv; a line it cannot parse is skipped.
+
+    The search used to walk up to ``/`` with no check, so a job in ``/tmp/job`` took its keys from another user's
+    ``/tmp/.env`` (M0 audit 2026-10-16 R-5; PATTERN: OpenEnv ``auto/_discovery.py`` reads only files the user owns,
+    BSD-3-Clause; mini-swe-agent reads ``.env`` from its user directory, MIT). It now stops where the project file's
+    search stops, and a ``.env`` that another user owns or anyone may write raises ConfigError."""
     import io
 
     from crucible._vendor.dotenv_parser import parse_stream
 
-    for d in [start, *start.resolve().parents]:
+    for d in [*_project_dirs(start), user_config_path().parent]:
         f = d / ".env"
         if f.is_file():
+            st = f.stat()
+            if (hasattr(os, "getuid") and st.st_uid != os.getuid()) or st.st_mode & 0o002:
+                raise ConfigError(f"{f} is not used for secrets: it belongs to another user or anyone may write it; make it yours "
+                                  "and not world-writable (chmod 600), or remove it")
             return {b.key: b.value for b in parse_stream(io.StringIO(f.read_text(encoding="utf-8"))) if b.key and b.value is not None and not b.error}
     return {}
 
@@ -250,13 +258,21 @@ def user_config_path() -> Path:
     return Path.home() / ".config" / "crucible" / "crucible.toml"
 
 
+def _project_dirs(cwd: Path) -> list[Path]:
+    """``cwd`` and its parents up to the root of its git work tree; ``cwd`` alone outside a repository."""
+    here = Path(cwd).resolve()
+    chain = [here, *here.parents]
+    top = next((i for i, d in enumerate(chain) if (d / ".git").exists()), None)
+    return chain[: top + 1] if top is not None else chain[:1]
+
+
 def project_config_path(cwd: Path | None = None) -> Path | None:
     """The project file for ``cwd``: the nearest ``crucible.toml`` from ``cwd`` up to the root of its git work tree
     (``cwd`` alone outside a repository). Raises ConfigError for a ``crucible.toml`` beyond that, above ``cwd``."""
     here = Path(cwd or Path.cwd()).resolve()
     chain = [here, *here.parents]
-    top = next((i for i, d in enumerate(chain) if (d / ".git").exists()), None)
-    inside = chain[: top + 1] if top is not None else chain[:1]
+    inside = _project_dirs(here)
+    top = len(inside) - 1 if (inside[-1] / ".git").exists() else None
     for d in inside:
         if (d / "crucible.toml").is_file():
             return d / "crucible.toml"

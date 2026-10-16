@@ -892,3 +892,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `test_an_existing_store_root_keeps_its_mode`, which asserted the old rule. Store, tag, conformance, trace-store and
   core-audit suites: 210 passed.
 - **Merge notes.** Code that expected a store root's mode to be left alone (none found) now sees 0700.
+
+## 40. A16-R5: the `.env` search is bounded and owner-checked
+
+- **Item.** A16-R5 (new: R-29, entry 33, changed only the parser). PATTERN from OpenEnv `auto/_discovery.py:340-449`
+  (only files the user owns, BSD-3-Clause) and mini-swe-agent `src/minisweagent/__init__.py:26-36` (`.env` from the
+  user directory, MIT); no code taken.
+- **Files.** `src/crucible/core/config.py` (`_dotenv`; new `_project_dirs`, shared with `project_config_path`),
+  `tests/unit/test_dotenv.py`.
+- **Public names.** none.
+- **Behaviour.** An `env:NAME` missing from the environment is read from the nearest `.env` between the working
+  directory and the root of its git work tree (the working directory alone outside a repository), else from
+  `~/.config/crucible/.env`. A `.env` there that another user owns or that is world-writable raises `ConfigError`
+  naming it. Before, the search walked up to `/` unchecked: a job in `/tmp/job` took its keys from another user's
+  `/tmp/.env`. Group-writable files are accepted (Linux's default umask 002 makes them).
+- **Formats.** none.
+- **Tests.** `test_dot_env_search_stops_at_the_repository_and_skips_other_users_files` (fails on the previous code).
+  Config, dotenv, provider and core-audit suites: 124 passed.
+- **Merge notes.** A `.env` kept above the repository's root (no case in this workspace) moves into the repository or
+  `~/.config/crucible/.env`.
