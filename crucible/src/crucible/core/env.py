@@ -45,7 +45,7 @@ class Knob:
 
 KNOBS: dict[str, Knob] = {k.name: k for k in [
     # ---- user: set by whoever runs Crucible
-    Knob("CRUCIBLE_CONFIG", "path", None, "the crucible.toml to use instead of searching upward from the working directory"),
+    Knob("CRUCIBLE_CONFIG", "path", None, "the one crucible.toml to use instead of the user file and the project file (core.config layers)"),
     Knob("CRUCIBLE_DATA", "path", None, "studio explorer's data root when crucible.toml sets none (default ./data)"),
     Knob("CRUCIBLE_DATA_ROOTS", "paths", (), "extra directories a pack may read data from (os.pathsep-separated)"),
     Knob("CRUCIBLE_LLM_CACHE", "choice", "record", "LLM response cache: record (read and write), replay (a miss is an error), off",

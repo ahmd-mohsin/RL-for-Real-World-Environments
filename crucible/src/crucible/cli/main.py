@@ -125,10 +125,24 @@ class CrucibleGroup(click.Group):
 
 @click.group(cls=CrucibleGroup)
 @click.option("--verbose", is_flag=True, help="show tracebacks for user errors")
+@click.option("--set", "sets", multiple=True, metavar="KEY=VALUE", help="override a crucible.toml setting (dotted key, TOML value); the top layer")
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, sets: tuple[str, ...]) -> None:
     """Crucible: workflow traces -> dense-reward RL environments, tasks, datasets and benchmarks."""
     ctx.obj = {"verbose": verbose}
+    if sets:
+        from crucible.core.config import set_overrides
+
+        set_overrides(list(sets))
+
+
+@cli.command("config")
+def config_cmd() -> None:
+    """Show the configuration in use: the layers read (lowest first) and the merged settings, secrets masked."""
+    from crucible.core.config import get_config
+
+    cfg = get_config()
+    click.echo(json.dumps({"sources": cfg.sources, "config": {k: v for k, v in cfg.redacted().items() if k != "sources"}}, indent=1, default=str))
 
 
 @cli.command()

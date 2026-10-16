@@ -21,7 +21,7 @@ The typed contracts every other module is written against. It contains no domain
 | `ids.py` | Harbor-compatible directory hash; tree-manifest hash used for state fingerprints |
 | `prov.py` | `Provenance` (created_by, derived_from, params) |
 | `registry.py` | Lazy `module:Class` registry (agentenv pattern); plugins register through the `crucible.plugins` entry-point group |
-| `config.py` | `crucible.toml` discovery; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
+| `config.py` | layered `crucible.toml` (defaults < user `~/.config/crucible` < project, never above its repository < `--set`; or `$CRUCIBLE_CONFIG` alone), operator-only settings a project file cannot override (provider endpoints and credentials, GPU hosts, raising the budget), `Config.sources` / `crucible config`; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
 | `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index (versioned migrations), tags moved by compare-and-set on a revision with an append-only history (`tag(name, key, expect=rev)`, `TagConflict`, `tag_info`, `tag_history`). Interfaces `BlobStore` / `DocIndex` (`store/protocols.py`, `Store.backend = "local"`), verified reads (`get_bytes`, `open_blob`, `export`, `verified_path`), a conformance kit any backend passes (`store/conformance.py`) |
 
 ## Audit (2026-10-12)

@@ -1,7 +1,18 @@
 """Configuration (``crucible.toml``) with secret references.
 
-Discovery order: ``$CRUCIBLE_CONFIG``; ``./crucible.toml``; the nearest ``crucible.toml`` walking up
-from the working directory; ``~/.config/crucible/crucible.toml``; built-in defaults.
+Layers (M0 audit 2026-10-14 R-23; PATTERN: Prime Agent ``pa-core/src/settings/manager.rs`` keeps security settings
+global, MIT), each over the one before: built-in defaults; the user file ``~/.config/crucible/crucible.toml``; the
+project file, ``./crucible.toml`` or the nearest one walking up from the working directory, never past the root of the
+git work tree it is in (only ``./crucible.toml`` outside a repository); ``--set KEY=VALUE`` (``set_overrides``). Tables
+merge key by key, so a project file no longer hides the user's prices and GPU hosts. ``$CRUCIBLE_CONFIG`` names the one
+file to use instead of the user and project files (the operator's explicit choice).
+
+The first file found used to win, so a ``crucible.toml`` in a parent directory could send the user's API key to its own
+``base_url`` and raise the budget from 1.0 to 500.0. Now a ``crucible.toml`` above the working directory outside its
+repository is refused, and the operator-only settings (``OPERATOR_ONLY``: where a provider's requests and credentials go,
+where code runs, the spending cap) are decided by the operator's layers: a project file sets them only where the user
+file says nothing, and may lower the budget but never raise it. ``Config.sources`` names every layer that was read
+(``crucible config`` prints them).
 
 Secrets never live in the file (agentenv rule): a value ``"env:NAME"`` is read from the process
 environment, falling back to the nearest ``.env`` file. Resolved secrets are never logged or
@@ -10,6 +21,7 @@ serialized; ``Config.redacted()`` shows the references instead.
 
 from __future__ import annotations
 
+import copy
 import os
 import tomllib
 from functools import lru_cache
@@ -97,6 +109,7 @@ class Config(CrucibleModel):
     llm_budget_usd: float = 1.0  # default hard cap per LLMClient instance
     backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
     root: str | None = None  # directory the config was loaded from (set by loader)
+    sources: list[str] = Field(default_factory=list)  # every layer read, lowest first: "user:<path>", "project:<path>", "set:<key>" (set by loader)
 
     @field_validator("prices")
     @classmethod
@@ -178,26 +191,122 @@ def _dotenv(start: Path) -> dict[str, str]:
     return {}
 
 
-def _discover() -> Path | None:
-    from crucible.core import env as knobs
+class ConfigError(ValueError):
+    """A configuration file the layering refuses: one above the working directory outside its repository, or a project
+    file overriding an operator-only setting."""
 
-    if (path := knobs.get("CRUCIBLE_CONFIG")) is not None:
-        return path
-    for d in [Path.cwd(), *Path.cwd().resolve().parents]:
+
+# Settings only the operator's layers decide (the user file, $CRUCIBLE_CONFIG, --set): where a provider's requests and
+# credentials go, where code runs, how much one client may spend. Globs over dotpaths (``core.fingerprint``).
+OPERATOR_ONLY = ("llm_providers.*.base_url", "llm_providers.*.api_key", "llm_providers.*.headers", "gpu_hosts", "llm_budget_usd")
+_OVERRIDES: dict[str, Any] = {}
+
+
+def user_config_path() -> Path:
+    return Path.home() / ".config" / "crucible" / "crucible.toml"
+
+
+def project_config_path(cwd: Path | None = None) -> Path | None:
+    """The project file for ``cwd``: the nearest ``crucible.toml`` from ``cwd`` up to the root of its git work tree
+    (``cwd`` alone outside a repository). Raises ConfigError for a ``crucible.toml`` beyond that, above ``cwd``."""
+    here = Path(cwd or Path.cwd()).resolve()
+    chain = [here, *here.parents]
+    top = next((i for i, d in enumerate(chain) if (d / ".git").exists()), None)
+    inside = chain[: top + 1] if top is not None else chain[:1]
+    for d in inside:
         if (d / "crucible.toml").is_file():
             return d / "crucible.toml"
-    home = Path.home() / ".config" / "crucible" / "crucible.toml"
-    return home if home.is_file() else None
+    for d in chain[len(inside):]:
+        f = d / "crucible.toml"
+        if f.is_file():
+            where = f"outside its repository ({chain[top]})" if top is not None else "and it is not in a repository"
+            raise ConfigError(f"{f} lies above {here} {where}: a configuration file found there is not used, since it would decide "
+                              "where API keys go and how much may be spent. Point CRUCIBLE_CONFIG at it, or move its settings to "
+                              f"{user_config_path()}")
+    return None
+
+
+def _merge(base: dict[str, Any], top: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in top.items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else copy.deepcopy(v)
+    return out
+
+
+def _check_project(project: dict[str, Any], below: dict[str, Any], path: Path) -> None:
+    """Refuse a project file that overrides an operator-only setting the layers below it decide, or raises the budget."""
+    from crucible.core.fingerprint import excluded, flatten
+
+    have = {".".join(k): v for k, v in flatten(below).items()}
+    for parts, value in flatten(project).items():
+        key = ".".join(parts)
+        if not excluded(parts, OPERATOR_ONLY):
+            continue
+        if key == "llm_budget_usd":
+            cap = below.get("llm_budget_usd", Config.model_fields["llm_budget_usd"].default)
+            if isinstance(value, (int, float)) and value > cap:
+                raise ConfigError(f"{path} raises llm_budget_usd from {cap} to {value}: a project file may lower the spending cap, never "
+                                  f"raise it; set it in {user_config_path()} or pass --set llm_budget_usd={value}")
+        elif key in have and have[key] != value:
+            raise ConfigError(f"{path} overrides {key}, which the user configuration sets: where requests, credentials and code go "
+                              "is the operator's to decide; remove it from the project file or change it in the user file")
+
+
+def set_overrides(pairs: list[str] | tuple[str, ...]) -> None:
+    """``--set KEY=VALUE`` (a dotted key, a TOML value; a bare word is a string): the top layer. Clears the cache."""
+    out: dict[str, Any] = {}
+    for pair in pairs:
+        key, sep, raw = pair.partition("=")
+        if not sep or not key.strip():
+            raise ConfigError(f"--set takes KEY=VALUE, not {pair!r}")
+        try:
+            value = tomllib.loads(f"v = {raw.strip()}")["v"]
+        except tomllib.TOMLDecodeError:
+            value = raw.strip()
+        node = out
+        *parents, leaf = key.strip().split(".")
+        for p in parents:
+            node = node.setdefault(p, {})
+        node[leaf] = value
+    _OVERRIDES.clear()
+    _OVERRIDES.update(out)
+    reset_config()
+
+
+def load_config(cwd: Path | None = None) -> Config:
+    """The layered configuration for ``cwd`` (see the module doc)."""
+    from crucible.core import env as knobs
+    from crucible.core.fingerprint import flatten
+
+    data: dict[str, Any] = {}
+    sources: list[str] = []
+    root: Path | None = None
+    explicit = knobs.get("CRUCIBLE_CONFIG")
+    if explicit is not None:
+        files = [("explicit", Path(explicit))]
+    else:
+        user, project = user_config_path(), project_config_path(cwd)
+        files = [*([("user", user)] if user.is_file() else []),
+                 *([("project", project)] if project is not None and (not user.is_file() or not project.samefile(user)) else [])]
+    for kind, path in files:
+        doc = tomllib.loads(path.read_text())
+        doc.pop("sources", None)
+        doc.pop("root", None)
+        if kind == "project":
+            _check_project(doc, data, path)
+        data = _merge(data, doc)
+        sources.append(f"{kind}:{path.resolve()}")
+        root = path.parent.resolve()
+    if _OVERRIDES:
+        data = _merge(data, _OVERRIDES)
+        sources += [f"set:{'.'.join(k)}" for k in flatten(_OVERRIDES)]
+    data["root"], data["sources"] = str(root or Path(cwd or Path.cwd()).resolve()), sources
+    return Config.model_validate(data)
 
 
 @lru_cache(maxsize=1)
 def get_config() -> Config:
-    path = _discover()
-    if path is None:
-        return Config(root=str(Path.cwd()))
-    data = tomllib.loads(path.read_text())
-    data["root"] = str(path.parent.resolve())
-    return Config.model_validate(data)
+    return load_config()
 
 
 def reset_config() -> None:

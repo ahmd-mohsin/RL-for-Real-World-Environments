@@ -637,3 +637,37 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   store, custody and runtime suites: 192 passed, 3 skipped.
 - **Merge notes.** New code reading a stored blob uses `get_bytes` / `open_blob` / `export` / `verified_path`, never
   `blob_path` (a test fails otherwise).
+
+## 27. R-23: layered crucible.toml with a per-key scope policy
+
+- **Item.** R-23 (carry-over IMP-M0-7; merges PRIME-C4, H4, NG-9, AE-12). PATTERN from Prime Agent
+  `pa-core/src/settings/manager.rs:587-600` (MIT); THIRD_PARTY.md row added. Decisions: `$CRUCIBLE_CONFIG` stays the one
+  file used (the operator's explicit choice, as before); a project file may set operator-only settings where the user
+  file is silent (this repository's own `crucible.toml` defines the OpenRouter provider and the lab GPU host), may lower
+  the budget, never raise it; a parent file is refused with an error, not ignored.
+- **Files.** `src/crucible/core/config.py` (`load_config`, `project_config_path`, `user_config_path`, `OPERATOR_ONLY`,
+  `ConfigError`, `set_overrides`, `Config.sources`; `_discover` removed), `src/crucible/cli/main.py` (root `--set
+  KEY=VALUE`, `crucible config`), `src/crucible/core/env.py` (the `CRUCIBLE_CONFIG` description),
+  `tests/unit/test_config_layers.py` (new), `docs/modules/M00-core.md`, `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.config.{load_config, project_config_path, user_config_path, set_overrides,
+  ConfigError, OPERATOR_ONLY}`, `Config.sources`; CLI `crucible --set KEY=VALUE ...`, `crucible config`.
+- **Behaviour.**
+  - Layers, each over the one before: defaults, the user file, the project file (the nearest `crucible.toml` from the
+    working directory up to the root of its git work tree; only `./crucible.toml` outside a repository), `--set`.
+    Tables merge key by key: the user's prices and GPU hosts survive a project file (they were all dropped: the first
+    file found won).
+  - A `crucible.toml` above the working directory outside its repository raises `ConfigError` naming it and the remedy
+    (`CRUCIBLE_CONFIG`, or the user file). Before, it was used, and could send the user's key to its own `base_url`.
+  - Operator-only settings (`llm_providers.*.base_url`, `.api_key`, `.headers`, `gpu_hosts`, `llm_budget_usd`): a project
+    file that changes one the user file sets, or raises the budget above the layers below it (default 1.0), is refused.
+  - `Config.sources` lists the layers read (`user:`, `project:`, `explicit:`, `set:<key>`); `crucible config` prints them
+    with the merged, redacted settings. `root` is the directory of the last file read.
+- **Formats.** none (`crucible.toml` keys unchanged).
+- **Tests.** `test_config_layers.py` (7): parent files refused in and out of a repository, the repository's file found
+  from a subdirectory; user and project merge; the audit's redirect, a budget raise and a GPU-host override refused; a
+  project may lower the budget and add its own provider; `--set` on top and `CRUCIBLE_CONFIG` alone. Config, CLI, core,
+  env, secret and LLM suites: 142 passed.
+- **Merge notes.** A `crucible.toml` kept in a parent directory outside a repository must move to
+  `~/.config/crucible/crucible.toml` or be named by `CRUCIBLE_CONFIG`. Code that called `core.config._discover` uses
+  `project_config_path` / `load_config`. A project that set a higher `llm_budget_usd` must set it in the user file or
+  with `--set`.
