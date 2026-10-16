@@ -911,3 +911,20 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   Config, dotenv, provider and core-audit suites: 124 passed.
 - **Merge notes.** A `.env` kept above the repository's root (no case in this workspace) moves into the repository or
   `~/.config/crucible/.env`.
+
+## 41. A16-R6: a refused setting never echoes its value
+
+- **Item.** A16-R6 (new, continues R-8, entry 9). DEPEND on pydantic's `hide_input_in_errors`; PATTERN from Harbor
+  `models/asp.py:12-13` (credential models hide their inputs, Apache-2.0).
+- **Files.** `src/crucible/core/config.py` (`LLMProvider`, `GpuHost` and `Config` set `hide_input_in_errors`; new
+  `_validated` used by `load_config`), `tests/unit/test_config_layers.py`, `tests/unit/test_provider_settings.py`.
+- **Public names.** none.
+- **Behaviour.** A configuration the models refuse raises `ConfigError` naming the layers read (`project:<path>`, ...)
+  and each refused setting with the reason, never the value. Before, the pydantic error carried `input_value=` with the
+  whole value: `crucible config` printed a prefixless literal key in full (the scrubber cannot know it) and named no
+  file. Constructing the models directly still raises `ValidationError`, now without the input.
+- **Formats.** none.
+- **Tests.** `test_a_refused_setting_never_echoes_its_value`; `test_provider_settings_refuse_credentials` now checks the
+  whole message. Config, dotenv, provider, core and core-audit suites: 142 passed.
+- **Merge notes.** `load_config` raises `ConfigError` (a `ValueError`) where it raised `ValidationError`; no caller
+  caught the latter.

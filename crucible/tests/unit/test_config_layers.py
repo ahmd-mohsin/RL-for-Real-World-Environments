@@ -121,3 +121,21 @@ def test_a_project_file_may_restate_the_operators_pairings(tmp_path, home):
     set_overrides(['llm_providers.mine.base_url="https://mine.example/v1"', 'llm_providers.mine.api_key="env:MINE"'])
     cfg = load_config(_repo(tmp_path / "b", '[models]\nx = "mine:m"\n'))  # --set is an operator layer
     assert cfg.model("x")[0].base_url == "https://mine.example/v1"
+
+
+def test_a_refused_setting_never_echoes_its_value(tmp_path, home):
+    """M0 audit 2026-10-16 R-6: the error printed a prefixless literal key in full and named no file."""
+    from pydantic import ValidationError
+
+    from crucible.core.config import LLMProvider
+
+    key = "gw7f3c9d2e1b0a8f6c5d4"
+    repo = _repo(tmp_path, f'[llm_providers.gw]\nbase_url = "https://openrouter.ai/api/v1"\napi_key = "{key}"\n'
+                           f'[llm_providers.gw.headers]\nAuthorization = "Bearer {key}"\n')
+    with pytest.raises(ConfigError) as e:
+        load_config(repo)
+    assert key not in str(e.value) and str(repo / "crucible.toml") in str(e.value)
+    assert "llm_providers.gw.api_key" in str(e.value) and "llm_providers.gw.headers" in str(e.value)
+    with pytest.raises(ValidationError) as e:
+        LLMProvider(base_url="http://h", api_key=key)
+    assert key not in str(e.value)

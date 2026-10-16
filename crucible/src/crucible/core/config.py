@@ -37,7 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import ConfigDict, Field, ValidationError, field_validator
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.core.secrets import register_secret
@@ -58,6 +58,9 @@ class LLMProvider(CrucibleModel):
     ``api_key`` is ``env:NAME`` or a placeholder, and a header whose name looks secret (``Authorization``,
     ``X-Api-Key``, ``Cookie``) has an ``env:NAME`` value holding the whole header value. A dump of the config then
     carries names, never keys, and ``resolved_headers`` registers what it reads with the scrubber."""
+
+    # a refused value is never echoed: a prefixless literal key is not something the scrubber knows (A16-R6)
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     base_url: str
     api_key: str = ""  # "env:NAME", or a placeholder in KEY_PLACEHOLDERS
@@ -126,6 +129,8 @@ class LLMProvider(CrucibleModel):
 
 
 class GpuHost(CrucibleModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     ssh: str  # user@host
     docker_host: str | None = None  # e.g. ssh://user@host ; default derived from ssh
     gpu_arch: str | None = None
@@ -133,6 +138,8 @@ class GpuHost(CrucibleModel):
 
 
 class Config(CrucibleModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     data_dir: str = "data"
     llm_providers: dict[str, LLMProvider] = Field(
         default_factory=lambda: {
@@ -406,10 +413,21 @@ def load_config(cwd: Path | None = None) -> Config:
         operator = _merge(operator, _OVERRIDES)
         sources += [f"set:{'.'.join(k)}" for k in flatten(_OVERRIDES)]
     data["root"], data["sources"] = str(root or Path(cwd or Path.cwd()).resolve()), sources
-    cfg = Config.model_validate(data)
+    cfg = _validated(data, sources)
     if project_path is not None:
-        _check_credentials(cfg, Config.model_validate(operator), project_path)
+        _check_credentials(cfg, _validated(operator, sources), project_path)
     return cfg
+
+
+def _validated(data: dict[str, Any], sources: list[str]) -> Config:
+    """``Config`` from merged layers; a refusal names the layers read and each setting, never the value it held (A16-R6;
+    PATTERN: Harbor ``models/asp.py`` hides inputs on its credential models, Apache-2.0). The pydantic error printed the
+    whole refused value, so ``crucible config`` showed a prefixless literal key in full and named no file."""
+    try:
+        return Config.model_validate(data)
+    except ValidationError as e:
+        lines = [f"  {'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors(include_input=False, include_url=False)]
+        raise ConfigError(f"invalid configuration ({', '.join(sources) or 'built-in defaults'}):\n" + "\n".join(lines)) from None
 
 
 @lru_cache(maxsize=1)

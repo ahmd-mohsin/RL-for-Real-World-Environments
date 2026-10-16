@@ -23,7 +23,7 @@ from crucible.core.config import LLMProvider
 def test_provider_settings_refuse_credentials(settings, field):
     with pytest.raises(ValidationError, match=field.replace(".", r"\.")) as e:
         LLMProvider.model_validate({"base_url": "http://127.0.0.1:8000/v1", **settings})
-    assert "attacker" not in str(e.value).split("input_value")[0]  # the message names the setting, not its value
+    assert "attacker" not in str(e.value) and "gw4f9a2c" not in str(e.value)  # the setting is named, never its value (A16-R6)
 
 
 def test_engine_settings_stay_allowed():
