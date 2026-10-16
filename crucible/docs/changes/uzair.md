@@ -691,3 +691,17 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   settled on open; 1.5 s of racing forgets and puts end with every row's blob present. Store, tag, connector, accept,
   world and content-id suites: 243 passed.
 - **Merge notes.** `put_doc` now takes the index's write lock for its rows (it was an implicit transaction already).
+
+## 29. R-25: every directory the store creates is synced into its parent
+
+- **Item.** R-25 (new; SW-7). PORT from Karotte `durable_write.py:10-35` (MIT, `LICENSES/MIT-karotte.txt` already
+  shipped); THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/store/__init__.py` (`_mkdir_durable`, used for the root, `blobs/`, `staging/`, each new
+  `blobs/<ab>/` and a settled blob's directory), `tests/unit/test_store_durable.py` (new), `THIRD_PARTY.md`.
+- **Behaviour.** A new `blobs/<ab>/` is fsynced into `blobs/` before its first blob is renamed in (only the blob's own
+  directory was synced, so after a power loss the directory, and the blob indexed in it, could be gone). The store root's
+  entry is synced when it is created. An existing directory costs nothing extra.
+- **Formats.** none.
+- **Tests.** `test_store_durable.py` (1): a recording `_fsync_dir` sees the root, `blobs/` and the new shard synced, and
+  no `blobs/` sync for a put into an existing shard. Store suites: pass.
+- **Merge notes.** none.

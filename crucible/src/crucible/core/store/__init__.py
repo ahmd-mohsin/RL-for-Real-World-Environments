@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import itertools
 import json
 import os
 import sqlite3
@@ -82,6 +83,17 @@ def _fsync_dir(path: Path) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+
+def _mkdir_durable(directory: Path) -> None:
+    """``mkdir -p`` whose new entries survive a power loss (R-25; PORT of Karotte ``durable_write.write_durably``, MIT,
+    ``LICENSES/MIT-karotte.txt``): a directory's own fsync does not cover its entry in its parent, so the parent of every
+    directory created here is synced too. Without it a new ``blobs/<ab>/`` could vanish after a crash while the index
+    row naming a blob inside it survived."""
+    created = list(itertools.takewhile(lambda d: not d.exists(), [directory, *directory.parents]))
+    directory.mkdir(parents=True, exist_ok=True)
+    for parent in dict.fromkeys(d.parent for d in reversed(created)):
+        _fsync_dir(parent)
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:
@@ -209,13 +221,14 @@ def _make_private_root(root: Path) -> None:
     the umask default (0755) lets every user on a shared host read them (R-6; PATTERN: agentenv
     ``store/local_state.py:ensure_state_dir``, Apache-2.0). A root that already exists is left as it is: it may be shared
     on purpose."""
-    root.parent.mkdir(parents=True, exist_ok=True)
+    _mkdir_durable(root.parent)
     try:
         root.mkdir(mode=0o700)
     except FileExistsError:
         if root.is_dir():
             return
         raise
+    _fsync_dir(root.parent)  # the new root's entry (R-25)
     (root / ".gitignore").write_text("*\n")
 
 
@@ -225,8 +238,8 @@ class Store:
     def __init__(self, root: str | Path):
         self.root = Path(root)
         _make_private_root(self.root)
-        (self.root / "blobs").mkdir(parents=True, exist_ok=True)
-        (self.root / _STAGING).mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(self.root / "blobs")
+        _mkdir_durable(self.root / _STAGING)
         _sweep(self.root)
         self._lock = threading.Lock()
         index = self.root / "index.sqlite"
@@ -254,8 +267,9 @@ class Store:
                 used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
                 target = self._blob_path(key)
                 if used and not target.exists():
-                    target.parent.mkdir(parents=True, exist_ok=True)
+                    _mkdir_durable(target.parent)
                     os.replace(f, target)
+                    _fsync_dir(target.parent)
                 else:
                     f.chmod(0o600)
                     f.unlink()
@@ -299,7 +313,7 @@ class Store:
                 return key
             with contextlib.suppress(OSError):
                 path.chmod(0o644)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(path.parent)  # a new blobs/<ab>/ is synced into blobs/ (R-25)
         os.chmod(staged, 0o444)
         os.replace(staged, path)
         _fsync_dir(path.parent)
