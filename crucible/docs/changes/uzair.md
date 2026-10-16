@@ -788,3 +788,15 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** Core, task-digest, state-adapter and licence suites: 39 passed.
 - **Merge notes.** Code calling `crucible.core.ids.manifest_hash` uses `tree_digest` (a directory) or Harbor's hash (a
   Harbor task).
+
+## 35. R-31: the unread `Config.backends` table is gone
+
+- **Item.** R-31 (new; AE-10). The audit cites agentenv `config/describe.py:261-290` (warns on unread keys); dropping the
+  field restores `extra="forbid"` for that table instead, so no code is taken and there is no THIRD_PARTY.md row.
+- **Files.** `src/crucible/core/config.py` (`Config.backends` removed), `tests/unit/test_config_backends.py` (new).
+- **Behaviour.** A `[backends]` table in a `crucible.toml` (e.g. `[backends.harbor] docker_host = ...`) is refused by
+  name; before it was accepted and read by nothing. Docker hosts belong to `[gpu_hosts.<name>]`.
+- **Formats.** `crucible.toml`: the `backends` key is no longer valid.
+- **Tests.** `test_config_backends.py` (1). Config and core suites: 25 passed; `crucible config` loads this repository's
+  file.
+- **Merge notes.** A configuration that set `[backends]` must drop it (it never had an effect).

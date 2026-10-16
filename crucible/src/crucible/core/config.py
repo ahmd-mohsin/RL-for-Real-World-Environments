@@ -107,7 +107,6 @@ class Config(CrucibleModel):
     # write]; a cache price left out is the input price (R-19)
     prices: dict[str, list[float]] = Field(default_factory=dict)
     llm_budget_usd: float = 1.0  # default hard cap per LLMClient instance
-    backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
     root: str | None = None  # directory the config was loaded from (set by loader)
     sources: list[str] = Field(default_factory=list)  # every layer read, lowest first: "user:<path>", "project:<path>", "set:<key>" (set by loader)
 
