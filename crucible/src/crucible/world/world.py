@@ -963,7 +963,11 @@ class World:
         return sha256_text(json.dumps(body, sort_keys=True, separators=(",", ":")))
 
     async def restore(self, ref: WorldRef) -> None:
-        if ref.world != self.spec_hash:
+        try:
+            same = self.spec.matches_id(ref.world)  # by the scheme the ref's id was made with (R-21), not today's
+        except ValueError as e:
+            raise WorldError(f"WorldRef names its world by {ref.world[:20]!r}: {e}") from e
+        if not same:
             raise WorldError(f"WorldRef belongs to world {ref.world[:12]}, not {self.spec_hash[:12]}")
         missing = set(self.apps) ^ set(ref.apps)
         if missing:

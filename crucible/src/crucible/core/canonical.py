@@ -59,6 +59,14 @@ def dumps(obj: Any) -> str:
     return json.dumps(normalize(obj), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+# The serialization each content-id scheme hashed (R-21). An entry is never changed: when canonical JSON must change, the
+# old ``dumps`` is kept here under its scheme, a new one is added, and ``core.ids.HASH_SCHEME`` names it.
+SCHEMES: dict[int, Any] = {}
+
+
 def dumps_stored(obj: Any) -> str:
     """The JSON a store keeps: sorted and compact like ``dumps``, floats as ``dumps`` checks them, strings as given."""
     return json.dumps(_form(obj, False), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
+SCHEMES[1] = dumps

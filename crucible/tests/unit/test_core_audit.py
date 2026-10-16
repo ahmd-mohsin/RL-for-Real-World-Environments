@@ -259,7 +259,8 @@ def test_golden_content_hashes_do_not_drift():
     pin = Path(__file__).with_name("golden_hashes.json")
     got = {k: classes[c].model_validate(v).content_hash() for k, (c, v) in GOLDEN.items()}
     want = json.loads(pin.read_text())
-    assert got == want, "content hashes drifted: bump HASH_SCHEME and regenerate tests/unit/golden_hashes.json"
+    assert got == want, ("content hashes drifted: keep the old serialization in core.canonical.SCHEMES under its scheme, add the new one, "
+                         "bump core.ids.HASH_SCHEME (new ids become c<n>:<hex>, old ones still match) and regenerate tests/unit/golden_hashes.json")
 
 
 # ------------------------------------------------------------------------------------------------ D15: store hygiene

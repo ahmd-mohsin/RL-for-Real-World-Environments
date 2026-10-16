@@ -594,3 +594,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   passed.
 - **Merge notes.** Code that expected `get_doc` to return NFC text must normalize itself. A document key equals
   `"sha256:" + content_hash()` only for NFC text.
+
+## 25. R-21: content ids name the scheme that made them
+
+- **Item.** R-21 (carry-over AUD-D13, SCOUT-4; merges AE-7, NG-5, SW-2, TC-8). PATTERN from agentenv
+  `bundle/ledger.py:144-157` (Apache-2.0); THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/ids.py` (`format_content_id`, `parse_content_id`), `src/crucible/core/canonical.py`
+  (`SCHEMES`: the serialization each scheme hashed, `{1: dumps}`), `src/crucible/core/schema/base.py` (`content_hash`
+  through `SCHEMES[HASH_SCHEME]`, `matches_id`), `src/crucible/world/world.py` (`restore` checks the ref's world id by its
+  own scheme), `tests/unit/test_content_ids.py` (new), `tests/unit/test_core_audit.py` (the golden test's remedy).
+- **Public names.** `crucible.core.ids.{format_content_id, parse_content_id}`, `crucible.core.canonical.SCHEMES`,
+  `CrucibleModel.matches_id(content_id)`.
+- **Behaviour.** Every id made so far is scheme 1 and unchanged (the bare hex digest). A later scheme n writes
+  `c<n>:<hex>`; `matches_id` recomputes an id under the scheme it names, so after a bump a stored WorldRef still
+  restores (before, `HASH_SCHEME` entered no hash: the golden test's remedy "bump HASH_SCHEME" changed nothing and any
+  canonical change broke `World.restore` of every stored ref). An id of an unknown scheme is refused by name. The
+  golden test now says what to do: keep the old serialization in `SCHEMES`, add the new one, bump `HASH_SCHEME`.
+- **Formats.** none today (scheme 1 ids are what they were).
+- **Tests.** `test_content_ids.py` (2): id forms and refusals; a WorldRef from before a simulated scheme bump restores
+  into a world whose id is `c2:...`, a wrong id is refused. World, core, runtime and format suites: 199 passed.
+- **Merge notes.** Code that compares a stored content id with `x.content_hash()` should use `x.matches_id(stored)`.
+  Changing `core.canonical.dumps` now means registering a new scheme (the golden test fails until then).

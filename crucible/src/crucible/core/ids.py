@@ -21,6 +21,25 @@ HASH_PREFIX = "sha256:"
 # Bump on purpose when that changes; ``tests/unit/golden_hashes.json`` pins the ids of reference documents.
 HASH_SCHEME = 1
 
+# Content ids name their scheme (M0 audit 2026-10-14 R-21; PATTERN: agentenv ``bundle/ledger.py`` hashes its scheme with
+# the inputs, Apache-2.0). An id of scheme 1 is the bare hex digest, as every id made so far; a later scheme n writes
+# ``c<n>:<hex>``. Ids are embedded in stored documents (a WorldRef names its world by one), so a reader recomputes an
+# id under the scheme the id names (``CrucibleModel.matches_id``), never under today's: a scheme bump then leaves old
+# references valid instead of breaking every restore.
+_CONTENT_ID = re.compile(r"(?:c([1-9][0-9]{0,3}):)?([0-9a-f]{64})")
+
+
+def format_content_id(hex_digest: str, scheme: int) -> str:
+    return hex_digest if scheme == 1 else f"c{scheme}:{hex_digest}"
+
+
+def parse_content_id(content_id: str) -> tuple[int, str]:
+    """(scheme, hex digest) of a content id; ValueError for anything else (``c1:`` is not written: scheme 1 is bare)."""
+    m = _CONTENT_ID.fullmatch(content_id) if isinstance(content_id, str) else None
+    if m is None or m.group(1) == "1":
+        raise ValueError(f"not a content id: {content_id!r} (64 hex digits, or c<scheme>:<64 hex digits>)")
+    return int(m.group(1) or 1), m.group(2)
+
 # Id rules, PORT of agentenv ``store/ids.py:validate_local_id`` (Apache-2.0): letters, digits and marks of any script,
 # a fixed punctuation set, no invisible characters, no detached combining marks, no empty / "." / ".." segments, and
 # bounded bytes (a filesystem component holds at most 255 bytes).
