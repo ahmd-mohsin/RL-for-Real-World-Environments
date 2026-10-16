@@ -928,3 +928,19 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   whole message. Config, dotenv, provider, core and core-audit suites: 142 passed.
 - **Merge notes.** `load_config` raises `ConfigError` (a `ValueError`) where it raised `ValidationError`; no caller
   caught the latter.
+
+## 42. A16-R8: two distributions with one entry-point name both load
+
+- **Item.** A16-R8 (carry-over SCOUT16-4; corrects R-13, entry 17, whose port dropped the grouping by distribution).
+  PATTERN from agentenv `plugins/_discovery.py:32-42` (claims grouped by distribution, Apache-2.0); no code taken.
+  A16-R7 (old run records without a version) is not implemented: the audit found no such records anywhere.
+- **Files.** `src/crucible/core/registry.py` (`Registry.load_plugins`), `tests/unit/test_core_audit.py`.
+- **Public names.** none. `Registry.failures` keys a plugin as `<entry point> (<dist>==<version>)` when two
+  distributions share its entry-point name; otherwise by the name alone, as before.
+- **Behaviour.** Before, staging was keyed by the entry-point name: two packs that both exposed `pack` shared one slot,
+  the first one's registrations vanished, `failures` stayed `{}` and `crucible registry --check` exited 0. Now both
+  load; a name both claim is still withheld and reported under each distribution.
+- **Formats.** none.
+- **Tests.** `test_two_distributions_with_one_entry_point_name_both_load` (fails on the previous code). Registry, core
+  and core-audit suites: 119 passed; `crucible registry --check`: 0 broken, 0 failed plugins.
+- **Merge notes.** none.

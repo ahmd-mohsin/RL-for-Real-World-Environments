@@ -158,25 +158,33 @@ class Registry:
         the result does not depend on install order. Each ``register(registry)`` runs against a ``_Staged`` recorder: one
         that raises adds nothing. A name two plugins claim is withheld from both, and a built-in name from any plugin;
         each is recorded in ``failures`` (the plugin's other names still load). Merged entries carry the installed
-        distribution as ``source`` (``name==version``). A later lookup names every failure instead of "known: none"."""
+        distribution as ``source`` (``name==version``). A later lookup names every failure instead of "known: none".
+
+        A plugin is its entry point's name, qualified by its distribution when two distributions use one name
+        (``pack (crucible-pack-a==0.1)``): an entry-point name is only a hook label, and two packs that both expose
+        ``pack`` used to share one staging slot, so one vanished with no failure recorded and ``--check`` passed (M0
+        audit 2026-10-16 R-8; PATTERN: agentenv ``plugins/_discovery.py`` groups claims by distribution, Apache-2.0)."""
         if self._plugins_loaded:
             return
         self._plugins_loaded = True
+        eps = sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda e: (e.name, _dist_label(e) or ""))
+        shared = {n for n in (e.name for e in eps) if sum(e.name == n for e in eps) > 1}
         staged: dict[str, _Staged] = {}
-        for ep in sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda e: (e.name, _dist_label(e) or "")):
+        for i, ep in enumerate(eps):
+            pid = f"{ep.name} ({_dist_label(ep) or f'#{i}'})" if ep.name in shared else ep.name
             rec = _Staged(source=_dist_label(ep) or f"plugin:{ep.name}")
             if (why := _incompatible_core(ep)) is not None:  # R-14: refused before anything of it is imported
-                self.failures[ep.name] = f"incompatible core: {why}"
-                logger.warning("crucible plugin %s skipped: it %s", ep.name, why)
+                self.failures[pid] = f"incompatible core: {why}"
+                logger.warning("crucible plugin %s skipped: it %s", pid, why)
                 continue
             try:
                 fn: Callable[[Any], None] = ep.load()
                 fn(rec)
             except Exception as e:  # noqa: BLE001 - a broken plugin must not take the core down
-                self.failures[ep.name] = f"{type(e).__name__}: {e}"[:500]
-                logger.warning("crucible plugin %s failed to load: %s", ep.name, e)
+                self.failures[pid] = f"{type(e).__name__}: {e}"[:500]
+                logger.warning("crucible plugin %s failed to load: %s", pid, e)
                 continue
-            staged[ep.name] = rec
+            staged[pid] = rec
         claimants: dict[tuple[str, str], list[str]] = {}
         for ep_name, rec in staged.items():
             for kind, name, _ in rec.claims:

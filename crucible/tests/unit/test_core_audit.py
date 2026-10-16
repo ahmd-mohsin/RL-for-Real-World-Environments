@@ -701,6 +701,19 @@ def test_a_contested_name_is_withheld_whatever_the_install_order(monkeypatch, or
         reg.get("grader", "shared")
 
 
+def test_two_distributions_with_one_entry_point_name_both_load(monkeypatch):
+    """M0 audit 2026-10-16 R-8: staging was keyed by the entry-point name, so one of two packs exposing ``pack`` vanished
+    with no failure recorded."""
+    a, b = _FakeEP("pack", lambda r: r.register("grader", "from_a", "a:G")), _FakeEP("pack", lambda r: r.register("grader", "from_b", "b:G"))
+    a.dist, b.dist = _FakeDist("crucible-pack-a"), _FakeDist("crucible-pack-b")
+    reg = _plugins(monkeypatch, a, b)
+    assert reg.has("grader", "from_a") and reg.has("grader", "from_b") and reg.failures == {}
+    c = _FakeEP("pack", lambda r: r.register("grader", "from_a", "c:G"))
+    c.dist = _FakeDist("crucible-pack-c")
+    reg = _plugins(monkeypatch, a, c)  # a real clash is still withheld, and reported under each distribution
+    assert not reg.has("grader", "from_a") and set(reg.failures) == {"pack (crucible-pack-a==1.0)", "pack (crucible-pack-c==1.0)"}
+
+
 def test_a_plugin_cannot_take_a_built_in_name(monkeypatch):
     reg = Registry()
     reg.declare_kind("grader", "these tests")
