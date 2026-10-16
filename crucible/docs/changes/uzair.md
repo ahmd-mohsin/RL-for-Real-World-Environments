@@ -705,3 +705,20 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_store_durable.py` (1): a recording `_fsync_dir` sees the root, `blobs/` and the new shard synced, and
   no `blobs/` sync for a put into an existing shard. Store suites: pass.
 - **Merge notes.** none.
+
+## 30. R-26: media types are canonical and agree with the media's kind
+
+- **Item.** R-26 (new; H9). PORT from Harbor `models/trajectories/content.py:10-44` (Apache-2.0, `LICENSES/Apache-2.0.txt`);
+  THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/schema/actions.py` (`MIME_ALIASES`, `canonical_mime`; `MediaRef` and `ImageRef`
+  validate), `src/crucible/actors/policy.py` (`media_parts`: the audio format from the canonical type),
+  `tests/unit/test_media_mime.py` (new), `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.schema.actions.{MIME_ALIASES, canonical_mime}`.
+- **Behaviour.** A `MediaRef` type is lower-cased, its parameters dropped and its aliases resolved (`audio/wave` ->
+  `audio/wav`, `audio/mp3` -> `audio/mpeg`, `image/jpg` -> `image/jpeg`), and its major type must equal the kind; an
+  `ImageRef` must be an image type. Before, an image tagged `audio/wav` went out as an `image_url` part, and `audio/wave`
+  as the provider audio format `wave`. `image/*` (a remote URL of unknown type) is kept.
+- **Formats.** none (stored media types from producers already canonical read unchanged; an alias reads normalized).
+- **Tests.** `test_media_mime.py` (11): six spellings normalized, four disagreements refused, audio formats `wav`/`mp3`.
+  Suites using images or audio: 162 passed, the known `test_agentenv_mcp_env` failure.
+- **Merge notes.** A producer that tagged media with a type of another kind now fails validation.

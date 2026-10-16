@@ -116,7 +116,7 @@ def media_parts(text: str, media: list[Any] | None, *, vision: bool, audio: bool
         if m.kind == "image" and vision and (m.data_b64 or m.url):
             parts.append({"type": "image_url", "image_url": {"url": m.url or f"data:{m.mime};base64,{m.data_b64}"}})
         elif m.kind == "audio" and audio and m.data_b64:
-            fmt = m.mime.split("/")[-1].replace("mpeg", "mp3").replace("x-wav", "wav")
+            fmt = {"audio/mpeg": "mp3", "audio/wav": "wav"}.get(m.mime, m.mime.split("/")[-1])  # canonical types (R-26)
             parts.append({"type": "input_audio", "input_audio": {"data": m.data_b64, "format": fmt}})
         else:
             why = "this model receives text only" if not (vision if m.kind == "image" else audio) else "no data available"
