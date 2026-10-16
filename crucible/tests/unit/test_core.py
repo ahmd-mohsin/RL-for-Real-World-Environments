@@ -154,6 +154,7 @@ def test_store_blobs_docs_tags(tmp_path):
 
 def test_registry_lazy_and_duplicates():
     r = Registry()
+    r.declare_kind("thing", "this test")
     r.register("thing", "a", "json:dumps")
     assert r.get("thing", "a") is json.dumps
     with pytest.raises(RegistryError, match="already registered"):

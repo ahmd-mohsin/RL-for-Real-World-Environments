@@ -667,6 +667,7 @@ def _beta(reg):
 def _plugins(monkeypatch, *eps):
     monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: list(eps))
     reg = Registry()
+    reg.declare_kind("grader", "these tests")
     reg.load_plugins()
     return reg
 
@@ -689,6 +690,7 @@ def test_a_contested_name_is_withheld_whatever_the_install_order(monkeypatch, or
 
 def test_a_plugin_cannot_take_a_built_in_name(monkeypatch):
     reg = Registry()
+    reg.declare_kind("grader", "these tests")
     reg.register("grader", "exact", "core:Exact")
     monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [_FakeEP("p", lambda r: r.register("grader", "exact", "p:X", replace=True))])
     reg.load_plugins()
@@ -711,6 +713,7 @@ def test_check_separates_broken_pointers_from_missing_optional_dependencies(tmp_
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
     reg = Registry()
+    reg.declare_kind("grader", "these tests")
     reg.register("grader", "fine", "crucible.core.ids:validate_id")
     reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
     reg.register("grader", "gone", "crucible.core.no_such_module:X")
@@ -727,6 +730,7 @@ def test_registry_check_exits_1_on_a_broken_pointer(monkeypatch):
 
     monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
     reg = Registry()
+    reg.declare_kind("grader", "these tests")
     reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
     monkeypatch.setattr("crucible.core.registry.get_registry", lambda: reg)
     r = CliRunner().invoke(cli, ["registry", "--check"])

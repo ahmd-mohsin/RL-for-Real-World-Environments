@@ -5,9 +5,11 @@ every pluggable thing is identified by a ``type`` string and constructed from a 
 pointer, resolved lazily so the core never imports a backend, a pack or a framework until it is
 used. Duplicate registrations fail loudly at registration time, as in agentenv.
 
-Kinds used so far: ``state_adapter``, ``app_template``, ``world_backend``, ``actor``,
-``record_source``, ``transport``, ``pack``. Packs and interop modules register through the
-``crucible.plugins`` entry-point group: each entry point is a callable ``register(registry)``.
+Kinds are declared in ``KINDS`` (M0 audit 2026-10-14 R-28; PATTERN: OpenEnv ``validation/graders/__init__.py`` refuses
+names it does not list, BSD-3-Clause): registering, reading or listing an undeclared kind raises. Before, any kind
+registered, so a pack registering ``segmentor`` (a misspelling of the ``segmenter`` that ``workflow.steps`` reads) was
+accepted and never used. Packs and interop modules register through the ``crucible.plugins`` entry-point group: each
+entry point is a callable ``register(registry)``.
 """
 
 from __future__ import annotations
@@ -22,6 +24,22 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "crucible.plugins"
+
+# Every registry kind and who reads it. A new kind is added here (or ``Registry.declare_kind``) with its reader.
+KINDS: dict[str, str] = {
+    "state_adapter": "an App's state adapter (world.state): snapshot, diff, restore",
+    "app_template": "an App template (world.apps): its tools and state",
+    "world_backend": "where a World runs (local, harbor, agentenv)",
+    "actor": "a simulated or scripted actor (actors)",
+    "transport": "how an App's tools are served (inprocess, mcp)",
+    "pack": "a domain pack's manifest (core.pack)",
+    "connector": "a trace connector (connectors.base)",
+    "signal_mapper": "maps a source's events to expert signals (signals)",
+    "outcome_labeler": "labels a trace's outcome (signals)",
+    "ci_runner": "runs a pack's CI checks for a task (packs)",
+    "segmenter": "a trace family's step segmenter (workflow.steps.segmenter_for)",
+    "replayer": "a trace family's replayer (workflow.replay)",
+}
 
 
 class RegistryError(RuntimeError):
@@ -62,11 +80,25 @@ class _Entry:
 @dataclass
 class Registry:
     _kinds: dict[str, dict[str, _Entry]] = field(default_factory=dict)
+    kinds: dict[str, str] = field(default_factory=lambda: dict(KINDS))  # the declared kinds (R-28)
     _plugins_loaded: bool = False
     # entry point name -> why it did not load (agentenv ``plugins/_registration.py:merge`` records every skip the same way)
     failures: dict[str, str] = field(default_factory=dict)
 
+    def declare_kind(self, kind: str, reader: str) -> None:
+        """Declare a registry kind and what reads it (core code that adds a kind; tests of the mechanism)."""
+        if not kind.isidentifier():
+            raise RegistryError(f"a registry kind is an identifier, not {kind!r}")
+        self.kinds.setdefault(kind, reader)
+
+    def _declared(self, kind: str) -> None:
+        if kind not in self.kinds:
+            near = [k for k in self.kinds if k[:4] == kind[:4]]
+            hint = f" (did you mean {', '.join(near)}?)" if near else ""
+            raise RegistryError(f"unknown registry kind {kind!r}{hint}; declared kinds: {', '.join(sorted(self.kinds))}")
+
     def register(self, kind: str, name: str, impl: str | Any, *, source: str = "builtin", replace: bool = False) -> None:
+        self._declared(kind)
         table = self._kinds.setdefault(kind, {})
         if name in table and not replace:
             prev = table[name]
@@ -74,6 +106,7 @@ class Registry:
         table[name] = _Entry(pointer=impl if isinstance(impl, str) else None, obj=None if isinstance(impl, str) else impl, source=source)
 
     def get(self, kind: str, name: str) -> Any:
+        self._declared(kind)
         self.load_plugins()
         table = self._kinds.get(kind, {})
         if name not in table:
@@ -83,10 +116,12 @@ class Registry:
         return table[name].resolve()
 
     def has(self, kind: str, name: str) -> bool:
+        self._declared(kind)
         self.load_plugins()
         return name in self._kinds.get(kind, {})
 
     def names(self, kind: str) -> list[str]:
+        self._declared(kind)
         self.load_plugins()
         return sorted(self._kinds.get(kind, {}))
 
@@ -149,7 +184,9 @@ class Registry:
         for ep_name, rec in staged.items():
             refused = []
             for kind, name, impl in rec.claims:
-                if len(owners := claimants[(kind, name)]) > 1:
+                if kind not in self.kinds:  # R-28: a misspelled kind is refused by name, never registered unused
+                    refused.append(f"{kind} {name!r}: unknown registry kind (declared: {', '.join(sorted(self.kinds))})")
+                elif len(owners := claimants[(kind, name)]) > 1:
                     refused.append(f"{kind} {name!r} withheld: also claimed by {', '.join(staged[o].source for o in owners if o != ep_name)}")
                 elif name in self._kinds.get(kind, {}):
                     refused.append(f"{kind} {name!r} is built in ({self._kinds[kind][name].source})")

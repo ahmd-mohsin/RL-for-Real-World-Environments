@@ -737,3 +737,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_failure_kinds.py` (10): eight malformed names refused, a well-formed one registers, an unknown read
   logs once. Core, runtime, run-lock, task-digest, usage and format suites: 222 passed. No pack registers a kind today.
 - **Merge notes.** A pack kind starting with a digit or underscore must be renamed.
+
+## 32. R-28: registry kinds are declared
+
+- **Item.** R-28 (new; C4; corrects `core/registry.py:8-9`, whose list of kinds was out of date). PATTERN from OpenEnv
+  `validation/graders/__init__.py:91-111` (BSD-3-Clause); THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/registry.py` (`KINDS`, `Registry.kinds`, `declare_kind`, `_declared` in `register`, `get`,
+  `has`, `names`; the plugin merge refuses an undeclared kind), `tests/unit/test_registry_kinds.py` (new),
+  `tests/unit/test_core.py`, `tests/unit/test_core_audit.py` (their mechanism tests declare `thing` / `grader`),
+  `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.registry.KINDS`, `Registry.declare_kind(kind, reader)`, `Registry.kinds`.
+- **Behaviour.** Twelve kinds are declared, each with its reader (`segmenter` and `replayer`, read by `workflow`, were
+  never declared or registered). Registering, reading or listing another kind raises `RegistryError` naming it, a near
+  declared kind and the list; a plugin claiming one has that claim refused and reported in `failures` (its other
+  claims register). Before, any kind registered: `segmentor` was accepted and never read.
+- **Formats.** none.
+- **Tests.** `test_registry_kinds.py` (3): a misspelled kind refused with the hint; a plugin's undeclared claim refused
+  and reported; a scan of `src/` and `packs/` finds every kind used declared, and every installed pack loads without an
+  unknown kind. `crucible registry --check`: 0 broken, 0 failed plugins. The 98 non-training suites that touch the
+  registry, workflow, segmenting, replay or connectors: 1189 passed, 4 failures that fail at HEAD too (entry 19).
+- **Merge notes.** A new registry kind must be added to `KINDS` (with its reader); tests of the registry mechanism use
+  `declare_kind`.
