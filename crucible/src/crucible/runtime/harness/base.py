@@ -8,6 +8,7 @@ artifacts and timings. Harnesses never decide masking themselves beyond classify
 
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -16,6 +17,7 @@ from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.core.schema.run import Failure
+from crucible.core.schema.usage import UsageTotals
 from crucible.runtime.keys import SampleKey
 
 
@@ -49,6 +51,16 @@ class HarnessResult(CrucibleModel):
     format_errors: dict[str, int] = Field(default_factory=dict)  # model call id -> malformed tool calls it issued (m13 C-8)
     segments: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)  # actor -> context-compaction segments
     trajectory_tokens: dict[str, int] = Field(default_factory=dict)  # actor -> tokens that entered its context, before compaction
+    usage: UsageTotals | None = None  # the attempt's own model calls summed, with coverage (R-19); None: none of its own known
+    model_s: float | None = None  # their summed latency: the part of the agent stage spent waiting on the model (R-19)
+
+
+def settle_usage(res: HarnessResult, calls: Mapping[str, Iterable[Mapping[str, Any]]], exclude: Collection[str] = ()) -> None:
+    """The usage and model time of the attempt's own calls (R-19): never those restored from a checkpoint (``exclude``,
+    paid by an earlier attempt) nor, from a re-grade or re-collect, those inherited from the attempt that ran the agent."""
+    own = [c for cs in calls.values() for c in cs or [] if c.get("call_id") not in exclude]
+    res.usage = UsageTotals.of(own)
+    res.model_s = round(sum(float(c.get("latency_s") or 0.0) for c in own if not c.get("cached")), 3)
 
 
 class Harness(Protocol):

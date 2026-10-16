@@ -16,6 +16,7 @@ The typed contracts every other module is written against. It contains no domain
 | `schema/milestone.py` | Milestone checks as adapter Queries + expectations, prerequisite DAG (cycle check) |
 | `schema/reward.py` | `reward.json` (a failed gate forces 0) and `steps.jsonl` rows; NeMo-Gym-style `reward_components()` |
 | `schema/run.py` | `RunRecord` and failure kinds: NeMo-Gym's shared vocabulary verbatim, plus `crucible:*` incident kinds. Infrastructure failures are masked |
+| `schema/usage.py` | `Usage` (one call's tokens, disjoint: uncached input, cache reads, cache writes, output; every provider's shape reads to the same numbers), `UsageTotals` (an attempt's live calls with coverage; replays apart), `FinishReason`, `Timing` (per stage, with the model's share of the agent stage) |
 | `schema/task.py` | `crucible.task/v1`, `crucible.card/v1` (provenance + value proof), `HarborTaskSummary` |
 | `ids.py` | Harbor-compatible directory hash; tree-manifest hash used for state fingerprints |
 | `prov.py` | `Provenance` (created_by, derived_from, params) |

@@ -15,11 +15,12 @@ from __future__ import annotations
 from itertools import pairwise
 from typing import Any, ClassVar, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from crucible.core.schema.base import CrucibleModel, SchemaKeyed
+from crucible.core.schema.usage import FinishReason, finish_reason
 
-SCHEMA = "crucible.rollout/v1.1"  # v1.1 (R-3): Turn.sampling is typed (SamplingParams), what the call sent
+SCHEMA = "crucible.rollout/v1.1"  # v1.1: Turn.sampling is typed (SamplingParams, R-3), Turn.finish a FinishReason (R-19)
 
 # Request keys that are not sampling parameters: everything else a call sent is recorded (typed, or in ``extra``).
 NOT_SAMPLING = frozenset({"model", "messages", "tools", "tool_choice", "response_format", "stream", "stream_options", "extra_headers",
@@ -102,7 +103,7 @@ class Turn(CrucibleModel):
     # run-length spans [start_completion_token, version], covering every completion token, in order. Absent = one version.
     version_spans: list[tuple[int, int]] | None = None
     sampling: SamplingParams = Field(default_factory=SamplingParams)  # what the call sent (R-3)
-    finish: str | None = None
+    finish: FinishReason | None = None  # why the call ended; a provider's own word is read through finish_reason (R-19)
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
     candidates: list[list[int]] | None = None  # per completion token, the top-p nucleus it was sampled from (checklist #37)
     advantage: float | None = None  # per-turn credit from steps.jsonl (M6), attached to this call's tokens
@@ -124,6 +125,13 @@ class Turn(CrucibleModel):
     # is ``trainable=False``: recorded, never trained, exempt from the token-record checks
     model: str | None = None
     trainable: bool = True
+
+    @field_validator("finish", mode="before")
+    @classmethod
+    def _finish(cls, v: Any) -> Any:
+        """A provider's or engine's word (``end_turn``, ``max_tokens``, ``completed``), as v1 records hold it: normalized;
+        a word no vocabulary knows reads as not stated."""
+        return finish_reason(v)
 
     def node(self) -> bool:
         """A stand-alone sequence (a tree node), never a link of an agent's linear chain: an RLM sub-LLM call, or a

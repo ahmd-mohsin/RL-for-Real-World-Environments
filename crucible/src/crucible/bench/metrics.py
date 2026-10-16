@@ -42,6 +42,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.core.schema.usage import Timing, UsageTotals
 from crucible.credit.operators.branch_value import wilson
 
 EXPOSED_KINDS = frozenset({"crucible:answer_exposed"})
@@ -78,8 +79,12 @@ class Episode:
     attempts: int = 1  # attempts with a record (masked retries included); 0 for an owed sample never dispatched
     aborted_attempts: int = 0  # attempts that left no record (process death): spend unknown
     cost_uncertain_usd: float = 0.0
-    tokens_in: int = 0
+    tokens_in: int = 0  # live prompt tokens, cached or not (R-19)
     tokens_out: int = 0
+    tokens_cached: int = 0  # the part of tokens_in read from the provider's prompt cache
+    tokens_replayed: int = 0  # tokens of calls answered from the record/replay cache: not in tokens_in/out
+    model_calls: int = 0  # live model calls
+    calls_reported: int = 0  # live model calls whose usage was reported (the rest: estimated or unknown)
     latency_s: float | None = None  # wall time of the graded (terminal) attempt
     phi0: float | None = None  # Φ of the start state (meta.progress.phi0), H1 V2
     peer_messages: int = 0  # messages from one policy actor to another (P28 communication cost)
@@ -137,37 +142,36 @@ def _attempt_n(attempt: str | None) -> int:
     return int(tail) if tail.isdigit() else 1
 
 
-def _usage(calls: Any) -> tuple[int, int]:
-    tin = tout = 0
-    if isinstance(calls, dict):
-        for cs in calls.values():
-            for c in cs or []:
-                u = (c or {}).get("usage") or {}
-                tin += int(u.get("prompt_tokens") or u.get("input_tokens") or 0)
-                tout += int(u.get("completion_tokens") or u.get("output_tokens") or 0)
-    return tin, tout
+def _attempt_usage(adir: Path, rec: Any) -> UsageTotals:
+    """The attempt's token usage (R-19): its record's ``meta.usage``, else (records before R-19) its ``calls.json`` summed,
+    with replayed calls apart. ``RunRecord.tokens`` is never read: no producer filled it, and summing its keys by guess
+    counted cache fields as input."""
+    u = (rec.meta or {}).get("usage")
+    if u:
+        return UsageTotals.model_validate(u)
+    calls = _json(adir / "calls.json")
+    return UsageTotals.of(calls) if isinstance(calls, dict) else UsageTotals()
+
+
+_TOKEN_STATS = ("tokens_in", "tokens_out", "tokens_cached", "tokens_replayed", "model_calls", "calls_reported")
 
 
 def _attempt_stats(adir: Path, rec: Any) -> dict[str, Any]:
     """Spend, tokens and wall time of one attempt (its own record and model calls)."""
-    timings = (rec.meta or {}).get("timings") or {}
-    tin, tout = _usage(_json(adir / "calls.json"))
-    rt = rec.tokens or {}
-    if rt and not (tin or tout):
-        tin = int(rt.get("prompt") or rt.get("input") or rt.get("prompt_tokens") or 0)
-        tout = int(rt.get("completion") or rt.get("output") or rt.get("completion_tokens") or 0)
-        if not (tin or tout):
-            tin = int(sum(v for v in rt.values() if isinstance(v, (int, float))))
-    gpu = (rec.meta or {}).get("gpu_s")
-    return {"usd": float(rec.cost_usd or 0.0), "usd_uncertain": float(rec.cost_uncertain_usd or 0.0), "tokens_in": tin, "tokens_out": tout,
-            "wall_s": float(sum(v for v in timings.values() if isinstance(v, (int, float)))), "gpu_s": None if gpu is None else float(gpu)}
+    m = rec.meta or {}
+    timing = Timing.model_validate(m["timing"]) if m.get("timing") else Timing.from_stages(m.get("timings") or {})
+    u = _attempt_usage(adir, rec)
+    gpu = m.get("gpu_s")
+    return {"usd": float(rec.cost_usd or 0.0), "usd_uncertain": float(rec.cost_uncertain_usd or 0.0), "tokens_in": u.prompt_tokens,
+            "tokens_out": u.completion_tokens, "tokens_cached": u.cache_read_tokens, "tokens_replayed": u.replayed_tokens, "model_calls": u.calls,
+            "calls_reported": u.reported, "wall_s": timing.wall_s, "gpu_s": None if gpu is None else float(gpu)}
 
 
 def _sum_stats(stats: Sequence[dict[str, Any]]) -> dict[str, Any]:
     gpus = [s["gpu_s"] for s in stats if s["gpu_s"] is not None]
-    tin, tout = sum(s["tokens_in"] for s in stats), sum(s["tokens_out"] for s in stats)
+    tok = {k: sum(s[k] for s in stats) for k in _TOKEN_STATS}
     return {"cost_usd": round(sum(s["usd"] for s in stats), 9), "cost_uncertain_usd": round(sum(s["usd_uncertain"] for s in stats), 9),
-            "tokens_in": tin, "tokens_out": tout, "tokens": tin + tout, "wall_s": round(sum(s["wall_s"] for s in stats), 6),
+            **tok, "tokens": tok["tokens_in"] + tok["tokens_out"], "wall_s": round(sum(s["wall_s"] for s in stats), 6),
             "gpu_s": round(sum(gpus), 6) if gpus else None, "attempts": len(stats)}
 
 
@@ -623,7 +627,7 @@ def _cost(eps: Sequence[Episode], scored: Sequence[Episode], threshold: float) -
     gpus = [e.gpu_s for e in eps if e.gpu_s is not None]
     cost: dict[str, Any] = {
         "usd": round(sum(e.cost_usd for e in eps), 6), "usd_uncertain": round(sum(e.cost_uncertain_usd for e in eps), 6),
-        "tokens": sum(e.tokens for e in eps), "tokens_in": sum(e.tokens_in for e in eps), "tokens_out": sum(e.tokens_out for e in eps),
+        "tokens": sum(e.tokens for e in eps), **{k: sum(getattr(e, k) for e in eps) for k in _TOKEN_STATS},
         "wall_s": round(sum(e.wall_s for e in eps), 3), "gpu_s": round(sum(gpus), 3) if gpus else None,
         "attempts": sum(e.attempts for e in eps), "retries": sum(max(0, e.attempts - (0 if e.owed else 1)) for e in eps),
         "aborted_attempts": sum(e.aborted_attempts for e in eps), "successes": n_succ,
@@ -636,7 +640,9 @@ def _cost(eps: Sequence[Episode], scored: Sequence[Episode], threshold: float) -
     cost["observability"] = {"episodes": len(attempted), "tokens": round(sum(e.tokens > 0 for e in attempted) / n, 6),
                              "usd": round(sum(e.cost_usd > 0 for e in attempted) / n, 6),
                              "gpu_s": round(sum(e.gpu_s is not None for e in attempted) / n, 6),
-                             "wall_s": round(sum(e.wall_s > 0 for e in attempted) / n, 6)}
+                             "wall_s": round(sum(e.wall_s > 0 for e in attempted) / n, 6),
+                             # live model calls whose tokens were reported, not estimated or missing (R-19)
+                             "usage_reported": round(cost["calls_reported"] / cost["model_calls"], 6) if cost["model_calls"] else None}
     lat = [float(e.latency_s) for e in scored if e.latency_s]
     cost["perf"] = {"latency_s_p50": _pct(lat, 0.5), "latency_s_p90": _pct(lat, 0.9), "latency_s_p99": _pct(lat, 0.99), "latency_episodes": len(lat),
                     "steps_mean": _mean([float(e.steps) for e in scored]),

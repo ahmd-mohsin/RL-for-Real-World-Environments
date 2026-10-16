@@ -324,6 +324,15 @@
     "finish": {
      "anyOf": [
       {
+       "enum": [
+        "stop",
+        "length",
+        "tool_calls",
+        "content_filter",
+        "refusal",
+        "abort",
+        "error"
+       ],
        "type": "string"
       },
       {

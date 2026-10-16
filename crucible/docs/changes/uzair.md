@@ -384,3 +384,57 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Code reading `turn.sampling.get("x")` or `turn.sampling["x"]` must use attributes
   (`turn.sampling.temperature`). Test rollouts that are trained must record a temperature, or set
   `allow_unrecorded_sampling=True`. A new key in an LLM request that is not a sampling parameter belongs in `NOT_SAMPLING`.
+
+## 19. R-19: typed token usage, finish reasons and stage timings
+
+- **Item.** R-19 (carry-over AUD-F2, IMP-M1-8, NEW-4; merges harbor:H6, PRIME-C1, nemo-gym:NG-7, mimo-verl:MV-4, SW-8).
+  PATTERN from verifiers `v1/types.py` (`Usage.from_openai`, `aggregate`, `FinishReason`) and `v1/trace.py` (`Timing`),
+  MIT, no code copied; THIRD_PARTY.md row added. Decisions: `Turn.finish` typing amends `crucible.rollout/v1.1` (never
+  pushed) instead of a v1.2; a missing cache price is the input price; `RunRecord` gets `meta["usage"]` and
+  `meta["timing"]` now, typed fields and the removal of `RunRecord.tokens` wait for `crucible.run/v2` (R-1 step 3).
+- **Files.** `src/crucible/core/schema/usage.py` (new: `Usage`, `UsageTotals`, `FinishReason`, `finish_reason`,
+  `finish_fields`, `Timing`), `src/crucible/core/schema/rollout.py` (`Turn.finish` typed), `src/crucible/core/config.py`
+  (`prices` take cache read/write rates), `src/crucible/actors/llm.py` (`LLMResponse.usage` normalized, `.finish`,
+  `.finish_fields()`; `_price` by token kind; `_usage_dict`), `src/crucible/actors/policy.py`, `actors/harness.py`,
+  `actors/rlm/agent.py`, `actors/rlm/context.py` (call records' finish; "length" checks on the normalized reason),
+  `src/crucible/runtime/harness/base.py` (`HarnessResult.usage`, `.model_s`, `settle_usage`), `runtime/harness/native.py`,
+  `runtime/harness/workspace.py`, `interop/agentenv/harness.py` (settle usage; captured calls read through `Usage`),
+  `src/crucible/runtime/run.py` (`meta["usage"]`, `meta["timing"]`; `_task_changed` keeps them),
+  `src/crucible/runtime/record.py` (rollout timings from `meta["timing"]`), `interop/harbor/trajectories.py` (ATIF metrics
+  from `Usage`), `bench/metrics.py`, `bench/report.py`, `train/world_env.py`, `runtime/scripted_rlm.py`,
+  `runtime/inject.py` (usage source `engine` / `estimate`), `schemas/crucible.rollout/v1.1.*` (regenerated),
+  `tests/unit/_formats.py` (the v1.1 example has a finish), `crucible.toml`, `docs/modules/M00-core.md`,
+  `THIRD_PARTY.md`, `tests/unit/test_usage.py` (new), `tests/unit/test_runtime_records.py` (the blank-usage marker).
+- **Public names.** `crucible.core.schema.usage.{Usage, UsageTotals, UsageSource, FinishReason, FINISH_REASONS,
+  finish_reason, finish_fields, Timing, STAGES}`, `LLMResponse.finish`, `LLMResponse.finish_fields()`,
+  `HarnessResult.usage`, `HarnessResult.model_s`, `runtime.harness.base.settle_usage`; bench `Episode.tokens_cached`,
+  `.tokens_replayed`, `.model_calls`, `.calls_reported`.
+- **Behaviour.**
+  - A call's usage is one shape whatever the provider: `input_tokens` (uncached), `cache_read_tokens`,
+    `cache_write_tokens`, `output_tokens`, `reasoning_tokens` (inside output), `source` (`provider | engine | estimate |
+    none`), plus the totals `prompt_tokens` / `completion_tokens`. OpenAI chat, Anthropic and Responses usage of the same
+    call give the same numbers (before, an Anthropic-shaped capture counted its prompt without the cached part).
+  - Configured prices charge cache reads and writes at their own rates when given (`[in, out, read, write]`); the audit's
+    900-of-1000-cached call is booked 0.0013125 USD instead of 0.003 (2.29x). Without cache prices, unchanged.
+  - Call records' `finish` is a `FinishReason` (`stop | length | tool_calls | content_filter | refusal | abort | error`);
+    the provider's own word is kept in `finish_raw` when it differs. `length` checks (nudges, silent overflow, the
+    trainer's truncation) now also see Anthropic's `max_tokens` and Responses' `max_output_tokens`.
+  - Each attempt records `meta["usage"]` (its own live calls summed: never calls restored from a checkpoint or inherited
+    by a re-grade; replays counted apart, with coverage) and `meta["timing"]` (stages plus `model`, the summed call
+    latency inside `agent`), replacing `meta["timings"]`.
+  - Bench reads `meta["usage"]` (records before R-19: `calls.json` summed, replays apart) and never `RunRecord.tokens`;
+    it adds `tokens_cached`, `tokens_replayed`, `model_calls`, `calls_reported` and `observability.usage_reported`, and
+    fills Harbor's `n_cache_tokens`. Replayed calls no longer count as live tokens.
+- **Formats.** `crucible.rollout/v1.1` amended (unpushed): `Turn.finish` is an enum; v1 records with raw words read
+  normalized (an unknown word reads as not stated). `crucible.run/v1` unchanged (`meta` is free); `meta["timings"]` is
+  now `meta["timing"]`. `calls.json` usage dicts and LLM cache entries take the `Usage` shape (older ones still read).
+- **Tests.** `test_usage.py` (8): provider shapes agree (4 shapes, cache writes), cache-rate pricing and replay, replays
+  and `RunRecord.tokens` not counted as live (old and new records), an attempt's own usage and model time in its record,
+  one finish vocabulary (v1 rollouts, Anthropic captures). `test_runtime_records.py`: a blank usage is now
+  `source: "none"`, not `{"blank": 1}`. 151 non-training suites: 1613 passed, 7 failures that fail at HEAD too (the 3
+  known ones, plus `test_agentenv_mcp_env` card tools, `test_ci_app` hidden checks, `test_cluster` Ray placement,
+  `test_triggers` agentenv triggers). The 15 training suites that read finish, usage or timings: 225 passed.
+- **Merge notes.** Code reading `usage["cached_tokens"]` or `usage["blank"]` must read `cache_read_tokens` /
+  `source == "none"` (or `Usage.model_validate`). Code reading `rec.meta["timings"]` must read `meta["timing"]`
+  (`Timing.model_validate(...).stages()`). New call-record producers should store `**r.finish_fields()` and a usage dict
+  (it is normalized on `LLMResponse`). A new provider finish word belongs in `_FINISH_ALIASES`.

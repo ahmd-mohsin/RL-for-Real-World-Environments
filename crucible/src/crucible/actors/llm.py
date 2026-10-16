@@ -8,7 +8,8 @@
 - **Accounting**: provider-reported cost when present (OpenRouter ``usage.cost``), else config prices, else (a hosted
   model with no price) ``UNPRICED_USD_PER_M`` or ``prices["*"]``, booked as spend and as uncertain: an unpriced model
   used to cost 0 USD, so its hard budget could never trip (M2 audit). Self-hosted engines (localhost, ``tito``, a
-  ``policy_version``) cost 0.
+  ``policy_version``) cost 0. Usage is ``core.schema.usage.Usage`` whatever the provider's shape, so cache reads and
+  writes are priced at their own rates (R-19: every prompt token was charged at the input rate, 2.29x a cached call).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import httpx
 from crucible.core.config import Config, get_config, resolve_secret
 from crucible.core.ids import sha256_text
 from crucible.core.schema.rollout import SamplingParams
+from crucible.core.schema.usage import FinishReason, Usage, finish_fields, finish_reason
 
 # Spend attribution per asyncio task (M8 audit V3): every booked cost is also added to the innermost open scope, so a
 # caller that runs many roles concurrently (the forge orchestrator) charges each node its own calls, not the global delta.
@@ -131,7 +133,7 @@ def _parse_arguments(raw: str | None) -> dict[str, Any]:
 class LLMResponse:
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)  # [{id, name, arguments(dict)}]
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)  # a dumped core.schema.usage.Usage (R-19); {} = not reported
     cost_usd: float = 0.0
     model: str = ""
     cached: bool = False
@@ -141,6 +143,21 @@ class LLMResponse:
     response_id: str | None = None
     tokens: dict[str, Any] | None = None  # token-in-token-out record when the endpoint returns it (prompt/completion ids, logprobs, policy_version)
     sampling: dict[str, Any] = field(default_factory=dict)  # the sampling parameters the call sent (core.schema.rollout.SamplingParams, R-3)
+
+    def __post_init__(self) -> None:
+        # one shape whoever answered (R-19): a provider's usage dict, a Usage, or a cache entry written before R-19
+        if isinstance(self.usage, Usage):
+            self.usage = self.usage.model_dump()
+        elif self.usage:
+            self.usage = Usage.model_validate(self.usage).model_dump()
+
+    @property
+    def finish(self) -> FinishReason | None:
+        return finish_reason(self.raw_finish)
+
+    def finish_fields(self) -> dict[str, Any]:
+        """A call record's finish: the normalized reason, and the provider's own word when it differs (R-19)."""
+        return finish_fields(self.raw_finish)
 
 
 @dataclass
@@ -174,6 +191,15 @@ def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
 
 def _approx_tokens(messages: list[dict[str, Any]]) -> int:
     return sum(len(json.dumps(m, default=str)) for m in messages) // 4
+
+
+def _usage_dict(u: Any) -> Any:
+    """A provider's usage object (the SDK's model, or any object with attributes) as plain dicts, extras included."""
+    if isinstance(u, dict) or u is None:
+        return u
+    if hasattr(u, "model_dump"):
+        return u.model_dump()
+    return {k: _usage_dict(v) if hasattr(v, "__dict__") else v for k, v in vars(u).items()}
 
 
 def token_record(resp: Any, choice: Any, policy_version: int | str | None) -> dict[str, Any] | None:
@@ -283,13 +309,15 @@ class LLMClient:
             return None, False
         return self.config.prices.get("*") or UNPRICED_USD_PER_M, True
 
-    def _price(self, usage: dict[str, int]) -> float:
+    def _price(self, usage: Usage) -> float:
+        """USD from the configured prices: cache reads and writes at their own rates when given, else the input rate."""
         p, fallback = self._prices()
         if not p:
             return 0.0
         if fallback:
             self.spend.unpriced_calls += 1
-        cost = usage.get("prompt_tokens", 0) / 1e6 * p[0] + usage.get("completion_tokens", 0) / 1e6 * p[1]
+        read, write = (p[2] if len(p) > 2 else p[0]), (p[3] if len(p) > 3 else p[0])
+        cost = (usage.input_tokens * p[0] + usage.cache_read_tokens * read + usage.cache_write_tokens * write + usage.output_tokens * p[1]) / 1e6
         if fallback:
             self.spend.uncertain_usd += cost
         return cost
@@ -381,12 +409,13 @@ class LLMClient:
         u = resp.usage
         if u is None and self.require_usage:
             raise UsageBlank(f"{self.model} returned no usage (finish={choice.finish_reason}); spend cannot be accounted")
-        usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0, "completion_tokens": getattr(u, "completion_tokens", 0) or 0} if u else {}
         if u is None:  # tolerant mode (B.5 row 2): the call happened and cost something; book the worst case as uncertain
             self.spend.blank_usage_calls += 1
             p, _ = self._prices()
             self.spend.uncertain_usd += (max_tokens / 1e6 * p[1] + _approx_tokens(messages) / 1e6 * p[0]) if p else 0.0
-            usage = {"blank": 1}
+            usage = Usage(source="none")
+        else:  # cached prompt tokens apart from the uncached ones, whatever the provider's shape (R-19)
+            usage = Usage.model_validate(_usage_dict(u))
         cost = getattr(u, "cost", None) if u else None
         if cost is None and u is not None:
             extra_u = getattr(u, "model_extra", None) or {}
@@ -396,17 +425,12 @@ class LLMClient:
         book_scoped(cost)
         self._max_seen = max(self._max_seen, cost)
         self.spend.calls += 1
-        self.spend.prompt_tokens += usage.get("prompt_tokens", 0)
-        self.spend.completion_tokens += usage.get("completion_tokens", 0)
-        details = getattr(u, "completion_tokens_details", None) if u else None
-        if details is not None and getattr(details, "reasoning_tokens", None):
-            usage["reasoning_tokens"] = details.reasoning_tokens
-        pdetails = getattr(u, "prompt_tokens_details", None) if u else None
-        if pdetails is not None and getattr(pdetails, "cached_tokens", None):
-            usage["cached_tokens"] = pdetails.cached_tokens
-        if choice.finish_reason == "length" and not calls and not (msg.content or "").strip() and usage.get("completion_tokens") == 0:
+        self.spend.prompt_tokens += usage.prompt_tokens
+        self.spend.completion_tokens += usage.completion_tokens
+        if (finish_reason(choice.finish_reason) == "length" and not calls and not (msg.content or "").strip() and usage.source != "none"
+                and usage.output_tokens == 0):
             # the prompt filled the window: nothing was generated (engines that answer 200 instead of a 400; M2 audit)
-            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({usage.get('prompt_tokens')} prompt tokens)")
+            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({usage.prompt_tokens} prompt tokens)")
         finish = choice.finish_reason
         if getattr(msg, "refusal", None) and not (msg.content or "").strip():
             finish = "refusal"  # the provider's refusal field: a labelled end, not an empty reply
@@ -416,7 +440,7 @@ class LLMClient:
         if self.cache_mode == "record":  # atomic: a concurrent reader of the same key never sees half a file
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(out)}.tmp")
-            tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
+            tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": out.usage, "model": out.model, "finish": out.raw_finish,
                                        "raw_message": raw_message, "sampling": out.sampling}, ensure_ascii=False, default=str))
             os.replace(tmp, path)
         return out
@@ -471,5 +495,5 @@ class LLMClient:
                     return json.loads(text[start : end + 1])
                 except json.JSONDecodeError:
                     pass
-            cut = " (cut off at max_tokens: shorten the output)" if r.raw_finish == "length" else ""
+            cut = " (cut off at max_tokens: shorten the output)" if r.finish == "length" else ""
             raise LLMOutputError(f"output is not valid JSON{cut}: {text[:300]}") from None

@@ -18,11 +18,12 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from typing import Any
 
 from crucible.actors.policy import run_episode
 from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect, repo_broken
-from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, save_episode
 from crucible.runtime.infra import StageFailure, boundary, classify_verifier, failure
 
@@ -110,6 +111,7 @@ class WorkspaceHarness(NativeHarness):
         t: dict[str, float] = {}
         res = HarnessResult()
         world = None
+        policies: dict[str, Any] = {}
         spend0 = attempt.policy.spend()
         prior = self._prior(attempt)
         if prior is not None and prior[0] == "regrade":
@@ -182,6 +184,8 @@ class WorkspaceHarness(NativeHarness):
                     pass
             usd, unc = attempt.policy.spend()
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
+            if policies:  # an agent ran here: a re-collect's calls are those of the attempt that ran it
+                settle_usage(res, res.calls or {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()})
             res.timings = {k: round(v, 3) for k, v in t.items()}
         return res
 

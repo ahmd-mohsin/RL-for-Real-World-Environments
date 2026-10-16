@@ -713,7 +713,7 @@ class Compactor:
             got = _usage_tokens(r.usage)
             in_tok = got[0] if got else est_in
             last_in = in_tok
-            if is_silent_overflow(r.usage, r.raw_finish, spec.window_tokens, r.text, r.tool_calls):
+            if is_silent_overflow(r.usage, r.finish, spec.window_tokens, r.text, r.tool_calls):
                 report(r, attempt, False, in_tok)
                 detail = "silent_overflow"
                 smaller = self._shrink(view, in_tok, spec, ratio)
@@ -726,7 +726,7 @@ class Compactor:
                 detail, note = "tool_call", "Your previous reply called a tool. Reply with the summary as plain text only; no tool is available."
             elif not text:
                 detail, note = "empty", "Your previous reply had no summary text. Reply with the summary as plain text."
-            elif r.raw_finish == "length":
+            elif r.finish == "length":
                 detail, note = "length", "Your previous summary was cut off at the output limit. Write a shorter one: keep the sections, drop detail the ledger already holds."
             else:
                 report(r, attempt, True, in_tok)

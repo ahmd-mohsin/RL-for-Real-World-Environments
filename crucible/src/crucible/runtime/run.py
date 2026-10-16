@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.run import Failure, RunLock, RunRecord
+from crucible.core.schema.usage import Timing
 from crucible.runtime.budget import BudgetLedger, Exhausted
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
@@ -88,7 +89,10 @@ def _task_changed(task_id: str, before: str | None, after: str | None, when: str
     never retried; a grade taken over the changed task is discarded, its cost kept."""
     f = Failure(kind="crucible:task_changed", stage="verification" if hr else "admission", blame="task", retryable=False,
                 delivery="delivered" if hr else "not_sent", reason=f"task {task_id} changed {when} ({before} -> {after})")
-    return HarnessResult(failure=f, steps=hr.steps if hr else 0, cost_usd=hr.cost_usd if hr else 0.0, cost_uncertain_usd=hr.cost_uncertain_usd if hr else 0.0)
+    if hr is None:
+        return HarnessResult(failure=f)
+    return HarnessResult(failure=f, steps=hr.steps, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd, usage=hr.usage, model_s=hr.model_s,
+                         timings=hr.timings)
 
 
 @dataclass
@@ -325,7 +329,10 @@ class Runner:
         rec = RunRecord(run_id=spec.run_id, task=task.id, world=getattr(task, "world_id", "") or task.id, policy=policy.id, seed=sk.seed, started_at=now,
                         ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd,
                         sample=sk.model_dump(mode="json"), attempt=aid,
-                        meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates, "timings": hr.timings,
+                        # usage and timing (R-19) become typed RunRecord fields with crucible.run/v2 (R-1 step 3)
+                        meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates,
+                              "timing": Timing.from_stages(hr.timings, model=hr.model_s).model_dump(),
+                              **({"usage": hr.usage.model_dump()} if hr.usage is not None else {}),
                               "tree_changed": hr.tree_changed, "artifacts": hr.artifacts, **({"task_digest": task_digest} if task_digest else {}),
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),

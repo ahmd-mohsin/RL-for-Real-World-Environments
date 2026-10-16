@@ -296,11 +296,11 @@ class LLMToolPolicy(Policy):
             if (r.tokens or {}).get("new_segment") and self.model_calls:  # a thinking-template re-render: a segment, not a prefix break (M14 H3 V9)
                 self._new_segment("rerender", before, len(self.messages))
             self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
-                                     "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                                     "model": r.model, **r.finish_fields(), "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
                                      "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before,
                                      "sampling": getattr(r, "sampling", None) or {}})
             if (r.text or "").strip():
-                note = "\n[this summary was cut off at its length limit]" if r.raw_finish == "length" else ""
+                note = "\n[this summary was cut off at its length limit]" if r.finish == "length" else ""
                 self._new_segment(strategy, before, self._rebuild(cfg.keep_recent_turns, r.text + note), summary_call=self.model_calls[-1]["call_id"])
                 return
         # no usable summary: an empty one used to replace the whole history (M2 audit); keep the recent turns instead
@@ -385,7 +385,7 @@ class LLMToolPolicy(Policy):
         if (r.tokens or {}).get("new_segment") and self.model_calls:  # the engine re-rendered the history (thinking mode): a new segment
             self._new_segment("rerender", approx_tokens(self.messages), len(self.messages))
         call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
-                "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
+                "step": obs.step, "model": r.model, **r.finish_fields(), "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
                 "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),
                 "sampling": getattr(r, "sampling", None) or {}}  # what the call sent (R-3): the rollout's Turn.sampling
@@ -404,7 +404,7 @@ class LLMToolPolicy(Policy):
             self._nudges += 1
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
             return await self.act(again)
-        if r.raw_finish == "length" and self._nudges < self.max_nudges:
+        if r.finish == "length" and self._nudges < self.max_nudges:
             # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error). Tool calls in a
             # cut-off reply may be truncated mid-argument or missing their siblings: they are dropped, never executed.
             self._nudges += 1

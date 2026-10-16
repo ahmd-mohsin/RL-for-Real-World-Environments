@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from crucible.core.schema.reward import StepRow
 from crucible.core.schema.rollout import RolloutRecord, Segment, Turn
 from crucible.core.schema.run import RunRecord
+from crucible.core.schema.usage import Timing
 
 if TYPE_CHECKING:  # annotation only: in-process rollouts (M12) must not require Harbor installed
     from harbor.models.trajectories import Trajectory
@@ -173,7 +174,8 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
                         group=group, turns=turns, reward=rec.scored_reward(), reward_components=dict(m.get("components") or {}),
                         gates=dict(m.get("gates") or {}), truncated=bool(m.get("truncated")), stop=m.get("stop"),
                         failure_kind=failure.kind if failure else None, blame=failure.who if failure else None, mask_sample=rec.mask_sample,
-                        timings=dict(timings or m.get("timings") or {}), trace_id=trace_id, segments=segs,
+                        timings=dict(timings or (Timing.model_validate(m["timing"]).stages() if m.get("timing") else m.get("timings")) or {}),
+                        trace_id=trace_id, segments=segs,
                         trajectory_tokens=sum((m.get("trajectory_tokens") or {}).values()) or None,
                         progress={**(m.get("progress") or {}), **({"unattributed_delta": round(unattributed, 9)} if prog_rows else {})})
     if mode == "train" and not out.mask_sample:

@@ -21,7 +21,8 @@ docker_host = "ssh://ahmed@100.100.101.36"
 gpu_arch = "sm_120"
 shared = true
 
-# USD per 1M tokens (input, output) for budget accounting when the provider omits cost.
+# USD per 1M tokens (input, output[, cache read[, cache write]]) for budget accounting when the provider omits cost;
+# a cache price left out is the input price.
 [prices]
 "openai/gpt-6-luna" = [0.10, 0.50]
 "anthropic/claude-haiku-5.5" = [0.10, 0.50]

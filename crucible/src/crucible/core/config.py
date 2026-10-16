@@ -91,10 +91,20 @@ class Config(CrucibleModel):
         }
     )
     gpu_hosts: dict[str, GpuHost] = Field(default_factory=dict)
-    prices: dict[str, list[float]] = Field(default_factory=dict)  # model id -> [usd per 1M input, usd per 1M output]
+    # model id -> USD per 1M tokens: [input, output] or [input, output, cache read] or [input, output, cache read, cache
+    # write]; a cache price left out is the input price (R-19)
+    prices: dict[str, list[float]] = Field(default_factory=dict)
     llm_budget_usd: float = 1.0  # default hard cap per LLMClient instance
     backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
     root: str | None = None  # directory the config was loaded from (set by loader)
+
+    @field_validator("prices")
+    @classmethod
+    def _price_lists(cls, v: dict[str, list[float]]) -> dict[str, list[float]]:
+        bad = sorted(k for k, p in v.items() if not 2 <= len(p) <= 4 or any(x < 0 for x in p))
+        if bad:
+            raise ValueError(f"prices {bad}: give USD per 1M tokens as [input, output], optionally then cache read and cache write")
+        return v
 
     def data_path(self) -> Path:
         p = Path(self.data_dir)

@@ -28,7 +28,7 @@ from typing import Any
 
 from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.core.schema.run import Failure
-from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier, failure
 from crucible.world.custody import CustodyViolation
 from crucible.world.verifier import hand_off, verifier_world, wants_separate
@@ -398,6 +398,7 @@ class NativeHarness:
             usd, unc = attempt.policy.spend()
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
             calls = res.calls or {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}  # a masked attempt paid too (V8)
+            settle_usage(res, calls, restored)
             own = [c for cs in calls.values() for c in cs if c.get("cost_usd") is not None and c.get("call_id") not in restored]
             if own:  # the attempt's own model calls: a client shared by concurrent attempts makes the spend delta count theirs too
                 res.cost_usd = round(sum(float(c["cost_usd"]) for c in own), 9)

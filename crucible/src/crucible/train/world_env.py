@@ -218,7 +218,7 @@ class EngineLLM:
         self._convs.append(_Conv(sample_key, [dict(m) for m in messages], prompt + tail, media_all, nonce, text, _canon_calls(calls)))
         del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         finish = "stop" if res.finish == "stop" else ("length" if res.finish == "length" else res.finish)
-        return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp)}, model=self.model,
+        return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp), "source": "engine"}, model=self.model,
                            raw_finish=finish, latency_s=time.monotonic() - t0, raw_message={REPLY_KEY: nonce},
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
                                    "policy_version": res.version, "version_spans": res.version_spans,
