@@ -147,6 +147,7 @@ class TorchTrainer:
         if self.cfg.opd_mode == "full_vocab" and self.cfg.opd_coef and teacher is None:
             raise ValueError("opd_mode='full_vocab' needs TorchTrainer(teacher=...)")
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
+        self.tokenizer_id = None  # the policy's tokenizer (core.schema.rollout.TokenizerId): records of another one are refused (R-17)
         self.updates = 0
         self.critic = critic
         if critic is not None:
@@ -728,6 +729,31 @@ class TorchTrainer:
     def _release_params(self) -> None:
         """After the optimizer step (``FSDPTrainer``: drop the gathered copy; the next gather sees the updated shards)."""
 
+    def _check_capture(self, records: Sequence[RolloutRecord]) -> None:
+        """R-17: what the records say about how their tokens were produced must fit this trainer. One batch never mixes
+        token maps (the ids would mean different tokens), nor differs from the trainer's declared tokenizer
+        (``tokenizer_id``); raw log-probs (before temperature and top-p) are comparable only at temperature 1 without
+        truncation. Records that do not say (no ``capture``) are not judged here."""
+        maps: dict[str, str] = {}
+        mine = getattr(self, "tokenizer_id", None)
+        if mine is not None:
+            maps[mine.token_map] = "the trainer"
+        for r in records:
+            cap = r.capture
+            if cap is None or r.mask_sample or r.reward is None:
+                continue
+            if cap.tokenizer is not None:
+                maps.setdefault(cap.tokenizer.token_map, r.rollout_id)
+            if cap.logprobs == "raw":
+                cut = any(t.sampling.truncated for t in r.turns if self._trains(t))
+                if abs(float(self.cfg.temperature) - 1.0) > 1e-6 or cut:
+                    raise ValueError(f"{r.rollout_id}: its engine returned raw log-probs (before temperature and top-p), which the trainer cannot compare at "
+                                     f"temperature {self.cfg.temperature}{' with top-p truncation' if cut else ''}: run the engine with processed "
+                                     "log-probs (vLLM --logprobs-mode processed_logprobs)")
+        if len(maps) > 1:
+            raise ValueError("records from different tokenizers in one batch (their token ids mean different tokens): "
+                             + ", ".join(f"{who}: {m[:19]}" for m, who in maps.items()))
+
     def _gate(self, records: Sequence[RolloutRecord]) -> tuple[list[RolloutRecord], int]:
         """The trainer's own validity check (M12 audit: nothing on the M12 path called ``valid_for_training``, so a call
         without behaviour logprobs trained with π_rollout = 1). A scored record whose trained calls lack a complete,
@@ -736,6 +762,7 @@ class TorchTrainer:
         import math
 
         out, bad = [], 0
+        self._check_capture(records)
         for r in records:
             if r.mask_sample or r.reward is None:
                 out.append(r)

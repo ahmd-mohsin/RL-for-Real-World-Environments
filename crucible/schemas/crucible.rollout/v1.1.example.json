@@ -1,4 +1,16 @@
 {
+ "capture": {
+  "engine": "vllm",
+  "logprobs": "processed",
+  "template_kwargs": {
+   "enable_thinking": false
+  },
+  "tokenizer": {
+   "render": "sha256:01",
+   "token_map": "sha256:00",
+   "vocab_size": 32
+  }
+ },
  "credit_fallback": false,
  "flags": [],
  "gates": {},

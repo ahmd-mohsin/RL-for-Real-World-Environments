@@ -233,6 +233,17 @@ def attach_call_fields(ro: Any, model_calls: dict[str, list[dict[str, Any]]]) ->
             t.media = [dict(m) for m in media[t.call_id]]
 
 
+def codec_capture(codec: Any) -> Any:
+    """The tokenizer and chat-template arguments a chat codec renders with (R-17), or None for a codec without a
+    tokenizer (scripted codecs). Computed once per rollout function: it hashes the whole vocabulary."""
+    from crucible.core.schema.rollout import Capture, TokenizerId
+
+    tok = getattr(codec, "tok", None)
+    if tok is None or not hasattr(tok, "get_vocab"):
+        return None
+    return Capture(tokenizer=TokenizerId.of(tok), template_kwargs=dict(getattr(codec, "kw", None) or {}))
+
+
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
                   workroot: Path | None = None, limit_policy: Any = None, make_policy: Callable[[Any, float], Any] | None = None,
                   harness_id: str = "native:world@1", seats: Any = None) -> Callable:
@@ -247,6 +258,8 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
     from crucible.actors.policy import EpisodeLimits, LLMToolPolicy, run_episode
     from crucible.core.schema.run import RunRecord
     from crucible.runtime.record import build
+
+    capture = codec_capture(codec)
 
     def policies(world: Any, gen: Callable, temperature: float) -> tuple[dict[str, Any], list[Any], list[str]]:
         if seats is None:
@@ -312,6 +325,7 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
             ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature})
             ro.group = None
+            ro.capture = capture
             attach_call_fields(ro, ep.model_calls)
             trace = world.to_trace()
             from crucible.credit.hack_detector import rule_flags

@@ -577,6 +577,7 @@ class Runtime:
             return
         self._recent.append("ok")
         rec.group = tag.group
+        rec.capture = self._capture_of(rec)
         self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
         self._after_finish(rid)
         self.changed.set()
@@ -922,6 +923,18 @@ class Runtime:
         mark.update(t=now, busy=self.engines.busy_until_now(), env_wait=self.envs.wait_s if self.envs else 0.0, env_busy=self.envs.busy_s if self.envs else 0.0)
         return {"idle/rollout_s": max(wall - busy, 0.0), "idle/train_s": max(wall - train_s - publish_s, 0.0), "idle/env_wait_s": env_wait,
                 "env/busy_s": env_busy, "step/wall_s": wall, "engine/utilization": busy / wall if wall > 0 else 0.0}
+
+    def _capture_of(self, rec: RolloutRecord) -> Any:
+        """How the record's tokens were produced, as far as the runtime knows (R-17): the engines and their log-prob mode
+        when the record finished (an engine restarted in another mode shows in the records after it), and the trainer's
+        tokenizer when it declares one (``trainer.tokenizer_id``). What the rollout function recorded is kept."""
+        from crucible.core.schema.rollout import Capture
+
+        have = rec.capture or Capture()
+        names = sorted({type(e).__name__ for e in getattr(self.engines, "engines", [])})
+        return have.model_copy(update={"engine": have.engine or ("+".join(names) or None),
+                                       "logprobs": have.logprobs or self.engines.capabilities().get("logprobs"),
+                                       "tokenizer": have.tokenizer or getattr(self.trainer, "tokenizer_id", None)})
 
     async def resume(self, path: str | None = None) -> int:
         """Load a run checkpoint (``path``, or the latest under ``cfg.checkpoint_dir``) into this freshly built runtime and

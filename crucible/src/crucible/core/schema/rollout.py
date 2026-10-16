@@ -20,7 +20,7 @@ from pydantic import Field, field_validator, model_validator
 from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 from crucible.core.schema.usage import FinishReason, finish_reason
 
-SCHEMA = "crucible.rollout/v1.1"  # v1.1: Turn.sampling is typed (SamplingParams, R-3), Turn.finish a FinishReason (R-19)
+SCHEMA = "crucible.rollout/v1.1"  # v1.1: Turn.sampling typed (R-3), Turn.finish a FinishReason (R-19), RolloutRecord.capture (R-17)
 
 # Request keys that are not sampling parameters: everything else a call sent is recorded (typed, or in ``extra``).
 NOT_SAMPLING = frozenset({"model", "messages", "tools", "tool_choice", "response_format", "stream", "stream_options", "extra_headers",
@@ -207,6 +207,59 @@ class Segment(CrucibleModel):
     tokens_source: Literal["usage", "estimate"] | None = None
 
 
+def _digest(value: Any) -> str:
+    import hashlib
+
+    from crucible.core.canonical import dumps
+
+    return "sha256:" + hashlib.sha256(dumps(value).encode()).hexdigest()
+
+
+class TokenizerId(CrucibleModel):
+    """A tokenizer in two parts (R-17; PATTERN: AReaL ``areal/dataset/swe_sft/pipeline.py`` ``_tokenizer_identity``,
+    Apache-2.0). ``token_map`` is what the ids mean: the vocabulary (token -> id) and the special tokens. ``render`` is
+    how messages become ids: the chat template and the fast tokenizer's normalizer, pre-tokenizer and decoder. Two
+    tokenizers with one vocabulary and another chat template differ in ``render`` only: their token records can be
+    trained by one model, but re-rendering one's messages with the other gives other ids."""
+
+    token_map: str
+    render: str | None = Field(None, exclude_if=lambda v: v is None)
+    vocab_size: int | None = Field(None, exclude_if=lambda v: v is None)
+    name: str | None = Field(None, exclude_if=lambda v: v is None)  # name_or_path, for people; not part of the identity
+
+    @classmethod
+    def of(cls, tokenizer: Any) -> TokenizerId:
+        """A Hugging Face tokenizer's identity (anything with ``get_vocab``; the render part from ``chat_template`` and
+        ``backend_tokenizer.to_str()``, else the init kwargs)."""
+        vocab = tokenizer.get_vocab() if hasattr(tokenizer, "get_vocab") else dict(tokenizer)
+        special = getattr(tokenizer, "special_tokens_map", None) or {}
+        token_map = _digest({"vocab": sorted(([str(k), int(v)] for k, v in vocab.items()), key=lambda kv: kv[1]),
+                             "special": {str(k): v if isinstance(v, (str, list)) else str(v) for k, v in special.items()}})
+        backend = getattr(tokenizer, "backend_tokenizer", None)
+        try:
+            backend_text = backend.to_str() if backend is not None else None
+        except (AttributeError, TypeError, ValueError):
+            backend_text = None
+        init = getattr(tokenizer, "init_kwargs", None)
+        render_parts = {"chat_template": getattr(tokenizer, "chat_template", None), "backend": backend_text,
+                        "init_kwargs": None if backend_text is not None or not isinstance(init, dict) else {str(k): str(v) for k, v in init.items()}}
+        has_render = any(v is not None for v in render_parts.values())
+        return cls(token_map=token_map, render=_digest(render_parts) if has_render else None, vocab_size=len(vocab),
+                   name=str(getattr(tokenizer, "name_or_path", "") or "") or None)
+
+
+class Capture(CrucibleModel):
+    """How a rollout's token record was produced (R-17): the engine, what its log-probs are (``processed``: of the
+    sampling distribution, after temperature and top-p, what the trainer recomputes; ``raw``: before; ``unknown``), the
+    tokenizer, and the chat-template arguments. A restart under another engine, mode or tokenizer changes these, so it is
+    no longer invisible in the records. None: not known (a hosted API, a record from before)."""
+
+    engine: str | None = Field(None, exclude_if=lambda v: v is None)
+    logprobs: str | None = Field(None, exclude_if=lambda v: v is None)
+    tokenizer: TokenizerId | None = Field(None, exclude_if=lambda v: v is None)
+    template_kwargs: dict[str, Any] = Field(default_factory=dict, exclude_if=lambda v: not v)
+
+
 class RolloutRecord(SchemaKeyed):
     SCHEMA: ClassVar[str] = SCHEMA
     schema_: str = Field(SCHEMA, alias="schema")
@@ -231,6 +284,7 @@ class RolloutRecord(SchemaKeyed):
     tier: str = "fast"
     trajectory_tokens: int | None = None  # every token that entered the policy's context over the episode, before compaction
     progress: dict[str, Any] = Field(default_factory=dict)  # dense progress summary (phi0, phi_final, sum_delta, drift)
+    capture: Capture | None = Field(None, exclude_if=lambda v: v is None)  # engine, log-prob mode, tokenizer (R-17)
     credit_fallback: bool = False  # the auxiliary credit channel missed its deadline: outcome-only advantage (checklist #40)
     # group grading stage (m13 C-2): a group-level operator (GAR, tournament, hack zeroing) may set the sequence advantage
     # of every scored member; the trainer then uses it instead of the group statistic. ``group_credit_fallback``: the

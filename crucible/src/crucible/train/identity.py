@@ -68,6 +68,7 @@ def identity_doc(rt: Any) -> dict[str, Any]:
     doc: dict[str, Any] = {
         "runtime": jsonable(rt.cfg), "scheduler": jsonable(rt.sched_cfg), "trainer": jsonable(getattr(tr, "cfg", None)),
         "model": {"trainer": _name(getattr(tr, "trainer", tr)), "vocab_id": getattr(tr, "vocab_id", None),
+                  "tokenizer": getattr(getattr(tr, "tokenizer_id", None), "token_map", None),
                   "parameters": _digest(shapes) if shapes is not None else None},
         "sources": rt._source_identity, "functions": {k: _name(getattr(rt, k, None)) for k in FUNCTIONS},
     }

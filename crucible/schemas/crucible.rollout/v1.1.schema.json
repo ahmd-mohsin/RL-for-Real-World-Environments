@@ -1,5 +1,48 @@
 {
  "$defs": {
+  "Capture": {
+   "additionalProperties": false,
+   "properties": {
+    "engine": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "logprobs": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "template_kwargs": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "tokenizer": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/TokenizerId"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
   "SamplingParams": {
    "additionalProperties": false,
    "properties": {
@@ -232,6 +275,51 @@
    },
    "required": [
     "index"
+   ],
+   "type": "object"
+  },
+  "TokenizerId": {
+   "additionalProperties": false,
+   "properties": {
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "render": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "token_map": {
+     "type": "string"
+    },
+    "vocab_size": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "token_map"
    ],
    "type": "object"
   },
@@ -563,6 +651,17 @@
    "anyOf": [
     {
      "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "capture": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Capture"
     },
     {
      "type": "null"

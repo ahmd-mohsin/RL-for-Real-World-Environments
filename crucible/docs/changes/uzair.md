@@ -544,3 +544,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Every `Store.tag(name, key)` call needs `expect=` (read it with `tag_info`). Code that read the
   `tags` table directly (`TraceStore._head_key` did) should use `tag_info`. A new caller of `TraceStore.put` that knows
   when it read its source should pass `fetched_at`.
+
+## 23. R-17: a rollout records its engine, log-prob mode and tokenizer
+
+- **Item.** R-17 (new; TB-2, TC-6). PATTERN from AReaL `areal/dataset/swe_sft/pipeline.py:88-136` (Apache-2.0);
+  THIRD_PARTY.md row added. Decision: the field joins the unpushed `crucible.rollout/v1.1` (as R-19 did) rather than a
+  v1.2.
+- **Files.** `src/crucible/core/schema/rollout.py` (`TokenizerId`, `Capture`, `RolloutRecord.capture`),
+  `src/crucible/train/runtime.py` (`_capture_of`: engines and their log-prob mode when a record finishes),
+  `src/crucible/train/world_env.py` (`codec_capture`: the codec's tokenizer and template arguments, once per rollout
+  function), `src/crucible/train/trainer.py` (`TorchTrainer.tokenizer_id`, `_check_capture` called by `_gate`),
+  `src/crucible/train/identity.py` (the trainer's tokenizer joins the training identity), `schemas/crucible.rollout/v1.1.*`
+  (regenerated), `tests/unit/_formats.py`, `tests/unit/test_capture.py` (new), `docs/modules/M12-train.md`,
+  `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.schema.rollout.{TokenizerId (of), Capture}`, `RolloutRecord.capture`,
+  `TorchTrainer.tokenizer_id`, `crucible.train.world_env.codec_capture`.
+- **Behaviour.** `TokenizerId.of(tokenizer)` has a `token_map` part (vocabulary and special tokens: what ids mean) and a
+  `render` part (chat template, fast-tokenizer backend: how text becomes ids); two tokenizers with one vocabulary and
+  another template differ in `render` only (the audit's p_tb02; `vocab_signature` called them equal). Training records
+  carry `capture` (engine classes, the pool's log-prob mode, the trainer's tokenizer, the codec's tokenizer and
+  template arguments), so a restart under another engine, mode or tokenizer shows in the records. The trainer refuses a
+  batch whose records come from different token maps or another than its declared `tokenizer_id`, and records with
+  `raw` log-probs unless at temperature 1 without top-p truncation. Records without `capture` are not judged.
+- **Formats.** `crucible.rollout/v1.1` amended (unpushed): optional `capture` (left out when unset, so a record without
+  it keeps its bytes).
+- **Tests.** `test_capture.py` (4): one vocabulary, two templates differ in render only; the trainer's three refusals;
+  the runtime records `TorchEngine` / `processed` and the trainer's tokenizer; a codec's capture and an old record read.
+  The 58 suites that import `crucible.train` plus this one: 634 passed, the known `test_cluster` failure.
+- **Merge notes.** A trainer that knows its tokenizer should set `tokenizer_id = TokenizerId.of(tok)`. An engine that
+  reports `capabilities()["logprobs"] == "raw"` now has its records refused at temperatures other than 1.
