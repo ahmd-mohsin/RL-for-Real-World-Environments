@@ -16,7 +16,11 @@ staged file whose writer died is swept when a store opens. An existing blob whos
 rewritten by the next put of that content. The index runs in WAL mode with a busy timeout.
 
 The interface is deliberately small so an agentenv-backed or object-store-backed implementation can
-replace it (``crucible.interop.agentenv`` mirrors artifacts into agentenv's versioned stores).
+replace it (``crucible.interop.agentenv`` mirrors artifacts into agentenv's versioned stores). It is written down as two
+Protocols, ``BlobStore`` and ``DocIndex`` (``core.store.protocols``), with a backend kind (``Store.backend``), and
+``core.store.conformance`` checks any implementation against them (M0 audit 2026-10-14 R-22). Every read outside this
+module is verified against its key (``get_bytes``, ``open_blob``, ``export``, ``verified_path``); ``blob_path`` is the
+unverified location, for this module and its tests only.
 """
 
 from __future__ import annotations
@@ -216,6 +220,8 @@ def _make_private_root(root: Path) -> None:
 
 
 class Store:
+    backend = "local"  # the BlobStore / DocIndex implementation: a local directory and a SQLite index
+
     def __init__(self, root: str | Path):
         self.root = Path(root)
         _make_private_root(self.root)
@@ -301,10 +307,44 @@ class Store:
         return self._blob_path(key).exists()
 
     def blob_path(self, key: str) -> Path:
+        """Where the blob lies, unverified: for this module and its tests. Readers use the verified methods below."""
         p = self._blob_path(key)
         if not p.exists():
             raise StoreError(f"missing blob {key}")
         return p
+
+    def _check(self, key: str) -> Path:
+        path = self.blob_path(key)
+        with path.open("rb") as f:
+            if HASH_PREFIX + _hash_stream(f) != key:
+                raise StoreError(f"blob {key} is corrupt")
+        return path
+
+    def verified_path(self, key: str) -> Path:
+        """The blob's path after checking its bytes against the key: for a local reader that needs a path (a local exec,
+        a push to a remote one). Blobs are read-only files; the check streams, so a large payload is never held whole."""
+        return self._check(key)
+
+    def open_blob(self, key: str):
+        """The blob opened for reading after its bytes were checked against the key (a stream of a large payload)."""
+        return self._check(key).open("rb")
+
+    def export(self, key: str, dest: str | Path) -> Path:
+        """Copy the blob to ``dest`` (made writable), hashing what is copied: a mismatch removes the copy and raises."""
+        src, dest = self.blob_path(key), Path(dest)
+        h = hashlib.sha256()
+        tmp = dest.with_name(f".{dest.name}.{os.getpid()}.part")
+        try:
+            with src.open("rb") as f, tmp.open("wb") as out:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    h.update(block)
+                    out.write(block)
+            if HASH_PREFIX + h.hexdigest() != key:
+                raise StoreError(f"blob {key} is corrupt")
+            os.replace(tmp, dest)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return dest
 
     def get_bytes(self, key: str) -> bytes:
         data = self.blob_path(key).read_bytes()

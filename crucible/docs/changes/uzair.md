@@ -615,3 +615,25 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   into a world whose id is `c2:...`, a wrong id is refused. World, core, runtime and format suites: 199 passed.
 - **Merge notes.** Code that compares a stored content id with `x.content_hash()` should use `x.matches_id(stored)`.
   Changing `core.canonical.dumps` now means registering a new scheme (the golden test fails until then).
+
+## 26. R-22: store protocols, verified reads, a conformance kit
+
+- **Item.** R-22 (carry-over AUD-F5; merges AE-8, NG-11; corrects `core/store/__init__.py:15-16`, which promised a
+  replaceable interface that was never written down). PATTERN from agentenv `tst/store/conformance.py:390-450`
+  (Apache-2.0); THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/store/protocols.py` (new: `BlobStore`, `DocIndex`), `src/crucible/core/store/conformance.py`
+  (new: `check`, `check_blobs`, `check_docs`, `check_races`), `src/crucible/core/store/__init__.py` (`Store.backend`,
+  `verified_path`, `open_blob`, `export`), `src/crucible/world/state/base.py` (`_push_from_store`), `src/crucible/world/custody.py`
+  (`_members`), `tests/unit/test_store_conformance.py` (new), `docs/modules/M00-core.md`, `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.store.protocols.{BlobStore, DocIndex}`, `crucible.core.store.conformance.check`,
+  `Store.backend`, `Store.verified_path`, `Store.open_blob`, `Store.export`.
+- **Behaviour.** The four readers outside core that took `blob_path` and read the file unchecked (World state pushes to
+  a local or remote exec and their copies, custody's snapshot reader) now go through reads verified against the key: a
+  corrupt payload is refused instead of restored into a World. `blob_path` stays the unverified location for core and
+  its tests. Any other backend passes the kit (round trips, idempotent keys, corruption refused by every read, an
+  export that fails leaves no copy, documents and tags, two clients racing puts and tag moves).
+- **Formats.** none.
+- **Tests.** `test_store_conformance.py` (2): the local store passes the kit; no `.blob_path(` outside core. World,
+  store, custody and runtime suites: 192 passed, 3 skipped.
+- **Merge notes.** New code reading a stored blob uses `get_bytes` / `open_blob` / `export` / `verified_path`, never
+  `blob_path` (a test fails otherwise).

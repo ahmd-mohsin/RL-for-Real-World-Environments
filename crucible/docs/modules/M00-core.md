@@ -22,7 +22,7 @@ The typed contracts every other module is written against. It contains no domain
 | `prov.py` | `Provenance` (created_by, derived_from, params) |
 | `registry.py` | Lazy `module:Class` registry (agentenv pattern); plugins register through the `crucible.plugins` entry-point group |
 | `config.py` | `crucible.toml` discovery; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
-| `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index (versioned migrations), tags moved by compare-and-set on a revision with an append-only history (`tag(name, key, expect=rev)`, `TagConflict`, `tag_info`, `tag_history`) |
+| `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index (versioned migrations), tags moved by compare-and-set on a revision with an append-only history (`tag(name, key, expect=rev)`, `TagConflict`, `tag_info`, `tag_history`). Interfaces `BlobStore` / `DocIndex` (`store/protocols.py`, `Store.backend = "local"`), verified reads (`get_bytes`, `open_blob`, `export`, `verified_path`), a conformance kit any backend passes (`store/conformance.py`) |
 
 ## Audit (2026-10-12)
 

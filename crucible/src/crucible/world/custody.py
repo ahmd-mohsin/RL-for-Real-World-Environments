@@ -105,7 +105,7 @@ def _manifest(ref: StateRef, store: Store) -> dict[str, tuple[str, str]]:
 def _members(ref: StateRef, store: Store) -> Iterator[tuple[tarfile.TarFile, tarfile.TarInfo]]:
     if ref.blob is None:
         raise CustodyViolation(f"{ref.app}: the snapshot holds no payload")
-    with open(store.blob_path(ref.blob), "rb") as f, tarfile.open(fileobj=f, mode="r|gz") as tf:
+    with store.open_blob(ref.blob) as f, tarfile.open(fileobj=f, mode="r|gz") as tf:  # checked against its key (R-22)
         for ti in tf:
             yield tf, ti
 
