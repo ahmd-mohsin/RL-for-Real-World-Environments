@@ -240,6 +240,25 @@ class Store:
         except BaseException:
             self._db.close()
             raise
+        self._settle_forgotten()
+
+    def _settle_forgotten(self) -> None:
+        """Blobs a dead process set aside in ``forget_doc`` (R-24): put back if its transaction never committed (rows
+        still name the key), else removed. A live process's are left to it."""
+        for f in (self.root / _STAGING).glob("forgotten-*"):
+            parts = f.name.split("-")
+            if len(parts) < 4 or not parts[2].isdigit() or _alive(int(parts[2])):
+                continue
+            key = HASH_PREFIX + parts[1]
+            with contextlib.suppress(OSError, StoreError, sqlite3.Error):
+                used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+                target = self._blob_path(key)
+                if used and not target.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(f, target)
+                else:
+                    f.chmod(0o600)
+                    f.unlink()
 
     # ---------------- blobs ----------------
     def _blob_path(self, key: str) -> Path:
@@ -360,18 +379,25 @@ class Store:
         key = self.put_bytes(data)
         now, p = utc_now(), prov.model_dump_json() if prov else None
         with self._lock:
-            self._db.execute(
-                "INSERT OR IGNORE INTO docs(kind, key, name, created_at, provenance, size) VALUES (?,?,?,?,?,?)",
-                (kind, key, name, now, p, len(data)),
-            )
-            if name is not None:
-                self._db.execute("UPDATE docs SET name=? WHERE kind=? AND key=? AND name IS NULL", (name, kind, key))
-                # every name a document is stored under, each with its own provenance
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                if not self._blob_path(key).exists():  # forgotten since put_bytes (R-24): the row must not outlive its blob
+                    self.put_bytes(data)
                 self._db.execute(
-                    "INSERT OR IGNORE INTO doc_names(kind, key, name, created_at, provenance) VALUES (?,?,?,?,?)",
-                    (kind, key, name, now, p),
+                    "INSERT OR IGNORE INTO docs(kind, key, name, created_at, provenance, size) VALUES (?,?,?,?,?,?)",
+                    (kind, key, name, now, p, len(data)),
                 )
-            self._db.commit()
+                if name is not None:
+                    self._db.execute("UPDATE docs SET name=? WHERE kind=? AND key=? AND name IS NULL", (name, kind, key))
+                    # every name a document is stored under, each with its own provenance
+                    self._db.execute(
+                        "INSERT OR IGNORE INTO doc_names(kind, key, name, created_at, provenance) VALUES (?,?,?,?,?)",
+                        (kind, key, name, now, p),
+                    )
+                self._db.commit()
+            except BaseException:
+                self._db.rollback()
+                raise
         return key
 
     def get_doc(self, key: str, cls: type[M]) -> M:
@@ -404,18 +430,33 @@ class Store:
     # ---------------- tags ----------------
     def forget_doc(self, kind: str, key: str) -> bool:
         """Remove a document version from the index, and its blob once nothing (another kind, a tag) refers to it.
-        For content that must not stay at rest (a trace stored before a redaction fix). Returns whether the blob went."""
+        For content that must not stay at rest (a trace stored before a redaction fix). Returns whether the blob went.
+
+        The rows go, the check runs and the blob leaves its key in one write transaction (renamed aside), and the file
+        is removed after the commit (R-24): a ``put_doc`` or ``tag`` of the same key in another process either commits
+        first (the blob stays: it is used) or starts after and finds the blob gone (``put_doc`` writes it again, ``tag``
+        refuses). Before, a put or tag between the commit and the unlink left a row whose blob was deleted."""
+        path, aside = self._blob_path(key), None
         with self._lock:
-            self._db.execute("DELETE FROM docs WHERE kind=? AND key=?", (kind, key))
-            self._db.execute("DELETE FROM doc_names WHERE kind=? AND key=?", (kind, key))
-            self._db.commit()
-            used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                self._db.execute("DELETE FROM docs WHERE kind=? AND key=?", (kind, key))
+                self._db.execute("DELETE FROM doc_names WHERE kind=? AND key=?", (kind, key))
+                used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+                if not used and path.exists():
+                    aside = self.root / _STAGING / f"forgotten-{path.name}-{os.getpid()}-{threading.get_ident()}"
+                    os.replace(path, aside)
+                self._db.commit()
+            except BaseException:
+                if aside is not None and aside.exists():
+                    os.replace(aside, path)
+                self._db.rollback()
+                raise
         if used:
             return False
-        path = self._blob_path(key)
-        if path.exists():
-            path.chmod(0o600)
-            path.unlink()
+        if aside is not None:
+            aside.chmod(0o600)
+            aside.unlink(missing_ok=True)
         return True
 
     def tag(self, name: str, key: str, *, expect: int | None, note: dict | None = None) -> int:
@@ -429,6 +470,8 @@ class Store:
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
+                if not self.has(key):  # forgotten since the check above (R-24): never a tag on a deleted blob
+                    raise StoreError(f"cannot tag missing blob {key}")
                 row = self._db.execute("SELECT key, rev FROM tags WHERE name=?", (name,)).fetchone()
                 rev = row[1] if row else 0
                 if expect is not None and expect != rev:
@@ -478,6 +521,18 @@ class Store:
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+
+def _alive(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # it exists but belongs to someone else
+        return True
+    return True
 
 
 def _hash_stream(f) -> str:

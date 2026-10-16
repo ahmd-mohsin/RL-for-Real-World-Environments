@@ -671,3 +671,23 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `~/.config/crucible/crucible.toml` or be named by `CRUCIBLE_CONFIG`. Code that called `core.config._discover` uses
   `project_config_path` / `load_config`. A project that set a higher `llm_budget_usd` must set it in the user file or
   with `--set`.
+
+## 28. R-24: forgetting a blob and indexing one are one transaction
+
+- **Item.** R-24 (new; NG-6; TA-2 and TC-7 narrowed to the race; corrects `core/store/__init__.py:9`, which called
+  writes safe across processes). PATTERN from agentenv `sqlite_document_store.py:354-362` (writes under `BEGIN
+  IMMEDIATE`, Apache-2.0); this pattern is the store's existing agentenv row in THIRD_PARTY.md.
+- **Files.** `src/crucible/core/store/__init__.py` (`forget_doc`, `put_doc`, `tag`, `_settle_forgotten`, `_alive`),
+  `tests/unit/test_store_forget.py` (new).
+- **Behaviour.** `forget_doc` deletes the rows, decides whether the blob is still used and renames it aside inside one
+  `BEGIN IMMEDIATE` transaction, and removes the file after the commit. `put_doc` writes its rows in such a transaction
+  too and writes the blob again if it was forgotten since `put_bytes`; `tag` re-checks the blob inside its
+  transaction and refuses a forgotten one. Before, a put or tag in another process between the forget's commit and
+  its unlink left an index row (or a tag) whose blob was deleted. A blob a crashed process set aside is put back on the
+  next open if its rows remain (the forget never committed), else removed.
+- **Formats.** none (`staging/forgotten-*` files exist only between a forget's commit and its unlink).
+- **Tests.** `test_store_forget.py` (4): a put and a tag from a second connection landing while a forget holds its
+  transaction (the put keeps its blob; the tag is refused, not left dangling); set-aside blobs of a dead process
+  settled on open; 1.5 s of racing forgets and puts end with every row's blob present. Store, tag, connector, accept,
+  world and content-id suites: 243 passed.
+- **Merge notes.** `put_doc` now takes the index's write lock for its rows (it was an implicit transaction already).
