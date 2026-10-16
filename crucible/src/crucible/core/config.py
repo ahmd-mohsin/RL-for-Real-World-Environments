@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -43,6 +44,13 @@ from crucible.core.secrets import register_secret
 
 # What a local engine (vLLM, SGLang) takes in place of a key; any other api_key must be an env:NAME reference (R-8).
 KEY_PLACEHOLDERS = frozenset({"", "EMPTY", "none"})
+# A credential-named setting, matched on the key's last word (``auth_token``, ``X-Api-Key``, ``client_secret``), so
+# ``max_tokens`` and ``return_token_ids`` stay ordinary settings (A16-R2).
+CREDENTIAL_NAME = re.compile(r"(?:^|[_-])(?:api[_-]?key|apikey|password|passwd|secret|token|credentials?|authorization|cookie|bearer)$",
+                             re.IGNORECASE)
+# Request keywords the client sets itself; ``extra_headers`` and ``extra_query`` would be a second, unchecked route for
+# credentials next to ``headers`` (A16-R2).
+_CLIENT_OWNED = frozenset({"model", "messages", "tools", "stream", "timeout", "extra_headers", "extra_query"})
 
 
 class LLMProvider(CrucibleModel):
@@ -81,6 +89,35 @@ class LLMProvider(CrucibleModel):
         if literal:
             raise ValueError(f"headers {literal} look secret: give each as env:NAME, the variable holding the whole value "
                              "(e.g. 'Bearer ...'), not the value itself")
+        return v
+
+    @field_validator("base_url")
+    @classmethod
+    def _no_userinfo(cls, v: str) -> str:
+        from urllib.parse import urlsplit
+
+        if "@" in urlsplit(v).netloc:
+            raise ValueError("base_url carries credentials (user@ or user:password@): give the key as api_key = env:NAME, since a "
+                             "base_url is written into run locks and logs")
+        return v
+
+    @field_validator("request_defaults", "template_kwargs")
+    @classmethod
+    def _settings_carry_no_credentials(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """``request_defaults`` is merged into every request and written into run locks and ``Turn.sampling``: a header,
+        query or credential there bypasses ``headers``' ``env:`` rule and the scrubber (A16-R2; PATTERN: agentenv
+        ``config/model.py`` reserves the call keywords a params table may not set, Apache-2.0)."""
+        from crucible.core.fingerprint import flatten
+
+        body = v.get("extra_body")
+        owned = sorted({k for k in [*v, *(body if isinstance(body, dict) else ())] if k in _CLIENT_OWNED})
+        if owned:
+            raise ValueError(f"{owned} may not be set here: headers go in the provider's headers (secret ones as env:NAME), and "
+                             "model, messages, tools, stream and timeout are set by the client")
+        secret = sorted(".".join(p) for p in flatten(v) if any(CREDENTIAL_NAME.search(seg) for seg in p))
+        if secret:
+            raise ValueError(f"{secret} look like credentials: give a key as api_key or a header as env:NAME, never as a setting "
+                             "that is sent on every call and written into run locks")
         return v
 
     def resolved_headers(self, *, search_from: Path | None = None) -> dict[str, str]:

@@ -155,10 +155,9 @@ def test_world_spec_rejects_mistakes(extra):
 
 # ------------------------------------------------------------------------------------------------ D6: redaction
 def test_redacted_config_never_contains_raw_secrets():
-    # api_key and secret headers cannot be literal (R-8); free-form request_defaults still can, and redaction masks them
-    c = Config(llm_providers={"x": LLMProvider(base_url="http://h", request_defaults={"extra_headers": {"Authorization": "Bearer tok-REAL"}})})
-    text = str(c.redacted())
-    assert "tok-REAL" not in text
+    # api_key and secret headers cannot be literal (R-8), nor can request_defaults hold headers or credentials (A16-R2)
+    with pytest.raises(ValueError, match="extra_headers"):
+        LLMProvider(base_url="http://h", request_defaults={"extra_headers": {"Authorization": "Bearer tok-REAL"}})
     ref = Config(llm_providers={"x": LLMProvider(base_url="http://h", api_key="env:MY_KEY")})
     assert "env:MY_KEY" in str(ref.redacted())
 

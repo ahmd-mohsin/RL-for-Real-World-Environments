@@ -831,3 +831,23 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   secret header, string budget; all 4 fail on the previous code), `test_a_project_file_may_restate_the_operators_pairings`.
   Config, core and dotenv suites: 130 passed.
 - **Merge notes.** `load_config` now validates the operator layers a second time (without the project file).
+
+## 37. A16-R2: provider settings carry no credentials
+
+- **Item.** A16-R2 (carry-over CHG-2, LED16-3, the gap R-8 left, entry 9). PATTERN from agentenv `config/model.py:19-32`
+  (call keywords a params table may not set, Apache-2.0); no code taken. Narrowed: the audit's extra masking in
+  `_redact` is not needed once the settings refuse credentials.
+- **Files.** `src/crucible/core/config.py` (`CREDENTIAL_NAME`, `_CLIENT_OWNED`, `LLMProvider._no_userinfo`,
+  `LLMProvider._settings_carry_no_credentials`), `tests/unit/test_provider_settings.py` (new),
+  `tests/unit/test_core_audit.py` (its redaction test now expects the refusal).
+- **Public names.** `crucible.core.config.CREDENTIAL_NAME` (a credential-named key, matched on its last word).
+- **Behaviour.** `LLMProvider` refuses, naming the setting and never its value: `extra_headers` and `extra_query` in
+  `request_defaults` (headers go in `headers`, secret ones as `env:NAME`); the client-owned `model`, `messages`,
+  `tools`, `stream` and `timeout` there or in its `extra_body`; any credential-named leaf (`api_key`, `auth_token`,
+  `client_secret`, `X-Api-Key`, ...) in `request_defaults` or `template_kwargs`; a `base_url` with userinfo
+  (`user@` or `user:pw@`). Before, a project's `request_defaults.extra_headers.Authorization` replaced the operator's
+  key on every call, and operator literals (gateway tokens, `extra_body.api_key`, userinfo) reached `lock.json` and
+  every `Turn.sampling.extra`. `max_tokens`, `return_token_ids` and other engine settings stay allowed.
+- **Formats.** `crucible.toml`: those settings are refused.
+- **Tests.** `test_provider_settings.py` (10). LLM, actor, lock, config and core suites: 225 passed.
+- **Merge notes.** A provider that sent a header through `request_defaults.extra_headers` moves it to `headers`.
