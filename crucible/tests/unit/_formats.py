@@ -9,6 +9,12 @@ a format means a new version: an added optional field is a minor bump (``/v1`` t
 upcaster (``core.schema.base.register_upcaster``). Then ``uv run --frozen python scripts/freeze_schemas.py`` writes the
 new version's files. Unversioned formats (``steps.jsonl`` rows, ``WorldRef``) are frozen as ``unversioned``: their
 readers outside Crucible see any change, so changing one needs a version field first.
+
+Next to every example, ``<version>.read.json`` freezes what Crucible reads it as: its content id and its stored form
+(for an older version, the upcast's output). A schema snapshot holds the shape only, so renaming an alias, dropping an
+``exclude_if``, adding a field that changes every content id, or editing an upcaster passed (M0 audit 2026-10-16 R-9;
+PATTERN: agentenv ``tst/unit/serialization/test_golden_wire_format.py`` compares writer bytes with goldens,
+Apache-2.0). These files are never rewritten either: a failing one means the format changed.
 """
 
 from __future__ import annotations
@@ -117,6 +123,19 @@ def _shape(node: Any, names: bool = False) -> Any:
     if isinstance(node, list):
         return [_shape(v) for v in node]
     return node
+
+
+def read_file(example: Path) -> Path:
+    """The frozen reading of ``<version>.example.json``: ``<version>.read.json``."""
+    return example.with_name(example.name.removesuffix(".example.json") + ".read.json")
+
+
+def render_read(example: Path) -> str:
+    """What Crucible reads the example as today: the current model of its format, its content id and stored form."""
+    fmt = next(f for f in FORMATS if f.ident()[0] == example.parent.name)
+    doc = fmt.model().model_validate(json.loads(example.read_text()))
+    return json.dumps({"content_id": doc.content_hash(), "reads_as": json.loads(doc.stored_json())}, indent=1, sort_keys=True,
+                      ensure_ascii=False) + "\n"
 
 
 def render_example(fmt: Format) -> str:

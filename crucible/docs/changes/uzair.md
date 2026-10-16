@@ -1010,3 +1010,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_canonical_vectors.py` (16).
 - **Merge notes.** A change that fails a vector changes every content id: keep the old function as `SCHEMES[1]` and add
   scheme 2, never edit the vectors.
+
+## 47. A16-R9: every frozen example's reading is frozen too
+
+- **Item.** A16-R9 (carry-over SCOUT16-8; corrects R-18, entry 22, whose freeze held the shape only; a guard test).
+  PATTERN from agentenv `tst/unit/serialization/test_golden_wire_format.py:184-231` (writer bytes against goldens,
+  Apache-2.0); no code taken.
+- **Files.** `tests/unit/_formats.py` (new `read_file`, `render_read`; module doc), `tests/unit/test_formats.py`,
+  `scripts/freeze_schemas.py` (writes the new files, never rewrites them), `schemas/*/<version>.read.json` (21 new),
+  `schemas/crucible.run/v1.timings.example.json` (new: a run/v1 record in the shape the runner wrote before R-19, with
+  `meta.timings`, so the v1 to v2 upcaster's moves are exercised).
+- **Public names.** none.
+- **Behaviour.** none in Crucible. Next to every frozen example, `<version>.read.json` holds what Crucible reads it as
+  today: its content id and its stored form (for an older version, the upcaster's output). `test_every_example_reads_as_frozen`
+  fails when either changes. Before, the schema snapshot let an alias rename, a dropped `exclude_if`, a field that moves
+  every content id and an edited upcaster through. Checked by mutation: dropping `Sampling.extra`'s `exclude_if` fails
+  both rollout readings, and editing the run upcaster fails the new v1 example (both passed the previous tests).
+- **Formats.** none (test fixtures only).
+- **Tests.** `test_every_example_reads_as_frozen` (21). Format and core-audit suites pass; the freeze script writes
+  nothing on a second run.
+- **Merge notes.** A change that fails a reading is a format change: bump the version (and add an upcaster) instead of
+  rewriting the `.read.json` file.

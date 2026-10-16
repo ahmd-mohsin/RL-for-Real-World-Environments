@@ -1,0 +1,35 @@
+{
+ "content_id": "496c60b7da6606898a7ffd16e90214bb1f6c3ea14d3391dbbe026801940dd3b9",
+ "reads_as": {
+  "edges": [],
+  "family": "f",
+  "milestones": [
+   {
+    "check": {
+     "app": "a",
+     "expect": {
+      "kind": "ok"
+     },
+     "query": {
+      "args": {},
+      "op": "exists"
+     }
+    },
+    "cost": "cheap",
+    "gate": false,
+    "id": "m",
+    "provenance": [],
+    "requires": [],
+    "states": [
+     "p1"
+    ],
+    "weight": 1.0
+   }
+  ],
+  "schema_version": "crucible.workflow/v1",
+  "sources": [],
+  "stages": [],
+  "stats": {},
+  "verdicts": {}
+ }
+}

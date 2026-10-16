@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from tests.unit._formats import CRUCIBLE, FORMATS, SCHEMAS, Format, render_schema
+from tests.unit._formats import CRUCIBLE, FORMATS, SCHEMAS, Format, read_file, render_read, render_schema
 
 BUMP = ("changed without a version bump: an added optional field is a minor bump (/v1 to /v1.1, with exclude_if), anything "
         "else a major bump with an upcaster; then run `uv run --frozen python scripts/freeze_schemas.py` (tests/unit/_formats.py)")
@@ -28,6 +28,17 @@ def test_every_frozen_example_of_every_version_still_loads():
         model = by_name[path.parent.name].model()
         doc = model.model_validate(json.loads(path.read_text()))
         assert model.model_validate_json(doc.model_dump_json(by_alias=True)) == doc, path.name
+
+
+@pytest.mark.parametrize("example", sorted(SCHEMAS.glob("*/*.example.json")), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_example_reads_as_frozen(example):
+    """The content id and stored form of every example (an older version's through its upcaster) are frozen (M0 audit
+    2026-10-16 R-9): the shape snapshot let an alias rename, a dropped exclude_if, an id-moving field and an edited
+    upcaster through."""
+    path = read_file(example)
+    assert path.exists(), f"{path.relative_to(CRUCIBLE)} is missing: run `uv run --frozen python scripts/freeze_schemas.py`"
+    assert path.read_text() == render_read(example), (f"{example.relative_to(CRUCIBLE)} now reads differently (content id or stored "
+                                                      f"form): {BUMP}; for an older version, the upcaster changed")
 
 
 def test_every_versioned_document_and_core_document_is_frozen():

@@ -4,7 +4,7 @@
     uv run --frozen python scripts/freeze_schemas.py --refresh  # rewrite current schemas after a pydantic upgrade only
 
 Existing files are never rewritten without --refresh: a model whose schema changed needs a new version, not a new
-snapshot. --refresh exists for one case: a pydantic upgrade that changes how the same models render (check the lock diff).
+snapshot. ``<version>.read.json`` (how each example reads: content id and stored form) is never rewritten at all. --refresh exists for one case: a pydantic upgrade that changes how the same models render (check the lock diff).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tests.unit._formats import CRUCIBLE, FORMATS, render_example, render_schema
+from tests.unit._formats import CRUCIBLE, FORMATS, SCHEMAS, read_file, render_example, render_read, render_schema
 
 
 def main() -> int:
@@ -32,6 +32,10 @@ def main() -> int:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
             print(f"wrote {rel}")
+    for example in sorted(SCHEMAS.glob("*/*.example.json")):  # how each example reads (R-9): written once, never refreshed
+        if not (path := read_file(example)).exists():
+            path.write_text(render_read(example))
+            print(f"wrote {path.relative_to(CRUCIBLE)}")
     return 0
 
 
