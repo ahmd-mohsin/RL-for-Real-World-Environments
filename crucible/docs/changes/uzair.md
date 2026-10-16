@@ -7,6 +7,9 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - Base: `main` at `c27f5ca` (2026-10-15).
 - Last merged from `main`: `c27f5ca`.
 - Source of the items: `docs/research/improvements/2026-10-14/M00-core.md` (R-1 to R-31).
+- From entry 36: the M0 re-audit `docs/research/improvements/2026-10-16/M00-core.md`, whose items are named A16-R1 to
+  A16-R31 here (the 2026-10-14 items stay R-1 to R-31). Only the items with a realistic failure today, plus two
+  guard tests, are implemented (the user's choice, to avoid over-engineering); the rest wait for a consumer.
 
 ## 1. Add the M00 core audit
 
@@ -805,3 +808,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_config_backends.py` (1). Config and core suites: 25 passed; `crucible config` loads this repository's
   file.
 - **Merge notes.** A configuration that set `[backends]` must drop it (it never had an effect).
+
+## 36. A16-R1: a credential goes only to an endpoint the operator paired it with
+
+- **Item.** A16-R1 (carry-over SCOUT16-5, CHG-11, LED16-1, LED16-2; corrects R-23, entry 27). PATTERN from agentenv
+  `config/model.py:149-153` (a key scoped to its endpoint, Apache-2.0); no code taken.
+- **Files.** `src/crucible/core/config.py` (`load_config`, `_check_project`, new `_number`, `_endpoint`,
+  `_credential_pairs`, `_check_credentials`; module doc), `tests/unit/test_config_layers.py`.
+- **Public names.** none new; `ConfigError` gains a case.
+- **Behaviour.** After the layers merge, every (endpoint, `env:` reference) pair a provider would send (its `api_key`
+  unless a placeholder, and every `env:` header) must also be in the operator's view: the built-in defaults plus the
+  user file, `$CRUCIBLE_CONFIG` and `--set`, without the project file. Otherwise `ConfigError` names the project file,
+  the reference, the endpoint and the provider (never a value). The per-key check of R-23 compared a project file only
+  with the user file, so with no user file a cloned `crucible.toml` could point openrouter at its own host with
+  `env:AWS_SECRET_ACCESS_KEY`, or add `[llm_providers.mirror]` with `env:OPENROUTER_API_KEY` and route
+  `models.policy-default` to it. The budget check now compares validated numbers: `llm_budget_usd = "500"` was skipped
+  and then read as 500.0. A project file may still add a keyless local engine, lower the budget, or restate a pairing
+  the operator has (this repository's `crucible.toml` repeats the default openrouter one and loads unchanged).
+- **Formats.** `crucible.toml`: a project file that gives a provider its own credentialed endpoint is refused; declare
+  that provider in `~/.config/crucible/crucible.toml` or with `--set`.
+- **Tests.** `test_a_project_file_cannot_pair_a_credential_with_its_own_endpoint` (4: no user file, own provider,
+  secret header, string budget; all 4 fail on the previous code), `test_a_project_file_may_restate_the_operators_pairings`.
+  Config, core and dotenv suites: 130 passed.
+- **Merge notes.** `load_config` now validates the operator layers a second time (without the project file).

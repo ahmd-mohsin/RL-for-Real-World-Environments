@@ -14,6 +14,14 @@ where code runs, the spending cap) are decided by the operator's layers: a proje
 file says nothing, and may lower the budget but never raise it. ``Config.sources`` names every layer that was read
 (``crucible config`` prints them).
 
+A credential goes only to an endpoint the operator paired it with (M0 audit 2026-10-16 R-1; PATTERN: agentenv scopes a
+key to its endpoint, ``config/model.py``, Apache-2.0). Checking a project file against the user file alone let it
+through when there was no user file, or when it added a provider of its own: a cloned ``crucible.toml`` could point
+openrouter at its own host with ``env:AWS_SECRET_ACCESS_KEY``, or add ``[llm_providers.mirror]`` holding
+``env:OPENROUTER_API_KEY`` and route ``models.policy-default`` to it. Now every (endpoint, ``env:`` reference) pair in
+the result must also be in the operator's view (built-in defaults, the user file, ``$CRUCIBLE_CONFIG``, ``--set``),
+so a project file may still add a keyless local engine, or restate a provider the operator has.
+
 Secrets never live in the file (agentenv rule): a value ``"env:NAME"`` is read from the process
 environment, falling back to the nearest ``.env`` file. Resolved secrets are never logged or
 serialized; ``Config.redacted()`` shows the references instead.
@@ -242,13 +250,52 @@ def _check_project(project: dict[str, Any], below: dict[str, Any], path: Path) -
         if not excluded(parts, OPERATOR_ONLY):
             continue
         if key == "llm_budget_usd":
-            cap = below.get("llm_budget_usd", Config.model_fields["llm_budget_usd"].default)
-            if isinstance(value, (int, float)) and value > cap:
+            # compared as the validated numbers: the TOML string "500" was skipped here and then read as 500.0 (R-1)
+            cap, value = _number(below.get("llm_budget_usd", Config.model_fields["llm_budget_usd"].default)), _number(value)
+            if value is not None and cap is not None and value > cap:
                 raise ConfigError(f"{path} raises llm_budget_usd from {cap} to {value}: a project file may lower the spending cap, never "
                                   f"raise it; set it in {user_config_path()} or pass --set llm_budget_usd={value}")
         elif key in have and have[key] != value:
             raise ConfigError(f"{path} overrides {key}, which the user configuration sets: where requests, credentials and code go "
                               "is the operator's to decide; remove it from the project file or change it in the user file")
+
+
+def _number(v: Any) -> float | None:
+    """``v`` as ``Config.llm_budget_usd`` will read it, or None when it is not a number (validation then refuses it)."""
+    from pydantic import TypeAdapter, ValidationError
+
+    try:
+        return TypeAdapter(float).validate_python(v)
+    except ValidationError:
+        return None
+
+
+def _endpoint(base_url: str) -> str:
+    from urllib.parse import urlsplit
+
+    u = urlsplit(base_url.strip())
+    return f"{u.scheme.lower()}://{u.netloc.lower()}{u.path.rstrip('/')}"
+
+
+def _credential_pairs(cfg: Config) -> dict[tuple[str, str], str]:
+    """``{(endpoint, env:NAME): provider}`` for every credential a provider would send."""
+    out: dict[tuple[str, str], str] = {}
+    for name, p in cfg.llm_providers.items():
+        refs = [p.api_key] if p.api_key not in KEY_PLACEHOLDERS else []
+        refs += [v for v in p.headers.values() if v.startswith("env:")]
+        for ref in refs:
+            out[(_endpoint(p.base_url), ref)] = name
+    return out
+
+
+def _check_credentials(cfg: Config, operator: Config, path: Path) -> None:
+    """Refuse a project file whose result sends a credential to an endpoint the operator's layers did not pair it with."""
+    allowed = _credential_pairs(operator)
+    for (endpoint, ref), provider in sorted(_credential_pairs(cfg).items()):
+        if (endpoint, ref) not in allowed:
+            raise ConfigError(f"{path} sends {ref} to {endpoint} (llm_providers.{provider}), a pairing the operator's configuration "
+                              f"does not make: a project file may not decide where credentials go. Declare the provider in "
+                              f"{user_config_path()}, or give a local engine one of {sorted(KEY_PLACEHOLDERS)} as its api_key")
 
 
 def set_overrides(pairs: list[str] | tuple[str, ...]) -> None:
@@ -278,6 +325,8 @@ def load_config(cwd: Path | None = None) -> Config:
     from crucible.core.fingerprint import flatten
 
     data: dict[str, Any] = {}
+    operator: dict[str, Any] = {}  # the layers the operator chose (user file, $CRUCIBLE_CONFIG, --set), over the defaults
+    project_path: Path | None = None
     sources: list[str] = []
     root: Path | None = None
     explicit = knobs.get("CRUCIBLE_CONFIG")
@@ -293,14 +342,21 @@ def load_config(cwd: Path | None = None) -> Config:
         doc.pop("root", None)
         if kind == "project":
             _check_project(doc, data, path)
+            project_path = path
+        else:
+            operator = _merge(operator, doc)
         data = _merge(data, doc)
         sources.append(f"{kind}:{path.resolve()}")
         root = path.parent.resolve()
     if _OVERRIDES:
         data = _merge(data, _OVERRIDES)
+        operator = _merge(operator, _OVERRIDES)
         sources += [f"set:{'.'.join(k)}" for k in flatten(_OVERRIDES)]
     data["root"], data["sources"] = str(root or Path(cwd or Path.cwd()).resolve()), sources
-    return Config.model_validate(data)
+    cfg = Config.model_validate(data)
+    if project_path is not None:
+        _check_credentials(cfg, Config.model_validate(operator), project_path)
+    return cfg
 
 
 @lru_cache(maxsize=1)
