@@ -8,6 +8,7 @@ NeMo-Gym allows. The rule (DESIGN P16): an infrastructure failure is *masked*, n
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from typing import Any, ClassVar, Literal
@@ -94,15 +95,19 @@ DEFAULT_BLAME: dict[str, str] = {
 
 
 # Pack-registered kinds (``<pack>:<kind>``, NeMo-Gym's namespaced extension form, ``nemo_gym/failure_kinds.py``):
-# a pack names its own environment failures without editing core, each with a default blame.
-_NAMESPACED = re.compile(r"^[a-z0-9_]+:[a-z0-9_]+$")
+# a pack names its own environment failures without editing core, each with a default blame. Each part starts with a
+# letter and the whole name must match (R-27; PORT of NeMo-Gym's ``_NAMESPACED_PATTERN`` with ``fullmatch``, Apache-2.0):
+# ``^...$`` let "pack:kind\n" (``$`` matches before a final newline) and "9probe:_x" register.
+_NAMESPACED = re.compile(r"[a-z][a-z0-9_]*:[a-z][a-z0-9_]*")
 _REGISTERED: dict[str, str] = {}
+_WARNED: set[str] = set()
+_log = logging.getLogger(__name__)
 MAX_REASON_CHARS = 2000  # NeMo-Gym caps failure_reason at 2000 characters
 
 
 def register_failure_kind(name: str, *, blame: str) -> None:
     """Register a pack's failure kind ``<pack>:<kind>`` with its default blame (policy => scored, else masked)."""
-    if not _NAMESPACED.match(name) or name.startswith("crucible:"):
+    if not isinstance(name, str) or not _NAMESPACED.fullmatch(name) or name.startswith("crucible:"):
         raise ValueError(f"a pack failure kind is '<pack>:<kind>' outside the crucible namespace, got {name!r}")
     if blame not in ("infra", "harness", "task", "policy", "unknown"):
         raise ValueError(f"unknown blame {blame!r}")
@@ -116,7 +121,15 @@ def is_failure_kind(name: str) -> bool:
 
 
 def default_blame(name: str) -> str:
-    return DEFAULT_BLAME.get(name) or _REGISTERED.get(name, "unknown")
+    """The kind's default blame; an unknown kind (a misspelling, a pack not installed here) is ``unknown``, and masked.
+    Refusing it would strand the record, so it is read, with one warning per kind and process (R-27)."""
+    blame = DEFAULT_BLAME.get(name) or _REGISTERED.get(name)
+    if blame is None:
+        if name not in _WARNED:
+            _WARNED.add(name)
+            _log.warning("failure kind %r is not registered here: its blame is unknown (masked); a misspelling, or its pack is not installed", name)
+        return "unknown"
+    return blame
 
 
 def _iso(v: str | None) -> str | None:

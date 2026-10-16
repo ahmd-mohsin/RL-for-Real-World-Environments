@@ -722,3 +722,18 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_media_mime.py` (11): six spellings normalized, four disagreements refused, audio formats `wav`/`mp3`.
   Suites using images or audio: 162 passed, the known `test_agentenv_mcp_env` failure.
 - **Merge notes.** A producer that tagged media with a type of another kind now fails validation.
+
+## 31. R-27: failure-kind names under fullmatch; an unknown kind read warns once
+
+- **Item.** R-27 (carry-over AUD-D17; NG-1). PORT of NeMo-Gym `failure_kinds.py:52-60` (`_NAMESPACED_PATTERN`,
+  `fullmatch`; Apache-2.0), the module this vocabulary already ports (its THIRD_PARTY.md row).
+- **Files.** `src/crucible/core/schema/run.py` (`_NAMESPACED`, `register_failure_kind`, `default_blame`, `_WARNED`),
+  `tests/unit/test_failure_kinds.py` (new).
+- **Behaviour.** A pack kind is `<letter>[a-z0-9_]*:<letter>[a-z0-9_]*`, matched whole: `pack:kind\n` (`$` matched
+  before the newline) and `9probe:_x` no longer register; a non-string is refused. An unknown kind met on read (a
+  misspelling, a pack not installed here) still reads with blame `unknown` (masked), and is logged once per kind and
+  process instead of silently.
+- **Formats.** none.
+- **Tests.** `test_failure_kinds.py` (10): eight malformed names refused, a well-formed one registers, an unknown read
+  logs once. Core, runtime, run-lock, task-digest, usage and format suites: 222 passed. No pack registers a kind today.
+- **Merge notes.** A pack kind starting with a digit or underscore must be renamed.
