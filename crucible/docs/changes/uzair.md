@@ -758,3 +758,20 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   registry, workflow, segmenting, replay or connectors: 1189 passed, 4 failures that fail at HEAD too (entry 19).
 - **Merge notes.** A new registry kind must be added to `KINDS` (with its reader); tests of the registry mechanism use
   `declare_kind`.
+
+## 33. R-29: `.env` files are read with python-dotenv's grammar
+
+- **Item.** R-29 (new; SW-5; DEPEND changed to PORT, since ARCHITECTURE.md limits new dependencies). PORT (vendored
+  verbatim) of python-dotenv 1.2.4 `dotenv/parser.py` (BSD-3-Clause); `LICENSES/BSD-3-Clause-python-dotenv.txt` and a
+  THIRD_PARTY.md row added.
+- **Files.** `src/crucible/_vendor/dotenv_parser.py` (new), `src/crucible/core/config.py` (`_dotenv`),
+  `LICENSES/BSD-3-Clause-python-dotenv.txt` (new), `tests/unit/test_dotenv.py` (new), `THIRD_PARTY.md`.
+- **Behaviour.** The nearest `.env` is parsed as python-dotenv parses it (quotes, escapes, `export`, inline comments,
+  multi-line quoted values, a later binding of a key winning), with no interpolation. Before, a line was split at the
+  first `=` and quotes stripped from the ends: `KEY=sk-...  # note` kept the comment, and the secret failed with 401.
+- **Formats.** none.
+- **Tests.** `test_dotenv.py` (2): the audit's fixture (plus empty, `#`-leading and multi-line values) reads as
+  python-dotenv's own `dotenv_values` reads it; a resolved secret has no trailing comment. Config, core, secret, LLM and
+  licence suites: pass.
+- **Merge notes.** A `.env` value that relied on the old reading (a trailing `# ...` kept, or unbalanced quotes) now
+  reads as python-dotenv does.

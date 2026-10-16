@@ -175,19 +175,19 @@ def resolve_secret(value: str, *, search_from: Path | None = None) -> str:
 
 
 def _dotenv(start: Path) -> dict[str, str]:
+    """The nearest ``.env`` from ``start`` up, parsed with python-dotenv's grammar (R-29; vendored in
+    ``crucible._vendor.dotenv_parser``, BSD-3-Clause): quotes, escapes, ``export`` and inline comments as python-dotenv
+    reads them, no interpolation. The parser here split at the first ``=``, so ``KEY=sk-...  # note`` kept the comment in
+    the key and every call failed 401. A later binding of a key wins, as in python-dotenv; a line it cannot parse is
+    skipped."""
+    import io
+
+    from crucible._vendor.dotenv_parser import parse_stream
+
     for d in [start, *start.resolve().parents]:
         f = d / ".env"
         if f.is_file():
-            out: dict[str, str] = {}
-            for line in f.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                k = k.removeprefix("export ").strip()
-                v = v.strip().strip('"').strip("'")
-                out[k] = v
-            return out
+            return {b.key: b.value for b in parse_stream(io.StringIO(f.read_text(encoding="utf-8"))) if b.key and b.value is not None and not b.error}
     return {}
 
 

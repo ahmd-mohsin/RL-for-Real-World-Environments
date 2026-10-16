@@ -17,6 +17,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | Folder | Source | Revision | License | Changes |
 |---|---|---|---|---|
 | `mimo_sidecar/` | Xiaomi MiMo v2.6 RL release, `general/envs/*/{mcp_http.py, mcp_bridge.py}` | md5 69484c5f…, 98d327a9… | Apache-2.0 | `mcp_http.py`: bind address parameter (default 127.0.0.1 instead of 0.0.0.0). `sidecar_entrypoint.py` not ported (Linux-only readiness probe, `/dump` and `/verify` not implemented upstream) |
+| `dotenv_parser.py` | python-dotenv `src/dotenv/parser.py` (https://github.com/theskumar/python-dotenv) | 1.2.4 | BSD-3-Clause (`LICENSES/BSD-3-Clause-python-dotenv.txt`) | none (vendored verbatim below a docstring); only the parser, no interpolation; read by `core/config.py` `_dotenv` (M0 audit 2026-10-14 R-29) |
 | `openenv_awm/` | OpenEnv `envs/agent_world_model_env/server/{data_loader.py, db_manager.py}` + `_patch_env_code` from `scenario_manager.py` | 49aa302 | BSD-3-Clause | per-file lazy download (upstream fetches all 7 files, ~500 MB, on first access) |
 
 ## Code ported outside `_vendor/` (adapted into Crucible modules; the source is named in each module docstring)
