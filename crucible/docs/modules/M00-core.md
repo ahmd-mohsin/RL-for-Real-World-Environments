@@ -15,7 +15,7 @@ The typed contracts every other module is written against. It contains no domain
 | `schema/signal.py` | Generic expert-signal taxonomy (13 types) |
 | `schema/milestone.py` | Milestone checks as adapter Queries + expectations, prerequisite DAG (cycle check) |
 | `schema/reward.py` | `reward.json` (a failed gate forces 0) and `steps.jsonl` rows; NeMo-Gym-style `reward_components()` |
-| `schema/run.py` | `RunRecord` and failure kinds: NeMo-Gym's shared vocabulary verbatim, plus `crucible:*` incident kinds. Infrastructure failures are masked |
+| `schema/run.py` | `RunRecord` (`crucible.run/v2`: the lock fingerprint and launch number it ran under, task digest, usage, timing) and failure kinds: NeMo-Gym's shared vocabulary verbatim, plus `crucible:*` incident kinds. Infrastructure failures are masked. `RunLock`, `RunLaunch` |
 | `schema/usage.py` | `Usage` (one call's tokens, disjoint: uncached input, cache reads, cache writes, output; every provider's shape reads to the same numbers), `UsageTotals` (an attempt's live calls with coverage; replays apart), `FinishReason`, `Timing` (per stage, with the model's share of the agent stage) |
 | `schema/task.py` | `crucible.task/v1`, `crucible.card/v1` (provenance + value proof), `HarborTaskSummary` |
 | `ids.py` | Harbor-compatible directory hash; tree-manifest hash used for state fingerprints |
@@ -31,8 +31,9 @@ The typed contracts every other module is written against. It contains no domain
 - **Round trip and identity:** no nullable field has a non-`None` default (`IsolationSpec.pids_limit` uses 0 for no limit,
   `CrucibleTask.milestones` uses `""` for none; `None` is still read); canonical JSON lives in `core/canonical.py`
   (finite floats, `-0.0` folded, NFC strings), shared with the interop identity gate; `HASH_SCHEME = 1` in `core/ids.py`.
-- **Versions:** `crucible.reward/v1` and `crucible.run/v1` are versioned; `VersionedDocument` explains a newer minor
-  version, upgrades older majors through `register_upcaster`, and rejects an unknown major on assignment.
+- **Versions:** `crucible.reward/v1` and `crucible.run/v2` are versioned; `VersionedDocument` explains a newer minor
+  version, upgrades older majors through `register_upcaster`, and rejects an unknown major on assignment. The first
+  upcaster in use reads `crucible.run/v1` records as v2 (R-1 step 3).
 - **Validation:** the world spec rejects allowlists without hosts, hosts without an allowlist, negative time steps,
   malformed `t0`, non-positive tool limits, negative quotas, and events or grants naming unknown apps; `StepRow.phi` is in
   [0, 1]; `RunRecord` rejects contradictory masks and malformed timestamps; `validate_id` (agentenv rules).

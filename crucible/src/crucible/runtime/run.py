@@ -60,9 +60,9 @@ class RunSpec:
                 **({"rollout_mode": self.rollout_mode} if self.rollout_mode != "eval" else {})}
 
 
-def _lock(journal: RunJournal, spec: RunSpec) -> RunLock:
+def _lock(journal: RunJournal, spec: RunSpec) -> tuple[RunLock, dict[str, Any]]:
     """Write or check the run's lock, then record this launch, before anything is dispatched (R-1): a changed setting
-    raises RunLockMismatch."""
+    raises RunLockMismatch. Returns the lock and the stamp every record of this launch carries (R-1 step 3)."""
     from crucible.runtime import lock
 
     rl, status = lock.ensure(journal.dir, spec)
@@ -71,7 +71,7 @@ def _lock(journal: RunJournal, spec: RunSpec) -> RunLock:
                       opaque=rl.opaque)
     ln = lock.launch(journal.dir, spec, rl, status)  # R-1 step 2: how this invocation ran (argv, operational settings, code)
     journal.event("launch", n=ln.n, git_commit=ln.build.git_commit, git_dirty=ln.build.git_dirty)
-    return rl
+    return rl, {"lock": rl.fingerprint, "launch": ln.n}
 
 
 def _digest_now(task) -> str | None:
@@ -136,7 +136,7 @@ class Runner:
 
     async def run(self, spec: RunSpec) -> RunSummary:
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
-        rl = _lock(journal, spec)
+        rl, stamp = _lock(journal, spec)
         planned = {t.id: rl.settings.get(f"tasks.{i}.digest") for i, t in enumerate(spec.tasks)}
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         plan = self.plan(spec)
@@ -229,11 +229,11 @@ class Runner:
                 ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
             state["max_cost"] = max(state["max_cost"], hr.cost_usd + hr.cost_uncertain_usd)
             try:
-                rec = self._record(spec, sk, aid, task, policy, harness, hr, d0)
+                rec = self._record(spec, sk, aid, task, policy, harness, hr, d0, **stamp)
                 self._rollout(spec, sk, rec, hr, adir)
             except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
                 rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
-                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])), d0)
+                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])), d0, **stamp)
             retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
             if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                 state["stopped"] = "budget: provider credits exhausted"
@@ -272,7 +272,7 @@ class Runner:
         contaminated their perf grades is quiet again. Default selection: masked at verification. Only harnesses with a
         ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is."""
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
-        _lock(journal, spec)
+        _, stamp = _lock(journal, spec)
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
         select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
         plan = {sk.id(): (sk, t, p, h) for sk, t, p, h in self.plan(spec)}
@@ -293,7 +293,7 @@ class Runner:
             adir.mkdir(parents=True, exist_ok=True)
             journal.event("regrade", attempt=aid, source=src.name)
             hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
-            rec = self._record(spec, sk, aid, task, policy, harness, hr)
+            rec = self._record(spec, sk, aid, task, policy, harness, hr, **stamp)
             journal.finish(rec, terminal=True)  # the newest terminal row of a sample wins
             n_done += 1
         recs = journal.records()
@@ -324,16 +324,15 @@ class Runner:
         (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))
 
     @staticmethod
-    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult, task_digest: str | None = None) -> RunRecord:
+    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult, task_digest: str | None = None, *,
+                lock: str | None = None, launch: int | None = None) -> RunRecord:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        rec = RunRecord(run_id=spec.run_id, task=task.id, world=getattr(task, "world_id", "") or task.id, policy=policy.id, seed=sk.seed, started_at=now,
-                        ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd,
-                        sample=sk.model_dump(mode="json"), attempt=aid,
-                        # usage and timing (R-19) become typed RunRecord fields with crucible.run/v2 (R-1 step 3)
+        rec = RunRecord(run_id=spec.run_id, task=task.id, task_digest=task_digest, world=getattr(task, "world_id", "") or task.id, policy=policy.id,
+                        seed=sk.seed, started_at=now, ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd,
+                        cost_uncertain_usd=hr.cost_uncertain_usd, usage=hr.usage, timing=Timing.from_stages(hr.timings, model=hr.model_s),
+                        sample=sk.model_dump(mode="json"), attempt=aid, lock=lock, launch=launch,
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates,
-                              "timing": Timing.from_stages(hr.timings, model=hr.model_s).model_dump(),
-                              **({"usage": hr.usage.model_dump()} if hr.usage is not None else {}),
-                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts, **({"task_digest": task_digest} if task_digest else {}),
+                              "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
                               **({"seat_rewards": hr.grade["seat_rewards"]} if hr.grade.get("seat_rewards") else {}),

@@ -106,3 +106,34 @@ async def test_each_invocation_is_recorded_as_a_launch(tmp_path, monkeypatch):
     assert "<secret>" in first["argv"] and not any("sk-or-v1" in a for a in first["argv"])
     events = [json.loads(x) for x in (tmp_path / "r" / "journal.jsonl").read_text().splitlines()]
     assert [e["n"] for e in events if e["event"] == "launch"] == [1, 2]
+
+
+async def test_records_name_the_lock_and_launch_they_ran_under(tmp_path):
+    """R-1 step 3: every record carries the lock fingerprint and launch number of the invocation that wrote it."""
+    await Runner(tmp_path).run(_spec())
+    first = json.loads((tmp_path / "r" / "lock.json").read_text())["fingerprint"]
+    await Runner(tmp_path).run(_spec(k=2, allow_change=["k"]))  # a resume that adds a sample under a changed lock
+    second = json.loads((tmp_path / "r" / "lock.json").read_text())["fingerprint"]
+    recs = sorted((json.loads(p.read_text()) for p in (tmp_path / "r" / "samples").glob("*/a*/record.json")), key=lambda r: r["sample"]["sample_idx"])
+    assert [(r["schema_version"], r["lock"], r["launch"]) for r in recs] == [("crucible.run/v2", first, 1), ("crucible.run/v2", second, 2)]
+    assert first != second and all("tokens" not in r and r["timing"] for r in recs)
+
+
+def test_a_v1_record_reads_as_v2(tmp_path):
+    """The first upcaster: meta's task digest, usage and timing become fields, pre-R-19 stage timings become timing,
+    the never-filled tokens are dropped, and lock/launch stay unknown. A results.jsonl mixing v1 and v2 rows reads."""
+    from crucible.core.schema.run import RunRecord
+    from crucible.runtime.journal import RunJournal
+
+    base = {"run_id": "r", "world": "w", "policy": "p", "started_at": "2026-01-01T00:00:00Z", "outcome": "completed", "reward": 1.0}
+    old = RunRecord.model_validate({**base, "schema_version": "crucible.run/v1", "attempt": "s1-a1", "tokens": {},
+                                    "meta": {"harness": "h@1", "task_digest": "sha256:ab", "usage": {"input_tokens": 5, "calls": 1, "reported": 1},
+                                             "timing": {"agent": 2.0, "model": 1.0}}})
+    assert (old.schema_version, old.task_digest, old.usage.input_tokens, old.timing.model, old.lock, old.launch, old.meta) == (
+        "crucible.run/v2", "sha256:ab", 5, 1.0, None, None, {"harness": "h@1"})
+    pre_r19 = RunRecord.model_validate({**base, "schema_version": "crucible.run/v1", "meta": {"timings": {"seed": 1.0, "agent": 2.0}}})
+    assert (pre_r19.timing.seed, pre_r19.timing.agent, pre_r19.usage, pre_r19.meta) == (1.0, 2.0, None, {})
+    j = RunJournal(tmp_path, "r", "id", {})
+    j.results.write_text(json.dumps({**base, "schema_version": "crucible.run/v1", "attempt": "s1-a1", "tokens": {}}) + "\n"
+                         + RunRecord(**base, attempt="s2-a1", lock="sha256:01", launch=2).model_dump_json() + "\n")
+    assert {sid: (r.schema_version, r.launch) for sid, r in j.terminal().items()} == {"s1": ("crucible.run/v2", None), "s2": ("crucible.run/v2", 2)}

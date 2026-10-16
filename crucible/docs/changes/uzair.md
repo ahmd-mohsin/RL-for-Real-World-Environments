@@ -438,3 +438,37 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `source == "none"` (or `Usage.model_validate`). Code reading `rec.meta["timings"]` must read `meta["timing"]`
   (`Timing.model_validate(...).stages()`). New call-record producers should store `**r.finish_fields()` and a usage dict
   (it is normalized on `LLMResponse`). A new provider finish word belongs in `_FINISH_ALIASES`.
+
+## 20. R-1 (step 3 of 4): `crucible.run/v2`, the run record names its lock and launch
+
+- **Item.** R-1 step 3, with the record fields of R-2 (task digest) and R-19 (usage, timing); the first upcaster in use
+  (IMP-M0-6). Mechanism: Crucible's own `register_upcaster` (the pattern of Harbor's `mode="before"` migrations in
+  `models/task/config.py`; no code copied). Decisions: v1's `tokens` is dropped by the upcaster (nothing ever filled
+  it, on `main` or `origin/haseeb`); `world_digest` (suggested by R-2) waits until something computes it (a v2.1 field).
+  Step left: 4, training-checkpoint identity (M12).
+- **Files.** `src/crucible/core/schema/run.py` (`RunRecord` v2 fields, `_run_v1_to_v2`, registered upcaster),
+  `src/crucible/runtime/run.py` (`_lock` returns the lock and a `{lock, launch}` stamp; `_record(..., lock=, launch=)`
+  fills the typed fields; `run` and `regrade` stamp every record), `src/crucible/runtime/record.py` (rollout timings from
+  `rec.timing`), `src/crucible/bench/metrics.py` (reads `rec.usage`, `rec.timing`), `schemas/crucible.run/v2.*` (new;
+  v1 files kept), `tests/unit/_formats.py` (v2 example), `tests/unit/test_run_lock.py` (2 tests),
+  `tests/unit/test_usage.py`, `tests/unit/test_task_digest.py`, `tests/unit/test_m13_audit_metrics.py` (its record
+  fixture sets `timing` instead of `meta["timings"]`), `docs/modules/M00-core.md`.
+- **Public names.** `RunRecord.task_digest`, `.usage` (`UsageTotals`), `.timing` (`Timing`), `.lock`, `.launch`;
+  `RunRecord.tokens` removed.
+- **Behaviour.** Every record the runner writes (attempts, re-grades, records of failed record/rollout builds) carries
+  the lock fingerprint and launch number of its invocation, so a resumed run's records can be told apart by settings
+  and code (`launches/<n>.json`). `meta` no longer holds `task_digest`, `usage` or `timing`. Records made outside the
+  runner (NeMo-Gym client, `train/world_env`) leave the new fields `None`.
+- **Formats.** `crucible.run/v1` -> `v2` (major). The upcaster moves `meta.task_digest`, `meta.usage`, `meta.timing`
+  into their fields, turns pre-R-19 `meta.timings` into `timing`, drops `tokens`, and leaves `lock`/`launch` `None`.
+  v1 files on disk are not rewritten; a `results.jsonl` mixing v1 and v2 rows reads. A v1 reader (code on `main`)
+  refuses v2 records as a newer major version.
+- **Tests.** `test_run_lock.py`: records name the lock and launch they ran under (a resume with an allowed change gets
+  launch 2 and the new fingerprint); a v1 record reads as v2 (with R-19 meta, with pre-R-19 timings, a mixed
+  `results.jsonl`). `test_formats.py`: the v2 schema is frozen and the v1 example still loads. 151 non-training
+  suites and the 8 training suites that build or read run records: 1743 passed, the same 7 failures as at HEAD
+  (entry 19).
+- **Merge notes.** Code reading `rec.tokens`, `rec.meta["task_digest"]`, `rec.meta["usage"]` or `rec.meta["timing"]`
+  must read the fields. Code writing `RunRecord(tokens=...)` fails (unknown key). Code that reads `record.json` or
+  `results.jsonl` as plain dicts sees `schema_version: crucible.run/v2` and the new keys; validate through `RunRecord`
+  to read v1 and v2 alike.

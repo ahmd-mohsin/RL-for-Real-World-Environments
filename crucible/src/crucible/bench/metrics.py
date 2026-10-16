@@ -143,12 +143,11 @@ def _attempt_n(attempt: str | None) -> int:
 
 
 def _attempt_usage(adir: Path, rec: Any) -> UsageTotals:
-    """The attempt's token usage (R-19): its record's ``meta.usage``, else (records before R-19) its ``calls.json`` summed,
-    with replayed calls apart. ``RunRecord.tokens`` is never read: no producer filled it, and summing its keys by guess
-    counted cache fields as input."""
-    u = (rec.meta or {}).get("usage")
-    if u:
-        return UsageTotals.model_validate(u)
+    """The attempt's token usage (R-19): its record's ``usage``, else (records before R-19) its ``calls.json`` summed,
+    with replayed calls apart. v1's ``RunRecord.tokens`` was never read here: no producer filled it, and summing its keys
+    by guess counted cache fields as input."""
+    if rec.usage is not None:
+        return rec.usage
     calls = _json(adir / "calls.json")
     return UsageTotals.of(calls) if isinstance(calls, dict) else UsageTotals()
 
@@ -158,10 +157,9 @@ _TOKEN_STATS = ("tokens_in", "tokens_out", "tokens_cached", "tokens_replayed", "
 
 def _attempt_stats(adir: Path, rec: Any) -> dict[str, Any]:
     """Spend, tokens and wall time of one attempt (its own record and model calls)."""
-    m = rec.meta or {}
-    timing = Timing.model_validate(m["timing"]) if m.get("timing") else Timing.from_stages(m.get("timings") or {})
+    timing = rec.timing or Timing()  # a v1 record's stage timings arrive here through its upcaster
     u = _attempt_usage(adir, rec)
-    gpu = m.get("gpu_s")
+    gpu = (rec.meta or {}).get("gpu_s")
     return {"usd": float(rec.cost_usd or 0.0), "usd_uncertain": float(rec.cost_uncertain_usd or 0.0), "tokens_in": u.prompt_tokens,
             "tokens_out": u.completion_tokens, "tokens_cached": u.cache_read_tokens, "tokens_replayed": u.replayed_tokens, "model_calls": u.calls,
             "calls_reported": u.reported, "wall_s": timing.wall_s, "gpu_s": None if gpu is None else float(gpu)}

@@ -24,6 +24,7 @@ import pytest
 from crucible.bench import compare as cmp
 from crucible.bench.metrics import Episode, final_milestones, first_irrecoverable_step, heatmap, load_run, progress_auc, regressions, stage_first_reached, stage_reach, summarize, summarize_group
 from crucible.core.schema.run import Failure, RunRecord
+from crucible.core.schema.usage import Timing
 from crucible.runtime.journal import RunJournal
 from crucible.runtime.keys import SampleKey, attempt_id, derive_seed, identity
 
@@ -38,11 +39,11 @@ def journal(root: Path, run_id: str, tasks, policies=("p",), harnesses=("h",), k
 
 def put(j: RunJournal, task: str, idx: int = 0, n: int = 1, *, reward: float | None = 1.0, cost: float = 0.0, uncertain: float = 0.0,
         kind: str | None = None, detail: str | None = None, terminal: bool = True, policy: str = "p", harness: str = "h", meta: dict | None = None,
-        steps: int = 1) -> tuple[RunRecord, Path]:
+        steps: int = 1, agent_s: float = 1.0) -> tuple[RunRecord, Path]:
     sk = SampleKey(task=task, world="", policy=policy, harness=harness, sample_idx=idx, seed=derive_seed(0, task, policy, harness, idx), tier="full")
     rec = RunRecord(run_id=j.dir.name, task=task, world=task, policy=policy, seed=sk.seed, started_at=NOW, ended_at=NOW, steps=steps, outcome="completed",
                     reward=reward, cost_usd=cost, cost_uncertain_usd=uncertain, sample=sk.model_dump(mode="json"), attempt=attempt_id(sk.id(), n),
-                    meta={"harness": harness, "timings": {"agent": 1.0}, **(meta or {})})
+                    timing=Timing(agent=agent_s), meta={"harness": harness, **(meta or {})})
     if kind:
         rec.mark_failure(Failure(kind=kind, stage="agent", reason="x", detail=detail))
     adir = j.attempt_dir(sk.id(), n)
@@ -560,7 +561,7 @@ def test_g1_d10_d11_spread_and_subsets():
 def test_g1_d12_tokens_split_and_latency(tmp_path):
     j = journal(tmp_path, "r", ["t"], k=2)
     for i, wall in ((0, 2.0), (1, 4.0)):
-        _, adir = put(j, "t", i, meta={"timings": {"agent": wall}})
+        _, adir = put(j, "t", i, agent_s=wall)
         (adir / "calls.json").write_text(json.dumps({"agent": [{"usage": {"prompt_tokens": 100, "completion_tokens": 10}}]}))
     c = over(summarize(load_run(tmp_path / "r")))["cost"]
     assert c["tokens_in"] == 200 and c["tokens_out"] == 20 and c["perf"]["latency_s_p50"] == 2.0 and c["perf"]["latency_s_p99"] == 4.0

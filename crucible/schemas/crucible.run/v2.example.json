@@ -1,0 +1,44 @@
+{
+ "attempt": "s-a1",
+ "cost_uncertain_usd": 0.0,
+ "cost_usd": 0.0,
+ "failure": {
+  "delivery": "delivered",
+  "kind": "agent_timeout",
+  "mask": true,
+  "reason": "x",
+  "retryable": true,
+  "stage": "agent"
+ },
+ "launch": 2,
+ "lock": "sha256:01",
+ "mask_sample": true,
+ "meta": {},
+ "outcome": "masked",
+ "policy": "p",
+ "run_id": "r",
+ "schema_version": "crucible.run/v2",
+ "seed": 0,
+ "started_at": "2026-01-01T00:00:00Z",
+ "steps": 0,
+ "task": "t",
+ "task_digest": "sha256:00",
+ "timing": {
+  "agent": 4.0,
+  "model": 2.0,
+  "seed": 1.0
+ },
+ "usage": {
+  "blank": 0,
+  "cache_read_tokens": 900,
+  "cache_write_tokens": 0,
+  "calls": 1,
+  "estimated": 0,
+  "input_tokens": 100,
+  "output_tokens": 50,
+  "replayed": 0,
+  "replayed_tokens": 0,
+  "reported": 1
+ },
+ "world": "w"
+}

@@ -15,7 +15,8 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field, field_validator, model_validator
 
 from crucible.core.build import BuildInfo
-from crucible.core.schema.base import CrucibleModel, VersionedDocument
+from crucible.core.schema.base import CrucibleModel, VersionedDocument, register_upcaster
+from crucible.core.schema.usage import Timing, UsageTotals
 from crucible.core.text import SafeText, safe_text
 
 # --- NeMo-Gym shared names (verbatim) ---
@@ -155,12 +156,17 @@ class Failure(CrucibleModel):
 
 
 class RunRecord(VersionedDocument):
-    """One episode of one policy on one task/world."""
+    """One episode of one policy on one task/world.
 
-    SCHEMA = "crucible.run/v1"
+    ``crucible.run/v2`` (R-1 step 3): the record names the lock and launch it ran under (``lock.json`` fingerprint,
+    ``launches/<n>.json``), and carries the task digest (R-2), token usage and stage timing (R-19) as typed fields; v1's
+    never-filled ``tokens`` is gone. ``None`` is unknown: a v1 record, or a producer outside the runner."""
+
+    SCHEMA = "crucible.run/v2"
 
     run_id: str
-    task: str | None = None  # task content hash
+    task: str | None = None  # the task id; its content is task_digest
+    task_digest: str | None = None  # the task's content digest at dispatch (R-2); None: the task declares none
     world: str  # world spec content hash
     policy: str  # model / harness id
     seed: int = 0
@@ -175,9 +181,12 @@ class RunRecord(VersionedDocument):
     final_state: str | None = None  # store key of the final WorldRef
     cost_usd: float = 0.0
     cost_uncertain_usd: float = 0.0  # spend that could not be accounted exactly (blank usage), held uncertain in the ledger
-    tokens: dict[str, int] = Field(default_factory=dict)
+    usage: UsageTotals | None = None  # the attempt's own model calls summed, with coverage (R-19)
+    timing: Timing | None = None  # wall time per stage, with the model's share of the agent stage (R-19)
     sample: dict[str, Any] | None = None  # runtime.keys.SampleKey (task, world, policy, harness, sample_idx, seed, tier)
     attempt: str | None = None  # "<sample_id>-a<N>"
+    lock: str | None = None  # the run lock's fingerprint for the launch that wrote this record (lock.json, R-1)
+    launch: int | None = Field(None, ge=1)  # that launch: launches/<n>.json (R-1)
     meta: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("started_at", "ended_at")
@@ -205,6 +214,25 @@ class RunRecord(VersionedDocument):
     def scored_reward(self) -> float | None:
         """The only accessor aggregates use: None for masked samples."""
         return None if self.mask_sample or self.outcome in ("masked", "running") else self.reward
+
+
+def _run_v1_to_v2(d: dict[str, Any]) -> dict[str, Any]:
+    """``crucible.run/v1`` -> v2: the task digest, usage and timing leave ``meta`` for their fields (a record from before
+    R-19 has ``meta.timings``, its stages); ``tokens`` is dropped (no producer ever filled it). A v1 record cannot know
+    its lock or launch: they stay None."""
+    d, meta = dict(d), dict(d.get("meta") or {})
+    d.pop("tokens", None)
+    for key in ("task_digest", "usage", "timing"):
+        if key in meta:
+            d[key] = meta.pop(key)
+    stages = meta.pop("timings", None)
+    if isinstance(stages, dict) and "timing" not in d:
+        d["timing"] = Timing.from_stages(stages).model_dump()
+    d["meta"] = meta
+    return d
+
+
+register_upcaster("crucible.run", 1, _run_v1_to_v2)
 
 
 class LockChange(CrucibleModel):

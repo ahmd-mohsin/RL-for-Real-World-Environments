@@ -90,7 +90,7 @@ async def test_an_unchanged_task_records_its_digest(tmp_path):
     task = DirTask(_tree(tmp_path / "task"))
     s = await Runner(tmp_path / "runs").run(_spec(task))
     rec = _record(tmp_path / "runs")
-    assert s.scored == 1 and rec["meta"]["task_digest"] == tree_digest(task.root)
+    assert s.scored == 1 and rec["task_digest"] == tree_digest(task.root)
     assert json.loads((tmp_path / "runs" / "r" / "lock.json").read_text())["settings"]["tasks.0.digest"] == tree_digest(task.root)
 
 

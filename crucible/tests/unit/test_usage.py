@@ -77,16 +77,17 @@ def test_replays_and_record_tokens_are_not_live_usage(tmp_path):
     t = UsageTotals.of(calls)
     assert (t.calls, t.reported, t.blank, t.replayed, t.replayed_tokens, t.prompt_tokens, t.cache_read_tokens) == (2, 1, 1, 1, 1050, 1000, 900)
     assert t.coverage == 0.5
-    # bench on a record written before R-19: its calls.json summed, the replay apart; RunRecord.tokens is never guessed at
+    # bench on a v1 record written before R-19: its calls.json summed, the replay apart; its tokens are never guessed at
     (tmp_path / "calls.json").write_text(json.dumps(calls))
-    rec = RunRecord(run_id="r", world="w", policy="p", started_at="2026-01-01T00:00:00Z", outcome="completed", reward=1.0,
-                    tokens={"cache_read_input_tokens": 900}, meta={"timings": {"agent": 2.0, "verification": 1.0}})
+    rec = RunRecord.model_validate({"schema_version": "crucible.run/v1", "run_id": "r", "world": "w", "policy": "p", "started_at": "2026-01-01T00:00:00Z",
+                                    "outcome": "completed", "reward": 1.0, "tokens": {"cache_read_input_tokens": 900},
+                                    "meta": {"timings": {"agent": 2.0, "verification": 1.0}}})
     s = _attempt_stats(tmp_path, rec)
     assert (s["tokens_in"], s["tokens_out"], s["tokens_cached"], s["tokens_replayed"], s["model_calls"], s["calls_reported"], s["wall_s"]) == (
         1000, 50, 900, 1050, 2, 1, 3.0)
     # a record with its own usage and timing: read as written (calls.json not needed)
     (tmp_path / "calls.json").unlink()
-    rec.meta = {"usage": t.model_dump(), "timing": Timing(agent=2.0, model=1.5, verification=1.0).model_dump()}
+    rec = rec.model_copy(update={"usage": t, "timing": Timing(agent=2.0, model=1.5, verification=1.0)})
     s = _attempt_stats(tmp_path, rec)
     assert (s["tokens_in"], s["tokens_replayed"], s["wall_s"]) == (1000, 1050, 3.0)
 
@@ -100,8 +101,8 @@ def test_an_attempt_records_its_own_usage_and_model_time():
     assert (res.usage.calls, res.usage.prompt_tokens, res.model_s) == (2, 2000, 2.0)
     sk = SampleKey(task="t", policy="p", harness="h@1", sample_idx=0, seed=0)
     rec = Runner._record(NS(run_id="r"), sk, "s-a1", NS(id="t"), NS(id="p"), NS(id="h@1"), res.model_copy(update={"reward": 1.0}))
-    timing = Timing.model_validate(rec.meta["timing"])
-    assert "timings" not in rec.meta and UsageTotals.model_validate(rec.meta["usage"]) == res.usage
+    timing = rec.timing
+    assert not {"timings", "timing", "usage"} & set(rec.meta) and rec.usage == res.usage
     assert (timing.agent, timing.model, timing.wall_s, timing.stages()) == (4.0, 2.0, 5.5, res.timings)
 
 
