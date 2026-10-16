@@ -10,8 +10,11 @@
   (M0 audit 2026-10-14 R-16; PATTERN: SkyRL ``tinker/api.py`` versioned compare-and-swap, Apache-2.0).
 
 Writes are safe across threads and processes (PORT of agentenv ``store/object_store/local/store.py`` and
-``store/document_store/sqlite_document_store.py``, Apache-2.0): a blob is written to a unique staged file held under
-``flock``, fsynced, hashed *from the staged bytes*, and only then renamed into place (the directory fsynced after). A
+``store/document_store/sqlite_document_store.py``, Apache-2.0): a blob is written whole to a unique staged file held
+under ``flock``, fsynced, checked to hold exactly the hashed bytes, and only then renamed into place (the directory
+fsynced after). A write cut short (a full disk, a quota, a file-size limit) raises and leaves no blob and no index row:
+``os.write`` may return a partial count, which was dropped, so a full disk stored half a blob under the whole one's key
+(M0 audit 2026-10-16 R-3; PATTERN: slime ``data/checkpoint.py`` refuses a size mismatch, Apache-2.0). A
 staged file whose writer died is swept when a store opens. An existing blob whose bytes no longer match its key is
 rewritten by the next put of that content. The index runs in WAL mode with a busy timeout.
 
@@ -74,6 +77,23 @@ _STAGING = "staging"
 _STAGED_PREFIX = "blob-"
 _STAGED_GRACE_S = 3600.0  # a staged file this old whose lock no one holds belongs to a dead writer
 _BUSY_TIMEOUT_S = 5.0
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Write every byte of ``data`` or raise: ``os.write`` may write fewer bytes than asked (R-3)."""
+    view = memoryview(data)
+    while view:
+        n = os.write(fd, view)
+        if n <= 0:
+            raise StoreError(f"write made no progress with {len(view)} bytes left")
+        view = view[n:]
+
+
+def _synced(fd: int, size: int) -> None:
+    """fsync the staged file, then check it holds exactly ``size`` bytes: only then may it take the key (R-3)."""
+    os.fsync(fd)
+    if (on_disk := os.fstat(fd).st_size) != size:
+        raise StoreError(f"staged blob holds {on_disk} bytes, {size} were written: not stored")
 
 
 def _fsync_dir(path: Path) -> None:
@@ -321,19 +341,20 @@ class Store:
 
     def put_bytes(self, data: bytes) -> str:
         with self._staged() as (fd, staged):
-            os.write(fd, data)
-            os.fsync(fd)
+            _write_all(fd, data)
+            _synced(fd, len(data))
             return self._commit(staged, HASH_PREFIX + hashlib.sha256(data).hexdigest())
 
     def put_file(self, src: str | Path) -> str:
         """Copy ``src`` into the store. The key is the hash of the bytes actually copied, so a source that changes
         during the copy can never be stored under a hash that does not match."""
-        h = hashlib.sha256()
+        h, size = hashlib.sha256(), 0
         with self._staged() as (fd, staged), Path(src).open("rb") as f:
             for block in iter(lambda: f.read(1 << 20), b""):
                 h.update(block)
-                os.write(fd, block)
-            os.fsync(fd)
+                _write_all(fd, block)
+                size += len(block)
+            _synced(fd, size)
             return self._commit(staged, HASH_PREFIX + h.hexdigest())
 
     def has(self, key: str) -> bool:

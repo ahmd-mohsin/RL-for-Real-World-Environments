@@ -10,9 +10,9 @@ import importlib
 import inspect
 import math
 import pkgutil
-import shutil
 import threading
 import typing
+from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -89,20 +89,25 @@ def test_canonical_json_is_strict_json_and_stable(x):
 
 
 # ------------------------------------------------------------------------------------------------ D4: store races
-def test_put_file_never_stores_bytes_that_mismatch_their_key(tmp_path, monkeypatch):
+def test_put_file_never_stores_bytes_that_mismatch_their_key(tmp_path):
+    """put_file keys the bytes it copied, so a source rewritten mid-copy is stored under the hash of what was read.
+    (This test used to patch shutil.copyfile, which put_file never calls; M0 audit 2026-10-16 R-3.)"""
     st_ = Store(tmp_path / "s")
     src = tmp_path / "live.bin"
-    src.write_bytes(b"A" * 1_000_000)
-    orig = shutil.copyfile
+    src.write_bytes(b"A" * 3_000_000)
+    real_open, raced = Path.open, []
 
-    def racing_copy(a, b, *args, **kw):  # the source changes while the store reads it
-        src.write_bytes(b"B" * 1_000_000)
-        return orig(a, b, *args, **kw)
+    def racing_open(self, *a, **kw):  # the source is rewritten right after the store opens it
+        f = real_open(self, *a, **kw)
+        if self == src and not raced:
+            raced.append(1)
+            src.write_bytes(b"B" * 3_000_000)
+        return f
 
-    monkeypatch.setattr(shutil, "copyfile", racing_copy)
-    key = st_.put_file(src)
-    monkeypatch.setattr(shutil, "copyfile", orig)
-    st_.get_bytes(key)  # raises StoreError if the blob does not match its key
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(Path, "open", racing_open)
+        key = st_.put_file(src)
+    assert raced and st_.get_bytes(key) == b"B" * 3_000_000  # verified against its key: the bytes that were read
 
 
 def test_concurrent_put_file_of_one_new_file(tmp_path):

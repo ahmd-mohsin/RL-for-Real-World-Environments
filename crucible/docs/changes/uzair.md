@@ -851,3 +851,25 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Formats.** `crucible.toml`: those settings are refused.
 - **Tests.** `test_provider_settings.py` (10). LLM, actor, lock, config and core suites: 225 passed.
 - **Merge notes.** A provider that sent a header through `request_defaults.extra_headers` moves it to `headers`.
+
+## 38. A16-R3: a blob write is complete or fails
+
+- **Item.** A16-R3 (carry-over SCOUT16-2, NEW-1; corrects AUD-D4 and the store doc's "hashed from the staged bytes").
+  PATTERN from slime `data/checkpoint.py:104-112,163-166` (a size mismatch is refused, Apache-2.0); no code taken.
+- **Files.** `src/crucible/core/store/__init__.py` (new `_write_all`, `_synced`; `put_bytes`, `put_file`; module doc),
+  `tests/unit/test_store_short_write.py` (new), `tests/unit/test_core_audit.py` (the D4 test rewritten),
+  `tests/unit/test_config_layers.py` (a lint fix to entry 36's test).
+- **Public names.** none.
+- **Behaviour.** `put_bytes` and `put_file` write every byte (a loop over `os.write`, which may write fewer bytes than
+  asked) and, after fsync, check that the staged file holds exactly the hashed count before it takes the key; otherwise
+  the put raises and the staged file is removed, so no blob and no index row are written. Before, the count was
+  dropped: under a 1 MiB file-size limit (the stand-in for a full disk) a 2 MiB `put_bytes` kept 1,048,576 bytes under
+  the whole blob's key, `put_doc` indexed it, and every read then raised "corrupt"; a snapshot, which deletes its
+  source after `put_file`, could not be restored.
+- **Formats.** none.
+- **Tests.** `test_store_short_write.py` (2: a half-writing `os.write` still stores every byte; under `RLIMIT_FSIZE` all
+  three puts raise and leave no blob, row or staged file; both fail on the previous code). The D4 test patched
+  `shutil.copyfile`, which `put_file` never calls; it now rewrites the source as the store opens it. Store, tag,
+  conformance, core and config suites: 137 passed.
+- **Merge notes.** A put that hits a full disk now raises `OSError` (or `StoreError` on a size mismatch) where it used to
+  return a key.
