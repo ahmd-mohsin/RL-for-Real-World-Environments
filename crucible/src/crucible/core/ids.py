@@ -1,10 +1,9 @@
 """Content hashing and ids.
 
-Directory hashes use Harbor's packager scheme (``harbor/publisher/packager.py``): SHA-256 over the
-sorted lines ``"<relpath>\\0<sha256(file)>\\n"``. A task directory's id is therefore identical to
-the content hash Harbor computes when publishing it. File-tree *state* fingerprints
-(``crucible.world.state``) extend each line with the file mode, because an executable bit is
-state.
+A Harbor task's id is Harbor's own content hash, taken through Harbor (``interop.harbor.task_io``; P18: Harbor's
+packager decides which files count and keeps changing it, so Crucible does not re-implement it). ``tree_digest`` hashes
+any other task directory (R-2). File-tree *state* fingerprints (``crucible.world.state``) hash each file's path, mode
+and content (``tree_manifest_hash``), because an executable bit is state.
 """
 
 from __future__ import annotations
@@ -109,21 +108,13 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def manifest_hash(entries: Iterable[tuple[str, str]]) -> str:
-    """Harbor-compatible hash of (relpath, file_sha256) pairs; order-independent."""
-    outer = hashlib.sha256()
-    for rel, file_hash in sorted(entries):
-        outer.update(f"{rel}\0{file_hash}\n".encode())
-    return outer.hexdigest()
-
-
 _DIGEST_SKIP = frozenset({".git", "__pycache__", ".DS_Store"})
 
 
 def tree_digest(root: Path) -> str:
     """``sha256:<hex>`` of a directory's content (R-2; PATTERN: OpenEnv ``validation/runner.py:source_digest``,
-    BSD-3-Clause): SHA-256 over the sorted lines ``"<relpath>\\0<sha256(file)>\\n"`` (each file framed by its own hash,
-    the line form ``manifest_hash`` uses) of every regular file, skipping ``.git``, ``__pycache__``, ``*.pyc`` and
+    BSD-3-Clause): SHA-256 over the sorted lines ``"<relpath>\\0<sha256(file)>\\n"`` (each file framed by its own hash)
+    of every regular file, skipping ``.git``, ``__pycache__``, ``*.pyc`` and
     ``.DS_Store``. A symbolic link or another non-regular file raises ValueError, and so does a file that changes while
     it is read: a digest describes one version of the tree or none."""
     import os

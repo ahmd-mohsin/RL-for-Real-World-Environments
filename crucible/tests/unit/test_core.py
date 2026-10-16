@@ -115,15 +115,7 @@ def test_run_record_masks_infra_failures():
         r.mark_failure(Failure(kind="made_up", stage="agent"))
 
 
-def test_harbor_compatible_manifest_hash():
-    # Same scheme as harbor/publisher/packager.py: sha256 over sorted "rel\0hash\n" lines.
-    import hashlib
-
-    entries = [("b.txt", "22"), ("a.txt", "11")]
-    outer = hashlib.sha256()
-    for rel, h in sorted(entries):
-        outer.update(f"{rel}\0{h}\n".encode())
-    assert ids.manifest_hash(entries) == outer.hexdigest()
+def test_tree_manifest_hash_counts_the_mode():
     assert ids.tree_manifest_hash([("a", "644", "x")]) != ids.tree_manifest_hash([("a", "755", "x")])
 
 

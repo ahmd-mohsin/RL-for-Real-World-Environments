@@ -107,7 +107,7 @@ file in `LICENSES/` is named here and every `LICENSES/` file named here exists.
 | namespaced `<pack>:<kind>` failure kinds, a 2000-character failure reason | NeMo-Gym `nemo_gym/failure_kinds.py`, `episode_types.py` | `core/schema/run.py` (`register_failure_kind`) |
 | per-plugin failure records, one broken plugin never blocks the others | agentenv `plugins/_registration.py` (`merge`) | `core/registry.py` (`Registry.failures`) |
 | `mode="before"` migrations of older document versions | Harbor `models/task/config.py` | `core/schema/base.py` (`register_upcaster`) |
-| content hash of a task directory (`rel\0sha256\n`) | Harbor `publisher/packager.py` | `core/ids.py` |
+| content hash of a task directory: a Harbor task's is Harbor's own (`Packager.compute_content_hash`, called, not re-implemented: R-30 removed `core.ids.manifest_hash`) | Harbor `publisher/packager.py` | `interop/harbor/task_io.py`, `interop/harbor/inplace.py` |
 | `module:Class` registries, `env:` secret references, fail-loud duplicate registration | agentenv `config/runtime.py` | `core/registry.py`, `core/config.py` |
 | virtual clock (t0 + elapsed·rate, ≤ 86400) and nl / tool / permission trigger actions | agentenv `env/gateway/{clock,triggers}.py` | `world/clock.py` (step mode added) |
 | GPU compose overlay appended to the compose stack | Harbor `environments/kata.py` | `interop/harbor/gpu_docker.py` |

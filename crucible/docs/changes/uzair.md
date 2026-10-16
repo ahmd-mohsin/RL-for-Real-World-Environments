@@ -775,3 +775,16 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   licence suites: pass.
 - **Merge notes.** A `.env` value that relied on the old reading (a trailing `# ...` kept, or unbalanced quotes) now
   reads as python-dotenv does.
+
+## 34. R-30: `core.ids.manifest_hash` removed
+
+- **Item.** R-30 (carry-over AUD-D18; H10; corrects `core/ids.py:1-8` and the THIRD_PARTY.md row that called it the task
+  hash). DEPEND: a Harbor task's id is Harbor's own hash (P18).
+- **Files.** `src/crucible/core/ids.py` (`manifest_hash` removed; the module and `tree_digest` docstrings),
+  `tests/unit/test_core.py` (its test kept for `tree_manifest_hash` only), `THIRD_PARTY.md`.
+- **Behaviour.** none: `manifest_hash` had no caller outside its test. The docs now say a Harbor task's id comes from
+  Harbor (`Packager.compute_content_hash` through `interop.harbor`), other task directories from `tree_digest`.
+- **Formats.** none.
+- **Tests.** Core, task-digest, state-adapter and licence suites: 39 passed.
+- **Merge notes.** Code calling `crucible.core.ids.manifest_hash` uses `tree_digest` (a directory) or Harbor's hash (a
+  Harbor task).
