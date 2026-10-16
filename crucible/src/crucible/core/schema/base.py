@@ -43,6 +43,13 @@ class CrucibleModel(BaseModel):
 
         return dumps(self.model_dump(mode="json", exclude_none=True, by_alias=True))
 
+    def stored_json(self) -> str:
+        """What a store keeps (``core.canonical.dumps_stored``): ``canonical_json`` without the NFC fold, so text comes
+        back as written (R-20). The same bytes as ``canonical_json`` for text already in NFC."""
+        from crucible.core.canonical import dumps_stored
+
+        return dumps_stored(self.model_dump(mode="json", exclude_none=True, by_alias=True))
+
     def content_hash(self) -> str:
         from crucible.core.ids import sha256_text
 

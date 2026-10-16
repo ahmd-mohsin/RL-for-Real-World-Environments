@@ -573,3 +573,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   The 58 suites that import `crucible.train` plus this one: 634 passed, the known `test_cluster` failure.
 - **Merge notes.** A trainer that knows its tokenizer should set `tokenizer_id = TokenizerId.of(tok)`. An engine that
   reports `capabilities()["logprobs"] == "raw"` now has its records refused at temperatures other than 1.
+
+## 24. R-20: documents are stored as written; NFC is for identity only
+
+- **Item.** R-20 (new; NG-4). PATTERN from NeMo-Gym `token_id_capture/fingerprint.py:118-123` (Apache-2.0);
+  THIRD_PARTY.md row added.
+- **Files.** `src/crucible/core/canonical.py` (`dumps_stored`; one `_form` for both forms; NFC key collisions refused),
+  `src/crucible/core/schema/base.py` (`CrucibleModel.stored_json`), `src/crucible/core/store/__init__.py` (`put_doc`
+  stores `stored_json`), `tests/unit/test_lossless_store.py` (new), `THIRD_PARTY.md`.
+- **Public names.** `crucible.core.canonical.dumps_stored`, `CrucibleModel.stored_json()`.
+- **Behaviour.** `put_doc` stores sorted, compact JSON with the text as given; `get_doc` returns decomposed (NFD) text as
+  it was written (it came back NFC). Identities are unchanged: `content_hash` still hashes the NFC form, and for text
+  already in NFC the stored bytes, and so the store key, are what they were. A document with NFD text gets a new store
+  key (the hash of its own bytes). An object with two keys that are one key under NFC is refused by `content_hash`
+  and `put_doc` (the canonical form kept one silently). In the only `put_doc` caller, `TraceStore`, a signal on an NFD
+  event (named by its raw text) is now carried across a re-ingest (it was dropped: checked against the old storage).
+- **Formats.** Stored documents with NFD text keep it (stores written before hold the NFC form; they still read).
+- **Tests.** `test_lossless_store.py` (3): NFD round-trip with one identity and the old key for NFC text; NFC key
+  collisions refused; the NFD signal survives a re-ingest. Core, store, tag, connector, M3 and interop gate suites: 227
+  passed.
+- **Merge notes.** Code that expected `get_doc` to return NFC text must normalize itself. A document key equals
+  `"sha256:" + content_hash()` only for NFC text.

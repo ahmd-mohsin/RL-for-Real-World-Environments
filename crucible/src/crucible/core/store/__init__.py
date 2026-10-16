@@ -314,7 +314,9 @@ class Store:
 
     # ---------------- documents ----------------
     def put_doc(self, kind: str, doc: CrucibleModel, *, name: str | None = None, prov: Provenance | None = None) -> str:
-        data = doc.canonical_json().encode("utf-8")
+        """Store ``doc`` as written (``stored_json``: sorted JSON, text not NFC-folded, R-20) and index it. The key is the
+        hash of those bytes, which for text in NFC is the document's ``content_hash``."""
+        data = doc.stored_json().encode("utf-8")
         key = self.put_bytes(data)
         now, p = utc_now(), prov.model_dump_json() if prov else None
         with self._lock:
