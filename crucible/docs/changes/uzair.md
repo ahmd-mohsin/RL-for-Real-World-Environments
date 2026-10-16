@@ -1031,3 +1031,20 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   nothing on a second run.
 - **Merge notes.** A change that fails a reading is a format change: bump the version (and add an upcaster) instead of
   rewriting the `.read.json` file.
+
+## 48. Path dependencies must match `uv.lock`
+
+- **Item.** none (found while triaging the 2026-10-14 M1 audit's R-15). The user asked to stay on main's versions.
+- **Files.** `tests/unit/test_path_dependencies.py` (new).
+- **Public names.** none.
+- **Behaviour.** none in Crucible. uv records only the version a path source had when the lock was written, and
+  `uv sync --frozen` installs whatever the folder holds: the local Harbor and agentenv clones had moved to 0.24.0
+  (`dc933be7`) and 0.9.1324 (`015c89b`) while `uv.lock` and CI pinned 0.23.0 (`a2fafbc`) and 0.9.1301 (`041afd7`), so
+  local runs tested other code than CI. The test fails when a path source's folder (its `pyproject.toml` version) or its
+  installed metadata differs from the lock; extras not installed (agentenv in CI) and dynamic versions (verifiers) are
+  skipped. The clones were checked out at the pinned commits (outside the repository; no file here changed), which
+  also fixed `test_triggers`, a "known" failure caused by the newer agentenv.
+- **Formats.** none.
+- **Tests.** `test_every_path_dependency_is_the_version_uv_lock_records` (fails with Harbor's clone at `dc933be7`).
+- **Merge notes.** Pulling a reference clone used as a path source now fails this test until it is checked out at
+  the pinned commit again, or the lock and `THIRD_PARTY.md` are updated on purpose.
