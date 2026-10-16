@@ -625,13 +625,13 @@ def test_a_later_migration_reaches_an_existing_index(tmp_path, monkeypatch):
 
     first = Store(tmp_path / "s")
     key = first.put_bytes(b"x")
-    first.tag("latest", key)
+    first.tag("latest", key, expect=0)
     v = store_mod.INDEX_VERSION
-    monkeypatch.setattr(store_mod, "_MIGRATIONS", [*store_mod._MIGRATIONS, ("ALTER TABLE tags ADD COLUMN rev INTEGER NOT NULL DEFAULT 0",)])
+    monkeypatch.setattr(store_mod, "_MIGRATIONS", [*store_mod._MIGRATIONS, ("ALTER TABLE tags ADD COLUMN probe INTEGER NOT NULL DEFAULT 0",)])
     monkeypatch.setattr(store_mod, "INDEX_VERSION", v + 1)
     s = Store(tmp_path / "s")
     with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
-        assert c.execute("SELECT key, rev FROM tags").fetchall() == [(key, 0)]
+        assert c.execute("SELECT key, probe FROM tags").fetchall() == [(key, 0)]
     assert _user_version(tmp_path / "s") == v + 1 and s.resolve("latest") == key
 
 

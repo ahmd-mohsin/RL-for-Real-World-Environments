@@ -509,3 +509,38 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** A training resume with changed settings now raises unless `RuntimeConfig.allow_change` names them.
   A new `RuntimeConfig` / `SchedulerConfig` / `TrainerConfig` field counts automatically; an operational one must be
   added to `train.identity.OPERATIONAL`. A trainer that schedules its learning rate would need `configured_lr` revisited.
+
+## 22. R-16: tags move by compare-and-set, with revisions and a history
+
+- **Item.** R-16 (carry-over AUD-F4; merges harbor:H5, agentenv:AE-1, nemo-gym:NG-10, SW-1, trainers-c:TC-1). PATTERN
+  from SkyRL `tinker/api.py:1145-1176` (Apache-2.0); THIRD_PARTY.md row added. From here on the remaining M00 items are
+  implemented without per-item approval (the user's instruction of 2026-10-16); each decision below is the recommended
+  option. Decision: a fetch-order guard on trace heads (option a), so N ingests keep the newest head.
+- **Files.** `src/crucible/core/store/__init__.py` (index migration 2; `Store.tag(name, key, *, expect, note)`,
+  `tag_info`, `tag_history`, `TagInfo`, `TagEvent`, `TagConflict`, `check_tag_name`, `TAG_MAX_LEN`),
+  `src/crucible/connectors/trace_store.py` (`put(..., fetched_at=)` by compare-and-set with retries, `head()`,
+  `PUT_ATTEMPTS`), `src/crucible/connectors/base.py` (`ingest` stamps the fetch time before each fetch),
+  `tests/unit/test_tags.py` (new), `tests/unit/test_core.py`, `tests/unit/test_core_audit.py`,
+  `docs/modules/M00-core.md`, `THIRD_PARTY.md`.
+- **Public names.** `Store.tag` takes a required keyword `expect` (0: create only; n: only from revision n; None: no
+  check) and returns the revision; `Store.tag_info`, `Store.tag_history`; `crucible.core.store.{TagInfo, TagEvent,
+  TagConflict, check_tag_name, TAG_MAX_LEN}`; `TraceStore.head`, `TraceStore.put(..., fetched_at=)`.
+- **Behaviour.**
+  - The check and the move are one `BEGIN IMMEDIATE` transaction (safe across processes); a stale writer gets
+    `TagConflict` naming the current revision and key, and nothing changes. Moving a tag to the key it already holds is
+    a no-op. Every move is appended to `tag_history` (name, rev, key, previous key, time, note).
+  - Tag names: a string of 1 to 512 characters, no control characters, never starting with `sha256:` (such a tag was
+    accepted but `resolve()` could never return it; an integer was accepted too).
+  - `TraceStore.put` re-reads the head and carries its signals again when it loses the head to another put (a stale
+    read dropped signals), and a version whose source was fetched before the head's (`fetched_at` in the head's history
+    note) is stored but never becomes the head. Before, a slow ingest that tagged last moved the head back to the
+    older version and `purge_superseded()` then deleted the newer one.
+- **Formats.** Store index version 1 -> 2: `tags.rev` (existing tags: 1) and the new `tag_history` table (existing
+  tags get one row). Code with index version 1 (`main`) refuses a store this branch has opened.
+- **Tests.** `test_tags.py` (10): compare-and-set and history; 2 connections racing 40 moves, each revision won once;
+  5 refused names; an index from before revisions migrates; 8 shuffled ingests of a growing source keep the newest head
+  through a purge; a put that lost the head carries the new head's signals. Connector, accept and core suites: 248
+  passed.
+- **Merge notes.** Every `Store.tag(name, key)` call needs `expect=` (read it with `tag_info`). Code that read the
+  `tags` table directly (`TraceStore._head_key` did) should use `tag_info`. A new caller of `TraceStore.put` that knows
+  when it read its source should pass `fetched_at`.

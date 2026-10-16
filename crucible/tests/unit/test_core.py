@@ -138,7 +138,7 @@ def test_store_blobs_docs_tags(tmp_path):
     assert s.get_doc(dk, WorldSpec) == w
     rows = s.list_docs("world", name="toy/helpdesk")
     assert len(rows) == 1 and rows[0].provenance.created_by == "test"
-    s.tag("latest", dk)
+    assert s.tag("latest", dk, expect=0) == 1
     assert s.resolve("latest") == dk
     with pytest.raises(StoreError):
         s.resolve("nope")

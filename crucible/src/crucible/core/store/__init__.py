@@ -4,7 +4,10 @@
   Putting the same bytes twice returns the same key (idempotent, deduplicated).
 - **Documents** are Crucible models stored as canonical JSON blobs plus an index row
   ``(kind, key, name, created_at, provenance)`` in SQLite, so they can be listed by kind and name.
-- **Tags** are mutable names pointing at keys (``latest``, ``task04@v3``) — the only mutable thing.
+- **Tags** are mutable names pointing at keys (``latest``, ``task04@v3``) — the only mutable thing. A tag moves by
+  compare-and-set on its revision (``tag(name, key, expect=rev)``; ``TagConflict`` when another writer moved it first)
+  and every move is appended to its history (``tag_history``): racing writers can no longer move a tag back unseen
+  (M0 audit 2026-10-14 R-16; PATTERN: SkyRL ``tinker/api.py`` versioned compare-and-swap, Apache-2.0).
 
 Writes are safe across threads and processes (PORT of agentenv ``store/object_store/local/store.py`` and
 ``store/document_store/sqlite_document_store.py``, Apache-2.0): a blob is written to a unique staged file held under
@@ -52,6 +55,13 @@ _MIGRATIONS: list[tuple[str, ...]] = [
              kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT,
              PRIMARY KEY (kind, key, name))""",
         "CREATE INDEX IF NOT EXISTS doc_names_name ON doc_names(kind, name)",
+    ),
+    (  # 2 (R-16): a revision per tag, and every move of a tag kept (the tags present become revision 1)
+        "ALTER TABLE tags ADD COLUMN rev INTEGER NOT NULL DEFAULT 1",
+        """CREATE TABLE tag_history (
+             name TEXT NOT NULL, rev INTEGER NOT NULL, key TEXT NOT NULL, previous TEXT, at TEXT NOT NULL, note TEXT,
+             PRIMARY KEY (name, rev))""",
+        "INSERT INTO tag_history(name, rev, key, previous, at, note) SELECT name, 1, key, NULL, updated_at, NULL FROM tags",
     ),
 ]
 INDEX_VERSION = len(_MIGRATIONS)
@@ -120,6 +130,49 @@ class DocRow:
 
 class StoreError(RuntimeError):
     pass
+
+
+TAG_MAX_LEN = 512
+
+
+@dataclass(frozen=True)
+class TagInfo:
+    name: str
+    key: str
+    rev: int
+    updated_at: str
+    note: dict | None = None  # what the writer of this revision recorded with it
+
+
+@dataclass(frozen=True)
+class TagEvent:
+    name: str
+    rev: int
+    key: str
+    previous: str | None  # the key the tag held before this move (None: created)
+    at: str
+    note: dict | None = None
+
+
+class TagConflict(StoreError):
+    """A tag moved since the writer read it: nothing was changed. ``current`` is the tag as it is now."""
+
+    def __init__(self, name: str, expected: int, current: TagInfo | None):
+        self.name, self.expected, self.current = name, expected, current
+        now = f"revision {current.rev} ({current.key})" if current else "absent"
+        super().__init__(f"tag {name!r} is {now}, not revision {expected}: another writer moved it first")
+
+
+def check_tag_name(name: object) -> str:
+    """A tag name is a non-empty string of at most TAG_MAX_LEN characters without control characters, and never looks
+    like a key: ``resolve`` reads ``sha256:...`` as a key, so such a tag could never be resolved (R-16)."""
+    if not isinstance(name, str) or not name or len(name) > TAG_MAX_LEN:
+        raise StoreError(f"a tag name is a string of 1 to {TAG_MAX_LEN} characters, not {name!r}")
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        raise StoreError(f"tag name {name!r} has a control character")
+    if name.startswith(HASH_PREFIX):
+        raise StoreError(f"tag name {name!r} looks like a key ({HASH_PREFIX}...): resolve() would read it as one")
+    return name
 
 
 def _migrate(conn: sqlite3.Connection, index: Path) -> None:
@@ -323,15 +376,53 @@ class Store:
             path.unlink()
         return True
 
-    def tag(self, name: str, key: str) -> None:
+    def tag(self, name: str, key: str, *, expect: int | None, note: dict | None = None) -> int:
+        """Point ``name`` at ``key`` and return the tag's revision. ``expect`` is the revision the caller read
+        (``tag_info``; 0: the tag must not exist yet; None: move it whatever its revision): if the tag is at another
+        revision, ``TagConflict`` is raised and nothing changes. The check and the move are one transaction, safe across
+        processes. A move is appended to the tag's history with ``note``; a tag already at ``key`` stays as it is."""
+        check_tag_name(name)
         if not self.has(key):
             raise StoreError(f"cannot tag missing blob {key}")
         with self._lock:
-            self._db.execute(
-                "INSERT INTO tags(name, key, updated_at) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET key=excluded.key, updated_at=excluded.updated_at",
-                (name, key, utc_now()),
-            )
-            self._db.commit()
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._db.execute("SELECT key, rev FROM tags WHERE name=?", (name,)).fetchone()
+                rev = row[1] if row else 0
+                if expect is not None and expect != rev:
+                    current = self._tag_info(name)
+                    raise TagConflict(name, expect, current)
+                if row and row[0] == key:
+                    self._db.commit()
+                    return rev
+                now = utc_now()
+                if row:
+                    self._db.execute("UPDATE tags SET key=?, rev=?, updated_at=? WHERE name=? AND rev=?", (key, rev + 1, now, name, rev))
+                else:
+                    self._db.execute("INSERT INTO tags(name, key, updated_at, rev) VALUES (?,?,?,?)", (name, key, now, 1))
+                self._db.execute("INSERT INTO tag_history(name, rev, key, previous, at, note) VALUES (?,?,?,?,?,?)",
+                                 (name, rev + 1, key, row[0] if row else None, now, json.dumps(note, sort_keys=True) if note is not None else None))
+                self._db.commit()
+            except BaseException:
+                self._db.rollback()
+                raise
+        return rev + 1
+
+    def _tag_info(self, name: str) -> TagInfo | None:
+        row = self._db.execute("SELECT t.key, t.rev, t.updated_at, h.note FROM tags t LEFT JOIN tag_history h ON h.name = t.name AND h.rev = t.rev "
+                               "WHERE t.name=?", (name,)).fetchone()
+        return TagInfo(name, row[0], row[1], row[2], json.loads(row[3]) if row[3] else None) if row else None
+
+    def tag_info(self, name: str) -> TagInfo | None:
+        """The tag's key, revision, time of its last move and that move's note; None for an unknown tag."""
+        with self._lock:
+            return self._tag_info(name)
+
+    def tag_history(self, name: str) -> list[TagEvent]:
+        """Every move of the tag, oldest first (a tag from before R-16 starts at its key then, as revision 1)."""
+        with self._lock:
+            rows = self._db.execute("SELECT rev, key, previous, at, note FROM tag_history WHERE name=? ORDER BY rev", (name,)).fetchall()
+        return [TagEvent(name, r, k, p, a, json.loads(n) if n else None) for r, k, p, a, n in rows]
 
     def resolve(self, name_or_key: str) -> str:
         if name_or_key.startswith(HASH_PREFIX):
