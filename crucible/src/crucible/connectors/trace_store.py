@@ -21,7 +21,6 @@ delete the newer version.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 
 from crucible.core.prov import Provenance
@@ -38,10 +37,7 @@ def _head(trace_id: str) -> str:
 
 class TraceStore:
     def __init__(self, store: Store):
-        self.store = store
-        os.chmod(store.root, 0o700)
-        for f in store.root.glob("index.sqlite*"):
-            os.chmod(f, 0o600)
+        self.store = store  # owner-only: Store tightens its root and index on open (M0 audit 2026-10-16 R-4)
 
     @staticmethod
     def _identity(e) -> str:

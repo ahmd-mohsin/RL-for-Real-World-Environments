@@ -873,3 +873,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   conformance, core and config suites: 137 passed.
 - **Merge notes.** A put that hits a full disk now raises `OSError` (or `StoreError` on a size mismatch) where it used to
   return a key.
+
+## 39. A16-R4: an existing store open to other users is tightened on open
+
+- **Item.** A16-R4 (carry-over of R-6's gap, entry 7: new roots only). PATTERN from Karotte `protected_store.py:89-120`
+  (re-applies 0700 on every open, MIT); no code taken. Narrowed: no `store_shared` opt-out, since `TraceStore` already
+  forced 0700 on every store it opened, so no store could be shared through group permissions.
+- **Files.** `src/crucible/core/store/__init__.py` (new `_tighten`, called by `_make_private_root`),
+  `src/crucible/connectors/trace_store.py` (its own chmod removed), `tests/unit/test_core_audit.py`.
+- **Public names.** none.
+- **Behaviour.** Opening a store whose root already exists and belongs to this user makes the root 0700 and
+  `index.sqlite*` 0600 when any group or other bit is set, and logs one warning naming the old modes. A root owned by
+  someone else is left alone, and no `.gitignore` is written into an existing directory. Before, roots made before R-6
+  stayed 0755 with a 0644 index (this workspace's `data/store` is), readable by every user on a shared host, unless a
+  `TraceStore` happened to open them.
+- **Formats.** none.
+- **Tests.** `test_an_existing_store_open_to_others_is_tightened_on_open` replaces
+  `test_an_existing_store_root_keeps_its_mode`, which asserted the old rule. Store, tag, conformance, trace-store and
+  core-audit suites: 210 passed.
+- **Merge notes.** Code that expected a store root's mode to be left alone (none found) now sees 0700.

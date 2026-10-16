@@ -398,15 +398,24 @@ def test_a_new_store_is_private_to_its_owner(tmp_path):
     assert st_.get_bytes(key) == b"trace with customer data"
 
 
-def test_an_existing_store_root_keeps_its_mode(tmp_path):
+def test_an_existing_store_open_to_others_is_tightened_on_open(tmp_path, caplog):
+    """M0 audit 2026-10-16 R-4: a root made before R-6 (0755, index 0644) stayed readable by every user on the host."""
     import os
     import stat
 
-    (tmp_path / "shared").mkdir(mode=0o755)
-    os.chmod(tmp_path / "shared", 0o755)
-    Store(tmp_path / "shared")
-    assert stat.S_IMODE(os.stat(tmp_path / "shared").st_mode) == 0o755
-    assert not (tmp_path / "shared" / ".gitignore").exists()
+    st_ = Store(tmp_path / "store")
+    st_.put_bytes(b"old trace")
+    st_._db.close()
+    os.chmod(tmp_path / "store", 0o755)
+    os.chmod(tmp_path / "store" / "index.sqlite", 0o644)
+    with caplog.at_level("WARNING", logger="crucible.core.store"):
+        Store(tmp_path / "store")
+    mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+    assert mode(tmp_path / "store") == 0o700 and mode(tmp_path / "store" / "index.sqlite") == 0o600
+    assert "index.sqlite 644" in caplog.text
+    (tmp_path / "other").mkdir(mode=0o755)
+    Store(tmp_path / "other")  # a directory that already existed gets no .gitignore written into it
+    assert not (tmp_path / "other" / ".gitignore").exists() and mode(tmp_path / "other") == 0o700
 
 
 # ------------------------------------------------------------------------------------------------ R-7: strict loaders

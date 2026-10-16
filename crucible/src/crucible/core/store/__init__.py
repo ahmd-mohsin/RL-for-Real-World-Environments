@@ -32,6 +32,7 @@ import contextlib
 import hashlib
 import itertools
 import json
+import logging
 import os
 import sqlite3
 import tempfile
@@ -239,17 +240,32 @@ def _migrate(conn: sqlite3.Connection, index: Path) -> None:
 def _make_private_root(root: Path) -> None:
     """Create ``root`` owner-only (0700) with a ``.gitignore`` of ``*``: stores hold traces, prompts and tool output, and
     the umask default (0755) lets every user on a shared host read them (R-6; PATTERN: agentenv
-    ``store/local_state.py:ensure_state_dir``, Apache-2.0). A root that already exists is left as it is: it may be shared
-    on purpose."""
+    ``store/local_state.py:ensure_state_dir``, Apache-2.0). A root that already exists is tightened (``_tighten``)."""
     _mkdir_durable(root.parent)
     try:
         root.mkdir(mode=0o700)
     except FileExistsError:
         if root.is_dir():
+            _tighten(root)
             return
         raise
     _fsync_dir(root.parent)  # the new root's entry (R-25)
     (root / ".gitignore").write_text("*\n")
+
+
+def _tighten(root: Path) -> None:
+    """An existing root this user owns becomes owner-only (0700, its index files 0600), with one warning naming the old
+    modes. Roots made before R-6 stayed 0755 with a 0644 index, so other users on the host could read every trace;
+    ``TraceStore`` tightened only the stores it opened (M0 audit 2026-10-16 R-4; PATTERN: Karotte
+    ``protected_store.py`` re-applies 0700 on every open, MIT). A root owned by someone else is left alone."""
+    if not hasattr(os, "getuid") or root.stat().st_uid != os.getuid():
+        return
+    loose = {p: p.stat().st_mode & 0o777 for p in [root, *root.glob("index.sqlite*")] if p.stat().st_mode & 0o077}
+    for p in loose:
+        p.chmod(0o700 if p == root else 0o600)
+    if loose:
+        logging.getLogger(__name__).warning("store %s was readable by other users; made owner-only (was %s)", root,
+                                            ", ".join(f"{p.name} {m:o}" for p, m in loose.items()))
 
 
 class Store:
