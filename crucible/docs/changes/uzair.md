@@ -944,3 +944,21 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_two_distributions_with_one_entry_point_name_both_load` (fails on the previous code). Registry, core
   and core-audit suites: 119 passed; `crucible registry --check`: 0 broken, 0 failed plugins.
 - **Merge notes.** none.
+
+## 43. A16-R11: every ported MIT or BSD row ships its notice
+
+- **Item.** A16-R11 (corrects R-9, entry 10, which checked only files already named). PORT obligation: MIT and BSD
+  require the copyright notice with every copy.
+- **Files.** `LICENSES/MIT-verifiers.txt` and `LICENSES/MIT-mini-swe-agent.txt` (new, copied verbatim from the local
+  clones' `LICENSE` and `LICENSE.md`), `THIRD_PARTY.md` (seven licence cells name their file),
+  `tests/unit/test_third_party.py`.
+- **Public names.** none.
+- **Behaviour.** The verifiers ports (`verify/answers.py`, `actors/llm.py`) and the mini-swe-agent port
+  (`actors/harness.py`) had no notice file; four Karotte and OpenEnv rows did not name theirs. Every MIT, BSD or ISC
+  row in the two "Code ported" tables now names a `LICENSES/` file holding the upstream copyright line (pattern-only
+  rows are exempt: nothing is copied).
+- **Formats.** none.
+- **Tests.** `test_every_ported_mit_or_bsd_row_names_its_notice` (flags rows 21, 30, 31, 35, 38, 43 and 47 of the
+  previous `THIRD_PARTY.md`); the licence suite: 3 passed.
+- **Merge notes.** A new MIT, BSD or ISC port row must name its notice file. The wheel still ships no `LICENSES/`
+  (deferred in R-9).
