@@ -293,22 +293,39 @@ class Store:
 
     def _settle_forgotten(self) -> None:
         """Blobs a dead process set aside in ``forget_doc`` (R-24): put back if its transaction never committed (rows
-        still name the key), else removed. A live process's are left to it."""
+        still name the key), else removed. A running ``forget_doc`` holds its file's lock, so only a file whose lock
+        can be taken is settled. The pid in the name decided before, and a restarted container's process is pid 1 again:
+        its own crashed set-aside then counted as live forever, and the document's reads raised "missing blob" (M0
+        audit 2026-10-16 R-17; PATTERN: agentenv ``store/object_store/local/store.py`` sweeps only files it can lock,
+        Apache-2.0)."""
         for f in (self.root / _STAGING).glob("forgotten-*"):
             parts = f.name.split("-")
-            if len(parts) < 4 or not parts[2].isdigit() or _alive(int(parts[2])):
+            if len(parts) < 4 or not parts[2].isdigit():
                 continue
-            key = HASH_PREFIX + parts[1]
-            with contextlib.suppress(OSError, StoreError, sqlite3.Error):
-                used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
-                target = self._blob_path(key)
-                if used and not target.exists():
-                    _mkdir_durable(target.parent)
-                    os.replace(f, target)
-                    _fsync_dir(target.parent)
-                else:
-                    f.chmod(0o600)
-                    f.unlink()
+            try:
+                fd = os.open(f, os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                free = _lock_free(fd)
+                if free is False or (free is None and _alive(int(parts[2]))):  # no flock (Windows): the pid decides
+                    continue
+                self._settle_one(f, HASH_PREFIX + parts[1])
+            finally:
+                os.close(fd)
+
+    def _settle_one(self, f: Path, key: str) -> None:
+        with contextlib.suppress(OSError, StoreError, sqlite3.Error):
+            used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+            target = self._blob_path(key)
+            if used and not target.exists():
+                _mkdir_durable(target.parent)
+                os.replace(f, target)
+                _fsync_dir(target.parent)
+            else:
+                f.chmod(0o600)
+                f.unlink()
+                _fsync_dir(f.parent)
 
     # ---------------- blobs ----------------
     def _blob_path(self, key: str) -> Path:
@@ -487,28 +504,37 @@ class Store:
         is removed after the commit (R-24): a ``put_doc`` or ``tag`` of the same key in another process either commits
         first (the blob stays: it is used) or starts after and finds the blob gone (``put_doc`` writes it again, ``tag``
         refuses). Before, a put or tag between the commit and the unlink left a row whose blob was deleted."""
-        path, aside = self._blob_path(key), None
-        with self._lock:
-            self._db.execute("BEGIN IMMEDIATE")
-            try:
-                self._db.execute("DELETE FROM docs WHERE kind=? AND key=?", (kind, key))
-                self._db.execute("DELETE FROM doc_names WHERE kind=? AND key=?", (kind, key))
-                used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
-                if not used and path.exists():
-                    aside = self.root / _STAGING / f"forgotten-{path.name}-{os.getpid()}-{threading.get_ident()}"
-                    os.replace(path, aside)
-                self._db.commit()
-            except BaseException:
-                if aside is not None and aside.exists():
-                    os.replace(aside, path)
-                self._db.rollback()
-                raise
-        if used:
-            return False
-        if aside is not None:
-            aside.chmod(0o600)
-            aside.unlink(missing_ok=True)
-        return True
+        path, aside, held = self._blob_path(key), None, None
+        try:
+            with self._lock:
+                self._db.execute("BEGIN IMMEDIATE")
+                try:
+                    self._db.execute("DELETE FROM docs WHERE kind=? AND key=?", (kind, key))
+                    self._db.execute("DELETE FROM doc_names WHERE kind=? AND key=?", (kind, key))
+                    used = self._db.execute("SELECT 1 FROM docs WHERE key=? UNION SELECT 1 FROM tags WHERE key=? LIMIT 1", (key, key)).fetchone()
+                    if not used and path.exists():
+                        held = os.open(path, os.O_RDONLY)  # locked from the rename to the unlink: settling leaves it (R-17)
+                        _lock_free(held)
+                        aside = self.root / _STAGING / f"forgotten-{path.name}-{os.getpid()}-{threading.get_ident()}"
+                        os.replace(path, aside)
+                        _fsync_dir(path.parent)  # the rename is on disk before the rows' removal commits (R-17)
+                        _fsync_dir(aside.parent)
+                    self._db.commit()
+                except BaseException:
+                    if aside is not None and aside.exists():
+                        os.replace(aside, path)
+                    self._db.rollback()
+                    raise
+            if used:
+                return False
+            if aside is not None:
+                aside.chmod(0o600)
+                aside.unlink(missing_ok=True)
+                _fsync_dir(aside.parent)
+            return True
+        finally:
+            if held is not None:
+                os.close(held)
 
     def tag(self, name: str, key: str, *, expect: int | None, note: dict | None = None) -> int:
         """Point ``name`` at ``key`` and return the tag's revision. ``expect`` is the revision the caller read
@@ -572,6 +598,20 @@ class Store:
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+
+def _lock_free(fd: int) -> bool | None:
+    """Take ``fd``'s file lock without waiting: True (now held through ``fd``), False (someone holds it), None (no
+    flock on this platform)."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
 
 
 def _alive(pid: int) -> bool:

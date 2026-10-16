@@ -962,3 +962,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   previous `THIRD_PARTY.md`); the licence suite: 3 passed.
 - **Merge notes.** A new MIT, BSD or ISC port row must name its notice file. The wheel still ships no `LICENSES/`
   (deferred in R-9).
+
+## 44. A16-R17: a forgotten blob is settled by its lock, and the forget is durable
+
+- **Item.** A16-R17 (corrects R-24, entry 28). PATTERN from agentenv `store/object_store/local/store.py:419-431`
+  (sweeps only files it can lock, Apache-2.0); no code taken.
+- **Files.** `src/crucible/core/store/__init__.py` (`forget_doc`, `_settle_forgotten`, new `_settle_one` and
+  `_lock_free`), `tests/unit/test_store_forget.py`.
+- **Public names.** none.
+- **Behaviour.** `forget_doc` holds an exclusive file lock on the blob from before it is renamed aside until it is
+  unlinked, fsyncs the blob's and the staging directory after the rename (before the rows' removal commits) and the
+  staging directory after the unlink. Opening a store settles a set-aside file only when it can take that lock (the pid
+  in the name decides only where flock does not exist). Before, the pid decided: a crashed forget whose name held a live
+  pid, its own included (a restarted container's process is pid 1 again), was never settled, and every read of the
+  document raised "missing blob"; and the rename and unlink were not synced, so after a power loss forgotten content
+  could reappear.
+- **Formats.** none.
+- **Tests.** `test_a_set_aside_named_with_a_live_pid_is_settled_unless_its_lock_is_held` (fails on the previous code).
+  Store, forget, tag, conformance and core-audit suites: 122 passed.
+- **Merge notes.** none.

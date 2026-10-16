@@ -91,3 +91,23 @@ def test_many_forgets_and_puts_never_leave_a_row_without_its_blob(tmp_path):
     assert all(a.has(r.key) for r in rows)
     if rows:
         assert a.get_doc(key, RewardJson) == DOC
+
+
+def test_a_set_aside_named_with_a_live_pid_is_settled_unless_its_lock_is_held(tmp_path):
+    """M0 audit 2026-10-16 R-17: the pid in the name decided, and a restarted container's process is pid 1 again, so a
+    crashed forget counted as live forever and the document's reads raised "missing blob". The lock now decides."""
+    import fcntl
+    import os
+
+    for pid in (os.getpid(), 1):
+        st = Store(tmp_path / f"s{pid}")
+        key = st.put_doc("reward", DOC)
+        blob = st.blob_path(key)
+        aside = st.root / "staging" / f"forgotten-{blob.name}-{pid}-1"
+        os.replace(blob, aside)  # a forget that crashed before its commit: the rows still name the key
+        held = os.open(aside, os.O_RDONLY)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        Store(st.root)  # its forget_doc still holds the lock: left alone
+        assert aside.exists()
+        os.close(held)
+        assert Store(st.root).get_doc(key, RewardJson) == DOC and not aside.exists()
