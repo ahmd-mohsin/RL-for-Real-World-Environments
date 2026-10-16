@@ -472,3 +472,40 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   must read the fields. Code writing `RunRecord(tokens=...)` fails (unknown key). Code that reads `record.json` or
   `results.jsonl` as plain dicts sees `schema_version: crucible.run/v2` and the new keys; validate through `RunRecord`
   to read v1 and v2 alike.
+
+## 21. R-1 (step 4 of 4): a training checkpoint records the settings it was trained with
+
+- **Item.** R-1 step 4 (the M12 part of the audit's protocol: "M12 checkpoints store the train-config identity",
+  `train/state.py` checked none). PATTERN from NeMo-RL `rollout_checkpoint.py:60-110,490-552` and slime
+  `training_recovery.py:60-151` (Apache-2.0), on step 1's `core/fingerprint.py`; THIRD_PARTY.md row extended.
+  Decision (option a): `lr` counts in the identity, and an allowed change is really applied.
+- **Files.** `src/crucible/train/identity.py` (new), `src/crucible/train/state.py` (`capture` stores the identity,
+  `save` writes its fingerprint into `manifest.json`, `restore` checks before installing anything, `configured_lr`),
+  `src/crucible/train/runtime.py` (`RuntimeConfig.allow_change`, `RunReport.identity_check`, the sources' identity taken
+  at construction, a `resume` tracking record), `tests/unit/test_train_state.py` (3 tests; the helper takes lr, n,
+  prompts, allow_change), `docs/modules/M12-train.md`, `THIRD_PARTY.md`.
+- **Public names.** `crucible.train.identity`: `OPERATIONAL`, `FUNCTIONS`, `TrainResumeMismatch`, `identity`,
+  `identity_doc`, `sources_doc`, `check`. `crucible.train.state.configured_lr`. `RuntimeConfig.allow_change`,
+  `RunReport.identity_check`.
+- **Behaviour.**
+  - Every checkpoint carries `identity`: every field of `RuntimeConfig`, `SchedulerConfig`, the trainer's config (and
+    the critic's), the trainer class, `vocab_id`, a digest of the model's parameter names and shapes, each source's
+    prompt count and digest, and the rollout / reward / environment / group / audit functions by qualified name (listed
+    in `opaque`), minus `OPERATIONAL` (steps, wall clock, polling, workers, checkpoint cadence and directory, sinks, kept
+    records, breaker thresholds, offload and KV placement, reissue pacing, heartbeat, `dp`, `token_budget`,
+    `prefix_sharing`, `allow_change`), fingerprinted.
+  - `Runtime.resume()` under other settings raises `TrainResumeMismatch` (a `ValueError`) naming up to 20 changed
+    settings, before anything is installed, unless each matches a glob in `RuntimeConfig.allow_change`; an allowed change
+    is in `RunReport.identity_check`, a `resume` tracking record, and the `changes` history of every later checkpoint.
+  - A checkpoint from before this change (no identity) resumes once as `adopted`, recorded the same way.
+  - After the optimizer state loads, each optimizer runs at its configured `lr` (and the critic's): loading had put the
+    checkpoint's rate back, so an `lr` change on resume was silently ignored (configured 1e-4, ran at 3e-3).
+- **Formats.** `crucible.run_checkpoint/v1` blobs gain an `identity` key and `manifest.json` an `identity`
+  fingerprint (both optional on read; no version bump: the checkpoint is not a frozen format).
+- **Tests.** `test_train_state.py` (7, 3 new): a resume with another group size, learning rate or prompt set is
+  refused by name with nothing installed, more steps resume as `same`; an allowed `lr` change is applied and carried in
+  later checkpoints; a checkpoint without an identity resumes as `adopted`. The 58 suites that import `crucible.train`:
+  630 passed, 1 failure that fails at HEAD too (`test_cluster` Ray placement, entry 19).
+- **Merge notes.** A training resume with changed settings now raises unless `RuntimeConfig.allow_change` names them.
+  A new `RuntimeConfig` / `SchedulerConfig` / `TrainerConfig` field counts automatically; an operational one must be
+  added to `train.identity.OPERATIONAL`. A trainer that schedules its learning rate would need `configured_lr` revisited.

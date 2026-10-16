@@ -65,10 +65,13 @@ def capture(rt: Any, step: int) -> dict:
     if getattr(tr, "critic", None) is not None:
         trainer.update(critic={k: v.detach().cpu().clone() for k, v in tr.critic.state_dict().items()}, critic_opt=copy.deepcopy(tr.critic_opt.state_dict()),
                        critic_updates=tr.critic_updates)
+    from crucible.train.identity import identity
+
     return {
         "schema": "crucible.run_checkpoint/v1",
         "step": step,
         "version": rt.version,
+        "identity": identity(rt),  # the settings this state was trained with: checked on resume (R-1 step 4)
         "trainer": trainer,
         "scheduler": {"admitted": dict(sched.admitted), "exhausted": sorted(sched.exhausted), "steps": sched.steps, "lengths_seen": list(sched.lengths_seen),
                       "counters": dict(sched.counters), "ev_pending": list(sched._ev_pending)},
@@ -99,7 +102,9 @@ def save(blob: dict, root: Path, trainer: Any = None) -> Path:
         trainer.save_sharded(str(tmp / "trainer"))
     torch.save(blob, tmp / "state.pt")
     digest = hashlib.sha256((tmp / "state.pt").read_bytes()).hexdigest()
-    (tmp / "manifest.json").write_text(json.dumps({"schema": blob["schema"], "step": blob["step"], "version": blob["version"], "sha256": digest}, indent=1))
+    ident = (blob.get("identity") or {}).get("fingerprint")
+    (tmp / "manifest.json").write_text(json.dumps({"schema": blob["schema"], "step": blob["step"], "version": blob["version"], "sha256": digest,
+                                                   **({"identity": ident} if ident else {})}, indent=1))
     if final.exists():
         shutil.rmtree(final)
     os.replace(tmp, final)  # atomic on one filesystem: a crash leaves the previous checkpoint intact
@@ -123,9 +128,13 @@ def load(path: Path) -> dict:
 
 
 def restore(rt: Any, blob: dict) -> int:
-    """Install ``blob`` into a freshly constructed runtime (same configuration); returns the step to continue after."""
+    """Install ``blob`` into a freshly constructed runtime; returns the step to continue after. The runtime's settings are
+    checked against the checkpoint's first (``train.identity.check``): a refused change installs nothing."""
+    from crucible.train.identity import check
+
     if blob.get("schema") != "crucible.run_checkpoint/v1":
         raise ValueError(f"not a run checkpoint: {blob.get('schema')}")
+    event = check(rt, blob)
     tr, sched, pool = rt.trainer, rt.sched, rt.pool
     if callable(getattr(type(tr), "load_state", None)):  # ``spmd.SPMDDriver``: every rank loads (H4 V3)
         tr.load_state(blob["_path"], blob)
@@ -160,6 +169,7 @@ def restore(rt: Any, blob: dict) -> int:
     if hasattr(rt, "_seats"):
         rt._seats = {r: list(v) for r, v in blob.get("seats", {}).items()}
     rt.version = blob["version"]
+    rt.report.identity_check = event
     return int(blob["step"])
 
 
@@ -178,6 +188,18 @@ def apply_trainer_state(tr: Any, t: dict, path: str | Path | None = None) -> Non
         tr.critic.load_state_dict(t["critic"])
         tr.critic_opt.load_state_dict(t["critic_opt"])
         tr.critic_updates = t["critic_updates"]
+    configured_lr(tr)
+
+
+def configured_lr(tr: Any) -> None:
+    """The optimizers run at the configured learning rates: loading an optimizer's state also loads its param groups, so a
+    resume with another ``lr`` (allowed by ``allow_change``) kept the checkpoint's while the config named the new one
+    (R-1 step 4). No Crucible trainer schedules its learning rate, so the configured value is the current one."""
+    for opt, cfg in ((getattr(tr, "opt", None), getattr(tr, "cfg", None)), (getattr(tr, "critic_opt", None), getattr(tr, "critic_cfg", None))):
+        lr = getattr(cfg, "lr", None)
+        if opt is not None and isinstance(lr, (int, float)) and not isinstance(lr, bool):
+            for g in opt.param_groups:
+                g["lr"] = float(lr)
 
 
 def load_trainer_state(tr: Any, path: str | Path) -> None:

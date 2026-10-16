@@ -92,6 +92,9 @@ class RuntimeConfig:
     checkpoint_every: int = 0
     keep_records: int | None = 4096  # RunReport.trained_records keeps the newest N (a long run must not hold every record)
     checkpoint_dir: str | None = None
+    # a resume refuses a checkpoint trained with other settings (``train.identity``, R-1 step 4) unless every changed
+    # setting matches one of these globs (``trainer.lr``, ``scheduler.*``); the change is recorded in later checkpoints
+    allow_change: list[str] = field(default_factory=list)
     max_masked_share: float = 0.2
     max_harness_share: float = 0.05
     breaker_window: int = 200
@@ -170,6 +173,7 @@ class RunReport:
     blocked: dict[str, int] = field(default_factory=dict)  # barrier blocked reason -> count (need_more / wait_stale)
     doomed_evictions: int = 0  # live groups evicted after a publish under ``drop`` (they could no longer train within τ)
     restaged_groups: int = 0  # group stages re-run because refill_member changed the group's scored members (H2 V2)
+    identity_check: dict | None = None  # the resumed checkpoint's identity check: same | changed (with the settings) | adopted
 
     def series(self, key: str) -> list[float]:
         return [s.metrics[key] for s in self.steps if key in s.metrics]
@@ -291,6 +295,10 @@ class Runtime:
         self._recent: deque[str] = deque(maxlen=cfg.breaker_window)  # ok | masked | infra | harness, per finished rollout
         self.admission_blocked_s = 0.0
         self._queues = {s: list(ps) for s, ps in sources.items()}
+        from crucible.train.identity import sources_doc
+
+        self._source_identity = sources_doc(sources)  # the prompts as given, not what is left of them (R-1 step 4)
+        self._identity_changes: list[dict] = []  # allowed setting changes over this run's resumes, carried by its checkpoints
         self.pool = DataPool()
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
         self.sched.stage_view = self._stage_view  # the zero-variance filter reads the stage's output / every seat (G2 D-T2-4, H2 V20)
@@ -924,6 +932,7 @@ class Runtime:
         if ck is None:
             raise FileNotFoundError("no run checkpoint to resume from")
         self.start_step = state.restore(self, state.load(ck))
+        self.tracking.record("resume", self.report.identity_check, self.start_step)
         await self.publisher.restore(self.version)
         return self.start_step
 
