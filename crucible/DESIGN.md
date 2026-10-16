@@ -629,6 +629,59 @@ The forge prefers depth to breadth. A task is deep when more effort keeps paying
 
 ---
 
+### 7.6 The task factory: curation with measured verifiers (M17, built 2026-10-15)
+
+A task is four parts: a prompt, a World, a verifier and an **intent** (the skill it must teach). RL reinforces whatever
+earns reward, so the factory's product is not tasks; it is **accepted tasks per dollar**, where every protected axis is
+measured against ground truth. Research and method: `docs/research/task-factory/01`–`07` (Prime Agent's machine factory;
+how 30+ environments validate verifiers, which found that no source publishes human-labelled verifier accuracy; agentenv;
+the curation method; the build; the first run). Code: `src/crucible/factory/`.
+
+1. **Objects** (`cards.py`, `ledger.py`):
+   - `IntentCard`: its evidence must be real model-failure traces; it starts as a candidate, and a human approves it.
+   - `ObservationRecord`: a typed ground truth. Reference-derived and simulator records never gate alone.
+   - `RequirementLedger`: every prompt sentence ↔ a check, enforced both ways.
+   - `VerifierCard`: every number has its denominator.
+   - `TaskCard`, the closed `FailureCause` taxonomy, `Label` and `Decision`.
+2. **Ground-truth lanes:**
+   - **executable:** real fix + test commits mined from repositories (`lanes/executable.py`);
+   - **human:** an append-only, hash-chained label and decision store (`labels.py`), with κ and an agentenv explorer
+     plugin for intake (`explorer.py`);
+   - **trace:** model failures, used as intent evidence only.
+3. **The per-task machine** (`machine.py`, `driver.py`): a declarative, journaled, cyclic state machine (a port of Prime
+   Agent's validator and guards, MIT).
+   - The states: spec → author → realism → oracle → verifier → ledger → floors → probes → hackers → second verifier →
+     solvers → differential → audit → flake → horizon → calibrate → gate → select.
+   - Loop-backs carry findings to the owning state. Exhaustion pauses for a decision; it never ends as done.
+   - The verifier writer never sees a solution. Reviewers come from another model family, enforced at validation.
+4. **Verifier validation** (`floors`, `probes`, `differential`, `audit`, `flake`, `horizon`, `goldset`):
+   - floors score 0;
+   - every requirement mutant fails and every valid alternative passes;
+   - an independent second verifier is run differentially;
+   - failure causes are attributed by an auditor that is trusted only after it recalls seeded controls;
+   - the flake bound needs 30 reruns × 2 concurrency levels;
+   - long-horizon tasks get milestone, concatenation and shortcut tests;
+   - the gold-set error bounds are per class (v1: Wilson upper ≤ 10% needs ≥ 36 per class; ≤ 5% needs ≥ 73).
+5. **Family acceptance** (`family.py`, `ortho.py`, `transfer.py`):
+   - orthogonality at four layers, the behavioural layer included;
+   - a transfer proxy: the base policy is compared with in-context exemplars on held-out probes from a surface the family
+     never uses. A family is accepted only when the skill transfers.
+6. **Swarm and outer loop** (`root.py`, `models.py`):
+   - the root curator writes no tasks; it leases cells of a behaviour × surface coverage matrix and runs machines in
+     parallel;
+   - it stops on budget, marginal yield or surface skew;
+   - persistent per-family specialists;
+   - every decision is stored with its reason, so criteria and cheaper gates can be compiled from it.
+
+**First run (07, partial):**
+- mining: 295 commits → 210 validated tasks from 11 repositories;
+- discovery: 304 failures on 59 tasks classified, with the auditor recalling 177/177 seeded controls. 30 of the 304 were
+  task defects (spec, World, format, verifier), not model failures;
+- one trial task paused, as designed, at a decision;
+- spend: $0.79.
+
+Family acceptance has not run yet.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

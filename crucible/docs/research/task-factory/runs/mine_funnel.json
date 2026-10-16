@@ -1,0 +1,337 @@
+{
+ "boltons": {
+  "candidates": 40,
+  "reasons": {
+   "0_f2p": 1,
+   "1+_f2p": 39
+  },
+  "seconds": 66.6,
+  "tasks": [
+   "boltons-4e5faa3d7e",
+   "boltons-73e22c90de",
+   "boltons-1cdc0e9d36",
+   "boltons-5150802911",
+   "boltons-a180020c76",
+   "boltons-e00c10a809",
+   "boltons-efff866a3b",
+   "boltons-5eb6cc0455",
+   "boltons-8789df2cc3",
+   "boltons-f5f5cd867e",
+   "boltons-970051b664",
+   "boltons-9decba3e57",
+   "boltons-a1ea1030ed",
+   "boltons-d45cc414e3",
+   "boltons-91b2bb47ae",
+   "boltons-448b1db11a",
+   "boltons-1a04b63790",
+   "boltons-967864f897",
+   "boltons-5df26592c2",
+   "boltons-ec1ff9f672",
+   "boltons-b5c495bec2",
+   "boltons-c1c25da365",
+   "boltons-3e9983db7b",
+   "boltons-f1034b07dd",
+   "boltons-435774ef8b",
+   "boltons-0a3084e305",
+   "boltons-1f37cce42f",
+   "boltons-eb659013fb",
+   "boltons-346fc650de",
+   "boltons-289edfcd20",
+   "boltons-7b577b0f3c",
+   "boltons-8c3fc28506",
+   "boltons-ead236e278",
+   "boltons-1e61524a79",
+   "boltons-55dfe5077b",
+   "boltons-ebc7a8f776",
+   "boltons-d0a284fc7e",
+   "boltons-609cabe932",
+   "boltons-25e8d6b18e"
+  ],
+  "validated": 39
+ },
+ "cachetools": {
+  "candidates": 36,
+  "reasons": {
+   "0_f2p": 13,
+   "1+_f2p": 19,
+   "no test result after the fix (collection failed": 4
+  },
+  "seconds": 44.6,
+  "tasks": [
+   "cachetools-bcf9e8176e",
+   "cachetools-9b7fe6ca65",
+   "cachetools-c0fdf6abab",
+   "cachetools-18e5930ced",
+   "cachetools-57d2e4813d",
+   "cachetools-da5819a863",
+   "cachetools-902dce4b45",
+   "cachetools-d7b24235f8",
+   "cachetools-bb4b37cfc7",
+   "cachetools-43596b2337",
+   "cachetools-d3598664ca",
+   "cachetools-1a015dc6b5",
+   "cachetools-6ddbca1884",
+   "cachetools-eb672f8997",
+   "cachetools-9dda91f99b",
+   "cachetools-91aa4c63f5",
+   "cachetools-6a70f80e8b",
+   "cachetools-9a6cb65aae",
+   "cachetools-462e867950"
+  ],
+  "validated": 19
+ },
+ "humanize": {
+  "candidates": 40,
+  "reasons": {
+   "0_f2p": 19,
+   "1+_f2p": 16,
+   "49 tests fail after the fix (environment mismatch)": 1,
+   "no test result after the fix (collection failed": 4
+  },
+  "seconds": 56.3,
+  "tasks": [
+   "humanize-392aef707c",
+   "humanize-ca892b368a",
+   "humanize-ffdf407fdf",
+   "humanize-e46732ed23",
+   "humanize-984526c024",
+   "humanize-b48b37b187",
+   "humanize-08cf2c3026",
+   "humanize-823ad6096e",
+   "humanize-7574e0cc37",
+   "humanize-c2c410c152",
+   "humanize-0a06a3d4a1",
+   "humanize-a47a89ea91",
+   "humanize-906a38cb95",
+   "humanize-6d89dfa967",
+   "humanize-38c99686b9",
+   "humanize-a79fb3a6c8"
+  ],
+  "validated": 16
+ },
+ "inflection": {
+  "candidates": 3,
+  "reasons": {
+   "0_f2p": 1,
+   "1+_f2p": 2
+  },
+  "seconds": 5.9,
+  "tasks": [
+   "inflection-e32443bb7d",
+   "inflection-1969b3a06a"
+  ],
+  "validated": 2
+ },
+ "isodate": {
+  "candidates": 5,
+  "reasons": {
+   "0_f2p": 4,
+   "1+_f2p": 1
+  },
+  "seconds": 9.7,
+  "tasks": [
+   "isodate-ad4e50bd7c"
+  ],
+  "validated": 1
+ },
+ "jmespath.py": {
+  "candidates": 9,
+  "reasons": {
+   "0_f2p": 7,
+   "1+_f2p": 2
+  },
+  "seconds": 16.2,
+  "tasks": [
+   "jmespath.py-4a521f8775",
+   "jmespath.py-b893fc2bdd"
+  ],
+  "validated": 2
+ },
+ "more-itertools": {
+  "candidates": 40,
+  "reasons": {
+   "0_f2p": 4,
+   "1+_f2p": 36
+  },
+  "seconds": 291.4,
+  "tasks": [
+   "more-itertools-67fcf64047",
+   "more-itertools-f89d7a3331",
+   "more-itertools-3eb4053e1a",
+   "more-itertools-670b715b30",
+   "more-itertools-2b8d5cddce",
+   "more-itertools-def2dabea8",
+   "more-itertools-e426d256b9",
+   "more-itertools-752799b5c8",
+   "more-itertools-6b1907de29",
+   "more-itertools-1fd388bc23",
+   "more-itertools-ce676d2413",
+   "more-itertools-7847d4324a",
+   "more-itertools-dc2664b4a7",
+   "more-itertools-0e6acdf9b6",
+   "more-itertools-069b30002a",
+   "more-itertools-d992be0de9",
+   "more-itertools-958990e22c",
+   "more-itertools-d64a7d6971",
+   "more-itertools-f51a53bfd2",
+   "more-itertools-43decdd760",
+   "more-itertools-842a2b17a8",
+   "more-itertools-ba7ef9425f",
+   "more-itertools-edb3346f83",
+   "more-itertools-52cfcfedc3",
+   "more-itertools-71b46b06fb",
+   "more-itertools-93c1cf8484",
+   "more-itertools-d63a26e56e",
+   "more-itertools-8089263d23",
+   "more-itertools-db4f41b280",
+   "more-itertools-be5793a55f",
+   "more-itertools-f91c7339f1",
+   "more-itertools-06f3181912",
+   "more-itertools-def2d821c0",
+   "more-itertools-d9adeb4e31",
+   "more-itertools-b0aa91efbb",
+   "more-itertools-073d23421b"
+  ],
+  "validated": 36
+ },
+ "parse": {
+  "candidates": 35,
+  "reasons": {
+   "0_f2p": 2,
+   "1+_f2p": 33
+  },
+  "seconds": 40.4,
+  "tasks": [
+   "parse-4e2b93a87f",
+   "parse-bcbb869e8c",
+   "parse-ffad578b11",
+   "parse-b0c9f0e2f5",
+   "parse-ba6803d571",
+   "parse-35b9ffb355",
+   "parse-9c9ec7fe88",
+   "parse-b1d2121902",
+   "parse-20ab3ded90",
+   "parse-421c19919f",
+   "parse-0477aa5867",
+   "parse-5bc22a4c6d",
+   "parse-1269006883",
+   "parse-44e14b081e",
+   "parse-3cf6e15f83",
+   "parse-19689cf5b4",
+   "parse-bc417de9de",
+   "parse-38d21c0158",
+   "parse-90461fa433",
+   "parse-db1acf8a17",
+   "parse-7a014debf0",
+   "parse-4d5cf423fe",
+   "parse-97b7372477",
+   "parse-88b4895477",
+   "parse-133656c27d",
+   "parse-428cfc5050",
+   "parse-f4a30ffe30",
+   "parse-fe986ffabf",
+   "parse-1e800a1551",
+   "parse-5556f694be",
+   "parse-e9aa02bd2a",
+   "parse-2918b126da",
+   "parse-3b0753657d"
+  ],
+  "validated": 33
+ },
+ "python-semver": {
+  "candidates": 40,
+  "reasons": {
+   "0_f2p": 3,
+   "1+_f2p": 37
+  },
+  "seconds": 50.8,
+  "tasks": [
+   "python-semver-37ae009c7c",
+   "python-semver-1d515915d5",
+   "python-semver-887d057e66",
+   "python-semver-8c0a3f7d80",
+   "python-semver-f53d13d138",
+   "python-semver-0aa17a3447",
+   "python-semver-ea2524a517",
+   "python-semver-1e8757912f",
+   "python-semver-4e09ef0e4c",
+   "python-semver-bc41390f38",
+   "python-semver-4b03f867a3",
+   "python-semver-f8a182f5ec",
+   "python-semver-5485b6bd2d",
+   "python-semver-b5317af9a7",
+   "python-semver-2aeb61b667",
+   "python-semver-db55f27cb7",
+   "python-semver-0309c63ce8",
+   "python-semver-20e5c4fd74",
+   "python-semver-9332d92424",
+   "python-semver-772a7a61a6",
+   "python-semver-f332326e54",
+   "python-semver-f55559acfe",
+   "python-semver-7057dc5fde",
+   "python-semver-ec6588e081",
+   "python-semver-f2c23f6382",
+   "python-semver-017e296335",
+   "python-semver-61f4521fbd",
+   "python-semver-2d0f805527",
+   "python-semver-8ee92b498d",
+   "python-semver-21f87f6403",
+   "python-semver-373af82ceb",
+   "python-semver-d2671fd542",
+   "python-semver-7fdf7b242d",
+   "python-semver-97d41b9250",
+   "python-semver-9887884c63",
+   "python-semver-24cd0a4056",
+   "python-semver-c4dbbc3f9e"
+  ],
+  "validated": 37
+ },
+ "python-slugify": {
+  "candidates": 7,
+  "reasons": {
+   "0_f2p": 1,
+   "1+_f2p": 6
+  },
+  "seconds": 11.8,
+  "tasks": [
+   "python-slugify-c9e9698c70",
+   "python-slugify-cf6cd3dad4",
+   "python-slugify-8f9a550a90",
+   "python-slugify-2f23599bfb",
+   "python-slugify-548b14fab3",
+   "python-slugify-df37f92c53"
+  ],
+  "validated": 6
+ },
+ "python-tabulate": {
+  "candidates": 40,
+  "reasons": {
+   "0_f2p": 20,
+   "1+_f2p": 19,
+   "PASS_TO_FAIL": 1
+  },
+  "seconds": 398.9,
+  "tasks": [
+   "python-tabulate-e6a24aa6e0",
+   "python-tabulate-8014ec6682",
+   "python-tabulate-3aa568c669",
+   "python-tabulate-ebd50a75e1",
+   "python-tabulate-5373ebfa95",
+   "python-tabulate-032dc0d107",
+   "python-tabulate-87a9a4e07a",
+   "python-tabulate-886e2ed87b",
+   "python-tabulate-9dedd45043",
+   "python-tabulate-d29909b4fb",
+   "python-tabulate-787851ffe4",
+   "python-tabulate-8c9c9e75c9",
+   "python-tabulate-0655054b41",
+   "python-tabulate-e45cac1667",
+   "python-tabulate-92cb7096ad",
+   "python-tabulate-d27d3668f5",
+   "python-tabulate-b1ed1fda6f",
+   "python-tabulate-0978de5bb3",
+   "python-tabulate-af40a322d6"
+  ],
+  "validated": 19
+ }
+}

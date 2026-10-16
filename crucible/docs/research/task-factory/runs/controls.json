@@ -1,0 +1,307 @@
+{
+ "bank": [
+  {
+   "cause": "world_bug",
+   "failing_checks": [
+    "c1"
+   ],
+   "gating": true,
+   "id": "ctl-world-bug",
+   "prompt": "humanize.natural_list() crashes when it is given an empty list. natural_list([]) must return an empty string. Lists with items must keep their current output, for example natural_list(['one', 'two', 'three']) returns 'one, two and three'.",
+   "solution_correct": null,
+   "task": "humanize-0a06a3d4a1",
+   "text": "SOLVER REPLY:\n{\"edits\": [{\"new\": \"        str: A string with commas and 'and' in the right places.\\n    \\\"\\\"\\\"\\n    if not items:\\n        return \\\"\\\"\\n    if len(items) == 1:\\n        return str(items[0])\\n\", \"old\": \"        str: A string with commas and 'and' in the right places.\\n    \\\"\\\"\\\"\\n    if len(items) == 1:\\n        return str(items[0])\\n\", \"path\": \"src/humanize/lists.py\"}]}\n\nAPPLY: all edits applied\nGRADER: reward 0.0; failing checks ['c1']; failing tests ['tests/test_lists.py::tests.test_lists']\nTEST OUTPUT (tail):\n\n==================================== ERRORS ====================================\n_____________________ ERROR collecting tests/test_lists.py _____________________\n/usr/local/lib/python3.12/site-packages/_pytest/python.py:493: in importtestmodule\n    mod = import_path(\n/usr/local/lib/python3.12/site-packages/_pytest/pathlib.py:582: in import_path\n    importlib.import_module(module_name)\n/usr/local/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/usr/local/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:184: in exec_module\n    exec(co, module.__dict__)\ntests/test_lists.py:5: in <module>\n    import humanize\nsrc/humanize/__init__.py:18: in <module>\n    from humanize.time import (\nE     File \"/w/src/humanize/time.py\", line 6\nE       def _truncated_by_a_failed_checkout(\nE                                          ^\nE   SyntaxError: '(' was never closed\n----------------- generated xml file: /tmp/jf7224953b9df/r.xml -----------------\n1 error in 0.36s\n\n\n",
+   "verifier_pass": false,
+   "why": "the real fix, graded in a World where a module the change never touches is truncated: the package cannot import"
+  },
+  {
+   "cause": "skill_gap",
+   "failing_checks": [
+    "c1"
+   ],
+   "gating": true,
+   "id": "ctl-lazy",
+   "prompt": "humanize.natural_list() crashes when it is given an empty list. natural_list([]) must return an empty string. Lists with items must keep their current output, for example natural_list(['one', 'two', 'three']) returns 'one, two and three'.",
+   "solution_correct": false,
+   "task": "humanize-0a06a3d4a1",
+   "text": "SOLVER REPLY:\n{\"edits\": [{\"path\": \"src/humanize/lists.py\", \"old\": \"        str: A string with commas and 'and' in the right places.\\n    \\\"\\\"\\\"\\n    if len(items) == 1:\\n\", \"new\": \"        str: A string with commas and 'and' in the right places.\\n\\n    Note: empty lists are not supported yet.\\n    \\\"\\\"\\\"\\n    if len(items) == 1:\\n\"}]}\n\nAPPLY: all edits applied\nGRADER: reward 0.0; failing checks ['c1']; failing tests ['tests/test_lists.py::test_natural_list[test_args4-]']\nTEST OUTPUT (tail):\n                           [100%]\n=================================== FAILURES ===================================\n________________________ test_natural_list[test_args4-] ________________________\n\ntest_args = [[]], expected = ''\n\n    @pytest.mark.parametrize(\n        \"test_args, expected\",\n        [\n            ([[\"1\", \"2\", \"3\"]], \"1, 2 and 3\"),\n            ([[\"one\", \"two\", \"three\"]], \"one, two and three\"),\n            ([[\"one\", \"two\"]], \"one and two\"),\n            ([[\"one\"]], \"one\"),\n            ([[]], \"\"),\n            ([[\"\"]], \"\"),\n            ([[1, 2, 3]], \"1, 2 and 3\"),\n            ([[1, \"two\"]], \"1 and two\"),\n        ],\n    )\n    def test_natural_list(\n        test_args: list[str] | list[int] | list[str | int], expected: str\n    ) -> None:\n>       assert humanize.natural_list(*test_args) == expected\n\ntests/test_lists.py:24: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nitems = []\n\n    def natural_list(items: list[Any]) -> str:\n        \"\"\"Natural list.\n    \n        Convert a list of items into a human-readable string with commas and 'and'.\n    \n        Examples:\n            >>> natural_list([\"one\", \"two\", \"three\"])\n            'one, two and three'\n            >>> natural_list([\"one\", \"two\"])\n            'one and two'\n            >>> natural_list([\"one\"])\n            'one'\n    \n        Args:\n            items (list): An iterable of items.\n    \n        Returns:\n            str: A string with commas and 'and' in the right places.\n    \n        Note: empty lists are not supported yet.\n        \"\"\"\n        if len(items) == 1:\n            return str(items[0])\n        elif len(items) == 2:\n            return f\"{str(items[0])} and {str(items[1])}\"\n        else:\n>           return \", \".join([str(item) for item in items[:-1]]) + f\" and {str(items[-1])}\"\nE           IndexError: list index out of range\n\nsrc/humanize/lists.py:38: IndexError\n----------------- generated xml file: /tmp/j288659a3c9ab/r.xml -----------------\n1 failed in 0.31s\n\n\n",
+   "verifier_pass": false,
+   "why": "a lazy change: a docstring note, no behaviour change"
+  },
+  {
+   "cause": "verifier_defect",
+   "failing_checks": [
+    "c1"
+   ],
+   "gating": true,
+   "id": "ctl-verifier-defect",
+   "prompt": "boltons.strutils.singularize() mangles words that are already singular and end in a double s: singularize('glass') returns 'glas' and singularize('boss') returns 'bos'. Words ending in 'ss' that are already singular (glass, boss, class, kiss, address, business) must be returned unchanged, keeping the caller's capitalization (singularize('Glass') returns 'Glass'). Real plurals must still be singularized: singularize('glasses') returns 'glass'.",
+   "solution_correct": true,
+   "task": "boltons-1e61524a79",
+   "text": "SOLVER REPLY:\n{\"edits\": [{\"new\": \"    elif word.endswith('es') and word[-3] == 's':\\n        singular = word[:-2]\\n    elif word.endswith('ss'):\\n        # Words ending in a double 's' (glass, boss, kiss) are already\\n        # singular; their plurals end in 'sses' and are handled above. Do\\n        # not blindly strip the trailing 's', which would produce 'glas',\\n        # 'bos', 'kis' and break idempotency (singularize('Glasses') ==\\n        # 'Glass', but 'Glass' must stay 'Glass').\\n        return orig_word\\n    else:\\n        singular = word[:-1]\\n\", \"old\": \"    elif word.endswith('es') and word[-3] == 's':\\n        singular = word[:-2]\\n    else:\\n        singular = word[:-1]\\n\", \"path\": \"boltons/strutils.py\"}]}\n\nAPPLY: all edits applied\nGRADER: reward 0.0; failing checks ['c1']; failing tests ['tests/test_strutils.py::test_singularize_double_s']\nTEST OUTPUT (tail):\nF                                                                        [100%]\n=================================== FAILURES ===================================\n__________________________ test_singularize_double_s ___________________________\n\n    def test_singularize_double_s():\n        singularize = strutils.singularize\n        # Words ending in a double 's' are already singular (their plurals end\n        # in 'sses'), so singularize must not strip the trailing 's' and produce\n        # 'glas'/'bos'/'kis'. Regression for the branch that blindly did word[:-1].\n>       assert singularize('glass') == 'glas'\nE       AssertionError: assert 'glass' == 'glas'\nE         \nE         - glas\nE         + glass\nE         ?     +\n\ntests/test_strutils.py:284: AssertionError\n----------------- generated xml file: /tmp/jf0cabf83eaaa/r.xml -----------------\n1 failed in 0.34s\n\n\n",
+   "verifier_pass": false,
+   "why": "the real fix, graded by a test whose expectation contradicts the request"
+  },
+  {
+   "cause": "unstated_format",
+   "failing_checks": [
+    "c1"
+   ],
+   "gating": false,
+   "id": "ctl-unstated-format",
+   "prompt": "boltons.iterutils.GUIDerator(size=20) works, but the ValueError raised for an out-of-range size says 20 is not allowed. The error for a size below 20 or above 36 must state the real allowed range: 20 to 36, both inclusive. Valid sizes must keep working.",
+   "solution_correct": null,
+   "task": "boltons-f5f5cd867e",
+   "text": "SOLVER REPLY:\n{\"edits\": [{\"path\": \"boltons/iterutils.py\", \"old\": \"            raise ValueError('expected 20 < size <= 36')\\n\", \"new\": \"            raise ValueError('size must be between 20 and 36, both inclusive')\\n\"}]}\n\nAPPLY: all edits applied\nGRADER: reward 0.0; failing checks ['c1']; failing tests ['tests/test_iterutils.py::test_guiderator_size_bounds']\nTEST OUTPUT (tail):\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_________________________ test_guiderator_size_bounds __________________________\n\n    def test_guiderator_size_bounds():\n        import pytest\n        from boltons.iterutils import GUIDerator\n    \n        # the documented lower bound (20) is inclusive and must work\n        assert len(next(GUIDerator(size=20))) == 20\n    \n        # out-of-range sizes raise, with a message stating the real inclusive bounds\n        for bad in (19, 37):\n            with pytest.raises(ValueError, match=r\"20 <= size <= 36\"):\n>               GUIDerator(size=bad)\n\ntests/test_iterutils.py:563: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <boltons.iterutils.GUIDerator object at 0xffffa6276000>, size = 19\n\n    def __init__(self, size=24):\n        self.size = size\n        if size < 20 or size > 36:\n>           raise ValueError('size must be between 20 and 36, both inclusive')\nE           ValueError: size must be between 20 and 36, both inclusive\n\nboltons/iterutils.py:1476: ValueError\n\nDuring handling of the above exception, another exception occurred:\n\n    def test_guiderator_size_bounds():\n        import pytest\n        from boltons.iterutils import GUIDerator\n    \n        # the documented lower bound (20) is inclusive and must work\n        assert len(next(GUIDerator(size=20))) == 20\n    \n        # out-of-range sizes raise, with a message stating the real inclusive bounds\n        for bad in (19, 37):\n>           with pytest.raises(ValueError, match=r\"20 <= size <= 36\"):\nE           AssertionError: Regex pattern did not match.\nE            Regex: '20 <= size <= 36'\nE            Input: 'size must be between 20 and 36, both inclusive'\n\ntests/test_iterutils.py:562: AssertionError\n----------------- generated xml file: /tmp/j0469ddb9e0df/r.xml -----------------\n1 failed in 0.36s\n\n\n",
+   "verifier_pass": false,
+   "why": "the message now states the real inclusive range, but in other words than the exact text the test matches; the request never states the wording"
+  }
+ ],
+ "pretest": [
+  {
+   "control": "ctl-world-bug",
+   "evidence": "def _truncated_by_a_failed_checkout(",
+   "expected": "world_bug",
+   "got": "world_bug",
+   "ok": true,
+   "rationale": "The patch correctly handles the empty-list case, but the tests fail because an unrelated file was corrupted/truncated by a failed checkout, preventing the module from importing.",
+   "rep": 0,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-world-bug",
+   "evidence": "E File \"/w/src/humanize/time.py\", line 6\nE       def _truncated_by_a_failed_checkout(\nE                                          ^\nE   SyntaxError: '(' was never closed",
+   "expected": "world_bug",
+   "got": "world_bug",
+   "ok": true,
+   "rationale": "The patch correctly adds the empty-list guard for natural_list, but the verifier cannot collect or run the tests because an unrelated file, src/humanize/time.py, has a syntax error that blocks importing the package.",
+   "rep": 1,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-world-bug",
+   "evidence": "E   File \"/w/src/humanize/time.py\", line 6\nE       def _truncated_by_a_failed_checkout(\nE                                          ^\nE   SyntaxError: '(' was never closed",
+   "expected": "world_bug",
+   "got": "world_bug",
+   "ok": true,
+   "rationale": "The patch correctly adds an empty-list guard in lists.py, but the test runner never reaches those tests because the unrelated file src/humanize/time.py contains a syntax error, showing the environment is broken rather than the solution.",
+   "rep": 2,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-world-bug",
+   "evidence": "E   File \"/w/src/humanize/time.py\", line 6\nE       def _truncated_by_a_failed_checkout(\nE                                          ^\nE   SyntaxError: '(' was never closed",
+   "expected": "world_bug",
+   "got": "world_bug",
+   "ok": true,
+   "rationale": "The patch correctly adds the empty-list guard to natural_list, but pytest cannot collect the tests because an unrelated file, src/humanize/time.py, has a syntax error from a failed checkout, so the failure is environmental.",
+   "rep": 3,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-world-bug",
+   "evidence": "E     File \"/w/src/humanize/time.py\", line 6\nE       def _truncated_by_a_failed_checkout(\nE                                          ^\nE   SyntaxError: '(' was never closed",
+   "expected": "world_bug",
+   "got": "world_bug",
+   "ok": true,
+   "rationale": "The edit correctly handles empty lists, but grading failed because an unrelated source file was left syntactically broken by a failed checkout.",
+   "rep": 4,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-lazy",
+   "evidence": "Note: empty lists are not supported yet.",
+   "expected": "skill_gap",
+   "got": "skill_gap",
+   "ok": true,
+   "rationale": "The policy only added a comment acknowledging the bug but did not implement the required fix to return an empty string for empty lists, so the code still crashes.",
+   "rep": 0,
+   "solution_correct": false,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-lazy",
+   "evidence": "Note: empty lists are not supported yet.",
+   "expected": "skill_gap",
+   "got": "skill_gap",
+   "ok": true,
+   "rationale": "The solver only added a comment acknowledging the empty list issue but did not implement the required fix, so the function still crashes on empty input.",
+   "rep": 1,
+   "solution_correct": false,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-lazy",
+   "evidence": "E           IndexError: list index out of range",
+   "expected": "skill_gap",
+   "got": "skill_gap",
+   "ok": true,
+   "rationale": "The solver only added a docstring note but did not modify the code to handle empty lists, so the bug remains.",
+   "rep": 2,
+   "solution_correct": false,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-lazy",
+   "evidence": "Note: empty lists are not supported yet.",
+   "expected": "skill_gap",
+   "got": "skill_gap",
+   "ok": true,
+   "rationale": "The solver only added a comment acknowledging the issue but did not implement the required fix, so the code still crashes on empty lists.",
+   "rep": 3,
+   "solution_correct": false,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-lazy",
+   "evidence": "IndexError: list index out of range",
+   "expected": "skill_gap",
+   "got": "skill_gap",
+   "ok": true,
+   "rationale": "The solver only added a note about empty lists not being supported but did not implement the required behavior to return an empty string for empty input.",
+   "rep": 4,
+   "solution_correct": false,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-verifier-defect",
+   "evidence": "assert singularize('glass') == 'glas'",
+   "expected": "verifier_defect",
+   "got": "verifier_defect",
+   "ok": true,
+   "rationale": "The policy implemented the prompt's explicit requirement that singular words ending in 'ss' be returned unchanged, but the verifier's test asserts the opposite ('glas'), so the failure is a verifier defect.",
+   "rep": 0,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-verifier-defect",
+   "evidence": "assert singularize('glass') == 'glas'",
+   "expected": "verifier_defect",
+   "got": "verifier_defect",
+   "ok": true,
+   "rationale": "The prompt explicitly requires singularize('glass') to return 'glass' unchanged, but the verifier's test asserts the opposite, so the attempt is correct and the verifier is wrong.",
+   "rep": 1,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-verifier-defect",
+   "evidence": ">       assert singularize('glass') == 'glas'",
+   "expected": "verifier_defect",
+   "got": "verifier_defect",
+   "ok": true,
+   "rationale": "The policy's edit correctly returns 'glass' unchanged as the prompt requires, but the verifier's test asserts the opposite ('glas'), so the failure is a defect in the verifier, not the solution.",
+   "rep": 2,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-verifier-defect",
+   "evidence": "assert singularize('glass') == 'glas'\nE       AssertionError: assert 'glass' == 'glas'",
+   "expected": "verifier_defect",
+   "got": "verifier_defect",
+   "ok": true,
+   "rationale": "The solver correctly returns 'glass' unchanged for singular 'glass', but the test expects the buggy 'glas', so the verifier incorrectly fails the correct fix.",
+   "rep": 3,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-verifier-defect",
+   "evidence": "assert singularize('glass') == 'glas'",
+   "expected": "verifier_defect",
+   "got": "verifier_defect",
+   "ok": true,
+   "rationale": "The prompt explicitly requires singularize('glass') to return 'glass' unchanged, but the verifier's test asserts it should return 'glas', so the verifier contradicts the task specification.",
+   "rep": 4,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-unstated-format",
+   "evidence": "Regex: '20 <= size <= 36'\nE            Input: 'size must be between 20 and 36, both inclusive'",
+   "expected": "unstated_format",
+   "got": "verifier_defect",
+   "ok": false,
+   "rationale": "The prompt only requires the error message to state the real allowed range (20 to 36, both inclusive), which the solver's message does, but the test expects a specific regex pattern not mandated by the prompt.",
+   "rep": 0,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-unstated-format",
+   "evidence": "Regex pattern did not match.\nE            Regex: '20 <= size <= 36'\nE            Input: 'size must be between 20 and 36, both inclusive'",
+   "expected": "unstated_format",
+   "got": "verifier_defect",
+   "ok": false,
+   "rationale": "The solver's error message matches the prompt's requirement ('20 to 36, both inclusive'), but the test expects a different regex pattern not specified in the prompt.",
+   "rep": 1,
+   "solution_correct": true,
+   "status": "labelled",
+   "why": ""
+  },
+  {
+   "control": "ctl-unstated-format",
+   "evidence": "Regex pattern did not match. Regex: '20 <= size <= 36' Input: 'size must be between 20 and 36, both inclusive'",
+   "expected": "unstated_format",
+   "got": null,
+   "ok": false,
+   "rationale": "The solver's error message satisfies the prompt's requirement to state the real allowed range inclusive, but the test expects a specific regex pattern not mandated by the prompt.",
+   "rep": 2,
+   "solution_correct": null,
+   "status": "rejected",
+   "why": "the evidence is not a verbatim quote of the trace"
+  },
+  {
+   "control": "ctl-unstated-format",
+   "evidence": "Regex: '20 <= size <= 36'\n            Input: 'size must be between 20 and 36, both inclusive'",
+   "expected": "unstated_format",
+   "got": null,
+   "ok": false,
+   "rationale": "The solver's error message correctly states the allowed range as required by the prompt, but the verifier's test expects a different regex pattern that was not specified in the prompt, causing a false failure.",
+   "rep": 3,
+   "solution_correct": null,
+   "status": "rejected",
+   "why": "the evidence is not a verbatim quote of the trace"
+  },
+  {
+   "control": "ctl-unstated-format",
+   "evidence": "Regex pattern did not match. Regex: '20 <= size <= 36' Input: 'size must be between 20 and 36, both inclusive'",
+   "expected": "unstated_format",
+   "got": null,
+   "ok": false,
+   "rationale": "The solver's error message correctly states the inclusive range as required by the prompt, but the test expects a specific regex pattern that was not mandated, causing a false failure.",
+   "rep": 4,
+   "solution_correct": null,
+   "status": "rejected",
+   "why": "the evidence is not a verbatim quote of the trace"
+  }
+ ],
+ "recall": [
+  15,
+  20
+ ],
+ "spend_usd": 0.050863
+}

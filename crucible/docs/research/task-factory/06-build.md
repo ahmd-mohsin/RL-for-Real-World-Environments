@@ -7,7 +7,7 @@ the report.
 
 | Owner | Files |
 |---|---|
-| P | `factory/cards.py`, `factory/ledger.py`, `factory/labels.py`, `interop/agentenv/plugin/labels.py` (explorer label routes), `factory/publish.py` (agentenv Task + pinned Eval) |
+| P | `factory/cards.py`, `factory/ledger.py`, `factory/labels.py`, `factory/explorer.py` (explorer label routes; moved from interop: factory sits beside studio), `factory/publish.py` (agentenv Task + pinned Eval) |
 | Q | `factory/machine.py` (declarative cyclic machine), `factory/models.py` (role → model, cross-family rule, OpenRouter), `factory/driver.py` (per-task machine), `factory/root.py` (root curator, coverage matrix, leases, budget) |
 | R | `factory/floors.py`, `factory/probes.py` (mutants + valid alternatives, probe library), `factory/differential.py`, `factory/audit.py` (FailureCause auditor, FP/FN), `factory/flake.py`, `factory/horizon.py`, `factory/ortho.py`, `factory/transfer.py`, `factory/goldset.py` |
 | S (after P, Q, R) | `factory/lanes/executable.py` (mine real fix + test commits), `scripts/factory_run.py`, the end-to-end CPU validation and `docs/research/task-factory/07-validation.md` |

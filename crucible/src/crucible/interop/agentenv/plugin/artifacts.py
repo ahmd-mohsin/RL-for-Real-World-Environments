@@ -12,5 +12,5 @@ from pydantic import Field
 class CrucibleRefArtifact(Artifact):
     type: Literal["crucible_ref"] = "crucible_ref"
     store_key: str = ""
-    kind: Literal["world_ref", "state_ref", "grade", "trace", "rollout"] = "grade"
+    kind: Literal["world_ref", "state_ref", "grade", "trace", "rollout", "task_card", "intent_card", "gold_set", "label"] = "grade"
     derived_from: list[str] = Field(default_factory=list)

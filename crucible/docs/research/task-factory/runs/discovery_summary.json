@@ -1,0 +1,898 @@
+{
+ "auditor_trusted_tasks": {
+  "True": 59
+ },
+ "by_policy": {
+  "meta-llama/llama-3.1-8b-instruct": {
+   "fail": 117,
+   "masked": 0,
+   "pass": 1
+  },
+  "openai/gpt-oss-20b": {
+   "fail": 90,
+   "masked": 0,
+   "pass": 28
+  },
+  "qwen/qwen3.7-flash": {
+   "fail": 97,
+   "masked": 0,
+   "pass": 21
+  }
+ },
+ "dropped": [
+  {
+   "dropped": "author: spec failed after 3 tries: empty completion (finish=length)",
+   "repo": "python-semver",
+   "task": "python-semver-2d0f805527"
+  },
+  {
+   "dropped": "author: spec failed after 3 tries: output is not valid JSON (cut off at max_tokens: <secret> the output): {\n  \"requirements\": [\n    {\n      \"id\": \"req_1\",\n      \"text\": \"Version.is_valid must return False when the input string contains trailing newline characters.\",\n      \"kind\": \"behaviour\",\n      \"tests\": [\n        \"tests/test_strict_parsing.py::test_is_valid_rejects_non_semver_characters[1.2.3\\",
+   "repo": "python-semver",
+   "task": "python-semver-1e8757912f"
+  },
+  {
+   "dropped": "author: spec failed after 3 tries: output is not valid JSON (cut off at max_tokens: <secret> the output): {\n  \"requirements\": [\n    {\n      \"id\": \"req_01\",\n      \"text\": \"The function humanize.naturaldelta must return the string 'a moment' when given an input of 0 or a timedelta representing less than one second.\",\n      \"kind\": \"behaviour\",\n      \"tests\": [\n        \"tests/test_time.py::test_natur",
+   "repo": "humanize",
+   "task": "humanize-392aef707c"
+  },
+  {
+   "dropped": "author: spec failed after 3 tries: output is not valid JSON (cut off at max_tokens: <secret> the output): {\n  \"requirements\": [\n    {\n      \"id\": \"req_naturaldelta_rounding\",\n      \"text\": \"The humanize.naturaldelta function must round time durations to the nearest meaningful unit (seconds, minutes, hours, days, months, years) using 'round half away from zero' logic, rather than always rounding do",
+   "repo": "humanize",
+   "task": "humanize-6d89dfa967"
+  },
+  {
+   "dropped": "author: spec failed after 3 tries: empty completion (finish=length)",
+   "repo": "humanize",
+   "task": "humanize-7574e0cc37"
+  },
+  {
+   "dropped": "author: spec failed after 3 tries: output is not valid JSON (cut off at max_tokens: <secret> the output): {\n  \"requirements\": [\n    {\n      \"id\": \"req_first_default\",\n      \"text\": \"The first() function must return the provided default value when the input iterable is empty.\",\n      \"kind\": \"behaviour\",\n      \"tests\": [\n        \"tests/test_iterutils.py::TestFirst::test_default_value\"\n      ]\n    }",
+   "repo": "boltons",
+   "task": "boltons-3e9983db7b"
+  }
+ ],
+ "failure_causes": {
+  "budget": 40,
+  "env_flake": 2,
+  "skill_gap": 193,
+  "spec_defect": 13,
+  "unlabelled": 39,
+  "unstated_format": 7,
+  "verifier_defect": 2,
+  "world_bug": 8
+ },
+ "per_task": {
+  "boltons-0a3084e305": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-1a04b63790": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-1cdc0e9d36": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-1e61524a79": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "boltons-1f37cce42f": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-25e8d6b18e": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-289edfcd20": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-346fc650de": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "boltons-435774ef8b": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-18e5930ced": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-1a015dc6b5": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-43596b2337": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-462e867950": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-57d2e4813d": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-6a70f80e8b": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-6ddbca1884": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "cachetools-902dce4b45": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    1,
+    2
+   ]
+  },
+  "cachetools-91aa4c63f5": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    1,
+    2
+   ]
+  },
+  "cachetools-9a6cb65aae": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-08cf2c3026": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-0a06a3d4a1": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "humanize-38c99686b9": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-823ad6096e": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-906a38cb95": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-984526c024": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "humanize-a47a89ea91": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-069b30002a": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-06f3181912": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-073d23421b": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-0e6acdf9b6": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-1fd388bc23": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-2b8d5cddce": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-3eb4053e1a": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-43decdd760": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-52cfcfedc3": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "more-itertools-670b715b30": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "parse-0477aa5867": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "parse-1269006883": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    1,
+    2
+   ]
+  },
+  "parse-133656c27d": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "parse-19689cf5b4": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "parse-1e800a1551": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "parse-20ab3ded90": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    1,
+    2
+   ]
+  },
+  "parse-2918b126da": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "parse-35b9ffb355": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "parse-38d21c0158": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "parse-3b0753657d": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-017e296335": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-0309c63ce8": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-0aa17a3447": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "python-semver-1d515915d5": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-20e5c4fd74": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-21f87f6403": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-24cd0a4056": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-2aeb61b667": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-373af82ceb": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "python-semver-37ae009c7c": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    0,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-4b03f867a3": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    1,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    2,
+    2
+   ]
+  },
+  "python-semver-61f4521fbd": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    1,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    0,
+    2
+   ]
+  },
+  "python-semver-7057dc5fde": {
+   "meta-llama/llama-3.1-8b-instruct": [
+    0,
+    2
+   ],
+   "openai/gpt-oss-20b": [
+    2,
+    2
+   ],
+   "qwen/qwen3.7-flash": [
+    1,
+    2
+   ]
+  }
+ },
+ "seeded_recall": [
+  177,
+  177
+ ],
+ "spend_usd": 0.530192,
+ "tasks": 65
+}

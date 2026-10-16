@@ -29,3 +29,9 @@ shared = true
 "anthropic/claude-sonnet-5.5" = [2.0, 10.0]
 "openai/gpt-6.1-sol" = [2.0, 10.0]
 "qwen/qwen3-235b-a22b-2507" = [0.09, 0.55]   # m13 live bench: the open model (OpenRouter list price 2026-10-11)
+# m17 task factory roles and solver rungs (OpenRouter list prices 2026-10-14; the provider-reported cost is what is booked)
+"qwen/qwen3.7-flash" = [0.03, 0.13]
+"deepseek/deepseek-v4-flash" = [0.091, 0.182]
+"z-ai/glm-4.7-flash" = [0.0605, 0.40]
+"openai/gpt-oss-20b" = [0.018, 0.09]
+"meta-llama/llama-3.1-8b-instruct" = [0.05, 0.08]

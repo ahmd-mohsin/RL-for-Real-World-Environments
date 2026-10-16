@@ -1,0 +1,68 @@
+{
+ "assign": {
+  "trial-s1--python-semver/001": "python-semver-017e296335"
+ },
+ "config": {
+  "concurrency": 1,
+  "max_attempts_per_cell": 1,
+  "max_author": 2,
+  "max_verifier": 2,
+  "root": "trial",
+  "slots": 1
+ },
+ "decisions": {
+  "trial-s1--python-semver/001": {
+   "findings": [],
+   "id": "trial-s1--python-semver/001:failed:8",
+   "kind": "failed",
+   "machine_hash": "7d8097ffa2bf0aad",
+   "options": [
+    "revise",
+    "drop"
+   ],
+   "reason": "state verifier failed after 3 attempt(s): LLMOutputError: check 2 names unknown tests ['test_semver.py::test_should_print']",
+   "state": "verifier",
+   "subject": "trial-s1--python-semver/001"
+  }
+ },
+ "deferred": [],
+ "escalated": [
+  "trial-s1--python-semver/001"
+ ],
+ "intent": "intent-trial",
+ "launches": [
+  {
+   "cell": "trial-s1--python-semver",
+   "run_id": "trial-s1--python-semver/001"
+  }
+ ],
+ "matrix": {
+  "trial-s1": {
+   "python-semver": {
+    "accepted": 0,
+    "attempts": 1,
+    "quota": 1,
+    "status": "escalated"
+   }
+  }
+ },
+ "max_parallel": 1,
+ "merged": [],
+ "provisional_intent": true,
+ "rejected": [],
+ "spend_usd": 0.3041080018000001,
+ "stop_reason": "coverage: every cell is filled, escalated or closed",
+ "stopped": [],
+ "target": "openai/gpt-oss-20b",
+ "usd": 0.304108,
+ "yield": {
+  "accepted": 0,
+  "attempts": 0,
+  "constructed": 0,
+  "decided": 0,
+  "hack_found_rate": null,
+  "usd": 0,
+  "usd_per_accepted": null,
+  "yield": null
+ }
+}

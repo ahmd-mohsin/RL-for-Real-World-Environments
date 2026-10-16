@@ -63,6 +63,7 @@ crucible_ref = "crucible.interop.agentenv.plugin.artifacts:CrucibleRefArtifact"
 
 [project.entry-points."agent_env.explorer_plugins"]
 crucible = "crucible.studio.explorer:CrucibleExplorerPlugin"
+crucible_labels = "crucible.factory.explorer:LabelsExplorerPlugin"  # M17: human ground-truth intake and labels
 
 # verl imports this group on `import verl` (verl/__init__.py:55-75), in every Ray actor: the crucible_delta estimator and
 # the crucible_agent agent loop (train/bridges/verl_plugin.py)
@@ -129,7 +130,7 @@ root_packages = ["crucible"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Only crucible.interop (and the studio, above it) imports external RL frameworks; lower layers reach adapters through registry pointers"
+name = "Only crucible.interop (and the studio and factory, above it) imports external RL frameworks; lower layers reach adapters through registry pointers"
 type = "forbidden"
 source_modules = [
   "crucible.core", "crucible.world", "crucible.actors", "crucible.connectors", "crucible.signals", "crucible.workflow",
@@ -155,7 +156,7 @@ name = "Layering (M0 audit D3): a package may import only packages below it; sib
 type = "layers"
 layers = [
   "crucible.cli",
-  "crucible.studio",
+  "crucible.studio | crucible.factory",  # M17: the task factory sits beside the studio, above interop
   "crucible.interop",
   "crucible.train | crucible.bench",
   "crucible.accept",

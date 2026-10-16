@@ -121,9 +121,10 @@ executed in the declared environment.
 - a World bug or spec defect sends the task back.
 
 **6.6 Flake:**
-- ≥ 10 oracle reruns at two concurrency levels;
+- **30 oracle reruns at each of two concurrency levels** (60 in all);
 - the card records the Clopper–Pearson upper bound on the flake rate;
-- *v1* gate: the bound is ≤ 5%.
+- *v1* gate: the bound is ≤ 5%. With zero failures, 60 clean reruns give a one-sided 95% bound of 4.9%. The earlier "≥ 10
+  reruns" could never meet 5%: 20 clean reruns give 13.9%, and the gate needs ≥ 59 clean runs.
 
 **6.7 Long-horizon tests (R11),** for tasks labelled long:
 - ≥ N milestones checkable from World state (*v1* N = 5);
@@ -148,9 +149,13 @@ executed in the declared environment.
 A family enters training only with:
 1. **≥ 20 accepted tasks across ≥ 3 surfaces** (*v1*), and a held-out probe set of ≥ 10 tasks on a surface the family
    never uses. The probes share no World, template or verifier code with the family.
-2. **The family VerifierGoldSet:** ≥ 40 labelled end states (*v1*). That is real passes, real fails, mutants, alternatives
-   and confirmed hacks; at least half are real solver outputs.
-   - Measured false-pass and false-fail rates have Wilson upper bounds ≤ 5% (*v1*).
+2. **The family VerifierGoldSet**, sized by the bound it must prove. The bound is per class: truly failing end states give
+   the false-pass rate, truly passing ones the false-fail rate. Items are real passes, real fails, mutants, valid
+   alternatives and confirmed hacks; at least half are real solver outputs.
+   - *v1* gate: with zero errors, Wilson upper bounds ≤ 10%. That needs ≥ 36 items per class.
+   - Before large-scale training: ≤ 5%, which needs ≥ 73 per class.
+   - The earlier "≥ 40 items, ≤ 5%" was impossible. In the executable lane, mutants and valid alternatives make both
+     classes cheap. In the human lane, the class sizes are the human labelling budget.
    - In the human lane, model-reviewer vs human κ ≥ 0.7 on a ≥ 10% sample. Below that, the human stays a gate for the
      family.
 3. **Orthogonality** (R10), in four layers:
