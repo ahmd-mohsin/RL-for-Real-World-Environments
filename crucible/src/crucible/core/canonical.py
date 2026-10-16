@@ -60,7 +60,8 @@ def dumps(obj: Any) -> str:
 
 
 # The serialization each content-id scheme hashed (R-21). An entry is never changed: when canonical JSON must change, the
-# old ``dumps`` is kept here under its scheme, a new one is added, and ``core.ids.HASH_SCHEME`` names it.
+# old ``dumps`` is kept here under its scheme, self-contained (a copy of ``_form`` with it), a new one is added, and
+# ``core.ids.HASH_SCHEME`` names it. ``tests/unit/test_canonical_vectors.py`` pins scheme 1's text and ids per rule.
 SCHEMES: dict[int, Any] = {}
 
 

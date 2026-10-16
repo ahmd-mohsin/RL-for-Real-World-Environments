@@ -993,3 +993,20 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Formats.** none.
 - **Tests.** With torch hidden: 2 passed, 3 skipped (the previous file: 1 failed). With torch: 5 passed.
 - **Merge notes.** The test's name changed (two tests now).
+
+## 46. A16-R10: golden vectors pin canonical JSON, scheme 1
+
+- **Item.** A16-R10 (carry-over SCOUT16-7; a guard test). PATTERN from NeMo-Gym
+  `token_id_capture/staging/conformance/__init__.py:16-41` (golden digest vectors, Apache-2.0); no code taken.
+- **Files.** `tests/unit/test_canonical_vectors.py` (new), `src/crucible/core/canonical.py` (the `SCHEMES` comment).
+- **Public names.** none.
+- **Behaviour.** none. Every content id hashes `SCHEMES[1]`, which is the live `dumps`, and only two ids were pinned:
+  switching to `ensure_ascii`, another float spelling, unsorted keys, spaced separators, or dropping the NFC or -0.0
+  fold passed every test while every stored id moved. Eleven vectors (one per rule: sorting, separators, UTF-8, NFC,
+  -0.0, float spelling, big integers, literals, escapes, non-string keys, tuples) pin the exact text and id, three
+  refusals (NaN, ±inf, keys that are one under NFC) and the stored form's raw text. Each of those six changes fails at
+  least one vector.
+- **Formats.** none.
+- **Tests.** `test_canonical_vectors.py` (16).
+- **Merge notes.** A change that fails a vector changes every content id: keep the old function as `SCHEMES[1]` and add
+  scheme 2, never edit the vectors.
