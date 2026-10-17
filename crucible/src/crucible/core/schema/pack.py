@@ -126,6 +126,15 @@ class PackManifest(CrucibleModel):
     label: LabelSpec = Field(default_factory=LabelSpec)
     hooks: PackHooks = Field(default_factory=PackHooks)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _newer_version(cls, data: Any) -> Any:
+        """The versioned-document rule for pack.yaml's integer version: a newer one is refused by name (R-18)."""
+        v = data.get("schema_version") if isinstance(data, dict) else None
+        if isinstance(v, int) and not isinstance(v, bool) and v > 1:
+            raise ValueError(f"pack.yaml schema_version {v} was written for a newer Crucible (this one reads 1): upgrade Crucible")
+        return data
+
     @model_validator(mode="after")
     def _contract(self) -> PackManifest:
         lo, hi = self.reward.range

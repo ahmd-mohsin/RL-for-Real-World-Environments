@@ -125,17 +125,39 @@ class CrucibleGroup(click.Group):
 
 @click.group(cls=CrucibleGroup)
 @click.option("--verbose", is_flag=True, help="show tracebacks for user errors")
+@click.option("--set", "sets", multiple=True, metavar="KEY=VALUE", help="override a crucible.toml setting (dotted key, TOML value); the top layer")
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, sets: tuple[str, ...]) -> None:
     """Crucible: workflow traces -> dense-reward RL environments, tasks, datasets and benchmarks."""
     ctx.obj = {"verbose": verbose}
+    if sets:
+        from crucible.core.config import set_overrides
+
+        set_overrides(list(sets))
+
+
+@cli.command("config")
+def config_cmd() -> None:
+    """Show the configuration in use: the layers read (lowest first) and the merged settings, secrets masked."""
+    from crucible.core.config import get_config
+
+    cfg = get_config()
+    click.echo(json.dumps({"sources": cfg.sources, "config": {k: v for k, v in cfg.redacted().items() if k != "sources"}}, indent=1, default=str))
 
 
 @cli.command()
-def registry() -> None:
+@click.option("--check", is_flag=True, help="Resolve every pointer; exit 1 on a broken pointer or a failed plugin (CI).")
+def registry(check: bool) -> None:
     """Show everything registered (built-ins and installed plugins)."""
     from crucible.core.registry import get_registry
 
+    if check:
+        rep = get_registry().check()
+        for section, rows in rep.items():
+            click.echo(f"[{section}] {len(rows)}")
+            for name, why in rows.items():
+                click.echo(f"  {name:36s} {why}")
+        raise SystemExit(1 if rep["broken"] or rep["failed_plugins"] else 0)
     for kind, entries in get_registry().describe().items():
         click.echo(f"[{kind}]")
         for name, target in entries.items():

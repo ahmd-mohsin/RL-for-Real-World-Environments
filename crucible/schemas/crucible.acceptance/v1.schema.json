@@ -1,0 +1,223 @@
+{
+ "$defs": {
+  "AcceptanceKey": {
+   "additionalProperties": false,
+   "properties": {
+    "contract_version": {
+     "default": "accept-1",
+     "type": "string"
+    },
+    "harbor_hash": {
+     "default": "",
+     "type": "string"
+    },
+    "images": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "type": "object"
+    },
+    "kit_hash": {
+     "type": "string"
+    },
+    "overlay_hash": {
+     "type": "string"
+    },
+    "policy_version": {
+     "type": "string"
+    },
+    "registry_version": {
+     "type": "string"
+    },
+    "task_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "task_id",
+    "overlay_hash",
+    "kit_hash",
+    "policy_version",
+    "registry_version"
+   ],
+   "type": "object"
+  },
+  "CheckResult": {
+   "additionalProperties": false,
+   "properties": {
+    "detectors": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/Evidence"
+     },
+     "type": "array"
+    },
+    "id": {
+     "type": "string"
+    },
+    "key_digest": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "measured": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "na_reason": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "reasons": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "seconds": {
+     "default": 0.0,
+     "type": "number"
+    },
+    "status": {
+     "$ref": "#/$defs/Status"
+    },
+    "version": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "id",
+    "version",
+    "status"
+   ],
+   "type": "object"
+  },
+  "Evidence": {
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "default": "measured",
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "path",
+    "sha256"
+   ],
+   "type": "object"
+  },
+  "Override": {
+   "additionalProperties": false,
+   "properties": {
+    "by": {
+     "type": "string"
+    },
+    "check": {
+     "type": "string"
+    },
+    "date": {
+     "type": "string"
+    },
+    "key_digest": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "reason": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "check",
+    "by",
+    "reason",
+    "date"
+   ],
+   "type": "object"
+  },
+  "Status": {
+   "enum": [
+    "pass",
+    "fail",
+    "not_applicable",
+    "pending",
+    "error"
+   ],
+   "type": "string"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "key": {
+   "$ref": "#/$defs/AcceptanceKey"
+  },
+  "key_digest": {
+   "type": "string"
+  },
+  "overrides": {
+   "items": {
+    "$ref": "#/$defs/Override"
+   },
+   "type": "array"
+  },
+  "required": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "results": {
+   "additionalProperties": {
+    "$ref": "#/$defs/CheckResult"
+   },
+   "type": "object"
+  },
+  "schema": {
+   "default": "crucible.acceptance/v1",
+   "type": "string"
+  },
+  "stats": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "task_id": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "task_id",
+  "key",
+  "key_digest"
+ ],
+ "type": "object"
+}

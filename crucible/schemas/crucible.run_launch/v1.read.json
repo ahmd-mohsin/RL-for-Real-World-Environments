@@ -1,0 +1,32 @@
+{
+ "content_id": "35a03178c2e481c249d8d865f21f4f429af052a8e6c3c454e56940f6b0cace6e",
+ "reads_as": {
+  "argv": [
+   "crucible",
+   "bench",
+   "run",
+   "toy"
+  ],
+  "build": {
+   "crucible_version": "0.1.0",
+   "git_commit": "c27f5ca",
+   "git_dirty": false,
+   "lock_sha256": "cd",
+   "source_sha256": "ab"
+  },
+  "config": {
+   "data_dir": "data"
+  },
+  "lock": "sha256:01",
+  "lock_status": "changed",
+  "n": 2,
+  "operational": {
+   "budget_usd": null,
+   "concurrency": 4
+  },
+  "python": "3.12.14",
+  "run_id": "r",
+  "schema_version": "crucible.run_launch/v1",
+  "started_at": "2026-01-02T00:00:00.000000Z"
+ }
+}

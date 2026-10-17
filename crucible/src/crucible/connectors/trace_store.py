@@ -11,18 +11,24 @@ M3 audit (2026-10-12):
 - Re-ingesting a grown source no longer drops the signals M4 wrote on the previous head: they are carried to the new
   version through stable event identities (the source row id, else time, type, actor and text); a signal whose events
   are gone is counted in ``outcome.details.signals_dropped``.
+
+M0 audit 2026-10-14 R-16: the head moves by compare-and-set on its revision. A put that lost a race re-reads the head
+and carries its signals again (they were dropped when another put moved the head in between), and a version whose
+source was fetched before the current head's (``fetched_at``, stamped by ``ingest`` before the fetch) is stored but
+never becomes the head: a slow ingest that tags last can no longer move the head back, and ``purge_superseded`` then
+delete the newer version.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 
 from crucible.core.prov import Provenance
 from crucible.core.schema.trace import Trace, event_key
-from crucible.core.store import Store
+from crucible.core.store import Store, StoreError, TagConflict, TagInfo
 
 KIND = "trace"
+PUT_ATTEMPTS = 8  # a put that keeps losing the head to other writers gives up (TagConflict) after this many tries
 
 
 def _head(trace_id: str) -> str:
@@ -31,17 +37,13 @@ def _head(trace_id: str) -> str:
 
 class TraceStore:
     def __init__(self, store: Store):
-        self.store = store
-        os.chmod(store.root, 0o700)
-        for f in store.root.glob("index.sqlite*"):
-            os.chmod(f, 0o600)
+        self.store = store  # owner-only: Store tightens its root and index on open (M0 audit 2026-10-16 R-4)
 
     @staticmethod
     def _identity(e) -> str:
         return event_key(e)
 
-    def _carry_signals(self, trace: Trace) -> Trace:
-        head = self._head_key(trace.trace_id)
+    def _carry_signals(self, trace: Trace, head: str | None) -> Trace:
         if head is None or trace.signals:
             return trace
         old = self.store.get_doc(head, Trace)
@@ -64,19 +66,36 @@ class TraceStore:
         details = {**trace.outcome.details, **({"signals_dropped": dropped} if dropped else {})}
         return trace.model_copy(update={"signals": kept, "outcome": trace.outcome.model_copy(update={"details": details})})
 
-    def put(self, trace: Trace, *, redaction: str | None = None) -> str:
+    def put(self, trace: Trace, *, redaction: str | None = None, fetched_at: str | None = None) -> str:
+        """Store ``trace`` as a version of its trace id and make it the head, unless its source was read before the
+        head's (``fetched_at``, ``core.prov.utc_now`` format; None: no order known, it becomes the head). Returns the
+        version's key, the head or not."""
         from crucible.connectors.redact import REDACTION_VERSION
 
-        trace = self._carry_signals(trace)
         prov = Provenance(created_by="crucible.connectors.trace_store", params={"redaction": redaction or REDACTION_VERSION})
-        key = self.store.put_doc(KIND, trace, name=trace.trace_id, prov=prov)
-        self.store.tag(_head(trace.trace_id), key)
-        return key
+        for _ in range(PUT_ATTEMPTS):
+            info = self.head(trace.trace_id)
+            version = self._carry_signals(trace, info.key if info else self._head_key(trace.trace_id))
+            key = self.store.put_doc(KIND, version, name=trace.trace_id, prov=prov)
+            head_fetched = (info.note or {}).get("fetched_at") if info else None
+            if fetched_at and head_fetched and fetched_at < head_fetched:
+                return key  # an older read of the source than the head's: kept as a superseded version
+            try:
+                self.store.tag(_head(trace.trace_id), key, expect=info.rev if info else 0,
+                               note={"fetched_at": fetched_at} if fetched_at else None)
+                return key
+            except TagConflict:
+                continue  # another put moved the head: read it again (its signals, its fetch time)
+        raise StoreError(f"trace {trace.trace_id!r}: the head kept moving under {PUT_ATTEMPTS} attempts to store a version")
+
+    def head(self, trace_id: str) -> TagInfo | None:
+        """The head tag of a trace id (key, revision, the fetch time it was recorded with); None if never tagged."""
+        return self.store.tag_info(_head(trace_id))
 
     def _head_key(self, trace_id: str) -> str | None:
-        row = self.store._db.execute("SELECT key FROM tags WHERE name=?", (_head(trace_id),)).fetchone()
-        if row:
-            return row[0]
+        info = self.head(trace_id)
+        if info:
+            return info.key
         rows = self.store.list_docs(KIND, name=trace_id)
         return rows[-1].key if rows else None
 

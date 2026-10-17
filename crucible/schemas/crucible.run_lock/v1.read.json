@@ -1,0 +1,30 @@
+{
+ "content_id": "e880e7fe04d1f74df20ae158d438da854b5c161dba5b257cc5d9dd0a46c15871",
+ "reads_as": {
+  "changes": [
+   {
+    "after": "sha256:01",
+    "at": "2026-01-02T00:00:00.000000Z",
+    "before": "sha256:00",
+    "changed": [
+     "k"
+    ]
+   }
+  ],
+  "created_at": "2026-01-01T00:00:00.000000Z",
+  "excluded": [
+   "concurrency"
+  ],
+  "fingerprint": "sha256:00",
+  "opaque": [
+   "harnesses.0 (h@1)"
+  ],
+  "run_id": "r",
+  "schema_version": "crucible.run_lock/v1",
+  "scheme": "crucible.compat_identity/v1",
+  "settings": {
+   "k": 1,
+   "policies.0.settings.temperature": 0.7
+  }
+ }
+}

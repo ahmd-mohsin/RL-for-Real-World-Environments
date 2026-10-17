@@ -1,0 +1,49 @@
+{
+ "content_id": "b2886f43a8ad9c36a42a684da5f685244bfec48015a59e22ff9957fcce2c1b92",
+ "reads_as": {
+  "credit_fallback": false,
+  "flags": [],
+  "gates": {},
+  "group_credit_fallback": false,
+  "harness": "native:llm-tool@1",
+  "mask_sample": false,
+  "opd_fallback": false,
+  "policy": "p",
+  "progress": {},
+  "reward_components": {},
+  "rollout_id": "s1-a1",
+  "sample": "s1",
+  "schema": "crucible.rollout/v1",
+  "segments": [],
+  "task": "t",
+  "tier": "fast",
+  "timings": {},
+  "truncated": false,
+  "turns": [
+   {
+    "actor": "agent",
+    "agent": "",
+    "atif_step_ids": [],
+    "call_id": "c1",
+    "completion_token_ids": [
+     3
+    ],
+    "format_errors": 0,
+    "kind": "turn",
+    "logprobs": [
+     -0.1
+    ],
+    "policy_version": 0,
+    "prefix_break": false,
+    "prompt_is_delta": false,
+    "prompt_token_ids": [
+     1,
+     2
+    ],
+    "sampling": {},
+    "segment": 0,
+    "trainable": true
+   }
+  ]
+ }
+}

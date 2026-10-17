@@ -10,9 +10,9 @@ import importlib
 import inspect
 import math
 import pkgutil
-import shutil
 import threading
 import typing
+from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -89,20 +89,25 @@ def test_canonical_json_is_strict_json_and_stable(x):
 
 
 # ------------------------------------------------------------------------------------------------ D4: store races
-def test_put_file_never_stores_bytes_that_mismatch_their_key(tmp_path, monkeypatch):
+def test_put_file_never_stores_bytes_that_mismatch_their_key(tmp_path):
+    """put_file keys the bytes it copied, so a source rewritten mid-copy is stored under the hash of what was read.
+    (This test used to patch shutil.copyfile, which put_file never calls; M0 audit 2026-10-16 R-3.)"""
     st_ = Store(tmp_path / "s")
     src = tmp_path / "live.bin"
-    src.write_bytes(b"A" * 1_000_000)
-    orig = shutil.copyfile
+    src.write_bytes(b"A" * 3_000_000)
+    real_open, raced = Path.open, []
 
-    def racing_copy(a, b, *args, **kw):  # the source changes while the store reads it
-        src.write_bytes(b"B" * 1_000_000)
-        return orig(a, b, *args, **kw)
+    def racing_open(self, *a, **kw):  # the source is rewritten right after the store opens it
+        f = real_open(self, *a, **kw)
+        if self == src and not raced:
+            raced.append(1)
+            src.write_bytes(b"B" * 3_000_000)
+        return f
 
-    monkeypatch.setattr(shutil, "copyfile", racing_copy)
-    key = st_.put_file(src)
-    monkeypatch.setattr(shutil, "copyfile", orig)
-    st_.get_bytes(key)  # raises StoreError if the blob does not match its key
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(Path, "open", racing_open)
+        key = st_.put_file(src)
+    assert raced and st_.get_bytes(key) == b"B" * 3_000_000  # verified against its key: the bytes that were read
 
 
 def test_concurrent_put_file_of_one_new_file(tmp_path):
@@ -155,9 +160,9 @@ def test_world_spec_rejects_mistakes(extra):
 
 # ------------------------------------------------------------------------------------------------ D6: redaction
 def test_redacted_config_never_contains_raw_secrets():
-    c = Config(llm_providers={"x": LLMProvider(base_url="http://h", api_key="sk-REALSECRET123", headers={"Authorization": "Bearer tok-REAL"})})
-    text = str(c.redacted())
-    assert "sk-REALSECRET123" not in text and "tok-REAL" not in text
+    # api_key and secret headers cannot be literal (R-8), nor can request_defaults hold headers or credentials (A16-R2)
+    with pytest.raises(ValueError, match="extra_headers"):
+        LLMProvider(base_url="http://h", request_defaults={"extra_headers": {"Authorization": "Bearer tok-REAL"}})
     ref = Config(llm_providers={"x": LLMProvider(base_url="http://h", api_key="env:MY_KEY")})
     assert "env:MY_KEY" in str(ref.redacted())
 
@@ -258,7 +263,8 @@ def test_golden_content_hashes_do_not_drift():
     pin = Path(__file__).with_name("golden_hashes.json")
     got = {k: classes[c].model_validate(v).content_hash() for k, (c, v) in GOLDEN.items()}
     want = json.loads(pin.read_text())
-    assert got == want, "content hashes drifted: bump HASH_SCHEME and regenerate tests/unit/golden_hashes.json"
+    assert got == want, ("content hashes drifted: keep the old serialization in core.canonical.SCHEMES under its scheme, add the new one, "
+                         "bump core.ids.HASH_SCHEME (new ids become c<n>:<hex>, old ones still match) and regenerate tests/unit/golden_hashes.json")
 
 
 # ------------------------------------------------------------------------------------------------ D15: store hygiene
@@ -305,6 +311,34 @@ def test_valid_ids_pass():
         assert validate_id(ok)
 
 
+# ------------------------------------------------------------------------------------------------ R-4: ids as paths
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "..", "x\0y", "", "café"])
+def test_child_path_refuses_unsafe_names(tmp_path, bad):
+    from crucible.core.ids import child_path
+
+    with pytest.raises(ValueError):
+        child_path(tmp_path, bad)
+
+
+def test_child_path_refuses_a_symlink_out_of_root(tmp_path):
+    from crucible.core.ids import child_path
+
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "link").symlink_to(tmp_path)
+    assert child_path(tmp_path / "runs", "ok-run", "a1") == tmp_path / "runs" / "ok-run" / "a1"
+    with pytest.raises(ValueError, match="outside"):
+        child_path(tmp_path / "runs", "link")
+
+
+def test_run_journal_refuses_a_run_id_that_escapes_the_root(tmp_path):
+    from crucible.runtime.journal import RunJournal
+
+    with pytest.raises(ValueError):
+        RunJournal(tmp_path / "runs", "../escaped", "identity", {})
+    assert not (tmp_path / "escaped").exists()
+    assert RunJournal(tmp_path / "runs", "bench-toy-bench", "identity", {}).dir == tmp_path / "runs" / "bench-toy-bench"
+
+
 # ------------------------------------------------------------------------------------------------ D17: pack kinds
 def test_packs_can_register_namespaced_failure_kinds():
     from crucible.core.schema.run import Failure, register_failure_kind
@@ -322,3 +356,473 @@ def test_failure_reason_is_bounded():
     from crucible.core.schema.run import Failure
 
     assert len(Failure(kind="agent_timeout", stage="agent", reason="x" * 10_000).reason) <= 2000
+
+
+# ------------------------------------------------------------------------------------------------ R-5: secrets by value
+def test_a_resolved_secret_with_no_vendor_shape_is_scrubbed(tmp_path, monkeypatch):
+    from crucible.core.config import resolve_secret
+    from crucible.core.schema.run import Failure
+    from crucible.core.secrets import scrub_json, scrub_secrets
+
+    key = "gw7Kq2PzR8xLm4Tn9Qa-r5test"  # a gateway key no pattern knows
+    assert scrub_secrets(f"invalid key {key}") == f"invalid key {key}"  # before it is resolved
+    monkeypatch.setenv("R5_GATEWAY_KEY", key)
+    assert resolve_secret("env:R5_GATEWAY_KEY", search_from=tmp_path) == key
+    assert scrub_secrets(f"401 Unauthorized: invalid key {key}") == "401 Unauthorized: invalid key <secret>"
+    rec = Failure(kind="agent_run_error", stage="agent", reason=f"provider said {key}").model_dump_json()
+    assert key not in scrub_json(rec)
+
+
+def test_short_values_are_not_registered_as_secrets():
+    from crucible.core.secrets import register_secret, scrub_secrets
+
+    register_secret("abc1234")  # 7 characters: would mask ordinary words
+    assert scrub_secrets("abc1234 stays") == "abc1234 stays"
+
+
+# ------------------------------------------------------------------------------------------------ R-6: private stores
+def test_a_new_store_is_private_to_its_owner(tmp_path):
+    import os
+    import stat
+
+    old = os.umask(0o022)
+    try:
+        st_ = Store(tmp_path / "store")
+        key = st_.put_bytes(b"trace with customer data")
+    finally:
+        os.umask(old)
+    mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+    assert mode(tmp_path / "store") == 0o700
+    assert mode(tmp_path / "store" / "index.sqlite") == 0o600
+    assert (tmp_path / "store" / ".gitignore").read_text() == "*\n"
+    assert st_.get_bytes(key) == b"trace with customer data"
+
+
+def test_an_existing_store_open_to_others_is_tightened_on_open(tmp_path, caplog):
+    """M0 audit 2026-10-16 R-4: a root made before R-6 (0755, index 0644) stayed readable by every user on the host."""
+    import os
+    import stat
+
+    st_ = Store(tmp_path / "store")
+    st_.put_bytes(b"old trace")
+    st_._db.close()
+    os.chmod(tmp_path / "store", 0o755)
+    os.chmod(tmp_path / "store" / "index.sqlite", 0o644)
+    with caplog.at_level("WARNING", logger="crucible.core.store"):
+        Store(tmp_path / "store")
+    mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+    assert mode(tmp_path / "store") == 0o700 and mode(tmp_path / "store" / "index.sqlite") == 0o600
+    assert "index.sqlite 644" in caplog.text
+    (tmp_path / "other").mkdir(mode=0o755)
+    Store(tmp_path / "other")  # a directory that already existed gets no .gitignore written into it
+    assert not (tmp_path / "other" / ".gitignore").exists() and mode(tmp_path / "other") == 0o700
+
+
+# ------------------------------------------------------------------------------------------------ R-7: strict loaders
+def test_a_duplicate_yaml_key_is_refused_naming_both_lines(tmp_path):
+    import yaml
+
+    from crucible.core.serialize import load_yaml
+
+    text = "name: seed\nnetwork: none\napps: {}\nnetwork: public\n"
+    with pytest.raises(yaml.YAMLError, match=r"duplicate key 'network'") as e:
+        load_yaml(text, source="world.yaml")
+    assert 'world.yaml", line 2' in str(e.value) and 'world.yaml", line 4' in str(e.value)
+    assert load_yaml("a: {b: 1, c: 2}\nd: [1, 2]\n") == {"a": {"b": 1, "c": 2}, "d": [1, 2]}
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'x'"):
+        load_yaml("outer:\n  x: 1\n  x: 2\n")  # nested mappings too
+
+
+def test_a_yaml_merge_is_not_a_duplicate():
+    from crucible.core.serialize import load_yaml
+
+    assert load_yaml("base: &b {x: 1, y: 2}\nleaf:\n  <<: *b\n  y: 3\n")["leaf"] == {"x": 1, "y": 3}
+
+
+def test_json_refuses_duplicate_keys_and_non_finite_numbers():
+    from crucible.core.serialize import load_json
+
+    with pytest.raises(ValueError, match="duplicate key 'network'"):
+        load_json('{"network": "none", "network": "public"}')
+    for bad in ('{"reward": NaN}', '{"reward": Infinity}', "[-Infinity]"):
+        with pytest.raises(ValueError, match="not a JSON number"):
+            load_json(bad)
+    assert load_json('{"a": [1, 2.5, null]}') == {"a": [1, 2.5, None]}
+
+
+def test_documents_and_pack_manifests_load_strictly(tmp_path):
+    import yaml
+
+    from crucible.studio.pack import load_manifest
+
+    class Doc(CrucibleModel):
+        name: str
+        network: str = "none"
+
+    (tmp_path / "w.yaml").write_text("name: seed\nnetwork: none\nnetwork: public\n")
+    (tmp_path / "w.json").write_text('{"name": "seed", "network": "none", "network": "public"}')
+    with pytest.raises(yaml.YAMLError):
+        Doc.load(tmp_path / "w.yaml")
+    with pytest.raises(ValueError, match="duplicate key"):
+        Doc.load(tmp_path / "w.json")
+    (tmp_path / "ok.json").write_text('{"name": "seed"}')
+    assert Doc.load(tmp_path / "ok.json").network == "none"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "pack.yaml").write_text("name: demo\nname: other\n")
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'name'"):
+        load_manifest(pack)
+
+
+# ------------------------------------------------------------------------------------------------ R-8: references only
+@pytest.mark.parametrize("key", ["sk-REALSECRET123", "env:", "Bearer x"])
+def test_a_literal_api_key_is_refused(key):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="api_key must be env:NAME"):
+        LLMProvider(base_url="http://h", api_key=key)
+
+
+@pytest.mark.parametrize("key", ["", "EMPTY", "none", "env:OPENROUTER_API_KEY"])
+def test_references_and_local_placeholders_load(key):
+    assert LLMProvider(base_url="http://127.0.0.1:8000/v1", api_key=key).api_key == key
+
+
+def test_secret_headers_are_references_resolved_at_use(tmp_path, monkeypatch):
+    from pydantic import ValidationError
+
+    from crucible.core.secrets import scrub_secrets
+
+    with pytest.raises(ValidationError, match=r"\['Authorization'\] look secret"):
+        LLMProvider(base_url="http://h", headers={"Authorization": "Bearer tok-REAL", "X-Title": "crucible"})
+    p = LLMProvider(base_url="http://h", headers={"Authorization": "env:R8_GATEWAY_AUTH", "X-Title": "crucible"})
+    monkeypatch.setenv("R8_GATEWAY_AUTH", "Bearer r8-gateway-token-0001")
+    assert p.resolved_headers(search_from=tmp_path) == {"Authorization": "Bearer r8-gateway-token-0001", "X-Title": "crucible"}
+    assert "r8-gateway-token-0001" not in p.model_dump_json()  # the dump keeps the reference
+    assert scrub_secrets("401 for Bearer r8-gateway-token-0001") == "401 for <secret>"  # registered by resolution (R-5)
+    assert scrub_secrets("X-Title crucible") == "X-Title crucible"  # literal non-secret headers are not registered
+
+
+# ------------------------------------------------------------------------------------------------ R-10: writable text
+@settings(max_examples=200, deadline=None)
+@given(st.text(alphabet=st.sampled_from(["a", "é", "/", "\udcff", "\ud800", "\U0001f600", " "]), max_size=40))
+def test_a_validated_failure_always_serializes_and_hashes(text):
+    from crucible.core.schema.run import Failure
+
+    f = Failure(kind="agent_run_error", stage="verification", reason=text, detail=text)
+    f.model_dump_json().encode("utf-8")
+    assert f.content_hash()
+
+
+def test_a_failure_naming_a_non_utf8_file_reaches_the_journal(tmp_path):
+    import os
+
+    from crucible.core.schema.run import Failure
+    from crucible.runtime.journal import RunJournal
+
+    name = os.fsdecode(b"report_\xff.txt")  # 'report_\udcff.txt'
+    f = Failure(kind="agent_run_error", stage="verification", reason=f"cannot open {name}")
+    assert f.reason == "cannot open report_\\udcff.txt"  # escaped as visible text, not dropped
+    rec = RunRecord(run_id="r", world="w", policy="p", started_at="2026-01-01T00:00:00Z", attempt="s1-a1", outcome="failed", failure=f)
+    RunJournal(tmp_path / "runs", "r", "identity", {}).finish(rec, terminal=True)
+    assert "report_\\\\udcff.txt" in (tmp_path / "runs" / "r" / "results.jsonl").read_text()
+
+
+# ------------------------------------------------------------------------------------------------ R-11: build identity
+def _git_repo(root):
+    import subprocess
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    root.mkdir(parents=True, exist_ok=True)
+    git("init", "-q")
+    return git
+
+
+def test_a_foreign_repository_never_lends_its_commit(tmp_path):
+    from crucible.core.build import _checkout_state
+
+    git = _git_repo(tmp_path / "project")
+    (tmp_path / "project" / "README").write_text("someone else's repo\n")
+    git("add", "README")
+    git("commit", "-qm", "init")
+    pkg = tmp_path / "project" / ".venv" / "site-packages" / "crucible"  # installed inside it, never tracked
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    assert _checkout_state(pkg) == (None, None)
+
+
+def test_dirty_covers_the_package_only(tmp_path):
+    from crucible.core.build import _checkout_state
+
+    git = _git_repo(tmp_path / "mono")
+    pkg = tmp_path / "mono" / "src" / "crucible"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (tmp_path / "mono" / "other.txt").write_text("a\n")
+    git("add", ".")
+    git("commit", "-qm", "init")
+    head = git("rev-parse", "HEAD")
+    assert _checkout_state(pkg) == (head, False)
+    (tmp_path / "mono" / "other.txt").write_text("b\n")  # elsewhere in the monorepo
+    assert _checkout_state(pkg) == (head, False)
+    (pkg / "__init__.py").write_text("x = 1\n")
+    assert _checkout_state(pkg) == (head, True)
+
+
+def test_source_digest_follows_content_not_bytecode(tmp_path):
+    from crucible.core.build import build_info, source_digest
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    d = source_digest(tmp_path)
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "a.cpython-312.pyc").write_bytes(b"\0")
+    assert source_digest(tmp_path) == d
+    (tmp_path / "a.py").write_text("x = 2\n")
+    assert source_digest(tmp_path) != d
+    assert len(build_info().source_sha256) == 64
+
+
+# ------------------------------------------------------------------------------------------------ R-12: index versions
+_LEGACY_INDEX = """
+CREATE TABLE docs (kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL, provenance TEXT, size INTEGER, PRIMARY KEY (kind, key));
+CREATE INDEX docs_name ON docs(kind, name);
+CREATE TABLE tags (name TEXT PRIMARY KEY, key TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE doc_names (kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, provenance TEXT, PRIMARY KEY (kind, key, name));
+CREATE INDEX doc_names_name ON doc_names(kind, name);
+INSERT INTO tags VALUES ('latest', 'sha256:00', '2026-01-01');
+"""
+
+
+def _user_version(root):
+    import sqlite3
+
+    with sqlite3.connect(root / "index.sqlite") as c:
+        return c.execute("PRAGMA user_version").fetchone()[0]
+
+
+def test_a_new_index_carries_the_current_version(tmp_path):
+    from crucible.core.store import INDEX_VERSION
+
+    Store(tmp_path / "s")
+    assert _user_version(tmp_path / "s") == INDEX_VERSION >= 1
+
+
+def test_an_unversioned_index_is_adopted_with_its_rows(tmp_path):
+    import sqlite3
+
+    (tmp_path / "s").mkdir()
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:  # an index written before versioning
+        c.executescript(_LEGACY_INDEX)
+    assert Store(tmp_path / "s").resolve("latest") == "sha256:00"
+    assert _user_version(tmp_path / "s") >= 1
+
+
+def test_an_index_from_a_newer_crucible_is_refused(tmp_path):
+    import sqlite3
+
+    from crucible.core.store import INDEX_VERSION
+
+    Store(tmp_path / "s")
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
+        c.execute(f"PRAGMA user_version = {INDEX_VERSION + 1}")
+    with pytest.raises(StoreError, match="newer than this Crucible"):
+        Store(tmp_path / "s")
+
+
+def test_a_later_migration_reaches_an_existing_index(tmp_path, monkeypatch):
+    import sqlite3
+
+    import crucible.core.store as store_mod
+
+    first = Store(tmp_path / "s")
+    key = first.put_bytes(b"x")
+    first.tag("latest", key, expect=0)
+    v = store_mod.INDEX_VERSION
+    monkeypatch.setattr(store_mod, "_MIGRATIONS", [*store_mod._MIGRATIONS, ("ALTER TABLE tags ADD COLUMN probe INTEGER NOT NULL DEFAULT 0",)])
+    monkeypatch.setattr(store_mod, "INDEX_VERSION", v + 1)
+    s = Store(tmp_path / "s")
+    with sqlite3.connect(tmp_path / "s" / "index.sqlite") as c:
+        assert c.execute("SELECT key, probe FROM tags").fetchall() == [(key, 0)]
+    assert _user_version(tmp_path / "s") == v + 1 and s.resolve("latest") == key
+
+
+# ------------------------------------------------------------------------------------------------ R-13: staged plugins
+class _FakeDist:
+    def __init__(self, name, requires=()):
+        self.name, self.version, self.requires = name, "1.0", list(requires)
+
+
+class _FakeEP:
+    def __init__(self, name, fn, requires=()):
+        self.name, self._fn, self.dist = name, fn, _FakeDist(f"pack-{name}", requires)
+
+    def load(self):
+        return self._fn
+
+
+def _half(reg):
+    reg.register("pack", "half_a", "m:a")
+    raise RuntimeError("bug in register()")
+
+
+def _alpha(reg):
+    reg.register("grader", "shared", "alpha:G")
+    reg.register("grader", "alpha_only", "alpha:A")
+
+
+def _beta(reg):
+    reg.register("grader", "shared", "beta:G")
+
+
+def _plugins(monkeypatch, *eps):
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: list(eps))
+    reg = Registry()
+    reg.declare_kind("grader", "these tests")
+    reg.load_plugins()
+    return reg
+
+
+def test_a_plugin_that_fails_halfway_registers_nothing(monkeypatch):
+    reg = _plugins(monkeypatch, _FakeEP("half", _half))
+    assert not reg.has("pack", "half_a") and "bug in register()" in reg.failures["half"]
+
+
+@pytest.mark.parametrize("order", [("alpha", "beta"), ("beta", "alpha")])
+def test_a_contested_name_is_withheld_whatever_the_install_order(monkeypatch, order):
+    fns = {"alpha": _alpha, "beta": _beta}
+    reg = _plugins(monkeypatch, *(_FakeEP(n, fns[n]) for n in order))
+    assert not reg.has("grader", "shared") and reg.has("grader", "alpha_only")
+    assert "also claimed by pack-beta==1.0" in reg.failures["alpha"] and "also claimed by pack-alpha==1.0" in reg.failures["beta"]
+    assert reg.describe()["grader"]["alpha_only"].endswith("[pack-alpha==1.0]")
+    with pytest.raises(RegistryError, match="withheld"):
+        reg.get("grader", "shared")
+
+
+def test_two_distributions_with_one_entry_point_name_both_load(monkeypatch):
+    """M0 audit 2026-10-16 R-8: staging was keyed by the entry-point name, so one of two packs exposing ``pack`` vanished
+    with no failure recorded."""
+    a, b = _FakeEP("pack", lambda r: r.register("grader", "from_a", "a:G")), _FakeEP("pack", lambda r: r.register("grader", "from_b", "b:G"))
+    a.dist, b.dist = _FakeDist("crucible-pack-a"), _FakeDist("crucible-pack-b")
+    reg = _plugins(monkeypatch, a, b)
+    assert reg.has("grader", "from_a") and reg.has("grader", "from_b") and reg.failures == {}
+    c = _FakeEP("pack", lambda r: r.register("grader", "from_a", "c:G"))
+    c.dist = _FakeDist("crucible-pack-c")
+    reg = _plugins(monkeypatch, a, c)  # a real clash is still withheld, and reported under each distribution
+    assert not reg.has("grader", "from_a") and set(reg.failures) == {"pack (crucible-pack-a==1.0)", "pack (crucible-pack-c==1.0)"}
+
+
+def test_a_plugin_cannot_take_a_built_in_name(monkeypatch):
+    reg = Registry()
+    reg.declare_kind("grader", "these tests")
+    reg.register("grader", "exact", "core:Exact")
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [_FakeEP("p", lambda r: r.register("grader", "exact", "p:X", replace=True))])
+    reg.load_plugins()
+    assert reg.describe()["grader"]["exact"].startswith("core:Exact") and "built in" in reg.failures["p"]
+
+
+# ------------------------------------------------------------------------------------------------ R-14: core gate, --check
+def test_a_plugin_for_another_crucible_is_skipped_before_import(monkeypatch):
+    calls = []
+    reg = _plugins(monkeypatch,
+                   _FakeEP("old", lambda r: calls.append("old"), requires=["crucible>=0.0,<0.1", "pyyaml>=6"]),
+                   _FakeEP("ok", lambda r: r.register("grader", "ok_g", "ok:G"), requires=["crucible>=0.1,<0.2"]),
+                   _FakeEP("extra", lambda r: r.register("grader", "extra_g", "x:G"), requires=['crucible<0.1; extra == "dev"']))
+    assert calls == [] and reg.failures["old"] == "incompatible core: needs crucible<0.1,>=0.0 (installed: 0.1.0)"
+    assert reg.has("grader", "ok_g") and reg.has("grader", "extra_g")  # a requirement under an extra does not count
+
+
+def test_check_separates_broken_pointers_from_missing_optional_dependencies(tmp_path, monkeypatch):
+    (tmp_path / "r14_optional_mod.py").write_text("import r14_not_installed_dep\nX = 1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
+    reg = Registry()
+    reg.declare_kind("grader", "these tests")
+    reg.register("grader", "fine", "crucible.core.ids:validate_id")
+    reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
+    reg.register("grader", "gone", "crucible.core.no_such_module:X")
+    reg.register("grader", "optional", "r14_optional_mod:X")
+    rep = reg.check()
+    assert set(rep["broken"]) == {"grader/typo", "grader/gone"}
+    assert rep["unavailable"] == {"grader/optional": "needs r14_not_installed_dep"}
+
+
+def test_registry_check_exits_1_on_a_broken_pointer(monkeypatch):
+    from click.testing import CliRunner
+
+    from crucible.cli.main import cli
+
+    monkeypatch.setattr("crucible.core.registry.entry_points", lambda group: [])
+    reg = Registry()
+    reg.declare_kind("grader", "these tests")
+    reg.register("grader", "typo", "crucible.core.ids:no_such_attr")
+    monkeypatch.setattr("crucible.core.registry.get_registry", lambda: reg)
+    r = CliRunner().invoke(cli, ["registry", "--check"])
+    assert r.exit_code == 1 and "grader/typo" in r.output
+
+
+# ------------------------------------------------------------------------------------------------ R-15: CRUCIBLE_* knobs
+def test_a_malformed_knob_fails_loudly_naming_it(monkeypatch):
+    from crucible.core import env as knobs
+
+    monkeypatch.setenv("CRUCIBLE_LLM_CACHE", "reply")
+    with pytest.raises(knobs.EnvError, match=r"CRUCIBLE_LLM_CACHE='reply': expected one of record, replay, off"):
+        knobs.get("CRUCIBLE_LLM_CACHE")
+    monkeypatch.setenv("CRUCIBLE_LLM_TIMEOUT_S", "10m")
+    with pytest.raises(knobs.EnvError, match="CRUCIBLE_LLM_TIMEOUT_S='10m'"):
+        knobs.get("CRUCIBLE_LLM_TIMEOUT_S")
+    monkeypatch.setenv("CRUCIBLE_DOCKER_SSH_TUNNEL", "maybe")
+    with pytest.raises(knobs.EnvError, match="1/0, true/false"):
+        knobs.get("CRUCIBLE_DOCKER_SSH_TUNNEL")
+
+
+def test_knobs_parse_to_their_types_and_defaults(monkeypatch, tmp_path):
+    import os
+
+    from crucible.core import env as knobs
+
+    monkeypatch.delenv("CRUCIBLE_LLM_TIMEOUT_S", raising=False)
+    monkeypatch.setenv("CRUCIBLE_LLM_CACHE", "")
+    assert knobs.get("CRUCIBLE_LLM_TIMEOUT_S") == 600.0 and knobs.get("CRUCIBLE_LLM_CACHE") == "record"
+    monkeypatch.setenv("CRUCIBLE_CPU_ONLY", "0")  # any non-empty value used to mean "CPU only"
+    monkeypatch.setenv("CRUCIBLE_DOCKER_SSH_TUNNEL", "false")  # anything but "0" used to mean "on"
+    assert knobs.get("CRUCIBLE_CPU_ONLY") is False and knobs.get("CRUCIBLE_DOCKER_SSH_TUNNEL") is False
+    monkeypatch.setenv("CRUCIBLE_DATA_ROOTS", os.pathsep.join([str(tmp_path / "a"), " ", "~/b"]))
+    assert knobs.get("CRUCIBLE_DATA_ROOTS") == (tmp_path / "a", knobs.Path("~/b").expanduser())
+    with pytest.raises(KeyError, match="not a declared"):
+        knobs.get("CRUCIBLE_NOT_A_KNOB")
+
+
+def test_a_secret_knob_is_scrubbed_and_never_echoed(monkeypatch):
+    from crucible.core import env as knobs
+    from crucible.core.secrets import scrub_secrets
+
+    monkeypatch.setenv("CRUCIBLE_REDACTION_SALT", "r15-tenant-salt-0001")
+    assert knobs.get("CRUCIBLE_REDACTION_SALT") == "r15-tenant-salt-0001"
+    assert scrub_secrets("salt r15-tenant-salt-0001") == "salt <secret>"
+
+
+def test_an_undeclared_crucible_variable_is_named_with_the_closest_knob():
+    from crucible.core import env as knobs
+
+    assert knobs.undeclared({"CRUCIBLE_LLM_CAHCE": "replay", "CRUCIBLE_LLM_CACHE": "record", "PATH": "/bin"}) == {"CRUCIBLE_LLM_CAHCE": "CRUCIBLE_LLM_CACHE"}
+
+
+def test_every_crucible_variable_in_the_code_is_declared():
+    import re
+    from pathlib import Path
+
+    from crucible.core.env import KNOBS
+
+    root = Path(__file__).resolve().parents[2]
+    named = {m for d in ("src", "packs") for p in (root / d).rglob("*.py") for m in re.findall(r"[\"'](CRUCIBLE_[A-Z0-9_]+)[\"']", p.read_text())}
+    assert named and not named - set(KNOBS), sorted(named - set(KNOBS))
+
+
+def test_the_llm_client_refuses_an_unknown_cache_mode(tmp_path):
+    from crucible.actors.llm import LLMClient
+
+    with pytest.raises(ValueError, match="cache_mode 'reply'"):
+        LLMClient("policy-default", cache_mode="reply", cache_dir=tmp_path)

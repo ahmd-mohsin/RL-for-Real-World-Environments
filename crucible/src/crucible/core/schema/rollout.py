@@ -1,4 +1,4 @@
-"""The rollout record contract ``crucible.rollout/v1`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
+"""The rollout record contract ``crucible.rollout/v1.1`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
 
 The trainer's only input from an episode. Per model call (``Turn``): the prompt and completion token ids and the
 behaviour logprobs exactly as the inference engine sampled them (token-in-token-out; never detokenized and
@@ -13,13 +13,64 @@ Shapes: verl ``TokenTrace`` / uni_agent ``Trajectory`` with a per-span version (
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, SchemaKeyed
+from crucible.core.schema.usage import FinishReason, finish_reason
 
-SCHEMA = "crucible.rollout/v1"
+SCHEMA = "crucible.rollout/v1.1"  # v1.1: Turn.sampling typed (R-3), Turn.finish a FinishReason (R-19), RolloutRecord.capture (R-17)
+
+# Request keys that are not sampling parameters: everything else a call sent is recorded (typed, or in ``extra``).
+NOT_SAMPLING = frozenset({"model", "messages", "tools", "tool_choice", "response_format", "stream", "stream_options", "extra_headers",
+                          "extra_query", "user", "metadata", "timeout", "n", "logprobs", "top_logprobs", "return_token_ids",
+                          "chat_template_kwargs", "parallel_tool_calls"})
+_UNSET = lambda v: v is None  # exclude_if: a parameter not sent is left out, so an empty record dumps as {}
+
+
+class SamplingParams(CrucibleModel):
+    """The sampling parameters a model call was sent (R-3; PATTERN: OpenEnv ``core/harness/capture/graph.py`` records the
+    submitted parameters per call, BSD-3-Clause). ``None`` means not sent (the engine's default applied); any other key
+    the request carried is kept in ``extra``. A dict, as rollout/v1 stored it, is read with its known keys typed."""
+
+    temperature: float | None = Field(None, exclude_if=_UNSET)
+    top_p: float | None = Field(None, exclude_if=_UNSET)
+    top_k: int | None = Field(None, exclude_if=_UNSET)
+    min_p: float | None = Field(None, exclude_if=_UNSET)
+    presence_penalty: float | None = Field(None, exclude_if=_UNSET)
+    frequency_penalty: float | None = Field(None, exclude_if=_UNSET)
+    repetition_penalty: float | None = Field(None, exclude_if=_UNSET)
+    max_tokens: int | None = Field(None, exclude_if=_UNSET)
+    seed: int | None = Field(None, exclude_if=_UNSET)
+    stop: list[str] | None = Field(None, exclude_if=_UNSET)
+    extra: dict[str, Any] = Field(default_factory=dict, exclude_if=lambda v: not v)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_dict(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        known = {k: v for k, v in data.items() if k in cls.model_fields}
+        rest = {k: v for k, v in data.items() if k not in cls.model_fields}
+        if "max_completion_tokens" in rest and known.get("max_tokens") is None:
+            known["max_tokens"] = rest.pop("max_completion_tokens")
+        if isinstance(known.get("stop"), str):
+            known["stop"] = [known["stop"]]
+        return {**known, "extra": {**(known.get("extra") or {}), **rest}} if rest else known
+
+    @classmethod
+    def from_request(cls, kwargs: dict[str, Any]) -> SamplingParams:
+        """What a chat request sends, from its keyword arguments: ``extra_body`` keys are lifted (vLLM and SGLang take
+        top_k, min_p and repetition_penalty there), non-sampling keys are dropped, None values are not sent."""
+        flat = {k: v for k, v in kwargs.items() if k != "extra_body"}
+        flat.update(kwargs.get("extra_body") or {})
+        return cls.model_validate({k: v for k, v in flat.items() if k not in NOT_SAMPLING and v is not None})
+
+    @property
+    def truncated(self) -> bool:
+        """top_p < 1 (or top_k, min_p): the trainer needs each token's candidate set to renormalize π_θ."""
+        return (self.top_p is not None and self.top_p < 1.0) or bool(self.top_k and self.top_k > 0) or bool(self.min_p)
 
 
 # How a call relates to the one before it in the episode's message graph (M16 §3.5; research long-horizon-rlm/01 R9:
@@ -51,8 +102,8 @@ class Turn(CrucibleModel):
     # Token-level switching (AReaL-style abort + resubmit with the partial output, DeepSeek pause at a token boundary):
     # run-length spans [start_completion_token, version], covering every completion token, in order. Absent = one version.
     version_spans: list[tuple[int, int]] | None = None
-    sampling: dict[str, Any] = Field(default_factory=dict)  # temperature, top_p, max_tokens, seed
-    finish: str | None = None
+    sampling: SamplingParams = Field(default_factory=SamplingParams)  # what the call sent (R-3)
+    finish: FinishReason | None = None  # why the call ended; a provider's own word is read through finish_reason (R-19)
     routing: list[list[int]] | None = None  # MoE routing ids per token, when the engine exposes them
     candidates: list[list[int]] | None = None  # per completion token, the top-p nucleus it was sampled from (checklist #37)
     advantage: float | None = None  # per-turn credit from steps.jsonl (M6), attached to this call's tokens
@@ -74,6 +125,13 @@ class Turn(CrucibleModel):
     # is ``trainable=False``: recorded, never trained, exempt from the token-record checks
     model: str | None = None
     trainable: bool = True
+
+    @field_validator("finish", mode="before")
+    @classmethod
+    def _finish(cls, v: Any) -> Any:
+        """A provider's or engine's word (``end_turn``, ``max_tokens``, ``completed``), as v1 records hold it: normalized;
+        a word no vocabulary knows reads as not stated."""
+        return finish_reason(v)
 
     def node(self) -> bool:
         """A stand-alone sequence (a tree node), never a link of an agent's linear chain: an RLM sub-LLM call, or a
@@ -105,7 +163,7 @@ class Turn(CrucibleModel):
     def candidates_valid(self) -> bool:
         """Truncated sampling (top_p < 1) needs the candidate set of every completion token, containing that token: the
         trainer renormalizes π_θ over it, else the behaviour logprob is compared with the wrong distribution."""
-        if float(self.sampling.get("top_p", 1.0)) >= 1.0:
+        if not self.sampling.truncated:
             return True
         toks = self.completion_token_ids or []
         return self.candidates is not None and len(self.candidates) == len(toks) and all(t in c for t, c in zip(toks, self.candidates, strict=True))
@@ -149,8 +207,62 @@ class Segment(CrucibleModel):
     tokens_source: Literal["usage", "estimate"] | None = None
 
 
-class RolloutRecord(CrucibleModel):
-    schema_: Literal["crucible.rollout/v1"] = Field(SCHEMA, alias="schema")
+def _digest(value: Any) -> str:
+    import hashlib
+
+    from crucible.core.canonical import dumps
+
+    return "sha256:" + hashlib.sha256(dumps(value).encode()).hexdigest()
+
+
+class TokenizerId(CrucibleModel):
+    """A tokenizer in two parts (R-17; PATTERN: AReaL ``areal/dataset/swe_sft/pipeline.py`` ``_tokenizer_identity``,
+    Apache-2.0). ``token_map`` is what the ids mean: the vocabulary (token -> id) and the special tokens. ``render`` is
+    how messages become ids: the chat template and the fast tokenizer's normalizer, pre-tokenizer and decoder. Two
+    tokenizers with one vocabulary and another chat template differ in ``render`` only: their token records can be
+    trained by one model, but re-rendering one's messages with the other gives other ids."""
+
+    token_map: str
+    render: str | None = Field(None, exclude_if=lambda v: v is None)
+    vocab_size: int | None = Field(None, exclude_if=lambda v: v is None)
+    name: str | None = Field(None, exclude_if=lambda v: v is None)  # name_or_path, for people; not part of the identity
+
+    @classmethod
+    def of(cls, tokenizer: Any) -> TokenizerId:
+        """A Hugging Face tokenizer's identity (anything with ``get_vocab``; the render part from ``chat_template`` and
+        ``backend_tokenizer.to_str()``, else the init kwargs)."""
+        vocab = tokenizer.get_vocab() if hasattr(tokenizer, "get_vocab") else dict(tokenizer)
+        special = getattr(tokenizer, "special_tokens_map", None) or {}
+        token_map = _digest({"vocab": sorted(([str(k), int(v)] for k, v in vocab.items()), key=lambda kv: kv[1]),
+                             "special": {str(k): v if isinstance(v, (str, list)) else str(v) for k, v in special.items()}})
+        backend = getattr(tokenizer, "backend_tokenizer", None)
+        try:
+            backend_text = backend.to_str() if backend is not None else None
+        except (AttributeError, TypeError, ValueError):
+            backend_text = None
+        init = getattr(tokenizer, "init_kwargs", None)
+        render_parts = {"chat_template": getattr(tokenizer, "chat_template", None), "backend": backend_text,
+                        "init_kwargs": None if backend_text is not None or not isinstance(init, dict) else {str(k): str(v) for k, v in init.items()}}
+        has_render = any(v is not None for v in render_parts.values())
+        return cls(token_map=token_map, render=_digest(render_parts) if has_render else None, vocab_size=len(vocab),
+                   name=str(getattr(tokenizer, "name_or_path", "") or "") or None)
+
+
+class Capture(CrucibleModel):
+    """How a rollout's token record was produced (R-17): the engine, what its log-probs are (``processed``: of the
+    sampling distribution, after temperature and top-p, what the trainer recomputes; ``raw``: before; ``unknown``), the
+    tokenizer, and the chat-template arguments. A restart under another engine, mode or tokenizer changes these, so it is
+    no longer invisible in the records. None: not known (a hosted API, a record from before)."""
+
+    engine: str | None = Field(None, exclude_if=lambda v: v is None)
+    logprobs: str | None = Field(None, exclude_if=lambda v: v is None)
+    tokenizer: TokenizerId | None = Field(None, exclude_if=lambda v: v is None)
+    template_kwargs: dict[str, Any] = Field(default_factory=dict, exclude_if=lambda v: not v)
+
+
+class RolloutRecord(SchemaKeyed):
+    SCHEMA: ClassVar[str] = SCHEMA
+    schema_: str = Field(SCHEMA, alias="schema")
     rollout_id: str  # the attempt id
     sample: str
     task: str
@@ -172,6 +284,7 @@ class RolloutRecord(CrucibleModel):
     tier: str = "fast"
     trajectory_tokens: int | None = None  # every token that entered the policy's context over the episode, before compaction
     progress: dict[str, Any] = Field(default_factory=dict)  # dense progress summary (phi0, phi_final, sum_delta, drift)
+    capture: Capture | None = Field(None, exclude_if=lambda v: v is None)  # engine, log-prob mode, tokenizer (R-17)
     credit_fallback: bool = False  # the auxiliary credit channel missed its deadline: outcome-only advantage (checklist #40)
     # group grading stage (m13 C-2): a group-level operator (GAR, tournament, hack zeroing) may set the sequence advantage
     # of every scored member; the trainer then uses it instead of the group statistic. ``group_credit_fallback``: the

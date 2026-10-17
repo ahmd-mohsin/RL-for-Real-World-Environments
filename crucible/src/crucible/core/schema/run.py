@@ -8,13 +8,17 @@ NeMo-Gym allows. The rule (DESIGN P16): an infrastructure failure is *masked*, n
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from crucible.core.schema.base import CrucibleModel, VersionedDocument
+from crucible.core.build import BuildInfo
+from crucible.core.schema.base import CrucibleModel, VersionedDocument, register_upcaster
+from crucible.core.schema.usage import Timing, UsageTotals
+from crucible.core.text import SafeText, safe_text
 
 # --- NeMo-Gym shared names (verbatim) ---
 NEMO_GYM_FAILURE_KINDS = frozenset(
@@ -60,11 +64,13 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:grader_network_error",  # the grader's own grade-time setup lost the network (container detached, DNS down): masked
         "crucible:env_image_unavailable",  # the task image could not be pulled (missing, access denied, registry down): masked
         "crucible:env_build_failed",  # the task's Dockerfile did not build: masked
+        # added with the M0 audit (2026-10-14, R-2)
+        "crucible:task_changed",  # the task's content digest changed between plan, dispatch and the end of the attempt: never graded, masked
     }
 )
 # Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
 NON_RETRYABLE_KINDS = frozenset({"crucible:stale_image", "crucible:stale_build", "crucible:harness_unsupported", "crucible:credits_exhausted", "agent_request_failed",
-                                 "crucible:answer_exposed"})
+                                 "crucible:answer_exposed", "crucible:task_changed"})
 
 FAILURE_KINDS = NEMO_GYM_FAILURE_KINDS | CRUCIBLE_FAILURE_KINDS
 # Kinds that are the policy's own outcome: scored (normally 0), never masked (Karotte: misbehavior is not an infra error).
@@ -84,20 +90,24 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:policy_error": "policy", "crucible:harness_unsupported": "harness", "crucible:replay_incomplete": "harness",
     "crucible:replay_divergence": "harness", "crucible:reissue_limit": "infra",
     "crucible:grader_tampered": "policy", "crucible:env_container_lost": "infra", "crucible:grader_network_error": "infra",
-    "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra",
+    "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra", "crucible:task_changed": "task",
 }
 
 
 # Pack-registered kinds (``<pack>:<kind>``, NeMo-Gym's namespaced extension form, ``nemo_gym/failure_kinds.py``):
-# a pack names its own environment failures without editing core, each with a default blame.
-_NAMESPACED = re.compile(r"^[a-z0-9_]+:[a-z0-9_]+$")
+# a pack names its own environment failures without editing core, each with a default blame. Each part starts with a
+# letter and the whole name must match (R-27; PORT of NeMo-Gym's ``_NAMESPACED_PATTERN`` with ``fullmatch``, Apache-2.0):
+# ``^...$`` let "pack:kind\n" (``$`` matches before a final newline) and "9probe:_x" register.
+_NAMESPACED = re.compile(r"[a-z][a-z0-9_]*:[a-z][a-z0-9_]*")
 _REGISTERED: dict[str, str] = {}
+_WARNED: set[str] = set()
+_log = logging.getLogger(__name__)
 MAX_REASON_CHARS = 2000  # NeMo-Gym caps failure_reason at 2000 characters
 
 
 def register_failure_kind(name: str, *, blame: str) -> None:
     """Register a pack's failure kind ``<pack>:<kind>`` with its default blame (policy => scored, else masked)."""
-    if not _NAMESPACED.match(name) or name.startswith("crucible:"):
+    if not isinstance(name, str) or not _NAMESPACED.fullmatch(name) or name.startswith("crucible:"):
         raise ValueError(f"a pack failure kind is '<pack>:<kind>' outside the crucible namespace, got {name!r}")
     if blame not in ("infra", "harness", "task", "policy", "unknown"):
         raise ValueError(f"unknown blame {blame!r}")
@@ -111,7 +121,15 @@ def is_failure_kind(name: str) -> bool:
 
 
 def default_blame(name: str) -> str:
-    return DEFAULT_BLAME.get(name) or _REGISTERED.get(name, "unknown")
+    """The kind's default blame; an unknown kind (a misspelling, a pack not installed here) is ``unknown``, and masked.
+    Refusing it would strand the record, so it is read, with one warning per kind and process (R-27)."""
+    blame = DEFAULT_BLAME.get(name) or _REGISTERED.get(name)
+    if blame is None:
+        if name not in _WARNED:
+            _WARNED.add(name)
+            _log.warning("failure kind %r is not registered here: its blame is unknown (masked); a misspelling, or its pack is not installed", name)
+        return "unknown"
+    return blame
 
 
 def _iso(v: str | None) -> str | None:
@@ -128,13 +146,14 @@ class Failure(CrucibleModel):
     mask: bool | None = None  # None: derived from blame (policy => scored, else masked)
     blame: Blame | None = None  # None: the kind's default (DEFAULT_BLAME)
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
-    detail: str | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
+    detail: SafeText | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
 
     @field_validator("reason")
     @classmethod
     def _bounded(cls, v: str) -> str:
         from crucible.core.secrets import scrub_secrets
 
+        v = safe_text(v)  # an error naming a non-UTF-8 file must not make the record unwritable (R-10)
         v = scrub_secrets(v)  # a reason is stored in records and journals: never a credential (M10 audit V12)
         return v if len(v) <= MAX_REASON_CHARS else v[: MAX_REASON_CHARS - 14] + " …[truncated]"
 
@@ -150,12 +169,17 @@ class Failure(CrucibleModel):
 
 
 class RunRecord(VersionedDocument):
-    """One episode of one policy on one task/world."""
+    """One episode of one policy on one task/world.
 
-    SCHEMA = "crucible.run/v1"
+    ``crucible.run/v2`` (R-1 step 3): the record names the lock and launch it ran under (``lock.json`` fingerprint,
+    ``launches/<n>.json``), and carries the task digest (R-2), token usage and stage timing (R-19) as typed fields; v1's
+    never-filled ``tokens`` is gone. ``None`` is unknown: a v1 record, or a producer outside the runner."""
+
+    SCHEMA = "crucible.run/v2"
 
     run_id: str
-    task: str | None = None  # task content hash
+    task: str | None = None  # the task id; its content is task_digest
+    task_digest: str | None = None  # the task's content digest at dispatch (R-2); None: the task declares none
     world: str  # world spec content hash
     policy: str  # model / harness id
     seed: int = 0
@@ -170,9 +194,12 @@ class RunRecord(VersionedDocument):
     final_state: str | None = None  # store key of the final WorldRef
     cost_usd: float = 0.0
     cost_uncertain_usd: float = 0.0  # spend that could not be accounted exactly (blank usage), held uncertain in the ledger
-    tokens: dict[str, int] = Field(default_factory=dict)
+    usage: UsageTotals | None = None  # the attempt's own model calls summed, with coverage (R-19)
+    timing: Timing | None = None  # wall time per stage, with the model's share of the agent stage (R-19)
     sample: dict[str, Any] | None = None  # runtime.keys.SampleKey (task, world, policy, harness, sample_idx, seed, tier)
     attempt: str | None = None  # "<sample_id>-a<N>"
+    lock: str | None = None  # the run lock's fingerprint for the launch that wrote this record (lock.json, R-1)
+    launch: int | None = Field(None, ge=1)  # that launch: launches/<n>.json (R-1)
     meta: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("started_at", "ended_at")
@@ -200,3 +227,66 @@ class RunRecord(VersionedDocument):
     def scored_reward(self) -> float | None:
         """The only accessor aggregates use: None for masked samples."""
         return None if self.mask_sample or self.outcome in ("masked", "running") else self.reward
+
+
+def _run_v1_to_v2(d: dict[str, Any]) -> dict[str, Any]:
+    """``crucible.run/v1`` -> v2: the task digest, usage and timing leave ``meta`` for their fields (a record from before
+    R-19 has ``meta.timings``, its stages); ``tokens`` is dropped (no producer ever filled it). A v1 record cannot know
+    its lock or launch: they stay None."""
+    d, meta = dict(d), dict(d.get("meta") or {})
+    d.pop("tokens", None)
+    for key in ("task_digest", "usage", "timing"):
+        if key in meta:
+            d[key] = meta.pop(key)
+    stages = meta.pop("timings", None)
+    if isinstance(stages, dict) and "timing" not in d:
+        d["timing"] = Timing.from_stages(stages).model_dump()
+    d["meta"] = meta
+    return d
+
+
+register_upcaster("crucible.run", 1, _run_v1_to_v2)
+
+
+class LockChange(CrucibleModel):
+    """A change of settings a resume was allowed to make (``RunSpec.allow_change``), kept in the lock's history."""
+
+    at: str
+    changed: list[str]  # the dotpaths that changed
+    before: str  # fingerprint
+    after: str
+
+
+class RunLock(VersionedDocument):
+    """What a run is (R-1): the projected settings of its whole ``RunSpec`` (``core.fingerprint``) and their fingerprint.
+    Written to ``<run>/lock.json`` before the first dispatch; a resume whose settings differ is refused unless every
+    changed setting is allowed by name, and then the change is recorded in ``changes``."""
+
+    SCHEMA: ClassVar[str] = "crucible.run_lock/v1"
+    run_id: str
+    scheme: str
+    fingerprint: str
+    excluded: list[str] = Field(default_factory=list)  # operational globs left out of the identity
+    settings: dict[str, Any] = Field(default_factory=dict)  # dotpath -> value
+    opaque: list[str] = Field(default_factory=list)  # components that declared no settings: only their id counts
+    created_at: str
+    changes: list[LockChange] = Field(default_factory=list)
+
+
+class RunLaunch(VersionedDocument):
+    """One invocation of a run (R-1 step 2), in ``<run>/launches/<n>.json``: what the lock leaves out because it may
+    change between resumes. The command line (scrubbed), the operational settings used (concurrency, budget, ...),
+    the redacted configuration and the code that ran (``core.build``). The lock says what a run is; launches say how
+    each resume ran it."""
+
+    SCHEMA: ClassVar[str] = "crucible.run_launch/v1"
+    run_id: str
+    n: int  # 1 for the first invocation
+    started_at: str
+    lock: str  # the lock fingerprint this launch ran under
+    lock_status: Literal["created", "adopted", "same", "changed"]
+    argv: list[str] = Field(default_factory=list)
+    operational: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)  # core.config.Config.redacted()
+    build: BuildInfo
+    python: str

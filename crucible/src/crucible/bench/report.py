@@ -259,7 +259,7 @@ def harbor_job_stats(summary: dict[str, Any], eps: Sequence[Episode], *, dataset
             "reward_stats": rs, "exception_stats": exc, "n_retries": c.get("retries", 0)}
     return {"n_completed_trials": run.get("terminal", 0), "n_errored_trials": run.get("masked", 0), "n_running_trials": 0,
             "n_pending_trials": run.get("owed", 0), "n_cancelled_trials": 0, "n_retries": sum(e.attempts - (0 if e.owed else 1) for e in eps if e.attempts),
-            "evals": evals, "n_input_tokens": sum(e.tokens_in for e in eps), "n_cache_tokens": None, "n_output_tokens": sum(e.tokens_out for e in eps),
+            "evals": evals, "n_input_tokens": sum(e.tokens_in for e in eps), "n_cache_tokens": sum(e.tokens_cached for e in eps), "n_output_tokens": sum(e.tokens_out for e in eps),
             "cost_usd": round(sum(e.cost_usd for e in eps), 6),
             "crucible": {"masked": "excluded from metrics, never scored 0 (DESIGN P16); listed under exception_stats",
                          "exposed": "scored 0", "mean": "mean of per-task means", "stopped": run.get("stopped"), "digest": deterministic_digest(summary)}}

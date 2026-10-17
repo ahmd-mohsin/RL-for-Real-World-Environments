@@ -1,0 +1,22 @@
+{
+ "content_id": "9b0c27cf523bceebd81213e4e20a7e2560e5965032a967f35304f5ca6bb0fb76",
+ "reads_as": {
+  "key": {
+   "contract_version": "accept-1",
+   "harbor_hash": "",
+   "images": {},
+   "kit_hash": "k",
+   "overlay_hash": "o",
+   "policy_version": "1",
+   "registry_version": "1",
+   "task_id": "p/f/n@1"
+  },
+  "key_digest": "d",
+  "overrides": [],
+  "required": [],
+  "results": {},
+  "schema": "crucible.acceptance/v1",
+  "stats": {},
+  "task_id": "p/f/n@1"
+ }
+}

@@ -1,0 +1,29 @@
+{
+ "content_id": "74befb20f389f25552d5d2b054d638f29b0b8240ffc420cbe82788ec89d32bf2",
+ "reads_as": {
+  "acl_rules": {},
+  "actors": {},
+  "apps": {
+   "db": {
+    "adapter": "sql",
+    "app": "db",
+    "fingerprint": "f",
+    "meta": {}
+   }
+  },
+  "backend": {},
+  "clock": {
+   "frozen": false,
+   "mode": "off",
+   "rate": 1.0
+  },
+  "done": [],
+  "fingerprint": "",
+  "fired_counts": {},
+  "inboxes": {},
+  "pending_events": [],
+  "step": 1,
+  "tool_counts": {},
+  "world": "w"
+ }
+}

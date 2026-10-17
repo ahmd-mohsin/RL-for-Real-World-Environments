@@ -88,14 +88,13 @@ class StateAdapter(ABC):
 
     async def _push_from_store(self, key: str, suffix: str, *, copy: bool = False) -> str:
         """Place a stored payload inside the exec; returns its path there (caller removes copies)."""
+        # every read is checked against the key (R-22): a corrupt payload is refused, never restored into a World
         if self.exec.is_local and not copy:
-            return str(self.store.blob_path(key))
+            return str(self.store.verified_path(key))
         if self.exec.is_local:
-            import shutil
-
             tmp = self._tmp_remote(suffix)
-            shutil.copyfile(self.store.blob_path(key), tmp)
+            self.store.export(key, tmp)
             return tmp
         remote = self._tmp_remote(suffix)
-        await self.exec.push_file(self.store.blob_path(key), remote)
+        await self.exec.push_file(self.store.verified_path(key), remote)
         return remote

@@ -45,5 +45,8 @@ jobs:
       - name: Import-layer contracts
         run: uv run --frozen lint-imports
 
+      - name: Registry pointers resolve and plugins load
+        run: uv run --frozen crucible registry --check
+
       - name: Unit and end-to-end tests (CPU)
         run: uv run --frozen pytest -q tests/unit tests/toy_e2e -p no:cacheprovider

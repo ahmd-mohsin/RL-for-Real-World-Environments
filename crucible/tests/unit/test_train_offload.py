@@ -34,7 +34,7 @@ def _alloc(dev: str) -> int:
 def _recs(n: int = 8) -> tuple[list[RolloutRecord], list[str]]:
     g = torch.Generator().manual_seed(0)
     recs = [RolloutRecord(rollout_id=f"r{i}", sample="s", task="t", harness="h", policy="p", reward=float(i % 2),
-                          turns=[Turn(call_id=f"r{i}:c", actor="agent", prompt_token_ids=torch.randint(0, 32, (10,), generator=g).tolist(),
+                          turns=[Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c", actor="agent", prompt_token_ids=torch.randint(0, 32, (10,), generator=g).tolist(),
                                       completion_token_ids=torch.randint(0, 32, (5,), generator=g).tolist(), logprobs=[-3.0] * 5, policy_version=0)])
             for i in range(n)]
     return recs, [f"g{i // 4}" for i in range(n)]

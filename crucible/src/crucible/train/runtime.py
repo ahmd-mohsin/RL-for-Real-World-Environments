@@ -92,6 +92,9 @@ class RuntimeConfig:
     checkpoint_every: int = 0
     keep_records: int | None = 4096  # RunReport.trained_records keeps the newest N (a long run must not hold every record)
     checkpoint_dir: str | None = None
+    # a resume refuses a checkpoint trained with other settings (``train.identity``, R-1 step 4) unless every changed
+    # setting matches one of these globs (``trainer.lr``, ``scheduler.*``); the change is recorded in later checkpoints
+    allow_change: list[str] = field(default_factory=list)
     max_masked_share: float = 0.2
     max_harness_share: float = 0.05
     breaker_window: int = 200
@@ -170,6 +173,7 @@ class RunReport:
     blocked: dict[str, int] = field(default_factory=dict)  # barrier blocked reason -> count (need_more / wait_stale)
     doomed_evictions: int = 0  # live groups evicted after a publish under ``drop`` (they could no longer train within τ)
     restaged_groups: int = 0  # group stages re-run because refill_member changed the group's scored members (H2 V2)
+    identity_check: dict | None = None  # the resumed checkpoint's identity check: same | changed (with the settings) | adopted
 
     def series(self, key: str) -> list[float]:
         return [s.metrics[key] for s in self.steps if key in s.metrics]
@@ -291,6 +295,10 @@ class Runtime:
         self._recent: deque[str] = deque(maxlen=cfg.breaker_window)  # ok | masked | infra | harness, per finished rollout
         self.admission_blocked_s = 0.0
         self._queues = {s: list(ps) for s, ps in sources.items()}
+        from crucible.train.identity import sources_doc
+
+        self._source_identity = sources_doc(sources)  # the prompts as given, not what is left of them (R-1 step 4)
+        self._identity_changes: list[dict] = []  # allowed setting changes over this run's resumes, carried by its checkpoints
         self.pool = DataPool()
         self.sched = Scheduler(sched_cfg, self.pool, {s: (lambda s=s: self._queues[s].pop(0) if self._queues[s] else None) for s in sources})
         self.sched.stage_view = self._stage_view  # the zero-variance filter reads the stage's output / every seat (G2 D-T2-4, H2 V20)
@@ -569,6 +577,7 @@ class Runtime:
             return
         self._recent.append("ok")
         rec.group = tag.group
+        rec.capture = self._capture_of(rec)
         self.pool.finish(rid, reward=rec.reward, value=rec, now=time.monotonic())
         self._after_finish(rid)
         self.changed.set()
@@ -915,6 +924,18 @@ class Runtime:
         return {"idle/rollout_s": max(wall - busy, 0.0), "idle/train_s": max(wall - train_s - publish_s, 0.0), "idle/env_wait_s": env_wait,
                 "env/busy_s": env_busy, "step/wall_s": wall, "engine/utilization": busy / wall if wall > 0 else 0.0}
 
+    def _capture_of(self, rec: RolloutRecord) -> Any:
+        """How the record's tokens were produced, as far as the runtime knows (R-17): the engines and their log-prob mode
+        when the record finished (an engine restarted in another mode shows in the records after it), and the trainer's
+        tokenizer when it declares one (``trainer.tokenizer_id``). What the rollout function recorded is kept."""
+        from crucible.core.schema.rollout import Capture
+
+        have = rec.capture or Capture()
+        names = sorted({type(e).__name__ for e in getattr(self.engines, "engines", [])})
+        return have.model_copy(update={"engine": have.engine or ("+".join(names) or None),
+                                       "logprobs": have.logprobs or self.engines.capabilities().get("logprobs"),
+                                       "tokenizer": have.tokenizer or getattr(self.trainer, "tokenizer_id", None)})
+
     async def resume(self, path: str | None = None) -> int:
         """Load a run checkpoint (``path``, or the latest under ``cfg.checkpoint_dir``) into this freshly built runtime and
         re-publish the restored weights to the engines at the restored version. Returns the step the run continues after."""
@@ -924,6 +945,7 @@ class Runtime:
         if ck is None:
             raise FileNotFoundError("no run checkpoint to resume from")
         self.start_step = state.restore(self, state.load(ck))
+        self.tracking.record("resume", self.report.identity_check, self.start_step)
         await self.publisher.restore(self.version)
         return self.start_step
 

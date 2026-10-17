@@ -42,7 +42,9 @@ ARGS_ENV = "CRUCIBLE_GATE_ARGS"
 
 
 def _args() -> dict:
-    return json.loads(os.environ[ARGS_ENV])
+    from crucible.core import env as knobs
+
+    return json.loads(knobs.require(ARGS_ENV))
 
 
 def _engine(spec, a: dict) -> dict:
@@ -51,8 +53,10 @@ def _engine(spec, a: dict) -> dict:
     ext = str(Path(__file__).parent / "_ext")
     port = 8100 + spec.engine
     env = {**os.environ, "VLLM_SERVER_DEV_MODE": "1", "PYTHONPATH": f"{ext}:{os.environ.get('PYTHONPATH', '')}"}
-    if os.environ.get("CRUCIBLE_ENGINE_NCCL_CUMEM_ENABLE"):  # OpenRLHF: NCCL_CUMEM_ENABLE=0 breaks NCCL >= 2.27 under vLLM >= 0.16
-        env["NCCL_CUMEM_ENABLE"] = os.environ["CRUCIBLE_ENGINE_NCCL_CUMEM_ENABLE"]
+    from crucible.core import env as knobs
+
+    if (cumem := knobs.get("CRUCIBLE_ENGINE_NCCL_CUMEM_ENABLE")) is not None:  # OpenRLHF: NCCL_CUMEM_ENABLE=0 breaks NCCL >= 2.27 under vLLM >= 0.16
+        env["NCCL_CUMEM_ENABLE"] = cumem
     log = Path(a["out"]) / f"vllm{spec.engine}.log"
     proc = subprocess.Popen(["vllm", "serve", a["model"], "--port", str(port), "--gpu-memory-utilization", str(a["mem"]), "--max-model-len", str(a["max_len"]),
                              "--tensor-parallel-size", str(len(spec.gpus)),  # every GPU of the engine is visible to this process (H4 V10)

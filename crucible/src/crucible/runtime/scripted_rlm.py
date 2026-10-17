@@ -148,7 +148,7 @@ class ScriptedRLM:
         completion = _approx(self.hermes(r))
         self.log[-1].update(prompt_tokens=prompt, completion_tokens=completion, usage_source="estimate")
         calls = [] if r.code is None else [{"id": f"py{len(messages)}", "name": PY, "arguments": {"code": r.code}}]
-        return LLMResponse(text=r.text, tool_calls=calls, usage={"prompt_tokens": prompt, "completion_tokens": completion},
+        return LLMResponse(text=r.text, tool_calls=calls, usage={"prompt_tokens": prompt, "completion_tokens": completion, "source": "estimate"},
                            model=self.model, raw_finish="stop")
 
 
@@ -592,7 +592,7 @@ class FaultLLM:
         if hit:
             self.fired.append({"call": i, "fault": "overflow", "role": view.role, "silent": self.silent})
             if self.silent:
-                return LLMResponse(text="", usage={"prompt_tokens": self.window, "completion_tokens": 0}, raw_finish="length", model="fault")
+                return LLMResponse(text="", usage={"prompt_tokens": self.window, "completion_tokens": 0, "source": "estimate"}, raw_finish="length", model="fault")
             raise ContextOverflow(f"prompt exceeds the {self.window}-token context window (injected at call {i})")
         return await self.inner.complete(messages, **kw)
 

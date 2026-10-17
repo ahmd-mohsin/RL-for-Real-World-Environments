@@ -40,11 +40,11 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar
 
 from pydantic import Field
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 
 CONTROL_SCHEMA = "crucible.control_rollout/v1"
 RECORD_KIND = "control_rollout"
@@ -70,8 +70,9 @@ class ControlStep(CrucibleModel):
     tool_call_id: str | None = None
 
 
-class ControlRecord(CrucibleModel):
-    schema_: Literal["crucible.control_rollout/v1"] = Field(CONTROL_SCHEMA, alias="schema")
+class ControlRecord(SchemaKeyed):
+    SCHEMA: ClassVar[str] = CONTROL_SCHEMA
+    schema_: str = Field(CONTROL_SCHEMA, alias="schema")
     # the rollout/v1 envelope
     rollout_id: str
     sample: str

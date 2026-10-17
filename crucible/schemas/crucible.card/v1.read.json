@@ -1,0 +1,37 @@
+{
+ "content_id": "b3048709df856dc63f7da537d6e75f734c376f563d328f5d119b926086976f86",
+ "reads_as": {
+  "difficulty": {
+   "clock_events": 0,
+   "decoys": 0,
+   "distractor_tools": 0,
+   "infeasible": false,
+   "traps": 1
+  },
+  "family": "f",
+  "forge": {
+   "generator": "g",
+   "knobs": {},
+   "roles": [],
+   "state": "draft"
+  },
+  "grounding": {
+   "oracle_source": "builder_oracle",
+   "traces": []
+  },
+  "history": [],
+  "horizon": "H1",
+  "id": "p/f/n@1",
+  "schema_version": "crucible.card/v1",
+  "splits": {
+   "bench": false,
+   "ood_axes": [],
+   "showcase": false,
+   "train": false
+  },
+  "value_proof": {
+   "frontier": [],
+   "leak_audit": "not_run"
+  }
+ }
+}

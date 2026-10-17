@@ -15,13 +15,14 @@ The typed contracts every other module is written against. It contains no domain
 | `schema/signal.py` | Generic expert-signal taxonomy (13 types) |
 | `schema/milestone.py` | Milestone checks as adapter Queries + expectations, prerequisite DAG (cycle check) |
 | `schema/reward.py` | `reward.json` (a failed gate forces 0) and `steps.jsonl` rows; NeMo-Gym-style `reward_components()` |
-| `schema/run.py` | `RunRecord` and failure kinds: NeMo-Gym's shared vocabulary verbatim, plus `crucible:*` incident kinds. Infrastructure failures are masked |
+| `schema/run.py` | `RunRecord` (`crucible.run/v2`: the lock fingerprint and launch number it ran under, task digest, usage, timing) and failure kinds: NeMo-Gym's shared vocabulary verbatim, plus `crucible:*` incident kinds. Infrastructure failures are masked. `RunLock`, `RunLaunch` |
+| `schema/usage.py` | `Usage` (one call's tokens, disjoint: uncached input, cache reads, cache writes, output; every provider's shape reads to the same numbers), `UsageTotals` (an attempt's live calls with coverage; replays apart), `FinishReason`, `Timing` (per stage, with the model's share of the agent stage) |
 | `schema/task.py` | `crucible.task/v1`, `crucible.card/v1` (provenance + value proof), `HarborTaskSummary` |
 | `ids.py` | Harbor-compatible directory hash; tree-manifest hash used for state fingerprints |
 | `prov.py` | `Provenance` (created_by, derived_from, params) |
 | `registry.py` | Lazy `module:Class` registry (agentenv pattern); plugins register through the `crucible.plugins` entry-point group |
-| `config.py` | `crucible.toml` discovery; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
-| `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index, tags |
+| `config.py` | layered `crucible.toml` (defaults < user `~/.config/crucible` < project, never above its repository < `--set`; or `$CRUCIBLE_CONFIG` alone), operator-only settings a project file cannot override (provider endpoints and credentials, GPU hosts, raising the budget), `Config.sources` / `crucible config`; `env:NAME` secrets (process env, then nearest `.env`); model aliases; GPU hosts; prices; LLM budget |
+| `store/` | Content-addressed blobs (sha256, read-only, corruption detected), documents with a SQLite index (versioned migrations), tags moved by compare-and-set on a revision with an append-only history (`tag(name, key, expect=rev)`, `TagConflict`, `tag_info`, `tag_history`). Interfaces `BlobStore` / `DocIndex` (`store/protocols.py`, `Store.backend = "local"`), verified reads (`get_bytes`, `open_blob`, `export`, `verified_path`), a conformance kit any backend passes (`store/conformance.py`) |
 
 ## Audit (2026-10-12)
 
@@ -30,8 +31,9 @@ The typed contracts every other module is written against. It contains no domain
 - **Round trip and identity:** no nullable field has a non-`None` default (`IsolationSpec.pids_limit` uses 0 for no limit,
   `CrucibleTask.milestones` uses `""` for none; `None` is still read); canonical JSON lives in `core/canonical.py`
   (finite floats, `-0.0` folded, NFC strings), shared with the interop identity gate; `HASH_SCHEME = 1` in `core/ids.py`.
-- **Versions:** `crucible.reward/v1` and `crucible.run/v1` are versioned; `VersionedDocument` explains a newer minor
-  version, upgrades older majors through `register_upcaster`, and rejects an unknown major on assignment.
+- **Versions:** `crucible.reward/v1` and `crucible.run/v2` are versioned; `VersionedDocument` explains a newer minor
+  version, upgrades older majors through `register_upcaster`, and rejects an unknown major on assignment. The first
+  upcaster in use reads `crucible.run/v1` records as v2 (R-1 step 3).
 - **Validation:** the world spec rejects allowlists without hosts, hosts without an allowlist, negative time steps,
   malformed `t0`, non-positive tool limits, negative quotas, and events or grants naming unknown apps; `StepRow.phi` is in
   [0, 1]; `RunRecord` rejects contradictory masks and malformed timestamps; `validate_id` (agentenv rules).

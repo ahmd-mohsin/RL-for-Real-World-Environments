@@ -1,0 +1,63 @@
+"""``.env`` files read with python-dotenv's grammar (M0 audit 2026-10-14 R-29)."""
+
+from __future__ import annotations
+
+import io
+
+import pytest
+
+from crucible.core.config import _dotenv, resolve_secret
+
+# The audit's fixture (probe p_v3_config e), with what the old parser returned for each key
+FIXTURE = """# keys
+A_KEY=sk-or-v1-abc123  # personal key
+B_KEY="quoted value" # note
+C_KEY='single'
+D_KEY="has \\"escaped\\" quote"
+export E_KEY=plain
+F_KEY=
+G_KEY=#not-a-comment
+H_KEY="multi
+line"
+"""
+WANT = {"A_KEY": "sk-or-v1-abc123", "B_KEY": "quoted value", "C_KEY": "single", "D_KEY": 'has "escaped" quote', "E_KEY": "plain",
+        "F_KEY": "", "G_KEY": "#not-a-comment", "H_KEY": "multi\nline"}
+
+
+def test_dot_env_parses_like_python_dotenv(tmp_path):
+    (tmp_path / ".env").write_text(FIXTURE)
+    assert _dotenv(tmp_path) == WANT  # A_KEY kept "  # personal key" and B_KEY a quote and the note
+    dotenv = pytest.importorskip("dotenv")
+    assert dict(dotenv.dotenv_values(stream=io.StringIO(FIXTURE), interpolate=False)) == WANT  # the same as the library
+
+
+def test_a_secret_from_dot_env_has_no_trailing_comment(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(FIXTURE)
+    monkeypatch.delenv("A_KEY", raising=False)
+    assert resolve_secret("env:A_KEY", search_from=tmp_path) == "sk-or-v1-abc123"
+
+
+def test_dot_env_search_stops_at_the_repository_and_skips_other_users_files(tmp_path, monkeypatch):
+    """M0 audit 2026-10-16 R-5: the search walked up to /, so a job in /tmp/job read another user's /tmp/.env."""
+    from crucible.core.config import ConfigError
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PLANTED_KEY", raising=False)
+    (tmp_path / ".env").write_text("PLANTED_KEY=attacker\n")  # above the repository, and above a loose job directory
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "sub").mkdir()
+    job = tmp_path / "job"
+    job.mkdir()
+    for start in (repo / "sub", job):
+        with pytest.raises(KeyError, match="PLANTED_KEY"):
+            resolve_secret("env:PLANTED_KEY", search_from=start)
+    (repo / ".env").write_text("PLANTED_KEY=mine\n")  # the repository's own .env is found from a subdirectory
+    assert resolve_secret("env:PLANTED_KEY", search_from=repo / "sub") == "mine"
+    user = tmp_path / "home" / ".config" / "crucible"
+    user.mkdir(parents=True)
+    (user / ".env").write_text("PLANTED_KEY=user\n")  # the user's own .env is the fallback
+    assert resolve_secret("env:PLANTED_KEY", search_from=job) == "user"
+    (repo / ".env").chmod(0o666)
+    with pytest.raises(ConfigError, match="anyone may write it"):
+        resolve_secret("env:PLANTED_KEY", search_from=repo)

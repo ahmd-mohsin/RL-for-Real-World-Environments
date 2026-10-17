@@ -1,0 +1,27 @@
+{
+ "family": "f",
+ "milestones": [
+  {
+   "check": {
+    "app": "a",
+    "expect": {
+     "kind": "ok"
+    },
+    "query": {
+     "args": {},
+     "op": "exists"
+    }
+   },
+   "cost": "cheap",
+   "gate": false,
+   "id": "m",
+   "provenance": [],
+   "requires": [],
+   "states": [
+    "p1"
+   ],
+   "weight": 1.0
+  }
+ ],
+ "schema_version": "crucible.milestones/v1"
+}

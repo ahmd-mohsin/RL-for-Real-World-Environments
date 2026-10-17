@@ -29,7 +29,7 @@ def _recs(policy, *, teacher=None, ref=None, source="copy"):
             tl = teacher.token_logprobs(prompt, comp).tolist() if teacher is not None else None
             rl = ref.token_logprobs(prompt, comp).tolist() if ref is not None else None
         out.append(RolloutRecord(rollout_id=f"r{k}", sample=f"r{k}", task="t", harness="h", policy="p", reward=rew, source=source,
-                                 turns=[Turn(call_id="agent:c1", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=beh,
+                                 turns=[Turn(sampling={"temperature": 1.0}, call_id="agent:c1", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=beh,
                                              policy_version=0, teacher_logprobs=tl, ref_logprobs=rl)]))
     return out
 

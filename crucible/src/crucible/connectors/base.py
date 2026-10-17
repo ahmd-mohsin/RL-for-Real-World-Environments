@@ -108,13 +108,16 @@ def ingest(connector: Connector, refs: list[SourceRef], store, *, policy=None, e
         policy = policy.model_copy(update={"salt": Redactor(policy).salt})
     keys: list[str] = []
     failed: list[tuple[SourceRef, BaseException]] = []
+    from crucible.core.prov import utc_now
+
     for ref in refs:
+        fetched_at = utc_now()  # taken before the read: a slower read of the same source never becomes the head (R-16)
         try:
             trace = redact(connector.normalize(connector.fetch(ref)), policy)
         except Exception as e:  # noqa: BLE001 - reported per source
             failed.append((ref, e))
             continue
-        keys.append(store.put(trace))
+        keys.append(store.put(trace, fetched_at=fetched_at))
     if failed:
         if errors is None:
             raise IngestError(keys, failed)

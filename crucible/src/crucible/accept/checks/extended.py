@@ -300,12 +300,12 @@ def _s1_applies(t: Any) -> str | None:
 @register("S1", 1, cost_class="human", applies=_s1_applies)
 async def s1_signoff(t: Any, ctx: AcceptContext) -> Out:
     """Human sign-off for H4+: ``signoff.yaml`` exists, approves, and is bound to the current acceptance key."""
-    import yaml
+    from crucible.core.serialize import load_yaml
 
     p = Path(ctx.signoff_root or ".") / t.task_id.replace("/", "__") / "signoff.yaml"
     if not p.exists():
         return Out(Status.PENDING, {"path": str(p)}, ["no sign-off yet (crucible accept --signoff-packet)"])
-    d = yaml.safe_load(p.read_text()) or {}
+    d = load_yaml(p.read_text(), source=str(p)) or {}
     m = {k: d.get(k) for k in ("reviewer", "date", "key_digest", "decision")}
     if d.get("key_digest") != ctx.key_digest:
         return Out(Status.PENDING, m, [f"sign-off is for key {d.get('key_digest')}, current key is {ctx.key_digest}"])

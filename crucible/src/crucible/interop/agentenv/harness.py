@@ -35,7 +35,8 @@ from typing import Any
 import httpx
 
 from crucible.core.schema.run import Failure
-from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.core.schema.usage import Usage, finish_fields
+from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.infra import StageFailure, boundary, classify_verifier
 
 FAILED_STATES = {"failed", "canceled", "rejected"}
@@ -71,8 +72,12 @@ def calls_from_capture(path: Path, actor: str, policy_version: int | None = None
     for i, r in enumerate(rows, 1):
         resp = r.get("response") or {}
         ch = (resp.get("choices") or [{}])[0]
-        call: dict[str, Any] = {"call_id": f"{actor}:cap{i}", "model": (r.get("request") or {}).get("model"), "usage": resp.get("usage") or {},
-                                "finish": ch.get("finish_reason"), "kind": "turn"}
+        # chat, Anthropic or Responses: one usage shape and one finish vocabulary (R-19: Anthropic usage counted cache apart)
+        raw = ch.get("finish_reason") or resp.get("stop_reason") or (
+            (resp.get("incomplete_details") or {}).get("reason") if resp.get("status") == "incomplete" else resp.get("status"))
+        u = resp.get("usage")
+        call: dict[str, Any] = {"call_id": f"{actor}:cap{i}", "model": (r.get("request") or {}).get("model"),
+                                "usage": Usage.model_validate(u).model_dump() if isinstance(u, dict) and u else {}, **finish_fields(raw), "kind": "turn"}
         tok = token_record(resp)
         if tok is not None:
             call["tokens"] = {**tok, **({"policy_version": policy_version} if policy_version is not None else {})}
@@ -174,6 +179,7 @@ class A2AHarness:
                         res.artifacts["agent_trajectory"] = "agent_trajectory.json"
                 if self.capture is not None:
                     res.calls = {self.actor: calls_from_capture(Path(self.capture.capture_dir) / f"{session}.jsonl", self.actor, self.policy_version)}
+                    settle_usage(res, res.calls)
                     if any(res.calls.values()):
                         (attempt.dir / "calls.json").write_text(scrub_json(json.dumps(res.calls, default=str)))
                         res.artifacts["calls"] = "calls.json"

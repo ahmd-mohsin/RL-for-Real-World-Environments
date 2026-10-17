@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from crucible.core.ids import child_path
 from crucible.core.schema.run import RunRecord
 
 
@@ -70,12 +71,12 @@ def atomic_write(path: Path, text: str) -> None:
 
 class RunJournal:
     def __init__(self, root: Path, run_id: str, identity: str, spec: dict[str, Any]):
-        self.dir = Path(root) / run_id
+        self.dir = child_path(Path(root), run_id)  # run_id comes from the caller: refuse "../x", "a/b" before any write
         self.dir.mkdir(parents=True, exist_ok=True)
         meta = self.dir / "run.json"
         if meta.exists():
             old = json.loads(meta.read_text())
-            if old.get("identity") != identity:
+            if old.get("identity") != identity and not (self.dir / "lock.json").exists():  # a lock supersedes the old allowlist (runtime.lock)
                 raise ValueError(f"run {run_id} exists with a different identity ({old.get('identity')} != {identity}): refusing to resume a different run")
         else:
             atomic_write(meta, json.dumps({"run_id": run_id, "identity": identity, "spec": spec, "created": time.time()}, indent=1, default=str))

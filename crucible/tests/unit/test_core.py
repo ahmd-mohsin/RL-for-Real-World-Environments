@@ -115,15 +115,7 @@ def test_run_record_masks_infra_failures():
         r.mark_failure(Failure(kind="made_up", stage="agent"))
 
 
-def test_harbor_compatible_manifest_hash():
-    # Same scheme as harbor/publisher/packager.py: sha256 over sorted "rel\0hash\n" lines.
-    import hashlib
-
-    entries = [("b.txt", "22"), ("a.txt", "11")]
-    outer = hashlib.sha256()
-    for rel, h in sorted(entries):
-        outer.update(f"{rel}\0{h}\n".encode())
-    assert ids.manifest_hash(entries) == outer.hexdigest()
+def test_tree_manifest_hash_counts_the_mode():
     assert ids.tree_manifest_hash([("a", "644", "x")]) != ids.tree_manifest_hash([("a", "755", "x")])
 
 
@@ -138,7 +130,7 @@ def test_store_blobs_docs_tags(tmp_path):
     assert s.get_doc(dk, WorldSpec) == w
     rows = s.list_docs("world", name="toy/helpdesk")
     assert len(rows) == 1 and rows[0].provenance.created_by == "test"
-    s.tag("latest", dk)
+    assert s.tag("latest", dk, expect=0) == 1
     assert s.resolve("latest") == dk
     with pytest.raises(StoreError):
         s.resolve("nope")
@@ -154,6 +146,7 @@ def test_store_blobs_docs_tags(tmp_path):
 
 def test_registry_lazy_and_duplicates():
     r = Registry()
+    r.declare_kind("thing", "this test")
     r.register("thing", "a", "json:dumps")
     assert r.get("thing", "a") is json.dumps
     with pytest.raises(RegistryError, match="already registered"):

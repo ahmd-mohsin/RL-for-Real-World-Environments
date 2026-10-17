@@ -1,0 +1,30 @@
+{
+ "content_id": "e677f198b5c76001b782cde9a2e509ffb1fa6b7829837235715f2199a7b3045e",
+ "reads_as": {
+  "family": "f",
+  "milestones": [
+   {
+    "check": {
+     "app": "a",
+     "expect": {
+      "kind": "ok"
+     },
+     "query": {
+      "args": {},
+      "op": "exists"
+     }
+    },
+    "cost": "cheap",
+    "gate": false,
+    "id": "m",
+    "provenance": [],
+    "requires": [],
+    "states": [
+     "p1"
+    ],
+    "weight": 1.0
+   }
+  ],
+  "schema_version": "crucible.milestones/v1"
+ }
+}

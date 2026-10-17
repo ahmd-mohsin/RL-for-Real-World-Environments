@@ -269,6 +269,13 @@ class HarborInPlaceTask:
         if self.task.config.environment.healthcheck is not None and hasattr(env, "run_healthcheck"):
             await env.run_healthcheck()
 
+    def digest(self) -> str:
+        """Harbor's own content hash of the task directory (R-2, P18): the id Harbor publishes it under, over the files
+        Harbor selects (task.toml, instruction, environment/, tests/, solution/, steps/, .gitignore applied)."""
+        from harbor.publisher.packager import Packager
+
+        return "sha256:" + Packager.compute_content_hash(self.dir)[0]
+
     @staticmethod
     def _trial_paths(world):
         """The environment's own trial paths: Harbor mounts ``/logs/{agent,verifier,artifacts}`` from them, so the verifier

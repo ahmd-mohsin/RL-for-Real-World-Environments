@@ -1,0 +1,97 @@
+{
+ "additionalProperties": false,
+ "properties": {
+  "actor": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "atif_step_id": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "call_id": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "cost_s": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "delta_phi": {
+   "type": "number"
+  },
+  "extra": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "harness": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "milestones_lost": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "milestones_new": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "phi": {
+   "type": "number"
+  },
+  "step": {
+   "type": "integer"
+  },
+  "violations": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  }
+ },
+ "required": [
+  "step",
+  "phi",
+  "delta_phi"
+ ],
+ "type": "object"
+}

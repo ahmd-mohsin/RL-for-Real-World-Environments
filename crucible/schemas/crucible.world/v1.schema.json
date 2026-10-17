@@ -1,0 +1,1239 @@
+{
+ "$defs": {
+  "ActorSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "catalog": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/CatalogSpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "grounded_on": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "id": {
+     "type": "string"
+    },
+    "identity": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/IdentitySpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "kind": {
+     "enum": [
+      "policy",
+      "simulated",
+      "peer",
+      "human",
+      "system"
+     ],
+     "type": "string"
+    },
+    "model": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "params": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "persona": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "policy_doc": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tools": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "transport": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "id",
+    "kind"
+   ],
+   "type": "object"
+  },
+  "AppSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "container": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "description": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "healthcheck": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/HealthcheckSpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "id": {
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "reset_hook": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ProbeSpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "resources": {
+     "$ref": "#/$defs/Resources"
+    },
+    "state": {
+     "$ref": "#/$defs/StateSpec"
+    },
+    "template": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "template",
+    "state"
+   ],
+   "type": "object"
+  },
+  "CatalogSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "distractors": {
+     "default": 0,
+     "minimum": -1,
+     "type": "integer"
+    },
+    "hide": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "oracle": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "ClockSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "mode": {
+     "default": "step",
+     "enum": [
+      "step",
+      "wall",
+      "sim"
+     ],
+     "type": "string"
+    },
+    "rate": {
+     "default": 1.0,
+     "type": "number"
+    },
+    "step_dt_s": {
+     "default": 60.0,
+     "type": "number"
+    },
+    "t0": {
+     "default": "2026-01-05T09:00:00Z",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "EventAction": {
+   "additionalProperties": false,
+   "properties": {
+    "args": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "grant": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "revoke": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "text": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "to": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tool": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "type": {
+     "enum": [
+      "nl",
+      "tool",
+      "permission"
+     ],
+     "type": "string"
+    },
+    "verify": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "type": "object"
+  },
+  "EventSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "action": {
+     "$ref": "#/$defs/EventAction"
+    },
+    "actor": {
+     "type": "string"
+    },
+    "barrier": {
+     "anyOf": [
+      {
+       "const": "provoking_call",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "id": {
+     "type": "string"
+    },
+    "when": {
+     "$ref": "#/$defs/EventWhen"
+    }
+   },
+   "required": [
+    "id",
+    "when",
+    "actor",
+    "action"
+   ],
+   "type": "object"
+  },
+  "EventWhen": {
+   "additionalProperties": false,
+   "properties": {
+    "after": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "after_event": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "at": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "count": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "every": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/EveryDist"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "offset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "on_actor": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "on_tool": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "repeat": {
+     "default": false,
+     "type": "boolean"
+    },
+    "seed": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "state": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "until": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "where": {
+     "anyOf": [
+      {
+       "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "EveryDist": {
+   "additionalProperties": false,
+   "properties": {
+    "dist": {
+     "const": "exp",
+     "default": "exp",
+     "type": "string"
+    },
+    "mean": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "mean"
+   ],
+   "type": "object"
+  },
+  "HealthcheckSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "body": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "expect_status": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "http": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "interval_s": {
+     "default": 5.0,
+     "minimum": 0,
+     "type": "number"
+    },
+    "method": {
+     "default": "GET",
+     "enum": [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE"
+     ],
+     "type": "string"
+    },
+    "retries": {
+     "default": 3,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "start_interval_s": {
+     "default": 5.0,
+     "minimum": 0,
+     "type": "number"
+    },
+    "start_period_s": {
+     "default": 0.0,
+     "minimum": 0,
+     "type": "number"
+    },
+    "timeout_s": {
+     "default": 30.0,
+     "exclusiveMinimum": 0,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "IdentitySpec": {
+   "additionalProperties": false,
+   "properties": {
+    "attrs": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "email": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "headers": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "type": "object"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "roles": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "user_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "IsolationSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "blocked_ports": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "egress_probe": {
+     "default": true,
+     "type": "boolean"
+    },
+    "firewall": {
+     "anyOf": [
+      {
+       "enum": [
+        "auto",
+        "off",
+        "required"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "hide_citations": {
+     "default": true,
+     "type": "boolean"
+    },
+    "memory": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "pids_limit": {
+     "default": 4096,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "policy_uid": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "policy_user": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "quiesce": {
+     "default": true,
+     "type": "boolean"
+    },
+    "scrub_messages": {
+     "default": true,
+     "type": "boolean"
+    }
+   },
+   "type": "object"
+  },
+  "LimitsSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "max_tool_output_chars": {
+     "default": 30000,
+     "type": "integer"
+    },
+    "tool_quota": {
+     "anyOf": [
+      {
+       "additionalProperties": {
+        "type": "integer"
+       },
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tool_timeout_s": {
+     "default": 3600,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "PolicyDoc": {
+   "additionalProperties": false,
+   "properties": {
+    "app": {
+     "type": "string"
+    },
+    "applies_to": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "id": {
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "app",
+    "path"
+   ],
+   "type": "object"
+  },
+  "ProbeSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "body": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "expect_status": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "http": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "method": {
+     "default": "GET",
+     "enum": [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE"
+     ],
+     "type": "string"
+    },
+    "timeout_s": {
+     "default": 30.0,
+     "exclusiveMinimum": 0,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "Resources": {
+   "additionalProperties": false,
+   "properties": {
+    "cpus": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "gpu_arch": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "gpu_type": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "gpus": {
+     "default": 0,
+     "type": "integer"
+    },
+    "memory_mb": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "storage_mb": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "RoleSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "allow": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "deny": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "StateSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "adapter": {
+     "enum": [
+      "fs",
+      "fs_git",
+      "sql",
+      "postgres",
+      "json_doc",
+      "process",
+      "http_mock",
+      "browser",
+      "agentenv_data"
+     ],
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": true,
+     "type": "object"
+    }
+   },
+   "required": [
+    "adapter"
+   ],
+   "type": "object"
+  },
+  "TurnSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "app": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "mode": {
+     "default": "sequential",
+     "enum": [
+      "sequential",
+      "simultaneous",
+      "app"
+     ],
+     "type": "string"
+    },
+    "per_turn": {
+     "default": 1,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "seats": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "VerifierSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "allow_symlinks": {
+     "default": false,
+     "type": "boolean"
+    },
+    "artifacts": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "backend": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "backend_params": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "max_depth": {
+     "default": 32,
+     "exclusiveMinimum": 0,
+     "type": "integer"
+    },
+    "max_entries": {
+     "default": 10000,
+     "exclusiveMinimum": 0,
+     "type": "integer"
+    },
+    "max_file_bytes": {
+     "default": 268435456,
+     "exclusiveMinimum": 0,
+     "type": "integer"
+    },
+    "max_total_bytes": {
+     "default": 1073741824,
+     "exclusiveMinimum": 0,
+     "type": "integer"
+    },
+    "mode": {
+     "default": "in_world",
+     "enum": [
+      "in_world",
+      "separate"
+     ],
+     "type": "string"
+    },
+    "protected": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "actors": {
+   "items": {
+    "$ref": "#/$defs/ActorSpec"
+   },
+   "type": "array"
+  },
+  "allowed_hosts": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "apps": {
+   "items": {
+    "$ref": "#/$defs/AppSpec"
+   },
+   "type": "array"
+  },
+  "backend": {
+   "default": "local",
+   "type": "string"
+  },
+  "backend_params": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "clock": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/ClockSpec"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "description": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "events": {
+   "items": {
+    "$ref": "#/$defs/EventSpec"
+   },
+   "type": "array"
+  },
+  "intercept": {
+   "anyOf": [
+    {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "isolation": {
+   "$ref": "#/$defs/IsolationSpec"
+  },
+  "limits": {
+   "$ref": "#/$defs/LimitsSpec"
+  },
+  "network": {
+   "default": "no-network",
+   "enum": [
+    "no-network",
+    "public",
+    "allowlist"
+   ],
+   "type": "string"
+  },
+  "policies": {
+   "items": {
+    "$ref": "#/$defs/PolicyDoc"
+   },
+   "type": "array"
+  },
+  "rbac": {
+   "anyOf": [
+    {
+     "additionalProperties": {
+      "$ref": "#/$defs/RoleSpec"
+     },
+     "type": "object"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "seed": {
+   "default": 0,
+   "type": "integer"
+  },
+  "serial": {
+   "anyOf": [
+    {
+     "type": "boolean"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "turns": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/TurnSpec"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "verifier": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/VerifierSpec"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "world": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "world",
+  "apps",
+  "actors"
+ ],
+ "type": "object"
+}

@@ -31,9 +31,11 @@ from pathlib import Path
 
 import httpx
 
+from crucible.core import env as knobs
+
 TEMPFAIL = 75  # EX_TEMPFAIL: the shared GPU was taken between the idle check and vLLM's memory profile; the runner re-waits
 GPU_BUSY = ("free memory on device", "less than desired GPU memory", "CUDA out of memory", "out of memory", "cudaErrorMemoryAllocation")
-LOG = Path(os.environ.get("CRUCIBLE_VLLM_LOG", "/work/out/vllm.log"))
+LOG = knobs.get("CRUCIBLE_VLLM_LOG")
 
 
 def start_server(model: str, port: int, mem: float, ext_dir: str, max_len: int) -> subprocess.Popen:

@@ -134,7 +134,7 @@ async def test_blank_usage_tolerant_mode_books_uncertain_spend(tmp_path, monkeyp
     tol._client = Fake
     monkeypatch.setitem(tol.config.prices, tol.model, (1.0, 4.0))
     r = await tol.complete([{"role": "user", "content": "x"}], max_tokens=1000)
-    assert r.usage == {"blank": 1} and tol.spend.blank_usage_calls == 1 and tol.spend.uncertain_usd >= 1000 / 1e6 * 4.0  # worst case, not $0
+    assert r.usage["source"] == "none" and r.usage["prompt_tokens"] == 0 and tol.spend.blank_usage_calls == 1 and tol.spend.uncertain_usd >= 1000 / 1e6 * 4.0  # worst case, not $0
 
 
 def test_provider_policy_version_and_named_gaps(tmp_path):

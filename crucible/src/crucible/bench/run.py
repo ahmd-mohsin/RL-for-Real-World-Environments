@@ -182,9 +182,11 @@ def bench_key(out: Path, *, key_file: Path | None = None, notes: list[str] | Non
 
     if key_file is not None:
         return dynamic.load_key(file=check_key_file(Path(key_file)))
-    if os.environ.get(dynamic.KEY_FILE_ENV):
-        return dynamic.load_key(file=check_key_file(Path(os.environ[dynamic.KEY_FILE_ENV])))
-    if os.environ.get(dynamic.KEY_ENV):
+    from crucible.core import env as knobs
+
+    if (key_file_env := knobs.get(dynamic.KEY_FILE_ENV)) is not None:
+        return dynamic.load_key(file=check_key_file(key_file_env))
+    if knobs.get(dynamic.KEY_ENV):
         return dynamic.load_key()  # an invalid key raises (G2 D9)
     f = Path(out) / "bench.key"
     if f.exists() or f.is_symlink():

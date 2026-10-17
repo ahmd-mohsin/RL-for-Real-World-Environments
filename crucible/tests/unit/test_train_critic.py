@@ -20,7 +20,7 @@ from crucible.train.weights import InprocPublisher
 
 
 def _rec(reward=1.0, truncated=False, segments=(0, 0)):
-    turns = [Turn(call_id=f"c{k}", actor="agent", segment=s, prompt_is_delta=k > 0 and s == segments[k - 1], prompt_token_ids=[1, 2, 3] if k == 0 else [4, 5],
+    turns = [Turn(sampling={"temperature": 1.0}, call_id=f"c{k}", actor="agent", segment=s, prompt_is_delta=k > 0 and s == segments[k - 1], prompt_token_ids=[1, 2, 3] if k == 0 else [4, 5],
                   completion_token_ids=[6 + k, 7, 8], logprobs=[-1.0] * 3, policy_version=0) for k, s in enumerate(segments)]
     return RolloutRecord(rollout_id="r", sample="r", task="t", harness="h", policy="p", reward=reward, truncated=truncated, turns=turns)
 

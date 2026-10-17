@@ -1,0 +1,434 @@
+{
+ "$defs": {
+  "Signal": {
+   "additionalProperties": false,
+   "properties": {
+    "actor": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "grades": {
+     "items": {
+      "type": "integer"
+     },
+     "type": "array"
+    },
+    "id": {
+     "type": "string"
+    },
+    "meta": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "polarity": {
+     "enum": [
+      -1,
+      0,
+      1
+     ],
+     "type": "integer"
+    },
+    "reliability": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "source_event": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "target": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/SignalTarget"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "text": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "type": {
+     "enum": [
+      "outcome",
+      "correction",
+      "rejection",
+      "approval",
+      "rework",
+      "revert",
+      "escalation",
+      "violation",
+      "sla_breach",
+      "interrupt",
+      "suggestion_accepted",
+      "check_result",
+      "target"
+     ],
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "type",
+    "polarity"
+   ],
+   "type": "object"
+  },
+  "SignalTarget": {
+   "additionalProperties": false,
+   "properties": {
+    "app": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "object": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "span": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "TraceActor": {
+   "additionalProperties": false,
+   "properties": {
+    "handle": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "id": {
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "human",
+      "agent",
+      "system"
+     ],
+     "type": "string"
+    },
+    "role": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "role",
+    "kind"
+   ],
+   "type": "object"
+  },
+  "TraceEvent": {
+   "additionalProperties": false,
+   "properties": {
+    "actor": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "atif_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "data": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "diff_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "kind": {
+     "enum": [
+      "state",
+      "action",
+      "observation",
+      "message",
+      "agent_session",
+      "check"
+     ],
+     "type": "string"
+    },
+    "reply_to": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "seq": {
+     "type": "integer"
+    },
+    "state_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "target": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/SignalTarget"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "text": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "time": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "type": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "seq",
+    "kind",
+    "type"
+   ],
+   "type": "object"
+  },
+  "TraceOutcome": {
+   "additionalProperties": false,
+   "properties": {
+    "details": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "label": {
+     "default": "unknown",
+     "enum": [
+      "good",
+      "bad",
+      "unknown"
+     ],
+     "type": "string"
+    },
+    "label_source": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "TraceSource": {
+   "additionalProperties": false,
+   "properties": {
+    "connector": {
+     "type": "string"
+    },
+    "fetched_at": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "privacy": {
+     "default": "internal",
+     "enum": [
+      "public",
+      "internal",
+      "restricted"
+     ],
+     "type": "string"
+    },
+    "ref": {
+     "type": "string"
+    },
+    "url": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "connector",
+    "ref"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "actors": {
+   "items": {
+    "$ref": "#/$defs/TraceActor"
+   },
+   "type": "array"
+  },
+  "events": {
+   "items": {
+    "$ref": "#/$defs/TraceEvent"
+   },
+   "type": "array"
+  },
+  "family": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "outcome": {
+   "$ref": "#/$defs/TraceOutcome"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "signals": {
+   "items": {
+    "$ref": "#/$defs/Signal"
+   },
+   "type": "array"
+  },
+  "source": {
+   "$ref": "#/$defs/TraceSource"
+  },
+  "trace_id": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "trace_id",
+  "source"
+ ],
+ "type": "object"
+}

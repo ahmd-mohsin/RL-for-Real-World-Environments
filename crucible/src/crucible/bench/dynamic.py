@@ -36,7 +36,6 @@ import hashlib
 import hmac
 import inspect
 import json
-import os
 import secrets
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -92,10 +91,12 @@ def _decode(raw: bytes) -> bytes:
 def load_key(*, file: str | Path | None = None, env: str = KEY_ENV, file_env: str = KEY_FILE_ENV) -> bytes:
     """The bench key from a file (``file`` or ``$CRUCIBLE_BENCH_KEY_FILE``) or ``$CRUCIBLE_BENCH_KEY``; hex text is
     decoded. Never from argv. Raises when none is set (V4: there is no default)."""
-    path = file or os.environ.get(file_env)
+    from crucible.core import env as knobs
+
+    path = file or knobs.get(file_env)
     if path:
         return check_key(_decode(Path(path).read_bytes()))
-    val = os.environ.get(env)
+    val = knobs.get(env)
     if val:
         return check_key(_decode(val.encode()))
     raise ValueError(f"no bench key: set ${env} (hex) or ${file_env} (a file), e.g. from python -c 'import secrets; print(secrets.token_hex(32))'")

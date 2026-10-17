@@ -218,7 +218,7 @@ class EngineLLM:
         self._convs.append(_Conv(sample_key, [dict(m) for m in messages], prompt + tail, media_all, nonce, text, _canon_calls(calls)))
         del self._convs[: max(0, len(self._convs) - self.max_conversations)]
         finish = "stop" if res.finish == "stop" else ("length" if res.finish == "length" else res.finish)
-        return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp)}, model=self.model,
+        return LLMResponse(text=text, tool_calls=calls, usage={"prompt_tokens": len(prompt), "completion_tokens": len(comp), "source": "engine"}, model=self.model,
                            raw_finish=finish, latency_s=time.monotonic() - t0, raw_message={REPLY_KEY: nonce},
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
                                    "policy_version": res.version, "version_spans": res.version_spans,
@@ -231,6 +231,17 @@ def attach_call_fields(ro: Any, model_calls: dict[str, list[dict[str, Any]]]) ->
     for t in ro.turns:
         if media.get(t.call_id):
             t.media = [dict(m) for m in media[t.call_id]]
+
+
+def codec_capture(codec: Any) -> Any:
+    """The tokenizer and chat-template arguments a chat codec renders with (R-17), or None for a codec without a
+    tokenizer (scripted codecs). Computed once per rollout function: it hashes the whole vocabulary."""
+    from crucible.core.schema.rollout import Capture, TokenizerId
+
+    tok = getattr(codec, "tok", None)
+    if tok is None or not hasattr(tok, "get_vocab"):
+        return None
+    return Capture(tokenizer=TokenizerId.of(tok), template_kwargs=dict(getattr(codec, "kw", None) or {}))
 
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
@@ -247,6 +258,8 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
     from crucible.actors.policy import EpisodeLimits, LLMToolPolicy, run_episode
     from crucible.core.schema.run import RunRecord
     from crucible.runtime.record import build
+
+    capture = codec_capture(codec)
 
     def policies(world: Any, gen: Callable, temperature: float) -> tuple[dict[str, Any], list[Any], list[str]]:
         if seats is None:
@@ -312,6 +325,7 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
             ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature})
             ro.group = None
+            ro.capture = capture
             attach_call_fields(ro, ep.model_calls)
             trace = world.to_trace()
             from crucible.credit.hack_detector import rule_flags

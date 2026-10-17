@@ -1,0 +1,206 @@
+{
+ "$defs": {
+  "Expectation": {
+   "additionalProperties": false,
+   "properties": {
+    "hi": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "kind": {
+     "default": "ok",
+     "enum": [
+      "ok",
+      "equals",
+      "truthy",
+      "regex",
+      "count_eq",
+      "count_ge",
+      "between",
+      "score"
+     ],
+     "type": "string"
+    },
+    "lo": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "value": {
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "Milestone": {
+   "additionalProperties": false,
+   "properties": {
+    "check": {
+     "$ref": "#/$defs/MilestoneCheck"
+    },
+    "cost": {
+     "default": "cheap",
+     "enum": [
+      "cheap",
+      "medium",
+      "expensive"
+     ],
+     "type": "string"
+    },
+    "gate": {
+     "default": false,
+     "type": "boolean"
+    },
+    "id": {
+     "type": "string"
+    },
+    "provenance": {
+     "items": {
+      "$ref": "#/$defs/MilestoneProvenance"
+     },
+     "type": "array"
+    },
+    "requires": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "states": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "weight": {
+     "default": 1.0,
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "check"
+   ],
+   "type": "object"
+  },
+  "MilestoneCheck": {
+   "additionalProperties": false,
+   "properties": {
+    "app": {
+     "type": "string"
+    },
+    "expect": {
+     "$ref": "#/$defs/Expectation"
+    },
+    "query": {
+     "$ref": "#/$defs/Query"
+    }
+   },
+   "required": [
+    "app",
+    "query"
+   ],
+   "type": "object"
+  },
+  "MilestoneProvenance": {
+   "additionalProperties": false,
+   "properties": {
+    "note": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "signal": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "source": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "Query": {
+   "additionalProperties": false,
+   "properties": {
+    "args": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "op": {
+     "type": "string"
+    },
+    "timeout_s": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "op"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "family": {
+   "type": "string"
+  },
+  "milestones": {
+   "items": {
+    "$ref": "#/$defs/Milestone"
+   },
+   "type": "array"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  }
+ },
+ "required": [
+  "family",
+  "milestones"
+ ],
+ "type": "object"
+}

@@ -120,7 +120,7 @@ async def test_same_records_give_the_same_loss_under_every_topology():
         for i, rid in enumerate(g.members):
             rt.pool.start(rid)
             rec = RolloutRecord(rollout_id=rid, sample=rid, task="t", harness="h", policy="p", reward=float(i),
-                                turns=[Turn(call_id=f"{rid}:c", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=[4 + i, 5], logprobs=[-1.0, -2.0],
+                                turns=[Turn(sampling={"temperature": 1.0}, call_id=f"{rid}:c", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=[4 + i, 5], logprobs=[-1.0, -2.0],
                                             policy_version=0)])
             rt.pool.finish(rid, reward=rec.reward, value=rec)
         m = await rt._train(Selection([rt.pool.groups["g"]], {}))

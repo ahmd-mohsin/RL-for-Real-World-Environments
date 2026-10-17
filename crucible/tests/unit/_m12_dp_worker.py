@@ -34,7 +34,7 @@ class SideHeadPolicy(TinyPolicy):
 
 
 def rec(rid: str, prompt: list[int], comp: list[int], reward: float) -> RolloutRecord:
-    t = Turn(call_id="c0", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=[-2.0] * len(comp), policy_version=0)
+    t = Turn(sampling={"temperature": 1.0}, call_id="c0", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=[-2.0] * len(comp), policy_version=0)
     return RolloutRecord(rollout_id=rid, sample=rid, task="t", harness="h", policy="p", reward=reward, turns=[t])
 
 

@@ -32,6 +32,13 @@ class ControlTask:
         self.params = {**({"env": env} if env else {}), **({"factory": factory} if factory else {}), **({"client": dict(client)} if client else {}),
                        "env_kwargs": env_kwargs or {}, **params}
 
+    def digest(self) -> str:
+        """The task's definition (environment, parameters, return range, seed, instruction) in canonical JSON (R-2)."""
+        from crucible.runtime.lock import definition_digest
+
+        return definition_digest({"id": self.id, "app": self.app, "return_range": self.return_range, "success_return": self.success_return,
+                                  "instruction": self.instruction, "seed": self.seed, "clock": self.clock, "params": self.params})
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 

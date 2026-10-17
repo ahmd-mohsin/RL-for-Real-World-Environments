@@ -14,11 +14,11 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, ClassVar
 
 from pydantic import Field, model_validator
 
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 
 CONTRACT_VERSION = "accept-1"
 
@@ -117,8 +117,9 @@ class Override(CrucibleModel):
 NO_OVERRIDE = frozenset({"A1", "A2", "A3", "A4", "A5", "A6", "A13", "A14", "A15", "A16", "A17", "A18", "S1"})
 
 
-class AcceptanceReport(CrucibleModel):
-    schema_: Literal["crucible.acceptance/v1"] = Field("crucible.acceptance/v1", alias="schema")
+class AcceptanceReport(SchemaKeyed):
+    SCHEMA: ClassVar[str] = "crucible.acceptance/v1"
+    schema_: str = Field(SCHEMA, alias="schema")
     task_id: str
     key: AcceptanceKey
     key_digest: str

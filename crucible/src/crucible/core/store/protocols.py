@@ -1,0 +1,46 @@
+"""The store's two interfaces (M0 audit 2026-10-14 R-22; PATTERN: agentenv ``store/object_store`` and
+``store/document_store`` protocols with a conformance suite, Apache-2.0).
+
+``BlobStore`` holds immutable bytes under their ``sha256:<hex>`` key, and every read is checked against the key.
+``DocIndex`` indexes documents by kind and name and keeps the tags (moved by compare-and-set, with a history). Each
+implementation names its ``backend`` kind. ``core.store.Store`` (``backend = "local"``) implements both;
+``core.store.conformance`` is the kit any other backend passes before it replaces it. No framework type appears here:
+core stays below every framework (P19).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
+from typing import IO, Any, Protocol, TypeVar, runtime_checkable
+
+M = TypeVar("M")
+
+
+@runtime_checkable
+class BlobStore(Protocol):
+    backend: str
+
+    def put_bytes(self, data: bytes) -> str: ...
+    def put_file(self, src: str | Path) -> str: ...
+    def has(self, key: str) -> bool: ...
+    def get_bytes(self, key: str) -> bytes: ...  # verified
+    def open_blob(self, key: str) -> IO[bytes]: ...  # verified
+    def export(self, key: str, dest: str | Path) -> Path: ...  # verified copy
+    def verified_path(self, key: str) -> Path: ...
+
+
+@runtime_checkable
+class DocIndex(Protocol):
+    backend: str
+
+    def put_doc(self, kind: str, doc: Any, *, name: str | None = None, prov: Any = None) -> str: ...
+    def get_doc(self, key: str, cls: type[M]) -> M: ...
+    def get_json(self, key: str) -> dict: ...
+    def list_docs(self, kind: str, name: str | None = None) -> list[Any]: ...
+    def kinds(self) -> Iterator[tuple[str, int]]: ...
+    def forget_doc(self, kind: str, key: str) -> bool: ...
+    def tag(self, name: str, key: str, *, expect: int | None, note: dict | None = None) -> int: ...
+    def tag_info(self, name: str) -> Any: ...
+    def tag_history(self, name: str) -> list[Any]: ...
+    def resolve(self, name_or_key: str) -> str: ...

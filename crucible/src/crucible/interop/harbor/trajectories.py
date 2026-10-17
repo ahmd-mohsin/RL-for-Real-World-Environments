@@ -22,6 +22,7 @@ from harbor.models.trajectories import FinalMetrics, Metrics, Step, Trajectory
 from crucible.core.schema.reward import StepRow
 from crucible.core.schema.run import Failure
 from crucible.core.schema.trace import Trace
+from crucible.core.schema.usage import Usage
 from crucible.interop.harbor.atif import episode_to_atif
 
 
@@ -38,13 +39,22 @@ def _action_key(step: Step) -> str | None:
     return None
 
 
+def _usage(call: dict[str, Any]) -> Usage | None:
+    """The call's usage when it reported any (R-19: one shape; ATIF's prompt_tokens includes the cached part)."""
+    u = Usage.model_validate(call["usage"]) if call.get("usage") else None
+    return u if u is not None and u.source != "none" else None
+
+
 def _metrics(call: dict[str, Any]) -> Metrics:
-    u, tok = call.get("usage") or {}, call.get("tokens") or {}
-    return Metrics(prompt_tokens=u.get("prompt_tokens"), completion_tokens=u.get("completion_tokens"), cached_tokens=u.get("cached_tokens"),
+    u, tok = _usage(call), call.get("tokens") or {}
+    return Metrics(prompt_tokens=u.prompt_tokens if u else None, completion_tokens=u.completion_tokens if u else None,
+                   cached_tokens=(u.cache_read_tokens or None) if u else None,
                    cost_usd=call.get("cost_usd"), prompt_token_ids=tok.get("prompt_token_ids"), completion_token_ids=tok.get("completion_token_ids"),
                    logprobs=tok.get("logprobs"),
-                   extra={k: v for k, v in {"policy_version": tok.get("policy_version"), "finish": call.get("finish"), "latency_s": call.get("latency_s"),
-                                            "blank_usage": bool(u.get("blank")), "reasoning_tokens": u.get("reasoning_tokens")}.items() if v not in (None, False)} or None)
+                   extra={k: v for k, v in {"policy_version": tok.get("policy_version"), "finish": call.get("finish"), "finish_raw": call.get("finish_raw"),
+                                            "latency_s": call.get("latency_s"), "blank_usage": bool(call.get("usage")) and u is None,
+                                            "reasoning_tokens": u.reasoning_tokens if u else None, "cache_write_tokens": (u.cache_write_tokens or None) if u else None,
+                                            "usage_source": u.source if u and u.source != "provider" else None}.items() if v not in (None, False)} or None)
 
 
 def to_atif(trace: Trace, actor: str, *, calls: Sequence[dict[str, Any]] = (), instruction: str | None = None, harness: str | None = None,
@@ -86,9 +96,10 @@ def to_atif(trace: Trace, actor: str, *, calls: Sequence[dict[str, Any]] = (), i
     emit_empty_before(None)
     for n, s in enumerate(out, 1):
         s.step_id = n
-    tot = lambda k: sum(((c.get("usage") or {}).get(k) or 0) for c in calls)
+    us = [u for c in calls if (u := _usage(c)) is not None]
+    tot = lambda k: sum(getattr(u, k) for u in us)
     fm = FinalMetrics(total_prompt_tokens=tot("prompt_tokens") if calls else None, total_completion_tokens=tot("completion_tokens") if calls else None,
-                      total_cached_tokens=tot("cached_tokens") if calls else None, total_cost_usd=round(sum(c.get("cost_usd") or 0.0 for c in calls), 6) if calls else None,
+                      total_cached_tokens=tot("cache_read_tokens") if calls else None, total_cost_usd=round(sum(c.get("cost_usd") or 0.0 for c in calls), 6) if calls else None,
                       total_steps=len(out),
                       extra={"model_calls": len(calls), "unjoined_steps": [out[k].step_id for k in unjoined], "unconsumed_actions": len(expected) - i}
                       if calls else None)

@@ -1,0 +1,24 @@
+{
+ "content_id": "1b7e93fa39bf2c895a4b91587730a64376fa583f92c6d118bfc475fc9dc35692",
+ "reads_as": {
+  "cost_uncertain_usd": 0.0,
+  "cost_usd": 0.0,
+  "failure": {
+   "delivery": "delivered",
+   "kind": "agent_timeout",
+   "reason": "x",
+   "retryable": true,
+   "stage": "agent"
+  },
+  "mask_sample": false,
+  "meta": {},
+  "outcome": "running",
+  "policy": "p",
+  "run_id": "r",
+  "schema_version": "crucible.run/v2",
+  "seed": 0,
+  "started_at": "2026-01-01T00:00:00Z",
+  "steps": 0,
+  "world": "w"
+ }
+}
