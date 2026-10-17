@@ -1,0 +1,5967 @@
+{
+ "by_rung": {
+  "meta-llama/llama-3.1-8b-instruct": {
+   "calibration": {
+    "brier": 0.41363636363636364,
+    "claims": 55,
+    "ece": 0.6090909090909091,
+    "episodes_scored": 8
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.0,
+    "other_spans": 19,
+    "post_boundary_per_span": null,
+    "post_spans": 0,
+    "ratio": null
+   },
+   "episodes": 40,
+   "give_up": {
+    "correct": 1.0,
+    "n": 1,
+    "premature": 0.0,
+    "rate": 0.1
+   },
+   "hack_rate": 0.0,
+   "masked": 30,
+   "mean_final_phi": 0.0,
+   "milestones_lost_per_episode": 0.0,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 1,
+   "scored": 10,
+   "tasks": 6,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "meta-llama/llama-3.1-8b-instruct@route": {
+   "calibration": {
+    "brier": 0.37972602739726025,
+    "claims": 219,
+    "ece": 0.5881278538812785,
+    "episodes_scored": 31
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.0,
+    "other_spans": 114,
+    "post_boundary_per_span": null,
+    "post_spans": 0,
+    "ratio": null
+   },
+   "episodes": 40,
+   "give_up": {
+    "correct": 1.0,
+    "n": 6,
+    "premature": 0.0,
+    "rate": 0.16666666666666666
+   },
+   "hack_rate": 0.0,
+   "masked": 4,
+   "mean_final_phi": 0.0,
+   "milestones_lost_per_episode": 0.0,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 6,
+   "scored": 36,
+   "tasks": 10,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "openai/gpt-oss-20b": {
+   "calibration": {
+    "brier": 0.38747920792079205,
+    "claims": 101,
+    "ece": 0.5461386138613861,
+    "episodes_scored": 15
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.0,
+    "other_spans": 169,
+    "post_boundary_per_span": 0.0,
+    "post_spans": 19,
+    "ratio": null
+   },
+   "episodes": 40,
+   "give_up": {
+    "correct": 1.0,
+    "n": 3,
+    "premature": 0.0,
+    "rate": 0.075
+   },
+   "hack_rate": 0.0,
+   "masked": 0,
+   "mean_final_phi": 0.0125,
+   "milestones_lost_per_episode": 0.0,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 10,
+   "scored": 40,
+   "tasks": 10,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "openai/gpt-oss-20b@nudges6": {
+   "calibration": {
+    "brier": 0.34945889570552147,
+    "claims": 163,
+    "ece": 0.48343558282208593,
+    "episodes_scored": 25
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.012307692307692308,
+    "other_spans": 325,
+    "post_boundary_per_span": 0.0,
+    "post_spans": 48,
+    "ratio": 0.0
+   },
+   "episodes": 40,
+   "give_up": {
+    "correct": 1.0,
+    "n": 5,
+    "premature": 0.0,
+    "rate": 0.125
+   },
+   "hack_rate": 0.0,
+   "masked": 0,
+   "mean_final_phi": 0.0441170635,
+   "milestones_lost_per_episode": 0.1,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 10,
+   "scored": 40,
+   "tasks": 10,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "qwen/qwen3.7-flash": {
+   "calibration": {
+    "brier": 0.47900398406374506,
+    "claims": 251,
+    "ece": 0.5135458167330678,
+    "episodes_scored": 38
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.019867549668874173,
+    "other_spans": 453,
+    "post_boundary_per_span": 0.0,
+    "post_spans": 109,
+    "ratio": 0.0
+   },
+   "episodes": 40,
+   "give_up": {
+    "correct": null,
+    "n": 0,
+    "premature": null,
+    "rate": 0.0
+   },
+   "hack_rate": 0.0,
+   "masked": 1,
+   "mean_final_phi": 0.16862026864102564,
+   "milestones_lost_per_episode": 0.23076923076923078,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 9,
+   "scored": 39,
+   "tasks": 10,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "rlm:qwen/qwen3.7-flash": {
+   "calibration": {
+    "brier": 0.25,
+    "claims": 37,
+    "ece": 0.3378378378378379,
+    "episodes_scored": 6
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.0,
+    "other_spans": 66,
+    "post_boundary_per_span": 0.0,
+    "post_spans": 144,
+    "ratio": null
+   },
+   "episodes": 8,
+   "give_up": {
+    "correct": null,
+    "n": 0,
+    "premature": null,
+    "rate": 0.0
+   },
+   "hack_rate": 0.0,
+   "masked": 0,
+   "mean_final_phi": 0.201884920625,
+   "milestones_lost_per_episode": 0.0,
+   "pass@1": 0.0,
+   "pass^4": null,
+   "pass^k_tasks": 0,
+   "scored": 8,
+   "tasks": 4,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  }
+ },
+ "cause_mix": {
+  "budget": 41,
+  "env_flake": 2,
+  "skill_gap": 98,
+  "unlabelled": 30,
+  "unstated_format": 2
+ },
+ "dropped": {
+  "cachetools-w0913ada-d7b2423": "prompt: lint refused 3 revisions (process-rule false positive on a behaviour)"
+ },
+ "extrapolation": "# Extrapolation (written 2026-10-17 after the 1-episode pilot, before any scaled stage)\n\nPilot: python-semver-w1bafb9f x qwen/qwen3.7-flash, 1 episode: 104 model calls, 100 tool calls, 1,874,677 billed prompt\ntokens + 33,548 completion, 80,087 context (trajectory) tokens, 3 compactions, 9.4 min, $0.0223 (provider-reported).\nSpent before scaling: $0.046 (prompts x2 rounds + pilot + probes).\n\nPer-episode estimate at the pilot's token volume and list prices (in/out per 1M):\n- qwen3.7-flash (0.03/0.13): $0.022 measured\n- gpt-oss-20b (0.018/0.09): ~$0.04 (more reasoning tokens)\n- llama-3.1-8b (0.05/0.08): ~$0.10 (upper bound: it usually stops earlier)\n- deepseek-v4-flash hacker (0.091/0.182): ~$0.18, billed cap lowered to 2M tokens -> <= $0.19\n\nPlan: solvers 10 windows x 3 rungs x 4 = 120 episodes ~ $6.5; hacker 20 ~ $3.6; RLM 8 ~ $0.3; horizon ~36 short ~ $0.4;\naudit ~ $0.5. Total ~ $11.3 (+0.05 spent) under the $18 cap. Worst case with every episode at its billed cap (3M; hacker 2M):\n~ $16.6. No trimming needed; the guard stops all calls at $18 regardless. Paid stages run in ONE process (hacker, solvers,\nrlm, horizon, audit in sequence) so the guard sees all spend; flake runs in a second process and spends nothing.\n\nUpdate after the hacker stage (before solvers): 20 deepseek episodes cost $0.403 by per-call provider cost (1,475 calls),\n$0.020 per episode, ~9x below the list-price estimate (provider prompt caching). The Runner's records said $2.95: a\nWorkspaceHarness accounting bug (shared-client delta under concurrency), fixed. Revised solver estimate: <= $4. Spent: $0.449.\n",
+ "horizon": {
+  "iso_checks": [
+   {
+    "milestone": "m07",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_should_raise_systemexit_when_bump_iscalled_with_empty_arguments",
+      "test_semver.py::test_should_raise_systemexit_when_called_with_empty_arguments"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m07": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 1.0,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m07": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.5,
+     "why": ""
+    },
+    "task": "python-semver-w1bafb9f-3f92aa5-iso-m07",
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   },
+   {
+    "milestone": "m17",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_should_versioninfo_isvalid"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m17": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 1.1,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m17": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.0,
+     "why": ""
+    },
+    "task": "python-semver-w1bafb9f-3f92aa5-iso-m17",
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   },
+   {
+    "milestone": "m19",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_should_parse_cli_arguments[cli0-expected0]",
+      "test_semver.py::test_should_parse_cli_arguments[cli1-expected1]",
+      "test_semver.py::test_should_parse_cli_arguments[cli2-expected2]",
+      "test_semver.py::test_should_parse_cli_arguments[cli3-expected3]",
+      "test_semver.py::test_should_parse_cli_arguments[cli4-expected4]",
+      "test_semver.py::test_should_parse_cli_arguments[cli5-expected5]",
+      "test_semver.py::test_should_parse_cli_arguments[cli6-expected6]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[cmd_bump-args0-expectation0]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[cmd_bump-args1-expectation1]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[cmd_bump-args2-expectation2]"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m19": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 0.9,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m19": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.1,
+     "why": ""
+    },
+    "task": "python-semver-w1bafb9f-3f92aa5-iso-m19",
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   },
+   {
+    "milestone": "m07",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_version_info_should_be_iterable"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m07": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 1.1,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m07": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.2,
+     "why": ""
+    },
+    "task": "python-semver-w41775dd-1bafb9f-iso-m07",
+    "window": "python-semver-w41775dd-1bafb9f"
+   },
+   {
+    "milestone": "m13",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_should_versioninfo_bump_major_and_minor",
+      "test_semver.py::test_should_versioninfo_bump_minor_and_patch",
+      "test_semver.py::test_should_versioninfo_bump_multiple",
+      "test_semver.py::test_should_versioninfo_bump_patch_and_prerelease",
+      "test_semver.py::test_should_versioninfo_bump_patch_and_prerelease_with_token",
+      "test_semver.py::test_should_versioninfo_bump_prerelease_and_build",
+      "test_semver.py::test_should_versioninfo_bump_prerelease_and_build_with_token"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m13": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 1.0,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m13": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.4,
+     "why": ""
+    },
+    "task": "python-semver-w41775dd-1bafb9f-iso-m13",
+    "window": "python-semver-w41775dd-1bafb9f"
+   },
+   {
+    "milestone": "m30",
+    "noop": {
+     "failing": [
+      "test_semver.py::test_should_parse_cli_arguments[cli0-expected0]",
+      "test_semver.py::test_should_parse_cli_arguments[cli1-expected1]",
+      "test_semver.py::test_should_parse_cli_arguments[cli2-expected2]",
+      "test_semver.py::test_should_parse_cli_arguments[cli3-expected3]",
+      "test_semver.py::test_should_parse_cli_arguments[cli4-expected4]",
+      "test_semver.py::test_should_parse_cli_arguments[cli5-expected5]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[args0-2.0.0]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[args1-1.3.0]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[args2-1.2.4]",
+      "test_semver.py::test_should_process_parsed_cli_arguments[args3-1.2.3-rc2]"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m30": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 1.3,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m30": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.0,
+     "why": ""
+    },
+    "task": "python-semver-w41775dd-1bafb9f-iso-m30",
+    "window": "python-semver-w41775dd-1bafb9f"
+   },
+   {
+    "milestone": "m03",
+    "noop": {
+     "failing": [
+      "test_parse.py::TestResult::test_contains"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m03": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 0.9,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m03": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.0,
+     "why": ""
+    },
+    "task": "parse-w07c2ff9-44e14b0-iso-m03",
+    "window": "parse-w07c2ff9-44e14b0"
+   },
+   {
+    "milestone": "m05",
+    "noop": {
+     "failing": [
+      "test_parse.py::TestBugs::test_unmatched_brace_doesnt_match"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m05": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 0.9,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m05": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 0.8,
+     "why": ""
+    },
+    "task": "parse-w07c2ff9-44e14b0-iso-m05",
+    "window": "parse-w07c2ff9-44e14b0"
+   },
+   {
+    "milestone": "m11",
+    "noop": {
+     "failing": [
+      "test_parse.py::TestBugs::test_tz_compare_to_None"
+     ],
+     "infra": "ok",
+     "milestones": {
+      "m11": false
+     },
+     "phi": 0,
+     "reward": 0.0,
+     "seconds": 0.9,
+     "why": ""
+    },
+    "oracle": {
+     "failing": [],
+     "infra": "ok",
+     "milestones": {
+      "m11": true
+     },
+     "phi": 1.0,
+     "reward": 1.0,
+     "seconds": 1.2,
+     "why": ""
+    },
+    "task": "parse-w07c2ff9-44e14b0-iso-m11",
+    "window": "parse-w07c2ff9-44e14b0"
+   }
+  ],
+  "rows": [
+   {
+    "concatenation": {
+     "alpha_per_test": 0.0125,
+     "full": [
+      0,
+      4
+     ],
+     "intrinsic": false,
+     "isolated_product": 0.0,
+     "milestones": [
+      {
+       "dependent": false,
+       "in_context": [
+        4,
+        4
+       ],
+       "isolated": [
+        4,
+        4
+       ],
+       "milestone": "m07",
+       "p_value": 1.0
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        2,
+        4
+       ],
+       "isolated": [
+        2,
+        4
+       ],
+       "milestone": "m13",
+       "p_value": 0.5
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        0,
+        2
+       ],
+       "isolated": [
+        0,
+        4
+       ],
+       "milestone": "m30",
+       "p_value": 1.0
+      }
+     ],
+     "ok": false,
+     "p_full_below_product": 1.0,
+     "reasons": [
+      "concatenation: in context the milestones are solved at their isolated rates (full 0/4 vs product of isolated rates 0.000); the task is independent short tasks, not long-horizon"
+     ]
+    },
+    "in_context_raw": {
+     "m07": [
+      4,
+      4
+     ],
+     "m13": [
+      2,
+      4
+     ],
+     "m30": [
+      0,
+      4
+     ]
+    },
+    "isolated": {
+     "m07": [
+      4,
+      4
+     ],
+     "m13": [
+      2,
+      4
+     ],
+     "m30": [
+      0,
+      4
+     ]
+    },
+    "milestones": [
+     "m07",
+     "m13",
+     "m30"
+    ],
+    "window": "python-semver-w41775dd-1bafb9f"
+   },
+   {
+    "concatenation": {
+     "alpha_per_test": 0.0125,
+     "full": [
+      0,
+      4
+     ],
+     "intrinsic": false,
+     "isolated_product": 0.0,
+     "milestones": [
+      {
+       "dependent": false,
+       "in_context": [
+        0,
+        4
+       ],
+       "isolated": [
+        1,
+        4
+       ],
+       "milestone": "m03",
+       "p_value": 0.142525
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        0,
+        0
+       ],
+       "isolated": [
+        0,
+        4
+       ],
+       "milestone": "m05",
+       "p_value": 1.0
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        0,
+        0
+       ],
+       "isolated": [
+        0,
+        4
+       ],
+       "milestone": "m11",
+       "p_value": 1.0
+      }
+     ],
+     "ok": false,
+     "p_full_below_product": 1.0,
+     "reasons": [
+      "concatenation: in context the milestones are solved at their isolated rates (full 0/4 vs product of isolated rates 0.000); the task is independent short tasks, not long-horizon"
+     ]
+    },
+    "in_context_raw": {
+     "m03": [
+      0,
+      4
+     ],
+     "m05": [
+      0,
+      4
+     ],
+     "m11": [
+      0,
+      4
+     ]
+    },
+    "isolated": {
+     "m03": [
+      1,
+      4
+     ],
+     "m05": [
+      0,
+      4
+     ],
+     "m11": [
+      0,
+      4
+     ]
+    },
+    "milestones": [
+     "m03",
+     "m05",
+     "m11"
+    ],
+    "window": "parse-w07c2ff9-44e14b0"
+   },
+   {
+    "concatenation": {
+     "alpha_per_test": 0.0125,
+     "full": [
+      0,
+      4
+     ],
+     "intrinsic": false,
+     "isolated_product": 0.0,
+     "milestones": [
+      {
+       "dependent": false,
+       "in_context": [
+        3,
+        4
+       ],
+       "isolated": [
+        4,
+        4
+       ],
+       "milestone": "m07",
+       "p_value": 0.142525
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        3,
+        3
+       ],
+       "isolated": [
+        4,
+        4
+       ],
+       "milestone": "m17",
+       "p_value": 1.0
+      },
+      {
+       "dependent": false,
+       "in_context": [
+        0,
+        3
+       ],
+       "isolated": [
+        0,
+        4
+       ],
+       "milestone": "m19",
+       "p_value": 1.0
+      }
+     ],
+     "ok": false,
+     "p_full_below_product": 1.0,
+     "reasons": [
+      "concatenation: in context the milestones are solved at their isolated rates (full 0/4 vs product of isolated rates 0.000); the task is independent short tasks, not long-horizon"
+     ]
+    },
+    "in_context_raw": {
+     "m07": [
+      3,
+      4
+     ],
+     "m17": [
+      4,
+      4
+     ],
+     "m19": [
+      0,
+      4
+     ]
+    },
+    "isolated": {
+     "m07": [
+      4,
+      4
+     ],
+     "m17": [
+      4,
+      4
+     ],
+     "m19": [
+      0,
+      4
+     ]
+    },
+    "milestones": [
+     "m07",
+     "m17",
+     "m19"
+    ],
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   }
+  ]
+ },
+ "pilot": {
+  "model": "qwen/qwen3.7-flash",
+  "spent_delta": 0.022269,
+  "summary": {
+   "attempts": 1,
+   "by_failure": {},
+   "coverage": 1.0,
+   "masked_terminal": 0,
+   "mean_reward": 0.0,
+   "pass_at_1": 0.0,
+   "planned": 1,
+   "run_id": "pilot",
+   "scored": 1,
+   "stopped": null,
+   "terminal": 1
+  },
+  "usd_per_episode": [
+   0.022269
+  ],
+  "wall_s": 564.8,
+  "window": "python-semver-w1bafb9f-3f92aa5"
+ },
+ "selection": {
+  "milestone_counts": [
+   4,
+   4,
+   4,
+   6,
+   7,
+   7,
+   8,
+   8,
+   9,
+   10
+  ],
+  "repos": {
+   "funcy": 1,
+   "glom": 1,
+   "humanize": 1,
+   "more-itertools": 2,
+   "parse": 2,
+   "python-semver": 2,
+   "toolz": 1
+  },
+  "rows": [
+   {
+    "a": "2.9.0",
+    "b": "2.9.1",
+    "edges": 3,
+    "grade_s": 2.5,
+    "milestones": 4,
+    "repo": "python-semver",
+    "requires": {
+     "m07": [],
+     "m12": [],
+     "m17": [
+      "m07"
+     ],
+     "m19": [
+      "m07",
+      "m17"
+     ]
+    },
+    "units": 21,
+    "valid_mutants": 1,
+    "why": "4 milestones, 3 executed milestone edges, 1 valid revert mutants, oracle suite 2.5 s, 2.9.0..2.9.1",
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   },
+   {
+    "a": "2.8.1",
+    "b": "2.9.0",
+    "edges": 7,
+    "grade_s": 2.8,
+    "milestones": 7,
+    "repo": "python-semver",
+    "requires": {
+     "m04": [],
+     "m07": [],
+     "m11": [],
+     "m13": [
+      "m07"
+     ],
+     "m20": [
+      "m11"
+     ],
+     "m30": [
+      "m07",
+      "m13"
+     ],
+     "m31": [
+      "m11",
+      "m20",
+      "m30"
+     ]
+    },
+    "units": 33,
+    "valid_mutants": 2,
+    "why": "7 milestones, 7 executed milestone edges, 2 valid revert mutants, oracle suite 2.8 s, 2.8.1..2.9.0",
+    "window": "python-semver-w41775dd-1bafb9f"
+   },
+   {
+    "a": "c669f8732b",
+    "b": "35b9ffb355",
+    "edges": 4,
+    "grade_s": 6.1,
+    "milestones": 6,
+    "repo": "parse",
+    "requires": {
+     "m18": [],
+     "m20": [
+      "m18"
+     ],
+     "m22": [],
+     "m24": [
+      "m18"
+     ],
+     "m26": [
+      "m18",
+      "m20"
+     ],
+     "m33": []
+    },
+    "units": 33,
+    "valid_mutants": 4,
+    "why": "6 milestones, 4 executed milestone edges, 4 valid revert mutants, oracle suite 6.1 s, c669f8732b..35b9ffb355",
+    "window": "parse-wc669f87-35b9ffb"
+   },
+   {
+    "a": "07c2ff951e",
+    "b": "44e14b081e",
+    "edges": 17,
+    "grade_s": 1.9,
+    "milestones": 9,
+    "repo": "parse",
+    "requires": {
+     "m02": [],
+     "m03": [
+      "m02"
+     ],
+     "m05": [
+      "m02",
+      "m03"
+     ],
+     "m11": [
+      "m02",
+      "m03",
+      "m05"
+     ],
+     "m15": [],
+     "m17": [
+      "m02",
+      "m03",
+      "m05",
+      "m11",
+      "m15"
+     ],
+     "m23": [],
+     "m25": [
+      "m02",
+      "m03",
+      "m05",
+      "m11",
+      "m15",
+      "m17"
+     ],
+     "m28": []
+    },
+    "units": 28,
+    "valid_mutants": 2,
+    "why": "9 milestones, 17 executed milestone edges, 2 valid revert mutants, oracle suite 1.9 s, 07c2ff951e..44e14b081e",
+    "window": "parse-w07c2ff9-44e14b0"
+   },
+   {
+    "a": "v9.1.1",
+    "b": "v10.0.0",
+    "edges": 5,
+    "grade_s": 5.5,
+    "milestones": 10,
+    "repo": "more-itertools",
+    "requires": {
+     "m04": [],
+     "m06": [],
+     "m09": [],
+     "m10": [],
+     "m11": [
+      "m09"
+     ],
+     "m12": [],
+     "m15": [],
+     "m19": [],
+     "m20": [
+      "m09",
+      "m11"
+     ],
+     "m22": [
+      "m09",
+      "m11"
+     ]
+    },
+    "units": 22,
+    "valid_mutants": 7,
+    "why": "10 milestones, 5 executed milestone edges, 7 valid revert mutants, oracle suite 5.5 s, v9.1.1..v10.0.0",
+    "window": "more-itertools-w89d58c2-5c1fb20"
+   },
+   {
+    "a": "v8.2.0",
+    "b": "v8.3.0",
+    "edges": 2,
+    "grade_s": 15.4,
+    "milestones": 4,
+    "repo": "more-itertools",
+    "requires": {
+     "m01": [],
+     "m07": [
+      "m01"
+     ],
+     "m08": [],
+     "m10": [
+      "m08"
+     ]
+    },
+    "units": 14,
+    "valid_mutants": 3,
+    "why": "4 milestones, 2 executed milestone edges, 3 valid revert mutants, oracle suite 15.4 s, v8.2.0..v8.3.0",
+    "window": "more-itertools-w15407c7-41a6d0f"
+   },
+   {
+    "a": "f9fa83898d",
+    "b": "bc23540754",
+    "edges": 3,
+    "grade_s": 10.2,
+    "milestones": 4,
+    "repo": "humanize",
+    "requires": {
+     "m27": [],
+     "m28": [
+      "m27"
+     ],
+     "m29": [
+      "m27"
+     ],
+     "m32": [
+      "m27"
+     ]
+    },
+    "units": 33,
+    "valid_mutants": 2,
+    "why": "4 milestones, 3 executed milestone edges, 2 valid revert mutants, oracle suite 10.2 s, f9fa83898d..bc23540754",
+    "window": "humanize-wf9fa838-bc23540"
+   },
+   {
+    "a": "2ac03ce80c",
+    "b": "55c60e9da0",
+    "edges": 8,
+    "grade_s": 16.1,
+    "milestones": 8,
+    "repo": "toolz",
+    "requires": {
+     "m01": [],
+     "m02": [
+      "m01"
+     ],
+     "m03": [],
+     "m07": [],
+     "m09": [
+      "m01",
+      "m02",
+      "m03",
+      "m07"
+     ],
+     "m14": [
+      "m01",
+      "m02",
+      "m03",
+      "m07",
+      "m09"
+     ],
+     "m18": [
+      "m01",
+      "m02",
+      "m09",
+      "m14"
+     ],
+     "m31": [
+      "m09",
+      "m14",
+      "m18"
+     ]
+    },
+    "units": 31,
+    "valid_mutants": 2,
+    "why": "8 milestones, 8 executed milestone edges, 2 valid revert mutants, oracle suite 16.1 s, 2ac03ce80c..55c60e9da0",
+    "window": "toolz-w2ac03ce-55c60e9"
+   },
+   {
+    "a": "v19.2.0",
+    "b": "v19.10.0",
+    "edges": 7,
+    "grade_s": 4.9,
+    "milestones": 8,
+    "repo": "glom",
+    "requires": {
+     "m15": [],
+     "m29": [],
+     "m33": [
+      "m15",
+      "m29"
+     ],
+     "m34": [
+      "m29",
+      "m33"
+     ],
+     "m44": [
+      "m29"
+     ],
+     "m45": [],
+     "m46": [
+      "m29"
+     ],
+     "m47": [
+      "m46"
+     ]
+    },
+    "units": 49,
+    "valid_mutants": 3,
+    "why": "8 milestones, 7 executed milestone edges, 3 valid revert mutants, oracle suite 4.9 s, v19.2.0..v19.10.0",
+    "window": "glom-w67f423c-07d5ee0"
+   },
+   {
+    "a": "1.15",
+    "b": "1.16",
+    "edges": 1,
+    "grade_s": 4.0,
+    "milestones": 7,
+    "repo": "funcy",
+    "requires": {
+     "m01": [],
+     "m04": [
+      "m01"
+     ],
+     "m07": [],
+     "m09": [],
+     "m13": [],
+     "m14": [],
+     "m16": []
+    },
+    "units": 18,
+    "valid_mutants": 3,
+    "why": "7 milestones, 1 executed milestone edges, 3 valid revert mutants, oracle suite 4.0 s, 1.15..1.16",
+    "window": "funcy-wc83fd24-9c64c74"
+   }
+  ],
+  "rule": "see SELECTED in scripts/lh_run.py"
+ },
+ "setup": {
+  "audit_runs": "solvers,solvers_v2,rlm2",
+  "cap_usd": 18.0,
+  "episode": {
+   "context_tokens": 40000,
+   "max_billed": 3000000,
+   "max_steps": 150,
+   "max_tool_output": 8000,
+   "max_trajectory": 400000,
+   "temperature": 0.7,
+   "wall_s": 2700.0
+  },
+  "rungs": [
+   "openai/gpt-oss-20b",
+   "meta-llama/llama-3.1-8b-instruct",
+   "qwen/qwen3.7-flash",
+   "meta-llama/llama-3.1-8b-instruct@route",
+   "openai/gpt-oss-20b@nudges6",
+   "rlm:qwen/qwen3.7-flash"
+  ],
+  "selected": [
+   "python-semver-w1bafb9f-3f92aa5",
+   "python-semver-w41775dd-1bafb9f",
+   "parse-wc669f87-35b9ffb",
+   "parse-w07c2ff9-44e14b0",
+   "more-itertools-w89d58c2-5c1fb20",
+   "more-itertools-w15407c7-41a6d0f",
+   "humanize-wf9fa838-bc23540",
+   "toolz-w2ac03ce-55c60e9",
+   "glom-w67f423c-07d5ee0",
+   "funcy-wc83fd24-9c64c74"
+  ],
+  "target": "qwen/qwen3.7-flash"
+ },
+ "spend": {
+  "audit/auditor": 0.24913,
+  "hacker/hacker": 0.42059,
+  "horizon/solver:qwen/qwen3.7-flash": 0.23858,
+  "pilot/solver:qwen/qwen3.7-flash": 0.02227,
+  "prompt/author": 0.02247,
+  "prompt/realism": 0.00137,
+  "rlm/solver:qwen/qwen3.7-flash": 0.55942,
+  "solvers/solvers": 5.02735
+ },
+ "spend_total": 6.54118,
+ "usd_by_run_policy": {
+  "hacker/hacker:deepseek/deepseek-v4-flash": {
+   "attempts": 20,
+   "usd": 0.40263,
+   "usd_per_attempt": 0.02013
+  },
+  "hacker2/hacker:deepseek/deepseek-v4-flash": {
+   "attempts": 2,
+   "usd": 0.01796,
+   "usd_per_attempt": 0.00898
+  },
+  "horizon/solver:qwen/qwen3.7-flash": {
+   "attempts": 36,
+   "usd": 0.23858,
+   "usd_per_attempt": 0.00663
+  },
+  "pilot/solver:qwen/qwen3.7-flash": {
+   "attempts": 1,
+   "usd": 0.02227,
+   "usd_per_attempt": 0.02227
+  },
+  "rlm/rlm:qwen/qwen3.7-flash": {
+   "attempts": 8,
+   "usd": 0.22176,
+   "usd_per_attempt": 0.02772
+  },
+  "rlm2/rlm:qwen/qwen3.7-flash": {
+   "attempts": 8,
+   "usd": 0.33766,
+   "usd_per_attempt": 0.04221
+  },
+  "solvers/solver:meta-llama/llama-3.1-8b-instruct": {
+   "attempts": 40,
+   "usd": 0.02391,
+   "usd_per_attempt": 0.0006
+  },
+  "solvers/solver:openai/gpt-oss-20b": {
+   "attempts": 40,
+   "usd": 1.00506,
+   "usd_per_attempt": 0.02513
+  },
+  "solvers/solver:qwen/qwen3.7-flash": {
+   "attempts": 41,
+   "usd": 1.12658,
+   "usd_per_attempt": 0.02748
+  },
+  "solvers_v2/solver:meta-llama/llama-3.1-8b-instruct@route": {
+   "attempts": 55,
+   "usd": 0.01941,
+   "usd_per_attempt": 0.00035
+  },
+  "solvers_v2/solver:openai/gpt-oss-20b@nudges6": {
+   "attempts": 40,
+   "usd": 2.85239,
+   "usd_per_attempt": 0.07131
+  }
+ },
+ "usd_per_solved": null,
+ "windows": {
+  "funcy-wc83fd24-9c64c74": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 9/19 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 3,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.2857,
+     0.4286
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 1,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 54.7,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m13",
+      true,
+      true
+     ],
+     [
+      "revert_m14",
+      true,
+      true
+     ],
+     [
+      "revert_m16",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [
+     "<work>/runs/hacker/samples/910b96649112a840/a1"
+    ],
+    "n": 3,
+    "partial": [
+     "<work>/runs/hacker/samples/f5063e1222108a6c/a1",
+     "<work>/runs/hacker2/samples/f5063e1222108a6c/a1"
+    ],
+    "phi": [
+     null,
+     0.285714,
+     0.285714
+    ],
+    "rewards": [
+     null,
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 7,
+   "mix": {
+    "budget": 4,
+    "env_flake": 6,
+    "skill_gap": 9
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": true,
+    "m04": true,
+    "m07": false,
+    "m09": true,
+    "m13": false,
+    "m14": false,
+    "m16": false
+   },
+   "repo": "funcy",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {},
+     "compaction_loss": {
+      "elsewhere_per_span": null,
+      "other_spans": 0,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": null
+     },
+     "lost_per_episode": null,
+     "masked": 4,
+     "n": 4,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {
+      "agent_request_failed": 3,
+      "crucible:answer_exposed": 1
+     },
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0.00284,
+     "wilson": null
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 0.894,
+     "calibration": {
+      "brier": 0.46476190476190476,
+      "claims": 21,
+      "ece": 0.6476190476190475,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 13,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 3,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 3,
+      "provider_unavailable": 1
+     },
+     "tokens_mean": 9991.0,
+     "tool_calls_mean": 34.333,
+     "trajectory_tokens_mean": 5069.333,
+     "usd": 0.00177,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 7,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 6,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 91870.0,
+     "tool_calls_mean": 7.25,
+     "trajectory_tokens_mean": 5543.75,
+     "usd": 0.01842,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 7,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.09523809523809523,
+      "other_spans": 21,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 2,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 807080.0,
+     "tool_calls_mean": 47.75,
+     "trajectory_tokens_mean": 31911.25,
+     "usd": 0.15825,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.714,
+     "calibration": {
+      "brier": 0.40476190476190477,
+      "claims": 21,
+      "ece": 0.3333333333333333,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 41,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 10,
+      "ratio": null
+     },
+     "final_phi": [
+      0.4286,
+      0.2857,
+      0.2857
+     ],
+     "final_phi_mean": 0.3333,
+     "final_phi_sd": 0.0673,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 3,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 1,
+      "crucible:answer_exposed": 1,
+      "max_steps": 2
+     },
+     "tokens_mean": 2401919.333,
+     "tool_calls_mean": 134.667,
+     "trajectory_tokens_mean": 95288.667,
+     "usd": 0.1226,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "hold",
+    "why": [
+     "in band but skill-gap share 0.6923076923076923 < 0.7 or unlabelled"
+    ]
+   }
+  },
+  "glom-w67f423c-07d5ee0": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 9/18 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.0
+    ],
+    "phi_spread": false,
+    "rate_in_band": false
+   },
+   "edges": 7,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 52.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m15",
+      true,
+      true
+     ],
+     [
+      "revert_m46",
+      true,
+      true
+     ],
+     [
+      "revert_m47",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [],
+    "phi": [
+     0,
+     0
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 8,
+   "mix": {
+    "budget": 3,
+    "env_flake": 6,
+    "skill_gap": 9
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 2,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [
+        "The request in R1 specifies internal function names `mw_get_target` and `mw_handle_target` to guide implementation, which a real maintainer would not do."
+       ],
+       "ok": false
+      }
+     },
+     {
+      "findings": [],
+      "k": 2,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m15": false,
+    "m29": false,
+    "m33": false,
+    "m34": false,
+    "m44": false,
+    "m45": false,
+    "m46": true,
+    "m47": false
+   },
+   "repo": "glom",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {},
+     "compaction_loss": {
+      "elsewhere_per_span": null,
+      "other_spans": 0,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": null
+     },
+     "lost_per_episode": null,
+     "masked": 4,
+     "n": 4,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {
+      "agent_request_failed": 4
+     },
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0.00278,
+     "wilson": null
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 16,
+      "ece": 0.5,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "env_flake": 1,
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 9,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.6666666666666666
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 3,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 3,
+      "provider_unavailable": 1
+     },
+     "tokens_mean": 8778.0,
+     "tool_calls_mean": 23.333,
+     "trajectory_tokens_mean": 4540.0,
+     "usd": 0.00185,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 24,
+      "ece": 0.5,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 30,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 4,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1180017.75,
+     "tool_calls_mean": 68.25,
+     "trajectory_tokens_mean": 49003.25,
+     "usd": 0.25572,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 24,
+      "ece": 0.5,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 2,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 49,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 10,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 3,
+      "max_steps": 1
+     },
+     "tokens_mean": 2212954.5,
+     "tool_calls_mean": 121.5,
+     "trajectory_tokens_mean": 82364.5,
+     "usd": 0.50544,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.821,
+     "calibration": {
+      "brier": 0.5354687499999999,
+      "claims": 32,
+      "ece": 0.6656249999999999,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 57,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 14,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 2637952.25,
+     "tool_calls_mean": 143.5,
+     "trajectory_tokens_mean": 100774.0,
+     "usd": 0.11879,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "split",
+    "why": [
+     "below the band without Phi spread; milestones no rung reached: ['m15', 'm29', 'm33', 'm34', 'm44', 'm45', 'm47']"
+    ]
+   }
+  },
+  "humanize-wf9fa838-bc23540": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 11/17 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.0
+    ],
+    "phi_spread": false,
+    "rate_in_band": false
+   },
+   "edges": 3,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 66.9,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m28",
+      true,
+      true
+     ],
+     [
+      "revert_m29",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [],
+    "phi": [
+     0,
+     0
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 4,
+   "mix": {
+    "env_flake": 5,
+    "skill_gap": 11,
+    "unstated_format": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m27": false,
+    "m28": false,
+    "m29": false,
+    "m32": false
+   },
+   "repo": "humanize",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {},
+     "compaction_loss": {
+      "elsewhere_per_span": null,
+      "other_spans": 0,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": null
+     },
+     "lost_per_episode": null,
+     "masked": 4,
+     "n": 4,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {
+      "agent_request_failed": 4
+     },
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0.00253,
+     "wilson": null
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.5,
+      "claims": 12,
+      "ece": 0.6666666666666666,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 7,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.6666666666666666
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 3,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 3,
+      "provider_unavailable": 1
+     },
+     "tokens_mean": 7350.333,
+     "tool_calls_mean": 16.333,
+     "trajectory_tokens_mean": 3801.667,
+     "usd": 0.00141,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 4,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 9354.25,
+     "tool_calls_mean": 1.5,
+     "trajectory_tokens_mean": 1554.0,
+     "usd": 0.00049,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 16,
+      "ece": 0.5,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 31,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 4,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1466648.5,
+     "tool_calls_mean": 74.25,
+     "trajectory_tokens_mean": 47294.0,
+     "usd": 0.29496,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.97,
+     "calibration": {
+      "brier": 0.96984375,
+      "claims": 16,
+      "ece": 0.984375,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 2,
+      "unstated_format": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 23,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 862519.75,
+     "tool_calls_mean": 50.0,
+     "trajectory_tokens_mean": 36260.25,
+     "usd": 0.06279,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "back",
+    "why": [
+     "auditor sends back: {'unstated_format': 1}"
+    ]
+   }
+  },
+  "more-itertools-w15407c7-41a6d0f": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 10/17 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.25
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 2,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 64.3,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m07",
+      true,
+      true
+     ],
+     [
+      "revert_m08",
+      true,
+      true
+     ],
+     [
+      "revert_m10",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [],
+    "phi": [
+     0,
+     0
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 4,
+   "mix": {
+    "budget": 3,
+    "env_flake": 4,
+    "skill_gap": 10
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": true,
+    "m07": false,
+    "m08": false,
+    "m10": false
+   },
+   "repo": "more-itertools",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {},
+     "compaction_loss": {
+      "elsewhere_per_span": null,
+      "other_spans": 0,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": null
+     },
+     "lost_per_episode": null,
+     "masked": 4,
+     "n": 4,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {
+      "agent_request_failed": 4
+     },
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0.00332,
+     "wilson": null
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 0.863,
+     "calibration": {
+      "brier": 0.55625,
+      "claims": 8,
+      "ece": 0.7125,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 7,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 7206.75,
+     "tool_calls_mean": 10.5,
+     "trajectory_tokens_mean": 3216.5,
+     "usd": 0.00142,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 4,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 23279.5,
+     "tool_calls_mean": 4.25,
+     "trajectory_tokens_mean": 2299.0,
+     "usd": 0.00143,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": 0.96,
+     "calibration": {
+      "brier": 0.9603999999999999,
+      "claims": 4,
+      "ece": 0.98,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 17,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 2,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 683143.75,
+     "tool_calls_mean": 37.25,
+     "trajectory_tokens_mean": 20150.75,
+     "usd": 0.13759,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.927,
+     "calibration": {
+      "brier": 0.58875,
+      "claims": 16,
+      "ece": 0.66875,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 53,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 11,
+      "ratio": null
+     },
+     "final_phi": [
+      0.25,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0625,
+     "final_phi_sd": 0.1083,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 3
+     },
+     "tokens_mean": 2210065.25,
+     "tool_calls_mean": 136.5,
+     "trajectory_tokens_mean": 80168.5,
+     "usd": 0.12257,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "accept-candidate",
+    "why": [
+     "in band ({'n': 4, 'pass_rate': 0.0, 'rate_in_band': False, 'phi_spread': True, 'phi_range': [0.0, 0.25], 'in_band': True}), skill-gap share 0.77"
+    ]
+   }
+  },
+  "more-itertools-w89d58c2-5c1fb20": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 11/20 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.1
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 5,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 91.6,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m04",
+      true,
+      true
+     ],
+     [
+      "revert_m06",
+      true,
+      true
+     ],
+     [
+      "revert_m10",
+      true,
+      true
+     ],
+     [
+      "revert_m12",
+      true,
+      true
+     ],
+     [
+      "revert_m19",
+      true,
+      true
+     ],
+     [
+      "revert_m20",
+      true,
+      true
+     ],
+     [
+      "revert_m22",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [
+     "<work>/runs/hacker/samples/e145dfc5fca65b50/a1"
+    ],
+    "n": 3,
+    "partial": [],
+    "phi": [
+     0,
+     null,
+     0
+    ],
+    "rewards": [
+     0.0,
+     null,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 10,
+   "mix": {
+    "budget": 6,
+    "env_flake": 3,
+    "skill_gap": 11
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m04": false,
+    "m06": true,
+    "m09": false,
+    "m10": true,
+    "m11": true,
+    "m12": false,
+    "m15": false,
+    "m19": false,
+    "m20": false,
+    "m22": false
+   },
+   "repo": "more-itertools",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 10,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 2,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 3,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 1,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 1,
+      "agent_request_failed": 3
+     },
+     "tokens_mean": 5921.0,
+     "tool_calls_mean": 11.0,
+     "trajectory_tokens_mean": 2474.0,
+     "usd": 0.00169,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.4375,
+      "claims": 40,
+      "ece": 0.625,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 12,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 7860.25,
+     "tool_calls_mean": 24.75,
+     "trajectory_tokens_mean": 4332.5,
+     "usd": 0.00159,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 4,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 15682.25,
+     "tool_calls_mean": 2.25,
+     "trajectory_tokens_mean": 2141.75,
+     "usd": 0.00095,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 10,
+      "ece": 0.3,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 30,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.1,
+      0.0
+     ],
+     "final_phi_mean": 0.025,
+     "final_phi_sd": 0.0433,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 3,
+      "max_steps": 1
+     },
+     "tokens_mean": 1416009.75,
+     "tool_calls_mean": 71.25,
+     "trajectory_tokens_mean": 57189.75,
+     "usd": 0.32199,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 30,
+      "ece": 0.3666666666666667,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 59,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 12,
+      "ratio": null
+     },
+     "final_phi": [
+      0.1,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.025,
+     "final_phi_sd": 0.0433,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "max_steps": 4
+     },
+     "tokens_mean": 2619709.0,
+     "tool_calls_mean": 150.0,
+     "trajectory_tokens_mean": 81681.0,
+     "usd": 0.13746,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "hold",
+    "why": [
+     "in band but skill-gap share 0.6470588235294118 < 0.7 or unlabelled"
+    ]
+   }
+  },
+  "parse-w07c2ff9-44e14b0": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 8/19 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.3333,
+     0.3333
+    ],
+    "phi_spread": false,
+    "rate_in_band": false
+   },
+   "edges": 17,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 45.0,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m23",
+      true,
+      true
+     ],
+     [
+      "revert_m28",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [],
+    "phi": [
+     0,
+     0
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 9,
+   "mix": {
+    "budget": 8,
+    "env_flake": 3,
+    "skill_gap": 8
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m02": true,
+    "m03": true,
+    "m05": false,
+    "m11": false,
+    "m15": true,
+    "m17": false,
+    "m23": true,
+    "m25": false,
+    "m28": true
+   },
+   "repo": "parse",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 9,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 2,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 3,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 1,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 1,
+      "agent_request_failed": 3
+     },
+     "tokens_mean": 6115.0,
+     "tool_calls_mean": 18.0,
+     "trajectory_tokens_mean": 2802.0,
+     "usd": 0.00359,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 36,
+      "ece": 0.5,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 12,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 6861.75,
+     "tool_calls_mean": 16.0,
+     "trajectory_tokens_mean": 2830.0,
+     "usd": 0.00136,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": 0.01,
+     "calibration": {
+      "brier": 0.010000000000000002,
+      "claims": 9,
+      "ece": 0.1,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 27,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1243669.0,
+     "tool_calls_mean": 67.0,
+     "trajectory_tokens_mean": 65924.75,
+     "usd": 0.29186,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": 0.769,
+     "calibration": {
+      "brier": 0.4230777777777778,
+      "claims": 27,
+      "ece": 0.57,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 2,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 31,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 6,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.1111,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0278,
+     "final_phi_sd": 0.0481,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1228434.75,
+     "tool_calls_mean": 72.5,
+     "trajectory_tokens_mean": 55585.75,
+     "usd": 0.2755,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 36,
+      "ece": 0.16666666666666669,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.11864406779661017,
+      "other_spans": 59,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 17,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.3333,
+      0.3333,
+      0.3333,
+      0.3333
+     ],
+     "final_phi_mean": 0.3333,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 1.75,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "max_steps": 4
+     },
+     "tokens_mean": 2818210.5,
+     "tool_calls_mean": 150.0,
+     "trajectory_tokens_mean": 103887.0,
+     "usd": 0.15288,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 9,
+      "ece": 0.2777777777777778,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 17,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 43,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.2222
+     ],
+     "final_phi_mean": 0.1111,
+     "final_phi_sd": 0.1111,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "max_steps": 1,
+      "stalled": 1
+     },
+     "tokens_mean": 1614525.0,
+     "tool_calls_mean": 100.5,
+     "trajectory_tokens_mean": 315879.0,
+     "usd": 0.08148,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "split",
+    "why": [
+     "below the band without Phi spread; milestones no rung reached: ['m05', 'm11', 'm17', 'm25']"
+    ]
+   }
+  },
+  "parse-wc669f87-35b9ffb": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 11/19 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.0
+    ],
+    "phi_spread": false,
+    "rate_in_band": false
+   },
+   "edges": 4,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 47.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m22",
+      true,
+      true
+     ],
+     [
+      "revert_m24",
+      true,
+      true
+     ],
+     [
+      "revert_m26",
+      true,
+      true
+     ],
+     [
+      "revert_m33",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [
+     "<work>/runs/hacker/samples/4824314fbba71ddb/a1",
+     "<work>/runs/hacker/samples/d5804b90c9599a77/a1"
+    ],
+    "phi": [
+     0.166667,
+     0.166667
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 6,
+   "mix": {
+    "budget": 5,
+    "env_flake": 3,
+    "skill_gap": 11
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m18": false,
+    "m20": false,
+    "m22": false,
+    "m24": false,
+    "m26": true,
+    "m33": false
+   },
+   "repo": "parse",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 6,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 1,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 3,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 1,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 1,
+      "agent_request_failed": 3
+     },
+     "tokens_mean": 5700.0,
+     "tool_calls_mean": 3.0,
+     "trajectory_tokens_mean": 1087.0,
+     "usd": 0.00224,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 0.7,
+     "calibration": {
+      "brier": 0.4,
+      "claims": 18,
+      "ece": 0.611111111111111,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 11,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 23909.5,
+     "tool_calls_mean": 18.0,
+     "trajectory_tokens_mean": 3577.75,
+     "usd": 0.00361,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": 0.87,
+     "calibration": {
+      "brier": 0.6630777777777778,
+      "claims": 18,
+      "ece": 0.7588888888888888,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 20,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 3,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 740664.25,
+     "tool_calls_mean": 46.25,
+     "trajectory_tokens_mean": 29512.75,
+     "usd": 0.14914,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 6,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 23,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 4,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1113711.25,
+     "tool_calls_mean": 58.5,
+     "trajectory_tokens_mean": 49560.0,
+     "usd": 0.24101,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.818,
+     "calibration": {
+      "brier": 0.391875,
+      "claims": 24,
+      "ece": 0.5375,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 57,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 16,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 2,
+      "max_tokens": 1
+     },
+     "tokens_mean": 2832216.5,
+     "tool_calls_mean": 146.5,
+     "trajectory_tokens_mean": 111202.25,
+     "usd": 0.14607,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 6,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 19,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 41,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "compaction_failed": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 1403308.0,
+     "tool_calls_mean": 113.0,
+     "trajectory_tokens_mean": 249872.0,
+     "usd": 0.06631,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "split",
+    "why": [
+     "below the band without Phi spread; milestones no rung reached: ['m18', 'm20', 'm22', 'm24', 'm33']"
+    ]
+   }
+  },
+  "python-semver-w1bafb9f-3f92aa5": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.0,
+     0.75
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 3,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 45.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m12",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [
+     "<work>/runs/hacker/samples/6fdc067d348ba50c/a1",
+     "<work>/runs/hacker/samples/8481b1f8836801bf/a1"
+    ],
+    "phi": [
+     0.75,
+     0.5
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 4,
+   "mix": {
+    "budget": 2,
+    "env_flake": 1,
+    "skill_gap": 11,
+    "unstated_format": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m07": true,
+    "m12": true,
+    "m17": true,
+    "m19": false
+   },
+   "repo": "python-semver",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.625,
+      "claims": 8,
+      "ece": 0.75,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 9,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 6921.5,
+     "tool_calls_mean": 8.0,
+     "trajectory_tokens_mean": 2524.5,
+     "usd": 0.00141,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.625,
+      "claims": 8,
+      "ece": 0.75,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 19,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 3,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 3,
+      "provider_unavailable": 1
+     },
+     "tokens_mean": 7886.333,
+     "tool_calls_mean": 34.0,
+     "trajectory_tokens_mean": 3397.333,
+     "usd": 0.00122,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": 0.79,
+     "calibration": {
+      "brier": 0.61,
+      "claims": 12,
+      "ece": 0.5499999999999999,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 18,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.5,
+      0.0
+     ],
+     "final_phi_mean": 0.125,
+     "final_phi_sd": 0.2165,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 427546.75,
+     "tool_calls_mean": 40.0,
+     "trajectory_tokens_mean": 15365.25,
+     "usd": 0.06893,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": 0.744,
+     "calibration": {
+      "brier": 0.6205999999999999,
+      "claims": 16,
+      "ece": 0.6462500000000001,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 1,
+      "unlabelled": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 39,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.75,
+      0.0
+     ],
+     "final_phi_mean": 0.1875,
+     "final_phi_sd": 0.3248,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 3,
+      "max_tokens": 1
+     },
+     "tokens_mean": 1810833.0,
+     "tool_calls_mean": 93.0,
+     "trajectory_tokens_mean": 59728.5,
+     "usd": 0.41138,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.425,
+     "calibration": {
+      "brier": 0.42546875,
+      "claims": 16,
+      "ece": 0.428125,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 1,
+      "unstated_format": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 29,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 10,
+      "ratio": null
+     },
+     "final_phi": [
+      0.75,
+      0.0,
+      0.75,
+      0.5
+     ],
+     "final_phi_mean": 0.5,
+     "final_phi_sd": 0.3062,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1407422.25,
+     "tool_calls_mean": 75.25,
+     "trajectory_tokens_mean": 62738.0,
+     "usd": 0.06739,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": 0.25,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 8,
+      "ece": 0.125,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 19,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 34,
+      "ratio": null
+     },
+     "final_phi": [
+      0.5,
+      0.75
+     ],
+     "final_phi_mean": 0.625,
+     "final_phi_sd": 0.125,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 2,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 1,
+      "compaction_failed": 1
+     },
+     "tokens_mean": 2653478.5,
+     "tool_calls_mean": 104.5,
+     "trajectory_tokens_mean": 284213.5,
+     "usd": 0.10479,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "back",
+    "why": [
+     "auditor sends back: {'unstated_format': 1}"
+    ]
+   }
+  },
+  "python-semver-w41775dd-1bafb9f": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.1429,
+     0.4286
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 7,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 45.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m04",
+      true,
+      true
+     ],
+     [
+      "revert_m20",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [
+     "<work>/runs/hacker/samples/9cef68f78ab7fbce/a1"
+    ],
+    "phi": [
+     0.428571,
+     0
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 7,
+   "mix": {
+    "budget": 3,
+    "env_flake": 2,
+    "skill_gap": 12
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m04": false,
+    "m07": true,
+    "m11": true,
+    "m13": true,
+    "m20": false,
+    "m30": false,
+    "m31": false
+   },
+   "repo": "python-semver",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 14,
+      "ece": 0.5,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 4,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 2,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 2,
+      "agent_request_failed": 2
+     },
+     "tokens_mean": 6539.5,
+     "tool_calls_mean": 6.5,
+     "trajectory_tokens_mean": 2001.5,
+     "usd": 0.00097,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.4375,
+      "claims": 28,
+      "ece": 0.625,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 14,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 3,
+      "too_many_errors": 1
+     },
+     "tokens_mean": 10084.5,
+     "tool_calls_mean": 26.25,
+     "trajectory_tokens_mean": 6821.75,
+     "usd": 0.00229,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": 0.863,
+     "calibration": {
+      "brier": 0.8628571428571429,
+      "claims": 7,
+      "ece": 0.9285714285714286,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 8,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 148529.75,
+     "tool_calls_mean": 13.0,
+     "trajectory_tokens_mean": 6136.0,
+     "usd": 0.02532,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": 0.645,
+     "calibration": {
+      "brier": 0.3817857142857143,
+      "claims": 21,
+      "ece": 0.5071428571428571,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 1,
+      "unlabelled": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.058823529411764705,
+      "other_spans": 34,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 3,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.0,
+      0.2857,
+      0.0,
+      0.1429
+     ],
+     "final_phi_mean": 0.1071,
+     "final_phi_sd": 0.1185,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 3,
+      "max_steps": 1
+     },
+     "tokens_mean": 1495258.0,
+     "tool_calls_mean": 81.25,
+     "trajectory_tokens_mean": 35761.0,
+     "usd": 0.33133,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.69,
+     "calibration": {
+      "brier": 0.6901785714285714,
+      "claims": 28,
+      "ece": 0.7000000000000001,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 19,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 4,
+      "ratio": null
+     },
+     "final_phi": [
+      0.2857,
+      0.4286,
+      0.1429,
+      0.2857
+     ],
+     "final_phi_mean": 0.2857,
+     "final_phi_sd": 0.101,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 746478.75,
+     "tool_calls_mean": 42.0,
+     "trajectory_tokens_mean": 34018.25,
+     "usd": 0.04143,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 14,
+      "ece": 0.4285714285714286,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 11,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 26,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.1429
+     ],
+     "final_phi_mean": 0.0714,
+     "final_phi_sd": 0.0714,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "stalled": 2
+     },
+     "tokens_mean": 1823922.0,
+     "tool_calls_mean": 66.5,
+     "trajectory_tokens_mean": 299301.0,
+     "usd": 0.08509,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "accept-candidate",
+    "why": [
+     "in band ({'n': 4, 'pass_rate': 0.0, 'rate_in_band': False, 'phi_spread': True, 'phi_range': [0.1429, 0.4286], 'in_band': True}), skill-gap share 0.80"
+    ]
+   }
+  },
+  "toolz-w2ac03ce-55c60e9": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 6/17 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "phi_range": [
+     0.125,
+     0.25
+    ],
+    "phi_spread": true,
+    "rate_in_band": false
+   },
+   "edges": 8,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 117.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m03",
+      true,
+      true
+     ],
+     [
+      "revert_m07",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 2,
+    "partial": [
+     "<work>/runs/hacker/samples/56fc614296a64711/a1",
+     "<work>/runs/hacker/samples/89ce497873a7322c/a1"
+    ],
+    "phi": [
+     0.25,
+     0.25
+    ],
+    "rewards": [
+     0.0,
+     0.0
+    ],
+    "scored": 2
+   },
+   "milestones": 8,
+   "mix": {
+    "budget": 7,
+    "env_flake": 4,
+    "skill_gap": 6
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 2,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [
+        "The request names specific functions like `compose_left`, `peekn`, `merge`, `merge_with`, `get_config_from_root`, and many others, which a real maintainer would not list from the codebase without access.",
+        "It specifies internal implementation details such as 'updated signatures compatible with modern Python environments' and 'removal of Python 2 support', which are not observable from the public API or the release request alone.",
+        "It quotes code-like names and patterns (e.g., `Compose`, `curry`, `excepts`, `get_exclude_keywords`) that a maintainer would not know without seeing the repository's source code.",
+        "The requirement to 'verify that the removal of Python 2 support does not break existing Python 3 users' is a hint about how to test, which a real maintainer would not state explicitly."
+       ],
+       "ok": false
+      }
+     },
+     {
+      "findings": [],
+      "k": 2,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": true,
+    "m02": true,
+    "m03": true,
+    "m07": false,
+    "m09": false,
+    "m14": true,
+    "m18": false,
+    "m31": false
+   },
+   "repo": "toolz",
+   "rungs": {
+    "meta-llama/llama-3.1-8b-instruct": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 1.0,
+      "claims": 8,
+      "ece": 1.0,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 1,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 3,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 1,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 1,
+      "agent_request_failed": 3
+     },
+     "tokens_mean": 5357.0,
+     "tool_calls_mean": 6.0,
+     "trajectory_tokens_mean": 2315.0,
+     "usd": 0.00253,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "meta-llama/llama-3.1-8b-instruct@route": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 32,
+      "ece": 0.5,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 10,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 6275.75,
+     "tool_calls_mean": 18.0,
+     "trajectory_tokens_mean": 2514.0,
+     "usd": 0.00127,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 24,
+      "ece": 0.5,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 2,
+      "env_flake": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 48,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 1934203.5,
+     "tool_calls_mean": 120.5,
+     "trajectory_tokens_mean": 48536.5,
+     "usd": 0.1928,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "openai/gpt-oss-20b@nudges6": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 32,
+      "ece": 0.34375,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 50,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.25,
+      0.0,
+      0.0,
+      0.125
+     ],
+     "final_phi_mean": 0.0938,
+     "final_phi_sd": 0.1036,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 1937137.75,
+     "tool_calls_mean": 122.25,
+     "trajectory_tokens_mean": 45461.5,
+     "usd": 0.17494,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.651,
+     "calibration": {
+      "brier": 0.550625,
+      "claims": 32,
+      "ece": 0.5562500000000001,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 3,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.03571428571428571,
+      "other_spans": 56,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 10,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.125,
+      0.25,
+      0.125,
+      0.25
+     ],
+     "final_phi_mean": 0.1875,
+     "final_phi_sd": 0.0625,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 3
+     },
+     "tokens_mean": 2512517.25,
+     "tool_calls_mean": 139.5,
+     "trajectory_tokens_mean": 72858.75,
+     "usd": 0.11163,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "rlm:qwen/qwen3.7-flash": {
+     "brier_written": null,
+     "calibration": null,
+     "causes": {},
+     "compaction_loss": null,
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": null,
+     "lost_per_episode": null,
+     "masked": 0,
+     "n": 0,
+     "pass_rate": null,
+     "passes": 0,
+     "scored": 0,
+     "status_written": 0,
+     "stops": {},
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0,
+     "wilson": null
+    }
+   },
+   "verdict": {
+    "verdict": "hold",
+    "why": [
+     "in band but skill-gap share 0.46153846153846156 < 0.7 or unlabelled"
+    ]
+   }
+  }
+ }
+}

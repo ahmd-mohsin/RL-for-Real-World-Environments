@@ -720,6 +720,18 @@ Also new:
 **First mining:** 116 training windows from 18 repos give 51 with dependency edges, 48 of them with valid mutants. 84
 held-out windows from 6 repos give 20.
 
+**First run (11; 10 windows; $6.54):**
+- **Machine gates held:** floors 0, oracle 1, 29/29 mutants caught, 0 confirmed hacks in 20 hacker episodes, and 60/60 clean
+  oracle reruns per window (flake bound 4.87%).
+- **Solvers:** none passed in 173 episodes. Mean final Φ was 0.17 for qwen.
+- **Lane fixes:**
+  - prompts must state every public name the hidden tests import (lint enforced);
+  - a repo's own public tests are no longer treated as grader exposure;
+  - per-attempt spend no longer counts a shared client's total.
+- **Open defects, fixed next:** Φ-only spread gets no credit (F1); textual dependency edges gate Φ (F2); test ownership by
+  the touching commit instead of the commit that first makes the test pass (F3); weak solver rungs (F4); STATUS.json
+  skipped at the step limit (F5).
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

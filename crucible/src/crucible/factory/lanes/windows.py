@@ -39,6 +39,7 @@ refuses process instructions no check enforces, file paths, test names and commi
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import re
@@ -667,7 +668,9 @@ AUTHOR_BRIEF = ("You write the release request a maintainer of this Python libra
                 "observable behaviour of the public API (inputs, outputs, errors, formats) the release must have, never how to "
                 "implement it. Never write file paths, module file names, test names, commit ids, issue or pull request numbers, "
                 "links, or process instructions (what tools to use or avoid). Return {opening, requirements: [{id, text}], closing}: "
-                "opening is two or three sentences of context, closing is optional, requirements has exactly one entry per change id.")
+                "opening is two or three sentences of context, closing is optional, requirements has exactly one entry per change id. "
+                "Names listed in a change's must_name (or in must_name_any) are public names the release must expose under exactly "
+                "that name: write each one, verbatim, in the requirement of its change (must_name_any: in the one it fits).")
 REALISM_BRIEF = ("You review a maintainer's release request for a coding task. Reject it (ok false) when it gives hints a real "
                  "maintainer would not: it names files or tests, says how to implement something, quotes code from a patch, or "
                  "states rules the developer could not know from the request and the repository. Requirements that state "
@@ -729,16 +732,125 @@ def changelog_excerpt(repo: RepoGit, a: str, b: str, *, limit: int = 3000) -> st
     return scrub("\n".join(out))[:limit]
 
 
+def _module_file(base_dir: Path, module: str) -> Path | None:
+    """``a.b`` -> ``a/b.py`` or ``a/b/__init__.py`` under A's tree (or its ``src/``); None when it is not the project's."""
+    rel = Path(*module.split("."))
+    for root in (Path(base_dir), Path(base_dir) / "src"):
+        for cand in (root / rel.with_suffix(".py"), root / rel / "__init__.py"):
+            if cand.is_file():
+                return cand
+    return None
+
+
+def _bound_names(mod_file: Path) -> set[str] | None:
+    """Names a module binds at top level (defs, classes, assignments, imports, its package's submodules); None when it
+    re-exports with ``*``, makes attributes dynamically (a module ``__getattr__``, an import hook) or does not parse
+    (unknown: never required)."""
+    text = mod_file.read_text(errors="replace")
+    pkg = [f.read_text(errors="replace") for f in mod_file.parent.glob("*.py")] if mod_file.name == "__init__.py" else []
+    if any(re.search(r"sys\.meta_path|sys\.modules\[|^def __getattr__\(", t, re.MULTILINE) for t in [text, *pkg]):
+        return None  # the package (or a module of it) makes attributes at import time
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.For, ast.With)):
+            for t in ast.walk(n):
+                if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store):
+                    out.add(t.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name == "*":
+                    return None
+                out.add(a.asname or a.name.split(".")[0])
+    if mod_file.name == "__init__.py":
+        out |= {p.stem for p in mod_file.parent.glob("*.py")} | {p.name for p in mod_file.parent.iterdir() if (p / "__init__.py").is_file()}
+    return out
+
+
+def _dunder(name: str) -> bool:
+    return name.startswith("__") and name.endswith("__")  # every module has its dunders
+
+
+def required_names(tests: Mapping[str, str], base_dir: Path) -> dict[str, list[str]]:
+    """Public names B's test files import from the project (``from <project module> import name``) that A does not
+    have: the hidden tests need exactly these names, so the prompt must state them. A module-level import of a missing
+    name fails collection of the whole test file (every milestone in it and its regression tests read as failing), an
+    in-function one (or ``import pkg as p`` then ``p.name``) fails its tests. ``{"module_level", "in_function", "attribute",
+    "private"}`` lists; private names
+    (``_x``) are never required in a prompt: a hidden test that imports one is testing an implementation detail."""
+    found: dict[str, set[str]] = {"module_level": set(), "in_function": set(), "attribute": set(), "private": set()}
+    bound: dict[str, set[str] | None] = {}
+    for _path, text in sorted(tests.items()):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        top = {id(n) for n in tree.body}
+        aliases = {a.asname or a.name: a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
+                   if _module_file(base_dir, a.name) is not None}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in aliases:  # ``mi.new_name``
+                mod = aliases[n.value.id]
+                if mod not in bound:
+                    bound[mod] = _bound_names(_module_file(base_dir, mod))  # type: ignore[arg-type]
+                if (bound[mod] is not None and n.attr not in bound[mod] and not _dunder(n.attr)  # type: ignore[operator]
+                        and _module_file(base_dir, f"{mod}.{n.attr}") is None):
+                    found["private" if n.attr.startswith("_") else "attribute"].add(n.attr)
+                continue
+            if not (isinstance(n, ast.ImportFrom) and n.module and n.level == 0):
+                continue
+            f = _module_file(base_dir, n.module)
+            if f is None:
+                continue
+            if n.module not in bound:
+                bound[n.module] = _bound_names(f)
+            have = bound[n.module]
+            if have is None:
+                continue
+            for a in n.names:
+                if a.name == "*" or a.name in have or _dunder(a.name) or _module_file(base_dir, f"{n.module}.{a.name}") is not None:
+                    continue
+                kind = "private" if a.name.startswith("_") else ("module_level" if id(n) in top else "in_function")
+                found[kind].add(a.name)
+    found["in_function"] -= found["module_level"]
+    found["attribute"] -= found["module_level"] | found["in_function"]
+    return {k: sorted(v) for k, v in found.items()}
+
+
 def author_payload(rec: Mapping[str, Any], repo: RepoGit, base_dir: Path) -> dict[str, Any]:
     units = {u["sha"]: Unit(**u) for u in rec["units"]}
     readme = next(iter(sorted(Path(base_dir).glob("README*"))), None)
-    changes = []
+    req = required_names(rec.get("tests_b") or {}, base_dir)
+    must = set(req["module_level"]) | set(req["in_function"]) | set(req["attribute"])
+    changes, placed = [], set()
     for m in rec["milestones"]:
         u = units[m["unit"]]
-        changes.append({"id": m["id"], "message": scrub(f"{u.subject}\n{u.body}")[:900],
-                        "public_names": public_names(repo.patch(u).decode("utf-8", "replace"))})
+        names = public_names(repo.patch(u).decode("utf-8", "replace"))
+        mine = sorted(must & set(names) - placed)
+        placed |= set(mine)
+        changes.append({"id": m["id"], "message": scrub(f"{u.subject}\n{u.body}")[:900], "public_names": names,
+                        **({"must_name": mine} if mine else {})})
+    for n in sorted(must - placed):  # an export or a constant: the change whose diff adds a line naming it
+        for c, m in zip(changes, rec["milestones"], strict=True):
+            if re.search(rf"^\+(?!\+\+).*(?<!\w){re.escape(n)}(?!\w)", repo.patch(units[m["unit"]]).decode("utf-8", "replace"), re.MULTILINE):
+                c["must_name"] = sorted({*c.get("must_name", []), n})
+                placed.add(n)
+                break
+    rest = sorted(must - placed)
     return {"library": rec["repo"], "readme_head": scrub(readme.read_text(errors="replace"))[:1500] if readme else "",
-            "changelog": changelog_excerpt(repo, rec["a"], rec["b"]), "changes": changes}
+            "changelog": changelog_excerpt(repo, rec["a"], rec["b"]), "changes": changes, **({"must_name_any": rest} if rest else {})}
+
+
+def unstated_names(payload: Mapping[str, Any], text: str) -> list[str]:
+    """Findings for required public names (``author_payload``'s ``must_name`` / ``must_name_any``) the authored text never
+    writes verbatim."""
+    want = sorted({n for c in payload.get("changes") or [] for n in c.get("must_name") or []} | set(payload.get("must_name_any") or []))
+    return [f"unstated_name: the hidden tests import {n!r}; the request must name it" for n in want if not re.search(rf"(?<!\w){re.escape(n)}(?!\w)", text)]
 
 
 def locate(prompt: str, text: str) -> tuple[int, int] | None:
@@ -797,6 +909,7 @@ async def author_window(client: Any, rec: Mapping[str, Any], repo: RepoGit, base
         problems.append("author.opening is empty")
     authored = "\n".join([opening, closing, *[r["text"] for r in requirements]])
     problems += lint_prompt(authored)
+    problems += unstated_names(payload, authored)
     requirements.append({"id": REGRESSION_REQ, "milestone": None, "text": REGRESSION_TEXT, "kind": "side_effect_scope"})
     prompt = compose_window_prompt(opening, [r for r in requirements if r["id"] != REGRESSION_REQ], closing + ("\n\n" if closing else "") + REGRESSION_TEXT)
     spans = {r["id"]: list(loc) for r in requirements if (loc := locate(prompt, r["text"]))}
