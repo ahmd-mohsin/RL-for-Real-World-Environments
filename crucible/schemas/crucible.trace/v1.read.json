@@ -1,0 +1,37 @@
+{
+ "content_id": "351204fb9dac84cb0f5eb68e3561ce986adaedb59431cec98d2a281961fdc0fc",
+ "reads_as": {
+  "actors": [],
+  "events": [
+   {
+    "data": {},
+    "kind": "action",
+    "seq": 0,
+    "text": "x",
+    "type": "commit"
+   }
+  ],
+  "outcome": {
+   "details": {},
+   "label": "unknown"
+  },
+  "schema_version": "crucible.trace/v1",
+  "signals": [
+   {
+    "grades": [
+     0
+    ],
+    "id": "s",
+    "meta": {},
+    "polarity": 1,
+    "type": "approval"
+   }
+  ],
+  "source": {
+   "connector": "c",
+   "privacy": "internal",
+   "ref": "r"
+  },
+  "trace_id": "t1"
+ }
+}

@@ -826,7 +826,7 @@ def test_g4h6_length_finish_is_truncation_and_turn_records_finish_and_sampling()
     rec = trace_to_record(rec_d, "r")
     assert rec.truncated is True and not rec.mask_sample  # a limit stop is scored (LimitPolicy default), and flagged
     t = rec.turns[0]
-    assert t.finish == "length" and t.sampling["temperature"] == 0.7 and t.sampling["max_tokens"] == 64
+    assert t.finish == "length" and t.sampling.temperature == 0.7 and t.sampling.max_tokens == 64
     rec_d, vf_trunc = _dump(_trace(finish="tool_calls"))
     assert vf_trunc is False and trace_to_record(rec_d, "r").truncated is False and trace_to_record(rec_d, "r").turns[0].finish == "stop"
 
@@ -849,7 +849,7 @@ def test_g4h6_actor_is_the_agent_name_and_an_untrainable_agent_never_trains():
 def test_g4h6_truncated_sampling_is_refused_not_silently_changed():
     rec_d, _ = _dump(_trace(sampling={"temperature": 1.0, "top_p": 0.9, "max_tokens": 64}))
     rec = trace_to_record(rec_d, "r")
-    assert rec.mask_sample and rec.failure_kind == "crucible:harness_unsupported" and rec.turns[0].sampling["top_p"] == 0.9
+    assert rec.mask_sample and rec.failure_kind == "crucible:harness_unsupported" and rec.turns[0].sampling.top_p == 0.9
     rec_d, _ = _dump(_trace(sampling={"temperature": 1.0, "top_k": 20}))
     assert trace_to_record(rec_d, "r").failure_kind == "crucible:harness_unsupported"
     rec_d, _ = _dump(_trace(sampling={"temperature": 1.0, "top_p": 1.0, "top_k": -1}))
@@ -904,7 +904,7 @@ def test_g4h6_generate_server_records_served_sampling_and_matches_shared_routes(
     assert rec.mask_sample and rec.failure_kind == "crucible:harness_unsupported"  # it asked for top_p 0.8, which was not served
     ok_srv = [dict(s, requested={}) for s in srv.sampling["k"]]
     rec = trace_to_record(dict(full, _crucible_sampling=ok_srv), "r")
-    assert not rec.mask_sample and rec.turns[0].sampling["top_p"] == 1.0  # Turn.sampling = what was served
+    assert not rec.mask_sample and rec.turns[0].sampling.top_p == 1.0  # Turn.sampling = what was served
 
 
 async def test_g4h6_vf_rollout_trains_the_solver_of_a_multi_agent_episode(monkeypatch):

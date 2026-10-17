@@ -136,7 +136,7 @@ async def test_hf_policy_batched_logprobs_training_and_checkpoint_publish(tmp_pa
         with _t.no_grad():
             lp = pol.token_logprobs([1, 2, 3], [4 + i, 5]).tolist()
         recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=r,
-                                  turns=[Turn(call_id=f"r{i}:c1", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=[4 + i, 5], logprobs=lp,
+                                  turns=[Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c1", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=[4 + i, 5], logprobs=lp,
                                               policy_version=0)]))
     tr = TorchTrainer(pol, TrainerConfig(lr=1e-2, correction=Correction("dis")))
     before = {k: v.clone() for k, v in pol.state_dict().items()}
@@ -166,7 +166,7 @@ async def test_top_p_rollouts_carry_candidates_through_the_runtime():
     for r in rep.trained_records:
         assert r.valid_for_training()[0]
         for t in r.turns:
-            assert t.sampling["top_p"] == 0.8 and t.candidates and len(t.candidates) == len(t.completion_token_ids)  # resumed calls keep theirs
+            assert t.sampling.top_p == 0.8 and t.candidates and len(t.candidates) == len(t.completion_token_ids)  # resumed calls keep theirs
 
 
 async def test_moe_rollouts_record_routing_and_train_with_r3():
@@ -203,7 +203,7 @@ def test_prefix_sharing_equals_the_unpacked_step(kind):
         for k in range(4):
             comp = _t.randint(4, 60, (int(_t.randint(1, 7, (1,), generator=g)),), generator=g).tolist()
             recs.append(RolloutRecord(rollout_id=f"r{gi}{k}", sample="s", task="t", harness="h", policy="p", reward=float(k % 2),
-                                      turns=[Turn(call_id=f"r{gi}{k}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp,
+                                      turns=[Turn(sampling={"temperature": 1.0}, call_id=f"r{gi}{k}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp,
                                                   logprobs=[-2.0] * len(comp), policy_version=0)]))
             groups.append(f"g{gi}")
     out = {}

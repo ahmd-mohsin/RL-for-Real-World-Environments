@@ -1,0 +1,16 @@
+{
+ "content_id": "dd3174c6fb7ea6ca243d273d6fe7851a15e35f6574e46ff067b60a9b99b5db1d",
+ "reads_as": {
+  "artifacts": [],
+  "baseline_network_mode": "public",
+  "collect_commands": [],
+  "gpus": 0,
+  "ignored_keys": [],
+  "metadata": {},
+  "name": "n",
+  "network_mode": "public",
+  "schema_version": "1.0",
+  "task_hash": "h",
+  "verifier_mode": "shared"
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "content_id": "94cbac2c12ca395c280ed808520ef1f72f78365ae0b7f6b41319a161e39e5afe",
+ "reads_as": {
+  "actor": "agent",
+  "app": "sim",
+  "env": "gymnasium:CartPole-v1",
+  "episode_return": 0.0,
+  "harness": "h",
+  "mask_sample": false,
+  "policy": "p",
+  "reset_digest": "r",
+  "reward_components": {},
+  "rollout_id": "s1-a1",
+  "sample": "s1",
+  "schema": "crucible.control_rollout/v1",
+  "seed": 0,
+  "steps": [],
+  "task": "t",
+  "terminated": false,
+  "ticks": 0,
+  "timings": {},
+  "truncated": false
+ }
+}

@@ -17,7 +17,7 @@ async def fn_rollout(rid, prompt, seed, gen, *, temperature=1.0, harness=""):
     res = await gen([1, 2, 3], 3, temperature)
     return RolloutRecord(rollout_id=rid, sample=rid, task=prompt, harness=harness, policy="native",
                          reward=float(len(res.completion_ids) == 3),
-                         turns=[Turn(call_id=f"{rid}:c1", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=list(res.completion_ids),
+                         turns=[Turn(sampling={"temperature": 1.0}, call_id=f"{rid}:c1", actor="agent", prompt_token_ids=[1, 2, 3], completion_token_ids=list(res.completion_ids),
                                      logprobs=list(res.logprobs), policy_version=res.version)])
 
 

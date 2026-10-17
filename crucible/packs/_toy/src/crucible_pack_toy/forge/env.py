@@ -114,7 +114,7 @@ def env_validator(out: EnvBuild, staged: dict[str, Any]) -> list[str]:
     if any(("now" in v.lower() and "datetime(" in v.lower()) for k, v in out.files.items() if k.endswith(".sql")):
         f.append("seed SQL reads the wall clock")
     try:
-        WorldSpec.model_validate(yaml.safe_load(out.world_yaml))
+        WorldSpec.from_yaml(out.world_yaml)
     except Exception as ex:  # noqa: BLE001 -- any validation error is a finding for the builder
         f.append(f"world spec invalid: {ex}"[:300])
     return f

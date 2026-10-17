@@ -22,13 +22,13 @@ import dataclasses
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.core.schema.run import Failure
-from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier, failure
 from crucible.world.custody import CustodyViolation
 from crucible.world.verifier import hand_off, verifier_world, wants_separate
@@ -205,6 +205,12 @@ class PolicyRef:
     make: Callable[[Attempt], dict[str, Any]]  # attempt -> {actor_id: Policy}
     spend: Callable[[], tuple[float, float]] = lambda: (0.0, 0.0)  # (usd, uncertain usd) observed so far
     estimate_usd: float = 0.0
+    # what the policy is beyond its id: model, endpoint, request defaults, sampling (runtime.lock, R-1); empty means
+    # only the id identifies it, and the run lock lists the policy as opaque
+    settings: dict[str, Any] = field(default_factory=dict)
+
+    def lock_settings(self) -> dict[str, Any] | None:
+        return self.settings or None
 
 
 class NativeHarness:
@@ -221,6 +227,16 @@ class NativeHarness:
         self.limit_policy = limit_policy or LimitPolicy()
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
         self.sidecar = sidecar
+
+    LOCK_EXCLUDE: tuple[str, ...] = ("progress_full_every",)  # how often progress is written, not what the episode is
+
+    def lock_settings(self) -> dict[str, Any]:
+        """Every public, non-callable attribute (subclasses' included, so a new setting counts without being listed)
+        except ``LOCK_EXCLUDE``: limits, limit policy, checkpointing, workspace mode, RLM config (runtime.lock, R-1)."""
+        from crucible.runtime.lock import jsonable
+
+        return {k: jsonable(v) for k, v in sorted(vars(self).items())
+                if not k.startswith("_") and k not in ("id", *self.LOCK_EXCLUDE) and not callable(v)}
 
     def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
         """(the previous attempt's dir, its checkpoint) when the previous attempt was masked mid-episode, or when the
@@ -437,6 +453,7 @@ class NativeHarness:
             usd, unc = attempt.policy.spend()
             res.cost_usd, res.cost_uncertain_usd = max(0.0, usd - spend0[0]), max(0.0, unc - spend0[1])
             calls = res.calls or {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()}  # a masked attempt paid too (V8)
+            settle_usage(res, calls, restored)
             own = [c for cs in calls.values() for c in cs if c.get("cost_usd") is not None and c.get("call_id") not in restored]
             if own:  # the attempt's own model calls: a client shared by concurrent attempts makes the spend delta count theirs too
                 res.cost_usd = round(sum(float(c["cost_usd"]) for c in own), 9)

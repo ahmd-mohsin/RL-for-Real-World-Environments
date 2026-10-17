@@ -10,3 +10,7 @@ RL-Environments/**
 plan.md
 .en
 agentenv-framework/
+
+# Personal working notes kept local: in 2026-10-14/ only the M5 audit report is tracked
+crucible/docs/research/improvements/2026-10-14/*
+!crucible/docs/research/improvements/2026-10-14/M05-workflow.md

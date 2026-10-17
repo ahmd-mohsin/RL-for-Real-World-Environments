@@ -1132,7 +1132,7 @@ class AgentLoop:
             self.tree.supervisor.charge_sub_tokens(n)
         cid = self.tree.calls.new_id()
         i = self._log("sub_call", prompt=content, text=r.text or "", call_id=cid, parent=parent)
-        self.tree.calls.append({"call_id": cid, **base, "ledger_index": i, "model": r.model, "finish": r.raw_finish, "usage": r.usage,
+        self.tree.calls.append({"call_id": cid, **base, "ledger_index": i, "model": r.model, **r.finish_fields(), "usage": r.usage,
                                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "tokens": r.tokens})
         return r.text or ""
 
@@ -1506,7 +1506,7 @@ class AgentLoop:
                 text = rec["error"]
             else:
                 u = resp.usage or {}
-                rec.update(model=resp.model, finish=resp.raw_finish, usage=resp.usage, cost_usd=resp.cost_usd, latency_s=round(resp.latency_s, 3),
+                rec.update(model=resp.model, **resp.finish_fields(), usage=resp.usage, cost_usd=resp.cost_usd, latency_s=round(resp.latency_s, 3),
                            cached=resp.cached, tokens=resp.tokens)
                 text = resp.text or ""
                 self._largest("compaction", int(u.get("prompt_tokens") or 0))
@@ -1632,7 +1632,7 @@ class AgentLoop:
             if is_overflow(e):
                 return await self._on_overflow(f"{type(e).__name__}: {e}", None)
             raise  # a lost worker / transport fault: the driver's exception (masked by run_episode, agent_run_error)
-        if is_silent_overflow(r.usage, r.raw_finish, self.spec.window_tokens, r.text, r.tool_calls):
+        if is_silent_overflow(r.usage, r.finish, self.spec.window_tokens, r.text, r.tool_calls):
             return await self._on_overflow("silent overflow (the provider returned an empty reply for an over-long prompt)", r)
         self._turn_paid = False
         self._overflows_in_row = 0
@@ -1681,7 +1681,7 @@ class AgentLoop:
         edge, self._next_edge = self._next_edge or "continuation", None
         call = {"call_id": self.tree.calls.new_id(), "kind": "turn", "agent": self.agent, "depth": self.depth, "edge": edge, "segment": self.segment,
                 "window": self._window(), "step": self.tree.step, "context_tokens": sent, "context_source": sent_source, "model": r.model,
-                "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached,
+                **r.finish_fields(), "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached,
                 "actions": [], "trainable": True, "tokens": self._compress(r.tokens)}
         if self.spawn_parent and not self._parent_sent:  # a child's first call names the call whose cell spawned it (D)
             call["parent"], self._parent_sent = self.spawn_parent, True

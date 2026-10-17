@@ -1,0 +1,31 @@
+{
+ "cost_uncertain_usd": 0.0,
+ "cost_usd": 0.0125,
+ "mask_sample": false,
+ "meta": {
+  "gates": {
+   "tests": 1
+  },
+  "harness": "native:llm-tool@1",
+  "stop": "submitted",
+  "timings": {
+   "agent": 12.0,
+   "cleanup": 0.25,
+   "model": 9.25,
+   "seed": 1.5,
+   "upload": 0.5,
+   "verification": 3.0
+  },
+  "truncated": false
+ },
+ "outcome": "completed",
+ "policy": "p",
+ "reward": 0.75,
+ "run_id": "r",
+ "schema_version": "crucible.run/v1",
+ "seed": 0,
+ "started_at": "2026-01-01T00:00:00Z",
+ "steps": 7,
+ "tokens": {},
+ "world": "w"
+}

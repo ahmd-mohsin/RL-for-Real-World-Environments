@@ -1,0 +1,14 @@
+{
+ "components": {},
+ "gates": {
+  "g": 1
+ },
+ "infra": {
+  "status": "ok"
+ },
+ "outcome": 0.0,
+ "progress": 0.25,
+ "reward": 0.5,
+ "rubric": {},
+ "schema_version": "crucible.reward/v1"
+}

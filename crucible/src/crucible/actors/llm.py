@@ -8,7 +8,8 @@
 - **Accounting**: provider-reported cost when present (OpenRouter ``usage.cost``), else config prices, else (a hosted
   model with no price) ``UNPRICED_USD_PER_M`` or ``prices["*"]``, booked as spend and as uncertain: an unpriced model
   used to cost 0 USD, so its hard budget could never trip (M2 audit). Self-hosted engines (localhost, ``tito``, a
-  ``policy_version``) cost 0.
+  ``policy_version``) cost 0. Usage is ``core.schema.usage.Usage`` whatever the provider's shape, so cache reads and
+  writes are priced at their own rates (R-19: every prompt token was charged at the input rate, 2.29x a cached call).
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import httpx
 
 from crucible.core.config import Config, get_config, resolve_secret
 from crucible.core.ids import sha256_text
+from crucible.core.schema.rollout import SamplingParams
+from crucible.core.schema.usage import FinishReason, Usage, finish_fields, finish_reason
 
 # Spend attribution per asyncio task (M8 audit V3): every booked cost is also added to the innermost open scope, so a
 # caller that runs many roles concurrently (the forge orchestrator) charges each node its own calls, not the global delta.
@@ -130,7 +133,7 @@ def _parse_arguments(raw: str | None) -> dict[str, Any]:
 class LLMResponse:
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)  # [{id, name, arguments(dict)}]
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)  # a dumped core.schema.usage.Usage (R-19); {} = not reported
     cost_usd: float = 0.0
     model: str = ""
     cached: bool = False
@@ -139,6 +142,22 @@ class LLMResponse:
     latency_s: float = 0.0
     response_id: str | None = None
     tokens: dict[str, Any] | None = None  # token-in-token-out record when the endpoint returns it (prompt/completion ids, logprobs, policy_version)
+    sampling: dict[str, Any] = field(default_factory=dict)  # the sampling parameters the call sent (core.schema.rollout.SamplingParams, R-3)
+
+    def __post_init__(self) -> None:
+        # one shape whoever answered (R-19): a provider's usage dict, a Usage, or a cache entry written before R-19
+        if isinstance(self.usage, Usage):
+            self.usage = self.usage.model_dump()
+        elif self.usage:
+            self.usage = Usage.model_validate(self.usage).model_dump()
+
+    @property
+    def finish(self) -> FinishReason | None:
+        return finish_reason(self.raw_finish)
+
+    def finish_fields(self) -> dict[str, Any]:
+        """A call record's finish: the normalized reason, and the provider's own word when it differs (R-19)."""
+        return finish_fields(self.raw_finish)
 
 
 @dataclass
@@ -174,6 +193,15 @@ def _approx_tokens(messages: list[dict[str, Any]]) -> int:
     return sum(len(json.dumps(m, default=str)) for m in messages) // 4
 
 
+def _usage_dict(u: Any) -> Any:
+    """A provider's usage object (the SDK's model, or any object with attributes) as plain dicts, extras included."""
+    if isinstance(u, dict) or u is None:
+        return u
+    if hasattr(u, "model_dump"):
+        return u.model_dump()
+    return {k: _usage_dict(v) if hasattr(v, "__dict__") else v for k, v in vars(u).items()}
+
+
 def token_record(resp: Any, choice: Any, policy_version: int | str | None) -> dict[str, Any] | None:
     """The token-in-token-out record of one call, as the engine sampled it (vLLM/SGLang ``return_token_ids`` and
     ``logprobs``); ``None`` when the endpoint returns neither (hosted APIs). Never re-tokenized here."""
@@ -200,12 +228,16 @@ class LLMClient:
         self.config = config or get_config()
         self.provider, self.model = self.config.model(model)
         self.budget_usd = self.config.llm_budget_usd if budget_usd is None else budget_usd
-        self.cache_mode = cache_mode or os.environ.get("CRUCIBLE_LLM_CACHE", "record")
+        from crucible.core import env as knobs
+
+        self.cache_mode = cache_mode or knobs.get("CRUCIBLE_LLM_CACHE")
+        if self.cache_mode not in knobs.KNOBS["CRUCIBLE_LLM_CACHE"].choices:  # R-15: "reply" used to turn the cache off silently
+            raise ValueError(f"cache_mode {self.cache_mode!r} is not one of {knobs.KNOBS['CRUCIBLE_LLM_CACHE'].choices}")
         self.cache_dir = cache_dir or (self.config.data_path() / "llm_cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # read timeout per call (CRUCIBLE_LLM_TIMEOUT_S, default 600 s): reasoning models routinely think past the old fixed
         # 120 s, which failed the call after paying for it (M2 audit); connecting still fails fast
-        self.timeout_s = float(timeout_s if timeout_s is not None else os.environ.get("CRUCIBLE_LLM_TIMEOUT_S", "600"))
+        self.timeout_s = float(timeout_s if timeout_s is not None else knobs.get("CRUCIBLE_LLM_TIMEOUT_S"))
         self.max_retries = max_retries
         self.require_usage = require_usage  # False: tolerate blank usage, booking an upper-bound estimate as uncertain spend
         # the served checkpoint's version (provider config), replaced by the trainer bridge on every weight update; stamped on each call's token record
@@ -215,13 +247,47 @@ class LLMClient:
         self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
         self._client = None
 
+    def lock_settings(self) -> dict[str, Any]:
+        """What this client is for a run lock (runtime.lock, R-1): the resolved model, the endpoint and every provider
+        setting that shapes a reply, and the cache mode (a replayed reply is not a live one). Keys and headers never."""
+        p = self.provider
+        return {"model": self.model, "base_url": p.base_url, "request_defaults": p.request_defaults, "tito": p.tito,
+                "template_kwargs": p.template_kwargs, "policy_version": self.policy_version, "cache_mode": self.cache_mode}
+
+    def _request(self, messages, tools, *, temperature, max_tokens, json_mode, seed, extra) -> dict[str, Any]:
+        """The chat request's keyword arguments: the call's parameters, then the provider's ``request_defaults`` for keys the
+        call left unset, then the call's extras (``extra_body`` merged, call-level keys winning)."""
+        kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        if seed is not None:
+            kwargs["seed"] = seed
+        if tools:
+            kwargs["tools"] = tools
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        defaults = dict(self.provider.request_defaults or {})  # provider-level defaults (token capture on vLLM / SGLang)
+        body = {**(defaults.pop("extra_body", None) or {}), **(extra.get("extra_body") or {})}  # call-level keys win
+        for k, v in defaults.items():
+            kwargs.setdefault(k, v)
+        kwargs.update({k: v for k, v in extra.items() if k != "extra_body"})
+        if body:
+            kwargs["extra_body"] = body
+        return kwargs
+
+    def _sent(self, *, temperature, max_tokens, json_mode, seed, extra) -> dict[str, Any]:
+        """The sampling parameters a call with these arguments sends (R-3): after the request_defaults merge for a chat
+        endpoint; temperature, max_tokens and seed for a token-in-token-out engine, which takes nothing else."""
+        if self.provider.tito:
+            return SamplingParams(temperature=temperature, max_tokens=max_tokens, seed=seed).model_dump()
+        return SamplingParams.from_request(self._request([], None, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
+                                                         seed=seed, extra=extra)).model_dump()
+
     def _openai(self):
         if self._client is None:
             from openai import AsyncOpenAI
 
             self._client = AsyncOpenAI(base_url=self.provider.base_url, api_key=resolve_secret(self.provider.api_key),
                                        timeout=httpx.Timeout(self.timeout_s, connect=min(30.0, self.timeout_s)),
-                                       default_headers=self.provider.headers or None, max_retries=0)
+                                       default_headers=self.provider.resolved_headers() or None, max_retries=0)
         return self._client
 
     def _key(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, params: dict[str, Any]) -> str:
@@ -243,13 +309,15 @@ class LLMClient:
             return None, False
         return self.config.prices.get("*") or UNPRICED_USD_PER_M, True
 
-    def _price(self, usage: dict[str, int]) -> float:
+    def _price(self, usage: Usage) -> float:
+        """USD from the configured prices: cache reads and writes at their own rates when given, else the input rate."""
         p, fallback = self._prices()
         if not p:
             return 0.0
         if fallback:
             self.spend.unpriced_calls += 1
-        cost = usage.get("prompt_tokens", 0) / 1e6 * p[0] + usage.get("completion_tokens", 0) / 1e6 * p[1]
+        read, write = (p[2] if len(p) > 2 else p[0]), (p[3] if len(p) > 3 else p[0])
+        cost = (usage.input_tokens * p[0] + usage.cache_read_tokens * read + usage.cache_write_tokens * write + usage.output_tokens * p[1]) / 1e6
         if fallback:
             self.spend.uncertain_usd += cost
         return cost
@@ -265,7 +333,8 @@ class LLMClient:
         if d is not None:
             self.spend.cached_calls += 1
             return LLMResponse(text=d["text"], tool_calls=d.get("tool_calls", []), usage=d.get("usage", {}), cost_usd=0.0, model=d.get("model", self.model), cached=True,
-                               raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}))
+                               raw_finish=d.get("finish"), raw_message=d.get("raw_message", {}),
+                               sampling=d.get("sampling") or self._sent(temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
         hold = self._reserve(messages, max_tokens)
@@ -301,20 +370,7 @@ class LLMClient:
     async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
         if self.provider.tito:
             return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
-        kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
-        if seed is not None:
-            kwargs["seed"] = seed
-        if tools:
-            kwargs["tools"] = tools
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        defaults = dict(self.provider.request_defaults or {})  # provider-level defaults (token capture on vLLM / SGLang)
-        body = {**(defaults.pop("extra_body", None) or {}), **(extra.get("extra_body") or {})}  # call-level keys win
-        for k, v in defaults.items():
-            kwargs.setdefault(k, v)
-        kwargs.update({k: v for k, v in extra.items() if k != "extra_body"})
-        if body:
-            kwargs["extra_body"] = body
+        kwargs = self._request(messages, tools, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra)
         last: Exception | None = None
         t0 = time.monotonic()
         try:
@@ -353,12 +409,13 @@ class LLMClient:
         u = resp.usage
         if u is None and self.require_usage:
             raise UsageBlank(f"{self.model} returned no usage (finish={choice.finish_reason}); spend cannot be accounted")
-        usage = {"prompt_tokens": getattr(u, "prompt_tokens", 0) or 0, "completion_tokens": getattr(u, "completion_tokens", 0) or 0} if u else {}
         if u is None:  # tolerant mode (B.5 row 2): the call happened and cost something; book the worst case as uncertain
             self.spend.blank_usage_calls += 1
             p, _ = self._prices()
             self.spend.uncertain_usd += (max_tokens / 1e6 * p[1] + _approx_tokens(messages) / 1e6 * p[0]) if p else 0.0
-            usage = {"blank": 1}
+            usage = Usage(source="none")
+        else:  # cached prompt tokens apart from the uncached ones, whatever the provider's shape (R-19)
+            usage = Usage.model_validate(_usage_dict(u))
         cost = getattr(u, "cost", None) if u else None
         if cost is None and u is not None:
             extra_u = getattr(u, "model_extra", None) or {}
@@ -368,28 +425,23 @@ class LLMClient:
         book_scoped(cost)
         self._max_seen = max(self._max_seen, cost)
         self.spend.calls += 1
-        self.spend.prompt_tokens += usage.get("prompt_tokens", 0)
-        self.spend.completion_tokens += usage.get("completion_tokens", 0)
-        details = getattr(u, "completion_tokens_details", None) if u else None
-        if details is not None and getattr(details, "reasoning_tokens", None):
-            usage["reasoning_tokens"] = details.reasoning_tokens
-        pdetails = getattr(u, "prompt_tokens_details", None) if u else None
-        if pdetails is not None and getattr(pdetails, "cached_tokens", None):
-            usage["cached_tokens"] = pdetails.cached_tokens
-        if choice.finish_reason == "length" and not calls and not (msg.content or "").strip() and usage.get("completion_tokens") == 0:
+        self.spend.prompt_tokens += usage.prompt_tokens
+        self.spend.completion_tokens += usage.completion_tokens
+        if (finish_reason(choice.finish_reason) == "length" and not calls and not (msg.content or "").strip() and usage.source != "none"
+                and usage.output_tokens == 0):
             # the prompt filled the window: nothing was generated (engines that answer 200 instead of a 400; M2 audit)
-            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({usage.get('prompt_tokens')} prompt tokens)")
+            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({usage.prompt_tokens} prompt tokens)")
         finish = choice.finish_reason
         if getattr(msg, "refusal", None) and not (msg.content or "").strip():
             finish = "refusal"  # the provider's refusal field: a labelled end, not an empty reply
         out = LLMResponse(text=msg.content or "", tool_calls=calls, usage=usage, cost_usd=cost, model=resp.model or self.model, raw_finish=finish,
                           raw_message=raw_message, latency_s=time.monotonic() - t0, response_id=getattr(resp, "id", None),
-                          tokens=token_record(resp, choice, self.policy_version))
+                          tokens=token_record(resp, choice, self.policy_version), sampling=SamplingParams.from_request(kwargs).model_dump())
         if self.cache_mode == "record":  # atomic: a concurrent reader of the same key never sees half a file
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(out)}.tmp")
-            tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": usage, "model": out.model, "finish": out.raw_finish,
-                                       "raw_message": raw_message}, ensure_ascii=False, default=str))
+            tmp.write_text(json.dumps({"text": out.text, "tool_calls": out.tool_calls, "usage": out.usage, "model": out.model, "finish": out.raw_finish,
+                                       "raw_message": raw_message, "sampling": out.sampling}, ensure_ascii=False, default=str))
             os.replace(tmp, path)
         return out
 
@@ -419,6 +471,7 @@ class LLMClient:
         except httpx.HTTPError as e:
             raise LLMError(f"{self.model} (tito) failed: {e}") from e
         r.tokens["policy_version"] = self.policy_version  # the served checkpoint's stamp (provider config / trainer bridge)
+        r.sampling = r.sampling or SamplingParams(temperature=temperature, max_tokens=max_tokens, seed=seed).model_dump()  # what the engine was sent
         self.spend.calls += 1
         self.spend.prompt_tokens += r.usage.get("prompt_tokens", 0)
         self.spend.completion_tokens += r.usage.get("completion_tokens", 0)
@@ -442,5 +495,5 @@ class LLMClient:
                     return json.loads(text[start : end + 1])
                 except json.JSONDecodeError:
                     pass
-            cut = " (cut off at max_tokens: shorten the output)" if r.raw_finish == "length" else ""
+            cut = " (cut off at max_tokens: shorten the output)" if r.finish == "length" else ""
             raise LLMOutputError(f"output is not valid JSON{cut}: {text[:300]}") from None

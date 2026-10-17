@@ -64,6 +64,12 @@ class SingleTurnTask:
         self.system, self.history, self.instruction, self.media = _split_prompt(self.prompt, self.system)
 
     # ---- RunTask ---------------------------------------------------------------------------------------------------
+    def digest(self) -> str:
+        """The task's definition (prompt, answer, parser, criteria, judges, ...) in canonical JSON (R-2)."""
+        from crucible.runtime.lock import definition_digest
+
+        return definition_digest(self)
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 
@@ -201,8 +207,10 @@ def single_turn_policy(llm, *, temperature: float = 0.7, max_tokens: int = 4096,
         p.messages = [*([{"role": "system", "content": t.system}] if t.system else []), *t.history]
         return {ACTOR: p}
 
+    settings = {"kind": "single_turn", "temperature": temperature, "max_tokens": max_tokens, "vision": vision, "audio": audio,
+                **({"llm": llm.lock_settings()} if hasattr(llm, "lock_settings") else {"llm": {"model": getattr(llm, "model", None)}})}
     return PolicyRef(id=name or f"single_turn:{llm.model}", make=make,
-                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.001)
+                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.001, settings=settings)
 
 
 def answer_policy(text_of) -> Any:

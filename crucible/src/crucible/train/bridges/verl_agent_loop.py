@@ -34,7 +34,6 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
-import os
 from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
@@ -42,6 +41,7 @@ from uuid import uuid4
 import torch
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
 
+from crucible.core import env as knobs
 from crucible.core.schema.rollout import RolloutRecord, full_prompts
 from crucible.train.bridges.adapters import verl_agent_loop_output
 from crucible.train.bridges.common import flatten, untrainable
@@ -116,10 +116,10 @@ class CrucibleAgentLoop(AgentLoopBase):
     def __init__(self, *args: Any, rollout: Any = None, turn_weight: float | None = None, frozen_actors: Any = (),
                  group_timeout_s: float | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.rollout_spec = rollout or os.environ.get("CRUCIBLE_VERL_ROLLOUT")
+        self.rollout_spec = rollout or knobs.get("CRUCIBLE_VERL_ROLLOUT")
         if not self.rollout_spec:
             raise ValueError("crucible_agent needs a rollout factory: agent loop config 'rollout: pkg.mod:factory' or CRUCIBLE_VERL_ROLLOUT")
-        self.turn_weight = float(turn_weight if turn_weight is not None else os.environ.get("CRUCIBLE_VERL_TURN_WEIGHT", "0"))
+        self.turn_weight = float(turn_weight if turn_weight is not None else knobs.get("CRUCIBLE_VERL_TURN_WEIGHT"))
         self.frozen_actors = tuple(frozen_actors or ())
         self.group_timeout_s = float(group_timeout_s or 600.0)
         rc = self.rollout_config

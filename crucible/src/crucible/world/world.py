@@ -33,12 +33,14 @@ from crucible.core.agent_events import annotate_probes, app_writes, writes_of
 from crucible.core.ids import derive_seed, new_id, sha256_text
 from crucible.core.registry import get_registry
 from crucible.core.schema.actions import Action, Done, Inbound, MediaRef, Message, Observation, StepResult, ToolCall, ToolResult, ToolSpec
+from crucible.core.schema.base import matches_content_id
 from crucible.core.schema.run import Failure
 from crucible.core.schema.signal import SignalTarget
 from crucible.core.schema.state import Query, QueryResult, StateDiff, StateRef, WorldRef
 from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutcome, TraceSource
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
+from crucible.core.text import safe_json, safe_text, unencodable
 from crucible.world.apps.base import App, AppContext
 from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
@@ -65,51 +67,6 @@ def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
     if not errors:
         return None
     return "; ".join(f"{'/'.join(map(str, e.path)) or '(arguments)'}: {e.message}" for e in errors[:5])
-
-
-def _encodable(s: str) -> bool:
-    try:
-        s.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    return True
-
-
-def unencodable(x: Any, path: str = "") -> str | None:
-    """Where ``x`` holds a string that UTF-8 cannot encode (a lone surrogate such as ``"\\udcff"``, which a model emits as
-    plain ASCII inside tool-call JSON), else None. M14 campaign B1: such an argument made the trace write raise
-    ``PydanticSerializationError`` inside ``World.step``, which masked the policy's own failing episode (unknown blame)."""
-    if isinstance(x, str):
-        return None if x.isascii() or _encodable(x) else (path or "(value)")
-    if isinstance(x, dict):
-        for k, v in x.items():
-            if isinstance(k, str) and unencodable(k) is not None:
-                return f"{path}/{safe_text(k)}" if path else safe_text(k)
-            if (p := unencodable(v, f"{path}/{k}" if path else str(k))) is not None:
-                return p
-    elif isinstance(x, list | tuple):
-        for i, v in enumerate(x):
-            if (p := unencodable(v, f"{path}/{i}" if path else str(i))) is not None:
-                return p
-    return None
-
-
-def safe_text(s: str) -> str:
-    """``s`` with every code point UTF-8 cannot encode escaped as ``\\udcff`` text (lossless to read, always writable)."""
-    return s if s.isascii() or _encodable(s) else s.encode("utf-8", "backslashreplace").decode("utf-8")
-
-
-def safe_json(x: Any) -> Any:
-    """``x`` with every string (keys included) passed through ``safe_text``; the same object when nothing needs escaping."""
-    if isinstance(x, str):
-        return safe_text(x)
-    if unencodable(x) is None:
-        return x
-    if isinstance(x, dict):
-        return {safe_text(k) if isinstance(k, str) else k: safe_json(v) for k, v in x.items()}
-    if isinstance(x, list | tuple):
-        return [safe_json(v) for v in x]
-    return x
 
 
 def _event_json(ev: TraceEvent) -> str:
@@ -237,6 +194,8 @@ class World:
             interceptors = [RuleInterceptor(rules, allow_hosts=tuple(spec.allowed_hosts))] if rules else []
         self.interceptors = list(interceptors)
         self.spec_hash = spec.content_hash()
+        # the spec as it was hashed: a ref's world id is checked against this, never the live (since mutated) spec (R-21)
+        self._spec_doc = spec.model_dump(mode="json", exclude_none=True, by_alias=True)
         self.instructions = dict(instructions or {})
         self.instruction_media = {a: list(m) for a, m in (instruction_media or {}).items()}  # actor -> media with its instruction
         self.store = store or get_store()
@@ -1007,7 +966,12 @@ class World:
         return sha256_text(json.dumps(body, sort_keys=True, separators=(",", ":")))
 
     async def restore(self, ref: WorldRef) -> None:
-        if ref.world != self.spec_hash:
+        try:
+            # by the scheme the ref's id was made with (R-21), not today's, over the spec as this World was built from it
+            same = ref.world == self.spec_hash or matches_content_id(self._spec_doc, ref.world)
+        except ValueError as e:
+            raise WorldError(f"WorldRef names its world by {ref.world[:20]!r}: {e}") from e
+        if not same:
             raise WorldError(f"WorldRef belongs to world {ref.world[:12]}, not {self.spec_hash[:12]}")
         missing = set(self.apps) ^ set(ref.apps)
         if missing:

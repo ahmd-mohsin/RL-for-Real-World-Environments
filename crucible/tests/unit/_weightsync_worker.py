@@ -232,7 +232,7 @@ def main() -> None:
             with torch.no_grad():
                 lp = (base.token_logprobs(prompt, comp) + 0.05 * torch.randn(len(comp), generator=g)).tolist()  # behaviour ≠ current
             recs.append(RolloutRecord(rollout_id=f"r{i}", sample=f"r{i}", task="t", harness="h", policy="p", reward=float(torch.rand(1, generator=g) > 0.5),
-                                      turns=[Turn(call_id=f"r{i}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=lp, policy_version=0)]))
+                                      turns=[Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c", actor="agent", prompt_token_ids=prompt, completion_token_ids=comp, logprobs=lp, policy_version=0)]))
             groups.append(f"g{i // 4}")
         out_res = {}
         for corr in ("dis", "ppo"):

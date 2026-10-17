@@ -30,7 +30,9 @@ _TUNNELS: dict[str, tuple[subprocess.Popen, str]] = {}
 
 
 def enabled() -> bool:
-    return os.environ.get("CRUCIBLE_DOCKER_SSH_TUNNEL", "1") != "0"
+    from crucible.core import env as knobs
+
+    return bool(knobs.get("CRUCIBLE_DOCKER_SSH_TUNNEL"))
 
 
 def _stop_all() -> None:

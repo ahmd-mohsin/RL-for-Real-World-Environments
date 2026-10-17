@@ -1,0 +1,17 @@
+{
+ "content_id": "b7976ecaf577cbc2c56248312849052bc349a784d1a9ede680ac294e8a9679ba",
+ "reads_as": {
+  "components": {},
+  "gates": {
+   "g": 1
+  },
+  "infra": {
+   "status": "ok"
+  },
+  "outcome": 0.0,
+  "progress": 0.25,
+  "reward": 0.5,
+  "rubric": {},
+  "schema_version": "crucible.reward/v1"
+ }
+}

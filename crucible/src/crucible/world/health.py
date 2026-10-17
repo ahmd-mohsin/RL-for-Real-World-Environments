@@ -83,7 +83,9 @@ async def run_healthcheck(exec_: Exec, hc: HealthcheckSpec, *, what: str) -> dic
 
 
 def lock_dir() -> Path:
-    return Path(os.environ.get("CRUCIBLE_LOCK_DIR") or Path.home() / ".crucible" / "locks")
+    from crucible.core import env as knobs
+
+    return knobs.get("CRUCIBLE_LOCK_DIR") or Path.home() / ".crucible" / "locks"
 
 
 class SerialLock:

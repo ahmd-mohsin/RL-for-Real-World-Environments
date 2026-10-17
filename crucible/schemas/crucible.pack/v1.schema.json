@@ -1,0 +1,312 @@
+{
+ "$defs": {
+  "IngestSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "connector": {
+     "default": "file_drop",
+     "type": "string"
+    },
+    "discover": {
+     "default": "discover",
+     "type": "string"
+    },
+    "extra": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "family": {
+     "type": "string"
+    },
+    "glob": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "init": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "label": {
+     "default": true,
+     "type": "boolean"
+    },
+    "redaction_env": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "redaction_env_optional": {
+     "default": false,
+     "type": "boolean"
+    },
+    "root": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "scope": {
+     "additionalProperties": true,
+     "type": "object"
+    }
+   },
+   "required": [
+    "family"
+   ],
+   "type": "object"
+  },
+  "LabelSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "policy_roles": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "threshold": {
+     "default": 1.0,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "PackHooks": {
+   "additionalProperties": false,
+   "properties": {
+    "credit": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "fixtures": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "forge": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "generator": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "model": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "policies": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "stages": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tasks": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "RewardSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "higher_is_better": {
+     "default": true,
+     "type": "boolean"
+    },
+    "range": {
+     "default": [
+      0.0,
+      1.0
+     ],
+     "maxItems": 2,
+     "minItems": 2,
+     "prefixItems": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "type": "array"
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "authors": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "description": {
+   "type": "string"
+  },
+  "determinism": {
+   "default": "seeded",
+   "enum": [
+    "seeded",
+    "nondeterministic"
+   ],
+   "type": "string"
+  },
+  "entry_point": {
+   "type": "string"
+  },
+  "hooks": {
+   "$ref": "#/$defs/PackHooks"
+  },
+  "ingest": {
+   "items": {
+    "$ref": "#/$defs/IngestSpec"
+   },
+   "type": "array"
+  },
+  "kind": {
+   "default": "domain",
+   "enum": [
+    "domain",
+    "coding",
+    "toy"
+   ],
+   "type": "string"
+  },
+  "label": {
+   "$ref": "#/$defs/LabelSpec"
+  },
+  "license": {
+   "type": "string"
+  },
+  "name": {
+   "type": "string"
+  },
+  "package": {
+   "type": "string"
+  },
+  "requires": {
+   "items": {
+    "enum": [
+     "docker",
+     "gpu",
+     "network",
+     "paid"
+    ],
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "reward": {
+   "$ref": "#/$defs/RewardSpec"
+  },
+  "schema_version": {
+   "const": 1,
+   "default": 1,
+   "type": "integer"
+  },
+  "template_version": {
+   "anyOf": [
+    {
+     "type": "integer"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "version": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "name",
+  "version",
+  "description",
+  "license",
+  "package",
+  "entry_point"
+ ],
+ "type": "object"
+}

@@ -1,0 +1,35 @@
+{
+ "content_id": "4b77020e0e1f1422d036c239ea39c57d76ca711668b3d4c820e09465c7e8db5f",
+ "reads_as": {
+  "cost_uncertain_usd": 0.0,
+  "cost_usd": 0.0125,
+  "mask_sample": false,
+  "meta": {
+   "gates": {
+    "tests": 1
+   },
+   "harness": "native:llm-tool@1",
+   "stop": "submitted",
+   "truncated": false
+  },
+  "outcome": "completed",
+  "policy": "p",
+  "reward": 0.75,
+  "run_id": "r",
+  "schema_version": "crucible.run/v2",
+  "seed": 0,
+  "started_at": "2026-01-01T00:00:00Z",
+  "steps": 7,
+  "timing": {
+   "agent": 12.0,
+   "cleanup": 0.25,
+   "extra": {
+    "upload": 0.5
+   },
+   "model": 9.25,
+   "seed": 1.5,
+   "verification": 3.0
+  },
+  "world": "w"
+ }
+}

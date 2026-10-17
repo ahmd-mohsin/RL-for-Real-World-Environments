@@ -126,7 +126,8 @@ class Ep:
     def record(self, *, mode: str = "train", reward: float = 1.0, rows=(), rid: str = "r") -> RolloutRecord:
         rec = RunRecord(run_id=rid, task="t", world="w", policy="p", started_at="2026-01-01T00:00:00Z", steps=len(self.calls), outcome="completed",
                         reward=reward, attempt=f"{rid}-a1")
-        return build(rec, calls={"agent": self.calls}, segments={"agent": self.segments} if self.segments else None, mode=mode, rows=rows)
+        return build(rec, calls={"agent": self.calls}, segments={"agent": self.segments} if self.segments else None, mode=mode, rows=rows,
+                     sampling={"temperature": 1.0})  # what the scripted engine sampled at (calls record none)
 
 
 def _tree(seed: int = 0, *, linear: bool = True, subs_every: int = 2, root_turns: int = 24) -> Ep:
@@ -534,7 +535,7 @@ def test_old_records_without_m16_fields_build_as_before():
     t = ro.turns[-1]
     assert t.kind == "compaction" and not t.node() and t.prompt_is_delta and t.agent == "" and t.edge is None
     assert RolloutRecord.model_validate_json(ro.model_dump_json(by_alias=True)) == ro
-    assert Turn(call_id="x", actor="a").chain() == ("a", "", 0)
+    assert Turn(sampling={"temperature": 1.0}, call_id="x", actor="a").chain() == ("a", "", 0)
 
 
 def test_critic_obeys_max_seq_len():

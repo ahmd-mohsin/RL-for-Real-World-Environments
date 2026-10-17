@@ -1,0 +1,155 @@
+{
+ "$defs": {
+  "Negative": {
+   "additionalProperties": false,
+   "properties": {
+    "description": {
+     "default": "",
+     "type": "string"
+    },
+    "expected": {
+     "default": "fail",
+     "enum": [
+      "fail",
+      "pass"
+     ],
+     "type": "string"
+    },
+    "expected_gate": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "id": {
+     "type": "string"
+    },
+    "kind": {
+     "default": "negative",
+     "enum": [
+      "floor",
+      "trap_reversion",
+      "defect_mutant",
+      "cheat",
+      "valid_alternative",
+      "negative"
+     ],
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    },
+    "provenance": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "id",
+    "path"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "card": {
+   "default": "crucible/card.yaml",
+   "type": "string"
+  },
+  "derived_from": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "family": {
+   "type": "string"
+  },
+  "harbor_dir": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "horizon": {
+   "enum": [
+    "H0",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5"
+   ],
+   "type": "string"
+  },
+  "id": {
+   "type": "string"
+  },
+  "milestones": {
+   "default": "crucible/milestones.yaml",
+   "type": "string"
+  },
+  "negatives": {
+   "items": {
+    "$ref": "#/$defs/Negative"
+   },
+   "type": "array"
+  },
+  "oracle": {
+   "default": "solution/solution.patch",
+   "type": "string"
+  },
+  "oracle_kind": {
+   "default": "patch",
+   "enum": [
+    "patch",
+    "actions",
+    "state"
+   ],
+   "type": "string"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "seed_of": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "world": {
+   "default": "crucible/world.yaml",
+   "type": "string"
+  }
+ },
+ "required": [
+  "id",
+  "family",
+  "horizon"
+ ],
+ "type": "object"
+}

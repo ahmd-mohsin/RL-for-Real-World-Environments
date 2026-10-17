@@ -1,0 +1,22 @@
+{
+ "cost_uncertain_usd": 0.0,
+ "cost_usd": 0.0,
+ "failure": {
+  "delivery": "delivered",
+  "kind": "agent_timeout",
+  "reason": "x",
+  "retryable": true,
+  "stage": "agent"
+ },
+ "mask_sample": false,
+ "meta": {},
+ "outcome": "running",
+ "policy": "p",
+ "run_id": "r",
+ "schema_version": "crucible.run/v1",
+ "seed": 0,
+ "started_at": "2026-01-01T00:00:00Z",
+ "steps": 0,
+ "tokens": {},
+ "world": "w"
+}

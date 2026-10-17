@@ -10,6 +10,9 @@ M16 (very-long-horizon RLM, design §3.5): ``model_calls`` entries may carry ``a
 behaviour. Linear chains are keyed (actor, agent, segment); sub-calls and summary attempts are tree nodes; a child's calls
 share the credit of the root turn that spawned it. Segments may carry ``agent``, ``boundary_reason``, ``attempts``,
 ``failed`` and ``tokens_source``.
+
+``Turn.sampling`` is what each call sent (its call record's ``sampling``, R-3); the ``sampling`` argument fills it only for
+calls that recorded none, from a caller that knows what its engine was sent (the training environments).
 """
 
 from __future__ import annotations
@@ -130,14 +133,14 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
                 if not trainable:
                     # not the policy's to train: recorded, never trained. No tokens are kept; it goes after the chains
                     frozen.append(Turn(call_id=c["call_id"], actor=actor, kind=kind, segment=seg, world_step=c.get("step"), model=c.get("model"),
-                                       agent=ag, edge=c.get("edge"), trainable=False, sampling=dict(sampling or {}), finish=c.get("finish"),
+                                       agent=ag, edge=c.get("edge"), trainable=False, sampling=c.get("sampling") or dict(sampling or {}), finish=c.get("finish"),
                                        depends_on=[parent] if parent else None, atif_step_ids=[]))
                     continue
                 turns.append(Turn(call_id=c["call_id"], actor=actor, kind=kind, segment=seg, world_step=c.get("step"), prompt_is_delta=False,
                                   prefix_break=False, prompt_token_ids=full, completion_token_ids=tok.get("completion_token_ids"),
                                   logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"),
                                   version_spans=[tuple(x) for x in tok["version_spans"]] if tok.get("version_spans") else None,
-                                  sampling=dict(sampling or {}), finish=c.get("finish"),
+                                  sampling=c.get("sampling") or dict(sampling or {}), finish=c.get("finish"),
                                   advantage=adv.get(anc.get(c["call_id"], c["call_id"])) if kind == "sub" else adv.get(c["call_id"]),
                                   depends_on=[parent] if parent else None, model=None, agent=ag, edge=c.get("edge"), atif_step_ids=[]))
                 continue
@@ -155,7 +158,7 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
                               prompt_is_delta=is_delta, prefix_break=brk, prompt_token_ids=delta,
                               completion_token_ids=tok.get("completion_token_ids"), logprobs=tok.get("logprobs"), policy_version=tok.get("policy_version"),
                               version_spans=[tuple(x) for x in tok["version_spans"]] if tok.get("version_spans") else None,
-                              sampling=dict(sampling or {}), finish=c.get("finish"), advantage=adv.get(anc.get(c["call_id"], c["call_id"])),
+                              sampling=c.get("sampling") or dict(sampling or {}), finish=c.get("finish"), advantage=adv.get(anc.get(c["call_id"], c["call_id"])),
                               depends_on=[parent] if ag and parent else None, model=None if trainable else c.get("model"),
                               trainable=trainable, agent=ag, edge=c.get("edge"), atif_step_ids=steps_of.get(c["call_id"], [])))
     turns += frozen
@@ -170,7 +173,8 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
                         group=group, turns=turns, reward=rec.scored_reward(), reward_components=dict(m.get("components") or {}),
                         gates=dict(m.get("gates") or {}), truncated=bool(m.get("truncated")), stop=m.get("stop"),
                         failure_kind=failure.kind if failure else None, blame=failure.who if failure else None, mask_sample=rec.mask_sample,
-                        timings=dict(timings or m.get("timings") or {}), trace_id=trace_id, segments=segs,
+                        timings=dict(timings or (rec.timing.stages() if rec.timing is not None else {})),
+                        trace_id=trace_id, segments=segs,
                         trajectory_tokens=sum((m.get("trajectory_tokens") or {}).values()) or None,
                         progress={**(m.get("progress") or {}), **({"unattributed_delta": round(unattributed, 9)} if prog_rows else {})})
     if mode == "train" and not out.mask_sample:

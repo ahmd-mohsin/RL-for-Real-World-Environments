@@ -1,0 +1,79 @@
+{
+ "$defs": {
+  "LockChange": {
+   "additionalProperties": false,
+   "properties": {
+    "after": {
+     "type": "string"
+    },
+    "at": {
+     "type": "string"
+    },
+    "before": {
+     "type": "string"
+    },
+    "changed": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "at",
+    "changed",
+    "before",
+    "after"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "changes": {
+   "items": {
+    "$ref": "#/$defs/LockChange"
+   },
+   "type": "array"
+  },
+  "created_at": {
+   "type": "string"
+  },
+  "excluded": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "fingerprint": {
+   "type": "string"
+  },
+  "opaque": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "run_id": {
+   "type": "string"
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "scheme": {
+   "type": "string"
+  },
+  "settings": {
+   "additionalProperties": true,
+   "type": "object"
+  }
+ },
+ "required": [
+  "run_id",
+  "scheme",
+  "fingerprint",
+  "created_at"
+ ],
+ "type": "object"
+}

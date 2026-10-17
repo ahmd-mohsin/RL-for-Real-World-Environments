@@ -18,9 +18,10 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
-import subprocess
 from pathlib import Path
 from typing import Any
+
+from crucible.core.build import build_info
 
 
 class ConfigChanged(ValueError):
@@ -43,14 +44,6 @@ def pack_hash(pack_dir: Path) -> str:
     return h.hexdigest()
 
 
-def _git(*args: str) -> str | None:
-    try:
-        r = subprocess.run(["git", *args], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=5, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout.strip() if r.returncode == 0 else None
-
-
 def provenance(pack_dir: Path | None = None, manifest: Any = None) -> dict[str, Any]:
     from crucible.studio.pack import crucible_version
 
@@ -58,16 +51,15 @@ def provenance(pack_dir: Path | None = None, manifest: Any = None) -> dict[str, 
         ver = crucible_version()
     except Exception:  # noqa: BLE001 - recorded as unknown, never a failure
         ver = None
-    sha = _git("rev-parse", "HEAD")
-    dirty = _git("status", "--porcelain", "--untracked-files=no")
+    bi = build_info()  # R-11: git trusted only for Crucible's own checkout; dirty = the package's files only
     try:
         from importlib.metadata import version
 
         agentenv = version("agent-env")
     except Exception:  # noqa: BLE001
         agentenv = None
-    out: dict[str, Any] = {"crucible": ver, "git_sha": sha, "git_dirty": bool(dirty) if dirty is not None else None,
-                           "python": platform.python_version(), "agentenv": agentenv}
+    out: dict[str, Any] = {"crucible": ver, "git_sha": bi.git_commit, "git_dirty": bi.git_dirty, "source_sha256": bi.source_sha256,
+                           "lock_sha256": bi.lock_sha256, "python": platform.python_version(), "agentenv": agentenv}
     if pack_dir is not None:
         out["pack"] = {"name": getattr(manifest, "name", None), "version": getattr(manifest, "version", None), "dir": str(Path(pack_dir).resolve()),
                        "content_sha256": pack_hash(pack_dir)}

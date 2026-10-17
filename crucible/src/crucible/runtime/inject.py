@@ -118,7 +118,7 @@ class ReplayLLM:
         self.spend.calls += 1
         if self.crash_at and i == self.crash_at[0]:
             raise self.crash_at[1]
-        usage = {"prompt_tokens": approx_tokens(messages), "completion_tokens": 40}
+        usage = {"prompt_tokens": approx_tokens(messages), "completion_tokens": 40, "source": "estimate"}
         if messages and messages[-1].get("content") == COMPACT:
             k = self._pos(messages)
             return LLMResponse(text=f"Summary: actions 0..{k - 1} of the plan are done; continue from action {k}.", usage=usage, model=self.model)

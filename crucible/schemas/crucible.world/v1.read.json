@@ -1,0 +1,50 @@
+{
+ "content_id": "5d6999d366ca76c854e3caf6f08267064c8ef51c00914330302c4bffa31530b7",
+ "reads_as": {
+  "actors": [
+   {
+    "grounded_on": [],
+    "id": "agent",
+    "kind": "policy",
+    "params": {},
+    "tools": [
+     "db.*"
+    ]
+   }
+  ],
+  "allowed_hosts": [],
+  "apps": [
+   {
+    "id": "db",
+    "params": {},
+    "resources": {
+     "gpus": 0
+    },
+    "state": {
+     "adapter": "sql",
+     "params": {}
+    },
+    "template": "common/sqlite_app"
+   }
+  ],
+  "backend": "local",
+  "backend_params": {},
+  "events": [],
+  "isolation": {
+   "egress_probe": true,
+   "hide_citations": true,
+   "pids_limit": 4096,
+   "quiesce": true,
+   "scrub_messages": true
+  },
+  "limits": {
+   "max_tool_output_chars": 30000,
+   "tool_timeout_s": 3600.0
+  },
+  "network": "no-network",
+  "policies": [],
+  "schema_version": "crucible.world/v1",
+  "seed": 0,
+  "world": "t/w"
+ }
+}

@@ -24,7 +24,7 @@ def _rec(i: int, turns: int = 6, segments=None) -> RolloutRecord:
         new_seg = k == 0 or segs[k] != segs[k - 1]
         prompt = torch.randint(4, 60, (12 if new_seg else 5,), generator=g).tolist()  # first call: full prompt; later: the observation delta
         comp = torch.randint(4, 60, (int(torch.randint(2, 6, (1,), generator=g)),), generator=g).tolist()
-        out.append(Turn(call_id=f"r{i}:c{k}", actor="agent", segment=segs[k], prompt_is_delta=not new_seg, prompt_token_ids=prompt,
+        out.append(Turn(sampling={"temperature": 1.0}, call_id=f"r{i}:c{k}", actor="agent", segment=segs[k], prompt_is_delta=not new_seg, prompt_token_ids=prompt,
                         completion_token_ids=comp, logprobs=[-2.0] * len(comp), policy_version=0, advantage=0.1 * k))
     return RolloutRecord(rollout_id=f"r{i}", sample="s", task="t", harness="h", policy="p", reward=float(i % 2), turns=out)
 

@@ -1,0 +1,26 @@
+{
+ "acl_rules": {},
+ "actors": {},
+ "apps": {
+  "db": {
+   "adapter": "sql",
+   "app": "db",
+   "fingerprint": "f",
+   "meta": {}
+  }
+ },
+ "backend": {},
+ "clock": {
+  "frozen": false,
+  "mode": "off",
+  "rate": 1.0
+ },
+ "done": [],
+ "fingerprint": "",
+ "fired_counts": {},
+ "inboxes": {},
+ "pending_events": [],
+ "step": 1,
+ "tool_counts": {},
+ "world": "w"
+}

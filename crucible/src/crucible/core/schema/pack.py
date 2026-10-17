@@ -17,7 +17,7 @@ generated items; its reward must not be better than ``expect_max`` (``<=`` when 
 
 | hook | signature | used by |
 |---|---|---|
-| ``credit`` | ``async (traces) -> {trace_id: {"reward": float, "phi_by_seq": {seq: Φ}}}`` | ``label`` (dense credit) |
+| ``credit`` | ``async (traces) -> {trace_id: {"reward": float, "phi_by_seq": {seq: Φ}, "reward_json", "split", "group"?, "phi_end_by_milestone"?}}`` | ``label`` (dense credit, released per channel on the hook's held-out traces: ``split`` ≠ ``train``; ``reward_json`` is required with partial credit; ``credit.channels``) |
 | ``tasks`` | ``() -> [(RunTask, gold actions)]`` | ``pack check`` (gold passes, no-op fails), ``bench`` anchors |
 | ``generator`` | ``(seed: int) -> RunTask`` | ``bench`` fresh items |
 | ``stages`` | ``(task_id) -> [(stage, [milestone ids])]`` | ``bench`` stage reach |
@@ -125,6 +125,15 @@ class PackManifest(CrucibleModel):
     ingest: list[IngestSpec] = Field(default_factory=list)
     label: LabelSpec = Field(default_factory=LabelSpec)
     hooks: PackHooks = Field(default_factory=PackHooks)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _newer_version(cls, data: Any) -> Any:
+        """The versioned-document rule for pack.yaml's integer version: a newer one is refused by name (R-18)."""
+        v = data.get("schema_version") if isinstance(data, dict) else None
+        if isinstance(v, int) and not isinstance(v, bool) and v > 1:
+            raise ValueError(f"pack.yaml schema_version {v} was written for a newer Crucible (this one reads 1): upgrade Crucible")
+        return data
 
     @model_validator(mode="after")
     def _contract(self) -> PackManifest:

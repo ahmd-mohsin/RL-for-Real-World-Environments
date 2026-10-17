@@ -11,7 +11,7 @@ import hashlib
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from crucible.core.schema.base import CrucibleModel
 
@@ -57,6 +57,28 @@ class ToolCall(CrucibleModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+# Media types are canonical and agree with the media's kind (M0 audit 2026-10-14 R-26). PORT of Harbor
+# ``models/trajectories/content.py`` ``_AUDIO_MEDIA_TYPE_ALIASES`` (Apache-2.0, ``LICENSES/Apache-2.0.txt``), with the
+# image aliases producers emit added: an alias is normalized on the way in, so an adapter sees one spelling per format.
+MIME_ALIASES = {
+    "audio/mp3": "audio/mpeg", "audio/mpga": "audio/mpeg", "audio/x-mpeg": "audio/mpeg", "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav", "audio/vnd.wave": "audio/wav", "audio/x-m4a": "audio/mp4", "audio/m4a": "audio/mp4",
+    "audio/x-aac": "audio/aac", "audio/x-flac": "audio/flac", "audio/x-aiff": "audio/aiff",
+    "image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg", "image/x-png": "image/png", "image/x-ms-bmp": "image/bmp",
+}
+
+
+def canonical_mime(kind: str, mime: str) -> str:
+    """``mime`` lower-cased, its parameters dropped, aliases resolved; ValueError unless its major type is ``kind``
+    (an image tagged ``audio/wav`` went out as an image part, and ``audio/wave`` as the audio format ``wave``)."""
+    m = str(mime).split(";", 1)[0].strip().lower()
+    m = MIME_ALIASES.get(m, m)
+    major, sep, minor = m.partition("/")
+    if not sep or not minor or major != kind:
+        raise ValueError(f"media type {mime!r} is not an {kind} type ({kind}/<subtype>)")
+    return m
+
+
 class MediaRef(CrucibleModel):
     """An image or an audio clip in a message or an instruction (M1 item 8). The bytes live in the World's store under
     ``ref`` (content-addressed), or at a remote ``url``; ``data_b64`` rides only on the live observation handed to the
@@ -72,6 +94,9 @@ class MediaRef(CrucibleModel):
     def _where(self) -> MediaRef:
         if bool(self.ref) == bool(self.url):
             raise ValueError("a MediaRef needs exactly one of ref (store key) or url")
+        mime = canonical_mime(self.kind, self.mime)
+        if mime != self.mime:
+            object.__setattr__(self, "mime", mime)
         return self
 
 
@@ -99,6 +124,11 @@ class ImageRef(CrucibleModel):
     mime: str = "image/png"
     ref: str
     data_b64: str | None = Field(default=None, exclude=True)  # never serialized (records, checkpoints, traces)
+
+    @field_validator("mime")
+    @classmethod
+    def _image(cls, v: str) -> str:
+        return canonical_mime("image", v)
 
 
 class ToolResult(CrucibleModel):

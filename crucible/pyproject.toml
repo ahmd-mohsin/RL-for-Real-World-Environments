@@ -106,7 +106,19 @@ target-version = "py312"
 line-length = 200
 extend-exclude = [".playwright-mcp", "data/cache", "packs/_template"]  # the template holds __PACK_PKG__ tokens
 
+[tool.ruff.lint]
+extend-select = ["TID251"]  # the banned APIs below
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# PyYAML's loaders keep the last of two equal keys (a second `network: public` wins): read documents through core (R-7)
+"yaml.safe_load".msg = "use crucible.core.serialize.load_yaml, which refuses duplicate keys"
+"yaml.safe_load_all".msg = "use crucible.core.serialize.load_yaml, which refuses duplicate keys"
+"yaml.load".msg = "use crucible.core.serialize.load_yaml, which refuses duplicate keys"
+"yaml.full_load".msg = "use crucible.core.serialize.load_yaml, which refuses duplicate keys"
+
 [tool.ruff.lint.per-file-ignores]
+# tests read back YAML that Crucible wrote; the ban guards loaders of authored files
+"tests/**" = ["TID251"]
 # ported code is kept as close to upstream as possible (THIRD_PARTY.md); only our [crucible]-tagged lines change
 "src/crucible/_vendor/**" = ["BLE001", "SIM117", "EXE001", "FURB129", "F401"]
 # Repo2RLEnv leak patterns are kept verbatim, flags included

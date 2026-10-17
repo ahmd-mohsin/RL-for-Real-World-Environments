@@ -1,0 +1,623 @@
+{
+ "$defs": {
+  "Segment": {
+   "additionalProperties": false,
+   "properties": {
+    "agent": {
+     "default": "",
+     "type": "string"
+    },
+    "attempts": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "boundary_reason": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "context_after": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "context_before": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "end_call": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "failed": {
+     "default": false,
+     "type": "boolean"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "start_call": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "summary_call": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tokens_source": {
+     "anyOf": [
+      {
+       "enum": [
+        "usage",
+        "estimate"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "index"
+   ],
+   "type": "object"
+  },
+  "Turn": {
+   "additionalProperties": false,
+   "properties": {
+    "actor": {
+     "type": "string"
+    },
+    "advantage": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "agent": {
+     "default": "",
+     "type": "string"
+    },
+    "atif_step_ids": {
+     "items": {
+      "type": "integer"
+     },
+     "type": "array"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "candidates": {
+     "anyOf": [
+      {
+       "items": {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "completion_token_ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "depends_on": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "edge": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "finish": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "format_errors": {
+     "default": 0,
+     "type": "integer"
+    },
+    "kind": {
+     "default": "turn",
+     "type": "string"
+    },
+    "logprobs": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "media": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "model": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "policy_version": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "prefix_break": {
+     "default": false,
+     "type": "boolean"
+    },
+    "prompt_is_delta": {
+     "default": false,
+     "type": "boolean"
+    },
+    "prompt_token_ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "ref_logprobs": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "routing": {
+     "anyOf": [
+      {
+       "items": {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "sampling": {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    "segment": {
+     "default": 0,
+     "type": "integer"
+    },
+    "step_reward": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "teacher_logprobs": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "trainable": {
+     "default": true,
+     "type": "boolean"
+    },
+    "version_spans": {
+     "anyOf": [
+      {
+       "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "integer"
+         },
+         {
+          "type": "integer"
+         }
+        ],
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "world_step": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "call_id",
+    "actor"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "actor": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "advantage": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "blame": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "credit_fallback": {
+   "default": false,
+   "type": "boolean"
+  },
+  "failure_kind": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "flags": {
+   "items": {
+    "additionalProperties": true,
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "gates": {
+   "additionalProperties": {
+    "type": "boolean"
+   },
+   "type": "object"
+  },
+  "group": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "group_credit_fallback": {
+   "default": false,
+   "type": "boolean"
+  },
+  "harness": {
+   "type": "string"
+  },
+  "mask_sample": {
+   "default": false,
+   "type": "boolean"
+  },
+  "opd_fallback": {
+   "default": false,
+   "type": "boolean"
+  },
+  "policy": {
+   "type": "string"
+  },
+  "progress": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "reward": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "reward_components": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "rollout_id": {
+   "type": "string"
+  },
+  "sample": {
+   "type": "string"
+  },
+  "schema": {
+   "default": "crucible.rollout/v1",
+   "type": "string"
+  },
+  "segments": {
+   "items": {
+    "$ref": "#/$defs/Segment"
+   },
+   "type": "array"
+  },
+  "source": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "stop": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "task": {
+   "type": "string"
+  },
+  "teacher_id": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "tier": {
+   "default": "fast",
+   "type": "string"
+  },
+  "timings": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "trace_id": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "trajectory_tokens": {
+   "anyOf": [
+    {
+     "type": "integer"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "truncated": {
+   "default": false,
+   "type": "boolean"
+  },
+  "turns": {
+   "items": {
+    "$ref": "#/$defs/Turn"
+   },
+   "type": "array"
+  }
+ },
+ "required": [
+  "rollout_id",
+  "sample",
+  "task",
+  "harness",
+  "policy"
+ ],
+ "type": "object"
+}

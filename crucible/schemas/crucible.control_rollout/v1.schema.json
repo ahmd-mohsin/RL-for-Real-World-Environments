@@ -1,0 +1,305 @@
+{
+ "$defs": {
+  "ControlStep": {
+   "additionalProperties": false,
+   "properties": {
+    "action": {
+     "default": null
+    },
+    "call_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "logprob": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "obs": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "obs_digest": {
+     "type": "string"
+    },
+    "policy_version": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "raw_action": {
+     "default": null
+    },
+    "reward": {
+     "default": 0.0,
+     "type": "number"
+    },
+    "t": {
+     "type": "integer"
+    },
+    "terminated": {
+     "default": false,
+     "type": "boolean"
+    },
+    "tick": {
+     "default": 0,
+     "type": "integer"
+    },
+    "ticks": {
+     "default": 1,
+     "type": "integer"
+    },
+    "ticks_requested": {
+     "default": 1,
+     "type": "integer"
+    },
+    "tool": {
+     "default": "step",
+     "type": "string"
+    },
+    "tool_call_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "truncated": {
+     "default": false,
+     "type": "boolean"
+    },
+    "value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "t",
+    "obs_digest"
+   ],
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "actor": {
+   "default": "agent",
+   "type": "string"
+  },
+  "app": {
+   "default": "sim",
+   "type": "string"
+  },
+  "config_digest": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "env": {
+   "type": "string"
+  },
+  "episode_return": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "failure_kind": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "group": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "harness": {
+   "type": "string"
+  },
+  "mask_sample": {
+   "default": false,
+   "type": "boolean"
+  },
+  "policy": {
+   "type": "string"
+  },
+  "reset_digest": {
+   "type": "string"
+  },
+  "reset_obs": {
+   "anyOf": [
+    {
+     "items": {
+      "type": "number"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "reward": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "reward_components": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "rollout_id": {
+   "type": "string"
+  },
+  "sample": {
+   "type": "string"
+  },
+  "schema": {
+   "default": "crucible.control_rollout/v1",
+   "type": "string"
+  },
+  "seed": {
+   "type": "integer"
+  },
+  "source": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "steps": {
+   "items": {
+    "$ref": "#/$defs/ControlStep"
+   },
+   "type": "array"
+  },
+  "stop": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "task": {
+   "type": "string"
+  },
+  "terminated": {
+   "default": false,
+   "type": "boolean"
+  },
+  "ticks": {
+   "default": 0,
+   "type": "integer"
+  },
+  "timings": {
+   "additionalProperties": {
+    "type": "number"
+   },
+   "type": "object"
+  },
+  "trace_id": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "truncated": {
+   "default": false,
+   "type": "boolean"
+  }
+ },
+ "required": [
+  "rollout_id",
+  "sample",
+  "task",
+  "harness",
+  "policy",
+  "env",
+  "seed",
+  "reset_digest"
+ ],
+ "type": "object"
+}

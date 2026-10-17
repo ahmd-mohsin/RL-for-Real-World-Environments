@@ -1304,7 +1304,7 @@ def main() -> None:
         os.setsid()  # its own process group, so close kills everything a cell started (a leader already: keep it)
     except OSError:
         pass
-    random.seed(int(os.environ.get("CRUCIBLE_RLM_SEED", "0")))
+    random.seed(int(os.environ.get("CRUCIBLE_RLM_SEED", "0")))  # the kernel cannot import crucible; declared in crucible.core.env
     _load_pylib()
     _install_entropy()
     req_fd, protocol_fd, err_fd = _setup_fds()

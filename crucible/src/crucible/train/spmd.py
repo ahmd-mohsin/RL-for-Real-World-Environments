@@ -41,6 +41,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from crucible.core import env as knobs
 from crucible.core.schema.rollout import RolloutRecord
 
 COMMANDS = ("step", "state_dict", "reset_optimizer", "offload", "onload", "save_sharded", "load_sharded", "load_state", "stop")
@@ -65,13 +66,6 @@ def command_group(group: Any = None, *, timeout_s: float = 7 * 24 * 3600) -> Any
     return dist.new_group(ranks=ranks, backend="gloo", timeout=timedelta(seconds=timeout_s))
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.environ.get(name, default))
-    except ValueError:
-        return default
-
-
 class Channel:
     """The driver → followers command channel of one SPMD session, with heartbeats. Not a collective: each rank creates
     its own; sessions pair up by creation order (the n-th channel of a rank group on every rank)."""
@@ -88,9 +82,9 @@ class Channel:
         with _LOCK:
             _SESSIONS[tuple(ranks)] = n = _SESSIONS.get(tuple(ranks), 0) + 1
         self.prefix = f"crucible/spmd/{'-'.join(map(str, ranks))}/{n}"
-        self.period_s = period_s if period_s is not None else _env_float("CRUCIBLE_SPMD_PERIOD_S", 2.0)
-        self.stale_s = stale_s if stale_s is not None else _env_float("CRUCIBLE_SPMD_STALE_S", 120.0)
-        self.join_timeout_s = join_timeout_s if join_timeout_s is not None else _env_float("CRUCIBLE_SPMD_JOIN_S", 3600.0)
+        self.period_s = period_s if period_s is not None else knobs.get("CRUCIBLE_SPMD_PERIOD_S")
+        self.stale_s = stale_s if stale_s is not None else knobs.get("CRUCIBLE_SPMD_STALE_S")
+        self.join_timeout_s = join_timeout_s if join_timeout_s is not None else knobs.get("CRUCIBLE_SPMD_JOIN_S")
         self.seq = 0
         self.busy: str | None = None  # the command this rank is executing (blocked in its collectives)
         self.lost: str | None = None

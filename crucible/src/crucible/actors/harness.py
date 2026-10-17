@@ -127,7 +127,7 @@ class BashLoopPolicy(Policy):
                 self.failure_kind = getattr(e, "failure_kind", None) or ("crucible:credits_exhausted" if isinstance(e, BudgetExceeded) else "provider_unavailable")
                 self.error = f"{self.failure_kind}: {e}"
                 return Done(reason=f"policy error: {e}")
-            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "step": obs.step, "model": r.model, "finish": r.raw_finish,
+            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "step": obs.step, "model": r.model, **r.finish_fields(),
                     "usage": r.usage, "cost_usd": r.cost_usd, "cached": r.cached, "harness": self.harness_id, "actions": [], "tokens": r.tokens}
             self.model_calls.append(call)  # a format-error call keeps ``actions`` empty: its own ATIF step (runtime.trajectories)
             text = r.text or ""
@@ -150,4 +150,4 @@ class BashLoopPolicy(Policy):
                 self.stop = "format_error"
                 call["actions"] = ["done"]
                 return Done(reason=f"{self.format_errors} consecutive format errors")
-            self.messages.append({"role": "user", "content": CUT_OFF if r.raw_finish == "length" else FORMAT_ERROR.format(n=len(blocks))})
+            self.messages.append({"role": "user", "content": CUT_OFF if r.finish == "length" else FORMAT_ERROR.format(n=len(blocks))})

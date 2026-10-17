@@ -60,6 +60,9 @@ class TrainerConfig:
     grad_clip: float = 1.0
     updates_per_batch: int = 1
     temperature: float = 1.0  # must equal every trained call's sampling temperature (checked: a mismatch biases every ratio)
+    # a trained call that recorded no temperature is refused (R-3: rollouts before crucible.rollout/v1.1 copied the run's
+    # declaration, default {}); True accepts such calls as sampled at ``temperature``, knowingly
+    allow_unrecorded_sampling: bool = False
     skip_nonfinite: bool = True  # a non-finite gradient norm skips the optimizer step (AReaL, slime), counted in train/skipped_nonfinite
     routing_replay: str = "none"  # none | r3: replay the engine's MoE expert choice per completion token (checklist #36)
     prefix_sharing: bool = False  # items with the same full prompt in a micro batch encode it once (checklist #50)
@@ -144,6 +147,7 @@ class TorchTrainer:
         if self.cfg.opd_mode == "full_vocab" and self.cfg.opd_coef and teacher is None:
             raise ValueError("opd_mode='full_vocab' needs TorchTrainer(teacher=...)")
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
+        self.tokenizer_id = None  # the policy's tokenizer (core.schema.rollout.TokenizerId): records of another one are refused (R-17)
         self.updates = 0
         self.critic = critic
         if critic is not None:
@@ -353,7 +357,7 @@ class TorchTrainer:
         """Segment packing needs no per-call model inputs: truncated sampling (candidates) and R3 routing keep per-call items."""
         if self.cfg.routing_replay == "r3":
             return False
-        return all(float(t.sampling.get("top_p", 1.0)) >= 1.0 and not t.media for t in r.turns)
+        return all(not t.sampling.truncated and not t.media for t in r.turns)
 
     def _segment_items(self, r: RolloutRecord, a: float, per_token: dict | None, pid: int) -> list[_Item]:
         from crucible.train.bridges.common import flatten
@@ -580,8 +584,8 @@ class TorchTrainer:
                 if not t.completion_token_ids or not self._trains(t):
                     continue
                 if not t.candidates_valid():
-                    raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.get('top_p')} but no complete candidate sets; the trainer cannot "
-                                     "renormalize π_θ (record candidates or sample with top_p=1)")
+                    raise ValueError(f"{t.call_id}: sampled with top_p={t.sampling.top_p}, top_k={t.sampling.top_k}, min_p={t.sampling.min_p} but no "
+                                     "complete candidate sets; the trainer cannot renormalize π_θ (record candidates or sample untruncated)")
                 if self.cfg.routing_replay == "r3" and (t.routing is None or len(t.routing) != len(t.completion_token_ids)):
                     raise ValueError(f"{t.call_id}: routing_replay='r3' needs Turn.routing for 100% of completion tokens "
                                      f"({0 if t.routing is None else len(t.routing)}/{len(t.completion_token_ids)})")
@@ -590,7 +594,7 @@ class TorchTrainer:
                 pt = per_token.get((r.rollout_id, t.call_id), [0.0] * len(t.completion_token_ids)) if per_token is not None else None
                 adv = [x + credit for x in pt] if pt is not None else a + credit
                 it = _Item(prompts[t.call_id], list(t.completion_token_ids), list(t.logprobs or []), adv, pids[g],
-                           t.candidates if float(t.sampling.get("top_p", 1.0)) < 1.0 else None,
+                           t.candidates if t.sampling.truncated else None,
                            t.routing if self.cfg.routing_replay == "r3" else None, seq=r.rollout_id,
                            media=(media.get(t.call_id) or None) if media else None)
                 kl = self._kl_coef(r)
@@ -725,6 +729,31 @@ class TorchTrainer:
     def _release_params(self) -> None:
         """After the optimizer step (``FSDPTrainer``: drop the gathered copy; the next gather sees the updated shards)."""
 
+    def _check_capture(self, records: Sequence[RolloutRecord]) -> None:
+        """R-17: what the records say about how their tokens were produced must fit this trainer. One batch never mixes
+        token maps (the ids would mean different tokens), nor differs from the trainer's declared tokenizer
+        (``tokenizer_id``); raw log-probs (before temperature and top-p) are comparable only at temperature 1 without
+        truncation. Records that do not say (no ``capture``) are not judged here."""
+        maps: dict[str, str] = {}
+        mine = getattr(self, "tokenizer_id", None)
+        if mine is not None:
+            maps[mine.token_map] = "the trainer"
+        for r in records:
+            cap = r.capture
+            if cap is None or r.mask_sample or r.reward is None:
+                continue
+            if cap.tokenizer is not None:
+                maps.setdefault(cap.tokenizer.token_map, r.rollout_id)
+            if cap.logprobs == "raw":
+                cut = any(t.sampling.truncated for t in r.turns if self._trains(t))
+                if abs(float(self.cfg.temperature) - 1.0) > 1e-6 or cut:
+                    raise ValueError(f"{r.rollout_id}: its engine returned raw log-probs (before temperature and top-p), which the trainer cannot compare at "
+                                     f"temperature {self.cfg.temperature}{' with top-p truncation' if cut else ''}: run the engine with processed "
+                                     "log-probs (vLLM --logprobs-mode processed_logprobs)")
+        if len(maps) > 1:
+            raise ValueError("records from different tokenizers in one batch (their token ids mean different tokens): "
+                             + ", ".join(f"{who}: {m[:19]}" for m, who in maps.items()))
+
     def _gate(self, records: Sequence[RolloutRecord]) -> tuple[list[RolloutRecord], int]:
         """The trainer's own validity check (M12 audit: nothing on the M12 path called ``valid_for_training``, so a call
         without behaviour logprobs trained with π_rollout = 1). A scored record whose trained calls lack a complete,
@@ -733,6 +762,7 @@ class TorchTrainer:
         import math
 
         out, bad = [], 0
+        self._check_capture(records)
         for r in records:
             if r.mask_sample or r.reward is None:
                 out.append(r)
@@ -742,7 +772,11 @@ class TorchTrainer:
                 n = len(t.completion_token_ids or [])
                 if not n or not self._trains(t):
                     continue
-                temp = t.sampling.get("temperature") if t.sampling else None
+                temp = t.sampling.temperature
+                if temp is None and not self.cfg.allow_unrecorded_sampling:  # R-3: an unknown temperature is not assumed to match
+                    raise ValueError(f"{r.rollout_id}/{t.call_id} recorded no sampling temperature, so its log-probs cannot be checked against "
+                                     f"the trainer's {self.cfg.temperature}; record what was sent (crucible.rollout/v1.1) or set "
+                                     "TrainerConfig.allow_unrecorded_sampling=True to accept it as sampled at the trainer's temperature")
                 if temp is not None and abs(float(temp) - float(self.cfg.temperature)) > 1e-6:
                     raise ValueError(f"{r.rollout_id}/{t.call_id} was sampled at temperature {temp} but the trainer computes log-probs at "
                                      f"{self.cfg.temperature}: every ratio would be biased (set TrainerConfig.temperature)")
