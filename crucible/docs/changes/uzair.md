@@ -1048,3 +1048,16 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_every_path_dependency_is_the_version_uv_lock_records` (fails with Harbor's clone at `dc933be7`).
 - **Merge notes.** Pulling a reference clone used as a path source now fails this test until it is checked out at
   the pinned commit again, or the lock and `THIRD_PARTY.md` are updated on purpose.
+
+## 49. R-31 reverted: `Config.backends` is read again (M17)
+
+- **Item.** R-31 (entry 35) undone. Main's M17 task factory (`23fdf6f`, 2026-10-16) reads `[backends.factory]` in
+  `factory/models.py` (`ModelBook.from_config`: role models, solver rungs, `budget_usd_per_client`, `no_json_mode`), so
+  the table is no longer unread. At the user's request M17 is respected as written.
+- **Files.** `src/crucible/core/config.py` (`backends: dict[str, dict[str, Any]]` back, as on main),
+  `tests/unit/test_config_backends.py` (deleted).
+- **Public names.** `Config.backends` again.
+- **Behaviour.** As before R-31: any `[backends.<name>]` table is accepted; only `factory` is read.
+- **Formats.** `crucible.toml`: `backends` is a valid key again.
+- **Tests.** `test_config_backends.py` removed; M17's `test_m17_q_models` and `test_m17_q_root` cover the table.
+- **Merge notes.** none: this restores main's line.
