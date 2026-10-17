@@ -58,9 +58,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from crucible.actors.llm import SpendScope
+from crucible.core.serialize import load_yaml
 from crucible.forge.budget import BudgetExhausted, Ledger
 from crucible.forge.orchestrator import Journal
 from crucible.forge.repo import _marks
@@ -422,12 +421,13 @@ def _resolve_path(outputs: Mapping[str, Any], ref: str) -> Any:
 
 # ---- loading, validation, canonical form ------------------------------------------------------------------------------
 def load_machine(src: str | Path | Mapping[str, Any]) -> dict[str, Any]:
-    """A machine from a dict, a YAML/JSON file path or YAML text (``yaml.safe_load``: no object construction)."""
+    """A machine from a dict, a YAML/JSON file path or YAML text (``load_yaml``: no object construction, no duplicate keys)."""
     if isinstance(src, Mapping):
         return copy.deepcopy(dict(src))
+    source = "<machine>"
     if isinstance(src, Path) or (isinstance(src, str) and "\n" not in src and Path(src).suffix in (".yaml", ".yml", ".json")):
-        src = Path(src).read_text()
-    data = yaml.safe_load(src)
+        source, src = str(src), Path(src).read_text()
+    data = load_yaml(src, source=source)
     if not isinstance(data, dict):
         raise MachineError(["a machine must be a mapping"])
     return data

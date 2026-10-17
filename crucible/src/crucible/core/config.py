@@ -35,7 +35,7 @@ import re
 import tomllib
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator
 
@@ -155,6 +155,9 @@ class Config(CrucibleModel):
         }
     )
     gpu_hosts: dict[str, GpuHost] = Field(default_factory=dict)
+    # Per-subsystem tables, each read by its owner; a table nothing reads is refused by name (R-31). ``factory``:
+    # M17 role models and solver rungs (crucible.factory.models.ModelBook.from_config)
+    backends: dict[Literal["factory"], dict[str, Any]] = Field(default_factory=dict)
     # model id -> USD per 1M tokens: [input, output] or [input, output, cache read] or [input, output, cache read, cache
     # write]; a cache price left out is the input price (R-19)
     prices: dict[str, list[float]] = Field(default_factory=dict)
