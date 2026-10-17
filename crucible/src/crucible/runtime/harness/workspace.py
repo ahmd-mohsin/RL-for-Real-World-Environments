@@ -11,6 +11,10 @@ verifier timeout) is retried as a **re-grade of the stored patch** (``regrade``;
 re-running the agent would sample a different solution and silently replace the one being measured.
 
 Tasks that declare ``perf = True`` grade inside a ``PerfGuard`` slot (one perf grade per host, quiet host first).
+
+M17 checkpoint credit (opt-in): the harness's ``sidecar(attempt)`` or the task's ``episode_sidecar(attempt)``
+(``native.EpisodeSidecar``; ``factory.checkpoint``) observes the episode, grades workspace snapshots out of band and writes
+``progress.jsonl``, which the record builder turns into ``Turn.advantage``. Off (the default): no observer, no change.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from crucible.actors.policy import run_episode
 from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.harness.base import Attempt, HarnessResult
-from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, save_episode
+from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, episode_sidecar, probed, save_episode
 from crucible.runtime.infra import StageFailure, boundary, classify_verifier, failure
 
 
@@ -142,7 +146,11 @@ class WorkspaceHarness(NativeHarness):
                 (attempt.dir / "base_sha").write_text(base_sha + "\n")
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
-                ep = await run_episode(world, policies, limits=self.limits, sample_key=attempt.id)
+                side = episode_sidecar(self.sidecar, attempt)  # M17 checkpoint credit (opt-in; None = off, nothing changes)
+                ep = await run_episode(world, probed(policies, side, world), limits=self.limits, observers=[side] if side is not None else (),
+                                       sample_key=attempt.id)
+                if side is not None:
+                    res.grade["progress"] = ep.observed[0]
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
             save_episode(attempt, ep, res, self.id, policies)

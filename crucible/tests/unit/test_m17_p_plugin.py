@@ -12,8 +12,8 @@ pytest.importorskip("fastapi")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from crucible.factory.labels import LabelStore, item_sha256
 from crucible.factory.explorer import LabelsExplorerPlugin, read_items
+from crucible.factory.labels import LabelStore, item_sha256
 
 P = "/api/v1/crucible/labels"
 ITEMS = [{"id": "i1", "family": "fam1", "payload": {"trace": "t1"}, "choices": ["pass", "fail"]},

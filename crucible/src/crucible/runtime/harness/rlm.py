@@ -63,12 +63,13 @@ def context_path(task: Any) -> Any:
 class RLMHarness(NativeHarness):
     def __init__(self, config: RLMConfig | None = None, *, version: str = "1", launcher: Callable[[Attempt, str], Any] | None = None,
                  limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None, checkpoint_every: int = 0,
-                 progress_full_every: int = 250):
+                 progress_full_every: int = 250, sidecar: Callable[[Attempt], Any] | None = None):
         """``launcher(attempt, actor)`` places a kernel (default: ``RLMConfig.kernel``, a no-network container; ``ExecLauncher``
-        puts it inside the World's own sandbox). It is called once for the root and once per child agent."""
+        puts it inside the World's own sandbox). It is called once for the root and once per child agent. ``sidecar``: the
+        opt-in M17 checkpoint-credit sidecar (``NativeHarness``); its compaction checkpoints see the RLM's root segments."""
         self.config = config or RLMConfig()
         super().__init__(f"rlm:{self.config.digest()}", version, limits=limits or EpisodeLimits(max_steps=10_000), limit_policy=limit_policy,
-                         checkpoint_every=checkpoint_every, progress_full_every=progress_full_every)
+                         checkpoint_every=checkpoint_every, progress_full_every=progress_full_every, sidecar=sidecar)
         self.launcher = launcher
         if launcher is None:
             # M14 campaign B9: kernel='local' without allow_host was refused only inside each attempt, where it became an

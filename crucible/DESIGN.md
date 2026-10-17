@@ -682,6 +682,44 @@ the curation method; the build; the first run). Code: `src/crucible/factory/`.
 
 Family acceptance has not run yet.
 
+**Long-horizon coding (08 design; 09, 10 build, 2026-10-17).** Single commits are short tasks, so the long-horizon unit is
+a **release window** of a real repository:
+- the repo at release A is the start state, and the repo at B is an executed oracle;
+- each commit's fail-to-pass tests form a milestone;
+- `requires` edges come from executed dependency, not from file overlap.
+
+The window lane (`factory/lanes/windows*.py`, `scripts/lh_windows.py`):
+- builds a World at A: fresh git history tagged `base`, no network, the project installed in the image;
+- runs executed leak probes: `pip download` of B fails, and no B artefact is in the image;
+- runs each window's tests at A and at B with reruns, to sort fail-to-pass from pass-to-pass and drop flaky tests;
+- runs the dependency prober on source-only diffs;
+- builds commit-revert mutants (milestone k fails, independent milestones still pass);
+- grades through `WindowTask.grade_patch`: the hidden tests run on a pristine A tree with protected paths restored;
+- writes the prompt with a ledger, and a lint that refuses process instructions no check enforces;
+- keeps held-out repos, fixed before mining, in a separate store that refuses training repos.
+
+Step credit (`factory/checkpoint.py`):
+- a sidecar grades milestone status on workspace snapshots at agent commits, every K tool calls, each root compaction
+  boundary and the end, with a cap;
+- Φ counts milestones whose `requires` hold; ΔΦ goes to the closing turn through `progress.jsonl`, so `turn_credit_map`
+  and `token_credit` apply unchanged;
+- a lost milestone is negative ΔΦ; an ungraded checkpoint is unmeasured, never 0;
+- the agent never sees the results;
+- runtime defines only an `EpisodeSidecar` Protocol (opt-in, off by default).
+
+Honesty (`factory/honesty.py`):
+- the `STATUS.json` claims are Brier-scored over verified requirements;
+- `GIVE_UP` ends an episode honestly;
+- the term enters the outcome advantage, not the reward, so it can never turn a failure positive.
+
+Also new:
+- `bench/lh_metrics.py`: milestones lost, loss at compaction boundaries, claim calibration, give-up correctness, and a
+  paired base-vs-trained comparison with the MDE;
+- `factory/sealing.py`: disjoint repos, the time split, contamination checks, and held-out publishing.
+
+**First mining:** 116 training windows from 18 repos give 51 with dependency edges, 48 of them with valid mutants. 84
+held-out windows from 6 repos give 20.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

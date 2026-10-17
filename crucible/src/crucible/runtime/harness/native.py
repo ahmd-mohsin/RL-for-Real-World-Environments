@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.core.schema.run import Failure
@@ -150,6 +150,55 @@ def _take_grade_findings(rep: Any, res: HarnessResult, *, prefix: str = "") -> N
         raise StageFailure(Failure(kind=kind, stage="verification", reason=prefix + str(f.get("reason", "")), blame="policy", mask=False))
 
 
+class EpisodeSidecar(Protocol):
+    """An opt-in episode sidecar (M17 checkpoint credit, ``factory.checkpoint.CheckpointSidecar``): ``run_episode``'s observer
+    protocol (``on_start``, ``on_step``, ``on_end``; ``on_end``'s dict becomes ``res.grade["progress"]``) plus
+    ``before_action``, awaited after a policy chose its action and before the World applies it (the state at a compaction
+    boundary). It never feeds the agent: nothing it returns reaches an observation. Runtime defines the seam; the factory
+    implements it (runtime never imports the factory)."""
+
+    async def on_start(self, world: Any) -> None: ...
+    async def on_step(self, world: Any, step: int, actor: str, action: Any, result: Any) -> Any: ...
+    async def before_action(self, world: Any, actor: str, policy: Any, action: Any) -> None: ...
+    async def on_end(self, world: Any) -> dict[str, Any]: ...
+
+
+def episode_sidecar(make: Callable[[Attempt], Any] | None, attempt: Attempt) -> Any:
+    """The attempt's sidecar, or None (off: the harness behaves exactly as without one): the harness's ``sidecar(attempt)``
+    if given, else the task's ``episode_sidecar(attempt)``."""
+    make = make or getattr(attempt.task, "episode_sidecar", None)
+    return make(attempt) if make is not None else None
+
+
+class _ActProbe:
+    """A policy as ``run_episode`` sees it while a sidecar is on: every attribute is the policy's own; ``act`` shows the chosen
+    action to the sidecar before the World applies it and returns it unchanged. A sidecar error never ends the episode."""
+
+    def __init__(self, inner: Any, actor: str, sidecar: Any, world: Any):
+        self.__dict__.update(_inner=inner, _actor=actor, _sidecar=sidecar, _world=world)
+
+    async def act(self, obs: Any) -> Any:
+        action = await self._inner.act(obs)
+        try:
+            await self._sidecar.before_action(self._world, self._actor, self._inner, action)
+        except Exception:  # noqa: BLE001, S110 -- the sidecar flags its own faults; the agent's episode goes on
+            pass
+        return action
+
+    def __getattr__(self, k: str) -> Any:
+        return getattr(self.__dict__["_inner"], k)
+
+    def __setattr__(self, k: str, v: Any) -> None:
+        setattr(self._inner, k, v)
+
+
+def probed(policies: dict[str, Any], sidecar: Any, world: Any) -> dict[str, Any]:
+    """``policies`` for ``run_episode``: unchanged without a sidecar (or one without ``before_action``)."""
+    if sidecar is None or not hasattr(sidecar, "before_action"):
+        return policies
+    return {a: _ActProbe(p, a, sidecar, world) for a, p in policies.items()}
+
+
 @dataclass
 class PolicyRef:
     id: str
@@ -161,14 +210,17 @@ class PolicyRef:
 class NativeHarness:
     """``checkpoint_every`` > 0: a mid-episode checkpoint every N steps, and a masked attempt's retry resumes from the
     previous attempt's last checkpoint (``runtime.checkpoint``). A task with ``subgoals`` gets a dense progress stream
-    (``progress.jsonl``, ``verify.progress``); the trace always streams to ``trace.jsonl``."""
+    (``progress.jsonl``, ``verify.progress``); the trace always streams to ``trace.jsonl``. ``sidecar(attempt)`` (or the task's
+    ``episode_sidecar``; M17 checkpoint credit) is an opt-in ``EpisodeSidecar``: it replaces the subgoal stream as the writer
+    of ``progress.jsonl`` and is not attached to a resumed or multi-step attempt."""
 
     def __init__(self, name: str = "native:llm-tool", version: str = "1", *, limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None,
-                 checkpoint_every: int = 0, progress_full_every: int = 250):
+                 checkpoint_every: int = 0, progress_full_every: int = 250, sidecar: Callable[[Attempt], Any] | None = None):
         self.id = f"{name}@{version}"
         self.limits = limits or EpisodeLimits(max_steps=30)
         self.limit_policy = limit_policy or LimitPolicy()
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
+        self.sidecar = sidecar
 
     def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
         """(the previous attempt's dir, its checkpoint) when the previous attempt was masked mid-episode, or when the
@@ -313,7 +365,10 @@ class NativeHarness:
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
                 observers = []
-                if getattr(attempt.task, "subgoals", None) is not None:
+                side = None if resume or getattr(attempt.task, "steps", None) else episode_sidecar(self.sidecar, attempt)
+                if side is not None:  # M17 checkpoint credit: the sidecar writes progress.jsonl (one writer per attempt)
+                    observers.append(side)
+                elif getattr(attempt.task, "subgoals", None) is not None:
                     from crucible.verify.progress import ProgressTracker
 
                     observers.append(ProgressTracker(attempt.task.subgoals, out=attempt.dir / "progress.jsonl", full_every=self.progress_full_every))
@@ -328,7 +383,7 @@ class NativeHarness:
                 else:
                     ckpt = checkpoint.Checkpointer(attempt.dir, world, policies, observers, every=self.checkpoint_every,
                                                    work_attempt=work_attempt) if self.checkpoint_every else None
-                    ep = await run_episode(world, policies, limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
+                    ep = await run_episode(world, probed(policies, side, world), limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
                                            after_step=ckpt, sample_key=attempt.id)  # per-attempt cache key: k samples never replay one completion
                 if observers:
                     res.grade["progress"] = ep.observed[0]

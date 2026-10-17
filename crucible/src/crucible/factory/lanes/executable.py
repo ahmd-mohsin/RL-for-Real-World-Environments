@@ -33,6 +33,7 @@ import asyncio
 import contextlib
 import difflib
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -117,6 +118,47 @@ def _safe(path: str) -> str | None:
     return p
 
 
+def call_supported(fn: Any, *args: Any, **kw: Any) -> Any:
+    """``fn(*args, **kw)`` without the keyword arguments ``fn`` cannot take (option B, 07 §3: a scripted client without
+    ``**kwargs`` raised TypeError when a state retry added ``sample_key``, or the solver runner ``json_mode``). A callable
+    with ``**kwargs`` (every ``LLMClient``) gets them all."""
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+    except (TypeError, ValueError):
+        return fn(*args, **kw)
+    if any(p.kind is p.VAR_KEYWORD for p in params):
+        return fn(*args, **kw)
+    names = {p.name for p in params if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)}
+    return fn(*args, **{k: v for k, v in kw.items() if k in names})
+
+
+async def lane_ask(ctx: Any, role_brief: str, payload: Mapping[str, Any], *, max_tokens: int = 4000, sample: str = "") -> dict[str, Any]:
+    """``driver._ask`` through ``call_supported`` (the lane's roles take any client the machine injects). ``sample`` makes
+    a second ask inside one attempt a new sample (the compact retry below)."""
+    from crucible.actors.llm import LLMOutputError
+    from crucible.factory.driver import _jsonable
+
+    if ctx.client is None:
+        raise RuntimeError(f"state {ctx.state_id}: no client for role {ctx.role!r}")
+    user = dict(payload)
+    if ctx.findings:
+        user["findings_to_address"] = ctx.findings
+    msgs = [{"role": "system", "content": f"ROLE: {ctx.role}\n{role_brief}\nAnswer with one JSON object only."},
+            {"role": "user", "content": json.dumps(_jsonable(user), sort_keys=True)}]
+    kw: dict[str, Any] = {"sample_key": f"{ctx.state_id}#{ctx.entry}.{ctx.attempt}{sample}"} if ctx.attempt > 1 or sample else {}
+    out = await call_supported(ctx.client.complete_json, msgs, max_tokens=max_tokens, temperature=0.0, **kw)
+    if not isinstance(out, dict):
+        raise LLMOutputError(f"{ctx.role}: expected a JSON object")
+    return out
+
+
+def truncated(e: BaseException) -> bool:
+    """An ``LLMClient.complete_json`` failure caused by the token cap (cut-off JSON, or an empty reply at ``finish=length``
+    after the reasoning spent the budget)."""
+    s = str(e)
+    return "cut off at max_tokens" in s or "finish=length" in s
+
+
 def sha256_text(*parts: str) -> str:
     h = hashlib.sha256()
     for p in parts:
@@ -186,8 +228,9 @@ class DockerSandbox:
     only through the guard plugin's stdout block. ``guard=False`` (the mining image): JUnit on a per-run bind mount."""
 
     def __init__(self, image: str | None = None, *, guard: bool = True, timeout_s: float = 300.0, per_test_s: int = 60, cpus: str = "1",
-                 memory: str = "1g", parallel: int = 6):
+                 memory: str = "1g", parallel: int = 6, extra_args: Sequence[str] = ()):
         self.guard = guard
+        self.extra_args = tuple(extra_args)  # more pytest options (the window lane: --continue-on-collection-errors)
         self.image = image or (IMAGE if guard else IMAGE_MINE)
         self.timeout_s, self.per_test_s, self.cpus, self.memory, self.parallel = timeout_s, per_test_s, cpus, memory, parallel
         self._sem: asyncio.Semaphore | None = None
@@ -218,11 +261,11 @@ class DockerSandbox:
             junit = f"/tmp/j{nonce}/r.xml"
             return [*base, "-w", "/w", "-e", "PYTHONPATH=/w/src:/w:/opt/m17", "-e", "HOME=/tmp", self.image,
                     "python", "-m", "pytest", "-p", "m17guard", "-q", "-p", "no:cacheprovider", "-o", "addopts=", "-o", "junit_family=xunit1",
-                    f"--timeout={self.per_test_s}", f"--junitxml={junit}", "-rN", "--color=no", *targets]
+                    f"--timeout={self.per_test_s}", f"--junitxml={junit}", "-rN", "--color=no", *self.extra_args, *targets]
         mount = f"/o_{nonce}"
         return [*base, "-v", f"{out}:{mount}:rw", "-w", "/w", "-e", "PYTHONPATH=/w/src:/w", "-e", "HOME=/tmp", self.image,
                 "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "addopts=", "-o", "junit_family=xunit1",
-                f"--timeout={self.per_test_s}", f"--junitxml={mount}/r.xml", "-rN", "--color=no", *targets]
+                f"--timeout={self.per_test_s}", f"--junitxml={mount}/r.xml", "-rN", "--color=no", *self.extra_args, *targets]
 
     async def run(self, tree: Path, targets: Sequence[str]) -> TestRun:
         if self._sem is None:
@@ -282,7 +325,7 @@ class LocalSandbox(DockerSandbox):
             t0 = time.monotonic()
             env = {**os.environ, "PYTHONPATH": f"{tree}/src:{tree}", "PYTHONDONTWRITEBYTECODE": "1"}
             proc = await asyncio.create_subprocess_exec(self.python, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "addopts=",
-                                                        "-o", "junit_family=xunit1", f"--junitxml={out}/r.xml", "-rN", *targets, cwd=str(tree),
+                                                        "-o", "junit_family=xunit1", f"--junitxml={out}/r.xml", "-rN", *self.extra_args, *targets, cwd=str(tree),
                                                         env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
             raw, _ = await asyncio.wait_for(proc.communicate(), self.timeout_s)
             res = parse_junit(out / "r.xml")
@@ -1257,7 +1300,7 @@ class PatchHacker:
                   "The submission format is edits to source files: {\"path\", \"old\" (exact, unique text from the file), \"new\"}. "
                   'Reply with JSON {"attempts": [{"strategy": "<short name>", "edits": [...]}]}.')
         try:
-            reply = await self.client.complete_json([{"role": "system", "content": system}, {"role": "user", "content": user}], max_tokens=8000)
+            reply = await call_supported(self.client.complete_json, [{"role": "system", "content": system}, {"role": "user", "content": user}], max_tokens=8000)
         except Exception as e:  # noqa: BLE001 - a failed hacker call is recorded, never a crash of the stage
             self.rejected.append(f"model hacker call failed: {e}"[:300])
             return []
@@ -1280,6 +1323,9 @@ SPEC_BRIEF = ("You plan an RL coding task built from a real bug fix in a Python 
               "exact output format the tests compare), never how to implement it. Return {requirements: [{id, text, kind, "
               "tests: [test ids it covers]}], verifier_plan, expected_causes}. kind is one of behaviour, format, tolerance, "
               "laziness, side_effect_scope. Every test id must be covered by exactly one requirement.")
+SPEC_MAX_TOKENS = 16000  # (option B) was 8000: 6 of the discovery tasks' specs were cut off (discovery_summary.json "dropped")
+SPEC_COMPACT = (" Your previous reply was cut off at the token limit. Reply in compact JSON on one line (no indentation), keep each "
+                "requirement to one sentence, and refer to tests by their number (T1, T2, ...) exactly as the keys of new_tests.")
 AUTHOR_BRIEF = ("You write the request a real user of this library would send (a bug report or a message to a maintainer) "
                 "for the change described. The requirement sentences given are listed word for word after your opening, "
                 "under 'What I need:'; you write only the opening (what the user was doing and what goes wrong, in their own "
@@ -1452,7 +1498,8 @@ class ExecLane:
         if key not in self._reviews:
             user = json.dumps({"request": task.instruction, "change": normalize_solution(solution)}, default=str)[:40_000]
             try:
-                r = await self.reviewer.complete_json([{"role": "system", "content": REVIEW_BRIEF}, {"role": "user", "content": user}], max_tokens=8000)
+                r = await call_supported(self.reviewer.complete_json, [{"role": "system", "content": REVIEW_BRIEF}, {"role": "user", "content": user}],
+                                         max_tokens=8000)
                 self._reviews[key] = bool(isinstance(r, dict) and r.get("general") is True)
             except Exception:  # noqa: BLE001 - an undecided review never confirms the properties
                 self._reviews[key] = False
@@ -1461,10 +1508,30 @@ class ExecLane:
     # -- machine handlers ----------------------------------------------------------------------------------------------
     def handlers(self) -> dict[str, Any]:
         from crucible.actors.llm import LLMOutputError
-        from crucible.factory.driver import CAUSES, _ask, _need, verdict
+        from crucible.factory.driver import CAUSES, _need, verdict
         from crucible.factory.machine import Settle
 
         lane = self
+        _ask = lane_ask
+
+        async def ask_spec(ctx: Any, payload: dict[str, Any], tests: Mapping[str, str]) -> dict[str, Any]:
+            """(option B) The spec author's reply at ``SPEC_MAX_TOKENS``; when it is still cut off (6 discovery tasks died
+            at ``finish=length``: long requirement lists, or reasoning that spent the cap), one compact retry that names
+            tests by number and asks for unindented JSON. The numbers are mapped back to test ids."""
+            try:
+                return await _ask(ctx, SPEC_BRIEF, payload, max_tokens=SPEC_MAX_TOKENS)
+            except LLMOutputError as e:
+                if not truncated(e):
+                    raise
+            num = {f"T{i}": x for i, x in enumerate(sorted(tests), 1)}
+            compact = {**payload, "new_tests": {k: tests[x] for k, x in num.items()}}
+            if payload.get("uncovered_tests_to_cover"):
+                compact["uncovered_tests_to_cover"] = [k for k, x in num.items() if x in payload["uncovered_tests_to_cover"]]
+            out = await _ask(ctx, SPEC_BRIEF + SPEC_COMPACT, compact, max_tokens=SPEC_MAX_TOKENS, sample="#compact")
+            for r in out.get("requirements") or []:
+                if isinstance(r, dict):
+                    r["tests"] = [num.get(str(x), str(x)) for x in r.get("tests") or []]
+            return out
 
         async def s_spec(ctx: Any) -> Any:
             t = lane.mined_from_cell(ctx.inputs["cell"])
@@ -1473,7 +1540,7 @@ class ExecLane:
                        "commit_message": scrub(t.body)[:1500], "new_tests": tests}
             missing: list[str] = []
             for _ in range(2):  # (M17 e2e) one repair turn naming the uncovered tests: a bare retry repeated the omission
-                out = await _ask(ctx, SPEC_BRIEF, {**payload, **({"uncovered_tests_to_cover": missing} if missing else {})}, max_tokens=8000)
+                out = await ask_spec(ctx, {**payload, **({"uncovered_tests_to_cover": missing} if missing else {})}, tests)
                 reqs = out.get("requirements")
                 _need(isinstance(reqs, list) and reqs and all(isinstance(r, dict) and r.get("text") for r in reqs), "spec.requirements must be a non-empty list")
                 covers: dict[str, list[str]] = {}
@@ -1729,7 +1796,7 @@ class ExecLane:
 
             async def one(i: int) -> dict[str, Any]:
                 try:
-                    r = await asyncio.wait_for(client.complete(msgs, temperature=temperature, max_tokens=max_tokens, json_mode=True,
+                    r = await asyncio.wait_for(call_supported(client.complete, msgs, temperature=temperature, max_tokens=max_tokens, json_mode=True,
                                                                sample_key=f"{task.calibration_key()}#{salt}{i}"), call_timeout_s)
                 except BudgetExceeded:
                     raise
