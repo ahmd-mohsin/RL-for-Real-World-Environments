@@ -14,9 +14,27 @@ App) with one ``TaskStep`` per ``[[steps]]`` entry, in declared order, so ``Nati
   are emptied so the policy never sees a grading harness, ``workdir/`` is uploaded into the container's working
   directory, its ``setup.sh`` runs there, then the step's ``healthcheck`` (Docker HEALTHCHECK semantics). The step's
   ``agent.user`` (else the task's) becomes the terminal's user for the step. A failure raises: the attempt masks (Harbor
-  records the step as errored and stops; Crucible never scores an environment failure as the policy's 0).
-- **grade** (Harbor ``_run_step_verifier``, shared mode): Harbor's ``Verifier`` with ``step_name`` (it merges the shared
-  ``tests/`` and ``steps/<name>/tests/`` into ``/tests`` and runs the step's ``test.sh``, else the shared one), the
+  records the step as errored and stops; Crucible never scores an environment failure as the policy's 0). M10 lab audit
+  R-2: after the first step's setup (before the policy acts) the process baseline is taken again, so what that setup
+  started is the task's and spared; a later step's ``setup.sh`` runs in a container a root policy controlled, so the
+  processes it starts are never made pristine: the host lists the container before and after it
+  (``quiesce.started_since``), and what it started is killed before that step's grade, which then ends as a masked,
+  non-retryable ``crucible:harness_unsupported`` of unknown blame (``setup_service``) rather than the policy's 0 (review
+  round 1, P16; review round 2: unknown, never the task's, since a root policy can make that setup start a process: a
+  tool it runs that the policy replaced, or a process of the policy forking during it). Review round 3: so that an
+  honest task whose later setup starts a service never reaches that unknown-blame stop, ``open`` first runs every step's
+  setup once in a pristine container (``_preflight_setups``: no policy, once per task object and process) and refuses
+  the task (``crucible:harness_unsupported``, harness blame, stage ``seed``) when a later setup leaves a process running
+  there; ``setup_service`` then remains only where that preflight left nothing running or was inconclusive (a later
+  setup that needs the agent's earlier work fails there). After a clean step grade the listing before the next step's
+  setup is taken whether or not that step has a ``setup.sh``: what it shows beyond the baseline is the grade's leftovers
+  (its ``test.sh`` left a server running), killed at the next grade and never flagged as the policy's, nor are their
+  descendants (``quiesce`` receipt ``leftovers``; review rounds 2 and 3).
+- **grade** (Harbor ``_run_step_verifier``, shared mode), after a host-side quiesce (M10 lab audit R-2,
+  ``HarborInPlaceTask._quiesce``: every process started after the baseline is killed and confirmed gone, receipt
+  ``steps/NN-<name>/verifier/quiesce.json``; survivors are ``crucible:policy_misbehavior``; the step report's
+  ``meta.flags``, ``policy_process_killed`` included, reach the rollout through ``NativeHarness._run_steps``): Harbor's ``Verifier`` with
+  ``step_name`` (it merges the shared ``tests/`` and ``steps/<name>/tests/`` into ``/tests`` and runs the step's ``test.sh``, else the shared one), the
   step's ``verifier.env``, ``user`` and ``timeout_sec``, under the step's verifier network phase. The reward follows
   ``inplace.scalar_reward``; every key is kept as ``harbor/<key>``. A timeout or a crash masks; after the shared dirs
   are reset a missing reward is the agent's. The grader's toolchain and the container's liveness are checked host-side
@@ -42,6 +60,8 @@ stopped early scores 0 (Harbor reports the last executed step's reward).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import time
 from functools import partial
@@ -110,8 +130,14 @@ class HarborMultiStepTask(HarborInPlaceTask):
     @staticmethod
     def _state(world) -> dict[str, Any]:
         """Per-World step state (the task object is shared by concurrent attempts): the network phase in force and whether
-        a shared verifier left files in the agent container."""
-        return world.__dict__.setdefault("_harbor_multistep", {"phase": None, "dirty": False})
+        a shared verifier left files in the agent container; ``graded``: a step grade ran (the policy has acted: M10 lab
+        audit R-2 takes no further process baseline); ``setup_procs``: what the current step's ``setup.sh`` started, when
+        it is not the first step's (``quiesce.started_since``, M10 lab audit R-2 review round 1), else None; ``swept``: the
+        last step grade's quiesce was clean, so every process of the policy's was killed before its Verifier ran (review
+        round 2); ``leftovers``: what was beyond the baseline before the current step's setup after such a grade (that
+        grade's leftovers: killed at this step's grade, never flagged as the policy's), else None."""
+        return world.__dict__.setdefault("_harbor_multistep", {"phase": None, "dirty": False, "graded": False, "setup_procs": None,
+                                                               "swept": False, "leftovers": None})
 
     async def _set_phase(self, world, policy) -> None:
         st = self._state(world)
@@ -135,6 +161,20 @@ class HarborMultiStepTask(HarborInPlaceTask):
         await self._set_phase(world, self.step_plans[step.name].agent_phase)
         user = self._user(step)
         world.backend.exec_for(world.spec.apps[0]).default_user = user  # the policy's terminal runs as the step's agent user
+        # M10 lab audit R-2: the first step's setup (before any grade) re-takes the baseline below; a later step's setup.sh
+        # or healthcheck is listed host-side before and after (review round 1), so what it started is known at its grade.
+        # Review round 2: after a clean grade the listing before the setup is taken on every later step (setup.sh or
+        # not): that grade's quiesce killed every process of the policy's before its Verifier ran, so what is beyond the
+        # baseline now came from the grade (a server its test.sh left running): its ``leftovers``, killed at this step's
+        # grade and never flagged as the policy's
+        quiesced = self.QUIESCE and "_quiesce_baseline" in world.__dict__
+        first = step.name == self.task.config.steps[0].name and not st.get("graded")
+        swept, st["swept"] = bool(st.get("swept")), False
+        st["setup_procs"] = st["leftovers"] = None
+        has_setup = self.task.paths.step_setup_path(step.name).exists() or step.healthcheck is not None
+        pre = await self._setup_listing(world) if quiesced and not first and (swept or has_setup) else None
+        if swept and pre is not None:
+            st["leftovers"] = pre
         with env.with_default_user(user):
             wd = (await env.exec("pwd")).stdout
             workdir = (wd or "/").strip() or "/"
@@ -155,6 +195,100 @@ class HarborMultiStepTask(HarborInPlaceTask):
             from crucible.interop.harbor import grader_guard
 
             surf.advance(await grader_guard.diff(world.backend, surf.container))
+        if quiesced and first:
+            # M10 lab audit R-2: the first step's setup ran before the policy acted, from the task's own tree: what it
+            # started (a service its tests query) is the task's, so the process baseline is taken again here. Not after a
+            # later step's setup (nor the first step's after a grade, for a caller driving the World by hand): ``bash
+            # setup.sh`` then runs in a container whose binaries a root policy may have replaced (nothing guards setup's
+            # tools), so a writer it spawned would become pristine and grade the step 1.0
+            await self._record_baseline(world, stage="agent", close=False)
+        elif pre is not None and has_setup:
+            # M10 lab audit R-2 review round 1: never added to the baseline. What this setup started (listed now, not
+            # before it: the previous verifier's leftovers and their children drop out) is killed at the step's grade like
+            # any target, and if it still ran then, the grade ends as a mask of unknown blame (``quiesce`` verdict
+            # ``setup_service``; review round 2: a root policy can make the setup start one)
+            st["setup_procs"] = await self._setup_listing(world, pre)
+
+    async def _setup_listing(self, world, before=None):
+        """``quiesce.started_since`` against the World's baseline (host-only); a host that cannot list the container
+        raises ``StageFailure`` (``crucible:backend_error``, as ``_record_baseline``) (M10 lab audit R-2 review round 1)."""
+        from crucible.core.schema.run import Failure
+        from crucible.interop.harbor import quiesce
+        from crucible.runtime.infra import StageFailure
+
+        try:
+            return await quiesce.started_since(world.backend, world.__dict__["_quiesce_baseline"], before)
+        except quiesce.QuiesceError as e:
+            raise StageFailure(Failure(kind="crucible:backend_error", stage="agent", detail="quiesce_setup_listing",
+                                       reason=f"{self.id}: the container could not be listed from the host around a step's setup "
+                                              f"(M10 lab audit R-2): {e}")) from e
+
+    async def open(self, workdir: Path, *, before_agent=None):
+        """``HarborInPlaceTask.open``, after the task's pristine setup preflight (M10 lab audit R-2 review round 3,
+        ``_preflight_setups``): a task whose later step's ``setup.sh`` (or healthcheck) leaves a process running in a
+        container no policy touched is refused before any container for the policy starts and before any spend:
+        ``StageFailure`` of ``crucible:harness_unsupported`` (harness blame, stage ``seed``, never retried), counted only
+        toward the run's mask stop, never its 5% unknown-blame stop. The task's own setup service is the task's property,
+        while a setup process at a grade (``setup_service``, unknown blame) stays reserved for what a policy can induce.
+        An installed-agent harness's ``before_agent`` on a ``[[steps]]`` task is refused by ``HarborInPlaceTask.open``
+        before any container starts, so no preflight runs for it."""
+        if before_agent is None and self.QUIESCE:
+            pre = await self._preflight_setups(Path(workdir).parent / "setup_preflight")
+            bad = {name: procs for name, procs in pre.items() if procs}
+            if bad:
+                from crucible.core.schema.run import Failure
+                from crucible.runtime.infra import StageFailure
+
+                what = "; ".join(f"step {name!r}: " + ", ".join(f"{e['pid']} {e['args'][:80]}" for e in procs[:4]) for name, procs in bad.items())
+                raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="seed", retryable=False, detail="quiesce_setup_service_task",
+                                           reason=f"{self.id}: a later step's setup.sh left process(es) running in a pristine container before any "
+                                                  "policy ran; the in-place quiesce must kill them before that step's grade (a root policy "
+                                                  "controlled the container before that setup ran, so they cannot be spared), so no grade of that "
+                                                  "step would be the policy's: the task cannot be graded in place (M10 lab audit R-2 review round 3): "
+                                                  + what))
+        return await super().open(workdir, before_agent=before_agent)
+
+    async def _preflight_setups(self, workdir: Path) -> dict[str, list[dict] | None]:
+        """M10 lab audit R-2 review round 3: what each later step's setup leaves running in a pristine container (no
+        policy ever ran in it), as ``{step name: [host listing entries] | None}``; ``{}`` when no later step has a
+        ``setup.sh`` or a healthcheck (no container is started). Every step's setup runs in declared order through
+        ``_setup_step`` (the first one's re-takes the baseline; each later one is listed host-side before and after:
+        ``setup_procs``), in a World ``HarborInPlaceTask.open`` builds and that is closed afterwards. A step whose setup or
+        healthcheck raises makes it and every later step ``None`` (inconclusive: a later setup may need the agent's earlier
+        work); a ``StageFailure`` (the host could not list the container) propagates and nothing is kept. Run once per
+        task object, under a lock: the task is shared by concurrent attempts. Created lazily, so a task built without
+        ``__init__`` (the unit tests' fakes) has it too."""
+        from crucible.runtime.infra import StageFailure
+
+        lock = self.__dict__.setdefault("_preflight_lock", asyncio.Lock())
+        async with lock:
+            done = self.__dict__.get("_setup_preflight")
+            if done is not None:
+                return done
+            steps = list(self.task.config.steps)
+            if not any(self.task.paths.step_setup_path(s.name).exists() or s.healthcheck is not None for s in steps[1:]):
+                self.__dict__["_setup_preflight"] = {}
+                return {}
+            out: dict[str, list[dict] | None] = {}
+            w = await HarborInPlaceTask.open(self, Path(workdir))
+            try:
+                broken = False
+                for i, step in enumerate(steps):
+                    if not broken:
+                        try:
+                            await self._setup_step(step, w)
+                        except StageFailure:
+                            raise
+                        except Exception:  # noqa: BLE001 -- a setup or healthcheck that fails without the agent's work: inconclusive
+                            broken = True
+                    if i:
+                        procs = self._state(w)["setup_procs"]  # None for a later step without setup.sh or healthcheck
+                        out[step.name] = None if broken else ([*procs.pristine.values()] if procs is not None else [])
+            finally:
+                with contextlib.suppress(Exception):
+                    await w.close()
+            self.__dict__["_setup_preflight"] = out
+            return out
 
     async def _grade_step(self, step, world, workdir: Path):
         from crucible.verify.runtime.plan import CheckResult, GradeReport
@@ -174,15 +308,30 @@ class HarborMultiStepTask(HarborInPlaceTask):
 
         # Harbor's Verifier with ``step_name`` under the shared guard (liveness, the grader's toolchain, the network:
         # M13 audit B1, B2); a reward-file error after the reset is the agent's (H1 V4)
-        result, ended, flags = await self._verify(world, tid=tid, user=user, timeout=timeout, t0=t0, phase=plan.verifier_phase,
-                                                  phase_in=phase_in, phase_out=phase_out,
-                                                  verifier_kw={"verifier_env": dict(step.verifier.env) or None, "step_name": step.name})
+        # M10 lab audit R-2: a grade, whatever its outcome: the policy has acted on this World (``_setup_step`` takes no
+        # further baseline). The step's quiesce receipt goes next to its grade dir (``steps/NN-<name>/verifier/quiesce.json``);
+        # what a later step's setup.sh started is passed on (review round 1: ``setup_service``, never the policy's 0), and
+        # so is what the previous step's grade left running (review round 2: ``leftovers``, killed, never flagged)
+        st = self._state(world)
+        st["graded"] = True
+        result, ended, flags, q = await self._verify(world, tid=tid, user=user, timeout=timeout, t0=t0, phase=plan.verifier_phase,
+                                                     phase_in=phase_in, phase_out=phase_out,
+                                                     verifier_kw={"verifier_env": dict(step.verifier.env) or None, "step_name": step.name},
+                                                     receipt_dir=Path(workdir).parent / "verifier", setup=st.get("setup_procs"),
+                                                     leftovers=st.get("leftovers"))
+        # M10 lab audit R-2 review round 2: a clean quiesce here killed every process of the policy's before the Verifier
+        # ran, so whatever is beyond the baseline at the next step's setup came from this grade (``_setup_step``)
+        st["swept"] = (q or {}).get("verdict") == "clean"
         if ended is not None:
+            if q is not None:
+                ended.meta.setdefault("quiesce", q)
+            if flags:  # M10 lab audit R-2 review round 2: a _liveness report replacing the grade carries no flags; the quiesce's policy_process_killed rides it too
+                ended.meta.setdefault("flags", flags)
             return ended
         rewards = dict(result.rewards or {})
         reward, problem = scalar_reward(rewards, self.reward_key)
         if reward is None:
-            return self._masked(tid, t0, problem.split(":")[0], f"step {step.name!r}: {problem}", flags=flags)
+            return self._masked(tid, t0, problem.split(":")[0], f"step {step.name!r}: {problem}", flags=flags, quiesce=q)
         checks, gates, kinds = [], {}, {}
         if step.min_reward is not None:
             why = min_reward_failure(rewards, step.min_reward)
@@ -193,7 +342,7 @@ class HarborMultiStepTask(HarborInPlaceTask):
         return GradeReport(task=tid, tier="full", checks=checks, gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=round(time.monotonic() - t0, 2),
                            meta={"step": step.name, "rewards": rewards, "kinds": kinds, "components": {f"harbor/{k}": float(v) for k, v in rewards.items()},
-                                 "flags": flags, "verifier": json.loads(result.model_dump_json())})
+                                 "flags": flags, "verifier": json.loads(result.model_dump_json()), "quiesce": q})
 
     async def grade(self, world, workdir: Path):
         """A multi-step task is graded step by step (``steps``); this grades the last step alone, for callers that

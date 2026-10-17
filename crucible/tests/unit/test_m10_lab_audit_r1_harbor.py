@@ -16,7 +16,8 @@ separate-verifier patch seam (``interop/harbor/patch_task``) and the in-place ta
   a forged upstream refusal is unknown (Crucible's probe disagrees); an agent that never reached its model is not the
   policy's; the stop spares the init session and kills the phase's cohort; every record carries the agent's identity.
 
-- Review round 2: in place only the agent's own tree is stopped (a service left for the grade survives); the stops need
+- Review round 2: in place only the agent's own tree is stopped here (M10 lab audit R-2: the grade's host-side quiesce
+  kills the rest, and its survivors are ``crucible:policy_misbehavior``); the stops need
   no procps, fail closed, and their survivors or stalls refuse the collect; the patch read is framed and classified by
   its in-container verdict (Harbor's exec merges stderr and returns docker or ssh failures as exit codes).
 - Review round 3: a root policy controls ``bash``, ``sleep`` and every tool the stop, the hooks and the read run, so a
@@ -40,6 +41,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -156,12 +158,10 @@ class FakeTask:
     kill: dict | None = None  # the default stop's scripted answer (FakeEnv)
     probe_dead = False  # the harness's fresh-shell probe gets no answer (FakeEnv)
 
-    def __init__(self, events: list, *, reward: float = 1.0, lost: str | None = None, on_grade=None, admits: bool = True, quiesce: bool = False):
+    def __init__(self, events: list, *, reward: float = 1.0, lost: str | None = None, on_grade=None, admits: bool = True):
         self.events, self.reward, self.lost, self.on_grade, self.admits = events, reward, lost, on_grade, admits
         self.graded: list[dict] = []
         self.sent: list[dict] = []  # every command the fake container ran, with its effective env and user
-        if quiesce:
-            self.quiesce = self._quiesce
 
     def admits_agent_host(self, host):
         return self.admits
@@ -175,9 +175,6 @@ class FakeTask:
 
     async def agent_logs(self, world, *, fetch=False):
         return world.logs
-
-    async def _quiesce(self, world):
-        self.events.append("quiesce")
 
     def report(self, reward: float, infra: dict | None = None) -> GradeReport:
         return GradeReport(task=self.id, tier="full", checks=[], gates={"g": "pass"}, reward=reward, outcome=reward, infra=infra or {"status": "ok"},
@@ -373,14 +370,17 @@ async def test_capture_key_is_rejected_during_verification(tmp_path):
         seen["status"] = await env.call(env.agents[0].extra_env["OPENAI_API_KEY"])
         seen["live"] = dict(env.proxy.sessions)
 
-    task = FakeTask(env.events, on_grade=on_grade, quiesce=True)
+    task = FakeTask(env.events, on_grade=on_grade)
     env.hooks["run"] = _one_call
     _s, rows = await env.run(task, harness=env.harness(kill_command="kill-agent-tree"))
     assert rows[0]["reward"] == 1.0 and not rows[0]["mask_sample"], rows[0].get("failure")
     assert seen == {"status": 401, "live": {}} and env.hits == 1  # the verification call never reached the upstream
     assert task.graded == [{}]  # no overlay at grade time
     ev = env.events
-    assert ev.index("run") < ev.index("exec:kill-agent-tree") < ev.index("quiesce") < ev.index("grade")  # processes stopped, then quiesce, then grade
+    # the agent's processes stopped, then the grade; M10 lab audit R-2: no separate quiesce seam (the guarded grade
+    # quiesces the container host-side itself)
+    assert ev.index("run") < ev.index("exec:kill-agent-tree") < ev.index("grade")
+    assert not any("quiesce" in e for e in ev), ev
     assert env.proxy.sessions == {}
 
 
@@ -1195,9 +1195,10 @@ async def test_a_stop_that_stalls_in_a_live_container_is_the_agents(tmp_path, mo
 
 @pytest.mark.parametrize("user", [None, "agent"])
 async def test_an_in_place_grade_follows_no_phase_or_user_stop(tmp_path, user):
-    """M10 lab audit R-1 review round 2: the cohort (or user) stop ran before the in-place grade and killed what the
-    task asked the agent to leave running (a server the verifier curls), so a correct solve scored 0 where Harbor (whose
-    trial stops no agent process before its shared verifier) scores 1. In place only the agent's own tree is stopped."""
+    """M10 lab audit R-1 review round 2: in place the harness adds no phase (cohort) or user stop before the grade; it
+    stops only the agent's own tree. M10 lab audit R-2: the kill of every other process started after ``open`` is the
+    guarded grade's own host-side quiesce (``HarborInPlaceTask._verify``), decided by the host's listing; a cohort or
+    user stop here would only repeat it with in-container evidence a root policy can forge."""
     env = Env(tmp_path)
     env.hooks["run"] = _one_call
     task = FakeTask(env.events)
@@ -1208,6 +1209,39 @@ async def test_an_in_place_grade_follows_no_phase_or_user_stop(tmp_path, user):
     assert not any("-ge 77" in e or "(Uid:)" in e or "killed:" in e for e in ev[:ev.index("grade")]), ev
     doc = json.loads((env.adir("r", rows[0]) / "agent_run.json").read_text())
     assert doc["processes"]["scope"] == "agent_tree" and doc["processes"]["status"] == "skipped" and doc["processes"]["mark"] == 77
+
+
+async def test_r1_harness_maps_a_quiesce_survivor_to_policy_misbehavior(tmp_path):
+    """M10 lab audit R-2: the harness's shared-verifier seam is the guarded grade itself, which quiesces first. Its
+    survivors report (``HarborInPlaceTask._zero`` with ``meta.failure`` ``crucible:policy_misbehavior`` and the
+    ``policy_process_survived`` flag, the shape ``HarborInPlaceTask._quiesce`` returns) becomes the attempt's scored
+    failure: reward 0, never masked, never retried, and the flag reaches the rollout's flags (bench's hack metrics)."""
+    from crucible.interop.harbor import quiesce
+    from crucible.interop.harbor.inplace import HarborInPlaceTask
+
+    receipt = quiesce.Receipt(before=[], killed=[], rounds=quiesce.ROUNDS, method=quiesce.METHOD, verdict="survivors", mark=77, pid1=4000, helper=[],
+                              survivors=[{"pid": 4301, "ppid": 1, "stat": "S", "etimes": 3, "args": "sh -c crucible-reward-writer", "why": "left"}])
+    summary = receipt.summary(None)
+
+    class SurvivorTask(FakeTask):
+        async def grade(self, world, gdir):
+            self.events.append("grade")
+            return HarborInPlaceTask._zero(self.id, time.monotonic(), "crucible:policy_misbehavior",
+                                           "1 process(es) the policy started still ran after 5 host-side kill rounds, so the grade did "
+                                           "not start (M10 lab audit R-2, P23): 4301 sh -c crucible-reward-writer",
+                                           flags=[quiesce.flag(receipt)], quiesce=summary)
+
+    env = Env(tmp_path)
+    env.hooks["run"] = _one_call
+    s, rows = await env.run(SurvivorTask(env.events), retry=RetryRule(max_attempts=3))
+    f = _failure(rows[0])
+    assert (f.kind, f.stage, f.who) == ("crucible:policy_misbehavior", "verification", "policy") and not f.masks, f
+    assert not rows[0]["mask_sample"] and rows[0]["reward"] == 0.0 and s.attempts == 1, rows[0]
+    a = env.adir("r", rows[0])
+    ro = json.loads((a / "rollout.json").read_text())
+    assert any(x["rule"] == "policy_process_survived" and "crucible-reward-writer" in x["evidence"] for x in ro.get("flags") or []), ro.get("flags")
+    rep = json.loads((a / "verifier" / "report.json").read_text())
+    assert rep["meta"]["quiesce"]["verdict"] == "survivors" and rep["meta"]["failure"]["kind"] == "crucible:policy_misbehavior"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlinks and FIFOs")

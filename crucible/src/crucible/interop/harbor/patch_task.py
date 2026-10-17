@@ -32,7 +32,9 @@ verifier container. ``HarborPatchTask`` is that hand-off as a Crucible seam, the
   the stored ``artifacts/model.patch``, never by re-running the agent.
 
 ``grade(world, ...)`` is refused (masked ``crucible:harness_unsupported``): a separate-verifier task is graded only from its
-collected patch. Multi-step tasks and sidecar (non-main) collect hooks are refused at construction.
+collected patch. Multi-step tasks and sidecar (non-main) collect hooks are refused at construction. ``QUIESCE = False``
+(M10 lab audit R-2): no grade runs in the agent's container, so no process baseline is taken and a non-Docker provider
+may host the agent; the collect is guarded by R-1's own stop of the agent's processes and the framed, root-run read.
 """
 
 from __future__ import annotations
@@ -174,6 +176,7 @@ def _payload(body: Sequence[str]) -> bytes:
 
 class HarborPatchTask(HarborInPlaceTask):
     SEPARATE_OK = True
+    QUIESCE = False  # M10 lab audit R-2: graded only in a fresh container from the collected patch (module docstring)
 
     def __init__(self, task_dir: Path, *, image: str, host: GpuHost | None = None, expected_image: str | None = None, ref: str | None = None,
                  perf: bool = False, timeout: float | None = None, docker_image: str | None = None, agent_allowed_hosts: Sequence[str] = (),

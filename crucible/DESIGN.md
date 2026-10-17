@@ -2954,9 +2954,32 @@ rollout flag `grader_tampered` with the paths). A change a package manager expla
 package the policy installed) is a suspicion flag (`grader_tool_repackaged`), and a grader-only tool the image lacks
 that the policy pre-placed is moved aside for the grade, whose own install provides it (`grader_tool_preinstalled`). The
 verifier runs with the pristine `PATH` and a fresh `PYTHONPYCACHEPREFIX` (planted bytecode is never read), and the check
-runs again after it. Non-Docker providers are refused in place unless `grader_integrity="off"`. Residual: shared
+runs again after it. That covered the toolchain only. Since M10 lab audit R-2 (2026-10-15) no in-place grade starts
+until a host-side quiesce receipt is clean (`interop/harbor/quiesce.py`, `<workdir>/../verifier/quiesce.json`): a
+process baseline taken at `open` before the policy acts (PID 1's host pid, a start mark, `docker top`), then at each
+grade (single-step, every multi-step step, R-1's shared-verifier seam) every later process killed by a builtin-only root
+`sh` and confirmed gone by the host's `docker top -eo ...` taken with the container paused (a fork-and-die chain is
+listed too; a multi-threaded zombie leader is a target), before the reset of `/logs/verifier`. Only the host listing
+decides. A process still listed after the bounded rounds is `crucible:policy_misbehavior` (scored 0, flag
+`policy_process_survived`); one killed and confirmed gone is not blamed but flagged `policy_process_killed`
+(non-scoring: the reward is kept, but a passing attempt counts in bench's hack `rate` as a flagged pass and studio
+skips it; this reading of R-2's Acceptance 1 was chosen on 2026-10-17); a host that cannot list the container,
+or a helper exec the daemon never started, masks `crucible:backend_error`; a later multi-step step's `setup.sh` that
+left a process running masks `crucible:harness_unsupported` (unknown blame, never retried: a root policy can make that
+setup start one, so the 5% unknown-blame stop bounds it), and a task whose later setup leaves one running in a pristine
+preflight container, before any policy, is refused at `open` with harness blame (review round 3); what a clean step
+grade left running (its `test.sh`) and its descendants are listed as `leftovers`, killed at the next step's grade and
+never flagged; a target in state D (its leader or, from a per-thread `docker top -eLo`, any thread) is never paused
+for (the freezer cannot take it), so the state-D wait stays reachable, and a pause refused while a target turned D
+ends the quiesce `uninterruptible` (the cgroup may still be freezing: never the policy's). Non-Docker providers
+are refused in place outright (`crucible:harness_unsupported`; `grader_integrity="off"` no longer admits them).
+Accepted trade-off: a task whose tests need a process the agent left running fails in place. Residual: shared
 libraries, a forged package database, project config in the agent's workdir, `.pth` files of a system Python the
-grader shares with the policy by design, and a process racing a check. Infrastructure is told apart by host-side
+grader shares with the policy by design, a pristine (pre-baseline) service the policy took over that forks after the
+final listing, a pristine process's host pid reused within the clock slack, a pristine service the policy sets
+respawning, which masks the attempt with unknown blame instead of scoring it (bounded by the 5% unknown-blame stop),
+and a process the policy's code under test
+starts during the verifier (the receipt covers processes alive when the grade starts). Infrastructure is told apart by host-side
 evidence: a container that is gone, stopped through the daemon API, or whose daemon is unreachable masks
 `crucible:env_container_lost` (mid-episode too: `HarborExec` raises and the task's `infra_cause` names it); one that
 exited from inside is `agent_broke_env`; a failed grade whose test script needs the network, with the container

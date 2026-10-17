@@ -377,7 +377,10 @@ class HarborBackend(Backend):
                  "exit_code": st.get("ExitCode"), "oom": bool(st.get("OOMKilled")), "events": []}
         if not state["running"]:
             state["events"] = await self._events(cid)
-            state["outside"] = bool(set(state["events"]) & {"kill", "stop", "destroy", "pause"}) or bool(st.get("Paused"))
+            # M10 lab audit R-2 review round 1: a ``pause`` event no longer reads as "stopped from outside": the in-place
+            # quiesce pauses and unpauses the container itself for its frozen listings, which would turn a container that
+            # later exits from inside into env_container_lost. A container still paused is still caught by State.Paused
+            state["outside"] = bool(set(state["events"]) & {"kill", "stop", "destroy"}) or bool(st.get("Paused"))
         return state
 
     async def _events(self, cid: str) -> list[str]:

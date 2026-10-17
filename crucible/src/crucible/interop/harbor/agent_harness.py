@@ -54,10 +54,13 @@ Per attempt:
    for a run that did not end on its own, when the stop outlived its deadline or broke in a live container
    (``crucible:agent_broke_env``: the policy controlled its shell and tools) or failed otherwise (masked
    ``crucible:backend_error``, unknown blame when it never reported): never a patch from a live agent. In place the
-   grade runs in this container, so only the
-   agent program's own tree is stopped (``AGENT_KILL``, never the user or cohort stop): services the task asked the
-   agent to leave running are graded as Harbor grades them, and a policy process left running in place is R-2
-   (``task.quiesce``), not claimed here. ``agent_run.json["processes"]`` records which stop ran (``scope``).
+   grade runs in this container, so only the agent program's own tree is stopped here (``AGENT_KILL``, never the user
+   or cohort stop), before its evidence is read; the guarded grade then kills every other process started after
+   ``open`` from the host and confirms it with the host's listing (M10 lab audit R-2, ``HarborInPlaceTask._verify``,
+   receipt ``verifier/quiesce.json``). A user or cohort stop here would only repeat that kill with in-container
+   evidence a root policy can forge. R-2's accepted trade-off: a service the agent left running for the tests is
+   killed too, so a task whose tests need it fails in place. ``agent_run.json["processes"]`` records which stop ran
+   (``scope``).
 5. **evidence**: the agent's logs (downloaded when not bound) are first copied to a host-only ``agent_logs`` that follows
    nothing (``copy_untrusted_logs``: the policy writes ``/logs``; a link it planted was followed by the host's reads and by
    Harbor's converter's writes). Harbor's ``populate_context_post_run`` (its ATIF converter) runs on that copy, then
@@ -77,9 +80,12 @@ Per attempt:
 7. **grading**, always a guarded Crucible grader: a separate verifier (task02) is the patch seam (``task.collect`` in the
    agent's container, the World closed, then ``HarborDirTask.grade_patch`` on a pristine tree, through a composed
    ``WorkspaceHarness``, so a masked grade is retried as a re-grade of the stored ``artifacts/model.patch``, never by
-   re-running the agent); a shared verifier is ``task.quiesce`` (the R-2 seam; nothing implements it yet) then the guarded
-   ``HarborInPlaceTask.grade``. Limit stops follow ``limit_policy`` (``score`` by default, ``mask`` or ``penalty:<c>``),
-   and only evidenced ones (Crucible's deadline, the proxy's cap) can be masked or penalized.
+   re-running the agent); a shared verifier is the guarded ``HarborInPlaceTask.grade``, which first quiesces the
+   container host-side itself (M10 lab audit R-2: a process the policy started still listed after the bounded kill
+   rounds is ``crucible:policy_misbehavior``, scored 0, flag ``policy_process_survived``; nothing is reset or verified
+   before a clean receipt), so no caller can grade in place without it. Limit stops follow ``limit_policy`` (``score``
+   by default, ``mask`` or ``penalty:<c>``), and only evidenced ones (Crucible's deadline, the proxy's cap) can be
+   masked or penalized.
 8. **spend**: settled from the session's capture log at the very end of every exit path, masked attempts included
    (``agent_evidence.capture_spend``, ``LLMClient._prices``' rule): every forwarded row, retries included, and a usage-less
    or cut call booked as an uncertain bound; self-hosted is decided per upstream (``self_hosted_apis``). ``budget_usd``
@@ -507,8 +513,9 @@ class HarborAgentHarness:
         ``host``: the patch seam's grading slot. ``kill_command``: how the agent's processes are stopped after its phase
         (default on the patch seam: a non-root agent user's processes outside the container's init session (the
         keep-alive may run as that user), else the agent phase's process cohort by start time, else the agent's own tree,
-        else nothing; in place: the agent's own tree only; ``""``: never). It must exit 0 only when it stopped them; it runs
-        as root in ``/`` (M10 lab audit R-1 review round 3: never in a working directory the policy can remove).
+        else nothing; in place: the agent's own tree, and the grade's host-side quiesce (M10 lab audit R-2) kills the
+        rest; ``""``: never). It must exit 0 only when it stopped them; it runs as root in ``/`` (M10 lab audit R-1
+        review round 3: never in a working directory the policy can remove).
         ``harbor_version``,
         ``agent_factory(logs_dir=, model_name=, version=, extra_env=, **agent_kwargs)``, ``context_factory()``: for tests."""
         if not urlparse(proxy_url).hostname:
@@ -545,9 +552,11 @@ class HarborAgentHarness:
 
     def _kill_command(self, task: Any, mark: int | None = None, *, in_place: bool = False, uid: int | None = None) -> str | None:
         """The stop after the agent phase (M10 lab audit R-1): an explicit ``kill_command`` (``""``: none). In place
-        (``in_place``: the grade runs in this container) only the agent program's own tree (``AGENT_KILL``), which cannot
-        reach a service the agent left running: Harbor's own trial stops no agent process before its shared verifier
-        (trial.py:867-896), and a task may ask for a server left running. On the patch seam (the container is only
+        (``in_place``: the grade runs in this container) only the agent program's own tree (``AGENT_KILL``), stopped
+        before its evidence is read; the grade's host-side quiesce (M10 lab audit R-2, ``HarborInPlaceTask._verify``)
+        then kills every other process started after ``open``, a service the agent left running included, and decides
+        from the host's listing. A user or cohort stop here would only duplicate it with in-container evidence a root
+        policy can forge (review round 3). On the patch seam (the container is only
         collected): a non-root agent user's processes outside the container's init session (``_USER_KILL``: never the
         keep-alive; ``uid``: the user's uid resolved before the phase, review round 3); for a root or user-less agent with
         a phase ``mark``, every process started since (``_COHORT_KILL``, any agent, detached ones included); else the
@@ -806,7 +815,8 @@ class HarborAgentHarness:
                     self.proxy.unregister(key)
                     key = None
                 t["agent"] = time.monotonic() - t0
-            # M10 lab audit R-1: in place, only the agent's own tree (a service the task asked for stays up for the grade)
+            # M10 lab audit R-1: in place, only the agent's own tree here; M10 lab audit R-2: the grade's host-side quiesce
+            # then kills every other process started after open (a service the agent left running too) before it grades
             killed = await self._stop_agent(world, task, mark, in_place=not patch_seam, uid=uid)
 
             # ---- evidence
@@ -940,10 +950,11 @@ class HarborAgentHarness:
                 await self._patch._grade(attempt, Collected(patch=patch, mode="harbor-collect", tree_changed=bool(patch.strip())), res, t)
             else:
                 t0 = time.monotonic()
-                quiesce = getattr(task, "quiesce", None)
-                if quiesce is not None:  # R-2's seam: no grade while a policy process can run (nothing implements it yet)
-                    with boundary("verification"):
-                        await quiesce(world)
+                # M10 lab audit R-2: no separate quiesce seam here. The guarded grade quiesces the container host-side
+                # itself (HarborInPlaceTask._verify: kill, confirm by docker top, receipt verifier/quiesce.json) before
+                # any reset or verifier, so no caller can grade in place without it; its survivors report reaches
+                # _take_grade_findings below (crucible:policy_misbehavior), its respawned / uninterruptible StageFailure
+                # passes through boundary("verification") unretried
                 with boundary("verification"):
                     rep_g = await task.grade(world, attempt.dir / "grade")
                 t["verification"] = time.monotonic() - t0

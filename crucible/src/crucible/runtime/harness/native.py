@@ -338,7 +338,11 @@ class NativeHarness:
             from crucible.credit.shaping import format_errors_by_call
 
             trace = world.to_trace()
-            res.flags = rule_flags(trace)  # m13 C-4 level 1 (intercepts, tampering rules)
+            # m13 C-4 level 1 (intercepts, tampering rules). M10 lab audit R-2 review round 2: merged, never assigned: a
+            # multi-step task's step grades already put their meta.flags here (_run_steps -> _take_grade_findings:
+            # policy_process_killed, grader_guard suspicions), which an assignment dropped; on the single-step path
+            # res.flags is still empty here and the grade's flags join later
+            res.flags = [*rule_flags(trace), *res.flags]
             res.format_errors = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: charged to the issuing call's tokens
             save_episode(attempt, ep, res, self.id, policies, world=world)
             if getattr(world, "turns", None) is not None and world.turns.rewards:  # per-seat outcomes of a turn-based World (M1 item 7)
