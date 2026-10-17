@@ -48,6 +48,7 @@ def make_repo(root: Path) -> Path:
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
     core = "def base():\n    return 0\n"
     _commit(repo, {"pkg/__init__.py": "", "pkg/core.py": core, "tests/test_core.py": "from pkg.core import base\n\n\ndef test_base():\n    assert base() == 0\n",
+                   "tests/test_keep.py": "from pkg.core import base\n\n\ndef test_keep():\n    assert base() == 0\n",
                    "CHANGES.rst": "Changes\n=======\n", "README.md": "toy library\n"}, "start", date="2024-01-01T00:00:00")
     _tag(repo, "v0.1", "2024-01-01T00:00:00")
     _commit(repo, {"pkg/core.py": core + "\n\ndef alpha():\n    return 1\n",
@@ -133,11 +134,14 @@ def test_test_owners_are_the_last_unit_that_changed_the_function(tmp_path: Path)
 
 def test_f2p_groups_tests_into_ordered_milestones(tmp_path: Path) -> None:
     rec, _, _ = built_record(tmp_path)
+    # owner = the first unit after whose prefix the test passes under B's tests (report 11 F3): B's test_core.py imports
+    # alpha, so test_base first passes after "Add alpha"; the test-only unit "More tests" owns nothing, its test_alpha_again
+    # passes as soon as alpha exists
     assert [(m["id"], m["tests"]) for m in rec["milestones"]] == [
-        ("m01", ["tests/test_core.py::test_alpha"]), ("m02", ["tests/test_beta.py::test_beta"]), ("m03", ["tests/test_gamma.py::test_gamma"])]
-    # B's test_core.py imports alpha, so test_base fails at A only through its module: collateral, a regression check
-    # a test-only unit is not a milestone: its new test gates as a regression check, like test_base
-    assert rec["p2p"] == [] and rec["collateral"] == ["tests/test_core.py::test_base", "tests/test_extra.py::test_alpha_again"]
+        ("m01", ["tests/test_core.py::test_alpha", "tests/test_core.py::test_base", "tests/test_extra.py::test_alpha_again"]),
+        ("m02", ["tests/test_beta.py::test_beta"]), ("m03", ["tests/test_gamma.py::test_gamma"])]
+    assert rec["p2p"] == ["tests/test_keep.py::test_keep"] and rec["collateral"] == []  # a test no unit touches: regression
+    assert rec["ownership"]["runs"] <= 25 and rec["ownership"]["candidates"] == 3  # docs-only and test-only units cannot change a result
     assert set(rec["oracle_files"]) == {"pkg/core.py", "pkg/beta.py", "pkg/gamma.py", "CHANGES.rst", "README.md"}
     assert set(rec["tests_b"]) == {"tests/test_core.py", "tests/test_beta.py", "tests/test_gamma.py", "tests/test_extra.py"}
 

@@ -9,14 +9,16 @@ unit's own tests are a milestone in a known real order. ``windows_git`` mines th
 repository's suite runs at A (with B's test files) and at B, ``reruns`` times each in the World image. Fail-to-pass tests
 are candidate checks, pass-to-pass tests regression checks; anything flaky is dropped and a test that passed at A and
 fails at B is dropped (the window removed that behaviour). Fail-to-pass tests are grouped by their owner unit
-(``windows_git.owners_of_tests``): one milestone per unit, in history order; tests no unit changed are collateral regression
+(``prefix_owners``: the first unit after whose prefix A + u1..uk the test passes under B's tests, <= 25 runs by bisection;
+report 11 F3): one milestone per owner unit, in history order; tests no prefix makes pass are collateral regression
 checks.
 
-**Executed dependency prober** (``probe_dependencies``): milestone k is A plus only unit k's diff, run on k's own tests
-(the test files as unit k wrote them). If they fail, the minimal set of earlier units that makes them pass is found by
+**Executed dependency prober** (``probe_dependencies``): milestone k is A plus only unit k's diff, run on k's tests in
+B's test files (as the grader runs them). If they fail, the minimal set of earlier units that makes them pass is found by
 removal from the full prefix (ddmin's complement step: halves first, then one at a time). Each edge is labelled
-``patch-conflict`` (without that unit, unit k's diff no longer applies) or ``executed``. ``requires`` holds the milestone
-ids among them; a window with no milestone edge is ``independent`` (long, not long-horizon) and is excluded from Type A.
+``patch-conflict`` (without that unit, unit k's diff no longer applies) or ``executed``. Only ``executed`` edges are
+behavioural and gate Phi (``requires``); ``patch-conflict`` edges are ``order_hints``, metadata only (report 11 F2). A
+window with no behavioural edge is ``independent`` (long, not long-horizon) and is excluded from Type A.
 
 **Commit-revert mutants** (``revert_mutants``): B with only unit k's diff reverted (3-way; skipped on conflict), graded
 by the window's verifier. Expected: milestone k fails, every milestone that does not depend on unit k still passes.
@@ -26,9 +28,10 @@ oracle, instruction, negatives, mutants, floor_kwargs, agent_visible, hidden_str
 plus the coding seam of ``runtime.harness.workspace.WorkspaceHarness`` (``open``, ``workspace``, ``broken``,
 ``grade_patch``) and ``milestone_status(patch)`` for the checkpoint sidecar. Grading applies the solution to a pristine
 A tree (protected paths are never written), overwrites every test file from B, runs the hidden fail-to-pass and
-pass-to-pass tests in a separate ``--network none`` container and reads the guard's JUnit report. Reward is 1 iff every
-gating check passes; ``meta`` carries the per-milestone pass vector and Phi (weighted milestones whose ``requires`` all
-pass; uniform weights unless injected).
+pass-to-pass tests in a separate ``--network none`` container and reads the guard's JUnit report. The outcome reward is
+``phi_weight * Phi + (1 - phi_weight) * [every gating check passes]`` (default 0.5; report 11 F1), so it is 1 only for a
+full pass and 0 for every floor; ``meta`` carries the per-milestone pass vector, Phi (weighted milestones whose behavioural
+``requires`` all pass; uniform weights unless injected) and ``full_pass``.
 
 **Prompt and ledger** (``author_window``): a maintainer's release request written from the units' messages, the
 changelog and a diff summary (public names only; never test bodies, never file paths), one requirement id per
@@ -71,7 +74,7 @@ from crucible.factory.lanes.executable import (
     scrub,
     sha256_text,
 )
-from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, mine_windows, owners_of_tests
+from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, mine_windows
 from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
 
 LANE = "window"
@@ -274,6 +277,99 @@ def passed_group(results: Mapping[str, str], tests: Sequence[str], *, require_al
     return bool(present) and all(results.get(t) == "passed" for t in present)
 
 
+# ---- test ownership by prefix (report 11 F3) -----------------------------------------------------------------------------
+def candidate_units(units: Sequence[Unit]) -> list[int]:
+    """Positions of units that can change a test's outcome: they change a writable file other than prose (a unit that
+    only edits docs or the changelog leaves every prefix's test results as they were)."""
+    prose = re.compile(r"\.(md|rst|txt)$|(^|/)(docs?|changes|changelog|history|news)(/|$)", re.IGNORECASE)
+    return [i for i, u in enumerate(units) if any(not prose.search(p) for p in u.writable_files)]
+
+
+async def bisect_owners(n: int, tests: Sequence[str], run: Callable[[int], Any], *, budget: int = 25) -> dict[str, Any]:
+    """For each test, the first of ``n`` ordered prefixes (0..n-1) at which it passes, with at most ``budget`` calls of
+    ``run(i) -> set of passing tests``. Prefix -1 (A) is taken as failing every test; prefix n-1 is run first. Each next
+    run splits the most unresolved intervals (lo, hi]; a test left unresolved when the budget ends is owned by its ``hi``
+    (the first prefix seen passing). Assumes a test, once passing, keeps passing (counted when violated)."""
+    seen: dict[int, set[str]] = {}
+
+    async def at(i: int) -> set[str]:
+        if i not in seen:
+            seen[i] = set(await run(i))
+        return seen[i]
+
+    last = await at(n - 1)
+    lo = {t: -1 for t in tests if t in last}
+    hi = {t: n - 1 for t in lo}
+    while len(seen) < budget:
+        open_ = [t for t in lo if hi[t] - lo[t] > 1]
+        if not open_:
+            break
+        counts: dict[int, int] = {}
+        for t in open_:
+            mid = (lo[t] + hi[t]) // 2
+            counts[mid] = counts.get(mid, 0) + 1
+        m = max(counts, key=lambda k: (counts[k], -abs(k - (n - 1) / 2)))
+        ok = await at(m)
+        for t in open_:
+            if lo[t] < m < hi[t]:
+                if t in ok:
+                    hi[t] = m
+                else:
+                    lo[t] = m
+    violations = sum(1 for t in hi for i, ok in seen.items() if i > hi[t] and t not in ok)
+    return {"owner_prefix": dict(hi), "resolved": {t: hi[t] - lo[t] == 1 for t in hi}, "never": sorted(set(tests) - set(hi)), "runs": len(seen),
+            "monotone_violations": violations}
+
+
+async def prefix_owners(rec: Mapping[str, Any], repo: RepoGit, base: Path, sandbox: DockerSandbox, tests: Sequence[str], *, budget: int = 25
+                        ) -> dict[str, Any]:
+    """Owner of each fail-to-pass test = the first unit of the window after whose prefix (A + u1..uk, every writable file)
+    the test passes under B's test files, as the grader runs it. A unit that never changed the test can own it; a
+    unit that only rewrote it cannot (report 11 F3: parse's "convert tests to pytest" owned tests an earlier unit had made
+    pass). ``{"owners": {test: sha | None}, ...stats}``."""
+    units = [Unit(**u) for u in rec["units"]]
+    cand = candidate_units(units)
+    files_b = sorted({t.split("::", 1)[0] for t in tests})
+
+    def prefix_files(sha: str) -> dict[str, str | None]:
+        """The agent-writable files that differ between A and unit k's commit (units are first-parent steps, so A + u1..uk
+        is that commit: read, never re-applied, so a unit whose diff does not apply in isolation cannot break it)."""
+        out: dict[str, str | None] = {}
+        for st, p in repo.changed(rec["a"], sha):
+            if is_protected(p) or is_test_path(p):
+                continue
+            if st == "D":
+                out[p] = None
+            elif (txt := repo.show(sha, p)) is not None:
+                out[p] = txt
+        return out
+
+    async def run(i: int) -> set[str]:
+        files = await asyncio.to_thread(prefix_files, units[cand[i]].sha)
+        tr = await run_tests(sandbox, base, files, rec["tests_b"], files_b, rec.get("tests_deleted") or ())
+        return {t for t, st in tr.results.items() if st == "passed"} if tr.infra == "ok" else set()
+
+    if not cand:
+        return {"owners": dict.fromkeys(tests), "runs": 0, "candidates": 0}
+    res = await bisect_owners(len(cand), list(tests), run, budget=budget)
+    owners: dict[str, str | None] = {t: units[cand[i]].sha for t, i in res["owner_prefix"].items()}
+    owners.update(dict.fromkeys(res["never"]))
+    return {"owners": owners, "runs": res["runs"], "candidates": len(cand), "unresolved": sorted(t for t, r in res["resolved"].items() if not r),
+            "monotone_violations": res["monotone_violations"]}
+
+
+def milestones_from_owners(rec: Mapping[str, Any], owners: Mapping[str, str | None]) -> list[dict[str, Any]]:
+    """One milestone per owner unit, in history order (ids ``m<unit index+1>``)."""
+    units = [Unit(**u) for u in rec["units"]]
+    order = {u.sha: i for i, u in enumerate(units)}
+    groups: dict[str, list[str]] = {}
+    for t, o in owners.items():
+        if o is not None:
+            groups.setdefault(o, []).append(t)
+    return [{"id": f"m{order[s] + 1:02d}", "unit": s, "index": order[s], "subject": units[order[s]].subject, "tests": sorted(ts)}
+            for s, ts in sorted(groups.items(), key=lambda kv: order[kv[0]])]
+
+
 # ---- the dependency prober -------------------------------------------------------------------------------------------
 async def ddmin(items: Sequence[int], ok: Callable[[list[int]], Any]) -> list[int]:
     """A 1-minimal subset S of ``items`` with ``ok(S)`` (``ok(items)`` holds): complements removed halves first."""
@@ -306,11 +402,10 @@ async def probe_dependencies(rec: dict[str, Any], repo: RepoGit, sandbox: Docker
         i = index[m["unit"]]
         u = units[i]
         test_files = sorted({t.split("::", 1)[0] for t in m["tests"]})
-        tests_k = {p: repo.show(u.sha, p) or "" for p in test_files}
-        for p in rec["tests_b"]:  # the unit's conftest files, as the unit saw them
-            if p.endswith("conftest.py") and (txt := repo.show(u.sha, p)) is not None:
-                tests_k[p] = txt
-        gone_k = [p for p in rec.get("tests_deleted") or [] if repo.show(u.sha, p) is None]
+        # B's test files, as the grader runs them (report 11 F3: ownership is decided the same way); an import of a name an
+        # earlier unit adds is then a real prerequisite of the milestone as the grader sees it
+        tests_k = dict(rec["tests_b"])
+        gone_k = list(rec.get("tests_deleted") or [])
         cache: dict[tuple[int, ...], tuple[bool, str]] = {}
 
         async def run(s: Sequence[int]) -> tuple[bool, str]:
@@ -330,7 +425,7 @@ async def probe_dependencies(rec: dict[str, Any], repo: RepoGit, sandbox: Docker
                             (work / "t" / p).unlink(missing_ok=True)
                         tr = await sandbox.run(work / "t", test_files)
                         runs += 1
-                        cache[key] = (tr.infra == "ok" and passed_group(tr.results, m["tests"], require_all=False), "run" if tr.infra == "ok" else "masked")
+                        cache[key] = (tr.infra == "ok" and passed_group(tr.results, m["tests"]), "run" if tr.infra == "ok" else "masked")
                 finally:
                     shutil.rmtree(work, ignore_errors=True)
             return cache[key]
@@ -340,11 +435,12 @@ async def probe_dependencies(rec: dict[str, Any], repo: RepoGit, sandbox: Docker
 
         earlier = list(range(i))
         if await ok([]):
-            m.update(requires=[], requires_units=[], edges={}, probe="alone")
+            m.update(requires=[], requires_units=[], order_hints=[], order_units=[], edges={}, probe="alone")
             return
         if not earlier or not await ok(earlier):
-            m.update(requires=[x["id"] for x in rec["milestones"] if index[x["unit"]] < i], requires_units=[units[j].sha for j in earlier], edges={},
-                     probe="prefix_fails")
+            # no edge is measured: nothing gates Phi; every earlier milestone is an order hint only (report 11 F2)
+            m.update(requires=[], requires_units=[], order_hints=[x["id"] for x in rec["milestones"] if index[x["unit"]] < i],
+                     order_units=[units[j].sha for j in earlier], edges={}, probe="prefix_fails")
             return
         s = await ddmin(earlier, ok)
         edges = {}
@@ -352,8 +448,14 @@ async def probe_dependencies(rec: dict[str, Any], repo: RepoGit, sandbox: Docker
             without = [x for x in s if x != j]
             ok_build = (await asyncio.to_thread(_applies, repo, rec["a"], [units[x] for x in without] + [u]))
             edges[units[j].sha] = "executed" if ok_build else "patch-conflict"
-        m.update(requires=[ms_by_unit[units[j].sha]["id"] for j in s if units[j].sha in ms_by_unit], requires_units=[units[j].sha for j in s], edges=edges,
-                 probe="minimized")
+        # only behavioural edges gate Phi: without unit j, unit k's change applies and its tests fail. A patch-conflict edge
+        # (unit k's diff edits code unit j wrote) is textual: an order hint, metadata only (report 11 F2: toolz m14 passed
+        # 4/4 in context while its patch-conflict "prerequisites" never did, and C1 credited nothing)
+        beh = [j for j in s if edges[units[j].sha] == "executed"]
+        txt = [j for j in s if edges[units[j].sha] != "executed"]
+        m.update(requires=[ms_by_unit[units[j].sha]["id"] for j in beh if units[j].sha in ms_by_unit], requires_units=[units[j].sha for j in beh],
+                 order_hints=[ms_by_unit[units[j].sha]["id"] for j in txt if units[j].sha in ms_by_unit], order_units=[units[j].sha for j in txt],
+                 edges=edges, probe="minimized")
 
     await asyncio.gather(*[probe(m) for m in rec["milestones"]])
     edges = sum(len(m["requires"]) for m in rec["milestones"] if m.get("probe") == "minimized")
@@ -503,18 +605,12 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
     if not cls["post_pass"] or len(cls["post_fail"]) > max(20, len(cls["post_pass"]) // 5):
         ev["post_fail_sample"] = cls["post_fail"][:10]
         return f"{len(cls['post_fail'])} tests fail at B (environment mismatch)"
-    units = [Unit(**u) for u in rec["units"]]
-    src_units = {u.sha for u in units if u.src_files}
-    # a unit that changes no source (tests or docs only) is not a milestone: its new tests pin behaviour another unit
-    # wrote, so they gate as regression checks (collateral)
-    owners = {t: (o if o in src_units else None) for t, o in owners_of_tests(repo, units, cls["f2p"]).items()}
-    groups: dict[str, list[str]] = {}
-    for t, o in owners.items():
-        if o is not None:
-            groups.setdefault(o, []).append(t)
-    order = {u.sha: i for i, u in enumerate(units)}
-    rec["milestones"] = [{"id": f"m{order[s] + 1:02d}", "unit": s, "index": order[s], "subject": units[order[s]].subject, "tests": sorted(ts)}
-                         for s, ts in sorted(groups.items(), key=lambda kv: order[kv[0]])]
+    # owner = the first unit after whose prefix the test passes under B's tests (report 11 F3); a test that never passes
+    # on a prefix is a collateral regression check
+    po = await prefix_owners(rec, repo, base, sandbox, cls["f2p"])
+    owners = po.pop("owners")
+    rec["ownership"] = po
+    rec["milestones"] = milestones_from_owners(rec, owners)
     rec.update(targets=targets, p2p=cls["p2p"], collateral=sorted(t for t, o in owners.items() if o is None),
                excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"]})
     if len(rec["milestones"]) < min_milestones:
@@ -677,7 +773,13 @@ REALISM_BRIEF = ("You review a maintainer's release request for a coding task. R
                  "observable public behaviour are fine. Return {ok: bool, findings: [one sentence each]}.")
 LINT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("process", re.compile(r"\b(do not|don't|never|avoid|without)\s+(using|use|importing|import|calling|call|reading|read|looking|look|consulting|consult|"
-                           r"searching|search|installing|install|copying|copy|running|run|checking|check|editing|edit|touching|touch|modifying|modify)\b", re.IGNORECASE)),
+                           r"searching|search|installing|install|copying|copy|running|run|checking|check)\b", re.IGNORECASE)),
+    # editing verbs are process only when their object is the work environment ("do not modify the tests"); "returns a
+    # copy without modifying the input" or "without modifying the decorated function's signature" is behaviour (report 11
+    # D1: the old rule refused cachetools' request three times)
+    ("process", re.compile(r"\b(do not|don't|never|avoid|without)\s+(editing|edit|touching|touch|modifying|modify|changing|change)\s+(the\s+|any\s+)?"
+                           r"(existing\s+)?(tests?|test\s+(suite|files?)|conftest|ci\b|continuous integration|build|packaging|git|history|repository|setup)\b",
+                           re.IGNORECASE)),
     ("process", re.compile(r"\b(by hand|manually|from scratch|from memory)\b", re.IGNORECASE)),
     ("process", re.compile(r"\b(git (log|history|blame)|commit history|version history)\b", re.IGNORECASE)),
     ("file_path", re.compile(r"\b[\w./-]+\.(py|cfg|toml|ini|txt|rst|md|json|ya?ml)\b|\btests?/", re.IGNORECASE)),
@@ -909,14 +1011,23 @@ async def author_window(client: Any, rec: Mapping[str, Any], repo: RepoGit, base
         problems.append("author.opening is empty")
     authored = "\n".join([opening, closing, *[r["text"] for r in requirements]])
     problems += lint_prompt(authored)
-    problems += unstated_names(payload, authored)
-    requirements.append({"id": REGRESSION_REQ, "milestone": None, "text": REGRESSION_TEXT, "kind": "side_effect_scope"})
-    prompt = compose_window_prompt(opening, [r for r in requirements if r["id"] != REGRESSION_REQ], closing + ("\n\n" if closing else "") + REGRESSION_TEXT)
+    # a public name the hidden tests import is a fact the tests enforce: the author is asked to write it in its change's
+    # requirement; any it leaves out are stated once, verbatim, by the lane (report 11 run 2: the author ignored names whose
+    # unit owns no milestone in 6 of 6 tries), never left unstated
+    missing = [f.split("'")[1] for f in unstated_names(payload, authored)]
+    names_line = f"The release must also expose these public names: {', '.join(missing)}." if missing else ""
+    if names_line:
+        closing = (closing + "\n\n" if closing else "") + names_line
+    regress = bool(set(rec.get("p2p") or []) | set(rec.get("collateral") or []))  # no regression tests: no regression requirement
+    if regress:
+        requirements.append({"id": REGRESSION_REQ, "milestone": None, "text": REGRESSION_TEXT, "kind": "side_effect_scope"})
+    prompt = compose_window_prompt(opening, [r for r in requirements if r["id"] != REGRESSION_REQ],
+                                   closing + (("\n\n" if closing else "") + REGRESSION_TEXT if regress else ""))
     spans = {r["id"]: list(loc) for r in requirements if (loc := locate(prompt, r["text"]))}
     _, ledger_problems = window_ledger(rec, requirements, spans, prompt)
     problems += ledger_problems
     return {"prompt": prompt, "requirements": requirements, "spans": spans, "checkset": window_checkset(rec, requirements), "payload": payload,
-            "findings": problems, "opening": opening, "closing": closing}
+            "findings": problems, "opening": opening, "closing": closing, "names_stated_by_lane": missing}
 
 
 async def review_realism(client: Any, prompt: str, *, max_tokens: int = 8000) -> dict[str, Any]:
@@ -936,8 +1047,15 @@ class WindowTask(ExecTask):
     horizon = "H2"
 
     def __init__(self, lane: WindowLane, mined: MinedTask, window: Mapping[str, Any], *, task_id: str, prompt: str, requirements: Sequence[Mapping[str, Any]],
-                 spans: Mapping[str, Sequence[int]], checkset: Mapping[str, Any], weights: Mapping[str, float] | None = None):
+                 spans: Mapping[str, Sequence[int]], checkset: Mapping[str, Any], weights: Mapping[str, float] | None = None,
+                 phi_weight: float | None = None):
         self.window = dict(window)
+        # Type A outcome reward (report 11 F1): phi_weight * Phi(end state) + (1 - phi_weight) * [every gating check passes].
+        # Phi is itself an end-state check (hidden milestone tests, prerequisite-gated), so the reward still grades only the
+        # outcome; an all-fail group keeps a spread when its end states differ. 0 = the binary pass reward of run 1.
+        self.phi_weight = float(lane.phi_weight if phi_weight is None else phi_weight)
+        if not 0.0 <= self.phi_weight <= 1.0:
+            raise ValueError("phi_weight is in [0, 1]")
         self.sandbox = lane.sandbox_for(self.window["world"]["image"])
         super().__init__(lane, mined, task_id=task_id, prompt=prompt, requirements=requirements, spans=spans, checkset=checkset)
         self.milestones = [dict(m) for m in self.window["milestones"]]
@@ -1007,19 +1125,26 @@ class WindowTask(ExecTask):
             gates[cid] = "pass" if tests and not bad else "fail"
             results.append(CheckResult(id=cid, gate=cid, status=gates[cid], detail={"failing": bad[:20], "tests": len(tests)}))
         gating = [c for c in check_tests if self.gating.get(c, True)]
-        reward = 1.0 if gating and all(gates[c] == "pass" for c in gating) else 0.0
+        full = bool(gating and all(gates[c] == "pass" for c in gating))
         status = {m["id"]: passed_group(statuses, m["tests"]) for m in self.milestones}
+        phi = self.phi(status)
+        reward = 1.0 if full else 0.0  # the accept contract's verdict (floors, mutants killed at 0, flake) stays binary
+        shaped = round(self.phi_weight * phi + (1.0 - self.phi_weight) * reward, 6) if not errors else 0.0
         meta = {"failing_tests": sorted(set(failing))[:60], "statuses": {s: sum(1 for v in statuses.values() if v == s) for s in set(statuses.values())},
                 "tail": tail[-2500:], "apply_errors": errors, "protected_writes": protected, "tests_intact": True, "why": why,
-                "kinds": {c: "outcome" for c in check_tests}, "milestones": status, "phi": self.phi(status)}
+                "kinds": {c: "outcome" for c in check_tests}, "milestones": status, "phi": phi, "full_pass": full,
+                "outcome_reward": shaped, "reward_rule": f"{self.phi_weight:g}*phi + {1 - self.phi_weight:g}*full_pass"}
         self.lane.note_grade(self.task_id, solution, meta)
         return GradeReport(task=self.task_id, tier="full", checks=results, gates=gates, reward=reward, outcome=reward, infra={"status": "ok"},
                            trusted=True, elapsed_s=time.monotonic() - t0, meta=meta), fp
 
     async def grade_patch(self, patch: str, workdir: Path | None = None) -> Any:
         """``WorkspaceHarness``'s verifier call: the collected patch graded from a pristine A. ``meta['milestones']`` is the
-        pass vector, ``meta['phi']`` the potential."""
+        pass vector, ``meta['phi']`` the potential. The episode's reward is the Type A outcome reward (report 11 F1:
+        ``phi_weight * Phi + (1 - phi_weight) * full pass``); ``grade`` keeps the binary verdict the accept contract reads."""
         rep, _ = await self.grade(patch)
+        if rep.infra.get("status") == "ok" and "outcome_reward" in (rep.meta or {}):
+            rep.reward = rep.outcome = float(rep.meta["outcome_reward"])
         if workdir is not None:
             Path(workdir).mkdir(parents=True, exist_ok=True)
             (Path(workdir) / "window_grade.json").write_text(json.dumps({"reward": rep.reward, "milestones": rep.meta.get("milestones"),
@@ -1081,7 +1206,8 @@ class WindowTask(ExecTask):
 
     # -- the coding seam (WorkspaceHarness) -------------------------------------------------------------------------------
     async def open(self, workdir: Path) -> Any:
-        return await open_world(image=self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir), instruction=self.instruction)
+        return await open_world(image=self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir), instruction=self.instruction,
+                                name_prefix=self.lane.world_prefix)
 
     def workspace(self, world: Any) -> Path:
         return world._crucible_ws
@@ -1117,11 +1243,13 @@ class WindowLane(ExecLane):
     materialized from drafts, and the lane's machine handlers."""
 
     def __init__(self, store: WindowStore, *, repo_dirs: Mapping[str, str] | None = None, reviewer: Any = None, weights: Mapping[str, Mapping[str, float]] | None = None,
-                 sandboxes: Callable[[str], DockerSandbox] | None = None, **kw: Any):
+                 sandboxes: Callable[[str], DockerSandbox] | None = None, phi_weight: float = 0.5, **kw: Any):
         self._sandboxes = sandboxes or sandbox_factory()
         super().__init__(store, DockerSandbox(BASE_IMAGE, guard=True), repo_dirs=repo_dirs, reviewer=reviewer, **kw)
         self.image_digest = ""
         self.weights = {k: dict(v) for k, v in (weights or {}).items()}
+        self.phi_weight = float(phi_weight)  # WindowTask's outcome reward mix (report 11 F1); 0.0 = binary pass reward
+        self.world_prefix = "crucible-lh-world-"  # the policy's World containers (open_world name_prefix)
         self.window_tasks: dict[str, WindowTask] = {}
 
     def sandbox_for(self, image: str) -> DockerSandbox:

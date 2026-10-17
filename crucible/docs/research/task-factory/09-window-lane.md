@@ -115,3 +115,17 @@ edge (`dependent`) -> >= 1 valid commit-revert mutant. Raw: `runs/window_funnel.
 - Windows `independent` by the executed test are the majority; the dependent ones are the Type A pool.
 - Prompts were authored for a few windows only (the smoke test); the per-window machine has not run on windows.
 - `requires` of `prefix_fails` milestones is conservative (every earlier milestone) and is not counted as an edge.
+
+## 6. Changes after the first run (report 11, run 2)
+
+| # | change | where |
+|---|---|---|
+| F1 | **Type A outcome reward** = `phi_weight * Phi(end state) + (1 - phi_weight) * [every gating check passes]`, default 0.5, configurable (`WindowLane(phi_weight=)`, `WindowTask(phi_weight=)`; 0 = run 1's binary reward). Phi is an end-state check (hidden milestone tests, prerequisite-gated), so the reward still grades outcomes only; an all-fail group keeps a spread when end states differ. Applied on the RL path (`grade_patch`, what `WorkspaceHarness` scores); `grade` stays the binary verdict the accept contract reads (floors 0, a revert mutant is killed only at 0, flake). Turn credit stays ΔΦ through `progress.jsonl` | `windows.py` `WindowTask.__init__`, `grade` (`meta.outcome_reward`, `full_pass`), `grade_patch` |
+| F2 | **Only behavioural edges gate Phi.** An `executed` edge (without unit j, unit k's diff applies and k's tests fail) goes in `requires`; a `patch-conflict` edge (k's diff edits code j wrote) is an `order_hint`, metadata only. A `prefix_fails` milestone gets no `requires` (nothing was measured). The prober now runs B's test files, as the grader does | `probe_dependencies` |
+| F3 | **Test ownership by prefix**: the owner of a fail-to-pass test is the first unit after whose prefix A + u1..uk the test passes under B's tests. Prefix files are read from unit k's commit (units are first-parent steps), never re-applied. ≤ 25 runs per window: the last prefix first, then the candidate that splits the most unresolved intervals; units that change only prose or only tests are not candidates. A test that never passes on a prefix is a collateral regression check | `candidate_units`, `bisect_owners`, `prefix_owners`, `milestones_from_owners`; `f2p_stage` |
+| D1 | Prompt lint: editing verbs ("without modifying") are a process instruction only when their object is the work environment (tests, conftest, CI, packaging, git, history) | `LINT_RULES` |
+| — | No regression requirement in the prompt when the window has no regression tests (it was an unchecked requirement) | `author_window` |
+| F7 | `open_world(name_prefix=)` (always `crucible-lh-*`), `WindowLane.world_prefix`: a caller finds exactly its own World containers | `windows_world.py`, `test_m17_w_world.py` |
+
+The tool-call limit note and the final STATUS.json turn (F5) are an opt-in of `actors.policy.LLMToolPolicy`
+(`tool_limit`, `limit_warning`, `status_file`), not of the lane.

@@ -58,3 +58,39 @@ def test_unstated_names_requires_each_name_verbatim():
     assert unstated_names(payload, "cmd_bump and Spec exist.") == []
     assert unstated_names(payload, "pkg.cmd_bump_all and Spec") and not unstated_names(payload, "pkg.cmd_bump() and pkg.Spec")
     assert not unstated_names({"changes": []}, "")
+
+
+def test_lint_reads_behavioural_without_modifying_as_behaviour():
+    """Report 11 D1: cachetools' request was refused three times for a behaviour the lint read as a process rule."""
+    from crucible.factory.lanes.windows import lint_prompt
+
+    ok = ["The decorator parameters must be accessible without modifying the decorated function's signature.",
+          "sorted_copy() returns a new list without modifying the input.", "Values can be updated without changing the cache's maxsize."]
+    for text in ok:
+        assert lint_prompt(text) == [], text
+    bad = ["Do not modify the tests.", "Implement it without editing the existing test files.", "Never change the packaging.",
+           "Do this without using numpy.", "Avoid reading the git history.", "Never touch conftest."]
+    for text in bad:
+        assert any(f.startswith("lint process") for f in lint_prompt(text)), text
+
+
+def test_names_the_author_leaves_out_are_stated_by_the_lane(tmp_path):
+    """Run 2: a required public name the author never writes is added in one fixed sentence (a fact the tests enforce)."""
+    import asyncio
+    import json
+
+    from test_m17_w_miner import built_record
+
+    from crucible.factory.lanes.windows import author_window
+
+    rec, repo, base = built_record(tmp_path)
+    rec["tests_b"] = {**rec["tests_b"], "tests/test_api.py": "from pkg.core import alpha, omega\n\n\ndef test_api():\n    assert omega\n"}
+
+    class Author:
+        async def complete_json(self, messages, max_tokens=4000, temperature=0.0):
+            payload = json.loads(messages[-1]["content"])
+            return {"opening": "Next release.", "requirements": [{"id": c["id"], "text": f"Change {c['id']} works."} for c in payload["changes"]]}
+
+    out = asyncio.run(author_window(Author(), rec, repo, base))
+    assert out["names_stated_by_lane"] == ["alpha", "omega"] and "The release must also expose these public names: alpha, omega." in out["prompt"]
+    assert not [f for f in out["findings"] if f.startswith("unstated_name")]

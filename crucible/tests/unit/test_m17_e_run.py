@@ -215,3 +215,16 @@ def test_rlm_adapter_is_a_milestone_task_for_the_checkpoint_sidecar():
     w = lh.RLMWindow(Task(), {})
     assert isinstance(w, MilestoneTask) and w.weights == {"m1": 1.0}
     assert asyncio.run(w.milestone_status("x")) == {"m1": True}
+
+
+def test_run2_reward_band_and_remine_summary():
+    b = lh.reward_band([0.0, 0.083334, 0.0, None])
+    assert b["in_band"] and b["n"] == 3 and b["pass_rate"] == 0.0 and b["reward_range"] == [0.0, 0.083334]
+    assert not lh.reward_band([0.0, 0.0])["in_band"] and lh.reward_band([1.0, 0.5])["pass_rate"] == 0.5
+    rows = [{"window": "a", "split": "train", "old": {"stage": "mutants_valid", "milestones": 4}, "stage": "f2p_valid", "milestones": 4, "edges": 0},
+            {"window": "b", "split": "train", "old": {"stage": "f2p_valid", "milestones": 3}, "stage": "mutants_valid", "milestones": 5, "edges": 2},
+            {"window": "c", "split": "train", "old": {"stage": "dependent", "milestones": 5}, "stage": "leak_ok", "milestones": 1},
+            {"window": "d", "split": "heldout", "error": "boom"}]
+    s = lh.remine_summary(rows)["train"]
+    assert s["before"] == {"f2p_valid": 3, "dependent": 2, "mutants_valid": 1} and s["after"] == {"f2p_valid": 2, "dependent": 1, "mutants_valid": 1}
+    assert s["lost_dependent"] == 2 and s["newly_dependent"] == 1 and s["collapsed_below_2_milestones"] == 1 and s["errors"] == ["d"]

@@ -155,7 +155,8 @@ class LLMToolPolicy(Policy):
     provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
 
     def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
-                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False, audio: bool = False):
+                 max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False, audio: bool = False,
+                 tool_limit: int | None = None, limit_warning: int = 5, status_file: str = "STATUS.json"):
         self.actor_id, self.llm, self.system = actor_id, llm, system
         self.vision = vision  # send tool images to the model (vision models); otherwise a placeholder line per image
         self.audio = audio  # send audio parts (audio-input models); otherwise a placeholder line per clip
@@ -175,6 +176,14 @@ class LLMToolPolicy(Policy):
         self._last_seg: int | None = None
         self._nudges, self.max_nudges = 0, max_nudges
         self._turn_nudges = 0  # per turn, reset by any tool call: a game seat replying in text on its own turn has not resigned
+        # the episode's tool-call limit, told truthfully (M17 report 11 F5): at ``limit_warning`` calls left one note says so;
+        # at the limit, one final turn offers only the write-file tool, for ``status_file``; then the episode ends (max_steps)
+        self.tool_limit, self.limit_warning, self.status_file = tool_limit, limit_warning, status_file
+        self.tool_calls_issued = 0
+        self.limit_events: list[dict[str, Any]] = []
+        self._limit_warned = False
+        self._final_turn_used = False
+        self._act_depth = 0
         self.context = context
         self.segment = 0
         self.segments: list[dict[str, Any]] = []  # one per compaction: the boundary and what was kept
@@ -313,7 +322,8 @@ class LLMToolPolicy(Policy):
                 "segment": self.segment, "segments": self.segments, "trajectory_tokens": self.trajectory_tokens, "seen": self._seen,
                 "last_full": self._last_full, "last_seg": self._last_seg,
                 "sample_key": self.sample_key, "error": self.error, "failure_kind": self.failure_kind, "measured": self._measured,
-                "turn_nudges": self._turn_nudges}
+                "turn_nudges": self._turn_nudges, "tool_calls_issued": self.tool_calls_issued, "limit_warned": self._limit_warned,
+                "final_turn_used": self._final_turn_used, "limit_events": self.limit_events}
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
         from pydantic import TypeAdapter
@@ -327,6 +337,8 @@ class LLMToolPolicy(Policy):
         self.sample_key, self.error, self.failure_kind = d.get("sample_key"), d.get("error"), d.get("failure_kind")
         self._measured = tuple(d["measured"]) if d.get("measured") else None
         self._turn_nudges = d.get("turn_nudges", 0)
+        self.tool_calls_issued, self._limit_warned = d.get("tool_calls_issued", 0), d.get("limit_warned", False)
+        self._final_turn_used, self.limit_events = d.get("final_turn_used", False), list(d.get("limit_events") or [])
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -366,6 +378,75 @@ class LLMToolPolicy(Policy):
             self._held = []
 
     async def act(self, obs: Observation) -> Action:
+        if self.tool_limit is None or self._act_depth:  # off (the default), or a nudge's re-entry: unchanged behaviour
+            return await self._act(obs)
+        self._ingest(obs)
+        self._count_new()
+        obs = Observation(actor=obs.actor, step=obs.step, legal=obs.legal, to_move=obs.to_move)  # ingested once
+        if self._final_turn_used:
+            self.stop = "max_steps"
+            return Done(reason=f"the tool-call limit ({self.tool_limit}) was reached")
+        if self.tool_calls_issued >= self.tool_limit:
+            if self._queue:  # calls of the last reply past the limit are never run; each still gets its tool reply
+                for a in self._queue:
+                    if isinstance(a, ToolCall):
+                        self.messages.append({"role": "tool", "tool_call_id": a.tool_call_id, "content": "not run: the tool-call limit was reached"})
+                        self._pending.discard(a.tool_call_id)
+                self._queue = []
+            return await self._final_status_turn(obs)
+        left = self.tool_limit - self.tool_calls_issued
+        if not self._limit_warned and left <= self.limit_warning and not self._queue and not self._pending:
+            self._limit_warned = True
+            note = f"[harness] {left} tool calls remain in this episode. Write {self.status_file} and finish."
+            self.messages.append({"role": "user", "content": note})
+            self.limit_events.append({"kind": "warning", "at": self.tool_calls_issued, "text": note})
+        self._act_depth += 1
+        try:
+            a = await self._act(obs)
+        finally:
+            self._act_depth -= 1
+        if isinstance(a, ToolCall):
+            self.tool_calls_issued += 1
+        return a
+
+    async def _final_status_turn(self, obs: Observation) -> Action:
+        """One last model turn whose only tool writes files, for the status file; anything else ends the episode."""
+        self._final_turn_used = True
+        self.stop = "max_steps"
+        tools = [t for t in self.tools if t["function"]["name"].split("__")[-1] == "write_file"]
+        if not tools or self._pending:
+            return Done(reason=f"the tool-call limit ({self.tool_limit}) was reached")
+        note = (f"[harness] The tool-call limit ({self.tool_limit}) is reached. One final turn: the only tool is write_file, to write "
+                f"{self.status_file}. Reply without a tool call to end without it.")
+        self.messages.append({"role": "user", "content": note})
+        self.limit_events.append({"kind": "final_turn", "at": self.tool_calls_issued, "text": note})
+        try:
+            r = await self.llm.complete(self.messages, tools=tools, max_tokens=self.max_tokens, temperature=self.temperature,
+                                        sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+        except (LLMError, BudgetExceeded, ContextOverflow) as e:
+            return Done(reason=f"the tool-call limit was reached; the final turn failed: {e}")
+        call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
+                "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                "cached": r.cached, "response_id": r.response_id, "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),
+                "final_status_turn": True}
+        self.model_calls.append(call)
+        self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
+        tc = next((t for t in r.tool_calls if t["name"].split("__")[-1] == "write_file"
+                   and str((t.get("arguments") or {}).get("path", "")).lstrip("./") == self.status_file), None)
+        if tc is None:
+            self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or ""})
+            call["actions"] = ["done"]
+            self.limit_events.append({"kind": "final_turn_unused"})
+            return Done(reason=(r.text or "")[:2000] or f"the tool-call limit ({self.tool_limit}) was reached")
+        cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
+        self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "",
+                              "tool_calls": [{"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}]})
+        self._pending.add(cid)
+        call["actions"] = [f"tool:{cid}"]
+        self.limit_events.append({"kind": "final_turn_status_written"})
+        return ToolCall(tool_call_id=cid, function_name=self._names.get(tc["name"]) or tc["name"].replace("__", ".", 1), arguments=tc["arguments"])
+
+    async def _act(self, obs: Observation) -> Action:
         self._ingest(obs)
         self._count_new()
         if self._queue:

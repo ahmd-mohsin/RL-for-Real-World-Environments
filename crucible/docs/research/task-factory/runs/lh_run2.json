@@ -1,0 +1,5107 @@
+{
+ "by_rung": {
+  "amazon/nova-micro-v1": {
+   "calibration": {
+    "brier": 0.6182120253164557,
+    "claims": 158,
+    "ece": 0.7515822784810127,
+    "episodes_scored": 30
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.0,
+    "other_spans": 119,
+    "post_boundary_per_span": 0.0,
+    "post_spans": 16,
+    "ratio": null
+   },
+   "episodes": 52,
+   "give_up": {
+    "correct": 1.0,
+    "n": 17,
+    "premature": 0.0,
+    "rate": 0.3269230769230769
+   },
+   "hack_rate": 0.0,
+   "masked": 0,
+   "mean_final_phi": 0.0,
+   "milestones_lost_per_episode": 0.0,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 13,
+   "scored": 52,
+   "tasks": 13,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "nvidia/nemotron-3-nano-30b-a3b": {
+   "calibration": {
+    "brier": 0.24373763440860216,
+    "claims": 93,
+    "ece": 0.3552688172043011,
+    "episodes_scored": 16
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.007352941176470588,
+    "other_spans": 272,
+    "post_boundary_per_span": 0.02197802197802198,
+    "post_spans": 91,
+    "ratio": 2.9890109890109895
+   },
+   "episodes": 26,
+   "give_up": {
+    "correct": 1.0,
+    "n": 3,
+    "premature": 0.0,
+    "rate": 0.15
+   },
+   "hack_rate": 0.0,
+   "masked": 6,
+   "mean_final_phi": 0.036111111099999996,
+   "milestones_lost_per_episode": 0.2,
+   "pass@1": 0.0,
+   "pass^4": null,
+   "pass^k_tasks": 0,
+   "scored": 20,
+   "tasks": 12,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  },
+  "qwen/qwen3.7-flash": {
+   "calibration": {
+    "brier": 0.5929025925925926,
+    "claims": 270,
+    "ece": 0.639962962962963,
+    "episodes_scored": 51
+   },
+   "compaction_loss": {
+    "elsewhere_per_span": 0.022364217252396165,
+    "other_spans": 626,
+    "post_boundary_per_span": 0.04,
+    "post_spans": 150,
+    "ratio": 1.7885714285714287
+   },
+   "episodes": 52,
+   "give_up": {
+    "correct": 1.0,
+    "n": 1,
+    "premature": 0.0,
+    "rate": 0.0196078431372549
+   },
+   "hack_rate": 0.0,
+   "masked": 1,
+   "mean_final_phi": 0.17601929662745097,
+   "milestones_lost_per_episode": 0.39215686274509803,
+   "pass@1": 0.0,
+   "pass^4": 0.0,
+   "pass^k_tasks": 12,
+   "scored": 51,
+   "tasks": 13,
+   "tokens_per_solved": null,
+   "usd_per_solved": null
+  }
+ },
+ "cause_mix": {
+  "budget": 30,
+  "skill_gap": 62,
+  "unlabelled": 27,
+  "world_bug": 4
+ },
+ "dropped": {
+  "cachetools-w0913ada-d7b2423": "prompt: lint refused 3 revisions (process-rule false positive on a behaviour)"
+ },
+ "extrapolation": "# Run 2 extrapolation (written after the pilots, before scaling)\n\nSpent so far (run 2): $0.29 (prompts, probe, 5 pilot episodes on humanize-wf9fa838).\nPilot episodes (humanize, told limit 150, routed providers):\n- qwen3.7-flash: 140 calls, 2.35M billed prompt tokens, $0.029, 8.6 min, Phi 0.17 -> outcome reward 0.083, STATUS written.\n- mistral-small-3.2-24b: hit the 45-min wall after 56 calls (~48 s per call at ~17k-token contexts), $0.084. Dropped (latency).\n- nemotron-3-nano-30b-a3b: 150 tool calls + the final STATUS turn (F5), 2.33M tokens, $0.157 (no provider caching), 8.6 min.\n- llama-3.3-70b: quit after 3 tool calls, $0.001. Dropped (does not work the task).\n- nova-micro-v1: 20 tool calls in 7 calls, $0.0009.\nRungs: qwen3.7-flash (target), nemotron-3-nano-30b-a3b (Nvidia, mid), nova-micro-v1 (Amazon, low).\nPlan (13 windows = the 10 + 3 prefix sub-windows): qwen x4 = 52 x $0.03 = $1.56; nova x4 = 52 x $0.001 = $0.05;\nnemotron x2 (cost-limited) = 26 x $0.16 = $4.2; hacker x1 = 13 x $0.02 = $0.26; audit ~ $0.4. Total ~ $6.5 + $0.29 = $6.8 < $12.\nWorst case at the billed caps (3M; nemotron ~$0.19): ~ $8.4. The guard stops every call at $12.\n",
+ "probe_rungs": [
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "mistralai/mistral-small-3.2-24b-instruct",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave",
+     "Parasail"
+    ],
+    "order": [
+     "DeepInfra",
+     "Mistral"
+    ]
+   },
+   "turns": [
+    3,
+    3,
+    4
+   ],
+   "usd": 0.000572
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "google/gemma-4-26b-a4b-it",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave",
+     "Parasail",
+     "SiliconFlow"
+    ],
+    "order": [
+     "DeepInfra",
+     "NextBit"
+    ]
+   },
+   "turns": [
+    5,
+    5,
+    5
+   ],
+   "usd": 0.000899
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "nvidia/nemotron-3-nano-30b-a3b",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave"
+    ],
+    "order": [
+     "Nebius",
+     "Novita"
+    ]
+   },
+   "turns": [
+    4,
+    5,
+    7
+   ],
+   "usd": 0.001725
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "meta-llama/llama-3.3-70b-instruct",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave",
+     "Parasail",
+     "Cloudflare",
+     "SambaNova"
+    ],
+    "order": [
+     "DeepInfra",
+     "Novita"
+    ]
+   },
+   "turns": [
+    4,
+    3,
+    4
+   ],
+   "usd": 0.001096
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 1,
+   "model": "openai/gpt-4.1-nano",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave"
+    ],
+    "order": [
+     "OpenAI",
+     "Azure"
+    ]
+   },
+   "turns": [
+    3,
+    5,
+    4
+   ],
+   "usd": 0.000742
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "amazon/nova-micro-v1",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave"
+    ],
+    "order": [
+     "Amazon Bedrock"
+    ]
+   },
+   "turns": [
+    4,
+    5,
+    4
+   ],
+   "usd": 0.000643
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "ibm-granite/granite-4.2-8b",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave"
+    ],
+    "order": [
+     "DeepInfra"
+    ]
+   },
+   "turns": [
+    8,
+    7,
+    4
+   ],
+   "usd": 0.000705
+  },
+  {
+   "bad_tool_names": 0,
+   "empty_replies": 0,
+   "errors": [],
+   "fixed": 3,
+   "fixed_and_tested": 3,
+   "model": "qwen/qwen3.7-flash",
+   "n": 3,
+   "request_errors": 0,
+   "route": {
+    "ignore": [
+     "CoreWeave"
+    ]
+   },
+   "turns": [
+    4,
+    4,
+    4
+   ],
+   "usd": 0.000449
+  }
+ ],
+ "remine": {
+  "heldout": {
+   "after": {
+    "dependent": 10,
+    "f2p_valid": 40,
+    "mutants_valid": 10
+   },
+   "before": {
+    "dependent": 20,
+    "f2p_valid": 37,
+    "mutants_valid": 19
+   },
+   "behavioural_edges": 16,
+   "collapsed_below_2_milestones": 0,
+   "errors": [],
+   "lost_dependent": 12,
+   "newly_dependent": 2,
+   "order_hints": 176,
+   "unresolved_owner_tests": 12,
+   "windows": 43
+  },
+  "train": {
+   "after": {
+    "dependent": 26,
+    "f2p_valid": 84,
+    "mutants_valid": 26
+   },
+   "before": {
+    "dependent": 51,
+    "f2p_valid": 86,
+    "mutants_valid": 48
+   },
+   "behavioural_edges": 50,
+   "collapsed_below_2_milestones": 3,
+   "errors": [],
+   "lost_dependent": 27,
+   "newly_dependent": 2,
+   "order_hints": 232,
+   "unresolved_owner_tests": 28,
+   "windows": 91
+  }
+ },
+ "setup": {
+  "audit_runs": "r2_main,r2_nemo",
+  "cap_usd": 12.0,
+  "episode": {
+   "context_tokens": 40000,
+   "max_billed": 3000000,
+   "max_steps": 150,
+   "max_tool_output": 8000,
+   "max_trajectory": 400000,
+   "temperature": 0.7,
+   "tool_limit": null,
+   "wall_s": 2700.0
+  },
+  "rungs": [
+   "qwen/qwen3.7-flash",
+   "nvidia/nemotron-3-nano-30b-a3b",
+   "amazon/nova-micro-v1"
+  ],
+  "selected": [
+   "python-semver-w1bafb9f-3f92aa5",
+   "python-semver-w41775dd-1bafb9f",
+   "parse-wc669f87-35b9ffb",
+   "parse-w07c2ff9-44e14b0",
+   "more-itertools-w89d58c2-5c1fb20",
+   "more-itertools-w15407c7-41a6d0f",
+   "humanize-wf9fa838-bc23540",
+   "toolz-w2ac03ce-55c60e9",
+   "glom-w67f423c-07d5ee0",
+   "funcy-wc83fd24-9c64c74",
+   "parse-wc669f87-35b9ffb-p2",
+   "parse-w07c2ff9-44e14b0-p3",
+   "glom-w67f423c-07d5ee0-p2"
+  ],
+  "target": "qwen/qwen3.7-flash"
+ },
+ "spend": {
+  "audit/auditor": 0.03821,
+  "hacker/hacker": 0.1993,
+  "probe_rungs/solvers": 0.00683,
+  "prompt/author": 0.01297,
+  "prompt/realism": 0.00045,
+  "solvers/solvers": 5.98863
+ },
+ "spend_total": 6.24639,
+ "subwindows": {
+  "rows": [
+   {
+    "deepest": 7,
+    "edges": 0,
+    "end_milestone": "m33",
+    "graded_end_states": 17,
+    "milestones": 9,
+    "parent": "parse-wc669f87-35b9ffb",
+    "reached": [
+     "m26"
+    ],
+    "reason": "independent: no milestone needs an earlier one (long, not long-horizon) | the rule kept the whole window (identical to its parent)",
+    "rule": "deepest",
+    "stage": "f2p_valid",
+    "units": 33,
+    "usable": false,
+    "window": "parse-wc669f87-35b9ffb-s9"
+   },
+   {
+    "deepest": 9,
+    "edges": 1,
+    "end_milestone": "m28",
+    "graded_end_states": 17,
+    "milestones": 10,
+    "parent": "parse-w07c2ff9-44e14b0",
+    "reached": [
+     "m02",
+     "m03",
+     "m23",
+     "m28"
+    ],
+    "reason": " | the rule kept the whole window (identical to its parent)",
+    "rule": "deepest",
+    "stage": "mutants_valid",
+    "units": 28,
+    "usable": false,
+    "window": "parse-w07c2ff9-44e14b0-s10"
+   },
+   {
+    "deepest": 5,
+    "edges": 6,
+    "end_milestone": "m47",
+    "graded_end_states": 15,
+    "milestones": 7,
+    "parent": "glom-w67f423c-07d5ee0",
+    "reached": [
+     "m46"
+    ],
+    "reason": " | the rule kept the whole window (identical to its parent)",
+    "rule": "deepest",
+    "stage": "mutants_valid",
+    "units": 47,
+    "usable": false,
+    "window": "glom-w67f423c-07d5ee0-s7"
+   },
+   {
+    "deepest": 7,
+    "edges": 0,
+    "end_milestone": "m02",
+    "graded_end_states": 17,
+    "milestones": 2,
+    "parent": "parse-wc669f87-35b9ffb",
+    "reached": [
+     "m26"
+    ],
+    "reached_prefix": 0,
+    "reason": "independent: no milestone needs an earlier one (long, not long-horizon)",
+    "rule": "prefix",
+    "stage": "f2p_valid",
+    "units": 2,
+    "usable": true,
+    "window": "parse-wc669f87-35b9ffb-p2"
+   },
+   {
+    "deepest": 9,
+    "edges": 0,
+    "end_milestone": "m05",
+    "graded_end_states": 17,
+    "milestones": 3,
+    "parent": "parse-w07c2ff9-44e14b0",
+    "reached": [
+     "m02",
+     "m03",
+     "m23",
+     "m28"
+    ],
+    "reached_prefix": 2,
+    "reason": "independent: no milestone needs an earlier one (long, not long-horizon)",
+    "rule": "prefix",
+    "stage": "f2p_valid",
+    "units": 5,
+    "usable": true,
+    "window": "parse-w07c2ff9-44e14b0-p3"
+   },
+   {
+    "deepest": 5,
+    "edges": 0,
+    "end_milestone": "m29",
+    "graded_end_states": 15,
+    "milestones": 2,
+    "parent": "glom-w67f423c-07d5ee0",
+    "reached": [
+     "m46"
+    ],
+    "reached_prefix": 0,
+    "reason": "independent: no milestone needs an earlier one (long, not long-horizon)",
+    "rule": "prefix",
+    "stage": "f2p_valid",
+    "units": 29,
+    "usable": true,
+    "window": "glom-w67f423c-07d5ee0-p2"
+   }
+  ]
+ },
+ "usd_by_run_policy": {
+  "hacker/hacker:deepseek/deepseek-v4-flash": {
+   "attempts": 13,
+   "usd": 0.1993,
+   "usd_per_attempt": 0.01533
+  },
+  "pilot2/solver:amazon/nova-micro-v1": {
+   "attempts": 1,
+   "usd": 0.00089,
+   "usd_per_attempt": 0.00089
+  },
+  "pilot2/solver:mistralai/mistral-small-3.2-24b-instruct": {
+   "attempts": 1,
+   "usd": 0.08417,
+   "usd_per_attempt": 0.08417
+  },
+  "pilot2/solver:qwen/qwen3.7-flash": {
+   "attempts": 1,
+   "usd": 0.02856,
+   "usd_per_attempt": 0.02856
+  },
+  "pilot3/solver:meta-llama/llama-3.3-70b-instruct": {
+   "attempts": 1,
+   "usd": 0.00087,
+   "usd_per_attempt": 0.00087
+  },
+  "pilot3/solver:nvidia/nemotron-3-nano-30b-a3b": {
+   "attempts": 1,
+   "usd": 0.15736,
+   "usd_per_attempt": 0.15736
+  },
+  "r2_main/solver:amazon/nova-micro-v1": {
+   "attempts": 52,
+   "usd": 0.22396,
+   "usd_per_attempt": 0.00431
+  },
+  "r2_main/solver:qwen/qwen3.7-flash": {
+   "attempts": 52,
+   "usd": 1.90161,
+   "usd_per_attempt": 0.03657
+  },
+  "r2_nemo/solver:nvidia/nemotron-3-nano-30b-a3b": {
+   "attempts": 26,
+   "usd": 3.59121,
+   "usd_per_attempt": 0.13812
+  }
+ },
+ "usd_per_solved": null,
+ "windows": {
+  "funcy-wc83fd24-9c64c74": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "back to world: ['r2_main/547cd5e71ba80382']",
+     "skill-gap share 4/10 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.142857,
+     0.214285
+    ],
+    "rewards": [
+     0.142857,
+     0.214285,
+     0.142857,
+     0.142857
+    ],
+    "spread": true
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 57.0,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/bbd6ecb611b4f92b/a1"
+    ],
+    "phi": [
+     0.285714
+    ],
+    "rewards": [
+     0.142857
+    ],
+    "scored": 1
+   },
+   "milestones": 7,
+   "mix": {
+    "budget": 5,
+    "skill_gap": 4,
+    "world_bug": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": true,
+    "m05": false,
+    "m07": false,
+    "m08": true,
+    "m13": false,
+    "m14": true,
+    "m16": false
+   },
+   "repo": "funcy",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 14,
+      "ece": 0.5,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 2,
+      "world_bug": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 19,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 598506.75,
+     "tool_calls_mean": 44.75,
+     "trajectory_tokens_mean": 38978.5,
+     "usd": 0.0877,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 7,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 32,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "max_steps": 2
+     },
+     "tokens_mean": 2817117.5,
+     "tool_calls_mean": 150.0,
+     "trajectory_tokens_mean": 119786.0,
+     "usd": 0.36487,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.667,
+     "calibration": {
+      "brier": 0.4584821428571429,
+      "claims": 28,
+      "ece": 0.4125,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.03389830508474576,
+      "other_spans": 59,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 18,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.2857,
+      0.4286,
+      0.2857,
+      0.2857
+     ],
+     "final_phi_mean": 0.3214,
+     "final_phi_sd": 0.0619,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.161,
+     "reward_sd": 0.0309,
+     "rewards": [
+      0.142857,
+      0.214285,
+      0.142857,
+      0.142857
+     ],
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 2903679.5,
+     "tool_calls_mean": 148.5,
+     "trajectory_tokens_mean": 127648.25,
+     "usd": 0.22557,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no behavioural milestone edge (long, not long-horizon)",
+     "would otherwise be: back"
+    ]
+   }
+  },
+  "glom-w67f423c-07d5ee0": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "back to world: ['r2_main/748d7eb251f7686c']",
+     "skill-gap share 5/9 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.071429
+    ],
+    "rewards": [
+     0.071429,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "spread": true
+   },
+   "edges": 6,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 57.9,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m15",
+      true,
+      true
+     ],
+     [
+      "revert_m44",
+      true,
+      true
+     ],
+     [
+      "revert_m45",
+      true,
+      true
+     ],
+     [
+      "revert_m46",
+      true,
+      true
+     ],
+     [
+      "revert_m47",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [],
+    "phi": [
+     0
+    ],
+    "rewards": [
+     0.0
+    ],
+    "scored": 1
+   },
+   "milestones": 7,
+   "mix": {
+    "budget": 3,
+    "skill_gap": 5,
+    "world_bug": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m15": false,
+    "m29": false,
+    "m34": false,
+    "m44": false,
+    "m45": true,
+    "m46": true,
+    "m47": false
+   },
+   "repo": "glom",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.786,
+     "calibration": {
+      "brier": 0.7857142857142857,
+      "claims": 7,
+      "ece": 0.8857142857142857,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 3,
+      "world_bug": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 7,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 23615.5,
+     "tool_calls_mean": 10.5,
+     "trajectory_tokens_mean": 11959.25,
+     "usd": 0.00356,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 29,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 12,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 2451423.0,
+     "tool_calls_mean": 147.5,
+     "trajectory_tokens_mean": 161115.5,
+     "usd": 0.33337,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.797,
+     "calibration": {
+      "brier": 0.7966071428571428,
+      "claims": 28,
+      "ece": 0.8214285714285714,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.03571428571428571,
+      "other_spans": 56,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 15,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.1429,
+      0.0,
+      0.1429,
+      0.0
+     ],
+     "final_phi_mean": 0.0714,
+     "final_phi_sd": 0.0714,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.018,
+     "reward_sd": 0.0309,
+     "rewards": [
+      0.071429,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 2562246.25,
+     "tool_calls_mean": 138.5,
+     "trajectory_tokens_mean": 102066.0,
+     "usd": 0.14301,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "back",
+    "why": [
+     "auditor sends back: {'world_bug': 1}"
+    ]
+   }
+  },
+  "glom-w67f423c-07d5ee0-p2": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 3/7 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.25
+    ],
+    "rewards": [
+     0.0,
+     0.25,
+     0.0,
+     0.25
+    ],
+    "spread": true
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 57.3,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [],
+    "phi": [
+     0
+    ],
+    "rewards": [
+     0.0
+    ],
+    "scored": 1
+   },
+   "milestones": 2,
+   "mix": {
+    "budget": 2,
+    "env_flake": 2,
+    "skill_gap": 3
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m15": true,
+    "m29": false
+   },
+   "repo": "glom",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.25,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 4,
+      "ece": 0.5,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 5,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 17804.25,
+     "tool_calls_mean": 9.75,
+     "trajectory_tokens_mean": 11434.75,
+     "usd": 0.0029,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": null,
+      "claims": 0,
+      "ece": null,
+      "episodes_scored": 0
+     },
+     "causes": {},
+     "compaction_loss": {
+      "elsewhere_per_span": null,
+      "other_spans": 0,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [],
+     "final_phi_mean": null,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": null
+     },
+     "lost_per_episode": null,
+     "masked": 2,
+     "n": 2,
+     "pass_rate": null,
+     "passes": 0,
+     "reward_mean": null,
+     "reward_sd": null,
+     "rewards": [],
+     "scored": 0,
+     "status_written": 0,
+     "stops": {
+      "crucible:credits_exhausted": 2
+     },
+     "tokens_mean": null,
+     "tool_calls_mean": null,
+     "trajectory_tokens_mean": null,
+     "usd": 0.15985,
+     "wilson": null
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.438,
+     "calibration": {
+      "brier": 0.4384375,
+      "claims": 8,
+      "ece": 0.54375,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "unlabelled": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 59,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 19,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.5,
+      0.0,
+      0.5
+     ],
+     "final_phi_mean": 0.25,
+     "final_phi_sd": 0.25,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.125,
+     "reward_sd": 0.125,
+     "rewards": [
+      0.0,
+      0.25,
+      0.0,
+      0.25
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 2,
+      "max_steps": 2
+     },
+     "tokens_mean": 2802401.25,
+     "tool_calls_mean": 149.25,
+     "trajectory_tokens_mean": 125054.75,
+     "usd": 0.20616,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no milestone needs an earlier one (long, not long-horizon)",
+     "would otherwise be: hold"
+    ]
+   }
+  },
+  "humanize-wf9fa838-bc23540": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 3/6 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.083334,
+     0.083334
+    ],
+    "rewards": [
+     0.083334,
+     0.083334,
+     0.083334,
+     0.083334
+    ],
+    "spread": false
+   },
+   "edges": 1,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 65.7,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m28",
+      true,
+      true
+     ],
+     [
+      "revert_m29",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/3bbdc9709ba6fa13/a1"
+    ],
+    "phi": [
+     0.166667
+    ],
+    "rewards": [
+     0.083334
+    ],
+    "scored": 1
+   },
+   "milestones": 6,
+   "mix": {
+    "budget": 2,
+    "env_flake": 1,
+    "skill_gap": 3
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": false,
+    "m03": false,
+    "m08": false,
+    "m27": false,
+    "m28": false,
+    "m29": true
+   },
+   "repo": "humanize",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.959,
+     "calibration": {
+      "brier": 0.7816666666666667,
+      "claims": 24,
+      "ece": 0.8583333333333334,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 11,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 30243.25,
+     "tool_calls_mean": 19.75,
+     "trajectory_tokens_mean": 15515.0,
+     "usd": 0.00424,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.026,
+     "calibration": {
+      "brier": 0.02625,
+      "claims": 6,
+      "ece": 0.14166666666666666,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 16,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": null,
+     "rewards": [
+      0.0
+     ],
+     "scored": 1,
+     "status_written": 1,
+     "stops": {
+      "agent_request_failed": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 2672207.0,
+     "tool_calls_mean": 151.0,
+     "trajectory_tokens_mean": 219085.0,
+     "usd": 0.29966,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.739,
+     "calibration": {
+      "brier": 0.7388541666666666,
+      "claims": 24,
+      "ece": 0.7770833333333333,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 1,
+      "unlabelled": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.017241379310344827,
+      "other_spans": 58,
+      "post_boundary_per_span": 0.07692307692307693,
+      "post_spans": 13,
+      "ratio": 4.461538461538462
+     },
+     "final_phi": [
+      0.1667,
+      0.1667,
+      0.1667,
+      0.1667
+     ],
+     "final_phi_mean": 0.1667,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.083,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.083334,
+      0.083334,
+      0.083334,
+      0.083334
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 3,
+      "max_steps": 1
+     },
+     "tokens_mean": 2730148.0,
+     "tool_calls_mean": 138.25,
+     "trajectory_tokens_mean": 84630.5,
+     "usd": 0.14,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "split",
+    "why": [
+     "below the band without Phi spread; milestones no rung reached: ['m01', 'm03', 'm08', 'm27', 'm28']"
+    ]
+   }
+  },
+  "more-itertools-w15407c7-41a6d0f": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.0
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "spread": false
+   },
+   "edges": 2,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 70.2,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m07",
+      true,
+      true
+     ],
+     [
+      "revert_m08",
+      true,
+      true
+     ],
+     [
+      "revert_m10",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [],
+    "phi": [
+     0
+    ],
+    "rewards": [
+     0.0
+    ],
+    "scored": 1
+   },
+   "milestones": 4,
+   "mix": {
+    "budget": 1,
+    "skill_gap": 5
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": false,
+    "m07": false,
+    "m08": false,
+    "m10": false
+   },
+   "repo": "more-itertools",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.5,
+      "claims": 12,
+      "ece": 0.6666666666666666,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 10,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 27552.75,
+     "tool_calls_mean": 20.75,
+     "trajectory_tokens_mean": 7532.0,
+     "usd": 0.00479,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 8,
+      "ece": 0.5,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 30,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 9,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 2375411.0,
+     "tool_calls_mean": 148.0,
+     "trajectory_tokens_mean": 204060.0,
+     "usd": 0.34876,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.725,
+     "calibration": {
+      "brier": 0.72484375,
+      "claims": 16,
+      "ece": 0.821875,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 59,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 9,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 2281046.25,
+     "tool_calls_mean": 144.25,
+     "trajectory_tokens_mean": 69899.25,
+     "usd": 0.14979,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "split",
+    "why": [
+     "below the band without Phi spread; milestones no rung reached: ['m01', 'm07', 'm08', 'm10']"
+    ]
+   }
+  },
+  "more-itertools-w89d58c2-5c1fb20": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.05,
+     0.1
+    ],
+    "rewards": [
+     0.05,
+     0.1,
+     0.1,
+     0.05
+    ],
+    "spread": true
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 98.9,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/9125cb1e467a9291/a1"
+    ],
+    "phi": [
+     0.2
+    ],
+    "rewards": [
+     0.1
+    ],
+    "scored": 1
+   },
+   "milestones": 10,
+   "mix": {
+    "budget": 3,
+    "skill_gap": 7
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m04": false,
+    "m06": true,
+    "m09": false,
+    "m10": false,
+    "m11": true,
+    "m12": false,
+    "m15": false,
+    "m19": true,
+    "m20": false,
+    "m22": false
+   },
+   "repo": "more-itertools",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.754,
+     "calibration": {
+      "brier": 0.7536666666666666,
+      "claims": 30,
+      "ece": 0.8433333333333333,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 9,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 28818.25,
+     "tool_calls_mean": 16.25,
+     "trajectory_tokens_mean": 14778.75,
+     "usd": 0.00454,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": null,
+     "calibration": {
+      "brier": 0.25,
+      "claims": 10,
+      "ece": 0.5,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 28,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 6,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 0,
+     "stops": {
+      "agent_done": 2
+     },
+     "tokens_mean": 2272732.5,
+     "tool_calls_mean": 134.0,
+     "trajectory_tokens_mean": 101632.0,
+     "usd": 0.29877,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.805,
+     "calibration": {
+      "brier": 0.666625,
+      "claims": 40,
+      "ece": 0.6974999999999999,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 3,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.016129032258064516,
+      "other_spans": 62,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 11,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.1,
+      0.2,
+      0.2,
+      0.1
+     ],
+     "final_phi_mean": 0.15,
+     "final_phi_sd": 0.05,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.25,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.075,
+     "reward_sd": 0.025,
+     "rewards": [
+      0.05,
+      0.1,
+      0.1,
+      0.05
+     ],
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 3
+     },
+     "tokens_mean": 2404383.5,
+     "tool_calls_mean": 146.0,
+     "trajectory_tokens_mean": 76752.0,
+     "usd": 0.16653,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no behavioural milestone edge (long, not long-horizon)",
+     "would otherwise be: accept-candidate"
+    ]
+   }
+  },
+  "parse-w07c2ff9-44e14b0": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 4/8 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 3,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.15,
+     0.2
+    ],
+    "rewards": [
+     0.15,
+     0.15,
+     0.2
+    ],
+    "spread": true
+   },
+   "edges": 1,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 51.2,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m23",
+      true,
+      true
+     ],
+     [
+      "revert_m28",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/a0c2b560adfd0bd9/a1"
+    ],
+    "phi": [
+     0.4
+    ],
+    "rewards": [
+     0.2
+    ],
+    "scored": 1
+   },
+   "milestones": 10,
+   "mix": {
+    "budget": 3,
+    "env_flake": 1,
+    "skill_gap": 4
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 2,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [
+        "The requirement for functors instead of inner functions or lambdas specifies an implementation detail that a maintainer would not normally prescribe."
+       ],
+       "ok": false
+      }
+     },
+     {
+      "findings": [],
+      "k": 2,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m02": true,
+    "m03": false,
+    "m05": false,
+    "m11": true,
+    "m15": true,
+    "m17": false,
+    "m21": true,
+    "m23": true,
+    "m25": true,
+    "m28": true
+   },
+   "repo": "parse",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.935,
+     "calibration": {
+      "brier": 0.9352500000000001,
+      "claims": 10,
+      "ece": 0.9650000000000001,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 4,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 17443.0,
+     "tool_calls_mean": 5.75,
+     "trajectory_tokens_mean": 7876.75,
+     "usd": 0.00248,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.169,
+     "calibration": {
+      "brier": 0.1685,
+      "claims": 20,
+      "ece": 0.29500000000000004,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 28,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 9,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 2
+     },
+     "tokens_mean": 2692737.5,
+     "tool_calls_mean": 146.0,
+     "trajectory_tokens_mean": 148777.0,
+     "usd": 0.35879,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.479,
+     "calibration": {
+      "brier": 0.47883333333333333,
+      "claims": 30,
+      "ece": 0.5166666666666667,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.06521739130434782,
+      "other_spans": 46,
+      "post_boundary_per_span": 0.08333333333333333,
+      "post_spans": 12,
+      "ratio": 1.2777777777777777
+     },
+     "final_phi": [
+      0.3,
+      0.3,
+      0.4
+     ],
+     "final_phi_mean": 0.3333,
+     "final_phi_sd": 0.0471,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 1.3333333333333333,
+     "masked": 1,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.167,
+     "reward_sd": 0.0236,
+     "rewards": [
+      0.15,
+      0.15,
+      0.2
+     ],
+     "scored": 3,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 3
+     },
+     "tokens_mean": 2813101.667,
+     "tool_calls_mean": 149.333,
+     "trajectory_tokens_mean": 103842.0,
+     "usd": 0.20367,
+     "wilson": [
+      0.0,
+      0.5615
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "hold",
+    "why": [
+     "in band but skill-gap share 0.5714285714285714 < 0.7 or unlabelled"
+    ]
+   }
+  },
+  "parse-w07c2ff9-44e14b0-p3": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "back to world: ['r2_main/ecd89a93ba767137']",
+     "skill-gap share 5/8 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.166666
+    ],
+    "rewards": [
+     0.166666,
+     0.166666,
+     0.0,
+     0.166666
+    ],
+    "spread": true
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 42.1,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/72a2190dc19b8309/a1"
+    ],
+    "phi": [
+     0.333333
+    ],
+    "rewards": [
+     0.166666
+    ],
+    "scored": 1
+   },
+   "milestones": 3,
+   "mix": {
+    "budget": 1,
+    "env_flake": 1,
+    "skill_gap": 5,
+    "world_bug": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m02": true,
+    "m03": true,
+    "m05": false
+   },
+   "repo": "parse",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.812,
+     "calibration": {
+      "brier": 0.5308333333333334,
+      "claims": 6,
+      "ece": 0.7,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 1,
+      "world_bug": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 5,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 3,
+      "premature": 0.0,
+      "rate": 0.75
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 15702.75,
+     "tool_calls_mean": 8.75,
+     "trajectory_tokens_mean": 12367.0,
+     "usd": 0.00259,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.553,
+     "calibration": {
+      "brier": 0.5533333333333333,
+      "claims": 3,
+      "ece": 0.7333333333333333,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.06666666666666667,
+      "other_spans": 15,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 4,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 1.0,
+     "masked": 1,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": null,
+     "rewards": [
+      0.0
+     ],
+     "scored": 1,
+     "status_written": 1,
+     "stops": {
+      "crucible:credits_exhausted": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 2610578.0,
+     "tool_calls_mean": 151.0,
+     "trajectory_tokens_mean": 143768.0,
+     "usd": 0.22428,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.678,
+     "calibration": {
+      "brier": 0.678125,
+      "claims": 12,
+      "ece": 0.7041666666666666,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.02564102564102564,
+      "other_spans": 39,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 9,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.3333,
+      0.3333,
+      0.0,
+      0.3333
+     ],
+     "final_phi_mean": 0.25,
+     "final_phi_sd": 0.1443,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.25,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.125,
+     "reward_sd": 0.0722,
+     "rewards": [
+      0.166666,
+      0.166666,
+      0.0,
+      0.166666
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1785923.75,
+     "tool_calls_mean": 96.25,
+     "trajectory_tokens_mean": 71577.5,
+     "usd": 0.13614,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no milestone needs an earlier one (long, not long-horizon)",
+     "would otherwise be: back"
+    ]
+   }
+  },
+  "parse-wc669f87-35b9ffb": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 5/9 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.055556,
+     0.166666
+    ],
+    "rewards": [
+     0.166666,
+     0.055556,
+     0.111111,
+     0.111111
+    ],
+    "spread": true
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 51.2,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/fcb0c60df3142fb6/a1"
+    ],
+    "phi": [
+     0.444444
+    ],
+    "rewards": [
+     0.222222
+    ],
+    "scored": 1
+   },
+   "milestones": 9,
+   "mix": {
+    "budget": 4,
+    "skill_gap": 5
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": true,
+    "m02": true,
+    "m03": true,
+    "m05": false,
+    "m18": false,
+    "m22": true,
+    "m24": false,
+    "m26": true,
+    "m33": false
+   },
+   "repo": "parse",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.862,
+     "calibration": {
+      "brier": 0.5559722222222222,
+      "claims": 18,
+      "ece": 0.7138888888888888,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 6,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 15807.75,
+     "tool_calls_mean": 9.25,
+     "trajectory_tokens_mean": 8573.5,
+     "usd": 0.00265,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.203,
+     "calibration": {
+      "brier": 0.20333333333333334,
+      "claims": 18,
+      "ece": 0.26666666666666666,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 2
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 28,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 10,
+      "ratio": null
+     },
+     "final_phi": [
+      0.2222,
+      0.0
+     ],
+     "final_phi_mean": 0.1111,
+     "final_phi_sd": 0.1111,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.056,
+     "reward_sd": 0.0556,
+     "rewards": [
+      0.111111,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 2
+     },
+     "tokens_mean": 2581453.5,
+     "tool_calls_mean": 140.5,
+     "trajectory_tokens_mean": 180147.5,
+     "usd": 0.35599,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.454,
+     "calibration": {
+      "brier": 0.40291666666666665,
+      "claims": 36,
+      "ece": 0.4972222222222222,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 2,
+      "skill_gap": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.03333333333333333,
+      "other_spans": 60,
+      "post_boundary_per_span": 0.15789473684210525,
+      "post_spans": 19,
+      "ratio": 4.7368421052631575
+     },
+     "final_phi": [
+      0.3333,
+      0.1111,
+      0.2222,
+      0.2222
+     ],
+     "final_phi_mean": 0.2222,
+     "final_phi_sd": 0.0786,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 1.25,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.111,
+     "reward_sd": 0.0393,
+     "rewards": [
+      0.166666,
+      0.055556,
+      0.111111,
+      0.111111
+     ],
+     "scored": 4,
+     "status_written": 3,
+     "stops": {
+      "agent_done": 2,
+      "max_tokens": 2
+     },
+     "tokens_mean": 2956995.75,
+     "tool_calls_mean": 147.25,
+     "trajectory_tokens_mean": 122796.75,
+     "usd": 0.17063,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no behavioural milestone edge (long, not long-horizon)",
+     "would otherwise be: hold"
+    ]
+   }
+  },
+  "parse-wc669f87-35b9ffb-p2": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.25,
+     0.25
+    ],
+    "rewards": [
+     0.25,
+     0.25,
+     0.25,
+     0.25
+    ],
+    "spread": false
+   },
+   "edges": 0,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 40.2,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/8754fe7da250fcaa/a1"
+    ],
+    "phi": [
+     0.5
+    ],
+    "rewards": [
+     0.25
+    ],
+    "scored": 1
+   },
+   "milestones": 2,
+   "mix": {
+    "budget": 1,
+    "env_flake": 1,
+    "skill_gap": 7
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m01": false,
+    "m02": true
+   },
+   "repo": "parse",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.856,
+     "calibration": {
+      "brier": 0.553125,
+      "claims": 4,
+      "ece": 0.7125,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 6,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 2,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 14235.0,
+     "tool_calls_mean": 9.0,
+     "trajectory_tokens_mean": 7654.25,
+     "usd": 0.00237,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.82,
+     "calibration": {
+      "brier": 0.8200000000000001,
+      "claims": 2,
+      "ece": 0.9,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "budget": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 15,
+      "post_boundary_per_span": 0.2857142857142857,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.5
+     ],
+     "final_phi_mean": 0.5,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 2.0,
+     "masked": 1,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.25,
+     "reward_sd": null,
+     "rewards": [
+      0.25
+     ],
+     "scored": 1,
+     "status_written": 1,
+     "stops": {
+      "crucible:credits_exhausted": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 2658320.0,
+     "tool_calls_mean": 150.0,
+     "trajectory_tokens_mean": 200192.0,
+     "usd": 0.21961,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.476,
+     "calibration": {
+      "brier": 0.4760375,
+      "claims": 8,
+      "ece": 0.47624999999999995,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 3,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.029411764705882353,
+      "other_spans": 34,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 6,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.5,
+      0.5,
+      0.5,
+      0.5
+     ],
+     "final_phi_mean": 0.5,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.25,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.25,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 1519603.5,
+     "tool_calls_mean": 81.5,
+     "trajectory_tokens_mean": 51706.5,
+     "usd": 0.10528,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "independent: no milestone needs an earlier one (long, not long-horizon)",
+     "would otherwise be: split"
+    ]
+   }
+  },
+  "python-semver-w1bafb9f-3f92aa5": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.0
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "spread": false
+   },
+   "edges": null,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 50.1,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [],
+    "phi": [
+     0
+    ],
+    "rewards": [
+     0.0
+    ],
+    "scored": 1
+   },
+   "milestones": 1,
+   "mix": {
+    "budget": 1,
+    "skill_gap": 5
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m19": false
+   },
+   "repo": "python-semver",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.745,
+     "calibration": {
+      "brier": 0.745,
+      "claims": 2,
+      "ece": 0.85,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 5,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 17454.0,
+     "tool_calls_mean": 7.0,
+     "trajectory_tokens_mean": 7902.5,
+     "usd": 0.00263,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.615,
+     "calibration": {
+      "brier": 0.61505,
+      "claims": 2,
+      "ece": 0.745,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 22,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 7,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 1
+     },
+     "tokens_mean": 1664206.0,
+     "tool_calls_mean": 100.5,
+     "trajectory_tokens_mean": 111584.0,
+     "usd": 0.23183,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 1.0,
+      "claims": 4,
+      "ece": 1.0,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 17,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 3,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 597285.5,
+     "tool_calls_mean": 33.75,
+     "trajectory_tokens_mean": 26471.25,
+     "usd": 0.03252,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "1 milestone(s) with fail-to-pass tests (need 2)",
+     "would otherwise be: split"
+    ]
+   }
+  },
+  "python-semver-w41775dd-1bafb9f": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "back to world: ['r2_main/a047424dcac2b137']",
+     "skill-gap share 4/6 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.0
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "spread": false
+   },
+   "edges": null,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 52.8,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [],
+    "mutants_ok": false,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": false,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [],
+    "phi": [
+     0
+    ],
+    "rewards": [
+     0.0
+    ],
+    "scored": 1
+   },
+   "milestones": 1,
+   "mix": {
+    "env_flake": 1,
+    "skill_gap": 4,
+    "world_bug": 1
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [
+        "The request only specifies public API behavior and does not include implementation hints or references to internal code."
+       ],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m31": false
+   },
+   "repo": "python-semver",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 0.905,
+     "calibration": {
+      "brier": 0.6866666666666666,
+      "claims": 3,
+      "ece": 0.7999999999999999,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 2,
+      "unlabelled": 1,
+      "world_bug": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 5,
+      "post_boundary_per_span": null,
+      "post_spans": 0,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.25
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 15600.0,
+     "tool_calls_mean": 7.25,
+     "trajectory_tokens_mean": 4991.75,
+     "usd": 0.00252,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 1.0,
+      "claims": 1,
+      "ece": 1.0,
+      "episodes_scored": 1
+     },
+     "causes": {
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 10,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 5,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": null,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 1,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": null,
+     "rewards": [
+      0.0
+     ],
+     "scored": 1,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 1,
+      "agent_request_failed": 1
+     },
+     "tokens_mean": 1745585.0,
+     "tool_calls_mean": 98.0,
+     "trajectory_tokens_mean": 187098.0,
+     "usd": 0.16269,
+     "wilson": [
+      0.0,
+      0.7935
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.966,
+     "calibration": {
+      "brier": 0.965725,
+      "claims": 4,
+      "ece": 0.9824999999999999,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "skill_gap": 1,
+      "unlabelled": 3
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 15,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 3,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 4,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 551524.75,
+     "tool_calls_mean": 33.0,
+     "trajectory_tokens_mean": 25657.0,
+     "usd": 0.03139,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "not-type-A",
+    "why": [
+     "1 milestone(s) with fail-to-pass tests (need 2)",
+     "would otherwise be: back"
+    ]
+   }
+  },
+  "toolz-w2ac03ce-55c60e9": {
+   "audit": {
+    "auditor_trusted": true,
+    "fn_candidates": [],
+    "fp_candidates": [],
+    "reasons": [
+     "skill-gap share 5/9 < 0.7: hard for the wrong reason"
+    ],
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     },
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.0625
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.0625,
+     0.0625
+    ],
+    "spread": true
+   },
+   "edges": 1,
+   "flake": {
+    "false_negatives": 0,
+    "levels": {
+     "1": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     },
+     "4": {
+      "fails": 0,
+      "masked": 0,
+      "n": 30
+     }
+    },
+    "masked": 0,
+    "n": 60,
+    "seconds": 122.6,
+    "upper": 0.0487
+   },
+   "floors": {
+    "floors_ok": true,
+    "grades": {
+     "no_op": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "oracle_patch": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "oracle_steps": {
+      "infra": "ok",
+      "phi": 1.0,
+      "reward": 1.0
+     },
+     "original_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "pass_stub": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     },
+     "start_state": {
+      "infra": "ok",
+      "phi": 0,
+      "reward": 0.0
+     }
+    },
+    "mutants": [
+     [
+      "revert_m02",
+      true,
+      true
+     ],
+     [
+      "revert_m03",
+      true,
+      true
+     ],
+     [
+      "revert_m04",
+      true,
+      true
+     ],
+     [
+      "revert_m07",
+      true,
+      true
+     ],
+     [
+      "revert_m28",
+      true,
+      true
+     ]
+    ],
+    "mutants_ok": true,
+    "oracle_ok": true
+   },
+   "gates": {
+    "flake_bound_le_5pct": true,
+    "floors_zero": true,
+    "mutants_caught": true,
+    "no_confirmed_hack": true,
+    "oracle_passes": true,
+    "prompt_lint_clean": true,
+    "realism_ok": true
+   },
+   "hacker": {
+    "confirmed": [],
+    "masked": [],
+    "n": 1,
+    "partial": [
+     "<work>/runs/hacker/samples/febff0b026933799/a1"
+    ],
+    "phi": [
+     0.125
+    ],
+    "rewards": [
+     0.0625
+    ],
+    "scored": 1
+   },
+   "milestones": 8,
+   "mix": {
+    "budget": 4,
+    "skill_gap": 5
+   },
+   "prompt": {
+    "ok": true,
+    "revisions": 1,
+    "tries": [
+     {
+      "findings": [],
+      "k": 1,
+      "realism": {
+       "findings": [],
+       "ok": true
+      }
+     }
+    ]
+   },
+   "reached_by_any_rung": {
+    "m02": true,
+    "m03": true,
+    "m04": false,
+    "m05": false,
+    "m07": false,
+    "m14": true,
+    "m18": false,
+    "m28": false
+   },
+   "repo": "toolz",
+   "rungs": {
+    "amazon/nova-micro-v1": {
+     "brier_written": 1.0,
+     "calibration": {
+      "brier": 0.5,
+      "claims": 24,
+      "ece": 0.6666666666666666,
+      "episodes_scored": 3
+     },
+     "causes": {
+      "skill_gap": 4
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.0,
+      "other_spans": 27,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 11,
+      "ratio": null
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.0,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scored": 4,
+     "status_written": 1,
+     "stops": {
+      "agent_done": 4
+     },
+     "tokens_mean": 678204.5,
+     "tool_calls_mean": 60.5,
+     "trajectory_tokens_mean": 58585.5,
+     "usd": 0.10098,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+     "brier_written": 0.231,
+     "calibration": {
+      "brier": 0.23125,
+      "claims": 16,
+      "ece": 0.2625,
+      "episodes_scored": 2
+     },
+     "causes": {
+      "budget": 1,
+      "unlabelled": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.05263157894736842,
+      "other_spans": 19,
+      "post_boundary_per_span": 0.0,
+      "post_spans": 8,
+      "ratio": 0.0
+     },
+     "final_phi": [
+      0.0,
+      0.0
+     ],
+     "final_phi_mean": 0.0,
+     "final_phi_sd": 0.0,
+     "give_up": {
+      "correct": 1.0,
+      "n": 1,
+      "premature": 0.0,
+      "rate": 0.5
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 2,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.0,
+     "reward_sd": 0.0,
+     "rewards": [
+      0.0,
+      0.0
+     ],
+     "scored": 2,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 2
+     },
+     "tokens_mean": 1619093.0,
+     "tool_calls_mean": 102.0,
+     "trajectory_tokens_mean": 129317.5,
+     "usd": 0.23275,
+     "wilson": [
+      0.0,
+      0.6576
+     ]
+    },
+    "qwen/qwen3.7-flash": {
+     "brier_written": 0.797,
+     "calibration": {
+      "brier": 0.52375,
+      "claims": 32,
+      "ece": 0.6437499999999999,
+      "episodes_scored": 4
+     },
+     "causes": {
+      "budget": 3,
+      "skill_gap": 1
+     },
+     "compaction_loss": {
+      "elsewhere_per_span": 0.016129032258064516,
+      "other_spans": 62,
+      "post_boundary_per_span": 0.07692307692307693,
+      "post_spans": 13,
+      "ratio": 4.76923076923077
+     },
+     "final_phi": [
+      0.0,
+      0.0,
+      0.125,
+      0.125
+     ],
+     "final_phi_mean": 0.0625,
+     "final_phi_sd": 0.0625,
+     "give_up": {
+      "correct": null,
+      "n": 0,
+      "premature": null,
+      "rate": 0.0
+     },
+     "lost_per_episode": 0.5,
+     "masked": 0,
+     "n": 4,
+     "pass_rate": 0.0,
+     "passes": 0,
+     "reward_mean": 0.031,
+     "reward_sd": 0.0312,
+     "rewards": [
+      0.0,
+      0.0,
+      0.0625,
+      0.0625
+     ],
+     "scored": 4,
+     "status_written": 2,
+     "stops": {
+      "agent_done": 1,
+      "max_steps": 2,
+      "max_tokens": 1
+     },
+     "tokens_mean": 2726635.25,
+     "tool_calls_mean": 149.75,
+     "trajectory_tokens_mean": 92098.25,
+     "usd": 0.19093,
+     "wilson": [
+      0.0,
+      0.4899
+     ]
+    }
+   },
+   "verdict": {
+    "verdict": "hold",
+    "why": [
+     "in band but skill-gap share 0.5555555555555556 < 0.7 or unlabelled"
+    ]
+   }
+  }
+ }
+}

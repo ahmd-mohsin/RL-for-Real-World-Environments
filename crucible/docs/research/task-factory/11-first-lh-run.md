@@ -130,3 +130,89 @@ Found, **not fixed** (owners: lane, credit, harness):
 2. Fix F2/F3 in the lane (executed edges only in `requires`; owners from behaviour, not the last test rewrite), re-mine.
 3. Send semver-w1bafb9f and humanize back to the author (stated formats); re-run D1's lint rule with a behaviour exception.
 4. Harden the weak rungs (F4) or replace them; add the STATUS.json reminder (F5); then the 80-window machine run.
+
+## Run 2: fixes F1-F5, re-mine, same 10 windows + 3 sub-windows
+
+Cap $12 for run 2 (user's $20 minus run 1's $6.54, with margin). Spent **$6.25**; total over both runs **$12.79**. Raw:
+`runs/lh_run2.json`, the re-mined funnel `runs/window_funnel2.json` (it also counts the 6 derived sub-windows).
+
+**What changed** (09 §6 has file references):
+
+| # | decision | built as |
+|---|---|---|
+| F1 | outcome reward = 0.5·Φ_final + 0.5·[full pass] | `WindowTask.phi_weight` (default 0.5) on `grade_patch`; `grade` stays binary for the accept contract, which kills a mutant only at reward 0 |
+| F1 | band = outcome-reward spread in the target group, plus ≥ 70% skill gap | `reward_band`, `--band reward` |
+| F2 | only `executed` edges in `requires`; `patch-conflict` edges become `order_hints` | `probe_dependencies`, which now runs B's tests as the grader does |
+| F3 | owner = first unit after whose prefix the test passes | `prefix_owners`: ≤ 25 runs by bisection, prefix files read from the unit's commit |
+| F4 | weak rungs replaced | probe of 8 cheap non-qwen/deepseek models (multi-turn fix with a parallel-call history, pinned providers): 0 errors for all. Pilots: mistral-small-3.2 hit the 45-min wall after 56 calls (48 s/call); llama-3.3-70b quit after 3 calls. Rungs: **nemotron-3-nano-30b** (Nvidia, Nebius→Novita) and **nova-micro** (Amazon, Bedrock). gpt-oss dropped: no harmony adapter was built |
+| F5 | told tool-call limit | opt-in on `LLMToolPolicy` (`tool_limit`): a note at 5 calls left, then one final turn with only `write_file` for STATUS.json |
+| D1 | lint false positive | editing verbs are process only when their object is the work environment; cachetools now authors on the first try |
+| F7 | world test sees other runs' containers | `open_world(name_prefix=)`; the test checks only its own prefix |
+
+**Re-mine** (134 stored windows, no model calls; held-out mined only):
+
+| split | f2p_valid before → after | dependent | with valid mutant | behavioural edges | order hints |
+|---|---|---|---|---|---|
+| train (91) | 86 → 84 | 51 → **26** | 48 → **26** | 50 | 232 |
+| held-out (43) | 37 → 40 | 20 → **10** | 19 → **10** | 16 | 176 |
+
+- 27 train windows lost every edge (all were textual) and 2 gained one.
+- 3 train windows collapsed below 2 milestones: when B's test file imports names that history adds last (semver's `cmd_*`), no B test passes on any earlier prefix, so every test has one owner (F8).
+- Of the selected 10:
+  - Type A: parse-w07c2ff9 (10 milestones, 1 edge), more-itertools-w15407c7 (4, 2), humanize (6, 1), toolz (8, 1), glom (7, 6);
+  - independent: parse-wc669f87, more-itertools-w89d58c2, funcy;
+  - 1 milestone: both semver windows.
+
+**Prompts.**
+- semver-w1bafb9f and humanize were sent back with the auditor's findings. The auditor's semver guess ("capitalised True") was **wrong**: the test expects `cmd_check` to return None or raise `ValueError`. The authored prompt then contradicted the verifier (D8). Fixed for this run with findings from the failing test's own parameters (a hand-extracted ledger-mapper step, to be automated).
+- semver-w41775dd and toolz failed the name check 6 times: the author ignores names whose unit owns no milestone. The lane now states such names in one fixed sentence (`names_stated_by_lane`).
+- All 13 prompts are lint- and realism-clean.
+
+**Gates (13 windows).**
+- Floors: 0 with Φ 0. Oracle: 1 with Φ 1.
+- Mutants: 17/17 caught.
+- Flake: 60/60 per window, bound 4.87%.
+- Hacker (1 per window): 13 scored, no full pass. The mean reward of 0.094 comes from real source fixes that pass hidden milestone tests.
+
+**Split rule.**
+- Literally, "deepest milestone any run-1 end state reached, + 1" keeps the whole window in all 3 cases: a late independent milestone was reached.
+- Split instead at the first unreached milestone in order: parse-wc669f87-p2 (2 milestones), parse-w07c2ff9-p3 (3), glom-p2 (2). All three are independent once cut.
+
+**Per window** (qwen × 4; reward = F1 outcome reward):
+
+| window | type (run 2) | qwen rewards | spread | final Φ mean | pass | verdict |
+|---|---|---|---|---|---|---|
+| parse-w07c2ff9 | A, 10 ms / 1 edge | .15 .15 .20 (1 masked) | yes | 0.33 | 0/3 | hold (skill gap 0.57) |
+| toolz | A, 8 / 1 | 0 0 .06 .06 | yes | 0.06 | 0/4 | hold (skill gap 0.56) |
+| glom | A, 7 / 6 | .07 0 0 0 | yes | 0.07 | 0/4 | back: world (D7) |
+| humanize | A, 6 / 1 | .08 ×4 | no | 0.17 | 0/4 | split |
+| more-itertools-w15407c7 | A, 4 / 2 | 0 ×4 | no | 0 | 0/4 | split |
+| more-itertools-w89d58c2 | independent | .05 .10 .10 .05 | yes | 0.15 | 0/4 | not Type A (else accept-candidate) |
+| parse-wc669f87 | independent | .17 .06 .11 .11 | yes | 0.22 | 0/4 | not Type A |
+| funcy | independent | .14 .21 .14 .14 | yes | 0.32 | 0/4 | not Type A |
+| semver-w1bafb9f / -w41775dd | 1 milestone | 0 ×4 / 0 ×4 | no | 0 | 0/4 | not Type A |
+| parse-wc669f87-p2 / -w07c2ff9-p3 / glom-p2 | independent sub-windows | .25 ×4 / .17 .17 0 .17 / 0 .25 0 .25 | no / yes / yes | 0.5 / 0.25 / 0.25 | 0/4 | not Type A |
+
+**Headline:**
+- Pass rate 0 on all three rungs (qwen 0/51, nemotron 0/20, nova 0/52).
+- The F1 reward spreads in **8 of 13** qwen groups (3 of the 5 Type A windows), against 6 by Φ in run 1. Mean final Φ: qwen 0.18, nemotron 0.04, nova 0.
+- **F5 works:** qwen wrote STATUS.json in 45/51 episodes (run 1: 21/39); nemotron took the final STATUS turn after 150 calls. Claims stay overconfident (qwen Brier 0.70 when written).
+- **First I6 signal, small n:** qwen loses 0.040 milestones per span after a compaction boundary vs 0.022 elsewhere (150 vs 626 spans); nemotron 0.022 vs 0.007.
+- Cause mix: skill gap 62, budget 30, world bug 4, unlabelled 27. Auditor seeded controls 39/39.
+
+**Spend:** prompts 0.013, probe 0.007, pilots 0.271, hacker 0.199, qwen 1.902, nova 0.224, nemotron 3.591, auditor 0.038.
+
+**Defects found in run 2:**
+- **D7 (harness, also in run 1):** `max_tool_output` 8,000 chars cut the middle of `read_file`'s 400-line pages. 409 qwen and 139 nova reads were elided. The 4 `world_bug` labels say exactly this; glom's `back` is owned by this config, not the task. Next: cap ≥ the World's 30k, or page 150 lines.
+- **D8:** auditor rationale reached the prompt as fact; only test-derived statements may.
+- **F8:** module-level imports of late names collapse prefix ownership; an import-tolerant grader would keep per-test granularity.
+- **OpenRouter refused in-flight requests** (402 `in_flight_budget_exhausted`) with the guard at $6.2 of $12: the **account balance is near its limit**. 4 of 26 nemotron samples never ran, and no further paid work was attempted.
+- The lane's grading sandboxes are named `crucible-m17-*` (existing code), not `crucible-lh-*`.
+
+**DESIGN-ready notes:**
+- Type A reward = 0.5·Φ_final + 0.5·pass on the RL path; the accept verdict stays binary.
+- Φ gates only on behavioural edges.
+- Milestone owner = first passing prefix.
+- `LLMToolPolicy.tool_limit` tells the agent its budget truthfully.
+- Prompt names come from the tests' imports, stated by the lane if the author omits them.
+- Send-back findings must be test-derived.

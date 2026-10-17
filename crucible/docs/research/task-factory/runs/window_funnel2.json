@@ -1,0 +1,457 @@
+{
+ "heldout": {
+  "per_repo": {
+   "jinja": {
+    "dependent": 4,
+    "edges": 7,
+    "f2p_valid": 8,
+    "leak_ok": 26,
+    "milestones": 25,
+    "mutants": {
+     "revert_conflict": 12,
+     "valid": 13
+    },
+    "mutants_valid": 4,
+    "reasons": {
+     "accepted": 4,
+     "independent": 4,
+     "no test result at B": 18
+    },
+    "windows": 26,
+    "world_built": 26
+   },
+   "mistune": {
+    "dependent": 2,
+    "edges": 2,
+    "f2p_valid": 10,
+    "leak_ok": 13,
+    "milestones": 21,
+    "mutants": {
+     "revert_conflict": 8,
+     "uncaught": 2,
+     "valid": 11
+    },
+    "mutants_valid": 2,
+    "reasons": {
+     "1 milestone": 2,
+     "4 tests fail at B": 1,
+     "accepted": 2,
+     "independent": 8,
+     "world image did not build": 7
+    },
+    "windows": 20,
+    "world_built": 13
+   },
+   "python-dotenv": {
+    "dependent": 1,
+    "edges": 1,
+    "f2p_valid": 4,
+    "leak_ok": 4,
+    "milestones": 2,
+    "mutants": {
+     "valid": 2
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "accepted": 1,
+     "independent": 3
+    },
+    "windows": 4,
+    "world_built": 4
+   },
+   "sqlparse": {
+    "dependent": 2,
+    "edges": 4,
+    "f2p_valid": 11,
+    "leak_ok": 13,
+    "milestones": 20,
+    "mutants": {
+     "revert_conflict": 6,
+     "uncaught": 2,
+     "valid": 12
+    },
+    "mutants_valid": 2,
+    "reasons": {
+     "accepted": 2,
+     "independent": 9,
+     "no test result at B": 2,
+     "world image did not build": 3
+    },
+    "windows": 16,
+    "world_built": 13
+   },
+   "tomlkit": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 5,
+    "leak_ok": 11,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "10 tests fail at B": 5,
+     "9 tests fail at B": 1,
+     "independent": 5
+    },
+    "windows": 11,
+    "world_built": 11
+   },
+   "voluptuous": {
+    "dependent": 1,
+    "edges": 2,
+    "f2p_valid": 2,
+    "leak_ok": 7,
+    "milestones": 9,
+    "mutants": {
+     "revert_conflict": 1,
+     "valid": 8
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "0 milestone": 1,
+     "1 tests fail at B": 4,
+     "accepted": 1,
+     "independent": 1
+    },
+    "windows": 7,
+    "world_built": 7
+   }
+  },
+  "split": "heldout",
+  "total": {
+   "dependent": 10,
+   "f2p_valid": 40,
+   "leak_ok": 74,
+   "mutants_valid": 10,
+   "windows": 84,
+   "world_built": 74
+  }
+ },
+ "train": {
+  "per_repo": {
+   "arrow": {
+    "dependent": 6,
+    "edges": 10,
+    "f2p_valid": 12,
+    "leak_ok": 15,
+    "milestones": 47,
+    "mutants": {
+     "broad": 1,
+     "revert_conflict": 19,
+     "valid": 27
+    },
+    "mutants_valid": 6,
+    "reasons": {
+     "accepted": 6,
+     "independent": 6,
+     "no test result at B": 3
+    },
+    "windows": 15,
+    "world_built": 15
+   },
+   "boltons": {
+    "dependent": 1,
+    "edges": 1,
+    "f2p_valid": 7,
+    "leak_ok": 8,
+    "milestones": 6,
+    "mutants": {
+     "revert_conflict": 2,
+     "valid": 4
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "1 milestone": 1,
+     "accepted": 1,
+     "independent": 6
+    },
+    "windows": 8,
+    "world_built": 8
+   },
+   "cachetools": {
+    "dependent": 2,
+    "edges": 2,
+    "f2p_valid": 6,
+    "leak_ok": 6,
+    "milestones": 14,
+    "mutants": {
+     "revert_conflict": 7,
+     "valid": 7
+    },
+    "mutants_valid": 2,
+    "reasons": {
+     "accepted": 2,
+     "independent": 4
+    },
+    "windows": 6,
+    "world_built": 6
+   },
+   "cerberus": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 0,
+    "leak_ok": 1,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "no test result at B": 1,
+     "world image did not build": 1
+    },
+    "windows": 2,
+    "world_built": 1
+   },
+   "click": {
+    "dependent": 1,
+    "edges": 1,
+    "f2p_valid": 4,
+    "leak_ok": 8,
+    "milestones": 11,
+    "mutants": {
+     "valid": 11
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "accepted": 1,
+     "independent": 3,
+     "no test result at B": 4
+    },
+    "windows": 8,
+    "world_built": 8
+   },
+   "dateutil": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 0,
+    "leak_ok": 2,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "0 milestone": 1,
+     "1 milestone": 1
+    },
+    "windows": 2,
+    "world_built": 2
+   },
+   "funcy": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 4,
+    "leak_ok": 4,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "independent": 4
+    },
+    "windows": 4,
+    "world_built": 4
+   },
+   "glom": {
+    "dependent": 4,
+    "edges": 17,
+    "f2p_valid": 5,
+    "leak_ok": 5,
+    "milestones": 26,
+    "mutants": {
+     "revert_conflict": 11,
+     "valid": 15
+    },
+    "mutants_valid": 4,
+    "reasons": {
+     "accepted": 4,
+     "independent": 1
+    },
+    "windows": 5,
+    "world_built": 5
+   },
+   "humanize": {
+    "dependent": 2,
+    "edges": 2,
+    "f2p_valid": 4,
+    "leak_ok": 6,
+    "milestones": 8,
+    "mutants": {
+     "revert_conflict": 4,
+     "valid": 4
+    },
+    "mutants_valid": 2,
+    "reasons": {
+     "4 tests fail at B": 1,
+     "85 tests fail at B": 1,
+     "accepted": 2,
+     "independent": 2
+    },
+    "windows": 6,
+    "world_built": 6
+   },
+   "lark": {
+    "dependent": 3,
+    "edges": 5,
+    "f2p_valid": 8,
+    "leak_ok": 8,
+    "milestones": 19,
+    "mutants": {
+     "broad": 1,
+     "revert_conflict": 7,
+     "uncaught": 2,
+     "valid": 9
+    },
+    "mutants_valid": 3,
+    "reasons": {
+     "accepted": 3,
+     "independent": 5
+    },
+    "windows": 8,
+    "world_built": 8
+   },
+   "markdown": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 4,
+    "leak_ok": 8,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "1 milestone": 1,
+     "19 tests fail at B": 1,
+     "28 tests fail at B": 2,
+     "independent": 4
+    },
+    "windows": 8,
+    "world_built": 8
+   },
+   "marshmallow": {
+    "dependent": 1,
+    "edges": 5,
+    "f2p_valid": 6,
+    "leak_ok": 7,
+    "milestones": 7,
+    "mutants": {
+     "revert_conflict": 4,
+     "valid": 3
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "accepted": 1,
+     "deadline": 1,
+     "independent": 5,
+     "no test result at B": 1
+    },
+    "windows": 8,
+    "world_built": 7
+   },
+   "more-itertools": {
+    "dependent": 5,
+    "edges": 11,
+    "f2p_valid": 16,
+    "leak_ok": 16,
+    "milestones": 37,
+    "mutants": {
+     "broad": 4,
+     "revert_conflict": 1,
+     "uncaught": 2,
+     "valid": 30
+    },
+    "mutants_valid": 5,
+    "reasons": {
+     "accepted": 5,
+     "independent": 11
+    },
+    "windows": 16,
+    "world_built": 16
+   },
+   "parse": {
+    "dependent": 2,
+    "edges": 2,
+    "f2p_valid": 6,
+    "leak_ok": 6,
+    "milestones": 20,
+    "mutants": {
+     "revert_conflict": 16,
+     "valid": 4
+    },
+    "mutants_valid": 2,
+    "reasons": {
+     "accepted": 2,
+     "independent": 4
+    },
+    "windows": 6,
+    "world_built": 6
+   },
+   "pyparsing": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 4,
+    "leak_ok": 5,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "1 milestone": 1,
+     "independent": 4,
+     "leak probe failed": 1
+    },
+    "windows": 6,
+    "world_built": 6
+   },
+   "python-semver": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 3,
+    "leak_ok": 5,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "1 milestone": 2,
+     "independent": 3
+    },
+    "windows": 5,
+    "world_built": 5
+   },
+   "toolz": {
+    "dependent": 1,
+    "edges": 1,
+    "f2p_valid": 1,
+    "leak_ok": 1,
+    "milestones": 8,
+    "mutants": {
+     "revert_conflict": 3,
+     "valid": 5
+    },
+    "mutants_valid": 1,
+    "reasons": {
+     "accepted": 1
+    },
+    "windows": 1,
+    "world_built": 1
+   },
+   "typer": {
+    "dependent": 0,
+    "edges": 0,
+    "f2p_valid": 0,
+    "leak_ok": 0,
+    "milestones": 0,
+    "mutants": {},
+    "mutants_valid": 0,
+    "reasons": {
+     "deadline": 8
+    },
+    "windows": 8,
+    "world_built": 0
+   }
+  },
+  "split": "train",
+  "total": {
+   "dependent": 28,
+   "f2p_valid": 90,
+   "leak_ok": 111,
+   "mutants_valid": 28,
+   "windows": 122,
+   "world_built": 112
+  }
+ }
+}

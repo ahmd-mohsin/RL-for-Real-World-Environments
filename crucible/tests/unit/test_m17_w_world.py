@@ -97,6 +97,8 @@ def test_a_planted_test_definition_is_found(world, tmp_path: Path) -> None:
 
 @pytest.mark.docker
 async def test_an_episode_in_the_window_world(world, tmp_path: Path) -> None:
+    import uuid
+
     from crucible.actors.policy import ScriptedPolicy
     from crucible.core.schema.actions import Done, ToolCall
     from crucible.factory.checkpoint import CheckpointConfig
@@ -105,6 +107,8 @@ async def test_an_episode_in_the_window_world(world, tmp_path: Path) -> None:
     from crucible.runtime.run import Runner, RunSpec
 
     task, rec, _repo, _ = world
+    mine = f"crucible-lh-world-t{uuid.uuid4().hex[:6]}-"  # this run's containers only (another run's Worlds may be up)
+    task.lane.world_prefix = mine
     task.sandbox = SB()  # grading on the host interpreter here; the World itself is the Docker container
     task.checkpoint = CheckpointConfig(every=2, cap=6)
     files = {p: t for p, t in rec["oracle_files"].items() if p.startswith("pkg/")}
@@ -130,4 +134,4 @@ async def test_an_episode_in_the_window_world(world, tmp_path: Path) -> None:
     assert out["meta"]["progress"]["checkpoints"] >= 2 and (adir / "checkpoints.jsonl").exists()
     patch = (adir / "artifacts" / "model.patch").read_text()
     assert "pkg/gamma.py" in patch and "STATUS.json" in patch
-    assert not [c for c in own_containers() if c.startswith("crucible-lh-world-")]  # the World's container is gone
+    assert not [c for c in own_containers() if c.startswith(mine)]  # the World's container is gone

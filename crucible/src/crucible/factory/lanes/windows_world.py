@@ -284,9 +284,13 @@ def world_spec(ws: Path, base_dir: Path) -> Any:
         "actors": [{"id": "agent", "kind": "policy", "tools": ["repo.*"]}]})
 
 
-async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: str, memory: str = "2g", cpus: str = "2") -> Any:
+async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: str, memory: str = "2g", cpus: str = "2",
+                     name_prefix: str = f"{PREFIX}world-") -> Any:
     """A started, reset World whose tools run in a ``--network none`` container of ``image`` (closing the World removes
-    the container). ``world._crucible_ws`` is the host workspace."""
+    the container). ``world._crucible_ws`` is the host workspace. ``name_prefix`` (always under ``crucible-lh-``) lets a
+    caller find exactly the containers it made (a test run asserting its own cleanup, report 11 F7)."""
+    if not name_prefix.startswith(PREFIX):
+        raise ValueError(f"World containers are named {PREFIX}*, got prefix {name_prefix!r}")
     from crucible.core.store import Store
     from crucible.world.exec import DockerExec
     from crucible.world.world import World
@@ -294,7 +298,7 @@ async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: 
     workdir = Path(workdir).resolve()
     ws = workdir / "ws"
     ws.mkdir(parents=True, exist_ok=True)
-    name = f"{PREFIX}world-{uuid.uuid4().hex[:12]}"
+    name = f"{name_prefix}{uuid.uuid4().hex[:12]}"
     r = await asyncio.to_thread(docker, "run", "-d", "--name", name, "--network", "none", "--memory", memory, "--cpus", cpus, "--pids-limit", "512",
                                 "-v", f"{ws}:{ws}", "-w", str(ws), "-e", f"PYTHONPATH={ws}/src:{ws}", "-e", "HOME=/tmp", image, "sleep", "infinity", timeout=300)
     if r.returncode != 0:

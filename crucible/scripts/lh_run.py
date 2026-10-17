@@ -188,7 +188,11 @@ class Run:
 
     def windows(self) -> list[str]:
         only = [w for w in (self.a.windows or "").split(",") if w]
-        return [w for w in SELECTED if not only or w in only]
+        sub = self.work / "subwindows.json"  # run 2: sub-windows split off the 'split' windows
+        extra = [r["window"] for r in json.loads(sub.read_text())["rows"] if r.get("usable")] if sub.exists() else []
+        if only:  # an explicit list may name any stored window (e.g. a dropped one, to re-check its prompt)
+            return only
+        return [*SELECTED, *extra]
 
     # -- tasks -------------------------------------------------------------------------------------------------------------
     def task(self, wid: str, *, prompt: str | None = None, tag: str = "") -> Any:
@@ -289,6 +293,13 @@ def in_band(passes: Sequence[bool], finals: Sequence[float | None], *, lo: float
             "phi_range": [min(ph), max(ph)] if ph else None, "in_band": bool(n) and ((rate is not None and lo <= rate <= hi) or spread)}
 
 
+def reward_band(rewards: Sequence[float | None]) -> dict[str, Any]:
+    """Run 2 band (report 11 F1): the target rung's group has outcome-reward spread (not all equal); the pass rate is reported."""
+    rs = [round(float(r), 6) for r in rewards if r is not None]
+    return {"n": len(rs), "rewards": rs, "spread": len(set(rs)) > 1, "in_band": len(set(rs)) > 1, "pass_rate": (sum(r == 1.0 for r in rs) / len(rs)) if rs else None,
+            "reward_range": [min(rs), max(rs)] if rs else None}
+
+
 def verdict(gates: Mapping[str, Any], band: Mapping[str, Any], mix: Mapping[str, int], reached: Mapping[str, bool], *, skill_min: float = 0.7) -> dict[str, Any]:
     """Accept-candidate / harden / split / back for one window from its evidence.
 
@@ -349,6 +360,7 @@ class EpisodeCfg:
     context_tokens: int = 40_000
     max_tool_output: int = 8000
     temperature: float = 0.7
+    tool_limit: int | None = None  # run 2 (F5): LLMToolPolicy tells the limit and gives one final STATUS.json turn
 
 
 def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None, max_nudges: int = 2) -> Any:
@@ -357,13 +369,15 @@ def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None,
     model, _, tag = model.partition("@")  # a rung variant: "<model>@route" (OpenRouter skips CoreWeave), "<model>@nudges<N>"
     if tag.startswith("nudges"):
         max_nudges = int(tag.removeprefix("nudges"))
-    client = run.solver_client(model, extra_body=ROUTE if tag == "route" else None, tag=tag)
+    route = {"provider": RUNG_ROUTES[model]} if run.a.routes and model in RUNG_ROUTES else (ROUTE if tag == "route" else None)
+    client = run.solver_client(model, extra_body=route, tag=tag)
     max_tokens = 3000 if "llama" in model else 8000
 
     def make(_attempt: Any) -> dict[str, Any]:
         return {"agent": CappedToolPolicy("agent", client, system=CODER_SYSTEM, max_tokens=max_tokens, max_tool_output=cfg.max_tool_output,
                                           temperature=cfg.temperature, context=ContextConfig(budget_tokens=cfg.context_tokens, trigger=0.8, keep_recent_turns=3),
-                                          max_trajectory=cfg.max_trajectory, max_billed=cfg.max_billed, max_nudges=max_nudges)}
+                                          max_trajectory=cfg.max_trajectory, max_billed=cfg.max_billed, max_nudges=max_nudges,
+                                          tool_limit=cfg.tool_limit, limit_warning=5)}
 
     return PolicyRef(id=pid or f"solver:{model}{'@' + tag if tag else ''}", make=make, spend=lambda: (client.spend.usd, client.spend.uncertain_usd))
 
@@ -372,7 +386,8 @@ def harness(cfg: EpisodeCfg, *, checkpoints: bool = True) -> Any:
     from crucible.factory.checkpoint import CheckpointConfig, checkpoint_sidecar
     from crucible.runtime.harness.workspace import WorkspaceHarness
 
-    return WorkspaceHarness(limits=EpisodeLimits(max_steps=cfg.max_steps, timeout_s=cfg.wall_s),
+    steps = cfg.max_steps if cfg.tool_limit is None else cfg.tool_limit + 2  # the policy stops itself; +1 final write, +1 its Done
+    return WorkspaceHarness(limits=EpisodeLimits(max_steps=steps, timeout_s=cfg.wall_s),
                             sidecar=checkpoint_sidecar(CheckpointConfig(every=10, cap=20)) if checkpoints else None)
 
 
@@ -498,14 +513,18 @@ async def prompt_one(run: Run, wid: str) -> None:
     j = run.journal(wid)
     if "prompt" in j and not run.a.redo:
         return
-    if "prompt" in j and "prompt_v1" not in j:
+    if "prompt" in j and run.a.store2:  # run 2: every earlier authoring round stays in the journal
+        j.setdefault("prompt_rounds", []).append(j.pop("prompt"))
+    elif "prompt" in j and "prompt_v1" not in j:
         j["prompt_v1"] = j.pop("prompt")  # before the unstated-name check (report 11 defect 2)
     rec = run.store.window(wid)
     repo = RepoGit(run.clones / rec["repo"])
     base = run.store.dir(wid) / "base"
     author, realism = run.client("author"), run.client("realism")
     tries: list[dict[str, Any]] = []
-    findings: list[str] = []
+    fp = Path(run.a.author_findings) if run.a.author_findings else None  # run 2: the auditor's findings send a window back to the author
+    findings: list[str] = list((json.loads(fp.read_text()) if fp and fp.exists() else {}).get(wid) or [])
+    sent_back = list(findings)
     final = None
     for k in range(1, 4):
         row: dict[str, Any] = {"k": k}
@@ -533,7 +552,7 @@ async def prompt_one(run: Run, wid: str) -> None:
             break
         findings = [f"realism: {f}" for f in rv["findings"]]
     ok = final is not None and bool(tries[-1].get("realism", {}).get("ok"))
-    j["prompt"] = {"tries": tries, "ok": ok, "lint_clean": final is not None, "revisions": len(tries),
+    j["prompt"] = {"tries": tries, "ok": ok, "lint_clean": final is not None, "revisions": len(tries), "sent_back_with": sent_back,
                    "required_names": required_names(rec.get("tests_b") or {}, base)}
     if final is not None:
         j["prompt"].update(prompt=final["prompt"], requirements=final["requirements"], spans=final["spans"], checkset=final["checkset"])
@@ -870,7 +889,7 @@ def stage_metrics(run: Run) -> None:
     from crucible.factory.horizon import concatenation_test
 
     eps = all_solver_episodes(run)
-    base_rungs = [s.model for s in run.book.solvers]
+    base_rungs = [m for m in run.a.rungs.split(",") if m] if run.a.rungs else [s.model for s in run.book.solvers]
     rungs = base_rungs + sorted({str(e["policy"]).removeprefix("solver:") for e in eps} - set(base_rungs))  # variants (e.g. @nudges6)
     target = run.a.target
     out: dict[str, Any] = {"windows": {}, "by_rung": {}, "setup": {"cap_usd": run.cap, "selected": list(run.windows()), "rungs": rungs, "target": target,
@@ -903,6 +922,8 @@ def stage_metrics(run: Run) -> None:
             cause_all.update(causes)
             per_rung[model] = {"n": len(es), "scored": len(live), "masked": len(es) - len(live), "passes": sum(passes),
                                "pass_rate": (sum(passes) / len(live)) if live else None, "wilson": wilson(sum(passes), len(live)) if live else None,
+                               "rewards": [e["reward"] for e in live], "reward_mean": _mean([e["reward"] for e in live if e["reward"] is not None]),
+                               "reward_sd": round(statistics.pstdev([e["reward"] for e in live]), 4) if len(live) > 1 else None,
                                "final_phi": [round(f, 4) if f is not None else None for f in finals],
                                "final_phi_mean": round(statistics.mean([f for f in finals if f is not None]), 4) if any(f is not None for f in finals) else None,
                                "final_phi_sd": round(statistics.pstdev([f for f in finals if f is not None]), 4) if sum(f is not None for f in finals) > 1 else None,
@@ -928,9 +949,16 @@ def stage_metrics(run: Run) -> None:
             if lab.get("cause"):
                 mix[lab["cause"]] += 1
         tgt = per_rung.get(target) or {}
-        band = in_band([True] * (tgt.get("passes") or 0) + [False] * ((tgt.get("scored") or 0) - (tgt.get("passes") or 0)), tgt.get("final_phi") or [])
+        if run.a.band == "reward":
+            band = reward_band(tgt.get("rewards") or [])
+        else:
+            band = in_band([True] * (tgt.get("passes") or 0) + [False] * ((tgt.get("scored") or 0) - (tgt.get("passes") or 0)), tgt.get("final_phi") or [])
         gates_strict = {k: v for k, v in gates.items() if k not in ("flake_bound_le_5pct", "realism_ok")}
+        if not (fl.get("mutants") or []):
+            gates_strict.pop("mutants_caught", None)  # no valid mutant to catch (re-mined window); reported, not a gate failure
         v = verdict(gates_strict, band, mix, reached)
+        if rec.get("stage") not in ("dependent", "mutants_valid"):  # run 2: re-mining (F2/F3) can leave a window long, not long-horizon
+            v = {"verdict": "not-type-A", "why": [rec.get("reason") or rec.get("stage"), f"would otherwise be: {v['verdict']}"]}
         out["windows"][wid] = {"repo": rec["repo"], "milestones": len(rec["milestones"]), "edges": rec.get("dependency_edges"), "rungs": per_rung,
                                "reached_by_any_rung": reached, "gates": gates, "band": band, "mix": dict(mix), "verdict": v,
                                "audit": {k: (j.get("audit") or {}).get(k) for k in ("fp_candidates", "fn_candidates", "seeded", "auditor_trusted", "reasons")},
@@ -984,13 +1012,19 @@ def stage_metrics(run: Run) -> None:
                                 for k, v in by_policy.items()}
     solved = sum(1 for e in eps if e["reward"] == 1.0)
     out["usd_per_solved"] = round(sum(e["usd"] for e in eps) / solved, 4) if solved else None
-    for name in ("selection.json", "extrapolation.md", "pilot.json"):
+    for name in ("selection.json", "extrapolation.md", "pilot.json", "subwindows.json"):
         f = run.work / name
         if f.exists():
             out[name.split(".")[0]] = json.loads(f.read_text()) if name.endswith(".json") else f.read_text()
     out.get("pilot", {}).pop("episodes", None)
     out["dropped"] = DROPPED
-    p = run.out / "lh_run.json"
+    pr = run.work / "probe_rungs.json"
+    if pr.exists():
+        out["probe_rungs"] = json.loads(pr.read_text())["rows"]
+    rl = run.work / "remine_log.jsonl"
+    if rl.exists():
+        out["remine"] = remine_summary([json.loads(x) for x in rl.read_text().splitlines() if x.strip()])
+    p = run.out / run.a.out_name
     p.write_text(json.dumps(out, indent=1, sort_keys=True, default=str).replace(str(run.work), "<work>") + "\n")  # no host paths
     print(f"wrote {p}")
     for wid, w in out["windows"].items():
@@ -999,9 +1033,284 @@ def stage_metrics(run: Run) -> None:
         print(f"{wid:36s} {r} -> {w['verdict']['verdict']}")
 
 
+def remine_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Run 2's re-mine (F2/F3) against the mining run, per split: windows reaching each stage before and after."""
+    order = ["leak_ok", "f2p_valid", "dependent", "mutants_valid"]
+
+    def reach(st: Any) -> int:
+        return order.index(st) if st in order else -1
+
+    out: dict[str, Any] = {}
+    for split in ("train", "heldout"):
+        rs = [r for r in rows if r.get("split") == split and "stage" in r]
+        old = {s: sum(1 for r in rs if reach(r["old"]["stage"]) >= i) for i, s in enumerate(order) if i}
+        new = {s: sum(1 for r in rs if reach(r["stage"]) >= i) for i, s in enumerate(order) if i}
+        out[split] = {"windows": len(rs), "before": old, "after": new,
+                      "collapsed_below_2_milestones": sum(1 for r in rs if r["milestones"] < 2 and (r["old"]["milestones"] or 0) >= 2),
+                      "lost_dependent": sum(1 for r in rs if reach(r["old"]["stage"]) >= 2 > reach(r["stage"])),
+                      "newly_dependent": sum(1 for r in rs if reach(r["old"]["stage"]) < 2 <= reach(r["stage"])),
+                      "behavioural_edges": sum(int(r.get("edges") or 0) for r in rs), "order_hints": sum(int(r.get("order_hints") or 0) for r in rs),
+                      "unresolved_owner_tests": sum(int(r.get("unresolved") or 0) for r in rs), "errors": [r["window"] for r in rows if "error" in r]}
+    return out
+
+
 def _mean(xs: Sequence[float]) -> float | None:
     xs = [float(x) for x in xs]
     return round(sum(xs) / len(xs), 3) if xs else None
+
+
+# ---- run 2: re-mine every stored window (report 11 F2/F3; no model calls) ------------------------------------------------
+async def remine_one(store: Any, wid: str, clones: Path, sandboxes: Any, log: Any) -> dict[str, Any]:
+    """Ownership by prefix (F3), milestones, the prober with behavioural edges only (F2), revert mutants against the new
+    ownership; the fail-to-pass / pass-to-pass sets of the mining run are kept (they do not depend on ownership)."""
+    from crucible.factory.lanes.windows import milestones_from_owners, mined_of, prefix_owners, probe_dependencies, revert_mutants
+    from crucible.factory.lanes.windows_git import RepoGit
+
+    rec = store.window(wid)
+    t0 = time.monotonic()
+    if "targets" not in rec or "p2p" not in rec:
+        return {"window": wid, "skipped": rec.get("stage"), "reason": rec.get("reason")}
+    old = {"stage": rec.get("stage"), "milestones": len(rec.get("milestones") or []), "edges": rec.get("dependency_edges"),
+           "reason": rec.get("reason")}
+    f2p = sorted({t for m in rec.get("milestones") or [] for t in m["tests"]} | set(rec.get("collateral") or []))
+    repo = RepoGit(clones / rec["repo"])
+    base = store.dir(wid) / "base"
+    sb = sandboxes(rec["world"]["image"])
+    po = await prefix_owners(rec, repo, base, sb, f2p)
+    owners = po.pop("owners")
+    rec.update(ownership=po, milestones=milestones_from_owners(rec, owners), collateral=sorted(t for t, o in owners.items() if o is None),
+               run1=old, stage="f2p_valid", reason="")
+    for k in ("prober", "dependency_edges", "independent", "mutants", "mutant_counts"):
+        rec.pop(k, None)
+    if len(rec["milestones"]) < 2:
+        rec.update(stage="leak_ok", reason=f"{len(rec['milestones'])} milestone(s) with fail-to-pass tests (need 2)")
+    else:
+        rec["prober"] = await probe_dependencies(rec, repo, sb)
+        rec["dependency_edges"] = rec["prober"]["milestone_edges"]
+        rec["independent"] = rec["dependency_edges"] == 0
+        store.save(mined_of(rec, base))
+        if rec["independent"]:
+            rec["reason"] = "independent: no behavioural milestone edge (long, not long-horizon)"
+        else:
+            rec["stage"] = "dependent"
+            mut = await revert_mutants(rec, repo, base, sb)
+            rec["mutants"], rec["mutant_counts"] = mut["mutants"], mut["counts"]
+            if mut["counts"].get("valid", 0) >= 1:
+                rec["stage"] = "mutants_valid"
+            else:
+                rec["reason"] = f"mutants: {mut['counts']}"
+    rec.setdefault("timings", {})["remine"] = round(time.monotonic() - t0, 1)
+    store.save_window(rec)
+    row = {"window": wid, "repo": rec["repo"], "split": store.split, "old": old, "stage": rec["stage"], "reason": rec["reason"],
+           "milestones": len(rec["milestones"]), "edges": rec.get("dependency_edges"), "order_hints": sum(len(m.get("order_hints") or []) for m in rec["milestones"]),
+           "ownership_runs": po.get("runs"), "unresolved": len(po.get("unresolved") or []), "mutants": rec.get("mutant_counts"),
+           "seconds": rec["timings"]["remine"]}
+    log(row)
+    return row
+
+
+async def stage_remine(run: Run) -> None:
+    import shutil as _sh
+
+    from crucible.factory.lanes.windows import WindowStore, funnel, sandbox_factory
+
+    src, dst = Path(run.a.store).parent, Path(run.a.store2)
+    for split in ("train", "heldout"):  # a copy: run 1's stores stay as they were; held-out is mined, never shown to a model
+        if not (dst / split).exists():
+            _sh.copytree(src / split, dst / split, symlinks=True)
+    sandboxes = sandbox_factory(parallel=run.a.parallel)
+    logp = run.work / "remine_log.jsonl"
+    done = {json.loads(x)["window"] for x in logp.read_text().splitlines()} if logp.exists() else set()
+
+    def log(row: dict[str, Any]) -> None:
+        with logp.open("a") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+        print(json.dumps({k: row.get(k) for k in ("window", "stage", "milestones", "edges", "ownership_runs", "seconds")}), flush=True)
+
+    sem = asyncio.Semaphore(run.a.remine_windows)
+    stores = {split: WindowStore(dst / split, split=split) for split in ("train", "heldout")}
+
+    async def go(split: str, wid: str) -> None:
+        async with sem:
+            try:
+                await remine_one(stores[split], wid, run.clones, sandboxes, log)
+            except Exception as e:  # noqa: BLE001 - one window's failure is recorded, never the run's
+                log({"window": wid, "split": split, "error": f"{type(e).__name__}: {e}"[:400]})
+
+    only = {w for w in (run.a.windows or "").split(",") if w}
+    await asyncio.gather(*[go(sp, w) for sp, st in stores.items() for w in st.window_ids() if w not in done and (not only or w in only)])
+    out = {sp: funnel(st) for sp, st in stores.items()}
+    (run.out / "window_funnel2.json").write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+    print(json.dumps({sp: v["total"] for sp, v in out.items()}), flush=True)
+
+
+# ---- run 2: rung selection (report 11 F4) --------------------------------------------------------------------------------
+# OpenRouter provider preferences per candidate rung (public endpoint list, 2026-10-17): providers that serve the model
+# with tool calling first; CoreWeave (it rejected llama-3.1-8b histories with parallel tool calls) is ignored everywhere
+RUNG_ROUTES: dict[str, dict[str, Any]] = {
+    "mistralai/mistral-small-3.2-24b-instruct": {"order": ["DeepInfra", "Mistral"], "ignore": ["CoreWeave", "Parasail"]},
+    "google/gemma-4-26b-a4b-it": {"order": ["DeepInfra", "NextBit"], "ignore": ["CoreWeave", "Parasail", "SiliconFlow"]},
+    "nvidia/nemotron-3-nano-30b-a3b": {"order": ["Nebius", "Novita"], "ignore": ["CoreWeave"]},
+    "meta-llama/llama-3.3-70b-instruct": {"order": ["DeepInfra", "Novita"], "ignore": ["CoreWeave", "Parasail", "Cloudflare", "SambaNova"]},
+    "openai/gpt-4.1-nano": {"order": ["OpenAI", "Azure"], "ignore": ["CoreWeave"]},
+    "amazon/nova-micro-v1": {"order": ["Amazon Bedrock"], "ignore": ["CoreWeave"]},
+    "ibm-granite/granite-4.2-8b": {"order": ["DeepInfra"], "ignore": ["CoreWeave"]},
+    "qwen/qwen3.7-flash": {"ignore": ["CoreWeave"]},
+}
+PROBE_FILES = {"calc.py": "def add(a, b):\n    return a - b\n\n\ndef mul(a, b):\n    return a * b\n",
+               "test_calc.py": "from calc import add, mul\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n"}
+
+
+def _probe_tools() -> list[dict[str, Any]]:
+    obj = lambda props, req: {"type": "object", "properties": {k: {"type": v} for k, v in props.items()}, "required": req}
+    spec = [("repo__list_dir", "List files.", obj({"path": "string"}, [])), ("repo__read_file", "Read a file.", obj({"path": "string"}, ["path"])),
+            ("repo__search", "Regex search.", obj({"pattern": "string"}, ["pattern"])),
+            ("repo__write_file", "Create or overwrite a file.", obj({"path": "string", "content": "string"}, ["path", "content"])),
+            ("repo__edit_file", "Replace an exact, unique string in a file.", obj({"path": "string", "old_string": "string", "new_string": "string"},
+                                                                                   ["path", "old_string", "new_string"])),
+            ("repo__shell", "Run a bash command in the repository root.", obj({"command": "string"}, ["command"]))]
+    return [{"type": "function", "function": {"name": n, "description": d, "parameters": p}} for n, d, p in spec]
+
+
+def _probe_tool(files: dict[str, str], name: str, args: dict[str, Any]) -> str:
+    base = name.split("__")[-1]
+    if base == "list_dir":
+        return "\n".join(sorted(files))
+    if base == "read_file":
+        return files.get(str(args.get("path", "")).lstrip("./"), "error: no such file")
+    if base == "search":
+        return "\n".join(f"{p}:{i}:{ln}" for p, t in files.items() for i, ln in enumerate(t.splitlines(), 1) if str(args.get("pattern", "")) in ln) or "no matches"
+    if base == "write_file":
+        files[str(args.get("path", "")).lstrip("./")] = str(args.get("content", ""))
+        return "written"
+    if base == "edit_file":
+        p = str(args.get("path", "")).lstrip("./")
+        if p in files and str(args.get("old_string")) in files[p]:
+            files[p] = files[p].replace(str(args["old_string"]), str(args.get("new_string", "")), 1)
+            return "replaced 1 occurrence"
+        return "error: old_string not found"
+    if base == "shell":
+        ok = "return a + b" in files.get("calc.py", "")
+        return "2 passed" if ok else "FAILED test_calc.py::test_add - assert -1 == 5\n1 failed, 1 passed"
+    return f"error: unknown tool {name}"
+
+
+async def stage_probe_rungs(run: Run) -> None:
+    """Each candidate x 3 trials: a fix-the-bug loop (<= 8 turns) on simulated tools, whose history starts with one
+    assistant turn that made two parallel tool calls (the turn shape that masked llama-3.1-8b on CoreWeave). Measures
+    request failures, empty / reasoning-only replies, malformed tool names, and whether the bug got fixed and tested."""
+    import copy
+
+    models = [m for m in (run.a.models or ",".join(RUNG_ROUTES)).split(",") if m]
+    tools = _probe_tools()
+    names = {t["function"]["name"] for t in tools}
+    rows = []
+
+    async def trial(model: str, k: int) -> dict[str, Any]:
+        client = run.solver_client(model, extra_body={"provider": RUNG_ROUTES.get(model, {"ignore": ["CoreWeave"]})}, tag="probe")
+        files = copy.deepcopy(PROBE_FILES)
+        msgs: list[dict[str, Any]] = [{"role": "system", "content": CODER_SYSTEM},
+                                      {"role": "user", "content": "add() in calc.py is wrong: add(2, 3) must return 5. Fix it and run the tests."},
+                                      {"role": "assistant", "content": "", "tool_calls": [
+                                          {"id": "p1", "type": "function", "function": {"name": "repo__list_dir", "arguments": "{}"}},
+                                          {"id": "p2", "type": "function", "function": {"name": "repo__read_file", "arguments": json.dumps({"path": "test_calc.py"})}}]},
+                                      {"role": "tool", "tool_call_id": "p1", "content": _probe_tool(files, "repo__list_dir", {})},
+                                      {"role": "tool", "tool_call_id": "p2", "content": files["test_calc.py"]}]
+        st = {"model": model, "trial": k, "turns": 0, "tool_calls": 0, "bad_names": 0, "empty": 0, "errors": [], "fixed": False, "tested": False}
+        t0 = time.monotonic()
+        for _turn in range(8):
+            try:
+                r = await asyncio.wait_for(client.complete(msgs, tools=tools, max_tokens=3000, temperature=0.7, sample_key=f"probe-{model}-{k}-{_turn}"), 180)
+            except BudgetExceeded:
+                raise
+            except Exception as e:  # noqa: BLE001 - a failed request is the measurement
+                st["errors"].append(f"{type(e).__name__}: {e}"[:200])
+                break
+            st["turns"] += 1
+            if not r.tool_calls:
+                if not (r.text or "").strip():
+                    st["empty"] += 1
+                    msgs.append({"role": "user", "content": "Continue: call a tool, or reply with a summary if done."})
+                    continue
+                break
+            calls = []
+            for tc in r.tool_calls:
+                st["tool_calls"] += 1
+                st["bad_names"] += tc["name"] not in names
+                calls.append({"id": tc["id"] or f"x{st['tool_calls']}", "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}})
+            msgs.append({**r.raw_message, "role": "assistant", "content": r.text or "", "tool_calls": calls})
+            for tc, c in zip(r.tool_calls, calls, strict=True):
+                out = _probe_tool(files, tc["name"], tc["arguments"] if isinstance(tc["arguments"], dict) else {})
+                st["tested"] |= tc["name"].endswith("shell") and "return a + b" in files.get("calc.py", "")
+                msgs.append({"role": "tool", "tool_call_id": c["id"], "content": out})
+        st["fixed"] = "return a + b" in files.get("calc.py", "")
+        st["seconds"] = round(time.monotonic() - t0, 1)
+        st["usd"] = round(client.spend.usd, 6)
+        return st
+
+    async with run.spend("probe_rungs", "solvers", "probe"):
+        res = await asyncio.gather(*[trial(m, k) for m in models for k in range(3)])
+    for m in models:
+        rs = [r for r in res if r["model"] == m]
+        rows.append({"model": m, "fixed_and_tested": sum(r["fixed"] and r["tested"] for r in rs), "fixed": sum(r["fixed"] for r in rs), "n": len(rs),
+                     "request_errors": sum(bool(r["errors"]) for r in rs), "empty_replies": sum(r["empty"] for r in rs),
+                     "bad_tool_names": sum(r["bad_names"] for r in rs), "turns": [r["turns"] for r in rs], "errors": [e for r in rs for e in r["errors"]][:3],
+                     "route": RUNG_ROUTES.get(m), "usd": round(max([r["usd"] for r in rs] or [0]), 6)})
+        print(json.dumps(rows[-1]), flush=True)
+    (run.work / "probe_rungs.json").write_text(json.dumps({"rows": rows, "trials": res}, indent=1))
+
+
+# ---- run 2: split the 'split' windows (report 11 run 1 verdicts) ----------------------------------------------------------
+async def stage_split(run: Run) -> None:
+    """For each window, run 1's solver end states (every model, every attempt) are graded against the re-mined milestones;
+    the sub-window runs from A to the unit of the milestone after the deepest one any end state reached (at least the
+    second milestone), and goes through the lane's whole validation (``validate_window``: F2P, ownership, prober, mutants)."""
+    from crucible.factory.lanes.windows import ImageBook, sandbox_factory, validate_window
+    from crucible.factory.lanes.windows_git import Window
+
+    run1 = Path(run.a.run1_work)
+    rows = []
+    for wid in [w for w in run.a.split_windows.split(",") if w]:
+        rec = run.store.window(wid)
+        task = run.lane.materialize({"world": {"task": wid}, "task_id": f"{wid}#split", "prompt": "", "spec": {"requirements": []}, "checkset": {"checks": []}})
+        order = [m["id"] for m in rec["milestones"]]
+        patches = sorted(run1.glob("runs/*/samples/*/a*/artifacts/model.patch"))
+        reached: set[str] = set()
+        graded = 0
+        for pth in patches:
+            r = json.loads((pth.parents[1] / "record.json").read_text())
+            if not str(r.get("task", "")).startswith(wid + "~"):
+                continue
+            st = await task.milestone_status(pth.read_text())
+            graded += 1
+            reached |= {m for m, ok in st.items() if ok}
+        deepest = max((order.index(m) for m in reached), default=-1)
+        depth = next((i for i, m in enumerate(order) if m not in reached), len(order))  # the reached prefix of the chain
+        # "deepest": the milestone after the deepest one reached; "prefix": the first milestone, in order, that no end state
+        # reached (a late independent milestone reached does not make the early ones solvable). At least the 2nd milestone.
+        end_pos = min(len(order) - 1, max((deepest + 1) if run.a.split_rule == "deepest" else depth, 1))
+        unit_sha = rec["milestones"][end_pos]["unit"]
+        u_end = next(i for i, u in enumerate(rec["units"]) if u["sha"] == unit_sha)
+        win = Window.from_json({**rec, "repo_dir": str(run.clones / rec["repo"]), "units": rec["units"][: u_end + 1]})
+        tag = "s" if run.a.split_rule == "deepest" else "p"
+        win.id, win.b, win.b_ref, win.b_version, win.kind = f"{wid}-{tag}{end_pos + 1}", unit_sha, unit_sha[:10], None, "run"
+        if end_pos == len(order) - 1:  # the rule does not shorten the window: no sub-window
+            row = {"window": win.id, "parent": wid, "rule": run.a.split_rule, "graded_end_states": graded, "reached": sorted(reached, key=order.index),
+                   "deepest": deepest, "reached_prefix": depth, "end_milestone": order[end_pos], "usable": False, "reason": "the rule keeps the whole window"}
+            rows.append(row)
+            print(json.dumps(row), flush=True)
+            continue
+        out = await validate_window(win, run.store, ImageBook(), sandbox_factory(parallel=run.a.parallel), reruns=3)
+        row = {"window": win.id, "parent": wid, "rule": run.a.split_rule, "reached_prefix": depth, "graded_end_states": graded, "reached": sorted(reached, key=order.index), "deepest": deepest,
+               "end_milestone": order[end_pos], "units": u_end + 1, "stage": out.get("stage"), "reason": out.get("reason"),
+               "milestones": len(out.get("milestones") or []), "edges": out.get("dependency_edges"),
+               "usable": out.get("stage") in ("dependent", "mutants_valid") or (out.get("stage") == "f2p_valid" and len(out.get("milestones") or []) >= 2)}
+        rows.append(row)
+        print(json.dumps(row), flush=True)
+    sub = run.work / "subwindows.json"
+    prev = json.loads(sub.read_text()) if sub.exists() else {"rows": []}
+    keep = [r for r in prev["rows"] if r.get("rule", "deepest") != run.a.split_rule]
+    sub.write_text(json.dumps({"rows": [*keep, *rows]}, indent=1))
 
 
 # ---- cleanup ---------------------------------------------------------------------------------------------------------------------------
@@ -1016,7 +1325,8 @@ def stage_cleanup() -> None:
 
 # ---- main ----------------------------------------------------------------------------------------------------------------------------
 async def amain(a: argparse.Namespace) -> None:
-    cfg = EpisodeCfg(max_steps=a.max_steps, wall_s=a.wall_s, max_trajectory=a.max_trajectory, max_billed=a.max_billed, context_tokens=a.context_tokens)
+    cfg = EpisodeCfg(max_steps=a.max_steps, wall_s=a.wall_s, max_trajectory=a.max_trajectory, max_billed=a.max_billed, context_tokens=a.context_tokens,
+                     tool_limit=a.tool_limit or None)
     run = Run(a)
     print(f"spent so far {run.spent():.4f} of {run.cap}", flush=True)
     for st in a.stages:
@@ -1044,6 +1354,12 @@ async def amain(a: argparse.Namespace) -> None:
             await stage_horizon(run, cfg)
         elif st == "metrics":
             stage_metrics(run)
+        elif st == "split":
+            await stage_split(run)
+        elif st == "probe_rungs":
+            await stage_probe_rungs(run)
+        elif st == "remine":
+            await stage_remine(run)
         elif st == "cleanup":
             stage_cleanup()
         else:
@@ -1058,6 +1374,17 @@ def main() -> None:
     ap.add_argument("--clones", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--cap", type=float, default=18.0)
+    ap.add_argument("--store2", default="", help="run 2: the re-mined copy of the window stores (<dir>/{train,heldout})")
+    ap.add_argument("--routes", action="store_true", help="run 2: per-model OpenRouter provider routes (RUNG_ROUTES)")
+    ap.add_argument("--tool-limit", type=int, default=0, help="run 2 (F5): the told tool-call limit (0 = off)")
+    ap.add_argument("--band", default="phi", choices=("phi", "reward"))
+    ap.add_argument("--rungs", default="", help="the rung list for metrics (default: the ModelBook's solvers)")
+    ap.add_argument("--author-findings", default="", help="run 2: JSON {window: [findings]} the author must address")
+    ap.add_argument("--run1-work", default="", help="run 2: run 1's work dir (end states for the split stage)")
+    ap.add_argument("--split-windows", default="")
+    ap.add_argument("--out-name", default="lh_run.json")
+    ap.add_argument("--split-rule", default="prefix", choices=("deepest", "prefix"))
+    ap.add_argument("--remine-windows", type=int, default=4)
     ap.add_argument("--windows", default="", help="comma-separated subset of the selection")
     ap.add_argument("--redo", action="store_true")
     ap.add_argument("--parallel", type=int, default=10, help="concurrent grading containers")

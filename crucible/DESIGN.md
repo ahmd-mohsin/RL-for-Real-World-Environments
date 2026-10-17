@@ -732,6 +732,22 @@ held-out windows from 6 repos give 20.
   the touching commit instead of the commit that first makes the test pass (F3); weak solver rungs (F4); STATUS.json
   skipped at the step limit (F5).
 
+**Run 2 (11 §Run 2; $6.25, stopped by the provider's account limit):**
+- **Fixes:**
+  - **F1:** the episode reward is 0.5·Φ_final + 0.5·[full pass] (`WindowTask.phi_weight`). The accept contract's `grade` stays
+    binary, so a mutant still counts as killed only at reward 0. The learnable band is reward spread in the target
+    rung's group.
+  - **F2:** only executed edges gate Φ; textual conflicts become `order_hints`.
+  - **F3:** a test belongs to the first unit after whose prefix it passes.
+  - **F4:** the weak rungs are now nemotron-3-nano-30b and nova-micro, with pinned providers.
+  - **F5:** `LLMToolPolicy(tool_limit=)` warns 5 calls before the limit and then allows one final STATUS.json write.
+- **Honest re-mine:** 26 dependent training windows (from 51) and 10 held-out (from 20). Most lost edges were textual.
+- **Gates still held:** 17/17 mutants caught, flake 60/60, no hacker pass.
+- **Solvers:** 0 passes across 123 episodes. The F1 reward spreads in 8 of 13 groups. STATUS.json was written in 45/51
+  episodes, but the claims stay overconfident (Brier 0.70).
+- **Open:** D7 (the run script's tool-output cap cut `read_file` pages), D8 (auditor guesses must not reach prompts), F8
+  (module-level imports make one owner for all tests).
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)
