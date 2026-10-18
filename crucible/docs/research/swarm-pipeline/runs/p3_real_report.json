@@ -1,0 +1,1283 @@
+{
+ "bundles": 439,
+ "by_run": {
+  "lhrun:hacker": 20,
+  "lhrun:hacker2": 2,
+  "lhrun:horizon": 36,
+  "lhrun:pilot": 1,
+  "lhrun:rlm": 8,
+  "lhrun:rlm2": 8,
+  "lhrun:solvers": 121,
+  "lhrun:solvers_v2": 95,
+  "lhrun2:hacker": 13,
+  "lhrun2:pilot2": 3,
+  "lhrun2:pilot3": 2,
+  "lhrun2:r2_main": 104,
+  "lhrun2:r2_nemo": 26
+ },
+ "by_family": {
+  "deepseek": 35,
+  "qwen": 147,
+  "llama": 96,
+  "openai": 80,
+  "mistral": 1,
+  "amazon": 53,
+  "nvidia": 27
+ },
+ "masked": 60,
+ "passed": 15,
+ "failing": 364,
+ "facts": {
+  "reply_before_action": 91,
+  "path_violation": 41,
+  "path_near_miss": 114,
+  "limit_stop": 81,
+  "world_fault": 17,
+  "masked": 60,
+  "no_edit": 92,
+  "harness_misuse": 16
+ },
+ "facts_episodes": {
+  "reply_before_action": 91,
+  "no_edit": 92,
+  "masked": 60,
+  "path_near_miss": 44,
+  "limit_stop": 81,
+  "harness_misuse": 16,
+  "path_violation": 36,
+  "world_fault": 17
+ },
+ "first_wrong_step": {
+  "kinds": {
+   "flat": 191,
+   "divergence": 53,
+   "plateau": 76,
+   "unmeasured": 29,
+   "lost": 15
+  },
+  "by_family": {
+   "deepseek": {
+    "flat": 12,
+    "divergence": 4,
+    "plateau": 16,
+    "lost": 1
+   },
+   "qwen": {
+    "unmeasured": 29,
+    "flat": 36,
+    "plateau": 50,
+    "lost": 10,
+    "divergence": 4
+   },
+   "llama": {
+    "divergence": 31,
+    "flat": 16
+   },
+   "openai": {
+    "flat": 67,
+    "divergence": 3,
+    "plateau": 8,
+    "lost": 2
+   },
+   "mistral": {
+    "flat": 1
+   },
+   "amazon": {
+    "flat": 46,
+    "divergence": 7
+   },
+   "nvidia": {
+    "flat": 13,
+    "divergence": 4,
+    "plateau": 2,
+    "lost": 2
+   }
+  },
+  "position_quartiles": {
+   "flat": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "divergence": [
+    0.167,
+    0.357,
+    0.692
+   ],
+   "plateau": [
+    0.464,
+    0.67,
+    0.867
+   ],
+   "unmeasured": null,
+   "lost": [
+    0.543,
+    0.669,
+    0.889
+   ]
+  },
+  "turn_quartiles": [
+   0.0,
+   0.0,
+   43.0
+  ]
+ },
+ "causes": {
+  "deterministic": {
+   "budget": 81,
+   "env_flake": 60
+  },
+  "labelled_trusted": {
+   "skill_gap": 39,
+   "unstated_format": 1,
+   "spec_defect": 4,
+   "budget": 4
+  },
+  "skill_gap_share": 0.812
+ },
+ "auditor": {
+  "model": "deepseek/deepseek-v4-flash",
+  "batches": [
+   {
+    "n": 30,
+    "seeded": [
+     {
+      "id": "ctl-verifier-defect",
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-lazy",
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-world-bug",
+      "expected": "world_bug",
+      "got": "world_bug",
+      "status": "labelled",
+      "ok": true
+     }
+    ],
+    "trusted": true,
+    "mix": {
+     "skill_gap": 4,
+     "spec_defect": 4,
+     "unstated_format": 1,
+     "budget": 1
+    }
+   },
+   {
+    "n": 30,
+    "seeded": [
+     {
+      "id": "ctl-lazy",
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-verifier-defect",
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-world-bug",
+      "expected": "world_bug",
+      "got": "world_bug",
+      "status": "labelled",
+      "ok": true
+     }
+    ],
+    "trusted": true,
+    "mix": {
+     "skill_gap": 17,
+     "budget": 3
+    }
+   },
+   {
+    "n": 30,
+    "seeded": [
+     {
+      "id": "ctl-verifier-defect",
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-world-bug",
+      "expected": "world_bug",
+      "got": "world_bug",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-lazy",
+      "expected": "skill_gap",
+      "got": null,
+      "status": "rejected",
+      "ok": false
+     }
+    ],
+    "trusted": false,
+    "mix": {
+     "skill_gap": 16,
+     "budget": 1
+    }
+   },
+   {
+    "n": 30,
+    "seeded": [
+     {
+      "id": "ctl-lazy",
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-world-bug",
+      "expected": "world_bug",
+      "got": "world_bug",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-verifier-defect",
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "status": "labelled",
+      "ok": true
+     }
+    ],
+    "trusted": true,
+    "mix": {
+     "skill_gap": 18
+    }
+   }
+  ],
+  "refused_same_family": 0,
+  "labelled": 120,
+  "trusted_labels": 90,
+  "sessions": 132,
+  "session_usd": 0.190718,
+  "label_status": {
+   "rejected": 50,
+   "labelled": 68,
+   "abstained": 2
+  }
+ },
+ "pass_audit": {
+  "passes": 15,
+  "candidates": 0,
+  "reasons": {}
+ },
+ "proposals": {
+  "total": 41,
+  "by_kind_status": {
+   "world_bug": {
+    "reproduced_needs_fix": 7
+   },
+   "spec_defect": {
+    "accepted": 1,
+    "rejected": 13,
+    "needs_input": 1
+   },
+   "verifier_gap": {
+    "needs_input": 1
+   },
+   "false_fail": {
+    "needs_input": 1
+   },
+   "intent_drift": {
+    "awaiting_human": 17
+   }
+  },
+  "rows": [
+   {
+    "id": "wo-cd4c37e5f45d",
+    "kind": "world_bug",
+    "task": "glom-w67f423c-07d5ee0",
+    "status": "reproduced_needs_fix",
+    "traces": 10,
+    "why": "module 'yaml' missing in the World (x7)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-ce0196d82b70",
+    "kind": "world_bug",
+    "task": "parse-w07c2ff9-44e14b0",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "command 'make' not found in the World (x4)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-9cb95454d826",
+    "kind": "world_bug",
+    "task": "more-itertools-w89d58c2-5c1fb20",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "module 'setuptools' missing in the World (x2)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-02284a82ac1c",
+    "kind": "world_bug",
+    "task": "toolz-w2ac03ce-55c60e9",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "module 'setuptools' missing in the World (x6)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-49b3a88649bc",
+    "kind": "world_bug",
+    "task": "humanize-wf9fa838-bc23540",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "module 'setuptools' missing in the World (x4)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-ff73ac2589fc",
+    "kind": "world_bug",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "command 'make' not found in the World (x2)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "wo-5181e666094d",
+    "kind": "world_bug",
+    "task": "python-semver-w1bafb9f-3f92aa5",
+    "status": "reproduced_needs_fix",
+    "traces": 1,
+    "why": "command 'hexdump' not found in the World (x3)",
+    "reasons": [
+     "reproduced in the World on the oracle state; no World fix was proposed (a World expert's job)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-5bd4a44b16b2",
+    "kind": "spec_defect",
+    "task": "python-semver-w1bafb9f-3f92aa5",
+    "status": "accepted",
+    "traces": 4,
+    "why": "the hidden tests need 'isvalid', which the request never names",
+    "reasons": [
+     "accepted on test-derived facts, lint and ledger; the counterfactual re-run (P4) is due before the version is trained on"
+    ],
+    "version": "80f374e3e3dfefe8"
+   },
+   {
+    "id": "sp-2c64be68d9b7",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 2,
+    "why": "the hidden tests need 'Result', which the request never names",
+    "reasons": [
+     "['Result'] not found in the failing hidden tests' own source: an auditor's guess is never a prompt edit (D8)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-428305c64ac4",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 2,
+    "why": "the hidden tests need 'search', which the request never names",
+    "reasons": [
+     "['search'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-cef1aea8b216",
+    "kind": "spec_defect",
+    "task": "parse-w07c2ff9-44e14b0-p3",
+    "status": "rejected",
+    "traces": 2,
+    "why": "the hidden tests need 'parse', which the request never names",
+    "reasons": [
+     "['parse'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-014de6ae8dab",
+    "kind": "spec_defect",
+    "task": "parse-w07c2ff9-44e14b0-p3",
+    "status": "rejected",
+    "traces": 2,
+    "why": "the hidden tests need 'with_pattern', which the request never names",
+    "reasons": [
+     "['with_pattern'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "ve-afa83193dffe",
+    "kind": "verifier_gap",
+    "task": "python-semver-w1bafb9f-3f92aa5-iso-m17",
+    "status": "needs_input",
+    "traces": 1,
+    "why": "auditor: passes but incorrect (The request states 'The pysemver CLI must include a check subcommand that utilizes this validation logic' but omits what the process() function should return for valid versions or whether it should ra)",
+    "reasons": [
+     "no verifier port for this task"
+    ],
+    "version": null
+   },
+   {
+    "id": "fa-190632729574",
+    "kind": "false_fail",
+    "task": "parse-w07c2ff9-44e14b0-iso-m11",
+    "status": "needs_input",
+    "traces": 1,
+    "why": "auditor: spec_defect, correct=True: The agent correctly implemented the only requested [R4] requirement (timezone offset formatting) without touching __eq__, but a hidden test test_tz_compare_to_None checks a pre-existing __eq__-with-No",
+    "reasons": [
+     "no verifier port for this task"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-7de4b1025380",
+    "kind": "spec_defect",
+    "task": "python-semver-w1bafb9f-3f92aa5",
+    "status": "needs_input",
+    "traces": 1,
+    "why": "the hidden tests need 'cmd_bump', which the request never names",
+    "reasons": [
+     "no window record, or the prompt this trace saw is in no journal (a horizon or hacker prompt)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-ce42d15f2823",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'parse', which the request never names",
+    "reasons": [
+     "['parse'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-f1daa013a049",
+    "kind": "spec_defect",
+    "task": "python-semver-w1bafb9f-3f92aa5",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'VersionInfo', which the request never names",
+    "reasons": [
+     "['VersionInfo'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-b0fc0a95670f",
+    "kind": "spec_defect",
+    "task": "toolz-w2ac03ce-55c60e9",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'no_default', which the request never names",
+    "reasons": [
+     "['no_default'] not found in the failing hidden tests' own source: an auditor's guess is never a prompt edit (D8)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-0a609a81285b",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'parse', which the request never names",
+    "reasons": [
+     "['parse'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-db856cc8d8df",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'Result', which the request never names",
+    "reasons": [
+     "['Result'] not found in the failing hidden tests' own source: an auditor's guess is never a prompt edit (D8)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-18b87f77fc4e",
+    "kind": "spec_defect",
+    "task": "parse-wc669f87-35b9ffb",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'search', which the request never names",
+    "reasons": [
+     "['search'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-43cc7bbe7520",
+    "kind": "spec_defect",
+    "task": "more-itertools-w15407c7-41a6d0f",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'nth_combination', which the request never names",
+    "reasons": [
+     "['nth_combination'] not found in the failing hidden tests' own source: an auditor's guess is never a prompt edit (D8)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-b112e19f41be",
+    "kind": "spec_defect",
+    "task": "more-itertools-w15407c7-41a6d0f",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'prepend', which the request never names",
+    "reasons": [
+     "['prepend'] not found in the failing hidden tests' own source: an auditor's guess is never a prompt edit (D8)"
+    ],
+    "version": null
+   },
+   {
+    "id": "sp-986bda52fc4b",
+    "kind": "spec_defect",
+    "task": "python-semver-w41775dd-1bafb9f",
+    "status": "rejected",
+    "traces": 1,
+    "why": "the hidden tests need 'bump_build', which the request never names",
+    "reasons": [
+     "['bump_build'] already exist at the start state: the end state lost them (the agent's breakage, not an unstated name)"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-62979c12aea8",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 50,
+    "why": "53 failures from 5 families cluster on 'unlabelled|flat|no_edit', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-929901fd6dc4",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 40,
+    "why": "40 failures from 4 families cluster on 'unlabelled|flat|reply_before_action', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-85219e9798f7",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 17,
+    "why": "17 failures from 3 families cluster on 'unlabelled|plateau|assertion', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-9c669f4f1dc8",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 14,
+    "why": "14 failures from 4 families cluster on 'unlabelled|divergence|reply_before_action', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-77fbecbee3d9",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 10,
+    "why": "10 failures from 3 families cluster on 'skill_gap|flat|reply_before_action', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-eee21b35111f",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 7,
+    "why": "7 failures from 3 families cluster on 'unlabelled|divergence|attribute_error', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-322fcc9dc5ca",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 7,
+    "why": "7 failures from 2 families cluster on 'unlabelled|divergence|path_violation', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-a4804afdcf04",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 7,
+    "why": "7 failures from 3 families cluster on 'skill_gap|flat|no_edit', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-f1220ee7ca0b",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 7,
+    "why": "7 failures from 2 families cluster on 'unlabelled|flat|path_violation', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-5ce324c3ba18",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 5,
+    "why": "5 failures from 3 families cluster on 'unlabelled|flat|assertion', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-63e25350af33",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 4,
+    "why": "4 failures from 4 families cluster on 'unlabelled|flat|attribute_error', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-50a8c20b7c3a",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 4,
+    "why": "4 failures from 3 families cluster on 'skill_gap|flat|attribute_error', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-02171d0197ff",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 4,
+    "why": "4 failures from 2 families cluster on 'skill_gap|divergence|reply_before_action', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-c702f54da239",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 3,
+    "why": "3 failures from 2 families cluster on 'unlabelled|plateau|attribute_error', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-3890ea892670",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 3,
+    "why": "3 failures from 2 families cluster on 'unlabelled|divergence|assertion', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-0701ddb60de6",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 3,
+    "why": "3 failures from 2 families cluster on 'unlabelled|plateau|path_violation', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   },
+   {
+    "id": "in-9c1d0b46a5f5",
+    "kind": "intent_drift",
+    "task": "I1",
+    "status": "awaiting_human",
+    "traces": 3,
+    "why": "3 failures from 2 families cluster on 'unlabelled|flat|syntax_error', not on the intent (Keeps earlier work working while extending it)",
+    "reasons": [
+     "written to intent_candidates.jsonl"
+    ],
+    "version": null
+   }
+  ]
+ },
+ "versions": [
+  {
+   "id": "80f374e3e3dfefe8",
+   "subject": "python-semver-w1bafb9f-3f92aa5@81674d860766",
+   "kind": "task",
+   "parent": "24b8eabe27b6940a",
+   "proposal": "sp-5bd4a44b16b2",
+   "evidence_hash": "03796a4c087ff0051e68dbdeb7a24bb7e5ef11412011bafc6352b58cef632ba7",
+   "change": {
+    "type": "prompt_edit",
+    "edits": [
+     {
+      "requirement": "R1",
+      "milestone": "m19",
+      "name": "isvalid",
+      "before": "The cmd_check function must accept parsed arguments containing a version string and return None if the version is valid, or raise a ValueError if it is not. The cmd_bump function must accept parsed arguments specifying a bump type and return the resulting bumped version as a string. The cmd_compare function must accept parsed arguments with two versions and return '-1', '0', or '1' as a string to indicate their relative order.",
+      "after": "The cmd_check function must accept parsed arguments containing a version string and return None if the version is valid, or raise a ValueError if it is not. The cmd_bump function must accept parsed arguments specifying a bump type and return the resulting bumped version as a string. The cmd_compare function must accept parsed arguments with two versions and return '-1', '0', or '1' as a string to indicate their relative order. The release exposes this as `isvalid`."
+     }
+    ],
+    "counterfactual_rerun_needed": true
+   }
+  }
+ ],
+ "version_store_problems": [],
+ "intent_candidates": [
+  {
+   "id": "ic-db52ee3ba0",
+   "intent": "I1",
+   "signature": "unlabelled|flat|no_edit",
+   "traces": [
+    "lhrun:rlm2/63f3ca897957a737/a1",
+    "lhrun:solvers/07dd01b411a00a96/a1",
+    "lhrun:solvers/1f88dca34ed18b23/a1",
+    "lhrun:solvers/1fd0d88d1ddb988c/a1",
+    "lhrun:solvers/306c547bfc1afe22/a1",
+    "lhrun:solvers/481950de333966f3/a1",
+    "lhrun:solvers/5c1200dff092e46d/a1",
+    "lhrun:solvers/6140fd4bdd05ad36/a1",
+    "lhrun:solvers/6f55f56b086574d6/a1",
+    "lhrun:solvers/76519e5b7a32a678/a1",
+    "lhrun:solvers/7cc33b7ea2fe1bab/a1",
+    "lhrun:solvers/843bfe94d75a3b67/a1",
+    "lhrun:solvers/91f0c719f34d8b96/a1",
+    "lhrun:solvers/93ed67f64d5d2855/a1",
+    "lhrun:solvers/9f624f3d916cf122/a1",
+    "lhrun:solvers/a5b9cfc3551af6af/a1",
+    "lhrun:solvers/b703b2f17de9f504/a1",
+    "lhrun:solvers/bcf6301ca473bc4f/a1",
+    "lhrun:solvers/cfc0b69abe606ff9/a1",
+    "lhrun:solvers/d069d2f61705aa3b/a1",
+    "lhrun:solvers/e3ab6cc6158021f5/a1",
+    "lhrun:solvers/f9bbee754966fb7a/a1",
+    "lhrun:solvers_v2/0b264dcbc1803258/a1",
+    "lhrun:solvers_v2/33d8bf4ac22287a1/a1",
+    "lhrun:solvers_v2/7d464f2b99f9ec90/a1",
+    "lhrun:solvers_v2/7ec3fb6371d69d3d/a1",
+    "lhrun:solvers_v2/82465e52504b89cf/a1",
+    "lhrun:solvers_v2/862c26e978239888/a1",
+    "lhrun:solvers_v2/a7da69c3091d7cff/a1",
+    "lhrun:solvers_v2/ab6be1766bfebcc1/a1",
+    "lhrun:solvers_v2/b0a819f92eb34389/a1",
+    "lhrun:solvers_v2/c508c7c79aa0099c/a1",
+    "lhrun:solvers_v2/d9e7e620d6774b11/a1",
+    "lhrun:solvers_v2/eaa5c6fb43f960ae/a1",
+    "lhrun2:r2_main/0306cfe7ada36225/a1",
+    "lhrun2:r2_main/1735cc8f329e6668/a1",
+    "lhrun2:r2_main/2488c7a5d45092f7/a1",
+    "lhrun2:r2_main/28df86109039c7c7/a1",
+    "lhrun2:r2_main/547cd5e71ba80382/a1",
+    "lhrun2:r2_main/748d7eb251f7686c/a1",
+    "lhrun2:r2_main/82422cf857d7538a/a1",
+    "lhrun2:r2_main/8b9f1c846faddce4/a1",
+    "lhrun2:r2_main/8dff32d7365117b7/a1",
+    "lhrun2:r2_main/941c1d102052ffcf/a1",
+    "lhrun2:r2_main/a047424dcac2b137/a1",
+    "lhrun2:r2_main/afb4e6130ea06324/a1",
+    "lhrun2:r2_main/afcc5d9f3d6dc067/a1",
+    "lhrun2:r2_main/cc4360cb75d1f701/a1",
+    "lhrun2:r2_main/d894a296b8654926/a1",
+    "lhrun2:r2_main/d91ba99560d46e53/a1"
+   ],
+   "n": 53,
+   "families": [
+    "amazon",
+    "llama",
+    "nvidia",
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "53 failures from 5 families cluster on 'unlabelled|flat|no_edit', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-ecf8c7337f",
+   "intent": "I1",
+   "signature": "unlabelled|flat|reply_before_action",
+   "traces": [
+    "lhrun:solvers/0eea67dbb08e50a0/a1",
+    "lhrun:solvers/550b61dacaebbaef/a1",
+    "lhrun:solvers/5624af7abd88cb65/a1",
+    "lhrun:solvers/68cd65dd8ecb0e7a/a1",
+    "lhrun:solvers/7353a5dfc6f9d82b/a1",
+    "lhrun:solvers/a5ac32179ab2c915/a1",
+    "lhrun:solvers/cbc86f1f72631433/a1",
+    "lhrun:solvers/df10d53b32df4315/a1",
+    "lhrun:solvers_v2/2b78241f657d9209/a1",
+    "lhrun:solvers_v2/3b14c69572eced5e/a1",
+    "lhrun:solvers_v2/b64bc658fdc31030/a1",
+    "lhrun2:pilot2/abd5bb7a17385717/a1",
+    "lhrun2:r2_main/050da904f472d10d/a1",
+    "lhrun2:r2_main/0a30c6bb025348b0/a1",
+    "lhrun2:r2_main/0c686877b1c9c77d/a1",
+    "lhrun2:r2_main/1e07eb2099f958b9/a1",
+    "lhrun2:r2_main/2752a728843636b0/a1",
+    "lhrun2:r2_main/384eeefc4ae595a7/a1",
+    "lhrun2:r2_main/4560ac730c279f33/a1",
+    "lhrun2:r2_main/49f1c8882a9d8ccc/a1",
+    "lhrun2:r2_main/5328ca5f2ba4ef05/a1",
+    "lhrun2:r2_main/63d8269a1cdd7ef5/a1",
+    "lhrun2:r2_main/6c3ba9292b66eeb4/a1",
+    "lhrun2:r2_main/7aa2fee5b850128a/a1",
+    "lhrun2:r2_main/8100259f5b545f76/a1",
+    "lhrun2:r2_main/8b92d7dd1f40b5f1/a1",
+    "lhrun2:r2_main/945f43ec5d091a58/a1",
+    "lhrun2:r2_main/997f8e6cf7bcec7e/a1",
+    "lhrun2:r2_main/abb11dc619f775b5/a1",
+    "lhrun2:r2_main/abd5bb7a17385717/a1",
+    "lhrun2:r2_main/ad5601f5fc5b9932/a1",
+    "lhrun2:r2_main/baf80178f4a99ab8/a1",
+    "lhrun2:r2_main/c39b7f3ed73c025c/a1",
+    "lhrun2:r2_main/c435cf0bae21abfa/a1",
+    "lhrun2:r2_main/c9d21fa2a6835041/a1",
+    "lhrun2:r2_main/e0363466aeba18e4/a1",
+    "lhrun2:r2_main/e3c0e7b965bacc23/a1",
+    "lhrun2:r2_main/fb6d02409d810377/a1",
+    "lhrun2:r2_nemo/8fa6ff914783b741/a1",
+    "lhrun2:r2_nemo/e3ed47942fdb0082/a1"
+   ],
+   "n": 40,
+   "families": [
+    "amazon",
+    "nvidia",
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "40 failures from 4 families cluster on 'unlabelled|flat|reply_before_action', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-98270a08ff",
+   "intent": "I1",
+   "signature": "unlabelled|plateau|assertion",
+   "traces": [
+    "lhrun:solvers/1873e06610cd6f56/a1",
+    "lhrun:solvers/8007cc2cfa9f3cca/a1",
+    "lhrun:solvers/e47b547880e31da9/a1",
+    "lhrun:solvers_v2/a56aef40aca48749/a1",
+    "lhrun:solvers_v2/b678baf21174c748/a1",
+    "lhrun2:pilot2/9980372bf6f369b7/a1",
+    "lhrun2:r2_main/1b1ea44f01c1d214/a1",
+    "lhrun2:r2_main/3932c67d54ac0cd3/a1",
+    "lhrun2:r2_main/429029cef1025e0f/a1",
+    "lhrun2:r2_main/47e189b7a246e8f7/a1",
+    "lhrun2:r2_main/4cbea99733bfcbdf/a1",
+    "lhrun2:r2_main/97de49e6e73d5055/a1",
+    "lhrun2:r2_main/9980372bf6f369b7/a1",
+    "lhrun2:r2_main/c073615e17519e02/a1",
+    "lhrun2:r2_main/c224a4a457337e27/a1",
+    "lhrun2:r2_main/f593f66fbd948040/a1",
+    "lhrun2:r2_nemo/43684e0992ef443f/a1"
+   ],
+   "n": 17,
+   "families": [
+    "nvidia",
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "17 failures from 3 families cluster on 'unlabelled|plateau|assertion', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-a6ea33e678",
+   "intent": "I1",
+   "signature": "unlabelled|divergence|reply_before_action",
+   "traces": [
+    "lhrun:solvers/6e10331fcd7c9ea8/a1",
+    "lhrun:solvers_v2/138a4cbe1686f5d7/a1",
+    "lhrun:solvers_v2/213629365d8782ae/a1",
+    "lhrun:solvers_v2/5aac50c81b9f330e/a2",
+    "lhrun:solvers_v2/a528f6bcf087a7a4/a2",
+    "lhrun:solvers_v2/a8ea5f929be5f872/a1",
+    "lhrun:solvers_v2/bd3239574db1e9dc/a1",
+    "lhrun:solvers_v2/d976c2d18554ffba/a1",
+    "lhrun:solvers_v2/f78083a7d84209f5/a1",
+    "lhrun2:pilot3/df6ec14cf47d10ec/a1",
+    "lhrun2:r2_main/6a74aaf3ff70ef96/a1",
+    "lhrun2:r2_main/792e84c1ec2a6a50/a1",
+    "lhrun2:r2_main/f6836aa14b09beb6/a1",
+    "lhrun2:r2_nemo/fc8408db78069070/a1"
+   ],
+   "n": 14,
+   "families": [
+    "amazon",
+    "llama",
+    "nvidia",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "14 failures from 4 families cluster on 'unlabelled|divergence|reply_before_action', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-25185f9c63",
+   "intent": "I1",
+   "signature": "skill_gap|flat|reply_before_action",
+   "traces": [
+    "lhrun:solvers/8b3196035b61e667/a1",
+    "lhrun:solvers/ebf0f3544683af71/a1",
+    "lhrun2:r2_main/cdf41382f84a876b/a1",
+    "lhrun2:r2_main/ce5e0cb109a0d6cf/a1",
+    "lhrun2:r2_main/d2284a1a0d62408a/a1",
+    "lhrun2:r2_main/f60f304874fad392/a1",
+    "lhrun2:r2_main/f77cb6770a1569c3/a1",
+    "lhrun2:r2_nemo/1566a2fe6059446d/a1",
+    "lhrun2:r2_nemo/24408c7f8fb4549a/a1",
+    "lhrun2:r2_nemo/4a0d1e5bf71205c3/a1"
+   ],
+   "n": 10,
+   "families": [
+    "amazon",
+    "nvidia",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "10 failures from 3 families cluster on 'skill_gap|flat|reply_before_action', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-92ce8f0b4a",
+   "intent": "I1",
+   "signature": "unlabelled|divergence|attribute_error",
+   "traces": [
+    "lhrun:solvers/02703941a83cf13d/a1",
+    "lhrun:solvers/ca8aa517ce373b94/a1",
+    "lhrun:solvers/df5d77bfbc6388ba/a1",
+    "lhrun:solvers_v2/628a1a0fbf71ea38/a1",
+    "lhrun:solvers_v2/ab990398798e2d4a/a1",
+    "lhrun2:r2_main/21ca4b8139701f41/a1",
+    "lhrun2:r2_main/347e87c4a4ed0756/a1"
+   ],
+   "n": 7,
+   "families": [
+    "amazon",
+    "llama",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "7 failures from 3 families cluster on 'unlabelled|divergence|attribute_error', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-8c2613656a",
+   "intent": "I1",
+   "signature": "unlabelled|divergence|path_violation",
+   "traces": [
+    "lhrun:solvers/a2d487fa0229d301/a1",
+    "lhrun:solvers/a7e50ee1e4799cb0/a1",
+    "lhrun:solvers_v2/4280f17a2b4bd67a/a2",
+    "lhrun:solvers_v2/68989c7b0f66874d/a2",
+    "lhrun:solvers_v2/a0fb3c2e6eb7b57e/a2",
+    "lhrun:solvers_v2/dab3b83a3e1cd909/a2",
+    "lhrun2:r2_main/73821ac8943ce427/a1"
+   ],
+   "n": 7,
+   "families": [
+    "amazon",
+    "llama"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "7 failures from 2 families cluster on 'unlabelled|divergence|path_violation', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-2a08d2e7ce",
+   "intent": "I1",
+   "signature": "skill_gap|flat|no_edit",
+   "traces": [
+    "lhrun:solvers/af28fde9f940da72/a1",
+    "lhrun:solvers/d9c7e524934d4aef/a1",
+    "lhrun:solvers_v2/c3a1c88f8ba928d6/a1",
+    "lhrun2:r2_main/9b4f8376074f6196/a1",
+    "lhrun2:r2_main/e20bb30a394a8907/a1",
+    "lhrun2:r2_main/ef1b446329ebfba3/a1",
+    "lhrun2:r2_main/ffc8cb95f4aea1e2/a1"
+   ],
+   "n": 7,
+   "families": [
+    "amazon",
+    "llama",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "7 failures from 3 families cluster on 'skill_gap|flat|no_edit', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-b905ab4816",
+   "intent": "I1",
+   "signature": "unlabelled|flat|path_violation",
+   "traces": [
+    "lhrun:solvers_v2/16cfaf620dcfd94e/a1",
+    "lhrun:solvers_v2/423017f320503556/a1",
+    "lhrun:solvers_v2/902e54fd48e04924/a2",
+    "lhrun:solvers_v2/ab588fb68f3a66cd/a1",
+    "lhrun:solvers_v2/d960aa2a5620750c/a1",
+    "lhrun:solvers_v2/dc1f01977e1d9e4b/a1",
+    "lhrun:solvers_v2/f888e226ff9bb684/a1"
+   ],
+   "n": 7,
+   "families": [
+    "llama",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "7 failures from 2 families cluster on 'unlabelled|flat|path_violation', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-4230ec3a11",
+   "intent": "I1",
+   "signature": "unlabelled|flat|assertion",
+   "traces": [
+    "lhrun:solvers/a635b26cc5797c45/a1",
+    "lhrun:solvers_v2/1010a6dab173f720/a1",
+    "lhrun:solvers_v2/575112531d6a5927/a1",
+    "lhrun2:r2_main/2cb140cb8a239e20/a1",
+    "lhrun2:r2_main/7479efd05614eb8b/a1"
+   ],
+   "n": 5,
+   "families": [
+    "amazon",
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "5 failures from 3 families cluster on 'unlabelled|flat|assertion', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-0b4b8482b5",
+   "intent": "I1",
+   "signature": "unlabelled|flat|attribute_error",
+   "traces": [
+    "lhrun:solvers/2202d00e05a374d7/a1",
+    "lhrun:solvers_v2/a5619f3ac821552e/a1",
+    "lhrun:solvers_v2/fe621241f5771c3f/a1",
+    "lhrun2:r2_main/fde35e7ca4d1b02a/a1"
+   ],
+   "n": 4,
+   "families": [
+    "amazon",
+    "llama",
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "4 failures from 4 families cluster on 'unlabelled|flat|attribute_error', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-eabcbba376",
+   "intent": "I1",
+   "signature": "skill_gap|flat|attribute_error",
+   "traces": [
+    "lhrun:solvers/7ccf2588d26c4c7e/a1",
+    "lhrun:solvers/a82f2c5fe21e4a4d/a1",
+    "lhrun:solvers_v2/4ab8b36095493335/a1",
+    "lhrun2:r2_nemo/8361f7e1345c9e4c/a1"
+   ],
+   "n": 4,
+   "families": [
+    "llama",
+    "nvidia",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "4 failures from 3 families cluster on 'skill_gap|flat|attribute_error', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-dae9962248",
+   "intent": "I1",
+   "signature": "skill_gap|divergence|reply_before_action",
+   "traces": [
+    "lhrun:solvers_v2/64d2fe1f91c68b88/a1",
+    "lhrun:solvers_v2/8e673dbf2e66832f/a2",
+    "lhrun:solvers_v2/c54006f6d5d8d69e/a1",
+    "lhrun2:r2_main/9eb24b4069e4009f/a1"
+   ],
+   "n": 4,
+   "families": [
+    "amazon",
+    "llama"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "4 failures from 2 families cluster on 'skill_gap|divergence|reply_before_action', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-89e8a48bfc",
+   "intent": "I1",
+   "signature": "unlabelled|plateau|attribute_error",
+   "traces": [
+    "lhrun:solvers/5ae93d8fa687911c/a1",
+    "lhrun:solvers/cf224ada0a34f3d6/a1",
+    "lhrun:solvers_v2/cc695781bfe5f3be/a1"
+   ],
+   "n": 3,
+   "families": [
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "3 failures from 2 families cluster on 'unlabelled|plateau|attribute_error', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-0f6c342aae",
+   "intent": "I1",
+   "signature": "unlabelled|divergence|assertion",
+   "traces": [
+    "lhrun:solvers/9a43fb08cf649b57/a1",
+    "lhrun:solvers/e2cf1dc314449180/a1",
+    "lhrun:solvers_v2/12516ffced5ace3e/a1"
+   ],
+   "n": 3,
+   "families": [
+    "llama",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "3 failures from 2 families cluster on 'unlabelled|divergence|assertion', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-c2fa7ef63e",
+   "intent": "I1",
+   "signature": "unlabelled|plateau|path_violation",
+   "traces": [
+    "lhrun:solvers/e1425a9a3ee80589/a1",
+    "lhrun2:r2_main/1fccc0b6fc085da7/a1",
+    "lhrun2:r2_main/d3b4d8ed5b3a1672/a1"
+   ],
+   "n": 3,
+   "families": [
+    "openai",
+    "qwen"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "3 failures from 2 families cluster on 'unlabelled|plateau|path_violation', not on the intent (Keeps earlier work working while extending it)"
+  },
+  {
+   "id": "ic-7f0b3ad18b",
+   "intent": "I1",
+   "signature": "unlabelled|flat|syntax_error",
+   "traces": [
+    "lhrun:solvers_v2/b936d81a08cae4ef/a1",
+    "lhrun2:r2_main/0969da021c2e32d1/a1",
+    "lhrun2:r2_main/4385bbb36487a1a9/a1"
+   ],
+   "n": 3,
+   "families": [
+    "amazon",
+    "openai"
+   ],
+   "status": "awaiting_human",
+   "applied": false,
+   "why": "3 failures from 2 families cluster on 'unlabelled|flat|syntax_error', not on the intent (Keeps earlier work working while extending it)"
+  }
+ ]
+}

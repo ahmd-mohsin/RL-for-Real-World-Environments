@@ -1,0 +1,521 @@
+{
+ "spend_usd": 0.197774,
+ "spend_by_role": {
+  "auditor": 0.197774
+ },
+ "seeded": {
+  "bundles": 6,
+  "failing": 3,
+  "passed": 3,
+  "masked": 0,
+  "facts_episodes": {
+   "world_fault": 1
+  },
+  "first_wrong_step": {
+   "kinds": {
+    "plateau": 2,
+    "lost": 1
+   },
+   "by_family": {
+    "qwen": {
+     "plateau": 1
+    },
+    "llama": {
+     "plateau": 1
+    },
+    "amazon": {
+     "lost": 1
+    }
+   },
+   "position_quartiles": {
+    "plateau": [
+     0.467,
+     0.533,
+     0.6
+    ],
+    "lost": [
+     0.857,
+     0.857,
+     0.857
+    ]
+   },
+   "turn_quartiles": [
+    2.0,
+    3.0,
+    4.0
+   ]
+  },
+  "causes": {
+   "deterministic": {},
+   "labelled_trusted": {
+    "skill_gap": 2,
+    "unstated_format": 1
+   },
+   "skill_gap_share": 0.667
+  },
+  "auditor": {
+   "model": "deepseek/deepseek-v4-flash",
+   "refused_same_family": 0,
+   "labelled": 6,
+   "trusted_labels": 6,
+   "sessions": 9,
+   "session_usd": 0.004177,
+   "label_status": {
+    "abstained": 1,
+    "labelled": 5
+   }
+  },
+  "auditor_batches": [
+   {
+    "n": 6,
+    "trusted": true,
+    "seeded_ok": 3,
+    "seeded_n": 3
+   }
+  ],
+  "pass_audit": {
+   "passes": 3,
+   "candidates": 1,
+   "reasons": {
+    "short_path": 2
+   }
+  },
+  "proposals": {
+   "world_bug": {
+    "accepted": 1
+   },
+   "verifier_gap": {
+    "accepted": 1,
+    "rejected": 1
+   },
+   "spec_defect": {
+    "accepted": 1
+   }
+  },
+  "proposal_reasons": [
+   [
+    "world_bug:accepted:",
+    1
+   ],
+   [
+    "verifier_gap:accepted:",
+    1
+   ],
+   [
+    "spec_defect:accepted:accepted on test-derived facts, lint and ledger; the counterfactual re-run (P4) is due bef",
+    1
+   ],
+   [
+    "verifier_gap:rejected:the new check fails the oracle (check False, full verdict False, failing ['tests/test_p3_f",
+    1
+   ]
+  ],
+  "versions": 3,
+  "intent_candidates": [],
+  "cases": {
+   "verifier_gap(lucky pass)": {
+    "expected": "accepted",
+    "got": "accepted",
+    "ok": true
+   },
+   "spec_defect(unstated name)": {
+    "expected": "accepted",
+    "got": "accepted",
+    "ok": true
+   },
+   "world_bug(broken tool)": {
+    "expected": "accepted",
+    "got": "accepted",
+    "ok": true
+   },
+   "fake proposal(check fails the oracle)": {
+    "expected": "rejected",
+    "got": "rejected",
+    "ok": true
+   }
+  }
+ },
+ "real": {
+  "bundles": 439,
+  "failing": 364,
+  "passed": 15,
+  "masked": 60,
+  "facts_episodes": {
+   "reply_before_action": 91,
+   "no_edit": 92,
+   "masked": 60,
+   "path_near_miss": 44,
+   "limit_stop": 81,
+   "harness_misuse": 16,
+   "path_violation": 36,
+   "world_fault": 17
+  },
+  "first_wrong_step": {
+   "kinds": {
+    "flat": 191,
+    "divergence": 53,
+    "plateau": 76,
+    "unmeasured": 29,
+    "lost": 15
+   },
+   "by_family": {
+    "deepseek": {
+     "flat": 12,
+     "divergence": 4,
+     "plateau": 16,
+     "lost": 1
+    },
+    "qwen": {
+     "unmeasured": 29,
+     "flat": 36,
+     "plateau": 50,
+     "lost": 10,
+     "divergence": 4
+    },
+    "llama": {
+     "divergence": 31,
+     "flat": 16
+    },
+    "openai": {
+     "flat": 67,
+     "divergence": 3,
+     "plateau": 8,
+     "lost": 2
+    },
+    "mistral": {
+     "flat": 1
+    },
+    "amazon": {
+     "flat": 46,
+     "divergence": 7
+    },
+    "nvidia": {
+     "flat": 13,
+     "divergence": 4,
+     "plateau": 2,
+     "lost": 2
+    }
+   },
+   "position_quartiles": {
+    "flat": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "divergence": [
+     0.167,
+     0.357,
+     0.692
+    ],
+    "plateau": [
+     0.464,
+     0.67,
+     0.867
+    ],
+    "unmeasured": null,
+    "lost": [
+     0.543,
+     0.669,
+     0.889
+    ]
+   },
+   "turn_quartiles": [
+    0.0,
+    0.0,
+    43.0
+   ]
+  },
+  "causes": {
+   "deterministic": {
+    "budget": 81,
+    "env_flake": 60
+   },
+   "labelled_trusted": {
+    "skill_gap": 39,
+    "unstated_format": 1,
+    "spec_defect": 4,
+    "budget": 4
+   },
+   "skill_gap_share": 0.812
+  },
+  "auditor": {
+   "model": "deepseek/deepseek-v4-flash",
+   "refused_same_family": 0,
+   "labelled": 120,
+   "trusted_labels": 90,
+   "sessions": 132,
+   "session_usd": 0.190718,
+   "label_status": {
+    "rejected": 50,
+    "labelled": 68,
+    "abstained": 2
+   }
+  },
+  "auditor_batches": [
+   {
+    "n": 30,
+    "trusted": true,
+    "seeded_ok": 3,
+    "seeded_n": 3
+   },
+   {
+    "n": 30,
+    "trusted": true,
+    "seeded_ok": 3,
+    "seeded_n": 3
+   },
+   {
+    "n": 30,
+    "trusted": false,
+    "seeded_ok": 2,
+    "seeded_n": 3
+   },
+   {
+    "n": 30,
+    "trusted": true,
+    "seeded_ok": 3,
+    "seeded_n": 3
+   }
+  ],
+  "pass_audit": {
+   "passes": 15,
+   "candidates": 0,
+   "reasons": {}
+  },
+  "proposals": {
+   "world_bug": {
+    "reproduced_needs_fix": 7
+   },
+   "spec_defect": {
+    "accepted": 1,
+    "rejected": 13,
+    "needs_input": 1
+   },
+   "verifier_gap": {
+    "needs_input": 1
+   },
+   "false_fail": {
+    "needs_input": 1
+   },
+   "intent_drift": {
+    "awaiting_human": 17
+   }
+  },
+  "proposal_reasons": [
+   [
+    "intent_drift:awaiting_human:written to intent_candidates.jsonl",
+    17
+   ],
+   [
+    "world_bug:reproduced_needs_fix:reproduced in the World on the oracle state; no World fix was proposed (a World expert's j",
+    7
+   ],
+   [
+    "spec_defect:rejected:['parse'] already exist at the start state: the end state lost them (the agent's breakage,",
+    3
+   ],
+   [
+    "spec_defect:rejected:['Result'] not found in the failing hidden tests' own source: an auditor's guess is never ",
+    2
+   ],
+   [
+    "spec_defect:rejected:['search'] already exist at the start state: the end state lost them (the agent's breakage",
+    2
+   ],
+   [
+    "spec_defect:accepted:accepted on test-derived facts, lint and ledger; the counterfactual re-run (P4) is due bef",
+    1
+   ],
+   [
+    "spec_defect:rejected:['with_pattern'] already exist at the start state: the end state lost them (the agent's br",
+    1
+   ],
+   [
+    "verifier_gap:needs_input:no verifier port for this task",
+    1
+   ],
+   [
+    "false_fail:needs_input:no verifier port for this task",
+    1
+   ],
+   [
+    "spec_defect:needs_input:no window record, or the prompt this trace saw is in no journal (a horizon or hacker promp",
+    1
+   ],
+   [
+    "spec_defect:rejected:['VersionInfo'] already exist at the start state: the end state lost them (the agent's bre",
+    1
+   ],
+   [
+    "spec_defect:rejected:['no_default'] not found in the failing hidden tests' own source: an auditor's guess is ne",
+    1
+   ],
+   [
+    "spec_defect:rejected:['nth_combination'] not found in the failing hidden tests' own source: an auditor's guess ",
+    1
+   ],
+   [
+    "spec_defect:rejected:['prepend'] not found in the failing hidden tests' own source: an auditor's guess is never",
+    1
+   ],
+   [
+    "spec_defect:rejected:['bump_build'] already exist at the start state: the end state lost them (the agent's brea",
+    1
+   ]
+  ],
+  "versions": 1,
+  "intent_candidates": [
+   {
+    "signature": "unlabelled|flat|no_edit",
+    "n": 53,
+    "families": [
+     "amazon",
+     "llama",
+     "nvidia",
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|flat|reply_before_action",
+    "n": 40,
+    "families": [
+     "amazon",
+     "nvidia",
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|plateau|assertion",
+    "n": 17,
+    "families": [
+     "nvidia",
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|divergence|reply_before_action",
+    "n": 14,
+    "families": [
+     "amazon",
+     "llama",
+     "nvidia",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "skill_gap|flat|reply_before_action",
+    "n": 10,
+    "families": [
+     "amazon",
+     "nvidia",
+     "openai"
+    ]
+   },
+   {
+    "signature": "unlabelled|divergence|attribute_error",
+    "n": 7,
+    "families": [
+     "amazon",
+     "llama",
+     "openai"
+    ]
+   },
+   {
+    "signature": "unlabelled|divergence|path_violation",
+    "n": 7,
+    "families": [
+     "amazon",
+     "llama"
+    ]
+   },
+   {
+    "signature": "skill_gap|flat|no_edit",
+    "n": 7,
+    "families": [
+     "amazon",
+     "llama",
+     "openai"
+    ]
+   },
+   {
+    "signature": "unlabelled|flat|path_violation",
+    "n": 7,
+    "families": [
+     "llama",
+     "openai"
+    ]
+   },
+   {
+    "signature": "unlabelled|flat|assertion",
+    "n": 5,
+    "families": [
+     "amazon",
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|flat|attribute_error",
+    "n": 4,
+    "families": [
+     "amazon",
+     "llama",
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "skill_gap|flat|attribute_error",
+    "n": 4,
+    "families": [
+     "llama",
+     "nvidia",
+     "openai"
+    ]
+   },
+   {
+    "signature": "skill_gap|divergence|reply_before_action",
+    "n": 4,
+    "families": [
+     "amazon",
+     "llama"
+    ]
+   },
+   {
+    "signature": "unlabelled|plateau|attribute_error",
+    "n": 3,
+    "families": [
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|divergence|assertion",
+    "n": 3,
+    "families": [
+     "llama",
+     "openai"
+    ]
+   },
+   {
+    "signature": "unlabelled|plateau|path_violation",
+    "n": 3,
+    "families": [
+     "openai",
+     "qwen"
+    ]
+   },
+   {
+    "signature": "unlabelled|flat|syntax_error",
+    "n": 3,
+    "families": [
+     "amazon",
+     "openai"
+    ]
+   }
+  ]
+ }
+}

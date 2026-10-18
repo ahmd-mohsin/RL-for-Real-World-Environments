@@ -1,0 +1,279 @@
+{
+ "bundles": 6,
+ "by_run": {
+  "seeded": 6
+ },
+ "by_family": {
+  "qwen": 2,
+  "openai": 1,
+  "llama": 2,
+  "amazon": 1
+ },
+ "masked": 0,
+ "passed": 3,
+ "failing": 3,
+ "facts": {
+  "world_fault": 1
+ },
+ "facts_episodes": {
+  "world_fault": 1
+ },
+ "first_wrong_step": {
+  "kinds": {
+   "plateau": 2,
+   "lost": 1
+  },
+  "by_family": {
+   "qwen": {
+    "plateau": 1
+   },
+   "llama": {
+    "plateau": 1
+   },
+   "amazon": {
+    "lost": 1
+   }
+  },
+  "position_quartiles": {
+   "plateau": [
+    0.467,
+    0.533,
+    0.6
+   ],
+   "lost": [
+    0.857,
+    0.857,
+    0.857
+   ]
+  },
+  "turn_quartiles": [
+   2.0,
+   3.0,
+   4.0
+  ]
+ },
+ "causes": {
+  "deterministic": {},
+  "labelled_trusted": {
+   "skill_gap": 2,
+   "unstated_format": 1
+  },
+  "skill_gap_share": 0.667
+ },
+ "auditor": {
+  "model": "deepseek/deepseek-v4-flash",
+  "batches": [
+   {
+    "n": 6,
+    "seeded": [
+     {
+      "id": "ctl-verifier-defect",
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-lazy",
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "status": "labelled",
+      "ok": true
+     },
+     {
+      "id": "ctl-world-bug",
+      "expected": "world_bug",
+      "got": "world_bug",
+      "status": "labelled",
+      "ok": true
+     }
+    ],
+    "trusted": true,
+    "mix": {
+     "skill_gap": 2,
+     "unstated_format": 1
+    }
+   }
+  ],
+  "refused_same_family": 0,
+  "labelled": 6,
+  "trusted_labels": 6,
+  "sessions": 9,
+  "session_usd": 0.004177,
+  "label_status": {
+   "abstained": 1,
+   "labelled": 5
+  }
+ },
+ "pass_audit": {
+  "passes": 3,
+  "candidates": 1,
+  "reasons": {
+   "short_path": 2
+  }
+ },
+ "proposals": {
+  "total": 4,
+  "by_kind_status": {
+   "world_bug": {
+    "accepted": 1
+   },
+   "verifier_gap": {
+    "accepted": 1,
+    "rejected": 1
+   },
+   "spec_defect": {
+    "accepted": 1
+   }
+  },
+  "rows": [
+   {
+    "id": "wo-0301bdf234fe",
+    "kind": "world_bug",
+    "task": "seeded-durations",
+    "status": "accepted",
+    "traces": 1,
+    "why": "project module 'durations' not importable through repo.shell (x3)",
+    "reasons": [],
+    "version": "08bc1ddf9782d783"
+   },
+   {
+    "id": "ve-ac412cd0f508",
+    "kind": "verifier_gap",
+    "task": "seeded-durations",
+    "status": "accepted",
+    "traces": 1,
+    "why": "short_path: 2 tool calls vs a median of 8 over 2 passing peers; short_path: 11 changed source lines vs the oracle's 23",
+    "reasons": [],
+    "version": "db991054353ed446"
+   },
+   {
+    "id": "sp-11f525269def",
+    "kind": "spec_defect",
+    "task": "seeded-durations",
+    "status": "accepted",
+    "traces": 1,
+    "why": "the hidden tests need 'format_duration', which the request never names",
+    "reasons": [
+     "accepted on test-derived facts, lint and ledger; the counterfactual re-run (P4) is due before the version is trained on"
+    ],
+    "version": "1f11caa2e9b0d8ea"
+   },
+   {
+    "id": "ve-a38e9a9dfa12",
+    "kind": "verifier_gap",
+    "task": "seeded-durations",
+    "status": "rejected",
+    "traces": 1,
+    "why": "a planted fake: a check that also fails the oracle",
+    "reasons": [
+     "the new check fails the oracle (check False, full verdict False, failing ['tests/test_p3_fake.py::test_minutes_only_rejected'])"
+    ],
+    "version": null
+   }
+  ]
+ },
+ "versions": [
+  {
+   "id": "08bc1ddf9782d783",
+   "subject": "seeded-durations@0f9a71752845",
+   "kind": "task",
+   "parent": "2aaf1bbea02cea28",
+   "proposal": "wo-0301bdf234fe",
+   "evidence_hash": "15d8436e17c02b41a7a9d0706eb20363e623d63903d0801432355d89e09fd4a7",
+   "change": {
+    "type": "world_fix",
+    "fix": {
+     "files": {
+      "tools/run_tests.sh": "#!/bin/sh\nexec python -m pytest -q -p no:cacheprovider tests\n"
+     }
+    }
+   }
+  },
+  {
+   "id": "db991054353ed446",
+   "subject": "seeded-durations",
+   "kind": "verifier",
+   "parent": "1559c9098ff847d5",
+   "proposal": "ve-ac412cd0f508",
+   "evidence_hash": "7a6128bc6c445bbe9fcfa28879664b84f85ac1082b3347cfd9e5c078fbdf3765",
+   "change": {
+    "type": "add_check",
+    "check": "p3_more_values"
+   }
+  },
+  {
+   "id": "1f11caa2e9b0d8ea",
+   "subject": "seeded-durations@0f9a71752845",
+   "kind": "task",
+   "parent": "08bc1ddf9782d783",
+   "proposal": "sp-11f525269def",
+   "evidence_hash": "4d8bfff61df973050feb2cd960cc3f66c1cc9f55b68b3566f285ea4c8944cabe",
+   "change": {
+    "type": "prompt_edit",
+    "edits": [
+     {
+      "requirement": "R2",
+      "milestone": "m2",
+      "name": "format_duration",
+      "before": "A companion function renders a number of seconds back into the same compact form, so that parsing and rendering round-trip.",
+      "after": "A companion function renders a number of seconds back into the same compact form, so that parsing and rendering round-trip. The release exposes this as `format_duration`."
+     }
+    ],
+    "counterfactual_rerun_needed": true
+   }
+  }
+ ],
+ "version_store_problems": [],
+ "intent_candidates": [],
+ "seeded": {
+  "verifier_gap(lucky pass)": {
+   "expected": "accepted",
+   "got": "accepted",
+   "version": "db991054353ed446",
+   "reasons": [],
+   "ok": true
+  },
+  "spec_defect(unstated name)": {
+   "expected": "accepted",
+   "got": "accepted",
+   "version": "1f11caa2e9b0d8ea",
+   "reasons": [
+    "accepted on test-derived facts, lint and ledger; the counterfactual re-run (P4) is due before the version is trained on"
+   ],
+   "ok": true
+  },
+  "world_bug(broken tool)": {
+   "expected": "accepted",
+   "got": "accepted",
+   "version": "08bc1ddf9782d783",
+   "reasons": [],
+   "ok": true
+  },
+  "fake proposal(check fails the oracle)": {
+   "expected": "rejected",
+   "got": "rejected",
+   "version": null,
+   "reasons": [
+    "the new check fails the oracle (check False, full verdict False, failing ['tests/test_p3_fake.py::test_minutes_only_rejected'])"
+   ],
+   "ok": true
+  }
+ },
+ "seeded_ok": true,
+ "lineage": {
+  "verifier_gap(lucky pass)": [
+   "1559c9098ff847d5",
+   "db991054353ed446"
+  ],
+  "spec_defect(unstated name)": [
+   "2aaf1bbea02cea28",
+   "08bc1ddf9782d783",
+   "1f11caa2e9b0d8ea"
+  ],
+  "world_bug(broken tool)": [
+   "2aaf1bbea02cea28",
+   "08bc1ddf9782d783"
+  ]
+ }
+}

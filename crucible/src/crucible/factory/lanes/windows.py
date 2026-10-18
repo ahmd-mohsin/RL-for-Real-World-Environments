@@ -251,6 +251,35 @@ def suite_targets(tree: Path, tests: Mapping[str, str], deleted: Sequence[str] =
     return sorted(p for p in files if is_test_path(p) and SUITE_FILE.search(p) and not p.startswith((".", "docs/", "doc/")))
 
 
+def normalize_ids(results: Mapping[str, str], targets: Sequence[str]) -> dict[str, str]:
+    """Test ids keyed by the file pytest collected them from (P2; the P0 open item on cachetools and markdown). pytest's
+    xunit1 ``file`` attribute names the file that *defines* a test method, so a test a class inherits from a mixin in
+    ``tests/__init__.py`` or ``markdown/test_tools.py`` came back as ``tests/__init__.py::tests::test_cache::CacheTest::t``:
+    an id whose file runs nothing (or the wrong file: ``markdown/test_tools.py`` is itself a suite target), so a regression
+    check made of such ids failed on the oracle. The parser then put the whole dotted class path after the file; when the
+    longest dotted prefix of that path is one of the run's ``targets``, it becomes the file
+    (``tests/test_cache.py::CacheTest::t``). A well-formed id (``file::Class::test``) never has a target file inside its
+    class path and is kept, as is an id no target explains."""
+    files = {t for t in targets if t.endswith(".py")}
+    out: dict[str, str] = {}
+    for tid, st in results.items():
+        head, bracket, tail = tid.partition("[")
+        parts = head.split("::")
+        if len(parts) < 3:
+            out[tid] = st
+            continue
+        mid, name = parts[1:-1], parts[-1]
+        new = tid
+        for i in range(len(mid), 0, -1):
+            f = "/".join(mid[:i]) + ".py"
+            if f in files:
+                new = "::".join([f, *mid[i:], name]) + bracket + tail
+                break
+        if new not in out or out[new] == "passed":  # a collision keeps the worse status
+            out[new] = st
+    return out
+
+
 async def run_tests(sandbox: DockerSandbox, base_dir: Path, files: Mapping[str, str | None], tests: Mapping[str, str], targets: Sequence[str],
                     deleted: Sequence[str] = ()) -> TestRun:
     """A fresh copy of A, ``files`` written (protected paths never), ``tests`` written over it, the test files B deleted
@@ -264,7 +293,9 @@ async def run_tests(sandbox: DockerSandbox, base_dir: Path, files: Mapping[str, 
         for p in deleted:
             if _safe(p) and is_test_path(p):
                 (tree / p).unlink(missing_ok=True)
-        return await sandbox.run(tree, list(targets))
+        tr = await sandbox.run(tree, list(targets))
+        tr.results = normalize_ids(tr.results, targets)
+        return tr
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -449,6 +480,7 @@ async def probe_dependencies(rec: dict[str, Any], repo: RepoGit, sandbox: Docker
                         for p in gone_k:
                             (work / "t" / p).unlink(missing_ok=True)
                         tr = await sandbox.run(work / "t", test_files)
+                        tr.results = normalize_ids(tr.results, test_files)
                         runs += 1
                         cache[key] = (tr.infra == "ok" and passed_group(tr.results, m["tests"]), "run" if tr.infra == "ok" else "masked")
                 finally:
@@ -609,6 +641,14 @@ def new_test_names(rec: Mapping[str, Any], repo: RepoGit, base: Path) -> set[str
     return {n for n in names if n.startswith("test") and n not in a_text}
 
 
+def volatile_ids(late: Mapping[str, str] | None, ids: Sequence[str]) -> list[str]:
+    """Ids a later run of the same tree does not report (an id built from the clock, a random value or a memory
+    address); none when the late run was unmeasured or empty."""
+    if not late:
+        return []
+    return sorted(t for t in set(ids) if t not in late)
+
+
 async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: DockerSandbox, *, reruns: int = 3, min_milestones: int = 2) -> str | None:
     """Fail-to-pass / pass-to-pass with reruns, then milestones by owner unit. Returns why the window stops, or None."""
     if rec.get("import_tolerant"):
@@ -636,10 +676,16 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
     # on a prefix is a collateral regression check
     po = await prefix_owners(rec, repo, base, sandbox, cls["f2p"])
     owners = po.pop("owners")
+    # P2: a test id that changes from run to run (marshmallow parametrizes on datetime.now(): concurrent reruns share the
+    # second, so the id looked stable) never reproduces at grading. One more oracle run, minutes after the first ones:
+    # an id it lacks is volatile and is never a check
+    late = await run_tests(sandbox, base, rec["oracle_files"], tests_b, targets, gone)
+    volatile = volatile_ids(late.results if late.infra == "ok" else None, [*cls["f2p"], *cls["p2p"]])
+    owners = {t: o for t, o in owners.items() if t not in volatile}
     rec["ownership"] = po
     rec["milestones"] = milestones_from_owners(rec, owners)
-    rec.update(targets=targets, p2p=cls["p2p"], collateral=sorted(t for t, o in owners.items() if o is None),
-               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"]})
+    rec.update(targets=targets, p2p=[t for t in cls["p2p"] if t not in volatile], collateral=sorted(t for t, o in owners.items() if o is None),
+               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile})
     if len(rec["milestones"]) < min_milestones:
         return f"{len(rec['milestones'])} milestone(s) with fail-to-pass tests (need {min_milestones})"
     return None
@@ -647,7 +693,7 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
 
 async def validate_window(win: Window, store: WindowStore, images: ImageBook, sandboxes: Callable[[str], DockerSandbox], *, reruns: int = 3,
                           min_milestones: int = 2, mutants: bool = True, log: Callable[[dict], None] | None = None,
-                          import_tolerant: bool = True) -> dict[str, Any]:
+                          import_tolerant: bool = True, leak_prefix: str | None = None) -> dict[str, Any]:
     """Every stage for one window; the record (saved whatever stage it reached) says how far it got and why it stopped.
     ``import_tolerant`` (report 11 F8, the default for new windows): the window is classified, probed and graded with
     import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict."""
@@ -682,7 +728,7 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     window_files(rec, repo)
     t1 = time.monotonic()
     leak = await leak_probes(card["image"], base, package=card.get("project") or project_name(base), version=win.b_version,
-                             new_test_names=new_test_names(rec, repo, base))
+                             new_test_names=new_test_names(rec, repo, base), **({"name_prefix": leak_prefix} if leak_prefix else {}))
     rec["world"]["leak"] = leak
     rec["timings"]["leak"] = round(time.monotonic() - t1, 1)
     if not leak["ok"]:
@@ -758,7 +804,7 @@ def sandbox_factory(*, parallel: int = 8, timeout_s: float = 600.0, cpus: str = 
 async def mine(repos: Mapping[str, Path], store: WindowStore, *, images: ImageBook | None = None, sandboxes: Callable[[str], DockerSandbox] | None = None,
                cap: int = 8, since: str = "2019-01-01", min_units: int = 5, max_units: int = 25, reruns: int = 3, parallel_windows: int = 4,
                deadline: float | None = None, log: Callable[[dict], None] | None = None, window_sem: asyncio.Semaphore | None = None,
-               redo: Sequence[str] = ("deadline", "error"), import_tolerant: bool = True) -> dict[str, Any]:
+               redo: Sequence[str] = ("deadline", "error"), import_tolerant: bool = True, leak_prefix: str | None = None) -> dict[str, Any]:
     """Windows per repository, each validated end to end; a repository of the other split is refused before mining."""
     images = images or ImageBook()
     sandboxes = sandboxes or sandbox_factory()
@@ -776,7 +822,7 @@ async def mine(repos: Mapping[str, Path], store: WindowStore, *, images: ImageBo
                                        "reason": "deadline: not validated", "lane": LANE})
                     return
                 try:
-                    await validate_window(w, store, images, sandboxes, reruns=reruns, log=log, import_tolerant=import_tolerant)
+                    await validate_window(w, store, images, sandboxes, reruns=reruns, log=log, import_tolerant=import_tolerant, leak_prefix=leak_prefix)
                 except Exception as e:  # noqa: BLE001 - one window's failure is recorded, never the run's
                     store.save_window({**{k: v for k, v in w.to_json().items() if k != "repo_dir"}, "split": store.split, "stage": "windows",
                                        "reason": f"error: {type(e).__name__}: {e}"[:500], "lane": LANE})
@@ -784,6 +830,43 @@ async def mine(repos: Mapping[str, Path], store: WindowStore, *, images: ImageBo
         await asyncio.gather(*[go(w) for w in wins])
         out[name] = len(wins)
     return out
+
+
+async def remine(source: WindowStore, store: WindowStore, repo_dirs: Mapping[str, Path], *, images: ImageBook | None = None,
+                 sandboxes: Callable[[str], DockerSandbox] | None = None, reruns: int = 3, parallel_windows: int = 4, deadline: float | None = None,
+                 log: Callable[[dict], None] | None = None, import_tolerant: bool = True, leak_prefix: str | None = None,
+                 redo: Sequence[str] = ("deadline", "error")) -> dict[str, int]:
+    """Validate again, into ``store``, exactly the windows ``source`` recorded (P2: the P0 re-mine, import-tolerant, with
+    the test-id fix): the same A, B and units, so the two funnels compare window for window (``mine`` would draw a fresh
+    sample: a store built by several mining runs holds windows one run's cap never reaches). A window already in
+    ``store`` is skipped unless its stop reason starts with one of ``redo``."""
+    if source.split != store.split:
+        raise HeldOutError(f"{source.root} is {source.split}, {store.root} is {store.split}")
+    images = images or ImageBook()
+    sandboxes = sandboxes or sandbox_factory()
+    sem = asyncio.Semaphore(parallel_windows)
+    done: dict[str, int] = {}
+
+    async def go(wid: str) -> None:
+        rec = source.window(wid)
+        if rec["repo"] not in repo_dirs or ((store.dir(wid) / "window.json").exists()
+                                            and not str(store.window(wid).get("reason", "")).startswith(tuple(redo))):
+            return
+        win = Window.from_json({**rec, "repo_dir": str(repo_dirs[rec["repo"]])})
+        async with sem:
+            if deadline is not None and time.time() > deadline:
+                store.save_window({**{k: v for k, v in win.to_json().items() if k != "repo_dir"}, "split": store.split, "stage": "windows",
+                                   "reason": "deadline: not validated", "lane": LANE})
+                return
+            try:
+                await validate_window(win, store, images, sandboxes, reruns=reruns, log=log, import_tolerant=import_tolerant, leak_prefix=leak_prefix)
+            except Exception as e:  # noqa: BLE001 - one window's failure is recorded, never the run's
+                store.save_window({**{k: v for k, v in win.to_json().items() if k != "repo_dir"}, "split": store.split, "stage": "windows",
+                                   "reason": f"error: {type(e).__name__}: {e}"[:500], "lane": LANE})
+        done[rec["repo"]] = done.get(rec["repo"], 0) + 1
+
+    await asyncio.gather(*[go(w) for w in source.window_ids()])
+    return done
 
 
 def funnel(store: WindowStore) -> dict[str, Any]:

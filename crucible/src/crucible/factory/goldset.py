@@ -15,6 +15,15 @@ overlap (*v1* ≥ 0.7 on ≥ 10% of the model-reviewed items; below it the human
 Note: zero errors in n items give a Wilson upper bound of ``3.84 / (n + 3.84)``, so a 5% bound needs ≥ 73 truly-failing
 *and* ≥ 73 truly-passing measured items. The *v1* minimum of 40 items cannot meet the *v1* 5% bound; the two thresholds
 are kept as separate config values and both are enforced.
+
+**P2 (swarm-pipeline/00 §5.6, §9).** Per family, items are real end states (solver episodes), commit-revert mutants,
+valid alternatives, floors, the oracle and confirmed hacks (sources ``oracle`` and ``floor`` added). Coding is
+self-verifying, so a real item's label is **executed** (``executed_label``: a ``miner:executed`` label from an
+independent run, e.g. B's whole suite under strict imports, agreeing with the second verifier); a human label still
+overrides it, and a 10% ``spot_check_queue`` file is written for a person to confirm. ``class_bounds`` gives each truth
+class's Wilson bound and whether the zero-error targets (≥ 36 per class for ≤ 10%, ≥ 73 for ≤ 5%) are met;
+``pair_fracs`` scores (truth, verdict) pairs at any unit (a milestone of an end state, for instance); ``verifier_card``
+assembles the family's ``cards.VerifierCard`` with the bounds.
 """
 
 from __future__ import annotations
@@ -26,9 +35,11 @@ from typing import Any, Literal
 
 from crucible.factory.floors import Frac, Graded, call, graded_from
 
-SOURCES = ("real_pass", "real_fail", "mutant", "alternative", "hack")
+SOURCES = ("real_pass", "real_fail", "mutant", "alternative", "hack", "oracle", "floor")
 REAL = frozenset({"real_pass", "real_fail"})
-PROVEN = {"mutant": False, "hack": False, "alternative": True}
+PROVEN = {"mutant": False, "hack": False, "alternative": True, "oracle": True, "floor": False}
+EXECUTED = "miner:executed"  # the labeller of an executed label (coding is self-verifying)
+ZERO_ERROR_TARGETS: tuple[tuple[int, float], ...] = ((36, 0.10), (73, 0.05))  # (items per class, Wilson upper bound at zero errors)
 PASS_VALUES = frozenset({"pass", "correct", "true", "1", "yes"})
 FAIL_VALUES = frozenset({"fail", "incorrect", "false", "0", "no"})
 
@@ -40,6 +51,8 @@ class GoldItem:
     solution: Any
     sha256: str  # labels.item_sha256 of the item content
     proven_by: str = ""  # "mutant:<requirement>", "hack:<attack id>", ...
+    family: str = ""  # P2: the family the item belongs to (a gold set is per family)
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -78,9 +91,11 @@ def _stale(labels: Any, item: str, sha: str) -> int:
 def truths(items: Sequence[GoldItem], labels: Any = ()) -> tuple[dict[str, bool | None], dict]:
     """Truth per item and the bookkeeping (human disagreements, stale labels, proof/label conflicts)."""
     out: dict[str, bool | None] = {}
-    info: dict[str, list] = {"human_disagreement": [], "stale_labels": [], "proof_conflict": [], "unlabelled_real": []}
+    info: dict[str, list] = {"human_disagreement": [], "stale_labels": [], "proof_conflict": [], "unlabelled_real": [], "executed_conflict": []}
     for it in items:
-        hum = [lab for lab in effective(labels, it.id, it.sha256) if lab.labeller.startswith("human:")]
+        eff = effective(labels, it.id, it.sha256)
+        hum = [lab for lab in eff if lab.labeller.startswith("human:")]
+        ex = {_value(lab.value) for lab in eff if lab.labeller == EXECUTED} - {None}
         if _stale(labels, it.id, it.sha256):
             info["stale_labels"].append(it.id)
         vals = {_value(lab.value) for lab in hum} - {None}
@@ -88,9 +103,16 @@ def truths(items: Sequence[GoldItem], labels: Any = ()) -> tuple[dict[str, bool 
         if len(vals) > 1:
             info["human_disagreement"].append(it.id)
         proof = PROVEN.get(it.source)
+        executed = next(iter(ex)) if len(ex) == 1 else None
+        if len(ex) > 1:
+            info["executed_conflict"].append(it.id)
         if human is not None:
             out[it.id] = human
             if proof is not None and proof != human:
+                info["proof_conflict"].append(it.id)
+        elif executed is not None and not vals:
+            out[it.id] = executed  # an executed label decides a real item; on a constructed one it must agree with the proof
+            if proof is not None and proof != executed:
                 info["proof_conflict"].append(it.id)
         elif proof is not None and not vals:
             out[it.id] = proof
@@ -206,3 +228,101 @@ async def run_goldset(items: Sequence[GoldItem], grade: Callable[[Any], Awaitabl
     """Grade every gold item with the verifier under test, then ``score``."""
     verdicts = {it.id: graded_from(await call(grade, it.solution)) for it in items}
     return score(items, verdicts, labels, config=config)
+
+
+# ---- P2: executed labels, per-class bounds, the spot-check queue, the family's verifier card -------------------------------
+def executed_label(item: GoldItem, value: bool, *, reason: str, at: str | None = None) -> Any:
+    """A ``miner:executed`` label (``cards.Label``) on ``item`` at its current hash: the verdict of an executed check that
+    is independent of the verifier under test."""
+    from datetime import UTC, datetime
+
+    from crucible.factory.cards import Label
+
+    stamp = at or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return Label(id=f"exec-{item.sha256[:12]}-{item.id}"[:120], item=item.id, item_sha256=item.sha256, labeller=EXECUTED,
+                 value="pass" if value else "fail", reason=reason[:500], at=stamp)
+
+
+def zero_error_n(bound: float, *, confidence: float = 0.95) -> int:
+    """The smallest n whose Wilson upper bound at zero errors is <= ``bound`` (36 for 10%, 73 for 5%)."""
+    from crucible.factory.labels import wilson
+
+    n = 1
+    while wilson(0, n, confidence)[1] > bound:
+        n += 1
+    return n
+
+
+def class_bounds(fp: Frac, fn: Frac) -> dict[str, Any]:
+    """Per truth class: the truly-failing items (false-pass rate) and the truly-passing ones (false-fail rate), each with
+    its count, errors, Wilson upper bound and the zero-error targets it meets."""
+    out = {}
+    for cls, f in (("truly_failing", fp), ("truly_passing", fn)):
+        hi = f.interval[1]
+        out[cls] = {"n": f.n, "errors": f.k, "rate": None if f.rate is None else round(f.rate, 4), "wilson_upper": round(hi, 4),
+                    "targets": {f"<= {b:.0%}": {"need_n": need, "met": f.k == 0 and f.n >= need and hi <= b + 1e-9} for need, b in ZERO_ERROR_TARGETS},
+                    "measure": "false_pass" if cls == "truly_failing" else "false_fail"}
+    return out
+
+
+def pair_fracs(pairs: Sequence[tuple[bool | None, bool | None]]) -> tuple[Frac, Frac]:
+    """(false-pass, false-fail) fractions over ``(truth, verdict)`` pairs; a None on either side is not counted."""
+    fp_k = fp_n = fn_k = fn_n = 0
+    for t, v in pairs:
+        if t is None or v is None:
+            continue
+        if t:
+            fn_n += 1
+            fn_k += int(not v)
+        else:
+            fp_n += 1
+            fp_k += int(bool(v))
+    return Frac(fp_k, fp_n), Frac(fn_k, fn_n)
+
+
+def spot_check_queue(items: Sequence[GoldItem], truth: Mapping[str, bool | None], *, share: float = 0.10, seed: str = "p2",
+                     unlabelled: bool = True) -> list[dict[str, Any]]:
+    """A deterministic ``share`` sample of the labelled items (at least one per source present, then by a seeded hash
+    order) for a human to confirm: id, source, family, sha256, the label to confirm and a blank ``human_label``. With
+    ``unlabelled``, every real item without a truth (the executed label and the second verifier disagree) follows, with
+    ``label`` None: those need a person to decide, not to confirm."""
+    import hashlib
+
+    labelled = [it for it in items if truth.get(it.id) is not None]
+    want = max(1, math.ceil(share * len(labelled))) if labelled else 0
+
+    def key(it: GoldItem) -> str:
+        return hashlib.sha256(f"{seed}:{it.id}:{it.sha256}".encode()).hexdigest()
+
+    order = sorted(labelled, key=key)
+    picked: list[GoldItem] = []
+    for src in SOURCES:
+        first = next((it for it in order if it.source == src), None)
+        if first is not None:
+            picked.append(first)
+    for it in order:
+        if len(picked) >= want:
+            break
+        if it not in picked:
+            picked.append(it)
+    rows = [{"item": it.id, "source": it.source, "family": it.family, "sha256": it.sha256, "label": "pass" if truth[it.id] else "fail",
+             "proven_by": it.proven_by, "meta": it.meta, "human_label": None, "human": None, "task": "confirm"} for it in picked]
+    if unlabelled:
+        rows += [{"item": it.id, "source": it.source, "family": it.family, "sha256": it.sha256, "label": None, "proven_by": it.proven_by, "meta": it.meta,
+                  "human_label": None, "human": None, "task": "decide"} for it in items if it.source in REAL and truth.get(it.id) is None]
+    return rows
+
+
+def verifier_card(report: GoldReport, *, verifier_version: str, family: str = "", mutant_kill: tuple[int, int] = (0, 0),
+                  alternatives_pass: tuple[int, int] = (0, 0), differential: tuple[int, int] = (0, 0), hacks_confirmed: int = 0,
+                  floors: Mapping[str, float] | None = None, flake_upper: float | None = None, units: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The family's verifier card: the ``cards.VerifierCard`` fields (validated) plus the per-class bounds of the gold set
+    and of any finer unit (``units``: name -> (fp Frac, fn Frac))."""
+    from crucible.factory.cards import VerifierCard
+
+    card = VerifierCard(verifier_version=verifier_version, floors=dict(floors or {}), mutant_kill=mutant_kill, alternatives_pass=alternatives_pass,
+                        hacks_confirmed=hacks_confirmed, differential_disagreements=differential, fp=report.fp.pair(), fn=report.fn.pair(),
+                        flake_upper=flake_upper, kappa=report.kappa["kappa"])
+    return {"family": family, "card": card.model_dump(mode="json"), "bounds": class_bounds(report.fp, report.fn),
+            "units": {k: class_bounds(*v) for k, v in (units or {}).items()}, "counts": report.counts, "real_share": round(report.real_share, 4),
+            "errors": report.errors, "unmeasured": len(report.unmeasured), "info": {k: len(v) for k, v in report.info.items()}}

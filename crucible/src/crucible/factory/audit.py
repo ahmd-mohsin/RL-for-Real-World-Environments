@@ -14,6 +14,15 @@ where the auditor and the verifier disagree, and the cause mix with intervals.
   (or cause ``verifier_defect``) is a false-fail candidate. Each is a defect for the verifier writer (§6.5).
 - **Cause mix** over the audited real failures: share per cause with a Wilson interval. *v1*: ≥ 70% skill gap, or the
   task is hard for the wrong reason; any World bug or spec defect sends the task back to its owner.
+
+**P3 (swarm-pipeline/00 §8.4: the auditor is audited).**
+- **Same-family judging is forbidden by config.** ``audit`` refuses a batch in which a trace's policy shares the
+  auditor model's family (``cross_family_problems``; ``AuditConfig.forbid_same_family``): a deepseek auditor never labels a
+  deepseek hacker's trace. ``split_by_family`` routes such traces to a third family or to deterministic facts only.
+- **Human κ sample.** ``human_queue`` writes the 10% sample (``human_sample``) of a batch, real trace ids with the
+  auditor's label and quote, for a human to label; ``kappa_vs_human`` reports Cohen's κ on the cause once labels exist.
+- Seeded controls and the trust rule are unchanged: ``AuditReport.auditor_trusted`` is True only when every control is
+  right, and ``factory.traceaudit`` drops every label-derived proposal of an untrusted batch.
 """
 
 from __future__ import annotations
@@ -91,6 +100,7 @@ class AuditConfig:
     human_share: float = 0.10  # v1: the human samples 10%
     send_back_causes: tuple[str, ...] = ("world_bug", "spec_defect")
     concurrency: int = 8  # (M17 e2e) judge calls in flight: one at a time made a 16-trace batch a 10-minute stage
+    forbid_same_family: bool = True  # P3 (00 §8.4): a trace whose policy shares the auditor's model family is refused
 
 
 def _fold(s: str) -> str:
@@ -207,8 +217,13 @@ def _opaque(i: int, salt: str) -> str:
 
 async def audit(traces: Sequence[Trace], auditor: Auditor, *, prompt: str, requirements: Sequence[Any] = (), seeded: Sequence[SeededCase] = (),
                 salt: str = "audit") -> AuditReport:
-    """Label every trace (and the seeded controls, under opaque ids, in a fixed shuffled order) and summarise."""
+    """Label every trace (and the seeded controls, under opaque ids, in a fixed shuffled order) and summarise. Raises
+    ``ValueError`` when a trace's policy shares the auditor's model family (``AuditConfig.forbid_same_family``)."""
     cfg = auditor.config
+    if cfg.forbid_same_family:
+        bad = cross_family_problems(auditor.model, [t.policy for t in traces])
+        if bad:
+            raise ValueError("same-family judging is forbidden: " + "; ".join(bad))
     batch: list[tuple[str, Trace, SeededCase | None]] = [(t.id, t, None) for t in traces]
     for j, s in enumerate(seeded):
         oid = _opaque(j, salt)
@@ -247,3 +262,66 @@ def human_sample(trace_ids: Sequence[str], *, share: float = 0.10, salt: str = "
         return []
     n = max(1, math.ceil(round(share * len(trace_ids), 9)))
     return sorted(sorted(trace_ids, key=lambda i: hashlib.sha256(f"{salt}:{i}".encode()).hexdigest())[:n])
+
+
+# ---- P3: the auditor is audited (swarm-pipeline/00 §8.4) -------------------------------------------------------------------
+def policy_model(policy: str) -> str:
+    """The model id inside a policy label: ``solver:qwen/qwen3.7-flash@route`` -> ``qwen/qwen3.7-flash``."""
+    p = str(policy or "").strip()
+    if ":" in p and "/" in p.split(":", 1)[1] and "/" not in p.split(":", 1)[0]:
+        p = p.split(":", 1)[1]
+    return p.split("@", 1)[0]
+
+
+def _family(model: str) -> str:
+    from crucible.factory.models import family_of
+
+    return family_of(policy_model(model)) if model else ""
+
+
+def cross_family_problems(auditor_model: str, policies: Sequence[str]) -> list[str]:
+    """One problem per policy whose model family equals the auditor's (empty policies and seeded ``control`` traces are not
+    a model). No auditor model: nothing to check."""
+    fam = _family(auditor_model)
+    if not fam:
+        return []
+    seen = sorted({p for p in policies if p and p != "control" and _family(p) == fam})
+    return [f"policy {p} and auditor {auditor_model} are both family {fam!r}" for p in seen]
+
+
+def split_by_family(traces: Sequence[Trace], auditor_model: str) -> tuple[list[Trace], list[Trace]]:
+    """(traces this auditor may judge, traces it may not: same family)."""
+    fam = _family(auditor_model)
+    ok, refused = [], []
+    for t in traces:
+        (refused if fam and t.policy and t.policy != "control" and _family(t.policy) == fam else ok).append(t)
+    return ok, refused
+
+
+def human_queue(report: AuditReport, path: Any, *, share: float | None = None, salt: str = "human") -> list[dict]:
+    """The human kappa sample of a batch (``human_sample`` over the real traces), appended to ``path`` (JSONL): trace id, the
+    auditor's cause, its quote and ``human_cause: null`` for the human to fill. Returns the rows."""
+    from pathlib import Path
+
+    ids = human_sample(sorted(report.labels), share=report.config.human_share if share is None else share, salt=salt)
+    rows = [{"trace_id": i, "auditor_cause": report.labels[i].cause, "auditor_correct": report.labels[i].solution_correct,
+             "evidence": report.labels[i].evidence, "status": report.labels[i].status, "human_cause": None, "model": report.model} for i in ids]
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a") as fh:
+        for r in rows:
+            fh.write(json.dumps(r) + "\n")
+    return rows
+
+
+def kappa_vs_human(labels: dict[str, AuditLabel], human: dict[str, str | None]) -> dict:
+    """Cohen's kappa between the auditor's cause and the human's on the items both labelled (``None`` human labels are
+    pending). Below 0.6 the auditor's causes do not count (00 §5.7)."""
+    from crucible.factory.labels import cohen_kappa
+
+    items = sorted(i for i, h in human.items() if h is not None and i in labels)
+    a = [str(labels[i].cause) for i in items]
+    b = [str(human[i]) for i in items]
+    k = cohen_kappa(a, b) if items else None
+    return {"n": len(items), "pending": sum(1 for h in human.values() if h is None), "kappa": k,
+            "agree": sum(x == y for x, y in zip(a, b)), "counts": k is not None and k >= 0.6}

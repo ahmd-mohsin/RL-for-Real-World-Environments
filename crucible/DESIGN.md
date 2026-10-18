@@ -785,6 +785,42 @@ P1, machine v2 (`factory/machine.py`, `sessions.py`, `handoff.py`, `receipts.py`
 - **Receipts:** every run writes one with a `not_verified` list. The seeded-defect harness catches 13/13 cases (6 task
   defects at their states, 6 machine defects, 1 clean control), and its twin tests reject 10/10 tampered receipts.
 
+P2, verifier rigor (`factory/verifier2.py`, `alternatives.py`, `fairness.py`, `goldset.py`; $0.45):
+- **Re-mine (`store3`):**
+  - import-tolerant;
+  - test ids keyed by the file that ran them (fixes the cachetools/markdown regression ids);
+  - volatile ids dropped;
+  - result: 28 dependent training windows, 11 held-out.
+- **Second verifier:** another family writes shadow tests from the prompt and the repo at A only. A shadow test gates
+  only after it passes the oracle and the alternatives and fails the mutants.
+- **Differential** over 3,406 (end state, requirement) pairs: 0 confirmed verifier-1 defects. 81 spec or gap candidates
+  and 39 false-fail candidates are handed to the P3 audit.
+- **Alternatives:** model rewrites from 3 families, accepted only when the real tests and verifier 2 both pass them. 57
+  accepted; 22 of 27 windows have ≥ 2.
+- **Fairness lint:** source-text checks, unstated formats, checks with no requirement, and the ten-competent-people test.
+- **Verifier card, family `window`:**
+  - false-pass bound 1.1% (0 errors in 342 items);
+  - false-fail bound 6.4% (1 error in 84 items; the 5% target is not met);
+  - mutants 116/116 killed.
+- **Seeded gaps:** source-text check, weak check and false-failing check are all caught on the toy window. On real
+  windows, the weak check (3/3) and the false-failing check (3/3) are caught by execution; the source-text check is
+  caught by the lint (4/4) but not by execution (0/4), because the rewrites keep the variable name.
+
+P3, the trace-audit loop (`factory/traceaudit.py`, `versioning.py`; `audit.py` extended; $0.20):
+- An M16 RLM auditor reads episode bundles: turns, tool calls, `progress.jsonl`, diffs, path checks.
+- **Facts first, without a judge;** then the first wrong step from the Φ series; then cause labels with verbatim quotes
+  and seeded controls.
+- **Typed proposals,** accepted only on executed evidence (spec 8.3). Each accepted fix becomes a version with lineage
+  in a hash-chained `VersionStore`. `objective_id` keeps rewards from different verifier versions apart.
+- **Same-family judging is refused,** a 10% human κ queue is kept, and auditor notes change only through
+  `HarnessState.evaluate`.
+- **Seeded:** lucky pass, unstated name and broken tool became accepted versioned fixes; a fake check was rejected. The
+  lucky pass was caught by the executed pass audit, not by the judge.
+- **Over 439 real trails:**
+  - 7 World bugs reproduced on the oracle (missing setuptools, make, hexdump; PyYAML in glom);
+  - 1 of 15 spec fixes accepted;
+  - 17 intent-drift candidates await human approval.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

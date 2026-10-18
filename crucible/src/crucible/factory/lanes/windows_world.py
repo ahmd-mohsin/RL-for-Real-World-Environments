@@ -257,14 +257,17 @@ def judge_leak(fields: dict[str, str], *, version: str | None) -> dict[str, Any]
     return {"probes": probes, "ok": all(v in ("pass", "n/a") for v in probes.values()), "evidence": {k: fields.get(k, "")[:300] for k in fields}}
 
 
-async def leak_probes(image: str, base_dir: Path, *, package: str | None, version: str | None, new_test_names: set[str]) -> dict[str, Any]:
+async def leak_probes(image: str, base_dir: Path, *, package: str | None, version: str | None, new_test_names: set[str],
+                      name_prefix: str = f"{PREFIX}leak-") -> dict[str, Any]:
+    if not name_prefix.startswith(PREFIX):
+        raise ValueError(f"World containers are named {PREFIX}*, got prefix {name_prefix!r}")
     with tempfile.TemporaryDirectory(prefix="lhleak-") as td:
         probe = Path(td)
         seed_workspace(base_dir, probe / "ws")
         # a definition of a new test, not the bare word (pip's vendored urllib3 says "timeout_value" too)
         (probe / "names").write_text("".join(f"def {n}(\n" for n in sorted(new_test_names)))
         dist = re.sub(r"[-_.]+", "?", (package or "none-such-package"))
-        name = f"{PREFIX}leak-{uuid.uuid4().hex[:10]}"
+        name = f"{name_prefix}{uuid.uuid4().hex[:10]}"
         args = ["run", "--rm", "--name", name, "--network", "none", "-v", f"{probe.resolve()}:/probe:ro", "-e", f"LH_PKG={package or 'none-such-package'}",
                 "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", image, "bash", "-c", LEAK_SCRIPT]
         r = await asyncio.to_thread(docker, *args, timeout=600)

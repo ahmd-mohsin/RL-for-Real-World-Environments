@@ -1,13 +1,15 @@
 """The window lane's mining run (study 08 §9 steps 2-3; report 09).
 
-    python scripts/lh_windows.py --work <dir> mine   [--repos a,b] [--clones <dir>] [--cap 8] [--hours 2]
+    python scripts/lh_windows.py --work <dir> mine   [--repos a,b] [--clones <dir>] [--cap 8] [--hours 2] [--store store3]
     python scripts/lh_windows.py --work <dir> report [--out docs/research/task-factory/runs/window_funnel.json]
     python scripts/lh_windows.py --work <dir> author --n 4 [--usd 2]     (prompt authoring smoke test, paid)
     python scripts/lh_windows.py --work <dir> cleanup                    (removes this lane's containers, never images)
 
 ``mine`` clones what is missing (``REPO_URLS``), mines windows per repository, builds the World image at A, runs the
 leak probes, the fail-to-pass / pass-to-pass reruns, the dependency prober and the commit-revert mutants, and writes one
-record per window under ``<work>/store/{train,heldout}/tasks/<id>/``. Held-out repositories (``HELD_OUT_REPOS``, fixed
+record per window under ``<work>/<store>/{train,heldout}/tasks/<id>/`` (``--store``, default ``store``; P2 re-mined
+import-tolerant into ``store3`` with the test-id fix). ``--grade-prefix`` / ``--leak-prefix`` name this run's grading and
+leak-probe containers, so a run removes only its own. Held-out repositories (``HELD_OUT_REPOS``, fixed
 before mining) only ever go to the held-out store. ``report`` writes the funnel per stage per repository.
 """
 
@@ -31,6 +33,7 @@ from crucible.factory.lanes.windows import (
     funnel,
     mine,
     open_store,
+    remine,
     review_realism,
     sandbox_factory,
     split_of,
@@ -67,15 +70,27 @@ async def cmd_mine(a: argparse.Namespace) -> None:
     repos = clones(Path(a.clones) if a.clones else work / "repos", names)
     deadline = time.time() + a.hours * 3600 if a.hours else None
     images = ImageBook(parallel=a.builds)
-    sandboxes = sandbox_factory(parallel=a.parallel)
-    log = logger(work / "mine_log.jsonl")
+    sandboxes = sandbox_factory(parallel=a.parallel, name_prefix=a.grade_prefix)
+    log = logger(work / ("mine_log.jsonl" if a.store == "store" else f"mine_log_{a.store}.jsonl"))
     sem = asyncio.Semaphore(a.windows)  # every repository's windows share one limit, each into its own split's store
 
+    if a.from_store:  # P2: validate again exactly the windows another store recorded (window for window comparable funnels)
+        for split in ("train", "heldout"):
+            src_root = work / a.from_store / split
+            if not (src_root / "split.json").exists():
+                continue
+            n = await remine(WindowStore(src_root, split=split), WindowStore(work / a.store / split, split=split), repos, images=images,
+                             sandboxes=sandboxes, reruns=a.reruns, parallel_windows=a.windows, deadline=deadline, log=log, leak_prefix=a.leak_prefix or None,
+                             redo=("deadline", "error", *[x for x in a.redo.split(",") if x]))
+            log({"event": "remine_done", "split": split, "validated": n})
+        return
+
     async def one(name: str, path: Path) -> None:
-        store = open_store(work / "store", name)
+        store = open_store(work / a.store, name)
         t0 = time.time()
         n = await mine({name: path}, store, images=images, sandboxes=sandboxes, cap=a.cap, since=a.since, reruns=a.reruns,
-                       deadline=deadline, log=log, window_sem=sem, redo=("deadline", "error", *[x for x in a.redo.split(",") if x]))
+                       deadline=deadline, log=log, window_sem=sem, redo=("deadline", "error", *[x for x in a.redo.split(",") if x]),
+                       leak_prefix=a.leak_prefix or None)
         log({"event": "repo_done", "repo": name, "split": split_of(name), "windows": n[name], "seconds": round(time.time() - t0, 1)})
 
     await asyncio.gather(*[one(n, p) for n, p in repos.items()])
@@ -85,7 +100,7 @@ def cmd_report(a: argparse.Namespace) -> None:
     work = Path(a.work)
     out = {}
     for split in ("train", "heldout"):
-        root = work / "store" / split
+        root = work / a.store / split
         if (root / "split.json").exists():
             out[split] = funnel(WindowStore(root, split=split))
     out["held_out_repos"] = HELD_OUT_REPOS
@@ -100,7 +115,7 @@ async def cmd_author(a: argparse.Namespace) -> None:
     from crucible.factory.models import ModelBook
 
     work = Path(a.work)
-    store = WindowStore(work / "store" / "train", split="train")
+    store = WindowStore(work / a.store / "train", split="train")
     book = ModelBook.from_config(budget_usd_per_client=a.usd / 2)
     author, realism = book.client("author"), book.client("realism")
     ids = [w for w in store.window_ids() if store.window(w).get("stage") == "mutants_valid"][: a.n]
@@ -143,6 +158,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", required=True)
     ap.add_argument("--clones", default=None)
+    ap.add_argument("--store", default="store", help="store directory under --work (P2 re-mine: store3)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("mine")
     m.add_argument("--repos", default="")
@@ -154,6 +170,9 @@ def main() -> None:
     m.add_argument("--windows", type=int, default=4, help="concurrent windows")
     m.add_argument("--builds", type=int, default=3, help="concurrent image builds")
     m.add_argument("--redo", default="", help="comma-separated reason prefixes to validate again (after a lane fix)")
+    m.add_argument("--grade-prefix", default="crucible-m17-", help="grading container name prefix")
+    m.add_argument("--leak-prefix", default="", help="leak-probe container name prefix (under crucible-lh-)")
+    m.add_argument("--from-store", default="", help="re-validate exactly the windows of this store directory (under --work) into --store")
     r = sub.add_parser("report")
     r.add_argument("--out", default=None)
     au = sub.add_parser("author")

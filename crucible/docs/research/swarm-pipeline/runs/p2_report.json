@@ -1,0 +1,2114 @@
+{
+ "summary": {
+  "windows": 27,
+  "gold_items": 448,
+  "executed_labels": 145,
+  "real_disputed": 22,
+  "alternatives": {
+   "accepted": 57,
+   "windows_with_2": 22,
+   "candidates": 99
+  },
+  "shadow": {
+   "tests": 858,
+   "requirements": 208,
+   "gating": 60,
+   "fails_oracle": 336,
+   "fails_alternative": 0
+  },
+  "lint": {
+   "source_text": 0,
+   "source_structure": 0,
+   "private_name": 0,
+   "unstated_format": 435,
+   "no_requirement": 0
+  },
+  "lint_refused_checks": 0,
+  "false_fail_checks": 1,
+  "defects": {
+   "verifier2:weak_shadow": 746,
+   "verifier2:unsound_shadow": 353,
+   "spec:unstated_format": 75,
+   "verifier1:verifier_gap": 6
+  },
+  "confirmed": {
+   "verifier2:weak_shadow": 293,
+   "verifier2:unsound_shadow": 343
+  },
+  "machine": {
+   "paused": 6,
+   "rejected": 1,
+   "done": 20
+  },
+  "spend_usd": {
+   "author": 0.015296,
+   "second_verifier": 0.174488,
+   "rewriter_a": 0.049114,
+   "rewriter_b": 0.037551,
+   "rewriter_c": 0.168312
+  },
+  "spend_total": 0.4448,
+  "spot_check_queue": 65,
+  "spot_check_decide": 22,
+  "false_fail_candidates": [
+   "arrow-w57332ed-a4f1797:rewrite:rewrite-functional-mistral:R1",
+   "arrow-w57332ed-a4f1797:rewrite:rewrite-functional-mistral:R2",
+   "arrow-w57332ed-a4f1797:rewrite:rewrite-functional-mistral:R5",
+   "arrow-wfbec661-57332ed:rewrite:rewrite-imperative-qwen:R7",
+   "arrow-wfbec661-57332ed:rewrite:rewrite-functional-mistral:R1",
+   "arrow-wfbec661-57332ed:rewrite:rewrite-functional-deepseek:R1",
+   "boltons-w9342f08-01e754f:rewrite:rewrite-functional-mistral:R1",
+   "boltons-w9342f08-01e754f:rewrite:rewrite-functional-deepseek:R1",
+   "boltons-w9342f08-01e754f:rewrite:rewrite-functional-deepseek:R7",
+   "cachetools-w0913ada-d7b2423:rewrite:rewrite-imperative-qwen:R6",
+   "cachetools-w3e5fe02-91aa4c6:rewrite:rewrite-imperative-qwen:R4",
+   "cachetools-w3e5fe02-91aa4c6:rewrite:rewrite-imperative-qwen:R6",
+   "click-w7d71836-ac2dd7a:rewrite:rewrite-functional-mistral:R5",
+   "glom-w07d5ee0-f853c3e:rewrite:rewrite-functional-mistral:R1",
+   "glom-w07d5ee0-f853c3e:rewrite:rewrite-functional-mistral:R3",
+   "glom-w07d5ee0-f853c3e:rewrite:rewrite-functional-mistral:R6",
+   "glom-w07d5ee0-f853c3e:rewrite:rewrite-functional-deepseek:R1",
+   "humanize-w3137dac-f9fa838:rewrite:rewrite-imperative-qwen:R1",
+   "humanize-w3137dac-f9fa838:rewrite:rewrite-functional-mistral:R1",
+   "lark-w293bf07-4181e47:rewrite:rewrite-functional-mistral:R4",
+   "lark-w293bf07-4181e47:rewrite:rewrite-functional-mistral:R7",
+   "marshmallow-wdc3bab4-937141d:rewrite:rewrite-imperative-qwen:R1",
+   "marshmallow-wdc3bab4-937141d:rewrite:rewrite-imperative-qwen:R2",
+   "marshmallow-wdc3bab4-937141d:rewrite:rewrite-functional-mistral:R1",
+   "marshmallow-wdc3bab4-937141d:rewrite:rewrite-functional-mistral:R2",
+   "marshmallow-wdc3bab4-937141d:rewrite:rewrite-functional-mistral:R7",
+   "more-itertools-w15407c7-41a6d0f:rewrite:rewrite-imperative-qwen:R3",
+   "more-itertools-w15407c7-41a6d0f:rewrite:rewrite-functional-mistral:R3",
+   "more-itertools-w15407c7-41a6d0f:rewrite:rewrite-functional-mistral:R4",
+   "more-itertools-wc65a3de-8881973:rewrite:rewrite-functional-mistral:R1",
+   "more-itertools-wc65a3de-8881973:rewrite:rewrite-functional-mistral:R2",
+   "more-itertools-wc65a3de-8881973:rewrite:rewrite-functional-mistral:R3",
+   "more-itertools-wc65a3de-8881973:rewrite:rewrite-functional-mistral:R4",
+   "parse-w07c2ff9-44e14b0:rewrite:rewrite-functional-mistral:R5",
+   "parse-w07c2ff9-44e14b0:rewrite:rewrite-functional-mistral:R6",
+   "parse-w07c2ff9-44e14b0-s10:rewrite:rewrite-imperative-qwen:R7",
+   "parse-w07c2ff9-44e14b0-s10:rewrite:rewrite-functional-mistral:R5",
+   "parse-w07c2ff9-44e14b0-s10:rewrite:rewrite-functional-mistral:R6",
+   "python-semver-w41775dd-1bafb9f:rewrite:rewrite-functional-mistral:R6"
+  ],
+  "verifier_gap_candidates": [
+   "humanize-wf9fa838-bc23540:solver:lhrun-solvers_v2-575112531d6a5927-a1:R6",
+   "lark-w11ef9a1-9f3d611:mutant:revert_m28:R6",
+   "lark-w293bf07-4181e47:rewrite:rewrite-functional-mistral:R8",
+   "parse-w07c2ff9-44e14b0:rewrite:rewrite-imperative-qwen:R8",
+   "parse-w07c2ff9-44e14b0:rewrite:rewrite-functional-mistral:R8",
+   "parse-w07c2ff9-44e14b0:rewrite:rewrite-functional-mistral:R10"
+  ],
+  "gold_errors": {
+   "false_pass": [],
+   "false_fail": [
+    "marshmallow-wdc3bab4-937141d:oracle"
+   ]
+  },
+  "funnel": {
+   "train": {
+    "total": {
+     "windows": 124,
+     "world_built": 123,
+     "leak_ok": 123,
+     "f2p_valid": 95,
+     "dependent": 28,
+     "mutants_valid": 28
+    },
+    "store2_total": {
+     "windows": 122,
+     "world_built": 112,
+     "leak_ok": 111,
+     "f2p_valid": 90,
+     "dependent": 28,
+     "mutants_valid": 28
+    },
+    "same_windows": 122,
+    "dependent_kept": 24,
+    "dependent_gained": [
+     "funcy-w416c187-13fac00",
+     "lark-w293bf07-4181e47",
+     "python-semver-w41775dd-1bafb9f"
+    ],
+    "dependent_lost": [
+     "glom-wf853c3e-0f7f992",
+     "lark-w9f3d611-5f230c6",
+     "lark-wa095071-293bf07",
+     "toolz-w2ac03ce-55c60e9"
+    ]
+   },
+   "heldout": {
+    "total": {
+     "windows": 84,
+     "world_built": 74,
+     "leak_ok": 74,
+     "f2p_valid": 40,
+     "dependent": 11,
+     "mutants_valid": 11
+    },
+    "store2_total": {
+     "windows": 84,
+     "world_built": 74,
+     "leak_ok": 74,
+     "f2p_valid": 40,
+     "dependent": 10,
+     "mutants_valid": 10
+    },
+    "same_windows": 84,
+    "dependent_kept": 10,
+    "dependent_gained": [
+     "mistune-w90b1a73-060f73a"
+    ],
+    "dependent_lost": []
+   }
+  }
+ },
+ "families": {
+  "window": {
+   "family": "window",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.090909
+    },
+    "mutant_kill": [
+     116,
+     116
+    ],
+    "alternatives_pass": [
+     57,
+     57
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     1180,
+     3406
+    ],
+    "fp": [
+     0,
+     342
+    ],
+    "fn": [
+     1,
+     84
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 342,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.0111,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": true
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": true
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 84,
+     "errors": 1,
+     "rate": 0.0119,
+     "wilson_upper": 0.0644,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 740,
+      "errors": 2,
+      "rate": 0.0027,
+      "wilson_upper": 0.0098,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 1445,
+      "errors": 0,
+      "rate": 0.0,
+      "wilson_upper": 0.0027,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": true
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": true
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 167,
+    "mutant": 116,
+    "alternative": 57,
+    "hack": 0,
+    "oracle": 27,
+    "floor": 81
+   },
+   "real_share": 0.3728,
+   "errors": {
+    "false_pass": [],
+    "false_fail": [
+     "marshmallow-wdc3bab4-937141d:oracle"
+    ]
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 22,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "real solver outputs are 37% of the gold set, need 50%",
+    "real items without a human truth label: 22"
+   ],
+   "windows": 27
+  },
+  "arrow": {
+   "family": "arrow",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     28,
+     28
+    ],
+    "alternatives_pass": [
+     12,
+     12
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     121,
+     531
+    ],
+    "fp": [
+     0,
+     46
+    ],
+    "fn": [
+     0,
+     18
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 46,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.0771,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": true
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 18,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.1759,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 28,
+    "alternative": 12,
+    "hack": 0,
+    "oracle": 6,
+    "floor": 18
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-fail rate 0/18, Wilson upper 0.176 > 0.1"
+   ],
+   "windows": 6
+  },
+  "boltons": {
+   "family": "boltons",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     5,
+     5
+    ],
+    "alternatives_pass": [
+     3,
+     3
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     34,
+     90
+    ],
+    "fp": [
+     0,
+     8
+    ],
+    "fn": [
+     0,
+     4
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 8,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3244,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 4,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.4899,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 5,
+    "alternative": 3,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "12 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/8, Wilson upper 0.324 > 0.1",
+    "false-fail rate 0/4, Wilson upper 0.490 > 0.1"
+   ],
+   "windows": 1
+  },
+  "cachetools": {
+   "family": "cachetools",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     7,
+     7
+    ],
+    "alternatives_pass": [
+     4,
+     4
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     37,
+     135
+    ],
+    "fp": [
+     0,
+     13
+    ],
+    "fn": [
+     0,
+     6
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 13,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.2281,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 6,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3903,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 7,
+    "alternative": 4,
+    "hack": 0,
+    "oracle": 2,
+    "floor": 6
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "19 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/13, Wilson upper 0.228 > 0.1",
+    "false-fail rate 0/6, Wilson upper 0.390 > 0.1"
+   ],
+   "windows": 2
+  },
+  "click": {
+   "family": "click",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.090909
+    },
+    "mutant_kill": [
+     11,
+     11
+    ],
+    "alternatives_pass": [
+     3,
+     3
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     45,
+     200
+    ],
+    "fp": [
+     0,
+     14
+    ],
+    "fn": [
+     0,
+     4
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 14,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.2153,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 4,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.4899,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 11,
+    "alternative": 3,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "18 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/14, Wilson upper 0.215 > 0.1",
+    "false-fail rate 0/4, Wilson upper 0.490 > 0.1"
+   ],
+   "windows": 1
+  },
+  "funcy": {
+   "family": "funcy",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     2,
+     2
+    ],
+    "alternatives_pass": [
+     2,
+     2
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     12,
+     30
+    ],
+    "fp": [
+     0,
+     5
+    ],
+    "fn": [
+     0,
+     3
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 5,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.4345,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 3,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.5615,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 2,
+    "alternative": 2,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "8 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/5, Wilson upper 0.434 > 0.1",
+    "false-fail rate 0/3, Wilson upper 0.561 > 0.1"
+   ],
+   "windows": 1
+  },
+  "glom": {
+   "family": "glom",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     12,
+     12
+    ],
+    "alternatives_pass": [
+     6,
+     6
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     124,
+     438
+    ],
+    "fp": [
+     0,
+     57
+    ],
+    "fn": [
+     0,
+     9
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 57,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.0631,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": true
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 9,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.2991,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 37,
+    "mutant": 12,
+    "alternative": 6,
+    "hack": 0,
+    "oracle": 3,
+    "floor": 9
+   },
+   "real_share": 0.5522,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 1,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "false-fail rate 0/9, Wilson upper 0.299 > 0.1",
+    "real items without a human truth label: 1"
+   ],
+   "windows": 3
+  },
+  "humanize": {
+   "family": "humanize",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     4,
+     4
+    ],
+    "alternatives_pass": [
+     5,
+     5
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     121,
+     237
+    ],
+    "fp": [
+     0,
+     30
+    ],
+    "fn": [
+     0,
+     7
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 30,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.1135,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 7,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3543,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 32,
+    "mutant": 4,
+    "alternative": 5,
+    "hack": 0,
+    "oracle": 2,
+    "floor": 6
+   },
+   "real_share": 0.6531,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 12,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "false-pass rate 0/30, Wilson upper 0.114 > 0.1",
+    "false-fail rate 0/7, Wilson upper 0.354 > 0.1",
+    "real items without a human truth label: 12"
+   ],
+   "windows": 2
+  },
+  "lark": {
+   "family": "lark",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     8,
+     8
+    ],
+    "alternatives_pass": [
+     5,
+     5
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     53,
+     124
+    ],
+    "fp": [
+     0,
+     14
+    ],
+    "fn": [
+     0,
+     7
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 14,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.2153,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 7,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3543,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 8,
+    "alternative": 5,
+    "hack": 0,
+    "oracle": 2,
+    "floor": 6
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "21 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/14, Wilson upper 0.215 > 0.1",
+    "false-fail rate 0/7, Wilson upper 0.354 > 0.1"
+   ],
+   "windows": 2
+  },
+  "marshmallow": {
+   "family": "marshmallow",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     3,
+     3
+    ],
+    "alternatives_pass": [
+     0,
+     0
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     26,
+     70
+    ],
+    "fp": [
+     0,
+     6
+    ],
+    "fn": [
+     1,
+     1
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 6,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3903,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 1,
+     "errors": 1,
+     "rate": 1.0,
+     "wilson_upper": 1.0,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 3,
+    "alternative": 0,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": [
+     "marshmallow-wdc3bab4-937141d:oracle"
+    ]
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "7 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail', 'alternative']",
+    "false-pass rate 0/6, Wilson upper 0.390 > 0.1",
+    "false-fail rate 1/1, Wilson upper 1.000 > 0.1"
+   ],
+   "windows": 1
+  },
+  "more-itertools": {
+   "family": "more-itertools",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     26,
+     26
+    ],
+    "alternatives_pass": [
+     9,
+     9
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     187,
+     603
+    ],
+    "fp": [
+     0,
+     60
+    ],
+    "fn": [
+     0,
+     13
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 60,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.0602,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": true
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 13,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.2281,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 29,
+    "mutant": 26,
+    "alternative": 9,
+    "hack": 0,
+    "oracle": 4,
+    "floor": 12
+   },
+   "real_share": 0.3625,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 7,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "real solver outputs are 36% of the gold set, need 50%",
+    "false-fail rate 0/13, Wilson upper 0.228 > 0.1",
+    "real items without a human truth label: 7"
+   ],
+   "windows": 4
+  },
+  "parse": {
+   "family": "parse",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     4,
+     4
+    ],
+    "alternatives_pass": [
+     4,
+     4
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     304,
+     599
+    ],
+    "fp": [
+     0,
+     49
+    ],
+    "fn": [
+     0,
+     6
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 49,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.0727,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": true
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 6,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3903,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 39,
+    "mutant": 4,
+    "alternative": 4,
+    "hack": 0,
+    "oracle": 2,
+    "floor": 6
+   },
+   "real_share": 0.7091,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "false-fail rate 0/6, Wilson upper 0.390 > 0.1"
+   ],
+   "windows": 2
+  },
+  "pyparsing": {
+   "family": "pyparsing",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     3,
+     3
+    ],
+    "alternatives_pass": [
+     1,
+     1
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     41,
+     55
+    ],
+    "fp": [
+     0,
+     6
+    ],
+    "fn": [
+     0,
+     2
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 6,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.3903,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 2,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.6576,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 0,
+    "mutant": 3,
+    "alternative": 1,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.0,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 0,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "8 gold items, need 40",
+    "real solver outputs are 0% of the gold set, need 50%",
+    "no gold items of kind ['real_fail']",
+    "false-pass rate 0/6, Wilson upper 0.390 > 0.1",
+    "false-fail rate 0/2, Wilson upper 0.658 > 0.1"
+   ],
+   "windows": 1
+  },
+  "python-semver": {
+   "family": "python-semver",
+   "card": {
+    "verifier_version": "window-grader/p0",
+    "floors": {
+     "floor:no_op": 0.0,
+     "floor:claims_only": 0.0,
+     "floor:test_edit": 0.0,
+     "floor:pass_stub": 0.0
+    },
+    "mutant_kill": [
+     3,
+     3
+    ],
+    "alternatives_pass": [
+     3,
+     3
+    ],
+    "hacks_confirmed": 0,
+    "differential_disagreements": [
+     75,
+     294
+    ],
+    "fp": [
+     0,
+     34
+    ],
+    "fn": [
+     0,
+     4
+    ],
+    "flake_upper": null,
+    "kappa": null,
+    "horizon": null
+   },
+   "bounds": {
+    "truly_failing": {
+     "n": 34,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.1015,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_pass"
+    },
+    "truly_passing": {
+     "n": 4,
+     "errors": 0,
+     "rate": 0.0,
+     "wilson_upper": 0.4899,
+     "targets": {
+      "<= 10%": {
+       "need_n": 36,
+       "met": false
+      },
+      "<= 5%": {
+       "need_n": 73,
+       "met": false
+      }
+     },
+     "measure": "false_fail"
+    }
+   },
+   "units": {
+    "milestone": {
+     "truly_failing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_pass"
+     },
+     "truly_passing": {
+      "n": 0,
+      "errors": 0,
+      "rate": null,
+      "wilson_upper": 1.0,
+      "targets": {
+       "<= 10%": {
+        "need_n": 36,
+        "met": false
+       },
+       "<= 5%": {
+        "need_n": 73,
+        "met": false
+       }
+      },
+      "measure": "false_fail"
+     }
+    }
+   },
+   "counts": {
+    "real_pass": 0,
+    "real_fail": 30,
+    "mutant": 3,
+    "alternative": 3,
+    "hack": 0,
+    "oracle": 1,
+    "floor": 3
+   },
+   "real_share": 0.75,
+   "errors": {
+    "false_pass": [],
+    "false_fail": []
+   },
+   "unmeasured": 0,
+   "info": {
+    "human_disagreement": 0,
+    "stale_labels": 0,
+    "proof_conflict": 0,
+    "unlabelled_real": 2,
+    "executed_conflict": 0
+   },
+   "reasons": [
+    "false-pass rate 0/34, Wilson upper 0.102 > 0.1",
+    "false-fail rate 0/4, Wilson upper 0.490 > 0.1",
+    "real items without a human truth label: 2"
+   ],
+   "windows": 1
+  }
+ }
+}

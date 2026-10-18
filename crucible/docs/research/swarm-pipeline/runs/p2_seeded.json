@@ -1,0 +1,378 @@
+[
+ {
+  "window": "arrow-w3e50ae4-f8a6521",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "arrow-w57332ed-a4f1797",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "arrow-wb746fed-5248407",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "arrow-wc856ab9-6136257",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "arrow-wce69c31-fbec661",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "arrow-wfbec661-57332ed",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "boltons-w9342f08-01e754f",
+  "function": "boltons.fileutils.iter_find_files",
+  "local": "basename",
+  "alternative": "rewrite-imperative-qwen",
+  "milestone": "m29",
+  "i_variable_name": {
+   "lint": [
+    "source_text"
+   ],
+   "lint_caught": true,
+   "admitted": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": true,
+    "rewrite-functional-mistral-subset": true,
+    "rewrite-functional-deepseek-subset": true
+   },
+   "execution_caught": false
+  },
+  "ii_weak_check": {
+   "requirement": "R3",
+   "replaced_with": "tests/test_cacheutils.py::test_cached_dec",
+   "defects": [
+    {
+     "id": "boltons-w9342f08-01e754f:mutant:revert_m29:R3",
+     "window": "boltons-w9342f08-01e754f",
+     "end_state": "mutant:revert_m29",
+     "kind": "mutant",
+     "requirement": "R3",
+     "milestone": "m29",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r3.py::test_r3_multireplace_no_warning",
+       "crucible_shadow/test_shadow_r3.py::test_r3_parse_qsl_no_warning"
+      ]
+     }
+    },
+    {
+     "id": "boltons-w9342f08-01e754f:start:R3",
+     "window": "boltons-w9342f08-01e754f",
+     "end_state": "start",
+     "kind": "start",
+     "requirement": "R3",
+     "milestone": "m29",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r3.py::test_r3_multireplace_no_warning",
+       "crucible_shadow/test_shadow_r3.py::test_r3_parse_qsl_no_warning"
+      ]
+     }
+    }
+   ],
+   "caught": true,
+   "ends": [
+    "mutant:revert_m29",
+    "start"
+   ]
+  },
+  "iii_false_fail": {
+   "ten_people": [
+    {
+     "check": "c_m29",
+     "test": "tests/test_cacheutils.py::test_crucible_seed_varname",
+     "kind": "false_fail",
+     "severity": "refuse",
+     "owner": "verifier",
+     "evidence": "fails the valid end state(s) ['rewrite-imperative-qwen']; failing tests ['tests/test_cacheutils.py::test_crucible_seed_varname']",
+     "requirement_ids": []
+    }
+   ],
+   "caught": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": false,
+    "rewrite-functional-mistral-subset": true,
+    "rewrite-functional-deepseek-subset": true
+   },
+   "lint_also": [
+    "source_structure",
+    "source_structure"
+   ]
+  }
+ },
+ {
+  "window": "cachetools-w0913ada-d7b2423",
+  "skipped": "no rewritten top-level function lost a local name"
+ },
+ {
+  "window": "cachetools-w3e5fe02-91aa4c6",
+  "function": "cachetools.func._cache",
+  "local": "currsize",
+  "alternative": "rewrite-imperative-qwen-subset",
+  "milestone": "m60",
+  "i_variable_name": {
+   "lint": [
+    "source_text"
+   ],
+   "lint_caught": true,
+   "admitted": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen-subset": true,
+    "rewrite-functional-mistral-subset": true
+   },
+   "execution_caught": false
+  },
+  "ii_weak_check": {
+   "skipped": "no gating shadow requirement on this milestone or no regression test"
+  },
+  "iii_false_fail": {
+   "ten_people": [
+    {
+     "check": "c_m60",
+     "test": "tests/test_fifo.py::test_crucible_seed_varname",
+     "kind": "false_fail",
+     "severity": "refuse",
+     "owner": "verifier",
+     "evidence": "fails the valid end state(s) ['oracle', 'rewrite-imperative-qwen-subset', 'rewrite-functional-mistral-subset']; failing tests ['tests/test_fifo.py::test_crucible_seed_varname']",
+     "requirement_ids": []
+    }
+   ],
+   "caught": false,
+   "rows": {
+    "oracle": false,
+    "rewrite-imperative-qwen-subset": false,
+    "rewrite-functional-mistral-subset": false
+   },
+   "lint_also": [
+    "source_structure",
+    "source_structure"
+   ]
+  }
+ },
+ {
+  "window": "click-w7d71836-ac2dd7a",
+  "function": "click._termui_impl._pipepager",
+  "local": "c",
+  "alternative": "rewrite-imperative-qwen",
+  "milestone": "m01",
+  "i_variable_name": {
+   "lint": [
+    "source_text"
+   ],
+   "lint_caught": true,
+   "admitted": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": true,
+    "rewrite-functional-deepseek": true,
+    "rewrite-functional-mistral-subset": true
+   },
+   "execution_caught": false
+  },
+  "ii_weak_check": {
+   "requirement": "R1",
+   "replaced_with": "tests/test_arguments.py::test_argument_custom_class_can_override_type_cast_value_and_never_sees_unset[argument_kwargs0-pass_argv0]",
+   "defects": [
+    {
+     "id": "click-w7d71836-ac2dd7a:mutant:revert_m01:R1",
+     "window": "click-w7d71836-ac2dd7a",
+     "end_state": "mutant:revert_m01",
+     "kind": "mutant",
+     "requirement": "R1",
+     "milestone": "m01",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r1.py::test_r1_unset_becomes_none"
+      ]
+     }
+    },
+    {
+     "id": "click-w7d71836-ac2dd7a:start:R1",
+     "window": "click-w7d71836-ac2dd7a",
+     "end_state": "start",
+     "kind": "start",
+     "requirement": "R1",
+     "milestone": "m01",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r1.py::test_r1_unset_becomes_none"
+      ]
+     }
+    }
+   ],
+   "caught": true,
+   "ends": [
+    "mutant:revert_m01",
+    "start"
+   ]
+  },
+  "iii_false_fail": {
+   "ten_people": [
+    {
+     "check": "c_m01",
+     "test": "tests/test_arguments.py::test_crucible_seed_varname",
+     "kind": "false_fail",
+     "severity": "refuse",
+     "owner": "verifier",
+     "evidence": "fails the valid end state(s) ['rewrite-imperative-qwen', 'rewrite-functional-deepseek']; failing tests ['tests/test_arguments.py::test_crucible_seed_varname']",
+     "requirement_ids": []
+    }
+   ],
+   "caught": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": false,
+    "rewrite-functional-deepseek": false,
+    "rewrite-functional-mistral-subset": true
+   },
+   "lint_also": [
+    "source_structure",
+    "source_structure"
+   ]
+  }
+ },
+ {
+  "window": "funcy-w416c187-13fac00",
+  "function": "funcy._inspect.get_spec",
+  "local": "max_n",
+  "alternative": "rewrite-imperative-qwen",
+  "milestone": "m07",
+  "i_variable_name": {
+   "lint": [
+    "source_text"
+   ],
+   "lint_caught": true,
+   "admitted": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": true,
+    "rewrite-functional-mistral-subset": true
+   },
+   "execution_caught": false
+  },
+  "ii_weak_check": {
+   "requirement": "R3",
+   "replaced_with": "tests/test_calc.py::test_cache[int]",
+   "defects": [
+    {
+     "id": "funcy-w416c187-13fac00:mutant:revert_m07:R3",
+     "window": "funcy-w416c187-13fac00",
+     "end_state": "mutant:revert_m07",
+     "kind": "mutant",
+     "requirement": "R3",
+     "milestone": "m07",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_basic",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_custom_default",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_missing_key_returns_none",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_no_keyerror"
+      ]
+     }
+    },
+    {
+     "id": "funcy-w416c187-13fac00:start:R3",
+     "window": "funcy-w416c187-13fac00",
+     "end_state": "start",
+     "kind": "start",
+     "requirement": "R3",
+     "milestone": "m07",
+     "v1": true,
+     "v2": false,
+     "truth": false,
+     "owner": "verifier1",
+     "defect": "verifier_gap",
+     "confirmed": true,
+     "rule": "truth known: verifier 1 contradicts it",
+     "evidence": {
+      "v1_failing": [],
+      "v2_failing": [
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_in_unchanged",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_basic",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_custom_default",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_missing_key_returns_none",
+       "crucible_shadow/test_shadow_r3.py::test_r3_get_lax_no_keyerror",
+       "crucible_shadow/test_shadow_r3.py::test_r3_set_in_unchanged"
+      ]
+     }
+    }
+   ],
+   "caught": true,
+   "ends": [
+    "mutant:revert_m07",
+    "start"
+   ]
+  },
+  "iii_false_fail": {
+   "ten_people": [
+    {
+     "check": "c_m07",
+     "test": "tests/test_colls.py::test_crucible_seed_varname",
+     "kind": "false_fail",
+     "severity": "refuse",
+     "owner": "verifier",
+     "evidence": "fails the valid end state(s) ['rewrite-imperative-qwen']; failing tests ['tests/test_colls.py::test_crucible_seed_varname']",
+     "requirement_ids": []
+    }
+   ],
+   "caught": true,
+   "rows": {
+    "oracle": true,
+    "rewrite-imperative-qwen": false,
+    "rewrite-functional-mistral-subset": true
+   },
+   "lint_also": [
+    "source_structure",
+    "source_structure"
+   ]
+  }
+ }
+]
