@@ -307,3 +307,83 @@ paused at S8 (< 2 alternatives, or click's pass-stub floor passes a milestone), 
 **Deviations.** (1) the second verifier ran as a call, not a session; (2) no judge, so no κ; (3) `WindowTask.alternatives()`
 is unchanged (accepted alternatives are in `lhwork/p2/windows/*`); (4) more-itertools-wd23124d has no shadow suite (3 replies
 cut off); (5) DESIGN.md is left to the merge.
+
+## P4 (built): World fixes, failure targeting, S15
+
+Spec: `00` §7, §4 S3/S15, §1 `simplify`, §15 P4. Spend $2.05 of the $3 cap (one USD ledger, `p4/run/spend.jsonl`): solver arms
+1.27, seeded arms 0.37, paraphrase arms 0.42, paraphrase author 0.0014, probe episodes 0.0012. Target rung qwen3.7-flash.
+
+**Files.** New: `factory/targeting.py`, `factory/lanes/windows_s3.py`, `scripts/lh_target.py`; extended: `lanes/windows_world.py`
+(recipe 3, `open_world(workspace_mode=)`), `lanes/windows.py` (`simplify('locate')`, `target_milestones`, `changed_defs`,
+policy-World overrides). Tests `test_m17_p4_{targeting,world}.py` (15). Reports `runs/p4_report.json`, `runs/p4_world_versions.jsonl`.
+
+**Part A, World fixes (S3, World expert).** Recipe 3 (`world_needs`) adds, each with the file that asked for it: a developer
+baseline (make, bsdextrautils for hexdump, xxd, patch, file), setuptools and wheel, the commands the repo's Makefile, tox
+`commands`, CI `run:` steps, nox and scripts run (`TOOL_APT`; humanize's translation script gave `gettext`), every non-doc
+extra, and optional imports with a known provider (`MODULE_DIST`). Unknown commands or imports are recorded, never installed.
+- **Version search** (`repair_versions`): A's own tests failing in the World at A = a World bug. Rank the modules on the
+  failing lines, map them to installed distributions, try releases from A's pin upward as one-line layers, keep the first
+  that fixes them with no new failure. Blind pin-first was tried and dropped: glom's PyYAML 3.13 imports but calls
+  `collections.Hashable` on 3.12.
+- **S3** (`world_s3`): builds; A's suite runs; leak probes; 60 reruns (30 at concurrency 1, 30 at 4), CP bound <= 5%; the
+  verifier does not move (oracle passes every milestone, start passes none).
+- **Acceptance** through `traceaudit.accept_world_bug` with `WindowWorldPort`, then `version_accepted` (`world_fix`
+  versions; `world_of_version` gives consumers the head World). The version chain verifies.
+
+| window | P3 signature | before (current World) | after (recipe 3) | result |
+|---|---|---|---|---|
+| parse-w07c2ff9, parse-wc669f87 | `make` not found | repro exit 127 | make present (the agent's `make clean` now fails on its own: no Makefile) | accepted |
+| more-itertools-w89d58c2, toolz, humanize | setuptools missing | repro fails | `setup.py` runs | accepted |
+| python-semver-w1bafb9f | `hexdump` not found | fails | passes | accepted |
+| glom-w67f423c | yaml missing | already fixed in store3's recipe-2 World | rejected (no repro on the oracle) | |
+| glom-w67f423c (S3-sourced) | A's `test_yaml_target` fails: PyYAML 6 `load()` needs `Loader` | 72 pass / 1 fail | PyYAML 5.1.2: 73 pass | accepted |
+| toolz (S3-sourced) | 5 A tests fail (3.12 importlib, builtin introspection) | | no release repairs it | rejected (needs an older interpreter) |
+
+S3 before/after: 60/60 clean reruns, leak probes hold, verifier unchanged on all 7 Worlds.
+
+**Part B, targeting** (`targeting.py`). `SIMPLIFY_KINDS` per generator plus the `Simplifiable` Protocol. Windows support
+`prerequisites` and `locate` (the prompt names the target unit's source files and changed functions). Stitch, rebreak and
+open plug in at P5.
+- **Counterfactual**: the unit is the target milestone with its `requires`. One-sided Fisher test on success. A bootstrap
+  CI on the target-set Φ gain counts only when that Φ is graded. Verdicts:
+  - `not_attributed`: simplified success significantly below p_ref = 0.8;
+  - `underpowered`: neither test significant, flagged with the power at the reference effect.
+- **Prerequisite probe**: a scripted World check (suite through `repo.shell` under the verifier's and the repo's own
+  invocation; write and remove a file) plus a 12-tool qwen episode that must run tests and report a count its run printed.
+- **Paraphrase**: two paraphrases (fixed sentences and epilogue kept; ids, milestones, ledger, lint and required names
+  re-checked). Stable when the pass rate is inside the original's Wilson CI and Φ inside its bootstrap CI.
+- **Band, cause mix**: band from F1 reward spread; cause mix from the P3 auditor's per-window labels (session ledgers).
+- **S15**: `s15_target` + `target_machine` (S2 <-> S15, bounded; a never-fixed loop pauses `exhausted`, V7; World-owned
+  probe failure drops).
+
+**Exit run** (store3 train, 4 attempts per arm, tool limit 150, checkpoints off). The target is the deepest
+executed-edge milestone; the simplified variant pre-applies a prefix.
+
+| window (target) | full | simplified | Fisher p | verdict | band | cause (P3) | probe | S15 |
+|---|---|---|---|---|---|---|---|---|
+| **seeded** parse (m17): pytest removed + read-only workspace | 0/3 | 0/4 | 1.0 (P(X<=0 \| 0.8)=0.0016) | **not_attributed** | | | fails (World) | drop |
+| parse-w07c2ff9 (m17) | 0/4 | 0/4 | 1.0 (0.0016) | not_attributed | yes | 6/6 skill | ok | S2 (exhausted) |
+| glom-w67f423c (m47) | 0/4 | 1/4 | 0.50 (0.027) | not_attributed | yes | 0.50 | ok | S2 |
+| humanize-wf9fa838 (m08) | 0/4 | 1/4 | 0.50 (0.027) | not_attributed | no (all 0.083) | 6/6 | ok | S2 |
+| python-semver-w41775dd (m31) | 0/4 | 3/4 | 0.071; ΔΦ CI [0.25, 1.0] | **underpowered** (power 0.41) | yes | 6/7 | ok | accepted, flagged |
+
+Paraphrases of parse are stable: Φ 0.275 and 0.325 inside [0.05, 0.325]; pass 0 inside [0, 0.49]. Only 4/4 vs 0/4 is
+significant at n = 4. On the kept milestones Φ rises (parse 0.25 -> 0.50, semver 0 -> 0.375), but the targets do not
+move: the policy's failures on three windows are not the prerequisite axis.
+
+**Defects found and fixed while running.**
+1. The first verdicts compared Φ over every kept milestone and attributed parse on non-target gains. Fixed: target set only.
+2. With one target, a bootstrap of a binary at n = 4 overruled Fisher on semver. Fixed: graded Φ only.
+3. The probe judged qwen's correct doctest count (the repo's tox command) wrong. Fixed: the repo-config count, or the
+   count its own run printed.
+4. S15 machine runs resumed an older journal. Fixed: run id per evidence hash.
+5. At concurrency 12 the forge ledger's in-flight holds hit the cap at $0.85 spent. 8 attempts were masked
+   `credits_exhausted` (V8), stayed owed, and resumed at concurrency 6.
+
+**Deviations / open.**
+1. n = 4 per arm detects only 4/4 vs 0/4 (power 0.41 at p_ref 0.8). Results are verdicts with numbers, not acceptance.
+2. The cause mix uses P3 labels on run-1/2 trails (store2 prompts). One untrusted P3 batch cannot be split per trace.
+3. `locate` was built and unit-tested, not run on real windows (budget). Seeded "test command hidden" was run only
+   combined with a read-only workspace, so it fails both arms by construction.
+4. Auditor forced final-verdict turn: not built (left for `AuditorHarness.refine`; ~$0.85 left).
+5. toolz needs a Python <= 3.9 World. Only the 7 rebuilt Worlds use recipe 3; other store3 windows keep recipe 2.

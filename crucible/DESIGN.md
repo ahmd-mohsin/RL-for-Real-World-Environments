@@ -821,6 +821,25 @@ P3, the trace-audit loop (`factory/traceaudit.py`, `versioning.py`; `audit.py` e
   - 1 of 15 spec fixes accepted;
   - 17 intent-drift candidates await human approval.
 
+P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
+`simplify('locate')`; $2.05):
+- **World fixes (S3, the World expert).** Recipe 3 installs what a World needs beyond packaging, each with its reason:
+  a developer baseline (make, hexdump, xxd, patch, file), setuptools and wheel, the commands the repo's own Makefile, tox,
+  CI and scripts run, every non-doc extra, and known optional imports. Unknown names are recorded, never installed.
+  When A's own tests fail in the World, an executed version search walks the implicated distribution's releases from
+  the pin. S3 = builds, A's suite runs, leak probes, 60 clean reruns, verifier unchanged (oracle 1, start 0).
+- **Counterfactual control** on the target milestone (success with its prerequisites): Fisher one-sided, a bootstrap CI
+  on the target-set Φ gain when Φ is graded, power at the reference effect; verdicts attributed / not_attributed (S2) /
+  underpowered (flag). Plus the prerequisite probe, paraphrase stability, band and cause mix; S15 as a machine handler.
+- **World results:** 7 World fixes accepted as task versions: make ×2, setuptools ×3, hexdump, and PyYAML version
+  skew in glom (found by S3 and repaired with 5.1.2). P3's glom "yaml missing" no longer reproduced; toolz's 3.12-only
+  failures need an older interpreter.
+- **Targeting results** (qwen3.7-flash, 4 per arm):
+  - the seeded tooling-only failure is `not_attributed` (0/3 vs 0/4) and fails the probe;
+  - parse, glom and humanize are `not_attributed` (target 0–1/4 even with prerequisites applied);
+  - python-semver is `underpowered`: 0/4 vs 3/4, Fisher p 0.071, power 0.41;
+  - parse's paraphrases are stable.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

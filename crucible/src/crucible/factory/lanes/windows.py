@@ -1349,6 +1349,38 @@ def stub_test_files(tests: Mapping[str, str]) -> dict[str, str]:
 
 
 # ---- the task ----------------------------------------------------------------------------------------------------------
+SIMPLIFY_KINDS = ("prerequisites", "locate")
+
+
+def changed_defs(before: str | None, after: str | None) -> list[str]:
+    """Qualified names of the functions and classes ``after`` defines differently from ``before`` (or newly): what a
+    unit changed, for ``simplify('locate')``. A file that does not parse names nothing."""
+
+    def defs(text: str | None) -> dict[str, str]:
+        if not text:
+            return {}
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            return {}
+        out: dict[str, str] = {}
+
+        def walk(node: ast.AST, prefix: str) -> None:
+            for ch in ast.iter_child_nodes(node):
+                if isinstance(ch, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                    q = f"{prefix}{ch.name}"
+                    body = ch.body if isinstance(ch, ast.ClassDef) else None
+                    out[q] = ast.dump(ch if body is None else ast.ClassDef(name=ch.name, bases=ch.bases, keywords=ch.keywords, body=[],
+                                                                           decorator_list=ch.decorator_list, type_params=[]))
+                    walk(ch, q + ".")
+
+        walk(tree, "")
+        return out
+
+    a, b = defs(before), defs(after)
+    return [q for q in b if a.get(q) != b[q] and not (q.rsplit(".", 1)[-1].startswith("test"))]
+
+
 @dataclass
 class MilestoneMutant(Mutant):
     """A commit-revert mutant with the milestone it must fail (``longtask.LongTask.mutants``)."""
@@ -1407,6 +1439,10 @@ class WindowTask(ExecTask):
         self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True),
                                             json.dumps(self.check_tests, sort_keys=True))[:16]
         self._oracle_patch: str | None = None
+        # the policy's World only (the grader always runs ``window.world.image``): a seeded tooling fault (P4,
+        # ``targeting.seeded_tooling``) swaps the image the agent works in, or mounts its workspace read-only
+        self.world_image: str | None = None
+        self.workspace_mode: str = "rw"
 
     # -- the oracle as steps (horizon replay, shortcut probe) -------------------------------------------------------
     def oracle_steps(self) -> list[dict[str, Any]]:
@@ -1616,8 +1652,10 @@ class WindowTask(ExecTask):
         keeps only the milestones not pre-applied, their requirements and their mutants, with the same tests, World image and
         grading mode. Needs the repository clone; the new start is written under ``root`` (default: the store's
         ``simplified/``). It is a changed task: S8 (``longtask.null_agent_score``, ``ground_truth``) runs on it again."""
+        if kind == "locate":
+            return self._simplify_locate(milestones=milestones)
         if kind != "prerequisites":
-            raise ValueError(f"a window task simplifies by 'prerequisites', not {kind!r}")
+            raise ValueError(f"a window task simplifies by {SIMPLIFY_KINDS}, not {kind!r}")
         by_id = {m["id"]: m for m in self.milestones}
         by_unit = {m["unit"]: m for m in self.milestones}
 
@@ -1686,8 +1724,73 @@ class WindowTask(ExecTask):
         prompt = "".join(ln for ln in self.instruction.splitlines(keepends=True) if not any(ln.startswith(f"- [{d}] ") for d in dropped))
         spans = {r["id"]: list(loc) for r in reqs if (loc := locate(prompt, r["text"]))}
         mined = mined_of(rec, base)
-        return WindowTask(self.lane, mined, rec, task_id=f"{self.task_id}~pre-{key[:6]}", prompt=prompt, requirements=reqs, spans=spans,
-                          checkset=window_checkset(rec, reqs), phi_weight=self.phi_weight, import_tolerant=self.import_tolerant)
+        t = WindowTask(self.lane, mined, rec, task_id=f"{self.task_id}~pre-{key[:6]}", prompt=prompt, requirements=reqs, spans=spans,
+                       checkset=window_checkset(rec, reqs), phi_weight=self.phi_weight, import_tolerant=self.import_tolerant)
+        t.world_image, t.workspace_mode = self.world_image, self.workspace_mode
+        return t
+
+    def target_milestones(self) -> list[str]:
+        """The default target of the counterfactual control: the milestone with the deepest executed prerequisite chain (the
+        last such one in history order), else the last milestone."""
+        by_unit = {m["unit"]: m for m in self.milestones}
+
+        def depth(m: Mapping[str, Any], seen: frozenset[str] = frozenset()) -> int:
+            edges = m.get("edges")
+            pre = [u for u in m.get("requires_units") or [] if (not isinstance(edges, Mapping) or edges.get(u) == "executed") and u in by_unit and u not in seen]
+            return 1 + max((depth(by_unit[u], seen | {u}) for u in pre), default=0) if pre else 0
+
+        scored = [(depth(m), i, m["id"]) for i, m in enumerate(self.milestones)]
+        best = max(scored)
+        return [best[2]] if best[0] > 0 else [self.milestones[-1]["id"]]
+
+    def locate_hints(self, milestones: Sequence[str]) -> list[dict[str, Any]]:
+        """Per target milestone: the source files its unit changed and, with the clone at hand, the functions and classes
+        whose definition the unit changed or added (``ast`` dumps compared at the unit's parent and the unit)."""
+        by_id = {m["id"]: m for m in self.milestones}
+        units = {u["sha"]: Unit(**u) for u in self.window["units"]}
+        repo = RepoGit(Path(self.lane.repo_dirs[self.window["repo"]])) if self.window["repo"] in self.lane.repo_dirs else None
+        out = []
+        for mid in milestones:
+            u = units.get(by_id[mid]["unit"])
+            if u is None:
+                continue
+            files = [p for p in u.src_files if not is_test_path(p)]
+            names: list[str] = []
+            for p in files if repo is not None else []:
+                names += changed_defs(repo.show(u.parent, p), repo.show(u.sha, p))
+            req = next((str(r["id"]) for r in self.requirements if r.get("milestone") == mid), None)
+            out.append({"milestone": mid, "requirement": req, "unit": u.sha, "files": files, "functions": names[:12]})
+        return out
+
+    def _simplify_locate(self, *, milestones: Sequence[str] | None = None) -> WindowTask:
+        """``simplify('locate')``: the same start, World, milestones, checks and requirements; the prompt also names where
+        each target milestone's change lives (its unit's source files and changed functions). Difficulty removed: finding
+        the code. The hint names file paths, which ``lint_prompt`` refuses in a published prompt: a simplified variant is
+        a control, never published (``card().status`` stays ``draft``; ``simplified_from.kind == 'locate'``)."""
+        targets = list(milestones) if milestones else self.target_milestones()
+        if any(t not in {m["id"] for m in self.milestones} for t in targets):
+            raise ValueError(f"unknown target milestones {targets}")
+        hints = [h for h in self.locate_hints(targets) if h["files"]]
+        if not hints:
+            raise ValueError(f"{targets}: no source file to name (the units change tests or docs only)")
+        lines = []
+        for h in hints:
+            fn = f" (look at {', '.join(f'`{n}`' for n in h['functions'])})" if h["functions"] else ""
+            who = f"[{h['requirement']}]" if h["requirement"] else "one of the changes"
+            lines.append(f"For {who}, the code to change is in {', '.join(f'`{f}`' for f in h['files'])}{fn}.")
+        note = "Where to look: " + " ".join(lines) + "\n\n"
+        i = self.instruction.find(EPILOGUE[:40])
+        prompt = self.instruction[:i] + note + self.instruction[i:] if i >= 0 else self.instruction.rstrip() + "\n\n" + note
+        key = sha256_text(self.mined.id, "locate", *targets)[:10]
+        rec = json.loads(json.dumps(self.window, default=str))
+        rec.update(id=f"{self.mined.id}~loc-{key}", simplified_from={"task": self.task_id, "window": self.mined.id, "kind": "locate", "targets": targets,
+                                                                    "pre_applied": [], "hints": hints, "mode": "hint"})
+        spans = {str(r["id"]): list(loc) for r in self.requirements if (loc := locate(prompt, r["text"]))}
+        mined = mined_of(rec, self.base_dir)
+        t = WindowTask(self.lane, mined, rec, task_id=f"{self.task_id}~loc-{key[:6]}", prompt=prompt, requirements=[dict(r) for r in self.requirements],
+                       spans=spans, checkset=window_checkset(rec, self.requirements), phi_weight=self.phi_weight, import_tolerant=self.import_tolerant)
+        t.world_image, t.workspace_mode = self.world_image, self.workspace_mode
+        return t
 
     def card(self, *, intent: str = "unassigned", recipe_version: str = "p0", verifier: Mapping[str, Any] | None = None, status: str = "draft") -> Any:
         """The ``cards.TaskCard`` of this task (an authored one: the card needs the prompt and its ledger)."""
@@ -1760,8 +1863,8 @@ class WindowTask(ExecTask):
 
     # -- the coding seam (WorkspaceHarness) -------------------------------------------------------------------------------
     async def open(self, workdir: Path) -> Any:
-        return await open_world(image=self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir), instruction=self.instruction,
-                                name_prefix=self.lane.world_prefix)
+        return await open_world(image=self.world_image or self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir),
+                                instruction=self.instruction, name_prefix=self.lane.world_prefix, workspace_mode=self.workspace_mode)
 
     def workspace(self, world: Any) -> Path:
         return world._crucible_ws

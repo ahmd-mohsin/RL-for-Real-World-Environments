@@ -1,0 +1,4287 @@
+{
+ "paraphrase": {
+  "parse-w07c2ff9-44e14b0": {
+   "paraphrases": [
+    {
+     "checkset": {
+      "checks": [
+       {
+        "gating": true,
+        "id": "c_m02",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R1"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_letters"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m03",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R2"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestResult::test_contains"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m05",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R3"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_unmatched_brace_doesnt_match"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m11",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R4"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_tz_compare_to_None"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m15",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R5"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_precision"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m17",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R6"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_numbers"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m21",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R7"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_pickling_bug_110"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m23",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R8"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestFindall::test_case_sensitivity"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m25",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R9"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_search_centered_bug_112",
+          "test_parse.py::TestBugs::test_search_left_align_bug_112"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m28",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R10"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestResult::test_slice_access"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_regress",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "r_regress"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_dotted_type_conversion_pull_8",
+          "test_parse.py::TestBugs::test_named_date_issue7",
+          "test_parse.py::TestBugs::test_pm_handling_issue57",
+          "test_parse.py::TestBugs::test_pm_overflow_issue16",
+          "test_parse.py::TestBugs::test_user_type_with_group_count_issue60",
+          "test_parse.py::TestFindall::test_findall",
+          "test_parse.py::TestFindall::test_no_evaluate_result",
+          "test_parse.py::TestParse::test_center",
+          "test_parse.py::TestParse::test_custom_type",
+          "test_parse.py::TestParse::test_datetime_group_count",
+          "test_parse.py::TestParse::test_datetimes",
+          "test_parse.py::TestParse::test_fixed",
+          "test_parse.py::TestParse::test_hexadecimal",
+          "test_parse.py::TestParse::test_left",
+          "test_parse.py::TestParse::test_mixed",
+          "test_parse.py::TestParse::test_mixed_type_variant",
+          "test_parse.py::TestParse::test_mixed_types",
+          "test_parse.py::TestParse::test_multiline",
+          "test_parse.py::TestParse::test_named",
+          "test_parse.py::TestParse::test_named_aligned_typed",
+          "test_parse.py::TestParse::test_named_repeated",
+          "test_parse.py::TestParse::test_named_repeated_fail_value",
+          "test_parse.py::TestParse::test_named_repeated_type",
+          "test_parse.py::TestParse::test_named_repeated_type_fail_value",
+          "test_parse.py::TestParse::test_named_repeated_type_mismatch",
+          "test_parse.py::TestParse::test_named_typed",
+          "test_parse.py::TestParse::test_no_evaluate_result",
+          "test_parse.py::TestParse::test_no_match",
+          "test_parse.py::TestParse::test_nothing",
+          "test_parse.py::TestParse::test_pipe",
+          "test_parse.py::TestParse::test_question_mark",
+          "test_parse.py::TestParse::test_regular_expression",
+          "test_parse.py::TestParse::test_right",
+          "test_parse.py::TestParse::test_spans",
+          "test_parse.py::TestParse::test_too_many_fields",
+          "test_parse.py::TestParse::test_two_datetimes",
+          "test_parse.py::TestParse::test_typed",
+          "test_parse.py::TestParse::test_typed_fail",
+          "test_parse.py::TestParse::test_unicode",
+          "test_parse.py::TestParseType::test_case_sensitivity",
+          "test_parse.py::TestParseType::test_decimal_value",
+          "test_parse.py::TestParseType::test_int_convert_stateless_base",
+          "test_parse.py::TestParseType::test_pattern_should_be_used",
+          "test_parse.py::TestParseType::test_pattern_should_be_used2",
+          "test_parse.py::TestParseType::test_width_constraints",
+          "test_parse.py::TestParseType::test_width_empty_input",
+          "test_parse.py::TestParseType::test_width_multi_int",
+          "test_parse.py::TestParseType::test_width_str",
+          "test_parse.py::TestParseType::test_with_pattern",
+          "test_parse.py::TestParseType::test_with_pattern_and_regex_group_count",
+          "test_parse.py::TestParseType::test_with_pattern_and_regex_group_count_is_none",
+          "test_parse.py::TestParseType::test_with_pattern_and_wrong_regex_group_count_raises_error",
+          "test_parse.py::TestPattern::test_bird",
+          "test_parse.py::TestPattern::test_braces",
+          "test_parse.py::TestPattern::test_dict_style_fields",
+          "test_parse.py::TestPattern::test_dot_separated_fields",
+          "test_parse.py::TestPattern::test_dot_separated_fields_name_collisions",
+          "test_parse.py::TestPattern::test_fixed",
+          "test_parse.py::TestPattern::test_format_variety",
+          "test_parse.py::TestPattern::test_invalid_groupnames_are_handled_gracefully",
+          "test_parse.py::TestPattern::test_named",
+          "test_parse.py::TestPattern::test_named_typed",
+          "test_parse.py::TestResult::test_fixed_access",
+          "test_parse.py::TestResult::test_named_access",
+          "test_parse.py::TestSearch::test_basic",
+          "test_parse.py::TestSearch::test_multiline",
+          "test_parse.py::TestSearch::test_no_evaluate_result",
+          "test_parse.py::TestSearch::test_pos"
+         ]
+        }
+       }
+      ]
+     },
+     "k": 1,
+     "ok": true,
+     "prompt": "This update brings essential corrections and fresh functionality to the parse library, improving stability with complex data types and boundary conditions. It also enhances result examination and pattern matching flexibility.\n\nWhat the release needs:\n- [R1] The Parser must implement a 'letters' format specifier that matches only alphabetic characters, distinguishing it from the 'w' specifier which includes numbers.\n- [R2] Result instances must provide the `__contains__` method to verify the presence of specific values within parsed results.\n- [R3] If a part containing braces lacks full enclosure in matching braces, the Parser must raise an error or fail to match.\n- [R4] FixedTzOffset must handle timezone offset parsing correctly, addressing Bug 92.\n- [R5] The Parser must accurately process Fortran-formatted floating-point numbers.\n- [R6] The Parser must properly identify and convert hexadecimal, binary, and octal integers, supporting optional base arguments and automatic base detection.\n- [R7] The convert_first function and its associated internal conversion mechanisms must use functors rather than inner functions or lambdas to guarantee picklability.\n- [R8] The findall function must honor the case_sensitive parameter during pattern searches.\n- [R9] Left- and center-aligned search operations must consume input up to the next space character.\n- [R10] Result instances must allow slice access to extract subsets of parsed values.\n\nPlease ensure all public APIs mentioned above behave as described to maintain compatibility and correctness.\n\nEverything that already works today must keep working.\n\nHow this works: you are working in a sandboxed copy of the repository with no network access. Hidden tests check the behaviour described above, and the repository's existing tests must keep passing; you can run the existing tests yourself. Changes to test files and to packaging or test configuration are discarded before grading, and a run that makes them, or that tries to install packages, does not earn the full-completion credit; adding test plumbing (conftest.py, sitecustomize.py, usercustomize.py or .pth files), trying to download code (this library's releases or repository, or anything over the network), or reading version-control history beyond the current commit scores the run 0. Before you finish, write STATUS.json at the repository root mapping each requirement id above to your probability (0 to 1) that it is met; it is scored against the hidden tests with the Brier score, so say what you believe. If you decide you cannot finish, end your final message with a line 'GIVE_UP: <reason>'; your work is graded as it stands, and an honest 'not done' costs nothing extra.",
+     "requirements": [
+      {
+       "id": "R1",
+       "kind": "behaviour",
+       "milestone": "m02",
+       "text": "The Parser must implement a 'letters' format specifier that matches only alphabetic characters, distinguishing it from the 'w' specifier which includes numbers."
+      },
+      {
+       "id": "R2",
+       "kind": "behaviour",
+       "milestone": "m03",
+       "text": "Result instances must provide the `__contains__` method to verify the presence of specific values within parsed results."
+      },
+      {
+       "id": "R3",
+       "kind": "behaviour",
+       "milestone": "m05",
+       "text": "If a part containing braces lacks full enclosure in matching braces, the Parser must raise an error or fail to match."
+      },
+      {
+       "id": "R4",
+       "kind": "behaviour",
+       "milestone": "m11",
+       "text": "FixedTzOffset must handle timezone offset parsing correctly, addressing Bug 92."
+      },
+      {
+       "id": "R5",
+       "kind": "behaviour",
+       "milestone": "m15",
+       "text": "The Parser must accurately process Fortran-formatted floating-point numbers."
+      },
+      {
+       "id": "R6",
+       "kind": "behaviour",
+       "milestone": "m17",
+       "text": "The Parser must properly identify and convert hexadecimal, binary, and octal integers, supporting optional base arguments and automatic base detection."
+      },
+      {
+       "id": "R7",
+       "kind": "behaviour",
+       "milestone": "m21",
+       "text": "The convert_first function and its associated internal conversion mechanisms must use functors rather than inner functions or lambdas to guarantee picklability."
+      },
+      {
+       "id": "R8",
+       "kind": "behaviour",
+       "milestone": "m23",
+       "text": "The findall function must honor the case_sensitive parameter during pattern searches."
+      },
+      {
+       "id": "R9",
+       "kind": "behaviour",
+       "milestone": "m25",
+       "text": "Left- and center-aligned search operations must consume input up to the next space character."
+      },
+      {
+       "id": "R10",
+       "kind": "behaviour",
+       "milestone": "m28",
+       "text": "Result instances must allow slice access to extract subsets of parsed values."
+      },
+      {
+       "id": "r_regress",
+       "kind": "side_effect_scope",
+       "milestone": null,
+       "text": "Everything that already works today must keep working."
+      }
+     ],
+     "spans": {
+      "R1": [
+       258,
+       418
+      ],
+      "R10": [
+       1372,
+       1449
+      ],
+      "R2": [
+       426,
+       546
+      ],
+      "R3": [
+       554,
+       671
+      ],
+      "R4": [
+       679,
+       758
+      ],
+      "R5": [
+       766,
+       842
+      ],
+      "R6": [
+       850,
+       1001
+      ],
+      "R7": [
+       1009,
+       1169
+      ],
+      "R8": [
+       1177,
+       1262
+      ],
+      "R9": [
+       1270,
+       1363
+      ],
+      "r_regress": [
+       1561,
+       1615
+      ]
+     },
+     "tries": [
+      {
+       "findings": []
+      }
+     ]
+    },
+    {
+     "checkset": {
+      "checks": [
+       {
+        "gating": true,
+        "id": "c_m02",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R1"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_letters"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m03",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R2"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestResult::test_contains"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m05",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R3"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_unmatched_brace_doesnt_match"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m11",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R4"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_tz_compare_to_None"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m15",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R5"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_precision"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m17",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R6"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestParse::test_numbers"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m21",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R7"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_pickling_bug_110"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m23",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R8"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestFindall::test_case_sensitivity"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m25",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R9"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_search_centered_bug_112",
+          "test_parse.py::TestBugs::test_search_left_align_bug_112"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_m28",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "R10"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestResult::test_slice_access"
+         ]
+        }
+       },
+       {
+        "gating": true,
+        "id": "c_regress",
+        "observation_ids": [
+         "obs-parse-w07c2ff9-44e14b0"
+        ],
+        "requirement_ids": [
+         "r_regress"
+        ],
+        "spec": {
+         "tests": [
+          "test_parse.py::TestBugs::test_dotted_type_conversion_pull_8",
+          "test_parse.py::TestBugs::test_named_date_issue7",
+          "test_parse.py::TestBugs::test_pm_handling_issue57",
+          "test_parse.py::TestBugs::test_pm_overflow_issue16",
+          "test_parse.py::TestBugs::test_user_type_with_group_count_issue60",
+          "test_parse.py::TestFindall::test_findall",
+          "test_parse.py::TestFindall::test_no_evaluate_result",
+          "test_parse.py::TestParse::test_center",
+          "test_parse.py::TestParse::test_custom_type",
+          "test_parse.py::TestParse::test_datetime_group_count",
+          "test_parse.py::TestParse::test_datetimes",
+          "test_parse.py::TestParse::test_fixed",
+          "test_parse.py::TestParse::test_hexadecimal",
+          "test_parse.py::TestParse::test_left",
+          "test_parse.py::TestParse::test_mixed",
+          "test_parse.py::TestParse::test_mixed_type_variant",
+          "test_parse.py::TestParse::test_mixed_types",
+          "test_parse.py::TestParse::test_multiline",
+          "test_parse.py::TestParse::test_named",
+          "test_parse.py::TestParse::test_named_aligned_typed",
+          "test_parse.py::TestParse::test_named_repeated",
+          "test_parse.py::TestParse::test_named_repeated_fail_value",
+          "test_parse.py::TestParse::test_named_repeated_type",
+          "test_parse.py::TestParse::test_named_repeated_type_fail_value",
+          "test_parse.py::TestParse::test_named_repeated_type_mismatch",
+          "test_parse.py::TestParse::test_named_typed",
+          "test_parse.py::TestParse::test_no_evaluate_result",
+          "test_parse.py::TestParse::test_no_match",
+          "test_parse.py::TestParse::test_nothing",
+          "test_parse.py::TestParse::test_pipe",
+          "test_parse.py::TestParse::test_question_mark",
+          "test_parse.py::TestParse::test_regular_expression",
+          "test_parse.py::TestParse::test_right",
+          "test_parse.py::TestParse::test_spans",
+          "test_parse.py::TestParse::test_too_many_fields",
+          "test_parse.py::TestParse::test_two_datetimes",
+          "test_parse.py::TestParse::test_typed",
+          "test_parse.py::TestParse::test_typed_fail",
+          "test_parse.py::TestParse::test_unicode",
+          "test_parse.py::TestParseType::test_case_sensitivity",
+          "test_parse.py::TestParseType::test_decimal_value",
+          "test_parse.py::TestParseType::test_int_convert_stateless_base",
+          "test_parse.py::TestParseType::test_pattern_should_be_used",
+          "test_parse.py::TestParseType::test_pattern_should_be_used2",
+          "test_parse.py::TestParseType::test_width_constraints",
+          "test_parse.py::TestParseType::test_width_empty_input",
+          "test_parse.py::TestParseType::test_width_multi_int",
+          "test_parse.py::TestParseType::test_width_str",
+          "test_parse.py::TestParseType::test_with_pattern",
+          "test_parse.py::TestParseType::test_with_pattern_and_regex_group_count",
+          "test_parse.py::TestParseType::test_with_pattern_and_regex_group_count_is_none",
+          "test_parse.py::TestParseType::test_with_pattern_and_wrong_regex_group_count_raises_error",
+          "test_parse.py::TestPattern::test_bird",
+          "test_parse.py::TestPattern::test_braces",
+          "test_parse.py::TestPattern::test_dict_style_fields",
+          "test_parse.py::TestPattern::test_dot_separated_fields",
+          "test_parse.py::TestPattern::test_dot_separated_fields_name_collisions",
+          "test_parse.py::TestPattern::test_fixed",
+          "test_parse.py::TestPattern::test_format_variety",
+          "test_parse.py::TestPattern::test_invalid_groupnames_are_handled_gracefully",
+          "test_parse.py::TestPattern::test_named",
+          "test_parse.py::TestPattern::test_named_typed",
+          "test_parse.py::TestResult::test_fixed_access",
+          "test_parse.py::TestResult::test_named_access",
+          "test_parse.py::TestSearch::test_basic",
+          "test_parse.py::TestSearch::test_multiline",
+          "test_parse.py::TestSearch::test_no_evaluate_result",
+          "test_parse.py::TestSearch::test_pos"
+         ]
+        }
+       }
+      ]
+     },
+     "k": 2,
+     "ok": true,
+     "prompt": "Hey team, here\u2019s the rundown for this release. We\u2019re tackling some key bugs and rolling out new features to make the `parse` library more resilient against tricky data types and edge cases. We\u2019re also adding better ways to inspect results and customize pattern matching.\n\nWhat the release needs:\n- [R1] We need a 'letters' format specifier that only matches alphabetic characters. This should be clearly distinct from the 'w' specifier, which includes numbers.\n- [R2] Result instances need to implement the `__contains__` method so we can check if a specific value exists in the parsed results.\n- [R3] If a part containing braces isn't fully enclosed within matching braces, the Parser must raise an error or fail to match.\n- [R4] FixedTzOffset needs to handle timezone offset parsing correctly, addressing the issue outlined in Bug 92.\n- [R5] The Parser must be able to correctly parse Fortran-formatted floating-point numbers.\n- [R6] The Parser needs to properly identify and convert hexadecimal, binary, and octal integers, supporting optional base arguments as well as automatic base detection.\n- [R7] To ensure picklability, the `convert_first` function and its related internal conversion mechanisms must use functors instead of inner functions or lambdas.\n- [R8] The `findall` function must respect the `case_sensitive` parameter when searching for patterns.\n- [R9] Left- and center-aligned search operations should consume input up to the next space character.\n- [R10] Result instances must support slice access so we can retrieve subsets of the parsed values.\n\nLet's make sure all the public APIs mentioned above behave exactly as described to keep everything compatible and correct.\n\nEverything that already works today must keep working.\n\nHow this works: you are working in a sandboxed copy of the repository with no network access. Hidden tests check the behaviour described above, and the repository's existing tests must keep passing; you can run the existing tests yourself. Changes to test files and to packaging or test configuration are discarded before grading, and a run that makes them, or that tries to install packages, does not earn the full-completion credit; adding test plumbing (conftest.py, sitecustomize.py, usercustomize.py or .pth files), trying to download code (this library's releases or repository, or anything over the network), or reading version-control history beyond the current commit scores the run 0. Before you finish, write STATUS.json at the repository root mapping each requirement id above to your probability (0 to 1) that it is met; it is scored against the hidden tests with the Brier score, so say what you believe. If you decide you cannot finish, end your final message with a line 'GIVE_UP: <reason>'; your work is graded as it stands, and an honest 'not done' costs nothing extra.",
+     "requirements": [
+      {
+       "id": "R1",
+       "kind": "behaviour",
+       "milestone": "m02",
+       "text": "We need a 'letters' format specifier that only matches alphabetic characters. This should be clearly distinct from the 'w' specifier, which includes numbers."
+      },
+      {
+       "id": "R2",
+       "kind": "behaviour",
+       "milestone": "m03",
+       "text": "Result instances need to implement the `__contains__` method so we can check if a specific value exists in the parsed results."
+      },
+      {
+       "id": "R3",
+       "kind": "behaviour",
+       "milestone": "m05",
+       "text": "If a part containing braces isn't fully enclosed within matching braces, the Parser must raise an error or fail to match."
+      },
+      {
+       "id": "R4",
+       "kind": "behaviour",
+       "milestone": "m11",
+       "text": "FixedTzOffset needs to handle timezone offset parsing correctly, addressing the issue outlined in Bug 92."
+      },
+      {
+       "id": "R5",
+       "kind": "behaviour",
+       "milestone": "m15",
+       "text": "The Parser must be able to correctly parse Fortran-formatted floating-point numbers."
+      },
+      {
+       "id": "R6",
+       "kind": "behaviour",
+       "milestone": "m17",
+       "text": "The Parser needs to properly identify and convert hexadecimal, binary, and octal integers, supporting optional base arguments as well as automatic base detection."
+      },
+      {
+       "id": "R7",
+       "kind": "behaviour",
+       "milestone": "m21",
+       "text": "To ensure picklability, the `convert_first` function and its related internal conversion mechanisms must use functors instead of inner functions or lambdas."
+      },
+      {
+       "id": "R8",
+       "kind": "behaviour",
+       "milestone": "m23",
+       "text": "The `findall` function must respect the `case_sensitive` parameter when searching for patterns."
+      },
+      {
+       "id": "R9",
+       "kind": "behaviour",
+       "milestone": "m25",
+       "text": "Left- and center-aligned search operations should consume input up to the next space character."
+      },
+      {
+       "id": "R10",
+       "kind": "behaviour",
+       "milestone": "m28",
+       "text": "Result instances must support slice access so we can retrieve subsets of the parsed values."
+      },
+      {
+       "id": "r_regress",
+       "kind": "side_effect_scope",
+       "milestone": null,
+       "text": "Everything that already works today must keep working."
+      }
+     ],
+     "spans": {
+      "R1": [
+       303,
+       460
+      ],
+      "R10": [
+       1477,
+       1568
+      ],
+      "R2": [
+       468,
+       594
+      ],
+      "R3": [
+       602,
+       723
+      ],
+      "R4": [
+       731,
+       836
+      ],
+      "R5": [
+       844,
+       928
+      ],
+      "R6": [
+       936,
+       1098
+      ],
+      "R7": [
+       1106,
+       1262
+      ],
+      "R8": [
+       1270,
+       1365
+      ],
+      "R9": [
+       1373,
+       1468
+      ],
+      "r_regress": [
+       1694,
+       1748
+      ]
+     },
+     "tries": [
+      {
+       "findings": []
+      }
+     ]
+    }
+   ],
+   "stability": [
+    {
+     "mean_phi": 0.275,
+     "n_original": 4,
+     "n_paraphrase": 4,
+     "original_mean_phi": 0.175,
+     "outcomes": [
+      {
+       "full_pass": false,
+       "id": "0cf5054e632923c8",
+       "masked": false,
+       "phi": 0.3,
+       "phi_set": 0.0,
+       "reward": 0.15,
+       "stop": "max_tokens",
+       "success": false,
+       "usd": 0.072636
+      },
+      {
+       "full_pass": false,
+       "id": "68fad3437c2bfa4c",
+       "masked": false,
+       "phi": 0.2,
+       "phi_set": 0.0,
+       "reward": 0.1,
+       "stop": "agent_done",
+       "success": false,
+       "usd": 0.047957
+      },
+      {
+       "full_pass": false,
+       "id": "762cfe85c96b6f95",
+       "masked": false,
+       "phi": 0.3,
+       "phi_set": 0.0,
+       "reward": 0.15,
+       "stop": "max_tokens",
+       "success": false,
+       "usd": 0.04823
+      },
+      {
+       "full_pass": false,
+       "id": "a02ca0d6aceb1360",
+       "masked": false,
+       "phi": 0.3,
+       "phi_set": 0.0,
+       "reward": 0.0,
+       "stop": "max_steps",
+       "success": false,
+       "usd": 0.049168
+      }
+     ],
+     "pass_ci": [
+      0.0,
+      0.4899
+     ],
+     "pass_rate": 0.0,
+     "phi_ci": [
+      0.05,
+      0.325
+     ],
+     "stable": true,
+     "task": "parse-w07c2ff9-44e14b0~para1",
+     "why": ""
+    },
+    {
+     "mean_phi": 0.325,
+     "n_original": 4,
+     "n_paraphrase": 4,
+     "original_mean_phi": 0.175,
+     "outcomes": [
+      {
+       "full_pass": false,
+       "id": "2e3b66ebab7da57d",
+       "masked": false,
+       "phi": 0.3,
+       "phi_set": 0.0,
+       "reward": 0.15,
+       "stop": "agent_done",
+       "success": false,
+       "usd": 0.044708
+      },
+      {
+       "full_pass": false,
+       "id": "5f8ff2d05221e2b7",
+       "masked": false,
+       "phi": 0.3,
+       "phi_set": 0.0,
+       "reward": 0.15,
+       "stop": "agent_done",
+       "success": false,
+       "usd": 0.048087
+      },
+      {
+       "full_pass": false,
+       "id": "64d6f9f82f95f37a",
+       "masked": false,
+       "phi": 0.2,
+       "phi_set": 0.0,
+       "reward": 0.1,
+       "stop": "max_tokens",
+       "success": false,
+       "usd": 0.046364
+      },
+      {
+       "full_pass": false,
+       "id": "bb0b6db401d5d1da",
+       "masked": false,
+       "phi": 0.5,
+       "phi_set": 0.0,
+       "reward": 0.0,
+       "stop": "max_tokens",
+       "success": false,
+       "usd": 0.062624
+      }
+     ],
+     "pass_ci": [
+      0.0,
+      0.4899
+     ],
+     "pass_rate": 0.0,
+     "phi_ci": [
+      0.05,
+      0.325
+     ],
+     "stable": true,
+     "task": "parse-w07c2ff9-44e14b0~para2",
+     "why": ""
+    }
+   ],
+   "window": "parse-w07c2ff9-44e14b0"
+  }
+ },
+ "seeded": {
+  "parse-w07c2ff9-44e14b0": {
+   "arms": {
+    "full": [
+     {
+      "full_pass": false,
+      "id": "1f97b1772132c764",
+      "masked": true,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_request_failed",
+      "success": false,
+      "usd": 0.023245
+     },
+     {
+      "full_pass": false,
+      "id": "ca61482db630f727",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.070549
+     },
+     {
+      "full_pass": false,
+      "id": "cb3b51616d353cd7",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.08823
+     },
+     {
+      "full_pass": false,
+      "id": "d52c8702ef852f3d",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.0522
+     }
+    ],
+    "simple": [
+     {
+      "full_pass": false,
+      "id": "01e67686067d4e9c",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.043466
+     },
+     {
+      "full_pass": false,
+      "id": "a404c41d5155c1d3",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.03274
+     },
+     {
+      "full_pass": false,
+      "id": "c6336b0326d3b96c",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.025919
+     },
+     {
+      "full_pass": false,
+      "id": "d7cab54d0eb76c55",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.029513
+     }
+    ]
+   },
+   "counterfactual": {
+    "alpha": 0.05,
+    "ci_level": 0.9,
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "masked": {
+     "full": 1,
+     "simple": 0
+    },
+    "min_simple_successes_for_significance": 4,
+    "n_full": 3,
+    "n_simple": 4,
+    "p_ref": 0.8,
+    "phi_route": false,
+    "power_at_ref": 0.4096,
+    "rate_full": 0.0,
+    "rate_simple": 0.0,
+    "route": "S2",
+    "simple_vs_ref_p": 0.0016,
+    "success_full": 0,
+    "success_simple": 0,
+    "verdict": "not_attributed",
+    "why": "the policy fails the simplified task too (0/4; P(X <= 0 | p=0.8) = 0.0016): not the intended axis"
+   },
+   "expected": "not_attributed",
+   "ok": true,
+   "probe": {
+    "episode": null,
+    "ok": false,
+    "owner": "world",
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_parse.py",
+     "ok": false,
+     "passed": null,
+     "passed_repo_config": null,
+     "test_output_tail": "[exit 1]\n\n[stderr]\n/usr/local/bin/python: No module named pytest\n",
+     "tests_ran": false,
+     "truths": [],
+     "why": "the existing tests do not run through the World's shell",
+     "world_opened": true,
+     "write_ok": false,
+     "write_result": "OSError: [Errno 30] Read-only file system: '/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w0"
+    },
+    "why": "scripted probe: the existing tests do not run through the World's shell"
+   },
+   "probe_scripted": {
+    "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_parse.py",
+    "ok": false,
+    "passed": null,
+    "passed_repo_config": null,
+    "test_output_tail": "[exit 1]\n\n[stderr]\n/usr/local/bin/python: No module named pytest\n",
+    "tests_ran": false,
+    "truths": [],
+    "why": "the existing tests do not run through the World's shell",
+    "world_opened": true,
+    "write_ok": false,
+    "write_result": "OSError: [Errno 30] Read-only file system: '/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w0"
+   },
+   "seed": {
+    "test_command": "hidden (pytest removed)",
+    "workspace": "read-only"
+   },
+   "seed_image": "crucible-lh-p4-seed:8d8bd9fd3aa3",
+   "targets": [
+    "m17"
+   ],
+   "window": "parse-w07c2ff9-44e14b0"
+  }
+ },
+ "spend_by_role": {
+  "arms/solver": 1.2658,
+  "paraphrase/author": 0.0014,
+  "paraphrase/solver_paraphrase": 0.4198,
+  "probe/probe": 0.0012,
+  "seeded/solver_seeded": 0.3659
+ },
+ "spend_total": 2.0541,
+ "target": {
+  "glom-w67f423c-07d5ee0": {
+   "arms": {
+    "full": [
+     {
+      "full_pass": false,
+      "id": "4bc5bbf31e83de3a",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.054012
+     },
+     {
+      "full_pass": false,
+      "id": "78d91f1c4d7764a1",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.086211
+     },
+     {
+      "full_pass": false,
+      "id": "e9bbbf1e37ef10cb",
+      "masked": false,
+      "phi": 0.142857,
+      "phi_set": 0.0,
+      "reward": 0.071429,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.040193
+     },
+     {
+      "full_pass": false,
+      "id": "fe1195a2084e0ec4",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.053284
+     }
+    ],
+    "simple": [
+     {
+      "full_pass": false,
+      "id": "0b48e95e405d8bea",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.041367
+     },
+     {
+      "full_pass": false,
+      "id": "2f2dda7b36ac4a8f",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.016966
+     },
+     {
+      "full_pass": false,
+      "id": "c25560d46f79a271",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.010986
+     },
+     {
+      "full_pass": true,
+      "id": "c6612e9670bc5f84",
+      "masked": false,
+      "phi": 1.0,
+      "phi_set": 1.0,
+      "reward": 1.0,
+      "stop": "agent_done",
+      "success": true,
+      "usd": 0.027649
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.071429
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.071429,
+     0.0
+    ]
+   },
+   "cause": {
+    "labels": {
+     "budget": 1,
+     "skill_gap": 2,
+     "world_bug": 1
+    },
+    "n": 4,
+    "ok": false,
+    "skill_gap_share": 0.5,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+   },
+   "counterfactual": {
+    "alpha": 0.05,
+    "ci_level": 0.9,
+    "dphi": 0.25,
+    "dphi_ci": [
+     0.0,
+     0.5
+    ],
+    "fisher_p": 0.5,
+    "masked": {
+     "full": 0,
+     "simple": 0
+    },
+    "min_simple_successes_for_significance": 4,
+    "n_full": 4,
+    "n_simple": 4,
+    "p_ref": 0.8,
+    "phi_route": false,
+    "power_at_ref": 0.4096,
+    "rate_full": 0.0,
+    "rate_simple": 0.25,
+    "route": "S2",
+    "simple_vs_ref_p": 0.0272,
+    "success_full": 0,
+    "success_simple": 1,
+    "verdict": "not_attributed",
+    "why": "the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis"
+   },
+   "dphi_kept": {
+    "full": 0.0,
+    "milestones": [
+     "m47"
+    ],
+    "note": "information only: Phi over every kept milestone, not the target",
+    "simple": 0.25
+   },
+   "kind": "prerequisites",
+   "machine": {
+    "run_id": "s15-glom-w67f423c-07d5ee0-f2546f64a2",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 73,
+     "seen_in_own_runs": [
+      73
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "python -m pytest --tb=no -q 2>&1 | tail -20",
+      "python -m pytest --tb=no 2>&1 | grep -E \"passed|failed|error\""
+     ],
+     "tool_calls": 4,
+     "truth": [
+      73
+     ],
+     "usd": 0.000187,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= glom/test/test_basic.py glom/test/test_check.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+     "ok": true,
+     "passed": 73,
+     "passed_repo_config": 73,
+     "test_output_tail": "================ warnings summary ===============================\nglom/test/test_main.py::test_yaml_target\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/glom-w67f423c-07d5ee0/ws/glom/cli.py:126: YAMLLoadWarning: calling yaml.load() without Loader=... is deprecated, as the default Loader is unsafe. Please read https://msg.pyyaml.org/load for full details.\n    target = yaml.load(target_text)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n73 passed, 1 warning in 0.35s\n",
+     "tests_ran": true,
+     "truths": [
+      73
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "probe_episode": {
+    "masked": false,
+    "ok": true,
+    "ran_tests": true,
+    "reported": 73,
+    "seen_in_own_runs": [
+     73
+    ],
+    "stop": "agent_done",
+    "test_commands": [
+     "python -m pytest --tb=no -q 2>&1 | tail -20",
+     "python -m pytest --tb=no 2>&1 | grep -E \"passed|failed|error\""
+    ],
+    "tool_calls": 4,
+    "truth": [
+     73
+    ],
+    "usd": 0.000187,
+    "why": ""
+   },
+   "probe_scripted": {
+    "command": "python -m pytest -q -p no:cacheprovider -o addopts= glom/test/test_basic.py glom/test/test_check.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+    "ok": true,
+    "passed": 73,
+    "passed_repo_config": 73,
+    "test_output_tail": "================ warnings summary ===============================\nglom/test/test_main.py::test_yaml_target\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/glom-w67f423c-07d5ee0/ws/glom/cli.py:126: YAMLLoadWarning: calling yaml.load() without Loader=... is deprecated, as the default Loader is unsafe. Please read https://msg.pyyaml.org/load for full details.\n    target = yaml.load(target_text)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n73 passed, 1 warning in 0.35s\n",
+    "tests_ran": true,
+    "truths": [
+     73
+    ],
+    "why": "",
+    "world_opened": true,
+    "write_ok": true,
+    "write_result": "wrote 6 bytes to .crucible_probe.txt"
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simplified": {
+    "milestones": [
+     "m47"
+    ],
+    "mode": "prefix",
+    "pre_applied": [
+     "m15",
+     "m29",
+     "m34",
+     "m44",
+     "m45",
+     "m46"
+    ],
+    "task": "glom-w67f423c-07d5ee0~pre-ee3fd3"
+   },
+   "targets": [
+    "m47"
+   ],
+   "verdict": {
+    "counterfactual": "not_attributed",
+    "evidence": {
+     "band": {
+      "in_band": true,
+      "n": 4,
+      "pass_rate": 0.0,
+      "reward_range": [
+       0.0,
+       0.071429
+      ],
+      "rewards": [
+       0.0,
+       0.0,
+       0.071429,
+       0.0
+      ]
+     },
+     "cause": {
+      "labels": {
+       "budget": 1,
+       "skill_gap": 2,
+       "world_bug": 1
+      },
+      "n": 4,
+      "ok": false,
+      "skill_gap_share": 0.5,
+      "skill_min": 0.7,
+      "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+     },
+     "counterfactual": {
+      "alpha": 0.05,
+      "ci_level": 0.9,
+      "dphi": 0.25,
+      "dphi_ci": [
+       0.0,
+       0.5
+      ],
+      "fisher_p": 0.5,
+      "masked": {
+       "full": 0,
+       "simple": 0
+      },
+      "min_simple_successes_for_significance": 4,
+      "n_full": 4,
+      "n_simple": 4,
+      "p_ref": 0.8,
+      "phi_route": false,
+      "power_at_ref": 0.4096,
+      "rate_full": 0.0,
+      "rate_simple": 0.25,
+      "route": "S2",
+      "simple_vs_ref_p": 0.0272,
+      "success_full": 0,
+      "success_simple": 1,
+      "verdict": "not_attributed",
+      "why": "the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis"
+     },
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 73,
+       "seen_in_own_runs": [
+        73
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "python -m pytest --tb=no -q 2>&1 | tail -20",
+        "python -m pytest --tb=no 2>&1 | grep -E \"passed|failed|error\""
+       ],
+       "tool_calls": 4,
+       "truth": [
+        73
+       ],
+       "usd": 0.000187,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= glom/test/test_basic.py glom/test/test_check.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+       "ok": true,
+       "passed": 73,
+       "passed_repo_config": 73,
+       "test_output_tail": "================ warnings summary ===============================\nglom/test/test_main.py::test_yaml_target\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/glom-w67f423c-07d5ee0/ws/glom/cli.py:126: YAMLLoadWarning: calling yaml.load() without Loader=... is deprecated, as the default Loader is unsafe. Please read https://msg.pyyaml.org/load for full details.\n    target = yaml.load(target_text)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n73 passed, 1 warning in 0.35s\n",
+       "tests_ran": true,
+       "truths": [
+        73
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "glom-w67f423c-07d5ee0"
+    },
+    "findings": [
+     "counterfactual not_attributed: the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis",
+     "cause mix: skill-gap share 0.5 < 0.7"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "glom-w67f423c-07d5ee0"
+   },
+   "window": "glom-w67f423c-07d5ee0",
+   "world": "crucible-lh-w:glom-35b21910f394-pyyaml-5.1.2",
+   "world_version": "f4319d2b51c7760d"
+  },
+  "humanize-wf9fa838-bc23540": {
+   "arms": {
+    "full": [
+     {
+      "full_pass": false,
+      "id": "05d2aa4cb0877f5d",
+      "masked": false,
+      "phi": 0.166667,
+      "phi_set": 0.0,
+      "reward": 0.083334,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.063227
+     },
+     {
+      "full_pass": false,
+      "id": "73e92fd276fb754e",
+      "masked": false,
+      "phi": 0.166667,
+      "phi_set": 0.0,
+      "reward": 0.083334,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.066149
+     },
+     {
+      "full_pass": false,
+      "id": "73fba02398c5e309",
+      "masked": false,
+      "phi": 0.166667,
+      "phi_set": 0.0,
+      "reward": 0.083334,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.041929
+     },
+     {
+      "full_pass": false,
+      "id": "ed03c737f9a8cf7a",
+      "masked": false,
+      "phi": 0.166667,
+      "phi_set": 0.0,
+      "reward": 0.083334,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.087955
+     }
+    ],
+    "simple": [
+     {
+      "full_pass": false,
+      "id": "01506d1b997bef43",
+      "masked": false,
+      "phi": 0.5,
+      "phi_set": 1.0,
+      "reward": 0.25,
+      "stop": "max_steps",
+      "success": true,
+      "usd": 0.046123
+     },
+     {
+      "full_pass": false,
+      "id": "9737b1987c1e8153",
+      "masked": false,
+      "phi": 0.25,
+      "phi_set": 0.0,
+      "reward": 0.125,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.045993
+     },
+     {
+      "full_pass": false,
+      "id": "c544b86d476b07fb",
+      "masked": false,
+      "phi": 0.25,
+      "phi_set": 0.0,
+      "reward": 0.125,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.066729
+     },
+     {
+      "full_pass": false,
+      "id": "e603ce72630108bd",
+      "masked": false,
+      "phi": 0.25,
+      "phi_set": 0.0,
+      "reward": 0.125,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.050975
+     }
+    ]
+   },
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.083334,
+     0.083334
+    ],
+    "rewards": [
+     0.083334,
+     0.083334,
+     0.083334,
+     0.083334
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 6
+    },
+    "n": 6,
+    "ok": true,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+   },
+   "counterfactual": {
+    "alpha": 0.05,
+    "ci_level": 0.9,
+    "dphi": 0.25,
+    "dphi_ci": [
+     0.0,
+     0.75
+    ],
+    "fisher_p": 0.5,
+    "masked": {
+     "full": 0,
+     "simple": 0
+    },
+    "min_simple_successes_for_significance": 4,
+    "n_full": 4,
+    "n_simple": 4,
+    "p_ref": 0.8,
+    "phi_route": false,
+    "power_at_ref": 0.4096,
+    "rate_full": 0.0,
+    "rate_simple": 0.25,
+    "route": "S2",
+    "simple_vs_ref_p": 0.0272,
+    "success_full": 0,
+    "success_simple": 1,
+    "verdict": "not_attributed",
+    "why": "the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis"
+   },
+   "dphi_kept": {
+    "full": 0.25,
+    "milestones": [
+     "m08",
+     "m27",
+     "m28",
+     "m29"
+    ],
+    "note": "information only: Phi over every kept milestone, not the target",
+    "simple": 0.3125
+   },
+   "kind": "prerequisites",
+   "machine": {
+    "run_id": "s15-humanize-wf9fa838-bc23540-8cf067189b",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 388,
+     "seen_in_own_runs": [
+      388
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "python -m pytest --version 2>&1 || echo \"pytest not found\"",
+      "PYTHONPATH=src:$PYTHONPATH python -m pytest tests/ --tb=short 2>&1"
+     ],
+     "tool_calls": 7,
+     "truth": [
+      388,
+      401
+     ],
+     "usd": 0.000465,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_filesize.py tests/test_humanize.py tests/test_i18n.py tests/test_number.py tests/test_time.py",
+     "ok": true,
+     "passed": 388,
+     "passed_repo_config": 401,
+     "test_output_tail": "[exit 0]\n.....................sssssssssssssss.................................... [ 17%]\n........................................................................ [ 35%]\n........................................................................ [ 53%]\n........................................................................ [ 71%]\n........................................................................ [ 89%]\n...........................................                              [100%]\n388 passed, 15 skipped in 0.53s\n",
+     "tests_ran": true,
+     "truths": [
+      388,
+      401
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "probe_episode": {
+    "masked": false,
+    "ok": true,
+    "ran_tests": true,
+    "reported": 388,
+    "seen_in_own_runs": [
+     388
+    ],
+    "stop": "agent_done",
+    "test_commands": [
+     "python -m pytest --version 2>&1 || echo \"pytest not found\"",
+     "PYTHONPATH=src:$PYTHONPATH python -m pytest tests/ --tb=short 2>&1"
+    ],
+    "tool_calls": 7,
+    "truth": [
+     388,
+     401
+    ],
+    "usd": 0.000465,
+    "why": ""
+   },
+   "probe_scripted": {
+    "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_filesize.py tests/test_humanize.py tests/test_i18n.py tests/test_number.py tests/test_time.py",
+    "ok": true,
+    "passed": 388,
+    "passed_repo_config": 401,
+    "test_output_tail": "[exit 0]\n.....................sssssssssssssss.................................... [ 17%]\n........................................................................ [ 35%]\n........................................................................ [ 53%]\n........................................................................ [ 71%]\n........................................................................ [ 89%]\n...........................................                              [100%]\n388 passed, 15 skipped in 0.53s\n",
+    "tests_ran": true,
+    "truths": [
+     388,
+     401
+    ],
+    "why": "",
+    "world_opened": true,
+    "write_ok": true,
+    "write_result": "wrote 6 bytes to .crucible_probe.txt"
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simplified": {
+    "milestones": [
+     "m08",
+     "m27",
+     "m28",
+     "m29"
+    ],
+    "mode": "prefix",
+    "pre_applied": [
+     "m01",
+     "m03"
+    ],
+    "task": "humanize-wf9fa838-bc23540~pre-4d4863"
+   },
+   "targets": [
+    "m08"
+   ],
+   "verdict": {
+    "counterfactual": "not_attributed",
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 4,
+      "pass_rate": 0.0,
+      "reward_range": [
+       0.083334,
+       0.083334
+      ],
+      "rewards": [
+       0.083334,
+       0.083334,
+       0.083334,
+       0.083334
+      ]
+     },
+     "cause": {
+      "labels": {
+       "skill_gap": 6
+      },
+      "n": 6,
+      "ok": true,
+      "skill_gap_share": 1.0,
+      "skill_min": 0.7,
+      "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+     },
+     "counterfactual": {
+      "alpha": 0.05,
+      "ci_level": 0.9,
+      "dphi": 0.25,
+      "dphi_ci": [
+       0.0,
+       0.75
+      ],
+      "fisher_p": 0.5,
+      "masked": {
+       "full": 0,
+       "simple": 0
+      },
+      "min_simple_successes_for_significance": 4,
+      "n_full": 4,
+      "n_simple": 4,
+      "p_ref": 0.8,
+      "phi_route": false,
+      "power_at_ref": 0.4096,
+      "rate_full": 0.0,
+      "rate_simple": 0.25,
+      "route": "S2",
+      "simple_vs_ref_p": 0.0272,
+      "success_full": 0,
+      "success_simple": 1,
+      "verdict": "not_attributed",
+      "why": "the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis"
+     },
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 388,
+       "seen_in_own_runs": [
+        388
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "python -m pytest --version 2>&1 || echo \"pytest not found\"",
+        "PYTHONPATH=src:$PYTHONPATH python -m pytest tests/ --tb=short 2>&1"
+       ],
+       "tool_calls": 7,
+       "truth": [
+        388,
+        401
+       ],
+       "usd": 0.000465,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_filesize.py tests/test_humanize.py tests/test_i18n.py tests/test_number.py tests/test_time.py",
+       "ok": true,
+       "passed": 388,
+       "passed_repo_config": 401,
+       "test_output_tail": "[exit 0]\n.....................sssssssssssssss.................................... [ 17%]\n........................................................................ [ 35%]\n........................................................................ [ 53%]\n........................................................................ [ 71%]\n........................................................................ [ 89%]\n...........................................                              [100%]\n388 passed, 15 skipped in 0.53s\n",
+       "tests_ran": true,
+       "truths": [
+        388,
+        401
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "humanize-wf9fa838-bc23540"
+    },
+    "findings": [
+     "counterfactual not_attributed: the policy fails the simplified task too (1/4; P(X <= 1 | p=0.8) = 0.0272): not the intended axis",
+     "out of band: the target rung's rewards [0.083334, 0.083334, 0.083334, 0.083334] have no spread (pass rate 0.0)"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "humanize-wf9fa838-bc23540"
+   },
+   "window": "humanize-wf9fa838-bc23540",
+   "world": "crucible-lh-w:humanize-109b153553f4",
+   "world_version": "dbf770056e1e2c9f"
+  },
+  "parse-w07c2ff9-44e14b0": {
+   "arms": {
+    "full": [
+     {
+      "full_pass": false,
+      "id": "31e096e2c6bd1cb0",
+      "masked": false,
+      "phi": 0.4,
+      "phi_set": 0.0,
+      "reward": 0.2,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.034577
+     },
+     {
+      "full_pass": false,
+      "id": "98e302b7674966b2",
+      "masked": false,
+      "phi": 0.1,
+      "phi_set": 0.0,
+      "reward": 0.05,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.055853
+     },
+     {
+      "full_pass": false,
+      "id": "b38da53c1bf3e736",
+      "masked": false,
+      "phi": 0.2,
+      "phi_set": 0.0,
+      "reward": 0.1,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.057942
+     },
+     {
+      "full_pass": false,
+      "id": "c40aaaabc29ec9c8",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.050211
+     }
+    ],
+    "simple": [
+     {
+      "full_pass": false,
+      "id": "53ecc84efe41c8b1",
+      "masked": false,
+      "phi": 0.6,
+      "phi_set": 0.0,
+      "reward": 0.3,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.033259
+     },
+     {
+      "full_pass": false,
+      "id": "82765eace84b943e",
+      "masked": false,
+      "phi": 0.4,
+      "phi_set": 0.0,
+      "reward": 0.2,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.034378
+     },
+     {
+      "full_pass": false,
+      "id": "bb6c9d4f3d5de5b3",
+      "masked": false,
+      "phi": 0.4,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "max_tokens",
+      "success": false,
+      "usd": 0.055373
+     },
+     {
+      "full_pass": false,
+      "id": "c1ff53dd5d35f3ff",
+      "masked": false,
+      "phi": 0.6,
+      "phi_set": 0.0,
+      "reward": 0.3,
+      "stop": "max_steps",
+      "success": false,
+      "usd": 0.029795
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.2
+    ],
+    "rewards": [
+     0.2,
+     0.05,
+     0.1,
+     0.0
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 6
+    },
+    "n": 6,
+    "ok": true,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+   },
+   "counterfactual": {
+    "alpha": 0.05,
+    "ci_level": 0.9,
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "masked": {
+     "full": 0,
+     "simple": 0
+    },
+    "min_simple_successes_for_significance": 4,
+    "n_full": 4,
+    "n_simple": 4,
+    "p_ref": 0.8,
+    "phi_route": false,
+    "power_at_ref": 0.4096,
+    "rate_full": 0.0,
+    "rate_simple": 0.0,
+    "route": "S2",
+    "simple_vs_ref_p": 0.0016,
+    "success_full": 0,
+    "success_simple": 0,
+    "verdict": "not_attributed",
+    "why": "the policy fails the simplified task too (0/4; P(X <= 0 | p=0.8) = 0.0016): not the intended axis"
+   },
+   "dphi_kept": {
+    "full": 0.25,
+    "milestones": [
+     "m17",
+     "m21",
+     "m23",
+     "m25",
+     "m28"
+    ],
+    "note": "information only: Phi over every kept milestone, not the target",
+    "simple": 0.5
+   },
+   "kind": "prerequisites",
+   "machine": {
+    "run_id": "s15-parse-w07c2ff9-44e14b0-25fb56acd0",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "paraphrase_stability": [
+    {
+     "mean_phi": 0.275,
+     "n_original": 4,
+     "n_paraphrase": 4,
+     "original_mean_phi": 0.175,
+     "pass_ci": [
+      0.0,
+      0.4899
+     ],
+     "pass_rate": 0.0,
+     "phi_ci": [
+      0.05,
+      0.325
+     ],
+     "stable": true,
+     "task": "parse-w07c2ff9-44e14b0~para1",
+     "why": ""
+    },
+    {
+     "mean_phi": 0.325,
+     "n_original": 4,
+     "n_paraphrase": 4,
+     "original_mean_phi": 0.175,
+     "pass_ci": [
+      0.0,
+      0.4899
+     ],
+     "pass_rate": 0.0,
+     "phi_ci": [
+      0.05,
+      0.325
+     ],
+     "stable": true,
+     "task": "parse-w07c2ff9-44e14b0~para2",
+     "why": ""
+    }
+   ],
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 74,
+     "seen_in_own_runs": [
+      74
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "python test_parse.py 2>&1"
+     ],
+     "tool_calls": 4,
+     "truth": [
+      74
+     ],
+     "usd": 0.00019,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_parse.py",
+     "ok": true,
+     "passed": 74,
+     "passed_repo_config": 74,
+     "test_output_tail": "ojects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:963: SyntaxWarning: invalid escape sequence '\\d'\n    s = '\\d{1,3}([,.]\\d{3})*'\n\nparse.py:1104\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:1104: SyntaxWarning: invalid escape sequence '\\+'\n    if fill in '.\\+?*[](){}^$':\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n74 passed, 11 warnings in 0.28s\n",
+     "tests_ran": true,
+     "truths": [
+      74
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "probe_episode": {
+    "masked": false,
+    "ok": true,
+    "ran_tests": true,
+    "reported": 74,
+    "seen_in_own_runs": [
+     74
+    ],
+    "stop": "agent_done",
+    "test_commands": [
+     "python test_parse.py 2>&1"
+    ],
+    "tool_calls": 4,
+    "truth": [
+     74
+    ],
+    "usd": 0.00019,
+    "why": ""
+   },
+   "probe_scripted": {
+    "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_parse.py",
+    "ok": true,
+    "passed": 74,
+    "passed_repo_config": 74,
+    "test_output_tail": "ojects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:963: SyntaxWarning: invalid escape sequence '\\d'\n    s = '\\d{1,3}([,.]\\d{3})*'\n\nparse.py:1104\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:1104: SyntaxWarning: invalid escape sequence '\\+'\n    if fill in '.\\+?*[](){}^$':\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n74 passed, 11 warnings in 0.28s\n",
+    "tests_ran": true,
+    "truths": [
+     74
+    ],
+    "why": "",
+    "world_opened": true,
+    "write_ok": true,
+    "write_result": "wrote 6 bytes to .crucible_probe.txt"
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simplified": {
+    "milestones": [
+     "m17",
+     "m21",
+     "m23",
+     "m25",
+     "m28"
+    ],
+    "mode": "prefix",
+    "pre_applied": [
+     "m02",
+     "m03",
+     "m05",
+     "m11",
+     "m15"
+    ],
+    "task": "parse-w07c2ff9-44e14b0~pre-1c4e5c"
+   },
+   "targets": [
+    "m17"
+   ],
+   "verdict": {
+    "counterfactual": "not_attributed",
+    "evidence": {
+     "band": {
+      "in_band": true,
+      "n": 4,
+      "pass_rate": 0.0,
+      "reward_range": [
+       0.0,
+       0.2
+      ],
+      "rewards": [
+       0.2,
+       0.05,
+       0.1,
+       0.0
+      ]
+     },
+     "cause": {
+      "labels": {
+       "skill_gap": 6
+      },
+      "n": 6,
+      "ok": true,
+      "skill_gap_share": 1.0,
+      "skill_min": 0.7,
+      "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+     },
+     "counterfactual": {
+      "alpha": 0.05,
+      "ci_level": 0.9,
+      "dphi": 0.0,
+      "dphi_ci": [
+       0.0,
+       0.0
+      ],
+      "fisher_p": 1.0,
+      "masked": {
+       "full": 0,
+       "simple": 0
+      },
+      "min_simple_successes_for_significance": 4,
+      "n_full": 4,
+      "n_simple": 4,
+      "p_ref": 0.8,
+      "phi_route": false,
+      "power_at_ref": 0.4096,
+      "rate_full": 0.0,
+      "rate_simple": 0.0,
+      "route": "S2",
+      "simple_vs_ref_p": 0.0016,
+      "success_full": 0,
+      "success_simple": 0,
+      "verdict": "not_attributed",
+      "why": "the policy fails the simplified task too (0/4; P(X <= 0 | p=0.8) = 0.0016): not the intended axis"
+     },
+     "notes": {},
+     "paraphrase": [
+      {
+       "mean_phi": 0.275,
+       "n_original": 4,
+       "n_paraphrase": 4,
+       "original_mean_phi": 0.175,
+       "pass_ci": [
+        0.0,
+        0.4899
+       ],
+       "pass_rate": 0.0,
+       "phi_ci": [
+        0.05,
+        0.325
+       ],
+       "stable": true,
+       "task": "parse-w07c2ff9-44e14b0~para1",
+       "why": ""
+      },
+      {
+       "mean_phi": 0.325,
+       "n_original": 4,
+       "n_paraphrase": 4,
+       "original_mean_phi": 0.175,
+       "pass_ci": [
+        0.0,
+        0.4899
+       ],
+       "pass_rate": 0.0,
+       "phi_ci": [
+        0.05,
+        0.325
+       ],
+       "stable": true,
+       "task": "parse-w07c2ff9-44e14b0~para2",
+       "why": ""
+      }
+     ],
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 74,
+       "seen_in_own_runs": [
+        74
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "python test_parse.py 2>&1"
+       ],
+       "tool_calls": 4,
+       "truth": [
+        74
+       ],
+       "usd": 0.00019,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_parse.py",
+       "ok": true,
+       "passed": 74,
+       "passed_repo_config": 74,
+       "test_output_tail": "ojects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:963: SyntaxWarning: invalid escape sequence '\\d'\n    s = '\\d{1,3}([,.]\\d{3})*'\n\nparse.py:1104\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p4/run/probe/parse-w07c2ff9-44e14b0/ws/parse.py:1104: SyntaxWarning: invalid escape sequence '\\+'\n    if fill in '.\\+?*[](){}^$':\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n74 passed, 11 warnings in 0.28s\n",
+       "tests_ran": true,
+       "truths": [
+        74
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "parse-w07c2ff9-44e14b0"
+    },
+    "findings": [
+     "counterfactual not_attributed: the policy fails the simplified task too (0/4; P(X <= 0 | p=0.8) = 0.0016): not the intended axis"
+    ],
+    "flags": [],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "parse-w07c2ff9-44e14b0"
+   },
+   "window": "parse-w07c2ff9-44e14b0",
+   "world": "crucible-lh-w:parse-dc2d50529f81",
+   "world_version": "9557cbadafdd681f"
+  },
+  "python-semver-w41775dd-1bafb9f": {
+   "arms": {
+    "full": [
+     {
+      "full_pass": false,
+      "id": "053b06ed28a8a8e8",
+      "masked": false,
+      "phi": 0.142857,
+      "phi_set": 0.0,
+      "reward": 0.071429,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.010236
+     },
+     {
+      "full_pass": false,
+      "id": "0b65fdc4a6f0e552",
+      "masked": false,
+      "phi": 0.142857,
+      "phi_set": 0.0,
+      "reward": 0.071429,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.010146
+     },
+     {
+      "full_pass": false,
+      "id": "1a7569e4df2685ed",
+      "masked": false,
+      "phi": 0.285714,
+      "phi_set": 0.0,
+      "reward": 0.142857,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.014243
+     },
+     {
+      "full_pass": false,
+      "id": "682d7ab3ee45a0de",
+      "masked": false,
+      "phi": 0.428571,
+      "phi_set": 0.0,
+      "reward": 0.214285,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.007768
+     }
+    ],
+    "simple": [
+     {
+      "full_pass": false,
+      "id": "6865a82d953edc6a",
+      "masked": false,
+      "phi": 0.0,
+      "phi_set": 0.0,
+      "reward": 0.0,
+      "stop": "agent_done",
+      "success": false,
+      "usd": 0.008698
+     },
+     {
+      "full_pass": false,
+      "id": "6a5ec5bee1190f26",
+      "masked": false,
+      "phi": 0.5,
+      "phi_set": 1.0,
+      "reward": 0.25,
+      "stop": "agent_done",
+      "success": true,
+      "usd": 0.00878
+     },
+     {
+      "full_pass": false,
+      "id": "bcc8d02659587939",
+      "masked": false,
+      "phi": 0.5,
+      "phi_set": 1.0,
+      "reward": 0.25,
+      "stop": "agent_done",
+      "success": true,
+      "usd": 0.011373
+     },
+     {
+      "full_pass": false,
+      "id": "cb137a1077c31423",
+      "masked": false,
+      "phi": 0.5,
+      "phi_set": 1.0,
+      "reward": 0.25,
+      "stop": "agent_done",
+      "success": true,
+      "usd": 0.005404
+     }
+    ]
+   },
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.071429,
+     0.214285
+    ],
+    "rewards": [
+     0.071429,
+     0.071429,
+     0.142857,
+     0.214285
+    ]
+   },
+   "cause": {
+    "labels": {
+     "budget": 1,
+     "skill_gap": 6
+    },
+    "n": 7,
+    "ok": true,
+    "skill_gap_share": 0.8571,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+   },
+   "counterfactual": {
+    "alpha": 0.05,
+    "ci_level": 0.9,
+    "dphi": 0.75,
+    "dphi_ci": [
+     0.25,
+     1.0
+    ],
+    "fisher_p": 0.071429,
+    "masked": {
+     "full": 0,
+     "simple": 0
+    },
+    "min_simple_successes_for_significance": 4,
+    "n_full": 4,
+    "n_simple": 4,
+    "p_ref": 0.8,
+    "phi_route": false,
+    "power_at_ref": 0.4096,
+    "rate_full": 0.0,
+    "rate_simple": 0.75,
+    "route": null,
+    "simple_vs_ref_p": 0.5904,
+    "success_full": 0,
+    "success_simple": 3,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 0.071, Phi gain CI [0.25, 1.0]) and the simplified arm is not clearly failing (p 0.590); power at the reference effect 0.41 < 0.8"
+   },
+   "dphi_kept": {
+    "full": 0.0,
+    "milestones": [
+     "m30",
+     "m31"
+    ],
+    "note": "information only: Phi over every kept milestone, not the target",
+    "simple": 0.375
+   },
+   "kind": "prerequisites",
+   "machine": {
+    "run_id": "s15-python-semver-w41775dd-1bafb9f-e187bb98a8",
+    "s15_visits": 1,
+    "status": "done",
+    "why": "reached terminal state accepted"
+   },
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 120,
+     "seen_in_own_runs": [
+      106,
+      120
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "pip install pytest -q 2>/dev/null && py.test test_semver.py -q 2>&1",
+      "py.test -q --doctest-modules semver.py test_semver.py 2>&1",
+      "py.test -q --doctest-modules 2>&1",
+      "py.test --collect-only test_semver.py 2>&1 | tail -5"
+     ],
+     "tool_calls": 7,
+     "truth": [
+      106
+     ],
+     "usd": 0.000333,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_semver.py",
+     "ok": true,
+     "passed": 106,
+     "passed_repo_config": 106,
+     "test_output_tail": "[exit 0]\n........................................................................ [ 67%]\n..................................                                       [100%]\n106 passed in 0.33s\n",
+     "tests_ran": true,
+     "truths": [
+      106
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "probe_episode": {
+    "masked": false,
+    "ok": true,
+    "ran_tests": true,
+    "reported": 120,
+    "seen_in_own_runs": [
+     106,
+     120
+    ],
+    "stop": "agent_done",
+    "test_commands": [
+     "pip install pytest -q 2>/dev/null && py.test test_semver.py -q 2>&1",
+     "py.test -q --doctest-modules semver.py test_semver.py 2>&1",
+     "py.test -q --doctest-modules 2>&1",
+     "py.test --collect-only test_semver.py 2>&1 | tail -5"
+    ],
+    "tool_calls": 7,
+    "truth": [
+     106
+    ],
+    "usd": 0.000333,
+    "why": ""
+   },
+   "probe_scripted": {
+    "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_semver.py",
+    "ok": true,
+    "passed": 106,
+    "passed_repo_config": 106,
+    "test_output_tail": "[exit 0]\n........................................................................ [ 67%]\n..................................                                       [100%]\n106 passed in 0.33s\n",
+    "tests_ran": true,
+    "truths": [
+     106
+    ],
+    "why": "",
+    "world_opened": true,
+    "write_ok": true,
+    "write_result": "wrote 6 bytes to .crucible_probe.txt"
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simplified": {
+    "milestones": [
+     "m30",
+     "m31"
+    ],
+    "mode": "prefix",
+    "pre_applied": [
+     "m04",
+     "m07",
+     "m11",
+     "m13",
+     "m20"
+    ],
+    "task": "python-semver-w41775dd-1bafb9f~pre-2821e5"
+   },
+   "targets": [
+    "m31"
+   ],
+   "verdict": {
+    "counterfactual": "underpowered",
+    "evidence": {
+     "band": {
+      "in_band": true,
+      "n": 4,
+      "pass_rate": 0.0,
+      "reward_range": [
+       0.071429,
+       0.214285
+      ],
+      "rewards": [
+       0.071429,
+       0.071429,
+       0.142857,
+       0.214285
+      ]
+     },
+     "cause": {
+      "labels": {
+       "budget": 1,
+       "skill_gap": 6
+      },
+      "n": 7,
+      "ok": true,
+      "skill_gap_share": 0.8571,
+      "skill_min": 0.7,
+      "source": "P3 RLM auditor labels on the run-1/2 trails of this window"
+     },
+     "counterfactual": {
+      "alpha": 0.05,
+      "ci_level": 0.9,
+      "dphi": 0.75,
+      "dphi_ci": [
+       0.25,
+       1.0
+      ],
+      "fisher_p": 0.071429,
+      "masked": {
+       "full": 0,
+       "simple": 0
+      },
+      "min_simple_successes_for_significance": 4,
+      "n_full": 4,
+      "n_simple": 4,
+      "p_ref": 0.8,
+      "phi_route": false,
+      "power_at_ref": 0.4096,
+      "rate_full": 0.0,
+      "rate_simple": 0.75,
+      "route": null,
+      "simple_vs_ref_p": 0.5904,
+      "success_full": 0,
+      "success_simple": 3,
+      "verdict": "underpowered",
+      "why": "no significant difference (Fisher p 0.071, Phi gain CI [0.25, 1.0]) and the simplified arm is not clearly failing (p 0.590); power at the reference effect 0.41 < 0.8"
+     },
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 120,
+       "seen_in_own_runs": [
+        106,
+        120
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "pip install pytest -q 2>/dev/null && py.test test_semver.py -q 2>&1",
+        "py.test -q --doctest-modules semver.py test_semver.py 2>&1",
+        "py.test -q --doctest-modules 2>&1",
+        "py.test --collect-only test_semver.py 2>&1 | tail -5"
+       ],
+       "tool_calls": 7,
+       "truth": [
+        106
+       ],
+       "usd": 0.000333,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_semver.py",
+       "ok": true,
+       "passed": 106,
+       "passed_repo_config": 106,
+       "test_output_tail": "[exit 0]\n........................................................................ [ 67%]\n..................................                                       [100%]\n106 passed in 0.33s\n",
+       "tests_ran": true,
+       "truths": [
+        106
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "python-semver-w41775dd-1bafb9f"
+    },
+    "findings": [],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 0.071, Phi gain CI [0.25, 1.0]) and the simplified arm is not clearly failing (p 0.590); power at the reference effect 0.41 < 0.8",
+     "paraphrase stability not run"
+    ],
+    "ok": true,
+    "owner": null,
+    "route": null,
+    "task": "python-semver-w41775dd-1bafb9f"
+   },
+   "window": "python-semver-w41775dd-1bafb9f",
+   "world": "crucible-lh-w:python-semver-00159547138d",
+   "world_version": null
+  }
+ },
+ "world": {
+  "by_status": {
+   "accepted": 7,
+   "rejected": 2
+  },
+  "rows": [
+   {
+    "command": {
+     "command": "pwd && python -m pytest glom/test/ -v 2>&1 | head -150",
+     "timeout_s": 60
+    },
+    "current_image": "crucible-lh-w:glom-0a0f308fabda",
+    "done": true,
+    "fix": {
+     "digest": "sha256:44ad9114692b6d8d4b247d8f474e14315923570dd3c243b6ed19d9de7a7fb147",
+     "from_image": "crucible-lh-w:glom-0a0f308fabda",
+     "image": "crucible-lh-w:glom-35b21910f394-pyyaml-5.1.2",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [
+       "yaml"
+      ],
+      "import_deps": [
+       "PyYAML",
+       "attrs",
+       "boltons",
+       "face"
+      ],
+      "pins": {
+       "PyYAML": "3.13",
+       "attrs": "17.4.0",
+       "boltons": "18.0.1",
+       "coverage": "4.5.2",
+       "tox": "3.7.0",
+       "virtualenv": "15.1.0"
+      },
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": "PyYAML",
+      "failing_at_a": [
+       "glom/test/test_main.py::test_yaml_target"
+      ],
+      "from_version": "6.0.3",
+      "implicated": [
+       {
+        "dist": "PyYAML",
+        "module": "yaml",
+        "version": "6.0.3"
+       },
+       {
+        "dist": "face",
+        "module": "face",
+        "version": "26.0.1"
+       }
+      ],
+      "ok": true,
+      "pin": "3.13",
+      "tried": [
+       {
+        "built": true,
+        "dist": "PyYAML",
+        "new_failures": [],
+        "still_failing": [
+         "glom/test/test_main.py::test_yaml_target"
+        ],
+        "version": "3.13"
+       },
+       {
+        "built": true,
+        "dist": "PyYAML",
+        "new_failures": [],
+        "still_failing": [],
+        "version": "5.1.2"
+       }
+      ],
+      "version": "5.1.2",
+      "why": null
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [],
+      "imports": [
+       "sphinx",
+       "sphinx_rtd_theme",
+       "thread"
+      ]
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline",
+        "make in docs/Makefile"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {
+       "PyYAML": "import yaml in glom/cli.py",
+       "attrs": "import attr in glom/tutorial.py",
+       "boltons": "import boltons in glom/core.py",
+       "face": "import face in glom/cli.py"
+      }
+     }
+    },
+    "p3_image": {
+     "image": "crucible-lh-w:glom-4c0764ddcce5",
+     "repro_on_oracle": {
+      "exit": 1,
+      "failed": true,
+      "same_signature": true
+     },
+     "s3": {
+      "checks": {
+       "builds": true,
+       "existing_tests_run": true,
+       "grading_unchanged": true,
+       "leak_probes_hold": true,
+       "reruns_clean": true
+      },
+      "existing_tests": {
+       "counts": {
+        "failed": 1,
+        "passed": 72
+       },
+       "infra": "ok",
+       "targets": 9
+      },
+      "grading": {
+       "infra": [
+        "ok",
+        "ok"
+       ],
+       "oracle_milestones": {
+        "m15": true,
+        "m29": true,
+        "m34": true,
+        "m44": true,
+        "m45": true,
+        "m46": true,
+        "m47": true
+       },
+       "start_any_milestone_test": {
+        "m15": false,
+        "m29": false,
+        "m34": false,
+        "m44": false,
+        "m45": false,
+        "m46": false,
+        "m47": false
+       }
+      },
+      "image": "crucible-lh-w:glom-4c0764ddcce5",
+      "leak": {
+       "git_log_only_base": "pass",
+       "no_b_distribution_file": "pass",
+       "no_new_test_names_in_image": "pass",
+       "pip_download_b_fails": "pass"
+      },
+      "ok": true,
+      "reruns": {
+       "clean": 60,
+       "cp_upper": 0.0487,
+       "n": 60
+      },
+      "why": ""
+     }
+    },
+    "proposal": "wo-cd4c37e5f45d",
+    "proposals": [
+     {
+      "after_fix_on_oracle": null,
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": false,
+       "output": "=== short test summary info ============================\nFAILED glom/test/test_basic.py::test_call_and_target - glom.core.PathAccessEr...\nFAILED glom/test/test_main.py::test_yaml_target - face.errors.CommandLineErro...\n========================= 2 failed, 71 passed in 0.46s =========================\n"
+      },
+      "id": "wo-cd4c37e5f45d",
+      "reasons": [
+       "the reproduction does not fail on a known-good state (the oracle): not a World bug"
+      ],
+      "source": "fact",
+      "status": "rejected",
+      "why": "module 'yaml' missing in the World (x7)"
+     },
+     {
+      "after_fix_on_oracle": {
+       "exit": 0,
+       "failed": false,
+       "output": "YAMLLoadWarning: calling yaml.load() without Loader=... is deprecated, as the default Loader is unsafe. Please read https://msg.pyyaml.org/load for full details.\n    target = yaml.load(target_text)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.30s\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "-----------------------\nerror: could not load target data, got: load() missing 1 required positional argument: 'Loader'\n=========================== short test summary info ============================\nFAILED glom/test/test_main.py::test_yaml_target - face.errors.CommandLineErro...\n1 failed in 0.31s\n"
+      },
+      "id": "wo-435a7ab5378b",
+      "reasons": [],
+      "source": "s3",
+      "status": "accepted",
+      "version": "f4319d2b51c7760d",
+      "why": "A's own tests fail in the World: ['glom/test/test_main.py::test_yaml_target']"
+     }
+    ],
+    "reasons": [
+     "the reproduction does not fail on a known-good state (the oracle): not a World bug"
+    ],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 73
+      },
+      "infra": "ok",
+      "targets": 9
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m15": true,
+       "m29": true,
+       "m34": true,
+       "m44": true,
+       "m45": true,
+       "m46": true,
+       "m47": true
+      },
+      "start_any_milestone_test": {
+       "m15": false,
+       "m29": false,
+       "m34": false,
+       "m44": false,
+       "m45": false,
+       "m46": false,
+       "m47": false
+      }
+     },
+     "image": "crucible-lh-w:glom-35b21910f394-pyyaml-5.1.2",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "failed": 1,
+       "passed": 72
+      },
+      "infra": "ok",
+      "targets": 9
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m15": true,
+       "m29": true,
+       "m34": true,
+       "m44": true,
+       "m45": true,
+       "m46": true,
+       "m47": true
+      },
+      "start_any_milestone_test": {
+       "m15": false,
+       "m29": false,
+       "m34": false,
+       "m44": false,
+       "m45": false,
+       "m46": false,
+       "m47": false
+      }
+     },
+     "image": "crucible-lh-w:glom-0a0f308fabda",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "module 'yaml' missing in the World",
+    "status": "rejected",
+    "version": null,
+    "window": "glom-w67f423c-07d5ee0"
+   },
+   {
+    "command": {
+     "command": "make clean",
+     "timeout_s": 300
+    },
+    "current_image": "crucible-lh-w:parse-5a09d2a5e83e",
+    "done": true,
+    "fix": {
+     "digest": "sha256:1d7f6fc42eb19cc156a88316321b4108daafcc5a8cb435a3e64ab72212d1c2c0",
+     "from_image": "crucible-lh-w:parse-5a09d2a5e83e",
+     "image": "crucible-lh-w:parse-dc2d50529f81",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [],
+      "import_deps": [],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [],
+      "from_version": null,
+      "implicated": null,
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "A's own tests all pass in this World"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [
+       "test_parse.py"
+      ],
+      "imports": []
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {}
+     }
+    },
+    "proposal": "wo-ce0196d82b70",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 2,
+       "failed": false,
+       "output": "make: *** No rule to make target 'clean'.  Stop.\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 127,
+       "failed": true,
+       "output": "sh: 1: make: not found\n"
+      },
+      "id": "wo-ce0196d82b70",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "9557cbadafdd681f",
+      "why": "command 'make' not found in the World (x4)"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 74
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m02": true,
+       "m03": true,
+       "m05": true,
+       "m11": true,
+       "m15": true,
+       "m17": true,
+       "m21": true,
+       "m23": true,
+       "m25": true,
+       "m28": true
+      },
+      "start_any_milestone_test": {
+       "m02": false,
+       "m03": false,
+       "m05": false,
+       "m11": false,
+       "m15": false,
+       "m17": false,
+       "m21": false,
+       "m23": false,
+       "m25": false,
+       "m28": false
+      }
+     },
+     "image": "crucible-lh-w:parse-dc2d50529f81",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 74
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m02": true,
+       "m03": true,
+       "m05": true,
+       "m11": true,
+       "m15": true,
+       "m17": true,
+       "m21": true,
+       "m23": true,
+       "m25": true,
+       "m28": true
+      },
+      "start_any_milestone_test": {
+       "m02": false,
+       "m03": false,
+       "m05": false,
+       "m11": false,
+       "m15": false,
+       "m17": false,
+       "m21": false,
+       "m23": false,
+       "m25": false,
+       "m28": false
+      }
+     },
+     "image": "crucible-lh-w:parse-5a09d2a5e83e",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "command 'make' not found in the World",
+    "status": "accepted",
+    "version": "9557cbadafdd681f",
+    "window": "parse-w07c2ff9-44e14b0"
+   },
+   {
+    "command": {
+     "command": "python setup.py install",
+     "timeout_s": 300
+    },
+    "current_image": "crucible-lh-w:more-itertools-f33c0cd0c2d8",
+    "done": true,
+    "fix": {
+     "digest": "sha256:5bb2637bd36c0dee3ed2c5c6bfc54918f549bc0ec52e651e7a92b90f7eb9ee52",
+     "from_image": "crucible-lh-w:more-itertools-f33c0cd0c2d8",
+     "image": "crucible-lh-w:more-itertools-535848007b91",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [],
+      "import_deps": [],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [],
+      "from_version": null,
+      "implicated": null,
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "A's own tests all pass in this World"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [
+       "flit",
+       "look",
+       "now",
+       "stubtest",
+       "the"
+      ],
+      "imports": [
+       "sphinx_rtd_theme"
+      ]
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline",
+        "make in docs/Makefile"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {}
+     }
+    },
+    "proposal": "wo-9cb95454d826",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 1,
+       "failed": false,
+       "output": ", line 290, in _ensure_previously_set\n    raise InvalidConfigError(msg)\nsetuptools.errors.InvalidConfigError: No configuration found for dynamic 'description'.\nSome dynamic fields need to be specified via `tool.setuptools.dynamic`\nothers must be specified via the equivalent attribute in `setup.py`.\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "Traceback (most recent call last):\n  File \"/w/setup.py\", line 1, in <module>\n    from setuptools import setup\nModuleNotFoundError: No module named 'setuptools'\n"
+      },
+      "id": "wo-9cb95454d826",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "41dcd4a8e707e16c",
+      "why": "module 'setuptools' missing in the World (x2)"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 577
+      },
+      "infra": "ok",
+      "targets": 2
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m04": true,
+       "m06": true,
+       "m09": true,
+       "m10": true,
+       "m11": true,
+       "m12": true,
+       "m15": true,
+       "m19": true,
+       "m20": true,
+       "m22": true
+      },
+      "start_any_milestone_test": {
+       "m04": false,
+       "m06": false,
+       "m09": false,
+       "m10": false,
+       "m11": false,
+       "m12": false,
+       "m15": false,
+       "m19": false,
+       "m20": false,
+       "m22": false
+      }
+     },
+     "image": "crucible-lh-w:more-itertools-535848007b91",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 577
+      },
+      "infra": "ok",
+      "targets": 2
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m04": true,
+       "m06": true,
+       "m09": true,
+       "m10": true,
+       "m11": true,
+       "m12": true,
+       "m15": true,
+       "m19": true,
+       "m20": true,
+       "m22": true
+      },
+      "start_any_milestone_test": {
+       "m04": false,
+       "m06": false,
+       "m09": false,
+       "m10": false,
+       "m11": false,
+       "m12": false,
+       "m15": false,
+       "m19": false,
+       "m20": false,
+       "m22": false
+      }
+     },
+     "image": "crucible-lh-w:more-itertools-f33c0cd0c2d8",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "module 'setuptools' missing in the World",
+    "status": "accepted",
+    "version": "41dcd4a8e707e16c",
+    "window": "more-itertools-w89d58c2-5c1fb20"
+   },
+   {
+    "command": {
+     "command": "python setup.py test",
+     "timeout_s": 300
+    },
+    "current_image": "crucible-lh-w:toolz-12a209144c31",
+    "done": true,
+    "fix": {
+     "digest": "sha256:03bd54f42f26b300056be68edd6d7ebae4983787815575655ae31455497d9e3c",
+     "from_image": "crucible-lh-w:toolz-12a209144c31",
+     "image": "crucible-lh-w:toolz-0d364346ed82",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [],
+      "import_deps": [],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [
+       "bench/test_wordcount.py::test_shakespeare",
+       "toolz/tests/test_inspect_args.py::test_inspect_wrapped_property",
+       "toolz/tests/test_inspect_args.py::test_introspect_builtin_modules",
+       "toolz/tests/test_itertoolz.py::test_random_sample",
+       "toolz/tests/test_tlz.py::test_tlz"
+      ],
+      "from_version": null,
+      "implicated": [],
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "no installed distribution in the failing tests' tracebacks"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [
+       "look",
+       "nosetests",
+       "now",
+       "pep8",
+       "the",
+       "with-doctest"
+      ],
+      "imports": [
+       "cytoolz",
+       "tlzthisisabadname"
+      ]
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline",
+        "make in doc/Makefile"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {}
+     }
+    },
+    "proposal": "wo-02284a82ac1c",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 1,
+       "failed": false,
+       "output": "**********************************************************\n\n!!\n  self._finalize_license_expression()\nusage: setup.py [global_opts] cmd1 [cmd1_opts] [cmd2 [cmd2_opts] ...]\n   or: setup.py --help [cmd1 cmd2 ...]\n   or: setup.py --help-commands\n   or: setup.py cmd --help\n\nerror: invalid command 'test'\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "Traceback (most recent call last):\n  File \"/w/setup.py\", line 4, in <module>\n    from setuptools import setup\nModuleNotFoundError: No module named 'setuptools'\n"
+      },
+      "id": "wo-02284a82ac1c",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "1f69e85ce9ba22d5",
+      "why": "module 'setuptools' missing in the World (x6)"
+     },
+     {
+      "after_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "Error: [Errno ...\nFAILED toolz/tests/test_inspect_args.py::test_inspect_wrapped_property - Asse...\nFAILED toolz/tests/test_itertoolz.py::test_random_sample - TypeError: The onl...\nFAILED toolz/tests/test_tlz.py::test_tlz - AttributeError: 'TlzSpec' object h...\n4 failed, 1 passed, 1 warning in 0.82s\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "Error: [Errno ...\nFAILED toolz/tests/test_inspect_args.py::test_inspect_wrapped_property - Asse...\nFAILED toolz/tests/test_itertoolz.py::test_random_sample - TypeError: The onl...\nFAILED toolz/tests/test_tlz.py::test_tlz - AttributeError: 'TlzSpec' object h...\n4 failed, 1 passed, 1 warning in 0.94s\n"
+      },
+      "id": "wo-9a01c94731a1",
+      "reasons": [
+       "the fix does not make the reproduction pass on the oracle state"
+      ],
+      "source": "s3",
+      "status": "rejected",
+      "why": "A's own tests fail in the World: ['bench/test_wordcount.py::test_shakespeare', 'toolz/tests/test_inspect_args.py::test_inspect_wrapped_property', 'toolz/tests/test_inspect_args.py::test_introspect_builtin_modules']"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "failed": 5,
+       "passed": 194
+      },
+      "infra": "ok",
+      "targets": 28
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true,
+       "m05": true,
+       "m07": true,
+       "m14": true,
+       "m18": true,
+       "m28": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m02": false,
+       "m03": false,
+       "m04": false,
+       "m05": false,
+       "m07": false,
+       "m14": false,
+       "m18": false,
+       "m28": false
+      }
+     },
+     "image": "crucible-lh-w:toolz-0d364346ed82",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "failed": 5,
+       "passed": 194
+      },
+      "infra": "ok",
+      "targets": 28
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true,
+       "m05": true,
+       "m07": true,
+       "m14": true,
+       "m18": true,
+       "m28": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m02": false,
+       "m03": false,
+       "m04": false,
+       "m05": false,
+       "m07": false,
+       "m14": false,
+       "m18": false,
+       "m28": false
+      }
+     },
+     "image": "crucible-lh-w:toolz-12a209144c31",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "module 'setuptools' missing in the World",
+    "status": "accepted",
+    "version": "1f69e85ce9ba22d5",
+    "window": "toolz-w2ac03ce-55c60e9"
+   },
+   {
+    "command": {
+     "command": "python setup.py test",
+     "timeout_s": 1800
+    },
+    "current_image": "crucible-lh-w:humanize-311f09b1e3c8",
+    "done": true,
+    "fix": {
+     "digest": "sha256:b98f9f29a19c18cdf03f4d4bad02ce0615c2657c3a1ad474acf09711576b4ca4",
+     "from_image": "crucible-lh-w:humanize-311f09b1e3c8",
+     "image": "crucible-lh-w:humanize-109b153553f4",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "gettext",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [
+       "tests"
+      ],
+      "import_deps": [
+       "freezegun",
+       "importlib-metadata"
+      ],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [],
+      "from_version": null,
+      "implicated": null,
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "A's own tests all pass in this World"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [
+       "apt",
+       "brew"
+      ],
+      "imports": []
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "gettext": [
+        "msgfmt in scripts/generate-translation-binaries.sh"
+       ],
+       "make": [
+        "baseline"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {
+       "freezegun": "import freezegun in tests/test_time.py",
+       "importlib-metadata": "import importlib_metadata in src/humanize/__init__.py"
+      }
+     }
+    },
+    "proposal": "wo-49b3a88649bc",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 1,
+       "failed": false,
+       "output": "**********************************************************\n\n!!\n  self._finalize_license_expression()\nusage: setup.py [global_opts] cmd1 [cmd1_opts] [cmd2 [cmd2_opts] ...]\n   or: setup.py --help [cmd1 cmd2 ...]\n   or: setup.py --help-commands\n   or: setup.py cmd --help\n\nerror: invalid command 'test'\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 1,
+       "failed": true,
+       "output": "Traceback (most recent call last):\n  File \"/w/setup.py\", line 1, in <module>\n    from setuptools import setup\nModuleNotFoundError: No module named 'setuptools'\n"
+      },
+      "id": "wo-49b3a88649bc",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "dbf770056e1e2c9f",
+      "why": "module 'setuptools' missing in the World (x4)"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 388,
+       "skipped": 15
+      },
+      "infra": "ok",
+      "targets": 5
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m03": true,
+       "m08": true,
+       "m27": true,
+       "m28": true,
+       "m29": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m03": false,
+       "m08": false,
+       "m27": false,
+       "m28": false,
+       "m29": false
+      }
+     },
+     "image": "crucible-lh-w:humanize-109b153553f4",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 388,
+       "skipped": 15
+      },
+      "infra": "ok",
+      "targets": 5
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m03": true,
+       "m08": true,
+       "m27": true,
+       "m28": true,
+       "m29": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m03": false,
+       "m08": false,
+       "m27": false,
+       "m28": false,
+       "m29": false
+      }
+     },
+     "image": "crucible-lh-w:humanize-311f09b1e3c8",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "module 'setuptools' missing in the World",
+    "status": "accepted",
+    "version": "dbf770056e1e2c9f",
+    "window": "humanize-wf9fa838-bc23540"
+   },
+   {
+    "command": {
+     "command": "make test",
+     "timeout_s": 300
+    },
+    "current_image": "crucible-lh-w:parse-a4c0747a4a19",
+    "done": true,
+    "fix": {
+     "digest": "sha256:82f18b4761bd50ad58fb861e64dc306b24996cffef6fc8fe5653d9f2f9b2b67d",
+     "from_image": "crucible-lh-w:parse-a4c0747a4a19",
+     "image": "crucible-lh-w:parse-20e1951b4d44",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [],
+      "import_deps": [],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [],
+      "from_version": null,
+      "implicated": null,
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "A's own tests all pass in this World"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [
+       "test_parse.py"
+      ],
+      "imports": []
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {}
+     }
+    },
+    "proposal": "wo-ff73ac2589fc",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 2,
+       "failed": false,
+       "output": "make: *** No rule to make target 'test'.  Stop.\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 127,
+       "failed": true,
+       "output": "sh: 1: make: not found\n"
+      },
+      "id": "wo-ff73ac2589fc",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "3bd61615fa8f5359",
+      "why": "command 'make' not found in the World (x2)"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 79
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m05": true,
+       "m18": true,
+       "m22": true,
+       "m24": true,
+       "m26": true,
+       "m33": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m02": false,
+       "m03": false,
+       "m05": false,
+       "m18": false,
+       "m22": false,
+       "m24": false,
+       "m26": false,
+       "m33": false
+      }
+     },
+     "image": "crucible-lh-w:parse-20e1951b4d44",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 79
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m05": true,
+       "m18": true,
+       "m22": true,
+       "m24": true,
+       "m26": true,
+       "m33": true
+      },
+      "start_any_milestone_test": {
+       "m01": false,
+       "m02": false,
+       "m03": false,
+       "m05": false,
+       "m18": false,
+       "m22": false,
+       "m24": false,
+       "m26": false,
+       "m33": false
+      }
+     },
+     "image": "crucible-lh-w:parse-a4c0747a4a19",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "n/a",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "n/a"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "command 'make' not found in the World",
+    "status": "accepted",
+    "version": "3bd61615fa8f5359",
+    "window": "parse-wc669f87-35b9ffb"
+   },
+   {
+    "command": {
+     "command": "sed -n '680p' semver.py | hexdump -C"
+    },
+    "current_image": "crucible-lh-w:python-semver-c88d38c4b6f0",
+    "done": true,
+    "fix": {
+     "digest": "sha256:dc6e5d99aaf50486d51dba9210c0de698a3a3c25608944a63800dc25b9d797d0",
+     "from_image": "crucible-lh-w:python-semver-c88d38c4b6f0",
+     "image": "crucible-lh-w:python-semver-a619f81a91e0",
+     "needs": {
+      "apt": [
+       "bsdextrautils",
+       "file",
+       "make",
+       "patch",
+       "xxd"
+      ],
+      "extras": [],
+      "import_deps": [],
+      "pins": {},
+      "pip_build": [
+       "setuptools",
+       "wheel"
+      ]
+     },
+     "ok": true,
+     "recipe": "3",
+     "repair": {
+      "dist": null,
+      "failing_at_a": [],
+      "from_version": null,
+      "implicated": null,
+      "ok": false,
+      "pin": null,
+      "tried": [],
+      "version": null,
+      "why": "A's own tests all pass in this World"
+     },
+     "type": "world_image",
+     "unresolved": {
+      "commands": [],
+      "imports": [
+       "tox"
+      ]
+     },
+     "why": {
+      "apt": {
+       "bsdextrautils": [
+        "baseline"
+       ],
+       "file": [
+        "baseline"
+       ],
+       "make": [
+        "baseline",
+        "make in Makefile"
+       ],
+       "patch": [
+        "baseline"
+       ],
+       "xxd": [
+        "baseline"
+       ]
+      },
+      "import_deps": {}
+     }
+    },
+    "proposal": "wo-5181e666094d",
+    "proposals": [
+     {
+      "after_fix_on_oracle": {
+       "exit": 0,
+       "failed": false,
+       "output": "00000000  20 20 20 20 3e 3e 3e 20  73 65 6d 76 65 72 2e 66  |    >>> semver.f|\n00000010  69 6e 61 6c 69 7a 65 5f  76 65 72 73 69 6f 6e 28  |inalize_version(|\n00000020  27 31 2e 32 2e 33 2d 72  63 2e 35 27 29 0a        |'1.2.3-rc.5').|\n0000002e\n"
+      },
+      "before_fix_on_oracle": {
+       "exit": 127,
+       "failed": true,
+       "output": "sh: 1: hexdump: not found\n"
+      },
+      "id": "wo-5181e666094d",
+      "reasons": [],
+      "source": "fact",
+      "status": "accepted",
+      "version": "33ce426721b40dc1",
+      "why": "command 'hexdump' not found in the World (x3)"
+     }
+    ],
+    "reasons": [],
+    "s3_after": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 166
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m07": true,
+       "m12": true,
+       "m17": true,
+       "m19": true
+      },
+      "start_any_milestone_test": {
+       "m07": false,
+       "m12": false,
+       "m17": false,
+       "m19": false
+      }
+     },
+     "image": "crucible-lh-w:python-semver-a619f81a91e0",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "s3_before": {
+     "checks": {
+      "builds": true,
+      "existing_tests_run": true,
+      "grading_unchanged": true,
+      "leak_probes_hold": true,
+      "reruns_clean": true
+     },
+     "existing_tests": {
+      "counts": {
+       "passed": 166
+      },
+      "infra": "ok",
+      "targets": 1
+     },
+     "grading": {
+      "infra": [
+       "ok",
+       "ok"
+      ],
+      "oracle_milestones": {
+       "m07": true,
+       "m12": true,
+       "m17": true,
+       "m19": true
+      },
+      "start_any_milestone_test": {
+       "m07": false,
+       "m12": false,
+       "m17": false,
+       "m19": false
+      }
+     },
+     "image": "crucible-lh-w:python-semver-c88d38c4b6f0",
+     "leak": {
+      "git_log_only_base": "pass",
+      "no_b_distribution_file": "pass",
+      "no_new_test_names_in_image": "pass",
+      "pip_download_b_fails": "pass"
+     },
+     "ok": true,
+     "reruns": {
+      "clean": 60,
+      "cp_upper": 0.0487,
+      "n": 60
+     },
+     "why": ""
+    },
+    "signature": "command 'hexdump' not found in the World",
+    "status": "accepted",
+    "version": "33ce426721b40dc1",
+    "window": "python-semver-w1bafb9f-3f92aa5"
+   }
+  ],
+  "versions_ok": true
+ }
+}
