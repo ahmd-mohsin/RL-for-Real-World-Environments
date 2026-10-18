@@ -821,6 +821,36 @@ P3, the trace-audit loop (`factory/traceaudit.py`, `versioning.py`; `audit.py` e
   - 1 of 15 spec fixes accepted;
   - 17 intent-drift candidates await human approval.
 
+P4, failure targeting (`factory/targeting.py`; $2.05):
+- **Counterfactual control:** a target-milestone Fisher test, plus a bootstrap only for graded Φ, with power reported.
+  Verdicts are attributed, not_attributed or underpowered.
+- **Also built:** the prerequisite probe, paraphrase stability, band and cause-mix rules, the S15 handler, and
+  `simplify('locate')`.
+- **World recipe 3:** setuptools/wheel, a dev-tool baseline, repo-declared commands and extras, and a version search for
+  a failing A suite. 7 World-bug fixes are versioned.
+- **With qwen3.7-flash:** 3 of 4 windows were not_attributed (the policy also fails the simplified task); semver was
+  underpowered. Cheap rungs are too weak for long windows.
+
+P6, the sealed benchmark and the slime bridge (`factory/benchmark.py`, `factory/envs.py`, `runtime/harness/sandbox.py`,
+`train/bridges/slime/`; $0):
+- **Benchmark:** the same gates as training, sealing checks, a manifest with content hashes. Held-out prompts stay
+  `prompt_pending` until a sealed author lease.
+- **`make_env`:**
+  - the native harness, sidecar, honesty and tool limit;
+  - portable rows;
+  - agentenv and Harbor export;
+  - `objective_id`;
+  - two timeouts;
+  - whole-group drop on any infra failure;
+  - `InfraWatch`, which masks a lost World container.
+- **slime bridge:** JSONL rows, slime's 4-method Sandbox protocol over our World (ported, Apache-2.0), a `generate`
+  function, turn-credit convert and advantage functions, the staleness filter, and a field-list patch for slime's
+  `batch_builder.py`.
+- **Equivalence:** five scripted solvers (pass, fail, hack, partial, infra death) give identical rewards, credit and
+  masking on the native and slime paths.
+- **Strict sealing leaves 1 of 11 held-out windows.** The causes are a shared org, the time split, and broken or
+  timing-dependent Worlds. The benchmark needs a time-cutoff, org-disjoint re-mine.
+
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):
 - **World fixes (S3, the World expert).** Recipe 3 installs what a World needs beyond packaging, each with its reason:

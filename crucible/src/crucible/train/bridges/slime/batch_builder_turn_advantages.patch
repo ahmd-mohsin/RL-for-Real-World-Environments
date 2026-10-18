@@ -1,0 +1,17 @@
+Crucible P6: forward the per-token turn credit through slime's data-parallel split.
+Target: THUDM slime 859938d (Apache-2.0), slime/data/batch_builder.py:467-487 (the fixed field list).
+Apply in a slime checkout with: git apply batch_builder_turn_advantages.patch (never applied to the study clone).
+Used by crucible.train.bridges.slime.credit (convert adds 'turn_advantages'; advantage reads it).
+
+diff --git a/slime/data/batch_builder.py b/slime/data/batch_builder.py
+index 7b3795b..b1306e7 100644
+--- a/slime/data/batch_builder.py
++++ b/slime/data/batch_builder.py
+@@ -485,6 +485,7 @@ class BatchBuilder:
+             "source_names",
+             "prompt",
+             "teacher_log_probs",
++            "turn_advantages",  # crucible: per-token turn credit (custom convert + advantage hooks)
+         ]
+         if transport == "straw":
+             from straw.protocol import digest

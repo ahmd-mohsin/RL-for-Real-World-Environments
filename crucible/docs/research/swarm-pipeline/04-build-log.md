@@ -387,3 +387,134 @@ move: the policy's failures on three windows are not the prerequisite axis.
    combined with a read-only workspace, so it fails both arms by construction.
 4. Auditor forced final-verdict turn: not built (left for `AuditorHarness.refine`; ~$0.85 left).
 5. toolz needs a Python <= 3.9 World. Only the 7 rebuilt Worlds use recipe 3; other store3 windows keep recipe 2.
+
+## P6 (built): the sealed held-out benchmark, native environments, the slime bridge
+
+Spec: `00` §10, §11 (11.3), §0 V8/V9, §15 P6; `03` §4.3, §5. $0 spend: no model is called (scripted solvers only).
+
+**Files.** New: `factory/benchmark.py`, `factory/envs.py`, `runtime/harness/sandbox.py`, `train/bridges/slime/`
+(`types`, `rows`, `episode`, `generate`, `credit`, `filters`, `batch_builder_turn_advantages.patch`), `scripts/lh_bench.py`;
+tests `tests/unit/test_m17_p6_{equiv,slime,envs,benchmark}.py` (33; one `docker`). `THIRD_PARTY.md` rows: the slime
+sandbox protocol PORT, the slime mirrors, slime as DEPEND (not installed: it pulls Megatron and SGLang).
+
+**The benchmark** (`benchmark.build`, `lh_bench.py build`). Candidates: the held-out store's 11 dependent windows (of 84
+mined). No held-out text was authored: every task is `prompt_pending` until a dedicated author lease writes it under
+sealing; `publish` refuses until then.
+- **Sealing** against the 28 trainable training windows (`train_filter="all"`, the 124 mined ones, also available):
+  - repositories disjoint;
+  - **organisations: `pallets` is shared** (training `click`, held-out `jinja`): the 4 jinja windows fail;
+  - **time split** (UTC): the latest training B is 2026-07-02T21:45Z (pyparsing). 8 of 11 held-out B dates are earlier
+    (the store was split by repository, not by date). Against all 124 mined training windows (latest 2026-10-13) no
+    held-out window would pass;
+  - **contamination**: the full oracle diffs gave 132 code-substring hits, every one shared boilerplate (GitHub Actions
+    steps, diff headers, Sphinx `conf.py`, `from __future__ import annotations`). The scan now compares the lines each
+    oracle adds to Python sources (tests, packaging, CI, docs, imports out): 4 hits remain (2 jinja windows vs boltons
+    and pyparsing: `if type(self) is not type(other): return NotImplemented`, an operator table). They are idioms, not
+    leaks, and still block (conservative; both windows fail org and time anyway).
+- **Gates** (executed, `crucible-lh-p6-*` / `crucible-p6-*`, about 30 min; journaled per task in `gates/`):
+
+  | gate | passed | failures |
+  |---|---|---|
+  | S6 executed edges, DAG | 11/11 | |
+  | S5 clean-World solvability + null agent | 11/11 | (the lint waits for the prompt) |
+  | S8 oracle, unit-step alternative, 4 floors, mutants | 11/11 | |
+  | S10 60 oracle grades at concurrency 1 and 4 | 10/11 | mistune-w90b1a73: 12/60 false negatives, same end state (verifier nondeterminism). Its m12/m13 checks are "near_linear" timing tests. The host was also running the equivalence run, which is the load S10 exists to expose |
+  | S3 build, A's suite, leak probes, 60 reruns, verifier unchanged | 6/11 | jinja ×4: A's suite cannot import (markupsafe ≥ 2.1 removed `soft_unicode`, a World bug, not fixed: excluded anyway); mistune-w89cbd56: m05 (`..._does_not_scale_quadratically`) passes at A on an idle host. The empty patch then scores Φ 0.083. S5's null agent passed only because the build ran under load |
+- **Split: 1 task.** `voluptuous-w0953225-6cf9450`: H1, 9 milestones, 2 executed edges, B 2026-07-05.
+  - Manifest sha256 `828a9286…`, and `verify` passes. It holds per task the window record, A tree, oracle patch,
+    hidden tests, check set, verifier version and World digest, plus `tasks.jsonl` (the portable row, split `heldout`).
+  - With `time_policy="report"`, 4 more pass every other rule and gate (mistune-w1bdbdf3, python-dotenv-wc50c6f7,
+    sqlparse-w647d145, sqlparse-w93d7718). The manifest is then `sealed: false`.
+  - §10.2's ≥ 20 per intent needs held-out windows mined after a fixed training cutoff date, from orgs no training
+    repository shares.
+- **Report plan** (`report`, `paired_report` over `bench.lh_metrics`): pass@k / pass^k (k = 1..5) by category with
+  task-resampled CIs; mean final Φ; milestones lost; compaction loss; Brier / ECE; USD per passing episode with the
+  max/min ratio across tasks; paired base vs trained with the MDE.
+
+**Native environments** (`envs.make_env`). They hold:
+- `WorkspaceHarness` (or `RLMHarness`) with `EpisodeLimits(timeout_s=agent timeout)`;
+- the checkpoint sidecar inside `InfraWatch`;
+- `honesty_group_fn`;
+- the tool limit (`policy_kwargs`: limit, warning, final STATUS turn; `max_steps` = limit + 2);
+- `run_spec(attempt_timeout_s=rollout timeout)`.
+
+The two timeouts were executed on the toy window: the agent timeout gives stop `timeout`, graded Φ 1/3 -> 1/6; the
+rollout timeout gives a masked attempt.
+
+**Finding (V8, native path):** a Docker World killed mid-episode was graded as an ordinary 0 (`lh_bench` on
+parse-w07c2ff9: `reward 0.0, masked False, stop agent_done`). The host-mounted workspace stays collectable, and the
+dead container's tool errors read as the policy's.
+- `InfraWatch` probes the World after every step and at the end, recording `crucible:env_container_lost` (infra, masked).
+- `scripts/lh_run.py`'s `harness()` does not use it yet.
+
+Also in `envs`:
+- `drop_infra_groups`: whole-group drop with a refill count;
+- portable rows: `task_row`, `write_task_rows` (held-out refused unless the benchmark writes them), `read_task_rows`;
+- `objective_of`: `versioning.objective_id`;
+- `export_harbor`: validated by Harbor's loader. It uses a separate verifier and the patch collected by `COLLECT_SH`;
+  its stdlib grader, executed on the host, matched `grade_patch` on the oracle and the empty patch;
+- `export_agentenv`: through `factory.publish` with the row as `RowTask` arguments.
+
+**The slime bridge** (`train/bridges/slime/`; `train` never imports `factory`: the task side arrives through
+`--crucible-env-provider`, default `crucible.factory.envs:slime_provider`).
+- **Rows:** `prompt` + epilogue, with `metadata` {`instance_id`, `image`, `workdir`, `agent`, `crucible_task_ref`,
+  `split=train`, `objective_id`}. A row is refused when its split or its ref's split is held-out, or when it names an id
+  the manifest seals. `lh_bench.py rows` wrote 28 training rows, each resolved back to the same task (hashes checked).
+- **Sandbox:** slime's protocol ported, `exec_and_wait` included (it needs Linux `setsid`, so it was tested in Docker).
+  - `ExecSandbox` covers the Docker World and host Worlds; files travel on stdin.
+  - A dead container raises `SandboxTerminatedError`.
+  - `egress_probe` executed in a World container: public blocked, `ok`.
+- **`generate`** (the steps of the module doc):
+  - the snapshot hook runs before each model call and reports the previous turn's actions to the same
+    `CheckpointSidecar`, and checks the World is alive;
+  - the final collection is `COLLECT_SH` run inside the sandbox;
+  - grading happens in a fresh container, with the model's tool calls as the trail;
+  - R = 0.5·Φ + 0.5·[gates], cross-checked against the report;
+  - `metadata.crucible` carries turn_credit (with token spans), STATUS claims, the honesty term and the give-up;
+  - every masked case is a removed sample.
+- **Credit and filters:**
+  - `reward_post_process`: unique trajectories, R − mean, honesty composed;
+  - `convert`: slime's own conversion when installed, plus `turn_advantages`;
+  - `advantage`: refuses to run without the field-list patch, which `git apply --check`s cleanly on slime 859938d;
+  - `group_filter`: infra drops the whole group, then the staleness cap, then nonzero spread;
+  - `staleness_sample_filter`: the batch-level cap.
+
+**Exit criterion (executed): identical on both paths.** Two runs, five scripted solvers each:
+- the toy window as a host World (unit test);
+- the real training window parse-w07c2ff9-44e14b0 in its Docker World (`lh_bench.py equiv`, `equiv.json`,
+  `all_identical: true`).
+
+| script | reward | per-turn ΔΦ | M6 group credit | honesty-composed advantage | masking |
+|---|---|---|---|---|---|
+| pass (oracle, commit, STATUS) | 1.0 / 1.0 | equal | equal | 0.6365 / 0.6365 | — |
+| fail (no-op) | 0.0 / 0.0 | equal | equal | −0.3625 / −0.3625 | — |
+| hack (oracle + conftest.py) | 0.0 / 0.0 (`path:protected`, `path:plumbing`) | equal | equal | −0.3875 / −0.3875 | — |
+| partial (mutant revert_m23, GIVE_UP) | 0.45 / 0.45 (Φ 0.9) | equal | equal | 0.0785 / 0.0785 | — |
+| infra death (`docker kill` mid-episode) | — | — | — | — | masked / removed (`env_container_lost` / `sandbox_terminated`) |
+
+On the toy window the partial run also loses a milestone (ΔΦ −1/3 at the turn that broke it), and the per-token
+advantages of `convert` equal native `turn_credit_map` on each call's own tokens. The infra group is dropped whole on
+both sides.
+
+**Defects found and fixed while running.**
+1. `write_file` as base64 in the command line broke on a 52 KB source file: Linux caps one argument at 128 KiB, and the
+   deadline wrapper repeats the command. It now writes over stdin.
+2. The dead-World failure kind was unmapped (blame unknown, counted by the stop rule). It is now
+   `crucible:env_container_lost`.
+3. Contamination: the boilerplate false positives above.
+
+**Deviations / open.**
+1. Not ported yet:
+   - the Claude Code / Codex CLI harnesses, the SGLang token adapter and `TrajectoryManager`. `generate` runs the
+     scripted harness and model; any other agent raises `NotImplementedError` with the reason;
+   - a real adapter.
+   With no real adapter, "egress only to the adapter" is executed as "no egress": the World is `--network none`.
+   Reaching an adapter needs a socket shim.
+2. `RowTask` (agentenv) runs only on the local backend: window Worlds run on Docker exec, not the agentenv gateway.
+3. Harbor export: path checks are `not_verified` (Harbor gives the verifier no trail). Class-based test ids match by
+   test name as a fallback.
+4. Gate failures on held-out Worlds are reported, not fixed:
+   - jinja's markupsafe pin (a World-expert job; P4's `repair_versions` applies);
+   - the timing-test milestones of two mistune windows (verifier defects, owner: the verifier).
+5. The mirrors (`MirrorSample`, `_mirror_convert`) are used only without slime; a test checks them against slime's
+   source. DESIGN.md is left to the merge.
