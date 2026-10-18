@@ -850,6 +850,17 @@ P6, the sealed benchmark and the slime bridge (`factory/benchmark.py`, `factory/
   masking on the native and slime paths.
 - **Strict sealing leaves 1 of 11 held-out windows.** The causes are a shared org, the time split, and broken or
   timing-dependent Worlds. The benchmark needs a time-cutoff, org-disjoint re-mine.
+P5a, the generators and scouts (`factory/generators/{rebreak,stitch,open}.py`, `factory/sources/`; $0.01):
+- **Each generator builds its own A..B history** in derived clones, so `validate_window` and the P2–P4 handlers run
+  unchanged.
+- **The intent card drives the scouts:** template query expansion, typed records, the eval lease first, licence/size/CPU
+  probes, an on-disk cache.
+- **Passing the deterministic gates:**
+  - 5 stitched windows (3 with executed consumer→host edges);
+  - 1 rebreak window (only 4 of 1,482 real-fix pairs interact);
+  - 2 open tasks (speed counts only on a correct result; S6 not applicable; 3 more fail S10 because the speedup sits near
+    the bar).
+- **New lints:** invented version numbers. S3 reruns compare the shared test ids.
 
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):

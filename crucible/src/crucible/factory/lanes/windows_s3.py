@@ -90,8 +90,12 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
         nonlocal done
         tr = await run_tests(sb, base_dir, {}, {}, targets)
         done += 1
-        if tr.infra != "ok" or tr.results != ref:
-            diff = sorted(k for k in set(ref) | set(tr.results) if ref.get(k) != tr.results.get(k))
+        # P5: an id built from the clock (marshmallow parametrizes on datetime.now()) exists in one run only; ids are
+        # compared where both runs have them, and the runs must collect the same number of tests (a crashed module still
+        # changes the count)
+        common = set(ref) & set(tr.results)
+        if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
+            diff = sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted(set(ref) ^ set(tr.results))
             unclean.append({"infra": tr.infra, "why": tr.why, "differs": diff[:10]})
 
     if ran:

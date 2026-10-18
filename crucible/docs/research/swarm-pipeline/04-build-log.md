@@ -518,3 +518,100 @@ both sides.
    - the timing-test milestones of two mistune windows (verifier defects, owner: the verifier).
 5. The mirrors (`MirrorSample`, `_mirror_convert`) are used only without slime; a test checks them against slime's
    source. DESIGN.md is left to the merge.
+
+## P5a (built): generators (rebreak, stitched windows, open), generic scouts, the deterministic gates
+
+Spec: `00` §1, §2, §4, §6, §7.7, §15 P5 (the zero-cost half: no solver, no swarm-built window). Spend $0.0098 of the $1 cap,
+all prompt authoring (qwen3.7-flash, `p5/spend.jsonl`).
+
+**Files.** New: `factory/generators/{base,rebreak,stitch,open}.py`, `factory/sources/{records,lease,github,scouts}.py`,
+`scripts/lh_gen.py`; tests `tests/unit/test_m17_p5_{base,rebreak,stitch,open,sources}.py` (30, synthetic git repositories and the host interpreter,
+no Docker). Changed (additive): `lanes/windows_world.open_world(pythonpath=)` (a two-repository workspace),
+`lanes/windows_s3.world_s3` (reruns compare the ids both runs have, plus the test count: marshmallow's clock-built
+parametrize ids made every rerun "unclean", the P2 volatile-id defect at S3).
+
+**One contract, one machine** (`base`). A generator writes a *window record* whose A..B history it synthesises when the
+units are not consecutive commits of one repository (`derived_clone` / `init_mono`, `apply_chain` through a private
+index, `write_chain` under `refs/crucible/<gen>/<id>`; the source clones are never written, tests check it). Then
+`windows.validate_window` runs unchanged (World at A, leak probes, f2p with reruns, prefix owners, executed prober,
+revert mutants) and the task is a `WindowTask` subclass, so the P2/P4 handlers read it as a mined window. Gates
+(`deterministic_gates`, cheap first): S6 (`check_longtask`, >= 1 executed edge), S5 (`verifier2.s5_solvability`), S8
+(`verifier2.s8_ground_truth`; its "2 valid alternatives" finding needs P2's paid rewriters and is reported apart as
+`alternatives_pending`), S3 (`world_s3`, 60 reruns at concurrency 1 and 4), S10 (`measure_flake`, 30 + 30 oracle grades).
+Before authoring, checks bind to placeholder requirements (`gate_requirements`: the same ids and milestone map authoring
+keeps). `author_generated` is `author_window` in the generator's voice, plus a version-number lint (the author invented
+"releasing version 0.13.2" twice; release numbers are scrubbed from its changelog input).
+
+**Rebreak** (`rebreak`). Fix units by message + files (src and tests, nothing but prose besides); per release B (the
+release that shipped them, <= 4 windows back: reverting a fix five years old conflicts in 219 of 770 checks even so)
+each fix is executed at B: B with its source reverted runs the pool's test files; real when a test its commit added or
+changed passes at B and fails reverted. Interaction screen: two fixes interact when one test *case* fails under each
+single revert (`interaction_edges`; parametrize ids matter: humanize's two `naturalsize` fixes add different cases to
+one test and do not interact). A' = B with the group's sources reverted (3-way chain) and its fix tests removed from the
+agent's test files (`strip_tests`; prose kept, adjacent changelog reverts conflict); B' == B (checked). Milestones = per
+fix test groups; S6 = the prober's executed edge (fix k's tests fail on A' + k, pass with j). `simplify('locate')` names
+the faulty functions.
+
+**Stitched windows** (`stitch`). Pairs: a consumer commit that raises (or lifts the cap of) its requirement on the host
+and whose code imports the host (a tox or docs pin is not a consumer: `imports_host` drops click <- cachetools). Host
+window (release before V, V]; consumer window = that commit (or the next one with code, within 5). Workspace `host/` +
+`consumer/`, one synthetic history; World image installs the host from A under a pip constraint and fails the build if
+any other host version ends in site-packages; `StitchSandbox` runs pytest per side. Consumer tests that a host unit
+makes pass become their own *observation* milestone (`<id>c`, `split_observations`) with an executed edge (ddmin over the
+host units) to the host milestone: the cross-repository dependency. `host_required` re-executes them on (host A,
+consumer C1) vs (host B, consumer C1). `simplify('host_change')` pre-applies every host unit (observation milestones go
+with their prerequisites).
+
+**Open** (`open`). `real_perf` commits; A = parent, P = known faster version. Workload = the module-level entries a
+profiler plugin sees tests call whose extent runs a changed function, with their plain-data arguments; every grade
+draws fresh inputs from a seed (digits redrawn, numbers rescaled, lists grown), runs A and the candidate alternately in
+one 1-CPU container (`QUIET`: no other container of the process meanwhile), trims the extreme round, and requires A's
+results on every input (exceptions by type) plus A's passing suite. Reward 0 unless correct and lo > 1, then log s /
+log s_bar, uncapped (`reward_capped` for [0, 1] trainers). Floors: no-op, claims, memo, replay (fresh inputs: no hit),
+fast-wrong mutant. Milestones are *gated*, not `requires`: S6 is n/a (`open_no_ceiling`), never a pass.
+
+**Scouts** (`sources`). Intent card -> terms (content words, bigrams) -> fixed templates per record type (no model).
+`GitHub`: unauthenticated, on-disk cache, search paced at 6.5 s, core quota read from headers, `Retry-After` honoured.
+Lease first (held-out repos by name and owner/name, orgs owning only held-out repos, a sealed manifest's repos/orgs/time
+cut), then licence, size (not fork, not archived), requirement scan of raw packaging files (the dependents snowball;
+GitHub has no REST dependents endpoint), forks, then the CPU probe (clone, World image of HEAD, suite with no network).
+
+**Run** (training clones of store3's 18 repos + scouted pairs; `p5/`).
+
+| generator | funnel (candidates -> stage) | passing S6+S5+S8+S3+S10 |
+|---|---|---|
+| rebreak | 383 fix units -> 770 executions at B, 324 real -> 1,482 pairs of real fixes, **4 interact** (all more-itertools; full-suite screen too) -> 2 groups built -> 1 dependent | **1** (rb-more-itertools-061d3f39, 4 milestones, edge numeric_range reversed fixes, 4/4 valid mutants) |
+| stitched | 8 pairs (3 training, 5 scouted) -> 26 bumps, 12 with a host window -> 11 Worlds -> 8 with milestones -> 5 dependent | **5** (arrow<-dateutil, 2 x marshmallow-jsonschema<-marshmallow, 2 x glom<-boltons); 3 cross-dependent (consumer milestone with an executed edge to a host milestone) |
+| open | 89 perf commits -> 40 with a traced entry -> 5 with proven headroom (s_bar 1.17-1.68) | **2** with S6 n/a (all_equal s_bar 1.29, padded 1.68); tail, isiterable and join fail S10 (1, 1 and 8 of 60 oracle grades miss the bar: speedups near it) |
+
+Rebreak reasons: 219 source reverts conflict at B, 18 test files gone, 8 Worlds do not build; 48 groups dropped by the
+interaction screen. Open reasons: 48 no module-level entry with plain-data arguments (methods dominate), 29 headroom
+unproven (P not significantly faster on fresh inputs), 4 P changes results on fresh inputs (humanize's `naturalsize`
+log rewrite: 20 of 20,000, later fixed upstream), 2 inputs mostly raise, 1 trace failed. Scouts: 721 consumer records (1 refused by
+the lease), 77 passed licence and size, 76 require their host; 6 probed in order (libraries named after their host
+first, then smallest: the first ordering picked strawberry, 57 failing tests); 5 pass the CPU probe; 221 network calls,
+469 cache hits.
+
+Authoring: 5 stitched + 1 rebreak prompts (qwen3.7-flash; ledger two-way, lint clean, conformance clean); 2 open prompts
+from a fixed template (no model). Total 0.0098 USD.
+
+**Findings that change the plan.**
+1. *Rebreak's premise is rare in real history*: 4 of 1,482 pairs of executed real fixes interact (0.3%). Real fixes are
+   local; a rebreak task is long only when the generator finds the rare interacting pair. P5b should rebreak with a
+   swarm-planted interaction (a real fix plus a real refactor of its function) or accept rebreak as `short`.
+2. *Stitched observation edges are the real cross-repository dependency*: consumer adaptation commits rarely carry tests
+   that fail without the host (0 consumer-unit milestones); the consumer's existing tests observing the host are what
+   requires the host change.
+3. *Open needs a margin, not just significance*: three proven-headroom tasks (s_bar 1.17-1.26) fail S10 because the
+   oracle's verdict is itself a timing draw; P5b should require lo_bar well above the bar (about 1.2) at build.
+4. *Open tasks need module-level entries*: 48 of 89 perf commits change methods only reachable through objects; the
+   workload generator needs constructor capture (P5b).
+
+**Deviations.** (1) S8 runs without P2's two model alternatives (`alternatives_pending`, $0 phase). (2) Swarm-built
+windows are not built (P5b). (3) Rebreak S6 yield is 1, not 5 (finding 1). (4) Open tasks pass S6 as n/a, by design.
+(5) Stitched records drop CRLF prose files from the oracle (`drop_crlf_prose`: the lane's text round trip loses CRs,
+dateutil's NEWS). (6) Two stitched glom tasks overlap (host windows 19.1->19.2 and 19.1->19.3; different consumer
+commits): the herding guard should see them as one family. (7) DESIGN.md is left to the merge. (8) One container sweep
+removed in-flight runs of the full-suite rebreak screen; any effect is a missed fix or interaction, never a false accept. (9) Scout `real_fix`/`real_perf`/
+`request` records are leased only; their repositories are filtered when cloned. (10) Docker-marked m17 tests were not
+run; the non-Docker m17 suite passes (480), ruff and lint-imports (4 kept) clean.

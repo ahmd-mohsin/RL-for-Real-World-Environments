@@ -517,12 +517,13 @@ def world_spec(ws: Path, base_dir: Path) -> Any:
 
 
 async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: str, memory: str = "2g", cpus: str = "2",
-                     name_prefix: str = f"{PREFIX}world-", workspace_mode: str = "rw") -> Any:
+                     name_prefix: str = f"{PREFIX}world-", workspace_mode: str = "rw", pythonpath: str | None = None) -> Any:
     """A started, reset World whose tools run in a ``--network none`` container of ``image`` (closing the World removes
     the container). ``world._crucible_ws`` is the host workspace. ``name_prefix`` (always under ``crucible-lh-``) lets a
     caller find exactly the containers it made (a test run asserting its own cleanup, report 11 F7). ``workspace_mode``
     ``"ro"`` mounts the workspace read-only for the World's tools (a seeded tooling fault, P4); the host tree, which the
-    harness collects the patch from, is unchanged."""
+    harness collects the patch from, is unchanged. ``pythonpath`` (``{ws}`` = the workspace) replaces the default
+    ``{ws}/src:{ws}`` (a stitched window's workspace holds two repositories, P5)."""
     if workspace_mode not in ("rw", "ro"):
         raise ValueError(f"workspace_mode is rw or ro, got {workspace_mode!r}")
     if not name_prefix.startswith(PREFIX):
@@ -536,7 +537,8 @@ async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: 
     ws.mkdir(parents=True, exist_ok=True)
     name = f"{name_prefix}{uuid.uuid4().hex[:12]}"
     r = await asyncio.to_thread(docker, "run", "-d", "--name", name, "--network", "none", "--memory", memory, "--cpus", cpus, "--pids-limit", "512",
-                                "-v", f"{ws}:{ws}:{workspace_mode}", "-w", str(ws), "-e", f"PYTHONPATH={ws}/src:{ws}", "-e", "HOME=/tmp", image, "sleep", "infinity", timeout=300)
+                                "-v", f"{ws}:{ws}:{workspace_mode}", "-w", str(ws), "-e", f"PYTHONPATH={(pythonpath or '{ws}/src:{ws}').format(ws=ws)}", "-e", "HOME=/tmp",
+                                image, "sleep", "infinity", timeout=300)
     if r.returncode != 0:
         raise RuntimeError(f"world container did not start: {r.stderr[-500:]}")
     w = World(world_spec(ws, base_dir), instructions={"agent": instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
