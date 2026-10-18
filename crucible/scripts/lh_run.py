@@ -25,7 +25,6 @@ no call starts once the run's total spend reaches ``--cap``):
 from __future__ import annotations
 
 import argparse
-import ast
 import asyncio
 import dataclasses
 import json
@@ -44,6 +43,7 @@ from typing import Any
 from crucible.actors.llm import BudgetExceeded
 from crucible.actors.policy import ContextConfig, EpisodeLimits, LLMToolPolicy
 from crucible.core.schema.actions import Done
+from crucible.factory.lanes.windows import stub_files  # the pass-stub floor lives in the lane (WindowTask.floors)
 from crucible.factory.models import ModelBook, booked
 from crucible.forge.budget import Ledger
 
@@ -209,67 +209,6 @@ class Run:
 
 
 # ---- small pure helpers (tests/unit/test_m17_e_*.py) -----------------------------------------------------------------------
-def _top_defs(tree: ast.Module) -> dict[str, ast.AST]:
-    return {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
-
-
-def _stub(node: ast.AST, indent: str) -> str:
-    keep = [d.id for d in getattr(node, "decorator_list", []) if isinstance(d, ast.Name) and d.id in ("staticmethod", "classmethod", "property")]
-    deco = "".join(f"{indent}@{d}\n" for d in keep)
-    if isinstance(node, ast.ClassDef):
-        return f"{indent}class {node.name}:\n{indent}    pass\n"
-    head = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-    return f"{deco}{indent}{head} {node.name}(*args, **kwargs):\n{indent}    pass\n"
-
-
-def stub_files(base_dir: Path, oracle_files: Mapping[str, str | None]) -> dict[str, str]:
-    """The ``pass``-stub floor (study 08 §5 step 6): A's source with every top-level function or class B adds, and every
-    method B adds to a class A already has, present as a stub that does nothing (``def f(*args, **kwargs): pass``,
-    ``class C: pass``). A module B adds becomes a module of stubs. Only ``.py`` files outside tests; files that do not
-    parse are left out."""
-    out: dict[str, str] = {}
-    for path, b_text in sorted(oracle_files.items()):
-        if b_text is None or not path.endswith(".py") or re.search(r"(^|/)(tests?|testing)/|(^|/)test_[^/]*\.py$|conftest\.py$", path):
-            continue
-        try:
-            b_tree = ast.parse(b_text)
-        except SyntaxError:
-            continue
-        a_file = Path(base_dir) / path
-        a_text = a_file.read_text(errors="replace") if a_file.is_file() else None
-        if a_text is None:
-            stubs = [_stub(n, "") for n in _top_defs(b_tree).values()]
-            if stubs:
-                out[path] = "\n\n".join(stubs)
-            continue
-        try:
-            a_tree = ast.parse(a_text)
-        except SyntaxError:
-            continue
-        a_defs, b_defs = _top_defs(a_tree), _top_defs(b_tree)
-        lines = a_text.splitlines(keepends=True)
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        inserts: list[tuple[int, str]] = []  # (after line number, text)
-        for name, bnode in b_defs.items():
-            anode = a_defs.get(name)
-            if not (isinstance(bnode, ast.ClassDef) and isinstance(anode, ast.ClassDef)):
-                continue
-            have = set(_top_defs(ast.Module(body=anode.body, type_ignores=[])))
-            new = [n for n in _top_defs(ast.Module(body=bnode.body, type_ignores=[])).values()
-                   if n.name not in have and not isinstance(n, ast.ClassDef)]
-            if new:
-                indent = " " * (anode.body[0].col_offset if anode.body else anode.col_offset + 4)
-                inserts.append((anode.end_lineno or len(lines), "".join(_stub(n, indent) for n in new)))
-        for line_no, text in sorted(inserts, reverse=True):
-            lines.insert(line_no, text)
-        tail = [_stub(n, "") for name, n in b_defs.items() if name not in a_defs]
-        new_text = "".join(lines) + ("\n\n" + "\n\n".join(tail) if tail else "")
-        if new_text != a_text:
-            out[path] = new_text
-    return out
-
-
 def clopper_upper(fails: int, n: int, alpha: float = 0.05) -> float:
     from crucible.verify.calibrate import clopper_pearson_upper
 
@@ -358,7 +297,9 @@ class EpisodeCfg:
     max_trajectory: int = 400_000
     max_billed: int = 3_000_000
     context_tokens: int = 40_000
-    max_tool_output: int = 8000
+    # report 11 D7: 8,000 characters cut the middle out of read_file's 400-line pages (409 qwen and 139 nova reads elided);
+    # the cap now holds the World's own 30,000-character tool output whole (``windows_world.world_spec`` max_output)
+    max_tool_output: int = 32_000
     temperature: float = 0.7
     tool_limit: int | None = None  # run 2 (F5): LLMToolPolicy tells the limit and gives one final STATUS.json turn
 
@@ -430,7 +371,9 @@ def episodes_of(run: Run, run_id: str) -> list[dict[str, Any]]:
                     "idx": sample.get("sample_idx"), "reward": rec.get("reward"), "masked": bool(rec.get("mask_sample")),
                     "failure": rec.get("failure"), "stop": meta.get("stop"), "steps": rec.get("steps"), "progress": prog,
                     "milestones": (report.get("meta") or {}).get("milestones"), "phi": (report.get("meta") or {}).get("phi"),
-                    "failing_tests": (report.get("meta") or {}).get("failing_tests"), "calls": len(cs), "usd": round(sum(float(c.get("cost_usd") or 0) for c in cs), 6),
+                    "failing_tests": (report.get("meta") or {}).get("failing_tests"), "calls": len(cs),
+                    "path_violations": ((report.get("meta") or {}).get("path") or {}).get("violations"),
+                    "hack_suspect": (report.get("meta") or {}).get("hack_suspect"), "usd": round(sum(float(c.get("cost_usd") or 0) for c in cs), 6),
                     "prompt_tokens": ptok, "completion_tokens": ctok, "trajectory_tokens": (meta.get("trajectory_tokens") or {}).get("agent"),
                     "tool_calls": prog.get("tool_calls"), "compactions": len(prog.get("compaction_turns") or []),
                     "seconds": sum(float(v) for v in (meta.get("timings") or {}).values())})
@@ -469,6 +412,7 @@ def render_trace(ep: Mapping[str, Any], *, limit: int = 60_000) -> str:
     ev = [f"STOP: {ep.get('stop')}; steps {ep.get('steps')}; tool calls {ep.get('tool_calls')}; model calls {ep.get('calls')}",
           f"VERIFIER: reward {ep.get('reward')}; milestones {ep.get('milestones')}; Phi {ep.get('phi')}",
           f"FAILING HIDDEN TESTS (first 20): {(ep.get('failing_tests') or [])[:20]}",
+          f"PATH: violations {ep.get('path_violations') or []}; hack_suspect {bool(ep.get('hack_suspect'))}",
           f"FINAL DIFF: {len(ptext)} bytes over {len(files)} files: {files[:30]}"]
     body = "\n".join(lines)
     if len(body) > limit:
@@ -506,6 +450,14 @@ def stage_select(run: Run) -> None:
 
 
 # ---- stage 1: prompt ---------------------------------------------------------------------------------------------------------
+def author_findings(rec: Mapping[str, Any], sent: Sequence[Any]) -> tuple[list[str], list[str]]:
+    """(findings the author gets, items refused): only hidden test ids of the window pass, each rendered from the test's own
+    source and parameters (``windows.findings_from_tests``); an auditor's free text never reaches the author (D8)."""
+    from crucible.factory.lanes.windows import findings_from_tests
+
+    return findings_from_tests(rec, sent)
+
+
 async def prompt_one(run: Run, wid: str) -> None:
     from crucible.factory.lanes.windows import author_window, required_names, review_realism
     from crucible.factory.lanes.windows_git import RepoGit
@@ -522,8 +474,11 @@ async def prompt_one(run: Run, wid: str) -> None:
     base = run.store.dir(wid) / "base"
     author, realism = run.client("author"), run.client("realism")
     tries: list[dict[str, Any]] = []
-    fp = Path(run.a.author_findings) if run.a.author_findings else None  # run 2: the auditor's findings send a window back to the author
-    findings: list[str] = list((json.loads(fp.read_text()) if fp and fp.exists() else {}).get(wid) or [])
+    # a window goes back to the author with findings derived from failing hidden tests only (report 11 D8: the auditor's
+    # free-text guess reached the prompt as fact and contradicted the verifier): {window: [test id | {"test": id}]}
+    fp = Path(run.a.author_findings) if run.a.author_findings else None
+    sent = list((json.loads(fp.read_text()) if fp and fp.exists() else {}).get(wid) or [])
+    findings, refused = author_findings(rec, sent)
     sent_back = list(findings)
     final = None
     for k in range(1, 4):
@@ -553,6 +508,7 @@ async def prompt_one(run: Run, wid: str) -> None:
         findings = [f"realism: {f}" for f in rv["findings"]]
     ok = final is not None and bool(tries[-1].get("realism", {}).get("ok"))
     j["prompt"] = {"tries": tries, "ok": ok, "lint_clean": final is not None, "revisions": len(tries), "sent_back_with": sent_back,
+                   "sent_back_refused": refused,
                    "required_names": required_names(rec.get("tests_b") or {}, base)}
     if final is not None:
         j["prompt"].update(prompt=final["prompt"], requirements=final["requirements"], spans=final["spans"], checkset=final["checkset"])
@@ -1326,7 +1282,7 @@ def stage_cleanup() -> None:
 # ---- main ----------------------------------------------------------------------------------------------------------------------------
 async def amain(a: argparse.Namespace) -> None:
     cfg = EpisodeCfg(max_steps=a.max_steps, wall_s=a.wall_s, max_trajectory=a.max_trajectory, max_billed=a.max_billed, context_tokens=a.context_tokens,
-                     tool_limit=a.tool_limit or None)
+                     tool_limit=a.tool_limit or None, max_tool_output=a.max_tool_output)
     run = Run(a)
     print(f"spent so far {run.spent():.4f} of {run.cap}", flush=True)
     for st in a.stages:
@@ -1415,6 +1371,7 @@ def main() -> None:
     ap.add_argument("--max-trajectory", type=int, default=400_000)
     ap.add_argument("--max-billed", type=int, default=3_000_000)
     ap.add_argument("--context-tokens", type=int, default=40_000)
+    ap.add_argument("--max-tool-output", type=int, default=EpisodeCfg.max_tool_output, help="characters of one tool result the policy keeps (D7)")
     ap.add_argument("stages", nargs="+")
     asyncio.run(amain(ap.parse_args()))
 

@@ -100,9 +100,13 @@ def test_protected_paths_are_restored_and_tests_come_from_b(built) -> None:
     assert protected == ["conftest.py", "tests/test_core.py"] and files == {} and errors == []
     rep = asyncio.run(task.grade_patch(hack))
     assert rep.reward == 0.0 and sorted(rep.meta["protected_writes"]) == ["conftest.py", "tests/test_core.py"]
-    # the oracle plus a test edit: the edit is dropped, the real tests still pass
+    # the oracle plus a test edit: the edit is dropped, the real tests still pass (the end-state verdict)
+    g, _ = asyncio.run(task.grade(diff(repo, rec["a"], rec["b"], "pkg") + hack))
+    assert g.reward == 1.0 and g.meta["protected_writes"]
+    # P0 path gates (factory.pathcheck): on the RL path the conftest is test plumbing, a hack signal: reward 0, flagged
     rep = asyncio.run(task.grade_patch(diff(repo, rec["a"], rec["b"], "pkg") + hack))
-    assert rep.reward == 1.0 and rep.meta["protected_writes"]
+    assert rep.meta["end_state_full_pass"] and rep.reward == 0.0 and rep.meta["hack_suspect"]
+    assert rep.gates["path:protected"] == "fail" and rep.gates["path:plumbing"] == "fail"
 
 
 def test_a_patch_that_does_not_apply_scores_zero(built) -> None:

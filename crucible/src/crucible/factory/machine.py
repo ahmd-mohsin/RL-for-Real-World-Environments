@@ -42,11 +42,43 @@ Guards: Prime's leaf form ``{"output", "path"?, "op", "value"?}`` with ops ``eq 
 (PA:60, :1270-1325), combined with ``{"all": [...]}``, ``{"any": [...]}``, ``{"not": g}``, or a string in a small
 expression language compiled to that form by a tokenizer and recursive-descent parser (never ``eval``):
 ``verdict.ok == true and not (verdict.owner == "spec")``, ``exists report.hacks``, ``stats.p >= 0.1``.
+
+**Machine v2 (P1; docs/research/swarm-pipeline/00 §4, 01 facts 5-6).** Ported from Prime Agent at HEAD 7cbffa77b
+(``F`` = ``prime-agent-runtime/src/rlm/factory.py`` there, MIT):
+
+- **Infra vs task failure** (``F:1095-1116``, ``:2876-2895``, ``:2990-3084``). A state attempt that dies of infrastructure
+  (``is_infra_error``: an ``InfraError``, a failure kind whose blame is ``infra``, a provider outage, a lost container,
+  Prime's "child worker unreachable" / "supervisor link" markers) is re-checked after a quiet period (the injected
+  ``sleep``, so tests never wait) through the run's ``infra_probe(state, error)`` (``"alive"``: the sandbox answered, the
+  same session is re-run; ``"dead"``: the zombie is torn down first, so the respawn never runs beside it in the same
+  worktree), then re-run **once for free**: the attempt number, ``retries`` and ``max_entries`` are not spent, and the dead
+  attempt's spend row keeps its error. A second infra death takes the normal retry path; if the retries end on infra, the
+  run pauses with kind ``infra`` (V8: masked, a decision for a person, never a task failure).
+- **A missing capture fails its producer** (``F:2969-2988``, ``:3123-3222``). ``artifact`` ports carry ``{"path",
+  "sha256"}`` of a file or directory under the run's ``artifact_root`` (the task repo). The producer's settle verifies each
+  one exists and hashes right, after one bounded re-capture window; otherwise the attempt fails (retries, then policy)
+  and its outputs are kept as ``needs_verify`` (provisional). A consumer whose bound artifact has since vanished or
+  changed does not fail: the run pauses with kind ``capture_failed`` naming the **producer**, and ``resume`` re-runs it.
+- **A declared recovery posture** (``F:5099-5107``: a prose rule there, "validation cannot judge prose"; a field here).
+  A state with ``mutates: true`` must declare ``recovery: reconcile | reset`` or the validator refuses the machine; a
+  ``session`` state that writes its worktree must declare ``mutates: true``. The run's ``trees(state)`` gives the state's
+  ``MutableTree``; a snapshot is taken (and journaled) before the first attempt of each entry. Every re-run of that entry
+  (a retry, an infra respawn, a resumed failed entry, a crash replay) first recovers: ``reset`` restores the snapshot;
+  ``reconcile`` hands the attempt ``ctx.recovery = {"mode", "diff", "findings"}``: the earlier attempt's diff against the
+  snapshot and why it failed, for the retry prompt.
+- **Exhaustion escalates** (V7) as before; Prime still ends it ``done`` at 7cbffa77b (``F:2469-2483``, ``:3515-3541``,
+  pinned by ``TF:5450-5477``). The regression test ``test_m17_p1_machine`` contrasts the two.
+- **Dollar and token budgets per state and per run** (V10; Prime has neither, ``F:5071-5098``). ``run.budget_usd`` /
+  ``run.budget_tokens`` stop the run; a state's ``budget_usd`` / ``budget_tokens`` cap the spend of all its attempts and
+  entries: an attempt that ends over the cap fails with no retry and the run pauses with kind ``state_budget`` (``resume``
+  may grant ``extra_usd`` / ``extra_tokens``). Tokens are booked with ``book_tokens(n)`` (or ``Settle.tokens``) inside a
+  state; ``ctx.budget`` tells the handler what is left.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import copy
 import hashlib
 import json
@@ -56,9 +88,10 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from crucible.actors.llm import SpendScope
+from crucible.core.schema.run import default_blame
 from crucible.core.serialize import load_yaml
 from crucible.forge.budget import BudgetExhausted, Ledger
 from crucible.forge.orchestrator import Journal
@@ -66,7 +99,24 @@ from crucible.forge.repo import _marks
 
 # ---- constants (PA:56-82, adapted) ------------------------------------------------------------------------------------
 FAILURE_POLICIES: tuple[str, ...] = ("fail_fast", "escalate")  # PA:56 also has "continue"; one token has no dependents to continue
-PORT_TYPES: tuple[str, ...] = ("text", "json")  # PA:57
+PORT_TYPES: tuple[str, ...] = ("text", "json", "artifact")  # PA:57 + artifact (P1: files in the task repo, by path + hash)
+RECOVERY: tuple[str, ...] = ("reconcile", "reset")  # F:5099-5107 (P1: a field, not prose)
+# what a session state may configure (``factory/sessions.py`` reads it; validated here so a bad machine fails at load)
+SESSION_KEYS: tuple[str, ...] = ("brief", "captures", "specialist", "repo", "base", "image", "network", "read_only", "max_turns", "wall_s")
+CAPTURE_KINDS: dict[str, str] = {"json": "json", "text": "text", "file": "artifact", "dir": "artifact", "patch": "artifact", "commits": "artifact"}
+# F:1095-1116 (``_INFRA_ERROR_MARKERS``), plus the runner errors study 01 §6.3 maps to infra: a lost or unreachable
+# container, a docker daemon that does not answer, a provider 5xx / connection fault
+INFRA_MARKERS: tuple[str, ...] = (
+    "child worker unreachable", "supervisor link",  # F:1095-1098, verbatim
+    "no such container", "is not running", "cannot connect to the docker daemon", "container not found", "error during connect",
+    "connection reset", "connection refused", "server disconnected", "bad gateway", "service unavailable", "gateway timeout",
+)
+# kinds whose default blame is infra but which are not deaths: a spent budget stops the run instead (``_run_state``)
+NOT_RESPAWNED_KINDS: frozenset[str] = frozenset({"crucible:credits_exhausted"})
+INFRA_KINDS_EXTRA: frozenset[str] = frozenset({"provider_unavailable", "crucible:env_container_lost", "crucible:backend_error"})
+INFRA_QUIET_S = 2.0  # F:1089 (one collect-poll slice, POLL_TIMEOUT_MS / 1000)
+RECAPTURE_WAIT_S = 1.0  # one bounded re-capture window before a missing artifact fails its producer (F:3171-3222)
+RECONCILE_DIFF_CAP = 60_000  # characters of the earlier attempt's diff handed to a reconcile retry
 GUARD_OPS: tuple[str, ...] = ("eq", "ne", "gt", "gte", "lt", "lte", "exists", "contains")  # PA:60
 TERMINALS: tuple[str, ...] = ("done", "rejected")
 MAX_STATES = 256
@@ -91,6 +141,115 @@ class MachineError(ValueError):
     def __init__(self, errors: list[str]):
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+# ---- P1: infra vs task failure, tokens, artifacts, trees -------------------------------------------------------------
+class InfraError(RuntimeError):
+    """A state attempt died of infrastructure (a sandbox, a worker, a provider), not of the task."""
+
+    def __init__(self, message: str, failure_kind: str = "crucible:backend_error"):
+        super().__init__(message)
+        self.failure_kind = failure_kind
+
+
+def is_infra_error(err: BaseException | None) -> bool:
+    """PORT of ``_is_infra_error`` (F:1109-1116) over our runner's errors: an ``InfraError``; an exception whose
+    ``failure_kind`` is infra-blamed (``core.schema.run.DEFAULT_BLAME``) or a provider / container kind; else Prime's
+    message markers. A spent budget, a malformed model reply, a timeout and every other exception are the task's."""
+    if err is None:
+        return False
+    if isinstance(err, InfraError):
+        return True
+    kind = getattr(err, "failure_kind", None)
+    if isinstance(kind, str) and kind:
+        if kind in NOT_RESPAWNED_KINDS:
+            return False
+        return kind in INFRA_KINDS_EXTRA or default_blame(kind) == "infra"
+    text = str(err).lower()
+    return any(m in text for m in INFRA_MARKERS)
+
+
+_TOKEN_SCOPE: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar("crucible_factory_tokens", default=None)
+
+
+def book_tokens(n: int) -> None:
+    """Book ``n`` model tokens (prompt + completion) to the state attempt running in this task (no-op outside one)."""
+    acc = _TOKEN_SCOPE.get()
+    if acc is not None and n > 0:
+        acc[0] += int(n)
+
+
+class TokenScope:
+    """``with TokenScope() as t: ...; t.tokens`` (the token twin of ``actors.llm.SpendScope``)."""
+
+    def __enter__(self) -> TokenScope:  # noqa: PYI034
+        self._acc = [0]
+        self._tok = _TOKEN_SCOPE.set(self._acc)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        _TOKEN_SCOPE.reset(self._tok)
+
+    @property
+    def tokens(self) -> int:
+        return self._acc[0]
+
+
+def artifact_digest(path: Path) -> str:
+    """sha256 of a file's bytes; of a directory: of its sorted (relative path, file sha256) rows (symlinks by target)."""
+    path = Path(path)
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    if not path.is_dir():
+        raise FileNotFoundError(str(path))
+    h = hashlib.sha256()
+    for p in sorted(x for x in path.rglob("*") if x.is_file() or x.is_symlink()):
+        rel = p.relative_to(path).as_posix()
+        body = ("link:" + str(p.readlink())).encode() if p.is_symlink() else p.read_bytes()
+        h.update(f"{rel}\0{hashlib.sha256(body).hexdigest()}\n".encode())
+    return h.hexdigest()
+
+
+def artifact_problem(root: Path | None, value: Any) -> str | None:
+    """Why ``value`` is not a live artifact under ``root`` (None: it is)."""
+    if not isinstance(value, dict) or not _nonempty_str(value.get("path")) or not _nonempty_str(value.get("sha256")):
+        return "an artifact must be {'path': <relative path>, 'sha256': <hex>}"
+    if root is None:
+        return "the run has no artifact_root to resolve artifacts against"
+    base = Path(root).resolve()
+    p = (base / value["path"]).resolve()
+    if p != base and base not in p.parents:
+        return f"artifact path {value['path']!r} escapes the artifact root"
+    if not p.exists():
+        return f"artifact {value['path']!r} does not exist"
+    if artifact_digest(p) != value["sha256"]:
+        return f"artifact {value['path']!r} does not hash to its recorded sha256 (changed after capture)"
+    return None
+
+
+@runtime_checkable
+class MutableTree(Protocol):
+    """A state's working tree (P1 recovery posture): ``snapshot`` returns a token, ``restore`` puts the tree back to it,
+    ``diff`` is the tree's change since it (``factory/sessions.GitWorkspace`` implements it with git)."""
+
+    async def snapshot(self, label: str) -> str: ...
+
+    async def restore(self, token: str) -> None: ...
+
+    async def diff(self, token: str) -> str: ...
+
+
+class InfraProbe(Protocol):
+    async def __call__(self, state_id: str, err: BaseException) -> str:  # "alive" | "dead"
+        ...
+
+
+class CaptureLost(RuntimeError):
+    """A consumer's bound artifact vanished or changed after its producer settled: the producer's failure."""
+
+    def __init__(self, producer: str, message: str):
+        super().__init__(message)
+        self.producer = producer
 
 
 # ---- small predicates (PA:100-170) ------------------------------------------------------------------------------------
@@ -327,8 +486,8 @@ def _validate_guard(when: Any, where: str, src_types: dict[str, str], errors: li
         if path is not None:
             if not _nonempty_str(path):
                 errors.append(f"{where} when.path must be a non-empty dotted path")
-            elif src_types[output] != "json":
-                errors.append(f"{where} when.path requires a json output, got text output {output!r}")
+            elif src_types[output] not in ("json", "artifact"):
+                errors.append(f"{where} when.path requires a json or artifact output, got text output {output!r}")
     op = when.get("op")
     if op not in GUARD_OPS:
         errors.append(f"{where} when.op must be one of {list(GUARD_OPS)}, got {op!r}")
@@ -484,6 +643,68 @@ def _sccs(nodes: list[str], edges: dict[str, set[str]]) -> list[set[str]]:
     return out
 
 
+SESSION_HANDLER = "session"  # the handler of every session state without its own ``handler`` (``sessions.SessionPool.handler``)
+
+
+def handler_key(s: Mapping[str, Any]) -> str:
+    return s.get("fn") or s.get("handler") or (SESSION_HANDLER if "session" in s else s["id"])
+
+
+def _validate_p1_fields(sid: str, s: Mapping[str, Any], kind: str, errors: list[str]) -> None:
+    """P1 state fields: the recovery posture, per-state budgets, the session block and its captures."""
+    if "mutates" in s and not isinstance(s["mutates"], bool):
+        errors.append(f"state {sid} mutates must be a boolean")
+    if "recovery" in s and s["recovery"] not in RECOVERY:
+        errors.append(f"state {sid} recovery must be one of {list(RECOVERY)}, got {s['recovery']!r}")
+    if s.get("mutates") is True and "recovery" not in s:
+        errors.append(f"state {sid} mutates its tree and must declare recovery: reconcile | reset (a retry re-runs into a changed world)")
+    if "budget_usd" in s and not (_is_number(s["budget_usd"]) and math.isfinite(s["budget_usd"]) and s["budget_usd"] > 0):
+        errors.append(f"state {sid} budget_usd must be a positive number")
+    if "budget_tokens" in s and not (_is_int(s["budget_tokens"]) and s["budget_tokens"] > 0):
+        errors.append(f"state {sid} budget_tokens must be a positive integer")
+    if "session" not in s:
+        return
+    sess = s["session"]
+    if kind != "role":
+        errors.append(f"state {sid} declares a session but has no role (a session is model-backed: its role names the model)")
+    if not isinstance(sess, dict):
+        errors.append(f"state {sid} session must be an object")
+        return
+    unknown = sorted(set(sess) - set(SESSION_KEYS))
+    if unknown:
+        errors.append(f"state {sid} session has unknown keys {unknown} (allowed: {list(SESSION_KEYS)})")
+    for key in ("network", "read_only"):
+        if key in sess and not isinstance(sess[key], bool):
+            errors.append(f"state {sid} session.{key} must be a boolean")
+    if sess.get("network") is True:
+        errors.append(f"state {sid} session.network: sessions are offline (a World expert's builds run from a prepared image)")
+    if not sess.get("read_only") and s.get("mutates") is not True:
+        errors.append(f"state {sid} is a session that writes its worktree: declare mutates: true (and its recovery), or session.read_only")
+    out_types = _port_types(s, "outputs")
+    caps = sess.get("captures", [])
+    if not isinstance(caps, list):
+        errors.append(f"state {sid} session.captures must be a list")
+        caps = []
+    captured: set[str] = set()
+    for j, c in enumerate(caps):
+        if not isinstance(c, dict) or not _nonempty_str(c.get("output")) or c.get("kind") not in CAPTURE_KINDS:
+            errors.append(f"state {sid} session.captures[{j}] needs an output and a kind in {sorted(CAPTURE_KINDS)}")
+            continue
+        if c["kind"] != "commits" and not _nonempty_str(c.get("path")):
+            errors.append(f"state {sid} session.captures[{j}] ({c['kind']}) needs a path in the worktree")
+        elif _nonempty_str(c.get("path")) and (c["path"].startswith("/") or ".." in Path(c["path"]).parts):
+            errors.append(f"state {sid} session.captures[{j}] path must be relative to the worktree")
+        want = CAPTURE_KINDS[c["kind"]]
+        if c["output"] not in out_types:
+            errors.append(f"state {sid} session.captures[{j}] captures undeclared output {c['output']!r}")
+        elif out_types[c["output"]] != want:
+            errors.append(f"state {sid} session.captures[{j}] kind {c['kind']!r} fills a {want} port, but {c['output']!r} is {out_types[c['output']]}")
+        captured.add(c["output"])
+    missing = sorted(set(out_types) - captured)
+    if missing:
+        errors.append(f"state {sid} session outputs {missing} have no capture (a session's outputs are files it writes, never its messages)")
+
+
 def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, handlers: Mapping[str, Any] | None = None) -> list[str]:
     """Every problem with ``machine`` (empty = valid). Ports Prime's ``validate_factory_machine`` (PA:487-688) and
     ``_validate_state_fields`` (PA:258-433) and adds: state kinds (role / fn / terminal), one entry, reachability from the
@@ -500,6 +721,8 @@ def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, h
     for key in ("budget_s", "budget_usd"):
         if key in run and not (_is_number(run[key]) and run[key] > 0 and math.isfinite(run[key])):
             errors.append(f"run {key} must be a positive number")
+    if "budget_tokens" in run and not (_is_int(run["budget_tokens"]) and run["budget_tokens"] > 0):
+        errors.append("run budget_tokens must be a positive integer")
     if "max_transitions" in run and not (_is_int(run["max_transitions"]) and 0 < run["max_transitions"] <= MAX_TRANSITIONS_CAP):
         errors.append(f"run max_transitions must be a positive integer no greater than {MAX_TRANSITIONS_CAP}")
     if "failure_policy" in run and run["failure_policy"] not in FAILURE_POLICIES:
@@ -528,14 +751,14 @@ def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, h
         if "terminal" in s:
             if s["terminal"] not in TERMINALS:
                 errors.append(f"state {sid} terminal must be one of {list(TERMINALS)}")
-            for k in ("inputs", "outputs", "entry", "different_family_from", "isolated_from"):
+            for k in ("inputs", "outputs", "entry", "different_family_from", "isolated_from", "mutates", "recovery", "session"):
                 if s.get(k):
                     errors.append(f"terminal state {sid} cannot declare {k}")
             continue
         if not _nonempty_str(s.get(kinds[0])):
             errors.append(f"state {sid} {kinds[0]} must be a non-empty string")
-        if handlers is not None and (s.get("fn") or s.get("handler") or sid) not in handlers:
-            errors.append(f"state {sid} has no handler {(s.get('fn') or s.get('handler') or sid)!r}")
+        if handlers is not None and handler_key(s) not in handlers:
+            errors.append(f"state {sid} has no handler {handler_key(s)!r}")
         if "entry" in s and not isinstance(s["entry"], bool):
             errors.append(f"state {sid} entry must be a boolean")
         if "max_entries" in s and not (_is_int(s["max_entries"]) and 1 <= s["max_entries"] <= MAX_ENTRIES_CAP):
@@ -549,6 +772,7 @@ def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, h
             errors.append(f"state {sid} failure_policy must be one of {list(FAILURE_POLICIES)}")
         if "canary" in s and not isinstance(s["canary"], bool):
             errors.append(f"state {sid} canary must be a boolean")
+        _validate_p1_fields(sid, s, kinds[0], errors)
         for key in ("foreach", "wait", "lifecycle"):
             if key in s:
                 errors.append(f"state {sid}: {key} is not supported (one token runs at a time; parallelism lives inside a state)")
@@ -562,7 +786,15 @@ def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, h
                 errors.append(f"state {sid} declares duplicate output name {out['name']!r}")
             seen.add(out["name"])
             if out.get("type") not in PORT_TYPES:
-                errors.append(f"state {sid} output {out['name']!r} type must be 'text' or 'json'")
+                errors.append(f"state {sid} output {out['name']!r} type must be one of {list(PORT_TYPES)}")
+            if "schema" in out:
+                from jsonschema import Draft202012Validator
+                from jsonschema.exceptions import SchemaError
+
+                try:
+                    Draft202012Validator.check_schema(out["schema"])
+                except SchemaError as e:
+                    errors.append(f"state {sid} output {out['name']!r} schema is not a JSON schema: {e.message}"[:300])
         if s.get("outputs") is not None and not isinstance(s.get("outputs"), list):
             errors.append(f"state {sid} outputs must be a list")
         seen = set()
@@ -579,7 +811,7 @@ def validate_machine(machine: Any, *, models: Mapping[str, Any] | None = None, h
             if "optional" in inp and not isinstance(inp["optional"], bool):
                 errors.append(f"state {sid} input {name!r} optional must be a boolean")
             if ptype not in PORT_TYPES:
-                errors.append(f"state {sid} input {name!r} type must be 'text' or 'json'")
+                errors.append(f"state {sid} input {name!r} type must be one of {list(PORT_TYPES)}")
             if not isinstance(source, str) or "." not in source:
                 errors.append(f"state {sid} input {name!r} requires 'from' of the form '<state>.<output>' or 'params.<name>'")
                 continue
@@ -727,7 +959,7 @@ def canonicalize(machine: Any, *, models: Mapping[str, Any] | None = None) -> di
     policy = run_in.get("failure_policy", "escalate")
     run: dict[str, Any] = {"failure_policy": policy,
                            "max_transitions": run_in.get("max_transitions", min(TRANSITIONS_PER_STATE_DEFAULT * len(machine["states"]), MAX_TRANSITIONS_CAP))}
-    for key in ("budget_s", "budget_usd"):
+    for key in ("budget_s", "budget_usd", "budget_tokens"):
         if key in run_in:
             run[key] = run_in[key]
     states_out = []
@@ -738,7 +970,10 @@ def canonicalize(machine: Any, *, models: Mapping[str, Any] | None = None) -> di
         out = {"id": s["id"], "entry": bool(s.get("entry", False)), "max_entries": s.get("max_entries", STATE_MAX_ENTRIES_DEFAULT),
                "retries": s.get("retries", 0), "failure_policy": s.get("failure_policy", policy), "estimate_usd": float(s.get("estimate_usd", 0.0)),
                "canary": bool(s.get("canary", False)), "inputs": copy.deepcopy(_ports(s, "inputs")), "outputs": copy.deepcopy(_ports(s, "outputs"))}
-        for key in ("role", "fn", "handler", "timeout_s", "different_family_from", "isolated_from", "doc"):
+        if s.get("mutates"):  # only when set: a v1 machine keeps its hash (its journals still resume)
+            out["mutates"] = True
+        for key in ("role", "fn", "handler", "timeout_s", "different_family_from", "isolated_from", "doc", "recovery", "budget_usd", "budget_tokens",
+                    "session"):
             if key in s:
                 out[key] = copy.deepcopy(s[key])
         states_out.append(out)
@@ -760,10 +995,12 @@ def machine_hash(canonical: Mapping[str, Any]) -> str:
 # ---- executor ---------------------------------------------------------------------------------------------------------
 @dataclass
 class Settle:
-    """What a state function returns: its declared outputs and the findings it hands to a loop-back target."""
+    """What a state function returns: its declared outputs and the findings it hands to a loop-back target. ``tokens``:
+    model tokens the state used that were not booked with ``book_tokens``."""
 
     outputs: dict[str, Any]
     findings: list[str] = field(default_factory=list)
+    tokens: int = 0
 
 
 @dataclass
@@ -780,6 +1017,12 @@ class StateContext:
     client: Any = None  # the role's LLM client (real or fake)
     services: Any = None  # whatever the machine's owner injects (the driver's env)
     run_dir: Path | None = None
+    # ---- P1
+    state: dict[str, Any] = field(default_factory=dict)  # the canonical state (its session block, captures, budgets)
+    recovery: dict[str, Any] | None = None  # a re-run of a mutating state: {"mode", "snapshot", "findings", "diff"?}
+    budget: dict[str, Any] = field(default_factory=dict)  # what is left: {"usd": float | None, "tokens": int | None}
+    respawned: bool = False  # this is the one free re-run after a verified infra death
+    artifact_root: Path | None = None  # where artifact ports resolve (the task repo)
 
 
 Handler = Callable[[StateContext], Awaitable["Settle | dict[str, Any]"]]
@@ -797,20 +1040,33 @@ class RunResult:
     seconds: float
     entries: dict[str, int]
     path: Path
+    tokens: int = 0
+    needs_verify: list[dict[str, Any]] = field(default_factory=list)  # provisional outputs of attempts whose capture failed
 
 
 class StateFailed(RuntimeError):
     pass
 
 
+async def _no_sleep(_s: float) -> None:
+    return None
+
+
 class MachineRun:
     """One run of a canonical machine, journaled under ``run_dir``. ``await run()`` starts it, or continues it from the
     journal after a crash; ``await resume(decision)`` answers a pause. A different machine (hash) on the same journal
-    is refused."""
+    is refused.
+
+    P1 hooks: ``trees`` (a mapping or a callable, sync or async: state id -> ``MutableTree``) for mutating states;
+    ``artifact_root`` for artifact ports; ``infra_probe(state, error) -> "alive" | "dead"`` (dead: the probe has torn the
+    zombie down); ``sleep`` (injected: the infra quiet period and the re-capture window; default ``asyncio.sleep``)."""
 
     def __init__(self, machine: Mapping[str, Any], *, run_dir: Path, handlers: Mapping[str, Handler], run_id: str | None = None,
                  params: Mapping[str, Any] | None = None, models: Mapping[str, Any] | None = None, clients: Mapping[str, Any] | None = None,
-                 ledger: Ledger | None = None, services: Any = None, clock: Callable[[], float] = time.monotonic):
+                 ledger: Ledger | None = None, services: Any = None, clock: Callable[[], float] = time.monotonic,
+                 trees: Mapping[str, MutableTree] | Callable[[str], Any] | None = None, artifact_root: Path | None = None,
+                 infra_probe: InfraProbe | None = None, sleep: Callable[[float], Awaitable[None]] | None = None,
+                 infra_quiet_s: float = INFRA_QUIET_S, recapture_wait_s: float = RECAPTURE_WAIT_S):
         self.machine = canonicalize(machine, models=models)
         errors = validate_machine(self.machine, models=models, handlers=handlers)
         if errors:
@@ -819,6 +1075,9 @@ class MachineRun:
         self.run_dir = Path(run_dir)
         self.run_id = run_id or self.run_dir.name
         self.handlers, self.models, self.clients, self.services, self.clock = dict(handlers), models, dict(clients or {}), services, clock
+        self.trees, self.artifact_root, self.infra_probe = trees, (Path(artifact_root) if artifact_root else None), infra_probe
+        self.sleep = sleep or asyncio.sleep
+        self.infra_quiet_s, self.recapture_wait_s = infra_quiet_s, recapture_wait_s
         self.states = {s["id"]: s for s in self.machine["states"]}
         self.transitions = self.machine["transitions"]
         self.runcfg = self.machine["run"]
@@ -857,6 +1116,13 @@ class MachineRun:
         self.fired = 0
         self.usd = 0.0
         self.seconds = 0.0
+        self.tokens = 0
+        self.state_usd: dict[str, float] = {}
+        self.state_tokens: dict[str, int] = {}
+        self.state_grants: dict[str, dict[str, float]] = {}
+        self.snapshots: dict[str, str] = {}  # "<state>#<entry>" -> tree snapshot token
+        self.fails: dict[str, list[str]] = {}  # "<state>#<entry>" -> failed attempts' errors (reconcile findings)
+        self.needs_verify: list[dict[str, Any]] = []
         entry = next(s for s in self.states.values() if s.get("entry"))
         self.pending: dict[str, Any] | None = {"state": entry["id"], "findings": [], "via": None}
         self.inflight: dict[str, Any] | None = None
@@ -880,8 +1146,13 @@ class MachineRun:
                 self.inflight = None
                 self.unrouted = ev["state"]
             elif kind == "spend":
-                self.usd += ev.get("usd", 0.0)
-                self.seconds += ev.get("seconds", 0.0)
+                self._count(ev.get("state"), ev.get("usd", 0.0), ev.get("seconds", 0.0), ev.get("tokens", 0))
+            elif kind == "snapshot":
+                self.snapshots[f"{ev['state']}#{ev['entry']}"] = ev["token"]
+            elif kind == "fail":
+                self.fails.setdefault(f"{ev['state']}#{ev['entry']}", []).append(str(ev.get("error", "")))
+            elif kind == "capture_failed":
+                self.needs_verify.append({k: ev.get(k) for k in ("state", "entry", "attempt", "error", "outputs")})
             elif kind == "transition":
                 self.fired += 1
                 self.pending = {"state": ev["to"], "findings": ev.get("findings", []), "via": ev["from"]}
@@ -892,9 +1163,7 @@ class MachineRun:
                 if ev["status"] != "running":
                     self.inflight, self.unrouted = None, None
             elif kind == "grant":
-                for k, v in (ev.get("entries") or {}).items():
-                    self.grants[k] = self.grants.get(k, 0) + v
-                self.extra_transitions += ev.get("transitions", 0)
+                self._apply_grant(ev)
             elif kind == "decision":
                 self.decision_request = None
         if self.inflight is not None:  # a crash mid-state: that entry runs again (same entry number, same findings)
@@ -902,6 +1171,23 @@ class MachineRun:
             self.inflight = None
         if self.own_ledger:
             self.ledger.committed = self.usd
+
+    def _count(self, sid: str | None, usd: float, secs: float, tokens: int) -> None:
+        self.usd += usd
+        self.seconds += secs
+        self.tokens += int(tokens or 0)
+        if sid:
+            self.state_usd[sid] = self.state_usd.get(sid, 0.0) + usd
+            self.state_tokens[sid] = self.state_tokens.get(sid, 0) + int(tokens or 0)
+
+    def _apply_grant(self, ev: Mapping[str, Any]) -> None:
+        for k, v in (ev.get("entries") or {}).items():
+            self.grants[k] = self.grants.get(k, 0) + v
+        self.extra_transitions += ev.get("transitions", 0)
+        for k, v in (ev.get("state_budget") or {}).items():
+            g = self.state_grants.setdefault(k, {"usd": 0.0, "tokens": 0})
+            g["usd"] += float(v.get("usd", 0.0))
+            g["tokens"] += int(v.get("tokens", 0))
 
     def _log(self, ev: dict[str, Any]) -> None:
         self.journal.append(ev)
@@ -919,12 +1205,14 @@ class MachineRun:
     # ---- public API ---------------------------------------------------------------------------------------------------
     def result(self) -> RunResult:
         return RunResult(self.run_id, self.status, self.reason, copy.deepcopy(self.latest), copy.deepcopy(self.decision_request),
-                         self.fired, round(self.usd, 6), round(self.seconds, 3), dict(self.entries), self.run_dir)
+                         self.fired, round(self.usd, 6), round(self.seconds, 3), dict(self.entries), self.run_dir, self.tokens,
+                         copy.deepcopy(self.needs_verify))
 
     def status_view(self) -> dict[str, Any]:
         r = self.result()
         return {"run_id": r.run_id, "status": r.status, "reason": r.reason, "pending": self.pending, "entries": r.entries,
-                "transitions": r.transitions, "usd": r.usd, "seconds": r.seconds, "decision_request": r.decision_request}
+                "transitions": r.transitions, "usd": r.usd, "tokens": r.tokens, "seconds": r.seconds, "decision_request": r.decision_request,
+                "needs_verify": r.needs_verify}
 
     async def run(self) -> RunResult:
         if self.status == "stopped" and self._caps_ok() is None:  # a stop whose cause is gone (a larger cap): continue
@@ -936,7 +1224,10 @@ class MachineRun:
     async def resume(self, decision: Mapping[str, Any] | None = None) -> RunResult:
         """Answer a pause. ``decision`` follows ``cards.Decision`` (``action`` keep|drop|revise|approve|reject, ``actor``,
         ``reason``); ``drop``/``reject`` end the run ``rejected``; anything else grants ``extra_entries`` (default 1) to
-        the blocked state, or ``extra_transitions`` (default 10) after the transition cap, and continues."""
+        the blocked state, or ``extra_transitions`` (default 10) after the transition cap, or (``state_budget``)
+        ``extra_usd`` / ``extra_tokens`` (default: one more of the state's budget), and continues. A ``failed`` or
+        ``infra`` pause re-runs the same entry with fresh retries and a fresh free respawn; ``capture_failed`` re-runs
+        the producer."""
         if self.status not in ("paused", "stopped"):
             raise RuntimeError(f"run {self.run_id} is {self.status}; only a paused or stopped run resumes")
         d = dict(decision or {"action": "revise", "actor": "system", "reason": "resume"})
@@ -947,7 +1238,7 @@ class MachineRun:
             self._set_status("rejected", f"decision: {d.get('action')} by {d.get('actor')}: {d.get('reason', '')}"[:300])
             return self.result()
         grant: dict[str, Any] = {"event": "grant", "entries": {}, "transitions": 0}
-        if req.get("kind") == "exhausted" and req.get("state"):
+        if req.get("kind") in ("exhausted", "capture_failed") and req.get("state"):
             # the blocked state and every state it can reach get the extra entries: a re-entered owner re-runs the states
             # downstream of it, whose bounds were sized for the original loop
             for sid in self._reachable(req["state"]):
@@ -956,11 +1247,13 @@ class MachineRun:
             grant["transitions"] = int(d.get("extra_transitions", 10))
         if req.get("kind") == "no_transition" and req.get("state"):
             grant["entries"][req["state"]] = int(d.get("extra_entries", 1))  # the state runs again
-        # a "failed" pause re-runs the same entry (resume_entry): no grant needed
+        if req.get("kind") == "state_budget" and req.get("state"):
+            st = self.states[req["state"]]
+            grant["state_budget"] = {req["state"]: {"usd": float(d.get("extra_usd", st.get("budget_usd", 0.0))),
+                                                    "tokens": int(d.get("extra_tokens", st.get("budget_tokens", 0)))}}
+        # a "failed" / "infra" pause re-runs the same entry (resume_entry): no grant needed
         self._log(grant)
-        for k, v in grant["entries"].items():
-            self.grants[k] = self.grants.get(k, 0) + v
-        self.extra_transitions += grant["transitions"]
+        self._apply_grant(grant)
         self._set_status("running", f"resumed by {d.get('actor')}")
         await self._loop()
         return self.result()
@@ -982,9 +1275,39 @@ class MachineRun:
     def _caps_ok(self) -> str | None:
         if self.ledger.exhausted:
             return f"budget: the USD cap {self.ledger.cap_usd:.4f} is spent ({self.ledger.committed:.4f} committed)"
+        if "budget_tokens" in self.runcfg and self.tokens >= self.runcfg["budget_tokens"]:
+            return f"budget: the token cap {self.runcfg['budget_tokens']} is spent ({self.tokens} tokens)"
         if "budget_s" in self.runcfg and self.seconds >= self.runcfg["budget_s"]:
             return f"wall clock: {self.seconds:.1f}s of work reached the run budget {self.runcfg['budget_s']}s"
         return None
+
+    def _state_caps(self, state: Mapping[str, Any]) -> tuple[float | None, int | None]:
+        g = self.state_grants.get(state["id"], {})
+        usd = state["budget_usd"] + g.get("usd", 0.0) if "budget_usd" in state else None
+        tok = state["budget_tokens"] + int(g.get("tokens", 0)) if "budget_tokens" in state else None
+        return usd, tok
+
+    def _state_budget_spent(self, state: Mapping[str, Any]) -> str | None:
+        sid = state["id"]
+        usd, tok = self._state_caps(state)
+        if usd is not None and self.state_usd.get(sid, 0.0) >= usd - 1e-12:
+            return f"state {sid} spent its budget_usd {usd:.4f} ({self.state_usd.get(sid, 0.0):.4f})"
+        if tok is not None and self.state_tokens.get(sid, 0) >= tok:
+            return f"state {sid} spent its budget_tokens {tok} ({self.state_tokens.get(sid, 0)})"
+        return None
+
+    def _budget_left(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        sid = state["id"]
+        usd, tok = self._state_caps(state)
+        left_usd = None if usd is None else max(0.0, usd - self.state_usd.get(sid, 0.0))
+        if math.isfinite(self.ledger.cap_usd):
+            run_left = max(0.0, self.ledger.cap_usd - self.ledger.committed)
+            left_usd = run_left if left_usd is None else min(left_usd, run_left)
+        left_tok = None if tok is None else max(0, tok - self.state_tokens.get(sid, 0))
+        if "budget_tokens" in self.runcfg:
+            run_left_t = max(0, self.runcfg["budget_tokens"] - self.tokens)
+            left_tok = run_left_t if left_tok is None else min(left_tok, run_left_t)
+        return {"usd": left_usd, "tokens": left_tok}
 
     def _bind(self, state: Mapping[str, Any]) -> dict[str, Any]:
         bound: dict[str, Any] = {}
@@ -997,6 +1320,10 @@ class MachineRun:
                 val = self.latest[src][out] if ok else None
             if not ok and not inp.get("optional"):
                 raise StateFailed(f"input {inp['name']!r} from {inp['from']} is not bound (its source has not settled)")
+            if ok and val is not None and inp["type"] == "artifact" and src != PARAMS:
+                why = artifact_problem(self.artifact_root, val)
+                if why:  # the producer's capture is gone: its failure, not this consumer's (F:2969-2988)
+                    raise CaptureLost(src, f"input {inp['name']!r} from {inp['from']}: {why}")
             bound[inp["name"]] = val
         return bound
 
@@ -1032,20 +1359,21 @@ class MachineRun:
     def _bind_quiet(self, sid: str) -> dict[str, Any] | None:
         try:
             return self._bind(self.states[sid])
-        except StateFailed:
+        except (StateFailed, CaptureLost):
             return None
 
-    def _check_outputs(self, state: Mapping[str, Any], outputs: Mapping[str, Any]) -> list[str]:
-        problems = []
+    def _check_outputs(self, state: Mapping[str, Any], outputs: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+        """(problems, capture problems): a missing port or a dead artifact is a capture failure of this producer."""
+        problems, capture = [], []
         for out in state["outputs"]:
             name = out["name"]
             if name not in outputs:
-                problems.append(f"missing declared output {name!r}")
+                capture.append(f"missing declared output {name!r}")
                 continue
             v = outputs[name]
             if out["type"] == "text" and not isinstance(v, str):
                 problems.append(f"output {name!r} must be text, got {type(v).__name__}")
-            elif out["type"] == "json":
+            elif out["type"] in ("json", "artifact"):
                 try:
                     size = len(json.dumps(v, allow_nan=False))
                 except (TypeError, ValueError) as e:
@@ -1053,10 +1381,21 @@ class MachineRun:
                     continue
                 if size > OUTPUT_CAP_BYTES:
                     problems.append(f"output {name!r} is {size} bytes (cap {OUTPUT_CAP_BYTES})")
+                    continue
+                if isinstance(out.get("schema"), dict):  # a declared port schema is checked where the value is made
+                    from jsonschema import Draft202012Validator
+
+                    errs = [e.message for e in Draft202012Validator(out["schema"]).iter_errors(v)]
+                    if errs:
+                        problems.append(f"output {name!r} breaks its schema: {'; '.join(errs[:3])}"[:500])
+                if out["type"] == "artifact":
+                    why = artifact_problem(self.artifact_root, v)
+                    if why:
+                        capture.append(f"output {name!r}: {why}")
         extra = sorted(set(outputs) - {o["name"] for o in state["outputs"]})
         if extra:
             problems.append(f"undeclared outputs {extra}")
-        return problems
+        return problems, capture
 
     async def _loop(self) -> None:
         if self.unrouted is not None and self.status == "running":  # a crash between a settle and its transition
@@ -1082,11 +1421,12 @@ class MachineRun:
                                findings=self.pending.get("findings"))
                 return
             findings = self._screen_findings(sid, list(self.pending.get("findings") or []))
+            rerun = bool(self.pending.get("resume_entry"))
             self.entries[sid] = entry
             self._log({"event": "enter", "state": sid, "entry": entry, "findings": findings, "via": self.pending.get("via"),
-                       "resumed": bool(self.pending.get("resume_entry"))})
+                       "resumed": rerun})
             self.pending = None
-            settle = await self._run_state(state, entry, findings)
+            settle = await self._run_state(state, entry, findings, rerun=rerun)
             if self.status != "running":
                 return
             if settle is not None:
@@ -1116,7 +1456,8 @@ class MachineRun:
             self._escalate("transition_cap", f"run reached max_transitions {cap + self.extra_transitions}", state=to, findings=carried)
             return
         if "terminal" not in self.states[to] and self.entries.get(to, 0) >= self._max_entries(to):
-            # Prime records this as an event and later finalises the run as done (PA:2381-2398, :3248-3277): the defect
+            # Prime records this as an event and later finalises the run as done (F:2469-2483, :3515-3541; TF:5450-5477
+            # pins it at 7cbffa77b): the defect V7 forbids
             self.pending = {"state": to, "findings": carried, "via": sid}
             self._escalate("exhausted", f"loop exhausted: {sid} -> {to}, but {to} used all {self._max_entries(to)} entries",
                            state=to, findings=carried)
@@ -1125,32 +1466,104 @@ class MachineRun:
         self._log({"event": "transition", "from": sid, "to": to, "index": i, "findings": carried})
         self.pending = {"state": to, "findings": carried, "via": sid}
 
-    async def _run_state(self, state: Mapping[str, Any], entry: int, findings: list[str]) -> Settle | None:
+    # ---- P1: trees, recovery, infra -------------------------------------------------------------------------------------
+    async def _tree(self, sid: str) -> MutableTree:
+        t: Any = None
+        if isinstance(self.trees, Mapping):
+            t = self.trees.get(sid)
+        elif callable(self.trees):
+            t = self.trees(sid)
+            if asyncio.iscoroutine(t):
+                t = await t
+        if t is None:
+            raise StateFailed(f"state {sid} mutates its tree, but the run gives it no tree (MachineRun(trees=...))")
+        return t
+
+    async def _recover(self, state: Mapping[str, Any], entry: int, rerun: bool) -> dict[str, Any] | None:
+        """Snapshot before an entry's first attempt; on a re-run apply the declared posture (F:5099-5107, enforced)."""
+        if not state.get("mutates"):
+            return None
+        sid, key = state["id"], f"{state['id']}#{entry}"
+        tree = await self._tree(sid)
+        snap = self.snapshots.get(key)
+        findings = list(self.fails.get(key, []))[-5:]
+        if snap is None:
+            snap = await tree.snapshot(f"{self.run_id}/{key}")
+            self.snapshots[key] = snap
+            self._log({"event": "snapshot", "state": sid, "entry": entry, "token": snap})
+            # a crash between the entry and its snapshot leaves nothing to recover to: the attempt starts from the tree
+            return None if not rerun else {"mode": state["recovery"], "snapshot": snap, "findings": findings, "diff": "",
+                                           "note": "no snapshot was taken before the interrupted attempt"}
+        if not rerun:
+            return None
+        if state["recovery"] == "reset":
+            await tree.restore(snap)
+            self._log({"event": "recovery", "state": sid, "entry": entry, "mode": "reset", "snapshot": snap})
+            return {"mode": "reset", "snapshot": snap, "findings": findings}
+        diff = await tree.diff(snap)
+        self._log({"event": "recovery", "state": sid, "entry": entry, "mode": "reconcile", "snapshot": snap, "diff_chars": len(diff),
+                   "diff_sha256": hashlib.sha256(diff.encode()).hexdigest()})
+        cut = diff if len(diff) <= RECONCILE_DIFF_CAP else diff[:RECONCILE_DIFF_CAP] + f"\n... [{len(diff) - RECONCILE_DIFF_CAP} chars cut]"
+        return {"mode": "reconcile", "snapshot": snap, "findings": findings, "diff": cut}
+
+    async def _recheck_infra(self, sid: str, err: BaseException) -> str:
+        """F:2990-3017 adapted: a quiet period, then one re-check. ``alive``: the sandbox answered (re-run the same
+        session); ``dead`` (or no probe, or a probe that fails): the probe has torn the zombie down (F:3036-3046)."""
+        await self.sleep(self.infra_quiet_s)
+        if self.infra_probe is None:
+            return "dead"
+        try:
+            v = await self.infra_probe(sid, err)
+        except Exception:  # noqa: BLE001 -- a probe that cannot answer is as dead as the error said
+            return "dead"
+        return v if v in ("alive", "dead") else "dead"
+
+    def _capture_lost(self, sid: str, entry: int, err: CaptureLost) -> None:
+        self._log({"event": "capture_lost", "state": sid, "entry": entry, "producer": err.producer, "error": str(err)[:500]})
+        self.pending = {"state": err.producer, "findings": [f"capture lost: {err}"[:500]], "via": sid}
+        self._escalate("capture_failed", f"the producer {err.producer} must run again: {err}"[:500], state=err.producer,
+                       findings=[str(err)[:500]])
+
+    async def _run_state(self, state: Mapping[str, Any], entry: int, findings: list[str], *, rerun: bool = False) -> Settle | None:
         sid = state["id"]
         role = state.get("role")
-        handler = self.handlers[state.get("fn") or state.get("handler") or sid]
+        handler = self.handlers[handler_key(state)]
         attempts = state["retries"] + 1
-        last = ""
-        for attempt in range(1, attempts + 1):
+        key = f"{sid}#{entry}"
+        last, blame, over_budget = "", "task", None
+        respawned = False
+        attempt = 1
+        while attempt <= attempts:
             try:
                 inputs = self._bind(state)
+            except CaptureLost as e:
+                self._capture_lost(sid, entry, e)
+                return None
             except StateFailed as e:
                 last = str(e)
                 break
-            who = f"{self.run_id}/{sid}#{entry}.{attempt}"
+            over_budget = self._state_budget_spent(state)
+            if over_budget:
+                last = over_budget
+                break
+            who = f"{self.run_id}/{sid}#{entry}.{attempt}{'r' if respawned else ''}"
             try:
                 self.ledger.reserve(who, state["estimate_usd"])
             except BudgetExhausted as e:
+                self.pending = {"state": sid, "findings": findings, "via": None, "resume_entry": entry}
                 self._set_status("stopped", f"budget: {e}")
                 return None
-            ctx = StateContext(self.run_id, sid, entry, attempt, inputs, list(findings), dict(self.params), role,
-                               (self.models or {}).get(role) if role else None, self.clients.get(role) if role else None,
-                               self.services, self.run_dir)
             t0 = self.clock()
             err: BaseException | None = None
             out: Any = None
-            with SpendScope() as scope:
+            recovery: dict[str, Any] | None = None
+            with SpendScope() as scope, TokenScope() as tscope:
                 try:
+                    recovery = await self._recover(state, entry, rerun or attempt > 1 or respawned)
+                    ctx = StateContext(self.run_id, sid, entry, attempt, inputs, list(findings), dict(self.params), role,
+                                       (self.models or {}).get(role) if role else None, self.clients.get(role) if role else None,
+                                       self.services, self.run_dir, copy.deepcopy(dict(state)), recovery, self._budget_left(state),
+                                       respawned, self.artifact_root)
                     coro = handler(ctx)
                     out = await (asyncio.wait_for(coro, state["timeout_s"]) if state.get("timeout_s") else coro)
                 except BudgetExhausted as e:
@@ -1161,22 +1574,37 @@ class MachineRun:
                     err = e
             usd = self.ledger.settle(who, scope.usd)
             secs = max(0.0, self.clock() - t0)
-            self.usd += usd
-            self.seconds += secs
-            self._log({"event": "spend", "state": sid, "entry": entry, "attempt": attempt, "usd": round(usd, 6), "seconds": round(secs, 4)})
+            tokens = tscope.tokens + (int(out.tokens) if isinstance(out, Settle) else 0)
+            self._count(sid, usd, secs, tokens)
+            self._log({"event": "spend", "state": sid, "entry": entry, "attempt": attempt, "usd": round(usd, 6), "seconds": round(secs, 4),
+                       "tokens": tokens, **({"respawn": True} if respawned else {})})
+            if isinstance(err, CaptureLost):  # the handler found an input its producer settled broken (a hand-off check)
+                self._capture_lost(sid, entry, err)
+                return None
             if isinstance(err, BudgetExhausted) or getattr(err, "failure_kind", None) == "crucible:credits_exhausted":
                 self.pending = {"state": sid, "findings": findings, "via": None, "resume_entry": entry}
                 self._set_status("stopped", f"budget: {err}")
                 return None
+            if err is not None and is_infra_error(err) and not respawned:
+                # F:2876-2895 / :3019-3084: verified, then ONE free re-run of the same attempt (no retry, no entry spent)
+                verdict = await self._recheck_infra(sid, err)
+                self._log({"event": "infra_respawn", "state": sid, "entry": entry, "attempt": attempt, "verdict": verdict,
+                           "error": f"{type(err).__name__}: {err}"[:500]})
+                respawned = True
+                continue
+            capture: list[str] = []
             if err is None:
                 settle = out if isinstance(out, Settle) else Settle(dict(out or {}))
-                problems = self._check_outputs(state, settle.outputs)
-                if not problems and state.get("isolated_from"):
+                problems, capture = self._check_outputs(state, settle.outputs)
+                if capture and not problems and all("artifact" in c for c in capture):
+                    await self.sleep(self.recapture_wait_s)  # one bounded re-capture window (F:3171-3222)
+                    problems, capture = self._check_outputs(state, settle.outputs)
+                if not problems and not capture and state.get("isolated_from"):
                     text = json.dumps(settle.outputs, default=str)
                     hit = [s for s in state["isolated_from"] if s in self.canaries and self.canaries[s] in text]
                     if hit:
                         problems.append(f"breach: output carries the canary of {hit}, which this state may not see")
-                if not problems:
+                if not problems and not capture:
                     outputs = dict(settle.outputs)
                     canary = None
                     if state["canary"]:
@@ -1188,12 +1616,28 @@ class MachineRun:
                     self._log({"event": "settle", "state": sid, "entry": entry, "attempt": attempt, "outputs": outputs,
                                "findings": self.latest_findings[sid], "canary": canary})
                     return Settle(outputs, self.latest_findings[sid])
-                last = "; ".join(problems)
+                last = "; ".join(problems + capture)
+                blame = "task"
+                if capture:  # the producer's task failure; its outputs stay provisional for needs_verify (F:3123-3169)
+                    nv = {"state": sid, "entry": entry, "attempt": attempt, "error": "; ".join(capture)[:500],
+                          "outputs": json.loads(json.dumps(settle.outputs, default=str))}
+                    self.needs_verify.append(nv)
+                    self._log({"event": "capture_failed", **nv})
             else:
                 last = f"{type(err).__name__}: {err}"[:500]
-            self._log({"event": "fail", "state": sid, "entry": entry, "attempt": attempt, "error": last})
+                blame = "infra" if is_infra_error(err) else "task"
+            self._log({"event": "fail", "state": sid, "entry": entry, "attempt": attempt, "error": last, "blame": blame})
+            self.fails.setdefault(key, []).append(last)
+            over_budget = self._state_budget_spent(state)
+            if over_budget:  # a spent state budget: no retry (F:2925-2939 does the same for budget_ms)
+                break
+            attempt += 1
         self.pending = {"state": sid, "findings": findings, "via": None, "resume_entry": entry}
-        if state["failure_policy"] == "fail_fast":
+        if over_budget:
+            self._escalate("state_budget", f"{over_budget}; last: {last}"[:500], state=sid, options=("revise", "drop"))
+        elif blame == "infra":  # V8: an infra failure is masked, a decision, never the task's 0 (fail_fast does not apply)
+            self._escalate("infra", f"state {sid}: infrastructure failed after the free respawn and {attempts} attempt(s): {last}", state=sid)
+        elif state["failure_policy"] == "fail_fast":
             self._set_status("failed", f"state {sid} failed: {last}")
         else:
             self._escalate("failed", f"state {sid} failed after {attempts} attempt(s): {last}", state=sid, options=("revise", "drop"))

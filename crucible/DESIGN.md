@@ -746,7 +746,44 @@ held-out windows from 6 repos give 20.
 - **Solvers:** 0 passes across 123 episodes. The F1 reward spreads in 8 of 13 groups. STATUS.json was written in 45/51
   episodes, but the claims stay overconfident (Brier 0.70).
 - **Open:** D7 (the run script's tool-output cap cut `read_file` pages), D8 (auditor guesses must not reach prompts), F8
-  (module-level imports make one owner for all tests).
+  (module-level imports make one owner for all tests). All three are fixed in P0 below.
+
+**Factory v2: the workflow spec is `docs/research/swarm-pipeline/00-task-factory-workflow.md`; the build log is `04`.**
+
+P0, the contract (`factory/longtask.py`, `factory/pathcheck.py`, `factory/lanes/windows_imports.py`):
+- `LongTask` is the one contract every generator emits:
+  - World, prompt and requirements;
+  - milestones with executed `requires`;
+  - `path_rules`, `grade_patch` and `milestone_status`;
+  - `oracle_patch`, floors, mutants and alternatives;
+  - `simplify(kind)`, `provenance`, `card`.
+- `check_longtask` validates it, and `LongTaskRef` is the portable task row. `WindowTask` conforms.
+- **Path checks** are graded from the World's own `trace.json` and the diff:
+  - **gates** (no full-pass bonus, Φ kept): test or config edits, package installs, missing required actions, the step
+    budget;
+  - **hacks** (reward 0, `hack_suspect`): test plumbing, fetching code, reading history or the grader;
+  - with no trail, the checks are unmeasured and never gate.
+- **Import-tolerant ownership** (F8) is a per-window mining mode: new windows are tolerant; stored windows stay strict.
+- **D7:** the tool-output cap is 32k. **D8:** only test-derived findings reach the author.
+- **Callable checks:** `null_agent_score` and `clean_world_solvable`.
+- **Re-grade of 51 stored windows:** 185/185 mutant vectors identical; floors identical; the 9 anomalies are
+  reproduced by the pre-P0 code.
+
+P1, machine v2 (`factory/machine.py`, `sessions.py`, `handoff.py`, `receipts.py`; Prime 7cbffa77b ported, MIT):
+- **Infra vs task:** an infra failure is re-checked after a quiet period and respawned once for free; persistent infra
+  pauses `infra`, never fails the task.
+- **Captures:** an `artifact` port is a path plus sha256. A missing or vanished capture fails its producer.
+- **Recovery:** `mutates: true` requires `recovery: reconcile|reset`.
+- **Budgets:** dollar and token caps per state and per run.
+- **Exhaustion** still pauses `exhausted`, never `done`.
+- **Session states:** an M16 RLM agent in a private single-commit clone (not a worktree, whose shared object store would
+  leak the oracle's commits) and its own offline container. Outputs are committed artifacts; persistent specialists
+  resume by id.
+- **Typed hand-offs:** a schema per port plus the full spec; summaries are refused.
+- **Task repo as memory:** immutable commits, `informed_by=` trailers, in-flight announcements, free abstention, and a
+  40% herding guard.
+- **Receipts:** every run writes one with a `not_verified` list. The seeded-defect harness catches 13/13 cases (6 task
+  defects at their states, 6 machine defects, 1 clean control), and its twin tests reject 10/10 tampered receipts.
 
 ## 8. Layer 4: verification and isolation
 

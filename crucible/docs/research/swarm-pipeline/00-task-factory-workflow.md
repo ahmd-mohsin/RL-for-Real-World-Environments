@@ -44,6 +44,15 @@ accepted only when every gate below has passed **with executed evidence**.
 
 ---
 
+**Realism vs environment awareness, reconciled** (`HUD` vs `PM`):
+- **The request** is written in a real user's voice:
+  - no benchmark framing;
+  - no rubric, weights or success criteria;
+  - real repos and real state.
+- **A fixed, truthful harness note** (sandbox, offline, hidden checks exist, how to give up, STATUS.json) is kept apart
+  from the request. It never states what is checked beyond "the behaviour you were asked for".
+- The grader lives where the agent never interacts.
+
 ## 1. What a task is: the `LongTask` contract (one contract for every generator)
 
 | Field / method | Content | Status |
@@ -216,6 +225,15 @@ lives in the recipe.
 
 ---
 
+8. **Fairness rules** (`HUD`, "What is a good task?"):
+   - **Functional checks only.** Never keyword or line matching. HUD's attention-fix grader rejected 4 working fixes because
+     it checked for a variable name. The lint refuses checks that read source text where behaviour can be tested.
+   - **The ten-competent-people test.** Every gating check must pass the oracle **and** every valid alternative. In S8
+     this needs ≥ 2 independent alternatives, at least one built by another family.
+   - **Only grade what the prompt asks for:** the ledger is two-way (exists). A check with no requirement is refused.
+   - **A correct answer must never crash or trip the grader.** HUD's anti-hallucination rule flagged "ug/m3" as a file
+     path. False-fail candidates from the audit are re-run on the alternatives before any check is kept.
+
 ## 6. Long-horizon guarantees
 
 - **Executed dependency** (S6): textual conflicts are only ordering hints (run 2: 51 → 26 windows once edges had to be
@@ -251,6 +269,14 @@ A task is pool-eligible only if:
    original's CI (`EVALS` L2: 46% of meaning-preserving paraphrases changed generated code).
 
 ---
+
+7. **Difficulty is real, never contrived** (`HUD`):
+   - Difficulty comes from work in the World: dependent edits across files, configs and tests, conflicting evidence. It
+     never comes from a vaguer prompt, a stricter grader or an over-weighted criterion. The realism reviewer and the
+     ledger refuse those.
+   - **A hardness claim names its model, harness, scoring and k.** One success in a handful of runs is noise, so hardness
+     is stated as pass^k with a CI.
+   - Benchmark items aim at a strong-frontier pass@1 ≤ 50%, measured only with approval because it is paid.
 
 ## 8. Traces and the RLM trace-audit loop (the factory improves its verifiers and intents)
 
@@ -300,7 +326,9 @@ offline, for reporting.
 Harness edits to the auditor itself go through `HarnessState.evaluate` (exists: a paired A/B on the same seeds,
 alternating order, a noise re-run, guards).
 
-**8.5 Trace datasets** (`TRACE`):
+**8.5 Audit the passes too** (`HUD`): QA agents read a frozen snapshot of every attempt, **perfect scores included**. A perfect score with a short path, files touched outside the task, or a path-check near miss is a `verifier_gap` candidate (lucky passes: `EVALS` L1).
+
+**8.6 Trace datasets** (`TRACE`):
 - failed solver traces become regression cases for the verifier (the gold set) and intent evidence;
 - successful ones become alternatives;
 - held-out traces return only intent-level counts (V9).
@@ -389,6 +417,32 @@ Infra failures are masked and truncation follows the limit policy.
   token spans.
 
 ---
+
+**11.3 Portable task rows and the environment protocol** (`HUD` SDK docs, PATTERN; the licence is not checked, so no code is
+copied):
+1. **A task is a data row, not live code:** `(env name, template id, bound args, slug, split, runtime_config)`. One
+   `LongTask` template (a generator) mints many rows: windows, seeds, simplify variants. The row is the unit published,
+   synced, filtered and exported. Our `LongTaskRef` (P0) is that row, and JSONL is the codec, shared by slime's input and
+   agentenv's `Task`.
+2. **The verifier is a separate, agent-less task** that runs in its own environment: HUD's `Task.verifier`, our grading
+   container (V4). Its result replaces the actor task's grade. The actor's environment never contains it.
+3. **Capabilities are protocols, not tools.** The World exposes a shell over ssh (sandboxed, unprivileged `shell_uid`, no
+   network) plus file tracking, so its diffs become environment evidence. Any harness then drives the same task: our RLM,
+   Claude Code / Codex CLIs (slime), or a third-party agent. Extra services (a DB, a browser) are capabilities published
+   from an `initialize` hook. A tool is never baked into the task.
+4. **Two timeouts:**
+   - an **agent timeout** ends the agent phase, and grading still runs on whatever work exists (a limit stop, graded;
+     V8);
+   - a **rollout timeout** bounds everything, and expiring it is infrastructure, so the attempt is masked.
+5. **Groups:** if any sibling in a GRPO group is an infrastructure failure, **the whole group is dropped or refilled**.
+   A partial group is never trained (HUD drops it; slime would train the dead rollout as 0). Groups whose rewards don't
+   differ are filtered out (no spread, no signal).
+6. **The objective is versioned with the checkpoint.** When the trace-audit loop (§8.3) changes a verifier or a task
+   mid-training, the reward is a new objective. Training continues from a checkpoint taken **before** the change, or is
+   reported as a new run. Rewards from two verifier versions are never mixed in one curve (HUD's checkpoint-tree
+   rollback rule).
+7. **Export adapters:** Harbor task folders (we have `interop/harbor`) and agentenv `Task`/`Eval`, so a published family
+   runs in other harnesses unchanged.
 
 ## 12. The outer loop: the factory improves itself
 
