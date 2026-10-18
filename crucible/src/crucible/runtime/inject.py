@@ -7,7 +7,8 @@ Each injector produces an attempt that *would* be scored 0 if mishandled. Infras
 - ``FakeLLM``: a scripted tool-calling client; raises a chosen provider failure (blank usage, credits, overflow) at a chosen
   call on chosen attempts.
 - ``FlakyGradeTask``: wraps a task so its grade comes back masked with a chosen infra reason (contaminated perf rounds,
-  stale build, stale image, grader exception) on chosen attempts.
+  stale build, stale image, grader exception) on chosen attempts; its control grade (M10 lab audit R-3) is injected the
+  same way.
 """
 
 from __future__ import annotations
@@ -88,6 +89,15 @@ class FlakyGradeTask:
 
     async def grade_patch(self, patch: str, d: Path):
         return await self._flaky(d) if self._hit(Path(d)) else await self.task.grade_patch(patch, d)
+
+    async def grade_control(self, d: Path):
+        """M10 lab audit R-3: the inner task's control, on the same, injected grader (a control graded under ``/a1/``
+        masks like the attempt's own grades, so an injected outage fails its control: a task-blamed mask, never the
+        policy's 0). None when the inner task has no control."""
+        hook = getattr(self.task, "grade_control", None)
+        if hook is None:
+            return None
+        return await self._flaky(d) if self._hit(Path(d)) else await hook(d)
 
 
 class ReplayLLM:

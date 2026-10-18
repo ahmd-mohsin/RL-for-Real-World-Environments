@@ -129,6 +129,10 @@ class Failure(CrucibleModel):
     blame: Blame | None = None  # None: the kind's default (DEFAULT_BLAME)
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
     detail: str | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
+    # M10 lab audit R-3: {probe: alive|dead|unprobed, control: passed|failed|none, status} on every masked failure (a
+    # non-policy blame carries its evidence); the R-5 task breaker reads ``control``. None until the harness or the Runner
+    # fills it; dropped from canonical JSON while None, so no content hash moves
+    evidence: dict[str, Any] | None = None
 
     @field_validator("reason")
     @classmethod

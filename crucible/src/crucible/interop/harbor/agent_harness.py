@@ -83,7 +83,17 @@ Per attempt:
    re-running the agent); a shared verifier is the guarded ``HarborInPlaceTask.grade``, which first quiesces the
    container host-side itself (M10 lab audit R-2: a process the policy started still listed after the bounded kill
    rounds is ``crucible:policy_misbehavior``, scored 0, flag ``policy_process_survived``; nothing is reset or verified
-   before a clean receipt), so no caller can grade in place without it. Limit stops follow ``limit_policy`` (``score``
+   before a clean receipt), so no caller can grade in place without it. M10 lab audit R-3: in place a failed grade is
+   graded again inside the attempt, before the container closes (``runtime.grading.grade_in_place``: try ``i > 0`` into
+   ``regrade<i>/grade``, its own quiesce receipt), and the attempt then ends terminal-masked: no verification mask
+   re-runs the agent (before R-3 it went through ``classify_verifier`` -> ``RetryRule`` -> a fresh ``run``; R-2's
+   quiesce verdicts are unchanged). On the patch seam an answer-sensitive grade failure (a hang or a checker outage on
+   this patch) is graded again at once too. An answer-sensitive failure that repeats is decided by the task's control
+   (``runtime.grading.settle``, whatever ``RetryRule`` allows: the R3 gate runs ``max_attempts=1``): in place, after
+   the container is probed and closed, ``HarborInPlaceTask.grade_control`` (``solution/solve.sh`` by Harbor's
+   ``OracleAgent`` in a fresh container); on the seam, ``HarborDirTask``'s ``solution/model.patch`` in the same perf
+   slot. Control passes: ``crucible:policy_error`` / ``grader_failed_on_answer``, scored 0; fails: a task-blamed mask;
+   none: a mask with flag ``no_control``. Limit stops follow ``limit_policy`` (``score``
    by default, ``mask`` or ``penalty:<c>``), and only evidenced ones (Crucible's deadline, the proxy's cap) can be
    masked or penalized.
 8. **spend**: settled from the session's capture log at the very end of every exit path, masked attempts included
@@ -139,10 +149,11 @@ from crucible.runtime.agent_evidence import (
     self_hosted_apis,
 )
 from crucible.runtime.collect import Collected
+from crucible.runtime.grading import grade_in_place, grade_summary, grading_window, liveness, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult
-from crucible.runtime.harness.native import LIMIT_STOPS, _take_grade_findings
+from crucible.runtime.harness.native import LIMIT_STOPS, _keep_tries, _take_findings
 from crucible.runtime.harness.workspace import WorkspaceHarness
-from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier
+from crucible.runtime.infra import LimitPolicy, StageFailure, boundary
 
 DEFAULT_TIMEOUT_S = 3600.0
 _STOP_TIMEOUT_S = 60  # M10 lab audit R-1: the in-container stop's own deadline (Harbor's exec raises at it)
@@ -504,7 +515,8 @@ class HarborAgentHarness:
                  endpoint_env: dict[str, str] | None = None, prices: dict[str, list[float]] | None = None, self_hosted: bool | None = None,
                  policy_version: int | None = None, perf_guard: Any = None, host: str = "local", harbor_version: str | None = None,
                  kill_command: str | None = None, agent_factory: Callable[..., Any] | None = None,
-                 context_factory: Callable[[], Any] | None = None):
+                 context_factory: Callable[[], Any] | None = None, grade_retries: int = 1, scoring_budget_s: float | None = None,
+                 control_timeout_s: float | None = 1800.0):
         """``agent``: a Harbor agent name or ``module:Class``; ``version``: the agent's version (installed as such).
         ``model``: the model name the agent is given (``provider/model``). ``proxy``: a ``CaptureProxy``; ``proxy_url``: that
         proxy as the task container reaches it (its host must be in the task's ``agent_allowed_hosts``).
@@ -516,6 +528,12 @@ class HarborAgentHarness:
         else nothing; in place: the agent's own tree, and the grade's host-side quiesce (M10 lab audit R-2) kills the
         rest; ``""``: never). It must exit 0 only when it stopped them; it runs as root in ``/`` (M10 lab audit R-1
         review round 3: never in a working directory the policy can remove).
+        ``grade_retries`` / ``scoring_budget_s`` / ``control_timeout_s`` (M10 lab audit R-3, ``NativeHarness``): how often a
+        failed grade of the same work is graded again inside the attempt, one budget for all its tries (None: each try
+        bounded only by the grader's own timeout), and a control grade's budget (raised to the task's own
+        ``control_timeout_s``, ``grading.control_budget``), on both grading paths (through the composed
+        ``WorkspaceHarness``). Not in the digest: grading
+        policy, not the agent's identity, as ``perf_guard`` and ``host``.
         ``harbor_version``,
         ``agent_factory(logs_dir=, model_name=, version=, extra_env=, **agent_kwargs)``, ``context_factory()``: for tests."""
         if not urlparse(proxy_url).hostname:
@@ -535,8 +553,10 @@ class HarborAgentHarness:
         self.digest = config_digest(agent=agent, agent_kwargs=self.agent_kwargs, limits=self.limits, limit_policy=self.limit_policy, model=model,
                                     harbor=self.harbor_version, endpoint_env=self.endpoint_env)
         self.id = f"harbor:{agent.rsplit(':', 1)[-1]}@{version}#{self.digest}"
-        # the separate-verifier seam reuses the workspace harness's grade, re-grade and prior-attempt rules unchanged
-        self._patch = WorkspaceHarness("harbor-patch", "1", perf_guard=perf_guard, host=host)
+        # the separate-verifier seam reuses the workspace harness's grade, re-grade and prior-attempt rules unchanged; the
+        # in-place grade reads its grading policy from it too (M10 lab audit R-3)
+        self._patch = WorkspaceHarness("harbor-patch", "1", perf_guard=perf_guard, host=host, grade_retries=grade_retries,
+                                       scoring_budget_s=scoring_budget_s, control_timeout_s=control_timeout_s)
 
     # ---- construction --------------------------------------------------------------------------------------------
     def _endpoint_template(self) -> dict[str, str]:
@@ -936,6 +956,10 @@ class HarborAgentHarness:
                                                blame="unknown" if killed.get("unreported") else None,
                                                reason=f"the agent's processes could not be stopped ({killed.get('why') or killed.get('error')}); "
                                                       "collecting would race a live agent (P23)"))
+                # M10 lab audit R-3 review round 2: the agent phase is over (run.py reads it when its attempt clock fires): a
+                # clock firing in task.collect or the close below is recorded at stage collect and, with nothing persisted
+                # yet, ends terminal-masked; read as the agent's, it was retried and _patch._prior ran the agent again
+                attempt.phase = "collect"
                 t0 = time.monotonic()
                 with boundary("collect"):
                     try:
@@ -953,18 +977,40 @@ class HarborAgentHarness:
                 # M10 lab audit R-2: no separate quiesce seam here. The guarded grade quiesces the container host-side
                 # itself (HarborInPlaceTask._verify: kill, confirm by docker top, receipt verifier/quiesce.json) before
                 # any reset or verifier, so no caller can grade in place without it; its survivors report reaches
-                # _take_grade_findings below (crucible:policy_misbehavior), its respawned / uninterruptible StageFailure
-                # passes through boundary("verification") unretried
-                with boundary("verification"):
-                    rep_g = await task.grade(world, attempt.dir / "grade")
+                # _take_findings below (crucible:policy_misbehavior), its respawned / uninterruptible StageFailure
+                # passes through grade_in_place and boundary("verification") unretried. M10 lab audit R-3: the container
+                # is gone after the attempt, so a failed grade is graded again here, before the World closes (try i > 0
+                # into regrade<i>/grade, so each try's quiesce receipt is its own), and the attempt then ends
+                # terminal-masked (res.regradable stays False): a verification mask never re-runs the agent
+                attempt.phase = "verification"  # M10 lab audit R-3: an attempt clock firing from here is the grade's (run.py)
+                # review round 2: the grading's own window on the Runner's clock (its scoring budget defaults to the clock's
+                # length, and the clock is moved past it and the control's), so a hung test.sh ends as verifier_timeout and is
+                # settled with the control, never cut short by a clock sized for the agent
+                budget = grading_window(attempt, task, budget_s=self._patch.scoring_budget_s, control_s=self._patch.control_timeout_s)
+                reps: list[Any] = []
+                try:
+                    with boundary("verification"):
+                        _, f = await grade_in_place(lambda d: task.grade(world, d), attempt.dir / "grade", retries=self._patch.grade_retries,
+                                                    budget_s=budget, out=reps, attempt=attempt)
+                except StageFailure:
+                    _keep_tries(attempt.dir / "verifier", reps, res)  # M10 lab audit R-3: the tries before a later one raised
+                    raise
                 t["verification"] = time.monotonic() - t0
-                (attempt.dir / "verifier").mkdir(exist_ok=True)
-                (attempt.dir / "verifier" / "report.json").write_text(json.dumps(rep_g.to_dict(), default=str, indent=1))
-                res.grade = {**res.grade, "reward": rep_g.reward, "gates": rep_g.gate_bits(), "infra": rep_g.infra}
-                _take_grade_findings(rep_g, res)
-                if rep_g.infra.get("status") == "masked":
-                    raise StageFailure(classify_verifier(rep_g.infra))
-                res.reward, res.gates = rep_g.reward, rep_g.gate_bits()
+                write_reports(attempt.dir / "verifier", reps)
+                res.grade = {**res.grade, **grade_summary(reps, f)}
+                _take_findings(reps, res)
+                if f is not None:
+                    # M10 lab audit R-3 item 2: the last word (grading.settle). The container is probed while it runs, then
+                    # closed (nothing of the policy's runs beside the control), then an answer-sensitive failure is decided by
+                    # the task's control (HarborInPlaceTask: solution/solve.sh by Harbor's OracleAgent in a fresh container,
+                    # the same guarded grade): scored 0, a task-blamed mask, or no_control
+                    probe = await liveness(task, world)
+                    closing, world = world, None
+                    with contextlib.suppress(Exception):
+                        await closing.close()
+                    raise StageFailure(await settle(task, f, workdir=attempt.dir / "control", timeout_s=self._patch.control_timeout_s, probe=probe,
+                                                    attempt=attempt))
+                res.reward, res.gates = reps[-1].reward, reps[-1].gate_bits()
             pen = end.penalty(self.limit_policy) if res.stop in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24), as native.py:368-371: the configured penalty, not the partial grade
                 res.grade["limit_penalty"] = pen

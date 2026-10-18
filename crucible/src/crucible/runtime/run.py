@@ -8,8 +8,17 @@ derived seed; each attempt ``<sample>-a<N>`` gets its own directory. Per attempt
 2. the harness runs the phases (seed -> agent -> verification -> cleanup) and returns a result;
 3. the record is built: a scored reward, a policy failure (scored 0), or a masked failure (``reward=None``); a training
    rollout whose capture does not reconcile with the agent's ATIF (``interop.harbor.reconcile`` level fatal) is masked
-   ``crucible:capture_incomplete`` (M10 lab audit R-1);
-4. a masked failure is retried while its ``RetryRule`` allows (infra/harness/task blame only), with a fresh attempt.
+   ``crucible:capture_incomplete`` (M10 lab audit R-1); a masked failure without evidence gets ``{probe: unprobed,
+   control: none, status}`` (M10 lab audit R-3, ``_evidence``);
+4. a masked failure is retried while its ``RetryRule`` allows (infra/harness/task blame only), with a fresh attempt. A
+   failure after the agent phase (stage ``verification``) is retried only when the harness persisted the work
+   (``HarnessResult.regradable``), and the retry re-grades that work without running the agent (M10 lab audit R-3:
+   ``grade_only`` on its ``dispatched`` and ``retry_scheduled`` events); otherwise the attempt ends terminal-masked. A
+   run past ``attempt_timeout_s`` after the agent phase (``Attempt.phase``) is such a failure too, at that stage, and is
+   retryable only when the work was persisted (``Attempt.regradable``): a collect-phase timeout before the patch is
+   stored ends terminal-masked. The clock is the harness's too (``Attempt.clock``): its verification phase opens the
+   grading's own window on it (``grading.grading_window``), so a grade that hangs ends inside the attempt as
+   ``verifier_timeout`` and is decided by the task's control, never cut short by a clock sized for the agent.
 
 Stop rules, checked before every dispatch: budget exhaustion (dispatch halts; resumable after ``increase_limit``),
 wall clock, mask fraction > 0.2 after 20 terminal samples (the environment is broken), unknown-blame fraction > 0.05.
@@ -27,6 +36,7 @@ from typing import Any
 
 from crucible.core.schema.run import Failure, RunRecord
 from crucible.runtime.budget import BudgetLedger, Exhausted
+from crucible.runtime.grading import HANDOFF_REF, deciding_record
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
 from crucible.runtime.journal import RunJournal
@@ -160,12 +170,23 @@ class Runner:
 
                 shutil.rmtree(adir, ignore_errors=True)  # never dispatched: no attempt
                 return "stop", n
-            journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed)
+            # M10 lab audit R-3: a grade-only retry is dispatched too, but runs no agent; the journal tells it apart (taken from
+            # the previous attempt's record, which a retry always follows, so a resumed run marks it the same way)
+            extra = {"grade_only": True} if self._grade_only_retry(adir, n) else {}
+            journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed, **extra)
             state["attempts"] += 1
-            attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes)
+            attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes,
+                              timeout_s=spec.attempt_timeout_s or None)
             try:
-                coro = harness.run(attempt)
-                hr: HarnessResult = await (asyncio.wait_for(coro, spec.attempt_timeout_s) if spec.attempt_timeout_s else coro)
+                hr: HarnessResult
+                if spec.attempt_timeout_s:
+                    # M10 lab audit R-3 review round 2: the clock is handed to the harness (Attempt.clock), which opens the
+                    # grading's own window on it (grading.grading_window); asyncio.wait_for kept it out of reach
+                    async with asyncio.timeout(spec.attempt_timeout_s) as clock:
+                        attempt.clock = clock
+                        hr = await harness.run(attempt)
+                else:
+                    hr = await harness.run(attempt)
             except asyncio.CancelledError:
                 raise
             except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
@@ -174,11 +195,25 @@ class Runner:
                 # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
                 # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
                 timeout = isinstance(ex, TimeoutError)
-                hr = HarnessResult(failure=Failure(kind="agent_run_error", stage="agent", blame="harness",
-                                                   reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500]
-                                                   if not timeout else f"harness {harness.id} ran past {spec.attempt_timeout_s}s",
+                # M10 lab audit R-3: the clock also covers the in-attempt re-grades and the control. Past the agent phase
+                # (the harness's Attempt.phase) a timeout is the grade's: recorded at that stage, regradable only when the
+                # work was persisted (Attempt.regradable), so RetryRule answers it with a re-grade or ends it terminal-
+                # masked. Read as the agent's, it was retried as a fresh agent run, and an answer that hung the tests past
+                # the clock escaped its 0. A policy that runs past the clock during its agent phase stays stage agent
+                stage = str(getattr(attempt, "phase", "agent") or "agent") if timeout else "agent"
+                stage = stage if stage in ("collect", "verification") else "agent"  # a phase a third-party harness made up reads as before
+                why = f"harness {harness.id} ran past {spec.attempt_timeout_s}s" + ("" if stage == "agent" else f" after the agent phase (during {stage})")
+                # M10 lab audit R-3 review round 2: past the agent phase with nothing persisted (a clock firing during the
+                # workspace collect or the World's close, before _grade stores the patch; an in-place grade) there is no
+                # work to re-grade, so the attempt ends terminal-masked. Left retryable, RetryRule (which refuses only stage
+                # verification) retried a collect-stage timeout, and the next attempt found no stored patch and ran the
+                # agent again. RetryRule itself is unchanged: refusing stage collect there would drop the re-collect of an
+                # empty_collection
+                regradable = stage != "agent" and bool(getattr(attempt, "regradable", False))
+                hr = HarnessResult(failure=Failure(kind="agent_run_error", stage=stage, blame="harness", retryable=stage == "agent" or regradable,
+                                                   reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500] if not timeout else why,
                                                    detail="attempt_timeout" if timeout else None),
-                                   cost_uncertain_usd=est)
+                                   cost_uncertain_usd=est, regradable=regradable)
             if hr.failure is not None and hr.failure.delivery == "not_sent" and not hr.cost_usd:
                 ledger.release(aid)  # the request never left: it cost nothing
             else:
@@ -190,7 +225,9 @@ class Runner:
             except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
                 rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
                     kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])))
-            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n)
+            self._evidence(rec)
+            # M10 lab audit R-3: a verification-stage failure is retried only when the harness persisted the work for a re-grade
+            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n, regrade=hr.regradable)
             if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                 state["stopped"] = "budget: provider credits exhausted"
                 journal.event("stop_rule", reason=state["stopped"])
@@ -202,7 +239,7 @@ class Runner:
             if terminal:
                 health.add(rec)
             if retry:
-                journal.event("retry_scheduled", attempt=aid, kind=rec.failure.kind)  # type: ignore[union-attr]
+                journal.event("retry_scheduled", attempt=aid, kind=rec.failure.kind, grade_only=rec.failure.stage == "verification")  # type: ignore[union-attr]
                 return "retry", n
             return "done", n
 
@@ -226,7 +263,9 @@ class Runner:
     async def regrade(self, spec: RunSpec, select=None, *, max_regrades: int = 2) -> RunSummary:
         """Re-grade terminal samples from their stored artifacts (Harbor's regrade pattern), e.g. after the node that
         contaminated their perf grades is quiet again. Default selection: masked at verification. Only harnesses with a
-        ``regrade(attempt, prior_dir)`` method qualify; a sample re-graded ``max_regrades`` times is left as it is. In train
+        ``regrade(attempt, prior_dir)`` method qualify, and only samples whose work was persisted: a stored
+        ``artifacts/model.patch`` or (M10 lab audit R-3) a native separate verifier's ``verifier/handoff_ref.json``; the
+        newest such attempt is the source. A sample re-graded ``max_regrades`` times is left as it is. In train
         mode a FATAL capture-vs-ATIF reconcile carried by the re-grade masks it as in ``_rollout`` (M10 lab audit R-1)."""
         journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
         ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
@@ -238,7 +277,10 @@ class Runner:
                 continue
             sk, task, policy, harness = plan[sid]
             sdir = journal.dir / "samples" / sid
-            prior = [d for d in sdir.iterdir() if d.is_dir() and (d / "artifacts" / "model.patch").exists()] if sdir.exists() else []
+            # the work an attempt persisted for a re-grade: a stored patch (workspace) or a quiesced hand-off (native separate
+            # verifier, M10 lab audit R-3); an in-place grade leaves neither (its World is gone), so it is never re-graded here
+            prior = [d for d in sdir.iterdir() if d.is_dir() and ((d / "artifacts" / "model.patch").exists() or (d / "verifier" / HANDOFF_REF).exists())
+                     ] if sdir.exists() else []
             regraded = sum(1 for d in sdir.glob("a*/record.json") if (json.loads(d.read_text()).get("meta") or {}).get("stop") == "regraded")
             if not hasattr(harness, "regrade") or not prior or regraded >= max_regrades:
                 continue
@@ -251,6 +293,7 @@ class Runner:
             hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
             rec = self._record(spec, sk, aid, task, policy, harness, hr)
             self._reconcile_mask(spec, rec, hr)  # M10 lab audit R-1: no _rollout on this path; the re-attached FATAL reconcile masks as on a grade-only retry
+            self._evidence(rec)
             journal.finish(rec, terminal=True)  # the newest terminal row of a sample wins
             n_done += 1
         recs = journal.records()
@@ -278,6 +321,29 @@ class Runner:
             rec.mark_failure(Failure(kind="crucible:capture_incomplete", stage="collect", blame="unknown", retryable=False, detail="reconcile_fatal",
                                      reason=f"capture reconcile {rc.get('code')}: {fatal.get('detail') or ''}"[:500]))
         return rc, fatal
+
+    @staticmethod
+    def _grade_only_retry(adir: Path, n: int) -> bool:
+        """M10 lab audit R-3: attempt ``n`` follows a verification-stage mask (``RetryRule`` retries one only when its work
+        was persisted, so the harness re-grades it and runs no agent). The deciding attempt is the harnesses' own
+        (``grading.deciding_record``: an attempt the process died in, or a grade-only retry that reached no verdict, is
+        looked past), so the flag and what the harness does agree on a resumed run too."""
+        if n <= 1:
+            return False
+        got = deciding_record(adir.parent, n)
+        return got is not None and bool(got[1].get("mask_sample")) and (got[1].get("failure") or {}).get("stage") == "verification"
+
+    @staticmethod
+    def _evidence(rec: RunRecord) -> None:
+        """M10 lab audit R-3: every masked failure in a record carries its evidence ``{probe, control, status}``. A harness
+        that knows more (a liveness probe, a control grade) fills it; anything else masked here (a harness crash, an
+        attempt timeout, a reconcile or capture mask, an ungraded result) is recorded as unprobed and uncontrolled, so a
+        reader (bench, the R-5 task breaker) never has to guess whether a non-policy blame was checked. Evidence that lacks
+        a key (a budget expiry's ``{budget_s, tries}`` on a failure no ``settle`` saw) keeps what it has and gets the rest."""
+        f = rec.failure
+        if f is not None and f.masks and not {"probe", "control", "status"} <= set(f.evidence or {}):
+            base = {"probe": "unprobed", "control": "none", "status": f.detail or f.kind}
+            rec.mark_failure(f.model_copy(update={"evidence": {**base, **(f.evidence or {})}}))
 
     @staticmethod
     def _rollout(spec: RunSpec, sk: SampleKey, rec: RunRecord, hr: HarnessResult, adir: Path) -> None:

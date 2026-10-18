@@ -203,7 +203,9 @@ class FakePatchTask(FakeTask):
         self.patch_grades += 1
         self.events.append("grade_patch")
         if self.masked_first and self.patch_grades == 1:
-            return self.report(0.0, {"status": "masked", "failure_kind": "check_infra", "reason": "x"})
+            # M10 lab audit R-3: a contaminated node (node_contention), which a grade-only retry in a fresh attempt answers;
+            # a bare check_infra is answer-sensitive and is graded again inside the attempt instead
+            return self.report(0.0, {"status": "masked", "failure_kind": "check_infra", "reason": "perf rounds contaminated: x"})
         return self.report(self.reward)
 
 
@@ -599,6 +601,27 @@ async def test_collect_failures_follow_host_evidence(tmp_path, kind, lost, expec
         assert s.attempts == 1 and env.events.count("run") == 1 and not f.retryable and f.detail == "collect_transport" and f.who == "infra"
     if kind == "shell" and lost is None:  # review round 3: unknown blame, counted by the 5% stop, never retried
         assert s.attempts == 1 and env.events.count("run") == 1 and not f.retryable and f.detail == "collect_unreported" and f.who == "unknown"
+
+
+async def test_the_attempt_clock_during_the_patch_seam_collect_never_reruns_the_agent(tmp_path):
+    """M10 lab audit R-3 review round 2 (tested in review round 3): past the agent phase (``attempt.phase = "collect"``)
+    with no patch stored yet, a clock firing in ``task.collect`` ends the attempt terminal-masked at stage collect; read
+    as the agent's, it was retried and ``_patch._prior`` found no stored patch, so the installed agent ran again."""
+    env = Env(tmp_path)
+    env.hooks["run"] = _one_call
+
+    class HungCollect(FakePatchTask):
+        async def collect(self, world, dest):
+            self.events.append("collect")
+            await asyncio.sleep(60)  # the attempt clock fires here
+            return "diff --git a/x b/x\n"
+
+    task = HungCollect(env.events)
+    s, rows = await env.run(task, retry=RetryRule(max_attempts=3), attempt_timeout_s=3.0)
+    (row,) = rows
+    f = _failure(row)
+    assert row["mask_sample"] and (f.kind, f.detail, f.stage) == ("agent_run_error", "attempt_timeout", "collect") and not f.retryable, f
+    assert s.attempts == 1 and env.events.count("run") == 1 and env.events.count("collect") == 1 and task.patch_grades == 0
 
 
 def _atif(n: int) -> dict:

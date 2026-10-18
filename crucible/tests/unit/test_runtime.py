@@ -129,12 +129,21 @@ async def test_inject_tool_crash_masked_and_retried(tmp_path):
                                               ("stale build: consumers compiled against old headers", "crucible:stale_build"),
                                               ("stale image: verifier digest differs from the pinned one", "crucible:stale_image")])
 async def test_inject_verifier_infra_classes(tmp_path, reason, kind):
-    _s, fails, res = await _one(tmp_path, FlakyGradeTask(HelpdeskTask(), reason), ORACLE, NativeHarness("native:scripted"))
+    import json
+
+    s, fails, res = await _one(tmp_path, FlakyGradeTask(HelpdeskTask(), reason), ORACLE, NativeHarness("native:scripted"))
     assert fails[0]["failure"]["kind"] == kind and fails[0]["reward"] is None
+    # masked and never retried by re-running the agent. HelpdeskTask grades in place: the World is gone after the attempt,
+    # so a contaminated grade is graded again inside it (regrade1/grade is under /a1/ too, so the injection masks it
+    # again) and the attempt ends terminal-masked (M10 lab audit R-3; the old a2 "regrade in a fresh attempt" was a full
+    # agent re-run, hidden by the deterministic ORACLE). A stale image or build is never graded again (a retry cannot
+    # rebuild it; sweep G2 D3)
+    assert res[0]["reward"] is None and res[0]["mask_sample"] and res[0]["attempt"].endswith("-a1") and s.attempts == 1
+    adir = next((tmp_path / "g" / "samples").glob("*/a1"))
     if kind == "crucible:node_contention":
-        assert res[0]["reward"] == 1.0 and res[0]["attempt"].endswith("-a2")  # the regrade in a fresh attempt scores the oracle
-    else:  # a stale image or build: masked and never retried (a retry cannot rebuild it; sweep G2 D3)
-        assert res[0]["reward"] is None and res[0]["mask_sample"] and res[0]["attempt"].endswith("-a1")
+        assert len(json.loads((adir / "verifier" / "grades.json").read_text())) == 2
+    else:
+        assert not (adir / "verifier" / "grades.json").exists()
 
 
 async def test_inject_grader_exception(tmp_path):

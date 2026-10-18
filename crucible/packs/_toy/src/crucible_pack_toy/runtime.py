@@ -245,10 +245,21 @@ class FibTask:
 
         return await Plan(self.id, [Gate("output")], [Check("output", "output", output)]).arun(Context(Trusted(gdir / "grade")))
 
+    async def grade_control(self, workdir: Path) -> GradeReport:
+        """M10 lab audit R-3: the task's control, the oracle patch graded by the same ``grade_patch`` (a grader that
+        fails on it is the grader's fault; one that grades it cleanly makes a repeated failure on the policy's patch the
+        patch's own)."""
+        return await self.grade_patch(ORACLE_PATCH, workdir)
+
+
+FIB_CODE = "a, b = 0, 1\nfor _ in range(10):\n    print(a)\n    a, b = b, a + b\n"
+# the oracle's work as a collected patch: a git new-file diff of fib.py (``FibTask.grade_control``)
+ORACLE_PATCH = ("diff --git a/fib.py b/fib.py\nnew file mode 100644\n--- /dev/null\n+++ b/fib.py\n@@ -0,0 +1,4 @@\n"
+                + "".join(f"+{line}\n" for line in FIB_CODE.splitlines()))
+
 
 def fib_actions(*, extra: list[ToolCall] = ()) -> list[ToolCall]:
-    code = "a, b = 0, 1\nfor _ in range(10):\n    print(a)\n    a, b = b, a + b\n"
-    return [ToolCall(tool_call_id="f1", function_name="ws.write_file", arguments={"path": "fib.py", "content": code}), *extra]
+    return [ToolCall(tool_call_id="f1", function_name="ws.write_file", arguments={"path": "fib.py", "content": FIB_CODE}), *extra]
 
 
 def crashing_tool_world(pack_root: Path, *, tool: str = "get_ticket", on_attempts: tuple[str, ...] = ("a1",)):

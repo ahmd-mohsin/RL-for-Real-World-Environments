@@ -29,7 +29,8 @@ verifier container. ``HarborPatchTask`` is that hand-off as a Crucible seam, the
   would re-run the agent (``CollectError.kind``). The read runs in ``/``: the policy cannot remove it;
 - ``grade_patch(patch, gdir)``: ``HarborDirTask.grade_patch`` in a fresh container of the task image (verify_dir.py:133),
   on any Docker host, inside the harness's ``PerfGuard`` slot when ``perf``. A masked grade is retried as a re-grade of
-  the stored ``artifacts/model.patch``, never by re-running the agent.
+  the stored ``artifacts/model.patch``, never by re-running the agent; a hang or checker outage that repeats on it is
+  decided by ``grade_control`` (``HarborDirTask``'s ``solution/model.patch``, M10 lab audit R-3).
 
 ``grade(world, ...)`` is refused (masked ``crucible:harness_unsupported``): a separate-verifier task is graded only from its
 collected patch. Multi-step tasks and sidecar (non-main) collect hooks are refused at construction. ``QUIESCE = False``
@@ -335,3 +336,15 @@ class HarborPatchTask(HarborInPlaceTask):
 
     async def grade_patch(self, patch: str, gdir: Path):
         return await self.grader.grade_patch(patch, gdir)
+
+    async def grade_control(self, workdir: Path):
+        """M10 lab audit R-3: the grading container's control (``HarborDirTask.grade_control``: the task's
+        ``solution/model.patch`` graded like the collected patch). Never the in-place control it would inherit: its
+        ``grade`` is refused, so that control could never run cleanly."""
+        return await self.grader.grade_control(workdir)
+
+    @property
+    def control_timeout_s(self):
+        """M10 lab audit R-3: the grading container's control budget (``HarborDirTask.control_timeout_s``), never the
+        in-place one it would inherit."""
+        return getattr(self.grader, "control_timeout_s", None)

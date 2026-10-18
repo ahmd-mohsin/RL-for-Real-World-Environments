@@ -8,8 +8,12 @@ agentenv's missing reward file, mini-swe-agent's batch resume...). Here:
   masked with ``reward = None``;
 - ``normalize`` maps foreign and legacy names (``no_reward_json``, ``check_infra``, ``grader_exception``, Harbor exception
   names, MiMo categories) onto the shared vocabulary, so ``RunRecord.mark_failure`` never raises on a known source;
-- ``boundary(stage)`` wraps a run phase and turns exceptions into typed failures (pattern: verifiers ``boundary()``);
-- ``RetryRule`` retries only infra/harness/task blame (never policy: "retry until ok" is survivorship bias);
+- ``boundary(stage)`` wraps a run phase and turns exceptions into typed failures (pattern: verifiers ``boundary()``),
+  walking ``__cause__`` up to 8 links for a classifiable cause (M10 lab audit R-3; pattern: NeMo-RL ``failures.py``);
+  ``classify_exception`` is that classification without the raise;
+- ``episode_failure`` rebuilds an episode's failure dict as a ``Failure`` with its blame, mask and retryable kept;
+- ``RetryRule`` retries only infra/harness/task blame (never policy: "retry until ok" is survivorship bias), and a
+  verification-stage failure only as a re-grade of persisted work (M10 lab audit R-3: never a fresh agent run);
 - ``LimitPolicy`` decides whether hitting a wall-clock/step/context limit is scored (default) or masked (Karotte);
 - the aggregates (``pass_at_k``, ``mean_reward``, ``coverage``) drop masked samples from numerators **and**
   denominators and report coverage = scored / planned.
@@ -28,6 +32,9 @@ NORMALIZE = {
     # Crucible verifier kinds (M7)
     "no_reward_json": ("verifier_error", "no_reward_json"), "check_infra": ("verifier_error", "check_infra"),
     "grader_exception": ("verifier_error", "grader_exception"), "verifier_timeout": ("verifier_error", "verifier_timeout"),
+    # M10 lab audit R-3 item 2: a reward the grader could not turn into a number (a NaN or infinite reward file or kit mask,
+    # named so by ``HarborDirTask.grade_patch``): answer-sensitive, decided by the task's control
+    "non_finite_reward": ("verifier_error", "non_finite_reward"),
     # Harbor exception names
     "RewardFileNotFoundError": ("verifier_error", "RewardFileNotFoundError"), "RewardFileEmptyError": ("verifier_error", "RewardFileEmptyError"),
     "VerifierOutputParseError": ("verifier_error", "VerifierOutputParseError"), "VerifierTimeoutError": ("verifier_error", "VerifierTimeoutError"),
@@ -93,28 +100,72 @@ def _unencodable_text(ex: BaseException) -> bool:
     return type(ex).__name__ == "PydanticSerializationError" and "surrogates not allowed" in str(ex)
 
 
+_MAX_CAUSE_DEPTH = 8  # NeMo-RL failures.py:76-78: bounded, so a self-referential or pathologically deep chain cannot spin
+
+
+def _causes(ex: BaseException) -> list[BaseException]:
+    """``ex``, ``ex.__cause__``, ... : at most ``_MAX_CAUSE_DEPTH`` links, stopping at an exception already seen (a cycle).
+    Only the explicit ``raise ... from`` link: an implicit ``__context__`` is whatever happened to be handled nearby."""
+    out: list[BaseException] = []
+    cur: BaseException | None = ex
+    while cur is not None and len(out) < _MAX_CAUSE_DEPTH and not any(cur is seen for seen in out):
+        out.append(cur)
+        cur = cur.__cause__
+    return out
+
+
+def classify_exception(ex: BaseException, stage: str, *, unknown_kind: str = "agent_run_error") -> Failure:
+    """The typed failure ``boundary(stage)`` raises for ``ex`` (its rules, below). M10 lab audit R-3: a function, so a
+    caller that must decide before re-raising (``grading.grade_in_place``: is another grade of this work worth it?) reads
+    the same classification the boundary would give."""
+    name = type(ex).__name__
+    if stage == "agent" and _unencodable_text(ex):
+        # M14 campaign B1: a string the policy produced that UTF-8 cannot encode (a lone surrogate) reached a writer the
+        # World's own escaping did not cover. The policy's output, not the environment: scored 0, never an unknown mask
+        return failure("crucible:policy_misbehavior", stage, f"unencodable text in the policy's output: {name}: {ex}"[:500], mask=False)
+    for i, link in enumerate(_causes(ex)):
+        lname = type(link).__name__
+        via = "" if i == 0 else f" (cause of {name}: {ex})"
+        if isinstance(link, StageFailure):  # a typed failure wrapped by a caller that did not know it: its own classification
+            return link.failure
+        if lname in NORMALIZE:
+            return failure(lname, stage, f"{link}{via}"[:500])
+        if isinstance(link, TimeoutError):
+            return failure("transport_timeout", stage, f"{link}{via}"[:500])
+        if isinstance(link, (ConnectionError, OSError)):
+            return failure("transport_unreachable", stage, f"{lname}: {link}{via}"[:500])
+    return Failure(kind=unknown_kind, stage=stage, reason=f"{name}: {ex}"[:500], blame="unknown")  # type: ignore[arg-type]
+
+
 @contextlib.contextmanager
 def boundary(stage: str, *, unknown_kind: str = "agent_run_error") -> Iterator[None]:
     """Typed failures pass through; known exception classes are mapped; anything else is ``unknown`` blame (masked and
-    counted against the unknown-fraction stop rule)."""
+    counted against the unknown-fraction stop rule). The classification is ``classify_exception``'s.
+
+    M10 lab audit R-3 (pattern: NeMo-RL ``experience/failures.py:76-81,141-264``, classified on the side that raised): the
+    non-policy rules (a wrapped ``StageFailure``, a NORMALIZE name, ``TimeoutError``, ``ConnectionError``/``OSError``) are
+    tried on ``ex`` and then on each ``__cause__`` link, at most 8 links, the first match winning: a ``RuntimeError`` raised
+    ``from`` a ``VerifierTimeoutError`` or a socket error was an unknown mask. The policy-blaming unencodable-text rule
+    applies to ``ex`` itself only: an infrastructure exception wrapping a ``UnicodeEncodeError`` of a host path or a backend
+    message is not the policy's output, so it stays unknown rather than becoming the policy's 0."""
     try:
         yield
     except StageFailure:
         raise
     except Exception as ex:
-        name = type(ex).__name__
-        if name in NORMALIZE:
-            raise StageFailure(failure(name, stage, str(ex))) from ex
-        if stage == "agent" and _unencodable_text(ex):
-            # M14 campaign B1: a string the policy produced that UTF-8 cannot encode (a lone surrogate) reached a writer the
-            # World's own escaping did not cover. The policy's output, not the environment: scored 0, never an unknown mask
-            raise StageFailure(failure("crucible:policy_misbehavior", stage, f"unencodable text in the policy's output: {name}: {ex}"[:500],
-                                       mask=False)) from ex
-        if isinstance(ex, TimeoutError):
-            raise StageFailure(failure("transport_timeout", stage, str(ex))) from ex
-        if isinstance(ex, (ConnectionError, OSError)):
-            raise StageFailure(failure("transport_unreachable", stage, f"{name}: {ex}")) from ex
-        raise StageFailure(Failure(kind=unknown_kind, stage=stage, reason=f"{name}: {ex}"[:500], blame="unknown")) from ex  # type: ignore[arg-type]
+        raise StageFailure(classify_exception(ex, stage, unknown_kind=unknown_kind)) from ex
+
+
+def episode_failure(f: dict, stage: str = "agent", prefix: str = "") -> Failure:
+    """An episode's failure dict (``EpisodeResult.failures``: a responder's, a policy's, the World's dumped ``Failure``) as
+    a ``Failure``, keeping what the episode already classified.
+
+    M10 lab audit R-3 (b): ``_masked_episode`` and the workspace harness rebuilt ``failure(kind)`` without the blame, so an
+    unclassified policy exception (``actors/policy.py:586-587``, blame unknown) fell back to ``agent_run_error``'s harness
+    default, was retried, and ``Health.unknown`` never counted it. Only the keys that are present (not None) are passed, so
+    ``failure()``'s unmapped -> unknown rule and the kind's default blame still apply when the dict names no blame."""
+    keep = {k: f[k] for k in ("blame", "mask", "retryable", "detail", "delivery") if f.get(k) is not None}
+    return failure(str(f["kind"]), stage, prefix + str(f.get("reason", "")), **keep)
 
 
 @dataclass
@@ -123,10 +174,17 @@ class RetryRule:
     blames: tuple[str, ...] = ("infra", "harness", "task")
     max_attempts: int = 3
 
-    def allows(self, f: Failure, attempt: int) -> bool:
+    def allows(self, f: Failure, attempt: int, *, regrade: bool = False) -> bool:
+        """``regrade``: the attempt persisted its work for a grade-only retry (``HarnessResult.regradable``)."""
         if f.who == "policy" or not f.retryable or attempt >= self.max_attempts or f.kind in NON_RETRYABLE_KINDS:
             return False
         if f.kind == "agent_timeout":  # a limit stop masked by LimitPolicy: re-running until it fits is survivorship (G3 D6)
+            return False
+        if f.stage == "verification" and not regrade:
+            # M10 lab audit R-3: a failure after the agent phase is retried only by grading the same work again. NativeHarness
+            # had no re-grade, so a masked grade re-ran the agent: a policy whose answer hung the tests escaped its 0 and
+            # pass@k became conditional on "did not hang". Without persisted work the attempt ends terminal-masked
+            # (fails closed for every caller that does not say otherwise)
             return False
         return f.who in self.blames and (not self.kinds or f.kind in self.kinds)
 

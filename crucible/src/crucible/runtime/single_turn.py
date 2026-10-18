@@ -14,7 +14,12 @@ Rows load from the shapes the surveyed frameworks use (``rows_from``):
 
 Grade: gate ``format`` (the parser found an answer) and outcome ``answer`` (every rubric criterion at or above its
 threshold); the reward is the weighted rubric score. A checker that cannot decide (a judge outage, math-verify
-missing) masks the sample (``check_infra``) instead of scoring it 0.
+missing) masks the grade (``check_infra``) instead of scoring it 0. M10 lab audit R-3: the harness grades the same
+completion again, and a failure that repeats is decided by the task's control (``grade_control``: ``control_answer``, or
+the gold answer itself for the ``full`` parser, graded by the same parser, criteria and judges). A judge that fails only
+on this completion (it raised on a prompt injection) grades its control cleanly, so the sample is the policy's, scored 0
+(``crucible:policy_error`` / ``grader_failed_on_answer``); a judge that fails on the control too masks the sample (task
+blame); a task without a control text stays masked with flag ``no_control``.
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ class SingleTurnTask:
     judges: dict[str, Judge] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
     world_id: str = "single_turn/default"
+    control_answer: str | None = None  # M10 lab audit R-3: a known-good completion for the control grade (``grade_control``)
 
     def __post_init__(self) -> None:
         self.parser = ParserSpec.of(self.parser)
@@ -93,6 +99,22 @@ class SingleTurnTask:
     async def grade(self, world, workdir: Path) -> GradeReport:
         return await self.grade_text(self.completion(world))
 
+    def control_text(self) -> str | None:
+        """The completion the control grade scores: ``control_answer``, else the gold answer as text when the ``full``
+        parser reads it as it is (a str or a number, never a bool), else None (no control: a ``boxed`` or ``mcq`` gold is
+        not a completion its parser would find)."""
+        if self.control_answer is not None:
+            return self.control_answer
+        if self.parser.kind == "full" and isinstance(self.answer, str | int | float) and not isinstance(self.answer, bool):
+            return str(self.answer)
+        return None
+
+    async def grade_control(self, workdir: Path) -> GradeReport | None:
+        """M10 lab audit R-3: the task's control (``runtime.grading.settle``): ``control_text`` graded by the same parser,
+        criteria and judges as the policy's completion; None without a control text."""
+        text = self.control_text()
+        return None if text is None else await self.grade_text(text)
+
     async def grade_text(self, text: str | None) -> GradeReport:
         t0 = time.monotonic()
         row = {"id": self.id, "question": self.instruction, "options": self.options, **self.meta}
@@ -101,8 +123,10 @@ class SingleTurnTask:
             s = await score_answer(text, self.answer, parser=self.parser, criteria=self.criteria, options=self.options, row=row, judges=self.judges)
         except CheckerUnavailable as e:
             checks = [CheckResult("answer", "answer", "infra", {"infra": str(e)[:500]})]
+            # M10 lab audit R-3: the reason quotes the checker's or judge's own output (a verdict, an exception message),
+            # which the answer steers; grading.grade_failure never sniffs it for a node, image or build cause
             return GradeReport(self.id, "full", checks, {"format": "skip", "answer": "infra"}, 0.0, 0.0,
-                               {"status": "masked", "failure_kind": "check_infra", "reason": f"answer: {e}"[:500]}, True,
+                               {"status": "masked", "failure_kind": "check_infra", "reason": f"answer: {e}"[:500], "reason_untrusted": True}, True,
                                round(time.monotonic() - t0, 3), meta={"kinds": kinds})
         checks = [CheckResult("format", "format", "pass" if s.formatted else "fail", {"parser": self.parser.kind}),
                   *(CheckResult(f"answer/{cid}", "answer", "pass" if s.formatted and d["score"] >= c.checker.threshold else ("skip" if not s.formatted else "fail"), d)

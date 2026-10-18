@@ -82,6 +82,10 @@ def min_reward_failure(rewards: dict[str, float] | None, min_reward: float | dic
 
 
 class HarborMultiStepTask(HarborInPlaceTask):
+    # M10 lab audit R-3: a step's grade uses up its R-2 per-step state (the setup listing, the previous grade's leftovers),
+    # so NativeHarness grades each step once and settles a step failure without a control (``grade_control`` is None)
+    step_grades_once = True
+
     def __init__(self, task_dir: Path, **kw: Any):
         super().__init__(task_dir, **kw)
         from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_step_verifier_mode
@@ -191,10 +195,17 @@ class HarborMultiStepTask(HarborInPlaceTask):
             if step.healthcheck is not None:
                 await env.run_healthcheck(step.healthcheck)
         surf = world.__dict__.get("_grader_surface")
+        # M10 lab audit R-3 review round 3: a step grade whose Verifier started and raised (a reward-file error scores the
+        # step 0 and the task goes on) left its window pending for a re-grade of the same work (HarborInPlaceTask._guard_window).
+        # A step is never graded again (step_grades_once) and the advance below absorbs that window, so it is closed here, its
+        # moved-aside tools kept suspect as the normal path keeps them. Judged at the next step's grade instead, against the
+        # previous step's pre-Verifier diff, its after-grade relaxations covered this step's own agent phase (a ~/.local/bin
+        # shadow, a pre-placed grader-only tool) and the baseline moved past them: an unearned 1.0, never flagged
+        pending = world.__dict__.pop("_guard_pending", None)
         if surf is not None:  # the step's own setup is the task's, not the policy's: a new baseline for the grader check
             from crucible.interop.harbor import grader_guard
 
-            surf.advance(await grader_guard.diff(world.backend, surf.container))
+            surf.advance(await grader_guard.diff(world.backend, surf.container), rejudge=pending[1] if pending is not None else ())
         if quiesced and first:
             # M10 lab audit R-2: the first step's setup ran before the policy acted, from the task's own tree: what it
             # started (a service its tests query) is the task's, so the process baseline is taken again here. Not after a
@@ -348,6 +359,13 @@ class HarborMultiStepTask(HarborInPlaceTask):
         """A multi-step task is graded step by step (``steps``); this grades the last step alone, for callers that
         drive the World without ``NativeHarness``."""
         return await self._grade_step(self.task.config.steps[-1], world, workdir)
+
+    async def grade_control(self, workdir: Path):
+        """M10 lab audit R-3: no control. A step's grade uses up its per-step state (R-2's setup listing, the previous
+        grade's leftovers; ``step_grades_once``), so ``NativeHarness`` grades each step once and masks an answer-sensitive
+        step failure with flag ``no_control``; the in-place control this class would inherit
+        (``HarborInPlaceTask.grade_control``) grades only the last step and is never run."""
+        return None
 
     def oracle_actions(self, *, done: str = "done") -> list:
         """Every step's ``solution/`` replayed through the terminal tools: files written under ``/tmp/crucible-oracle/<step>``

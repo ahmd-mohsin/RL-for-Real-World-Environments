@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import json
 import zlib
 from collections.abc import Callable
@@ -100,9 +99,16 @@ class RLMHarness(NativeHarness):
             return out
 
         ref = PolicyRef(id=inner.id, make=make, spend=inner.spend, estimate_usd=getattr(inner, "estimate_usd", 0.0))
+        # M10 lab audit R-3 review round 2: NativeHarness keeps Attempt.phase / Attempt.regradable current on the Attempt it
+        # runs, opens the grading window on Attempt.clock, and the Runner reads phase and regradable from its own Attempt when
+        # its clock cancels the harness (run.py). A copy (dataclasses.replace) hid them, so a clock firing during the grade,
+        # its re-grade or the control read as the agent's and re-sampled the policy: the policy is swapped in place on the
+        # Runner's Attempt and restored on the way out (the Runner records with its own policy, never attempt.policy)
+        attempt.policy = ref
         try:
-            res = await super().run(dataclasses.replace(attempt, policy=ref))
+            res = await super().run(attempt)
         finally:  # every kernel and container closed, even when the attempt is cancelled mid-flight (M14 campaign B4)
+            attempt.policy = inner
             closes = [asyncio.ensure_future(p.aclose()) for p in made.values() if isinstance(p, RLMPolicy)]
             if closes:
                 try:

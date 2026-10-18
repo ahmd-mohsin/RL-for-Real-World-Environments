@@ -44,11 +44,15 @@ M10 lab audit R-1 (2026-10-15), besides item 3:
 - Limit stops follow ``limit_policy`` (``score`` by default, ``mask`` or ``penalty:<c>``), as in the native harness;
   only an evidenced stop (Crucible's deadline) can be masked or penalized.
 
-Grading is the task's own (``task.grade(world, dir)``), exactly as for the native harness.
+Grading is the task's own (``task.grade(world, dir)``), graded in place exactly as for the native harness (M10 lab audit
+R-3): a failed grade is graded again inside the attempt before the World closes (``runtime.grading.grade_in_place``),
+the attempt then ends terminal-masked (never an agent re-run), and a repeated answer-sensitive failure (a hang, a checker
+outage, a non-finite reward) is decided by the task's control (``runtime.grading.settle``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import importlib
@@ -75,9 +79,10 @@ from crucible.runtime.agent_evidence import (
     read_upstream_evidence,
     self_hosted_apis,
 )
+from crucible.runtime.grading import grade_in_place, grade_summary, grading_window, liveness, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult
-from crucible.runtime.harness.native import LIMIT_STOPS
-from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier
+from crucible.runtime.harness.native import LIMIT_STOPS, _keep_tries
+from crucible.runtime.infra import LimitPolicy, StageFailure, boundary
 
 FAILED_STATES = {"failed", "canceled", "rejected"}  # the agent's own failure reports (``_outcome`` classifies each by evidence)
 PROTOCOL = "agent_env.a2a_agent.protocol"
@@ -156,7 +161,8 @@ class A2AHarness:
     def __init__(self, name: str = "a2a", version: str = "1", *, agent: Callable[[], Any] | None = None, agent_url: str | None = None,
                  actor: str = "agent", agent_config: dict[str, Any] | None = None, capture: Any = None, capture_base_url: str | None = None,
                  timeout_s: int = 600, policy_version: int | None = None, limit_policy: LimitPolicy | None = None, sandbox_id: str | None = None,
-                 prices: dict[str, list[float]] | None = None, self_hosted: bool | None = None, api: str | None = None):
+                 prices: dict[str, list[float]] | None = None, self_hosted: bool | None = None, api: str | None = None,
+                 grade_retries: int = 1, scoring_budget_s: float | None = None, control_timeout_s: float | None = 1800.0):
         """``agent``: a factory of an ``AgentEnvAgent`` served in-process per attempt; or ``agent_url`` of a running one.
         ``capture``: a ``connectors.capture_proxy.CaptureProxy`` reachable at ``capture_base_url``.
         ``limit_policy``: how a limit stop is treated (module doc). ``sandbox_id``: what agentenv's liveness check names the
@@ -164,7 +170,9 @@ class A2AHarness:
         ``[prices]``); ``self_hosted``: the upstream costs nothing when unpriced (default: ``policy_version`` is set, or
         every proxy upstream is local). ``api``: the dialect the agent's model calls are configured for ("openai",
         "anthropic" or "responses"), the one Crucible's probe confirms an upstream verdict on (M10 lab audit R-1; default:
-        the proxy's only upstream; with several and none given, an upstream verdict stays unconfirmed)."""
+        the proxy's only upstream; with several and none given, an upstream verdict stays unconfirmed).
+        ``grade_retries`` / ``scoring_budget_s`` / ``control_timeout_s`` (M10 lab audit R-3, as ``NativeHarness``): how often
+        a failed grade is graded again inside the attempt, one budget for all its tries, and a control grade's budget."""
         if (agent is None) == (agent_url is None):
             raise ValueError("give exactly one of agent (factory) or agent_url")
         if api is not None and api not in PROXY_APIS:
@@ -176,6 +184,7 @@ class A2AHarness:
         self.capture, self.capture_base_url, self.timeout_s, self.policy_version = capture, capture_base_url, timeout_s, policy_version
         self.limit_policy = limit_policy or LimitPolicy()
         self.sandbox_id, self.prices, self.self_hosted = sandbox_id, prices, self_hosted
+        self.grade_retries, self.scoring_budget_s, self.control_timeout_s = grade_retries, scoring_budget_s, control_timeout_s
 
     def _config(self, key: str | None) -> dict[str, Any]:
         text = json.dumps(self.agent_config)
@@ -358,14 +367,36 @@ class A2AHarness:
             (attempt.dir / "trace.json").write_text(scrub_json(world.to_trace().model_dump_json()))
             res.artifacts["trace"] = "trace.json"
             t0 = time.monotonic()
-            with boundary("verification"):
-                rep = await attempt.task.grade(world, attempt.dir / "grade")
+            # M10 lab audit R-3: the World is gone after the attempt (res.regradable stays False), so a failed grade is graded
+            # again here, before it closes, under one scoring budget (grading.grade_in_place; a grader's TimeoutError is
+            # verifier_timeout). A non-finite reward is verifier_error / non_finite_reward: it raised HarnessResult's
+            # allow_inf_nan=False, escaped run(), and the Runner re-ran the agent as agent_run_error@agent
+            attempt.phase = "verification"  # an attempt clock firing from here is the grade's (run.py)
+            # review round 2: the grading's own window on the Runner's clock (grading.grading_window), so a grade that hangs ends
+            # as verifier_timeout and is settled with the control, never cut short by a clock sized for the agent
+            budget = grading_window(attempt, attempt.task, budget_s=self.scoring_budget_s, control_s=self.control_timeout_s)
+            reps: list[Any] = []
+            try:
+                with boundary("verification"):
+                    _, f = await grade_in_place(lambda d: attempt.task.grade(world, d), attempt.dir / "grade", retries=self.grade_retries,
+                                                budget_s=budget, out=reps, attempt=attempt)
+            except StageFailure:
+                _keep_tries(attempt.dir / "verifier", reps, res)
+                raise
             t["verification"] = time.monotonic() - t0
+            write_reports(attempt.dir / "verifier", reps)
             # merged, never replaced: grade["agent"] (the evidence, the liveness) must survive into the record
-            res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
-            if rep.infra.get("status") == "masked":
-                raise StageFailure(classify_verifier(rep.infra))
-            res.reward, res.gates = rep.reward, rep.gate_bits()
+            res.grade = {**res.grade, **grade_summary(reps, f)}
+            if f is not None:
+                # R-3 item 2: probe while the World runs, close it (nothing of the policy's runs beside the control), then
+                # grading.settle decides: scored 0, a task-blamed mask, or no_control
+                probe = await liveness(attempt.task, world)
+                closing, world = world, None
+                with contextlib.suppress(Exception):  # cleanup never overrides a result
+                    await closing.close()
+                raise StageFailure(await settle(attempt.task, f, workdir=attempt.dir / "control", timeout_s=self.control_timeout_s, probe=probe,
+                                                attempt=attempt))
+            res.reward, res.gates = reps[-1].reward, reps[-1].gate_bits()
             pen = end.penalty(self.limit_policy) if end is not None and res.stop in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24), as native.py:368-371: the configured penalty, not the partial grade
                 res.grade["limit_penalty"] = pen
