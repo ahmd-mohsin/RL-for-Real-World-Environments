@@ -16,5 +16,5 @@
 
 Not ported: `sidecar_entrypoint.py`. Its readiness probe parses `/proc/net/tcp` (Linux-only), its `/dump`
 and `/verify` endpoints are advertised but not implemented, and `--start-and-detach` loses the health
-thread. `crucible.world.packaging.sidecar` replaces it (socket readiness, supervision, state via
-State Adapters, verification via M7).
+thread. `crucible.world.packaging.sidecar` replaces it (socket readiness, state via State Adapters,
+verification via M7; no supervisor: a restart would hide the outage).

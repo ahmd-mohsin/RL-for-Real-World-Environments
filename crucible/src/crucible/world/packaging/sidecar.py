@@ -1,8 +1,9 @@
 """MCP sidecar: serve tool modules over streamable HTTP and call them (replaces MiMo's sidecar_entrypoint).
 
-``McpServerProcess`` runs the vendored ``mcp_http`` script for one tools file on a free local port.
-``Sidecar`` supervises several (socket readiness instead of MiMo's Linux-only /proc probe; restart
-on crash, as MiMo's supervisor does). ``McpClient`` lists and calls tools on one server; it keeps
+``McpServerProcess`` runs the vendored ``mcp_http`` script for one tools file on a free local port (socket
+readiness instead of MiMo's Linux-only /proc probe). Nothing restarts a server that crashed: MiMo's supervisor loop
+did, which hid the outage, so a dead server's calls fail as infrastructure (M1 audit R-42 removed the unused
+``Sidecar`` supervisor). ``McpClient`` lists and calls tools on one server; it keeps
 no long-lived session (each operation opens a session, like MiMo's one-shot bridge), which is
 robust across event loops and cancellation at ~10-30 ms per call locally.
 """
@@ -95,7 +96,6 @@ class McpServerProcess:
     env: dict[str, str] = field(default_factory=dict)
     log_path: Path | None = None
     proc: asyncio.subprocess.Process | None = None
-    restarts: int = 0
 
     @property
     def url(self) -> str:
@@ -135,43 +135,6 @@ class McpServerProcess:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(self.proc.pid, 9)
             await self.proc.wait()
-
-
-class Sidecar:
-    """A set of MCP servers with supervision (restart on crash, like MiMo's 5 s supervisor loop)."""
-
-    def __init__(self, servers: list[McpServerProcess], *, supervise_every_s: float = 2.0):
-        self.servers = {s.name: s for s in servers}
-        self._every = supervise_every_s
-        self._task: asyncio.Task | None = None
-
-    async def start(self) -> None:
-        await asyncio.gather(*(s.start() for s in self.servers.values()))
-        self._task = asyncio.create_task(self._supervise())
-
-    async def _supervise(self) -> None:
-        while True:
-            await asyncio.sleep(self._every)
-            for s in self.servers.values():
-                if not s.alive:
-                    s.restarts += 1
-                    await s.start()
-
-    def health(self) -> dict[str, Any]:
-        return {"ok": all(s.alive and port_open(s.port) for s in self.servers.values()),
-                "servers": {n: {"port": s.port, "alive": s.alive, "restarts": s.restarts} for n, s in self.servers.items()}}
-
-    def manifest(self) -> dict[str, Any]:
-        """MiMo-style manifest fragment (mcp_servers + wait_ports) describing the running sidecar."""
-        servers = sorted(self.servers.values(), key=lambda s: s.name)
-        return {"mcp_servers": [{"name": s.name, "url": s.url} for s in servers], "wait_ports": [s.port for s in servers]}
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-        await asyncio.gather(*(s.stop() for s in self.servers.values()))
 
 
 def dump_json(obj: Any) -> str:

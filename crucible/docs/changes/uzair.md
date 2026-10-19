@@ -1368,3 +1368,18 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `--memory-swap` (`factory/sessions.py:200`, `factory/traceaudit.py:717,1745`, `factory/generators/open.py:387,472`,
   `factory/generators/swarm.py:612`, `factory/lanes/windows_world.py:539`, `factory/lanes/executable.py:259`,
   `factory/lanes/windows_s3.py:292`).
+
+## 63. M1 R-42: the unused `Sidecar` supervisor is deleted
+
+- **Item.** R-42 of `docs/research/improvements/2026-10-14/M01-world.md` (should). Reference: MiMo's restart loop
+  (`xiaomimimo-verl/recipes/general/mcp_proxy.py:132-133`) hides outages; a crashed tool server must fail its calls as
+  infrastructure, not come back silently mid-episode.
+- **Files.** `src/crucible/world/packaging/sidecar.py` (`Sidecar` and `McpServerProcess.restarts` removed, module
+  docstring), `src/crucible/_vendor/mimo_sidecar/ORIGIN.md`, `docs/modules/M01-world.md` (the packaging row).
+- **Public names.** removed: `crucible.world.packaging.sidecar.Sidecar`, `McpServerProcess.restarts`. Nothing in src,
+  packs or tests used either (M17's `EpisodeSidecar` is unrelated).
+- **Behaviour.** none (the class never ran).
+- **Formats.** none.
+- **Tests.** none added (a deletion). Suites over the module (MCP servers, MiMo, AWM, agentenv, A2A, SQLite and
+  Postgres Apps): 68 passed, 9 skipped.
+- **Merge notes.** Code that imported `Sidecar` must supervise its servers itself, and should mask, not restart.
