@@ -123,3 +123,20 @@ async def test_postgres_tools_module_over_mcp(pack: Path, tmp_path: Path):
         assert v.value["rows"] == [[1, "on_hold"], [2, "open"], [3, "open"]]
     finally:
         await w.close()
+
+
+async def test_a_runaway_statement_is_stopped_by_the_server(pack: Path, tmp_path: Path):
+    """M1 audit R-12: the server's statement_timeout stops a policy's query (killing the psql client left it running)."""
+    s = spec(False)
+    s.apps[0].params["sql_deadline_s"] = 1
+    w = World(s, store=Store(tmp_path / "s"), workdir=tmp_path / "w", pack_root=pack)
+    await w.start()
+    try:
+        await w.reset()
+        for i, (tool, sql) in enumerate([("sql_query", "SELECT pg_sleep(5)"), ("sql_execute", "UPDATE invoices SET status = 'paid'; SELECT pg_sleep(5)")]):
+            r = (await w.step("agent", ToolCall(tool_call_id=str(i), function_name=f"erp.{tool}", arguments={"sql": sql}))).observation.tool_results[0]
+            assert not r.ok and r.content == "query_timeout: the statement ran past 1s and was stopped", r.content
+        paid = await w.verifier_view().query("erp", {"op": "scalar", "args": {"sql": "SELECT count(*) FROM ap.invoices WHERE status = 'paid'"}})
+        assert paid.value == 0  # the stopped write was not kept
+    finally:
+        await w.close()

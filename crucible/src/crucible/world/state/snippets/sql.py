@@ -5,7 +5,9 @@ Ops (``main({"op": ..., ...})``):
   backup   {path, out, include, exclude}   -> dump of the copy (consistent online backup)
   restore  {path, src, include, exclude}   -> dump after copying src INTO the live db (same inode,
                                               so open connections in App servers see the new state)
-  query    {path, sql, params, max_rows}   -> {columns, rows, truncated}; read-only connection
+  query    {path, sql, params, max_rows, deadline_s?}  -> {columns, rows, truncated}; read-only connection
+  execute  {path, sql, params, deadline_s?}  -> {rowcount, lastrowid}
+A ``deadline_s`` stops the statement once it has run that long: ``query_timeout: ...``, a write rolled back.
 
 Canonical form: every schema object (table, index, view, trigger; excluding sqlite_ internals)
 contributes its whitespace-normalized SQL; every table contributes the sorted list of its rows, each
@@ -18,6 +20,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 
 
 def _cell(v):
@@ -163,12 +166,37 @@ def _pin(con, now):
     con.create_function("strftime", -1, wrap("strftime", 1), deterministic=True)
 
 
+def _deadline(con, a):
+    """A policy's statement stops at ``deadline_s`` (M1 audit R-12): SQLite calls the handler every 10,000 VM steps and a
+    non-zero answer interrupts the statement. Returns the end time, or None without a deadline."""
+    if not a.get("deadline_s"):
+        return None
+    end = time.monotonic() + float(a["deadline_s"])
+    con.set_progress_handler(lambda: 1 if time.monotonic() > end else 0, 10000)
+    return end
+
+
+def _timeout(end, a, e, what):
+    """The ``query_timeout`` error when our deadline interrupted the statement, else None (``e`` is raised as it is)."""
+    if end is not None and time.monotonic() > end and "interrupted" in str(e):
+        return RuntimeError(f"query_timeout: the statement ran past {float(a['deadline_s']):g}s and was stopped{what}")
+    return None
+
+
 def execute(a):
     con = sqlite3.connect(a["path"])
     try:
         _pin(con, a.get("now"))
         _guard(con, False)
-        cur = con.execute(a["sql"], a.get("params") or [])
+        end = _deadline(con, a)
+        try:
+            cur = con.execute(a["sql"], a.get("params") or [])
+        except sqlite3.OperationalError as e:
+            con.rollback()
+            t = _timeout(end, a, e, "; nothing it did was kept")
+            if t is None:
+                raise
+            raise t from e
         con.commit()
         return {"rowcount": cur.rowcount, "lastrowid": cur.lastrowid}
     finally:
@@ -182,10 +210,17 @@ def query(a):
         if a.get("guard"):
             _pin(con, a.get("now"))
             _guard(con, True)
-        cur = con.execute(a["sql"], a.get("params") or [])
-        cols = [d[0] for d in (cur.description or [])]
-        max_rows = int(a.get("max_rows", 1000))
-        rows = cur.fetchmany(max_rows + 1)
+        end = _deadline(con, a)
+        try:
+            cur = con.execute(a["sql"], a.get("params") or [])
+            cols = [d[0] for d in (cur.description or [])]
+            max_rows = int(a.get("max_rows", 1000))
+            rows = cur.fetchmany(max_rows + 1)
+        except sqlite3.OperationalError as e:
+            t = _timeout(end, a, e, "")
+            if t is None:
+                raise
+            raise t from e
         return {"columns": cols, "rows": [[_cell(v) for v in r] for r in rows[:max_rows]], "truncated": len(rows) > max_rows}
     finally:
         con.close()

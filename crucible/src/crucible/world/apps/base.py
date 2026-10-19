@@ -47,6 +47,10 @@ class AppContext:
         return (self.pack_root / path).resolve()
 
 
+# how long one statement of a policy's SQL may run (an App's ``sql_deadline_s`` param; M1 audit R-12)
+SQL_DEADLINE_S = 30.0
+
+
 class ToolError(Exception):
     """Raised by App tool implementations; becomes ok=False with the message as content."""
 

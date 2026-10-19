@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
-from crucible.world.apps.base import App, ToolError
+from crucible.world.apps.base import SQL_DEADLINE_S, App, ToolError
 from crucible.world.state.base import snippet
 
 SQL_SNIPPET = snippet("sql")
@@ -186,9 +186,10 @@ class SqliteApp(App):
         return self._seed_now()
 
     async def tool_sql_query(self, sql: str, max_rows: int = 200) -> Any:
+        d = self.deadline(self.spec.params.get("sql_deadline_s", SQL_DEADLINE_S))  # the statement stops itself (R-12)
         try:
             r = await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "query", "path": self.db_path, "sql": sql, "max_rows": min(max_rows, 2000),
-                                                             "guard": True, "now": self._now()})
+                                                             "guard": True, "now": self._now(), "deadline_s": d}, timeout_s=d + 30)
         except Exception as e:
             raise ToolError(str(e).split("python snippet failed: ")[-1]) from e
         return {"columns": r["columns"], "rows": r["rows"], "truncated": r["truncated"]}
@@ -196,7 +197,9 @@ class SqliteApp(App):
     async def tool_sql_execute(self, sql: str, params: list[Any] | None = None) -> Any:
         if not self.spec.params.get("sql_write"):
             raise ToolError("writes are disabled")
-        try:  # guarded (no ATTACH, VACUUM INTO or setting PRAGMAs) and on the World's clock
-            return await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "execute", "path": self.db_path, "sql": sql, "params": params or [], "now": self._now()})
+        d = self.deadline(self.spec.params.get("sql_deadline_s", SQL_DEADLINE_S))
+        try:  # guarded (no ATTACH, VACUUM INTO or setting PRAGMAs), on the World's clock, stopped (and rolled back) at its deadline
+            return await self.ctx.exec.run_python(SQL_SNIPPET, {"op": "execute", "path": self.db_path, "sql": sql, "params": params or [], "now": self._now(),
+                                                                "deadline_s": d}, timeout_s=d + 30)
         except Exception as e:
             raise ToolError(str(e).split("python snippet failed: ")[-1]) from e

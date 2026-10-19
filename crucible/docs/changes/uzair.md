@@ -1232,3 +1232,30 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   SQL-check, EnterpriseOps and pack-audit suites: 312 passed, 26 skipped.
 - **Merge notes.** A SQL assertion whose own query is wrong in a way the schema-error pattern does not name now masks
   instead of failing; `pack check`'s gold run still catches it.
+
+## 57. M1 R-12: a policy's SQL statement stops at its own deadline
+
+- **Item.** R-12 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from SkyRL (interrupt the
+  connection past a deadline); no code copied. Not taken: relabelling policy SQL errors from fault `tool` to `policy`
+  (every consumer treats the two alike) and a general timeout for `LocalExec.run_python` (the progress handler ends the
+  SQL thread; other snippets do not run policy code).
+- **Files.** `src/crucible/world/state/snippets/sql.py` (`_deadline`, `_timeout`, `query`, `execute`),
+  `world/apps/base.py` (`SQL_DEADLINE_S`), `world/apps/sqlite_app.py` (`tool_sql_query`, `tool_sql_execute`),
+  `world/state/postgres.py` (`_statement_timeout`, `psql_json`, `psql`, `q_sql`), `world/apps/postgres_app.py`
+  (`_pg_error`, `tool_sql_query`, `tool_sql_execute`), `docs/modules/M01-world.md` (finding 23),
+  `tests/unit/test_sql_deadline.py` (new), `tests/unit/test_postgres_app.py` (+1).
+- **Public names.** `crucible.world.apps.base.SQL_DEADLINE_S` (30 s); App param `sql_deadline_s` (SQLite and Postgres
+  Apps); snippet arg `deadline_s` (`query`, `execute`); `statement_timeout_s` on `PostgresAdapter.psql_json` / `psql` /
+  `q_sql`.
+- **Behaviour.** A policy's SQL statement through the SQLite or Postgres App's `sql_query` / `sql_execute` runs at most
+  `App.deadline(sql_deadline_s)` seconds (default 30): SQLite's progress handler interrupts it (a write is rolled back),
+  Postgres's server stops it (`statement_timeout`); either way the tool fails with
+  `query_timeout: the statement ran past Ns and was stopped` (a scored tool error, never a masked hang). The snippet's
+  and `psql`'s process limits are the deadline plus 30 s (were 600 s and 300 s). Verifier-side queries (state adapters)
+  have no deadline, as before; other SQL errors are unchanged.
+- **Formats.** none.
+- **Tests.** `test_sql_deadline.py` (2: a recursive CTE stops at 1 s with `query_timeout`, scored, and the next query
+  runs; a runaway `INSERT` is rolled back); `test_postgres_app.py` (+1, Docker: `pg_sleep(5)` against a 1 s deadline
+  is stopped by the server for both tools and the stopped `UPDATE` is not kept). SQL App, state adapter, EnterpriseOps
+  and M11 suites: 202 passed, 4 skipped.
+- **Merge notes.** A pack whose policy legitimately runs SQL longer than 30 s sets `sql_deadline_s` on the App.

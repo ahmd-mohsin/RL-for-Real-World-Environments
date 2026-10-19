@@ -34,6 +34,10 @@ def _ident(s: str) -> str:
     return '"' + s.replace('"', '""') + '"'
 
 
+def _statement_timeout(s: float | None) -> str:
+    return f"SET statement_timeout = {max(1, int(s * 1000))}; " if s else ""
+
+
 class PostgresAdapter(StateAdapter):
     kind = "postgres"
     OPS: ClassVar[dict[str, str]] = {
@@ -56,9 +60,10 @@ class PostgresAdapter(StateAdapter):
     def schema(self) -> str:
         return self.params.get("schema", "public")
 
-    async def psql_json(self, sql: str, *, read_only: bool = True, timeout_s: float = 300) -> Any:
-        """Run SQL whose single result cell is JSON; return it parsed."""
-        pre = "SET default_transaction_read_only = on; " if read_only else ""
+    async def psql_json(self, sql: str, *, read_only: bool = True, timeout_s: float = 300, statement_timeout_s: float | None = None) -> Any:
+        """Run SQL whose single result cell is JSON; return it parsed. ``statement_timeout_s``: the server stops the
+        statement past it (a policy's query; M1 audit R-12), where killing the psql client left it running."""
+        pre = ("SET default_transaction_read_only = on; " if read_only else "") + _statement_timeout(statement_timeout_s)
         cmd = f"psql -X -A -t -q -v ON_ERROR_STOP=1 -U {shlex.quote(self.user)} -d {shlex.quote(self.db)} -c {shlex.quote(pre + sql)}"
         out = await self.exec.run(cmd, timeout_s=timeout_s)
         if not out.ok:
@@ -67,7 +72,8 @@ class PostgresAdapter(StateAdapter):
         # NUMERIC must stay exact (money): parse JSON numbers with a fraction as Decimal, not float
         return json.loads(text, parse_float=Decimal) if text else None
 
-    async def psql(self, sql: str, *, timeout_s: float = 300) -> str:
+    async def psql(self, sql: str, *, timeout_s: float = 300, statement_timeout_s: float | None = None) -> str:
+        sql = _statement_timeout(statement_timeout_s) + sql
         cmd = f"psql -X -q -v ON_ERROR_STOP=1 -U {shlex.quote(self.user)} -d {shlex.quote(self.db)} -c {shlex.quote(sql)}"
         out = await self.exec.run(cmd, timeout_s=timeout_s)
         if not out.ok:
@@ -149,9 +155,11 @@ class PostgresAdapter(StateAdapter):
                          detail={"schema_changed": a.meta.get("schema_hash") != b.meta.get("schema_hash")})
 
     # ---- query ops ----
-    async def q_sql(self, sql: str, max_rows: int = 1000) -> Any:
+    async def q_sql(self, sql: str, max_rows: int = 1000, statement_timeout_s: float | None = None) -> Any:
         body = sql.strip().rstrip(";")
-        rows = await self.psql_json(f"SELECT coalesce(json_agg(t), '[]') FROM (SELECT * FROM ({body}) q LIMIT {int(max_rows) + 1}) t")
+        rows = await self.psql_json(f"SELECT coalesce(json_agg(t), '[]') FROM (SELECT * FROM ({body}) q LIMIT {int(max_rows) + 1}) t",
+                                    statement_timeout_s=statement_timeout_s,
+                                    timeout_s=statement_timeout_s + 30 if statement_timeout_s else 300)
         cols = list(rows[0].keys()) if rows else []
         return {"columns": cols, "rows": [[r[c] for c in cols] for r in rows[:max_rows]], "truncated": len(rows) > max_rows}
 
