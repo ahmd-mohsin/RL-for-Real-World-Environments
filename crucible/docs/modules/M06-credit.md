@@ -59,6 +59,52 @@ Also corrected: DESIGN cited verl's `arvo_penalties.py` as a turn-level advantag
 4. **Gold-token milestones are brittle across implementations.** Correct alternative solutions score low Φ: task01's passing Fable run 0.49, and the v1-passing task04 runs about 0.32 against the v3 oracle. "Located" milestones (the expert's block was changed) were the most predictive type. Behavioural milestones (the expert's fail-to-pass tests) are the expected fix; they need the issues' images.
 5. **Reasoning models answer with an empty string when the token cap is small.** The judge's first smoke test returned empty text with `finish=length` at a 400-token cap, because hidden reasoning used it all (M2 saw the same). The judge's default cap is now 2,500.
 
+## Per-turn credit: one rule, hard gates, present or refused (2026-10-19; `docs/research/improvements/2026-10-14/M06-credit.md` R1–R3)
+
+Per-turn credit (`turn_weight > 0`, off by default) was wrong in three places; all three are fixed, each reproduced
+before and after through the real code paths.
+
+1. **Gates mean hard rules (R2).** A grade report already says which checks are hard rules and which are outcome or
+   score checks (`meta["kinds"]`); the record writers dropped it, so every ordinary failure counted as rule-breaking and
+   an honest attempt that made progress trained *below* a no-op (−1.113 vs −1.000 at η 0.1). Now:
+   - `GradeReport.gate_kinds()`; every record writer (native, workspace, agentenv harnesses; the runner; `world_env`;
+     the slime bridge) carries the kinds, and `RolloutRecord.gate_kinds` is new (`crucible.rollout/v1.2`, excluded when
+     empty, so older records keep their bytes). `gates` itself is unchanged (the bench gate profile reads every check).
+   - `credit.compose.hard_gate_failed(gates, kinds)` is the one test: a failed gate whose kind is `"gate"`, or
+     undeclared (what every older record meant). `train.credit.turn_credit_map` and the slime bridge both use it.
+   - A rule-breaking or hacked episode gets **no local term at all** (every call trains at the outcome advantage). The
+     clamp it replaces, applied after centring, left the call that bought progress by breaking the rule the least
+     punished of its episode (−0.5 against −0.75).
+   - Hacks are seen whichever way they were flagged: `hack/confirmed`, `hack/zeroed` (`group_ops.zero_hacks`) or
+     `gar/hack_zeroed` (D2).
+   - finance_ap, the toy backlog and the coding dense task declare their outcome gates; a multi-step task's
+     `step/<name>` gate is an outcome unless one of the step's own hard rules failed.
+2. **One rule on every trainer path (R1).** `train.credit.credited_records` is the only place raw ΔΦ becomes trainable
+   credit; the torch trainer and the rLLM bridge call it (the verl loop and slime already applied the rule). The rLLM
+   bridge used to send raw `seq_adv + η·ΔΦ`, which rLLM's default (sync) tinker path trains verbatim. It now sends the
+   group's outcome advantage (`train.credit.outcome_advantages`, R − mean over live rollouts, unless `seq_adv` is given)
+   plus the rule's credit, sub-calls and child agents at their parent's credit. `backend="verl"` with
+   `turn_weight > 0` and `trajectories(turn_weight > 0)` (one rollout cannot apply a group rule) are refused.
+3. **Present or refused (R3).** Live M12 rollouts recorded no ΔΦ, so `turn_weight > 0` silently trained outcome-only.
+   - `world_env.rollout` attaches a `ProgressTracker` for tasks with `subgoals`, as the M10 native harness does; the
+     calls' ΔΦ sum to Φ_final − Φ_0 (the toy backlog: +0.25 per resolved ticket, 0.5 in total for 2 of 4).
+   - The torch trainer and the rLLM bridge raise when `turn_weight > 0` and no live rollout carries `Turn.advantage`
+     (`train.credit.require_turn_credit`; `None` is absent progress, 0.0 is progress that did not move).
+   - The verl agent loop cannot raise (verl would mask every sample), so it marks every output of such a group
+     `crucible_credit_fallback="no_turn_credit"` (`"legacy_worker"` on `use_v1: false`, `"timeout"` after the
+     rendezvous) and warns once per process.
+4. **The raw reward survives the verbosity penalty (D3).** `verbosity_group_fn` keeps `raw/reward` (now defined in
+   `credit/shaping.py`); the runtime's pass-rate input reads it, so a success 0.5 % over budget is still a success for
+   GAR and the pass-rate alarm.
+
+Tests: `tests/unit/test_m6_turn_credit.py` (properties over random groups with masked, rule-breaking, outcome-failed
+and hacked members, RLM sub-calls and child agents; live backlog rollouts across seeds); `test_m12_audit_bridges.py`
+(the rLLM tinker contract against rLLM's own code; the verl loop's `no_turn_credit` marking). Each fix was checked by
+re-introducing the defect: every one fails its tests.
+
+Not changed (listed in the research report §7b): the bound uses the record reward's outcome advantage, not a GAR or
+shaped one (D1); centring is per call, not per token (D4).
+
 ## Not done
 
 - The C3 task04 correlation run (approval for GPU time and about $130).

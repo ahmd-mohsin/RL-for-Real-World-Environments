@@ -67,8 +67,9 @@ def test_schema_keyed_documents_follow_the_versioned_document_rules():
     from crucible.core.schema.rollout import RolloutRecord
 
     base = {"rollout_id": "r", "sample": "s", "task": "t", "harness": "h", "policy": "p"}
+    major, _, minor = RolloutRecord.SCHEMA.rpartition("/v")[2].partition(".")
     with pytest.raises(ValueError, match="newer minor version"):
-        RolloutRecord.model_validate({**base, "schema": "crucible.rollout/v1.2"})
+        RolloutRecord.model_validate({**base, "schema": f"crucible.rollout/v{major}.{int(minor or 0) + 1}"})
     with pytest.raises(ValueError, match="newer major version"):
         RolloutRecord.model_validate({**base, "schema": "crucible.rollout/v2"})
     assert next(iter(RolloutRecord.model_validate(base).model_dump(by_alias=True))) == "schema"  # the on-disk key and order are kept

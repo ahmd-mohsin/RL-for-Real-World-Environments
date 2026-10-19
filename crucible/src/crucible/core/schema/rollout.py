@@ -1,4 +1,4 @@
-"""The rollout record contract ``crucible.rollout/v1.1`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
+"""The rollout record contract ``crucible.rollout/v1.2`` (DESIGN §10.3 point 1; ARCHITECTURE M12 ``rollout.py``).
 
 The trainer's only input from an episode. Per model call (``Turn``): the prompt and completion token ids and the
 behaviour logprobs exactly as the inference engine sampled them (token-in-token-out; never detokenized and
@@ -20,7 +20,8 @@ from pydantic import Field, field_validator, model_validator
 from crucible.core.schema.base import CrucibleModel, SchemaKeyed
 from crucible.core.schema.usage import FinishReason, finish_reason
 
-SCHEMA = "crucible.rollout/v1.1"  # v1.1: Turn.sampling typed (R-3), Turn.finish a FinishReason (R-19), RolloutRecord.capture (R-17)
+SCHEMA = "crucible.rollout/v1.2"  # v1.1: Turn.sampling typed (R-3), Turn.finish a FinishReason (R-19), RolloutRecord.capture (R-17);
+# v1.2: RolloutRecord.gate_kinds (M6 R2)
 
 # Request keys that are not sampling parameters: everything else a call sent is recorded (typed, or in ``extra``).
 NOT_SAMPLING = frozenset({"model", "messages", "tools", "tool_choice", "response_format", "stream", "stream_options", "extra_headers",
@@ -273,7 +274,11 @@ class RolloutRecord(SchemaKeyed):
     segments: list[Segment] = Field(default_factory=list)
     reward: float | None = None  # None = masked: never trained on as 0
     reward_components: dict[str, float] = Field(default_factory=dict)
-    gates: dict[str, bool] = Field(default_factory=dict)
+    gates: dict[str, bool] = Field(default_factory=dict)  # every check of the grade, outcome checks included
+    # each gate's kind from the grade report: "gate" (a hard rule) or "outcome" (an outcome or score check). A gate with
+    # no entry is a hard rule (what every record before v1.2 meant). Turn credit treats an episode as rule-breaking only
+    # when a hard rule failed (M6 R2: outcome checks recorded as gates made every failure "gated")
+    gate_kinds: dict[str, str] = Field(default_factory=dict, exclude_if=lambda v: not v)
     truncated: bool = False
     stop: str | None = None
     failure_kind: str | None = None

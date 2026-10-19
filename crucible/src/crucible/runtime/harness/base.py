@@ -38,6 +38,7 @@ class HarnessResult(CrucibleModel):
     truncated: bool = False
     reward: float | None = None
     gates: dict[str, int] = Field(default_factory=dict)
+    gate_kinds: dict[str, str] = Field(default_factory=dict)  # gate -> "gate" (hard rule) | outcome / score kind (M6 R2)
     failure: Failure | None = None
     steps: int = 0
     cost_usd: float = 0.0

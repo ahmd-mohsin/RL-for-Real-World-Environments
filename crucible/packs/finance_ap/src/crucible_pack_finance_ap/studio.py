@@ -98,7 +98,8 @@ class APTask:
         gates = {"controls": "fail" if bad else "pass", "outcome": "pass" if frac == 1.0 else "fail"}
         return GradeReport(task=self.id, tier="full", checks=[], gates=gates, reward=1.0 if all(v == "pass" for v in gates.values()) else 0.0,
                            outcome=0.0 if bad else round(frac, 6), infra={"status": "ok"}, trusted=True, elapsed_s=0.0,
-                           meta={"correct": sum(correct.values()), "invoices": len(correct), "control_breaches": bad,
+                           meta={"kinds": {"controls": "gate", "outcome": "outcome"},  # a breached control is a broken rule; a wrong invoice is not
+                                 "correct": sum(correct.values()), "invoices": len(correct), "control_breaches": bad,
                                  "wrong": sorted(k for k, v in correct.items() if not v), "tolerance": self.w.tolerance, "hold_order": self.w.hold_order,
                                  "generator": GENERATOR_VERSION})
 

@@ -60,7 +60,7 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
     chain; a child's calls take the credit of the call they depend on (their spawning root turn, through any depth)."""
     import itertools
 
-    from crucible.credit.compose import Episode, turn_credit
+    from crucible.credit.compose import Episode, hard_gate_failed, turn_credit
 
     frozen = set(frozen_actors)
     by: dict[str, list[RolloutRecord]] = {}
@@ -73,7 +73,7 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
             ts = [t for t in r.turns if t.completion_token_ids and t.actor not in frozen and t.trainable and not t.node() and not t.agent]
             masked = r.mask_sample or r.reward is None
             eps.append(Episode(reward=None if masked else float(r.reward), phis=list(itertools.accumulate(float(t.advantage or 0.0) for t in ts)),
-                               gated=bool(r.gates) and not all(r.gates.values()), hack=float((r.reward_components or {}).get("hack/confirmed", 0.0)) > 0))
+                               gated=hard_gate_failed(r.gates, r.gate_kinds), hack=is_hack(r)))
             keys.append([(r.rollout_id, t.call_id) for t in ts])
         for ks, row in zip(keys, turn_credit(eps, eta=eta), strict=True):
             out.update(zip(ks, row, strict=True))
@@ -83,6 +83,62 @@ def turn_credit_map(records: Sequence[RolloutRecord], groups: Sequence[str], *, 
                     parent = (t.depends_on or [None])[0]
                     out[(r.rollout_id, t.call_id)] = out.get((r.rollout_id, parent), 0.0) if parent else 0.0
     return out
+
+
+def outcome_advantages(records: Sequence[RolloutRecord], groups: Sequence[str]) -> dict[str, float]:
+    """Rollout id -> R − mean R over the live (scored, unmasked) rollouts of its group; a masked rollout gets 0. The same
+    numbers as ``objectives.group_advantages(estimator="mean")`` (Dr.GRPO, the trainer's default), without torch, for
+    bridges that hand a framework a finished per-token advantage."""
+    import statistics
+
+    live = lambda r: not r.mask_sample and r.reward is not None
+    by: dict[str, list[float]] = {}
+    for r, g in zip(records, groups, strict=True):
+        if live(r):
+            by.setdefault(g, []).append(float(r.reward))  # type: ignore[arg-type]
+    return {r.rollout_id: float(r.reward) - statistics.fmean(by[g]) if live(r) else 0.0  # type: ignore[arg-type]
+            for r, g in zip(records, groups, strict=True)}
+
+
+def has_turn_credit(records: Sequence[RolloutRecord], frozen_actors: Iterable[str] = ()) -> bool:
+    """Whether any live rollout carries per-turn progress (``Turn.advantage`` set on a trained call). ``None`` means no
+    progress was recorded; 0.0 is progress that did not move."""
+    frozen = set(frozen_actors)
+    return any(t.advantage is not None for r in records if not r.mask_sample and r.reward is not None
+               for t in r.turns if t.trainable and t.actor not in frozen and t.completion_token_ids)
+
+
+def require_turn_credit(records: Sequence[RolloutRecord], frozen_actors: Iterable[str] = (), *, where: str) -> None:
+    """Refuse dense credit that would silently be absent (M6 R3): ``turn_weight > 0`` and live rollouts, none of which
+    recorded per-turn progress, would train on the outcome alone while the run claims turn credit. A batch with no live
+    rollout trains nothing either way and passes."""
+    if not any(not r.mask_sample and r.reward is not None for r in records) or has_turn_credit(records, frozen_actors):
+        return
+    raise ValueError(f"{where}: turn_weight > 0 but no live rollout carries per-turn progress (Turn.advantage is None on every "
+                     "trained call): the tasks declare no subgoals, or their rollouts recorded no progress. Train on tasks with "
+                     "subgoals, or set turn_weight=0 to train on the outcome only.")
+
+
+def credited_records(records: Sequence[RolloutRecord], groups: Sequence[str], *, turn_weight: float,
+                     frozen_actors: Iterable[str] = ()) -> list[RolloutRecord]:
+    """Copies of ``records`` whose ``Turn.advantage`` is M6's per-call credit (``turn_credit_map``) divided by
+    ``turn_weight``, so a path that adds ``turn_weight · Turn.advantage`` to the sequence advantage (``common.flatten``,
+    ``token_credit``) trains exactly the rule's credit. The one place raw ΔΦ becomes trainable credit: the torch trainer
+    and every bridge call it (M6 R1: the rLLM bridge added raw ΔΦ)."""
+    if turn_weight <= 0:
+        raise ValueError("credited_records needs turn_weight > 0")
+    tc = turn_credit_map(records, groups, eta=turn_weight, frozen_actors=frozen_actors)
+    return [r.model_copy(update={"turns": [t.model_copy(update={"advantage": tc.get((r.rollout_id, t.call_id), 0.0) / turn_weight})
+                                           for t in r.turns]}) for r in records]
+
+
+def is_hack(r: RolloutRecord) -> bool:
+    """A hack for per-turn credit: confirmed by the level-2 judge (``hack/confirmed`` > 0), or zeroed by a group stage:
+    ``hack/zeroed`` (``group_ops.zero_hacks``, holding the reward it replaced, which may itself be 0: its presence is the
+    flag) or ``gar/hack_zeroed`` (``credit.gar.gar_group_fn`` with a custom detector). M6 D2: the rule read only
+    ``hack/confirmed``, so a zeroed hack's Φ-raising call kept positive credit."""
+    comps = r.reward_components or {}
+    return float(comps.get("hack/confirmed", 0.0)) > 0 or "hack/zeroed" in comps or float(comps.get("gar/hack_zeroed", 0.0)) > 0
 
 
 def critical_steps(ro: RolloutRecord, main_actor: str | None = None) -> int:

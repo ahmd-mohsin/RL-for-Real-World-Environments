@@ -388,7 +388,8 @@ class DenseReplayTask:
                 fs.files[p] = None  # gone from the workspace
         phi = round(await phi_of_state(self.seed, fs), 6)
         return GradeReport(task=self.id, tier="full", checks=[], gates={"dense": "pass" if phi >= 1.0 else "fail"}, reward=phi, outcome=phi,
-                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": phi, "milestones": len(await _mine_cached(self.seed))})
+                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": phi, "milestones": len(await _mine_cached(self.seed)),
+                                                                         "kinds": {"dense": "outcome"}})  # Φ reaching 1: an outcome, not a rule
 
 
 def TASKS_DIR():

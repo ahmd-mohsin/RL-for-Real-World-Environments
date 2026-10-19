@@ -109,7 +109,7 @@ class WorkspaceHarness(NativeHarness):
         res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
         if rep.infra.get("status") == "masked":
             raise StageFailure(classify_verifier(rep.infra))
-        res.reward, res.gates = rep.reward, rep.gate_bits()
+        res.reward, res.gates, res.gate_kinds = rep.reward, rep.gate_bits(), rep.gate_kinds()
 
     async def run(self, attempt: Attempt) -> HarnessResult:
         t: dict[str, float] = {}

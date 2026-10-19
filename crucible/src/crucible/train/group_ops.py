@@ -28,6 +28,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from crucible.core.schema.rollout import RolloutRecord
+from crucible.credit.shaping import RAW  # the scored outcome before any group stage rewrote it: GAR's pass/fail is read from here
 
 GroupOp = Callable[[str, list[RolloutRecord]], Awaitable[list[RolloutRecord]]]
 
@@ -46,7 +47,6 @@ def compose(*ops: GroupOp) -> GroupOp:
     return run
 
 
-RAW = "raw/reward"  # the scored outcome before any group stage rewrote it: GAR's pass/fail is read from here
 
 
 def _scored(m: RolloutRecord) -> bool:

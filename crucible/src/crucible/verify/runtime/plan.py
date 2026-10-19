@@ -98,6 +98,13 @@ class GradeReport:
     def gate_bits(self) -> dict[str, int]:
         return {g: int(s == "pass") for g, s in self.gates.items()}
 
+    def gate_kinds(self) -> dict[str, str]:
+        """Per gate: ``"gate"`` (a hard rule) or the declared kind of an outcome or score check (``meta["kinds"]``). An
+        undeclared gate is a hard rule, as in ``reward_json``. Records carry this beside ``gate_bits()`` so per-turn credit
+        can tell a broken rule from an unmet outcome (M6 R2)."""
+        kinds = self.meta.get("kinds") or {}
+        return {g: str(kinds.get(g, "gate")) for g in self.gates}
+
     def failing_gates(self) -> list[str]:
         return [g for g, s in self.gates.items() if s != "pass"]
 
