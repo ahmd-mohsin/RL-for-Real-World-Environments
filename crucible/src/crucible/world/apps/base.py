@@ -16,7 +16,7 @@ from crucible.core.registry import get_registry
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.core.schema.world import AppSpec
 from crucible.core.store import Store
-from crucible.world.exec import Exec
+from crucible.world.exec import EnvContainerLost, Exec, container_lost_cause
 
 if TYPE_CHECKING:
     from crucible.world.clock import VirtualClock
@@ -160,6 +160,8 @@ class App(ABC):
         except ArgumentError as e:  # the caller's arguments: the policy's error (M14 campaign B13)
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="invalid_arguments", fault="policy")
         except ToolError as e:
+            if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: the World's, not the policy's (M1 R-1)
+                raise EnvContainerLost(str(lost)) from e
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="tool_error")
         except TypeError as e:
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=f"bad arguments: {e}", error="bad_arguments")

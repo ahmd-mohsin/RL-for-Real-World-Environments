@@ -47,6 +47,29 @@ class ExecError(RuntimeError):
         self.out = out
 
 
+# what ``docker exec`` / ``docker compose exec`` print for a container that is no longer there or no longer running
+CONTAINER_GONE = re.compile(r"service \"?main\"? is not running|No such container|is not running|container [0-9a-f]+ is (?:not running|paused)"
+                            r"|Cannot connect to the Docker daemon|error during connect", re.IGNORECASE)
+
+
+class EnvContainerLost(RuntimeError):
+    """The task container was removed or stopped from outside the episode (or its daemon is unreachable): infrastructure,
+    masked as ``crucible:env_container_lost`` (M13 audit B2, M1 audit R-1). Raised only after the host confirmed it."""
+
+    failure_kind = "crucible:env_container_lost"
+
+
+def container_lost_cause(e: BaseException | None) -> EnvContainerLost | None:
+    """The ``EnvContainerLost`` that is ``e`` or sits in its cause / context chain (an App wrapped it in a ToolError), or None."""
+    seen: set[int] = set()
+    while e is not None and id(e) not in seen:
+        if isinstance(e, EnvContainerLost):
+            return e
+        seen.add(id(e))
+        e = e.__cause__ or e.__context__
+    return None
+
+
 class Exec(ABC):
     name: str = "exec"
     is_local: bool = False
@@ -271,19 +294,48 @@ class DockerExec(Exec):
         out = await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin)
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
+        return await self._unless_lost(out)
+
+    async def lost(self) -> str | None:
+        """Why the container is lost to the episode (removed, paused or stopped from outside, daemon unreachable), asked of
+        the daemon on the same ``DOCKER_HOST``, or None. ``docker stop`` / ``kill`` / ``rm`` / ``pause`` go through the daemon
+        API, which no process in the container can do; a container whose own main process exited (the policy killed it, or
+        it ran out of memory) is the episode's doing, not lost (the rule Harbor's ``container_lost`` applies)."""
+        st = await _run_subprocess(["docker", "inspect", "--format", "{{json .State}}", self.container], cwd=None, env=self._env(),
+                                   timeout_s=60, stdin=None)
+        if not st.ok:
+            if "no such" in st.stderr.lower():
+                return f"the task container {self.container} was removed"
+            return f"the Docker daemon cannot be reached: {st.stderr.strip()[-300:]}"
+        state = json.loads(st.stdout or "{}")
+        if state.get("Paused"):
+            return f"the task container {self.container} was paused from outside"
+        if state.get("Running"):
+            return None
+        ev = await _run_subprocess(["docker", "events", "--since", state.get("StartedAt") or "0", "--until", str(int(time.time()) + 1),
+                                    "--filter", f"container={self.container}", "--format", "{{.Action}}"], cwd=None, env=self._env(),
+                                   timeout_s=30, stdin=None)
+        outside = sorted({a.split(":")[0].strip() for a in ev.stdout.splitlines()} & {"kill", "stop", "destroy", "pause"}) if ev.ok else []
+        return f"the task container {self.container} was stopped from outside ({', '.join(outside)}; status {state.get('Status')})" if outside else None
+
+    async def _unless_lost(self, out: ExecOut) -> ExecOut:
+        """``out``, unless it is the docker CLI reporting a lost container and the daemon confirms it: then EnvContainerLost.
+        The words alone never decide (a command can print ``No such container`` and exit 1), so the host is asked."""
+        if out.rc != 0 and CONTAINER_GONE.search((out.stdout + out.stderr)[-2000:]) and (why := await self.lost()):
+            raise EnvContainerLost(why)
         return out
 
     async def push_file(self, src: Path, dest: str) -> None:
         parent = str(Path(dest).parent)
         await self.run(f"mkdir -p {shlex.quote(parent)}")
         out = await _run_subprocess(["docker", "cp", str(src), f"{self.container}:{dest}"], cwd=None, env=self._env(), timeout_s=600, stdin=None)
-        if not out.ok:
+        if not (await self._unless_lost(out)).ok:
             raise ExecError(f"docker cp to {dest} failed: {out.stderr[-500:]}", out)
 
     async def pull_file(self, src: str, dest: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         out = await _run_subprocess(["docker", "cp", f"{self.container}:{src}", str(dest)], cwd=None, env=self._env(), timeout_s=600, stdin=None)
-        if not out.ok:
+        if not (await self._unless_lost(out)).ok:
             raise ExecError(f"docker cp from {src} failed: {out.stderr[-500:]}", out)
 
 

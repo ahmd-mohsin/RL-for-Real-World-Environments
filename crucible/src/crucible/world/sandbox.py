@@ -171,7 +171,7 @@ class GVisorExec(DockerExec):
         out = await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin)
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
-        return out
+        return await self._unless_lost(out)  # the outer container's loss, confirmed by its daemon (DockerExec.lost)
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None):
         u = user or self.default_user

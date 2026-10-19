@@ -44,6 +44,7 @@ from crucible.core.text import safe_json, safe_text, unencodable
 from crucible.world.apps.base import App, AppContext
 from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
+from crucible.world.exec import container_lost_cause
 
 MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inbound batch
 
@@ -496,6 +497,9 @@ class World:
             self._infra("transport_timeout", f"{qualified} exceeded {self.spec.limits.tool_timeout_s}s")
             return fail(qualified, f"{qualified} timed out", "timeout", "infra")
         except Exception as e:  # noqa: BLE001 - an App crashing is an environment bug: contain it, record it, mask the episode
+            if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: an outage, not a tool bug (M1 R-1)
+                self._infra("crucible:env_container_lost", f"{qualified}: {lost}")
+                return fail(qualified, f"{qualified}: the environment's container was lost", "transport", "infra")
             import traceback
 
             self._infra("crucible:tool_crashed", f"{qualified}: {type(e).__name__}: {e}", traceback.format_exc()[-4000:])

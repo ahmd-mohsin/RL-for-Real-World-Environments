@@ -1075,3 +1075,34 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Formats.** none.
 - **Tests.** The scan test passes again; core, config and slime suites: 140 passed, 4 skipped (slime not installed).
 - **Merge notes.** A changed slime default must be changed in both `slime/` and `KNOBS`.
+
+## 51. M1 R-1: a lost task container is infrastructure on every exec path
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-14/M01-world.md` (must; carry-over of M13 audit B2, which fixed
+  only Harbor's exec). Pattern from verifiers `v1/harness.py:183` (after a nonzero exit, `runtime.alive()` before
+  blaming the harness; MIT) and our Harbor backend's `container_lost`; no code copied, no THIRD_PARTY.md row.
+- **Files.** `src/crucible/world/exec.py` (`CONTAINER_GONE`, `EnvContainerLost` moved here from
+  `interop/harbor/world_backend.py`; `container_lost_cause`; `DockerExec.lost`, `DockerExec._unless_lost` on `run`,
+  `push_file`, `pull_file`), `world/sandbox.py` (`GVisorExec._raw`), `world/apps/base.py` (`App.call`),
+  `world/world.py` (`_call_tool`), `interop/harbor/world_backend.py` (imports the moved names),
+  `docs/modules/M01-world.md` (finding 17), `tests/unit/test_container_lost.py` (new).
+- **Public names.** `crucible.world.exec`: `CONTAINER_GONE`, `EnvContainerLost` (now with
+  `failure_kind = "crucible:env_container_lost"`), `container_lost_cause`, `DockerExec.lost`. Both names stay
+  importable from `crucible.interop.harbor.world_backend`.
+- **Behaviour.** A failed `docker exec` / `docker cp` whose output reads as a lost container (`No such container`,
+  `is not running`, `is paused`, `error during connect`, ...) makes `DockerExec` ask the daemon on the same
+  `DOCKER_HOST`: removed, paused, stopped by a `kill`/`stop`/`destroy`/`pause` event, or an unreachable daemon raise
+  `EnvContainerLost`; a running container, or one whose own main process exited (the policy, or out of memory), keeps
+  the plain `ExecOut`. An ordinary failure asks nothing. `App.call` re-raises a loss wrapped in a `ToolError` (the
+  workspace file tools wrap every exec error), and `World._call_tool` records `crucible:env_container_lost`
+  (blame infra, the sample is masked) instead of `crucible:tool_crashed` (blame task); the policy sees
+  `<tool>: the environment's container was lost` (`error="transport"`, `fault="infra"`).
+- **Formats.** none (the failure kind already existed).
+- **Tests.** `test_container_lost.py` (7: fake-daemon cases for removed / forged message / ordinary failure /
+  stopped from outside vs exited by itself / paused / unreachable / `docker cp`, the World for wrapped and direct
+  losses, and a Docker-marked run that kills and removes a real container).
+- **Merge notes.** M17 lanes calling `DockerExec.run` directly (`factory/lanes/windows.py`, `factory/sessions.py`) now get
+  `EnvContainerLost` instead of a failed `ExecOut` when the container is gone; its `failure_kind` makes
+  `factory.machine.is_infra_error` and `train.runtime` count it as infrastructure. With `factory.envs.InfraWatch` on, a
+  lost container can be recorded more than once (the World per call that hits it, InfraWatch after the step); every
+  record is the same masked kind.

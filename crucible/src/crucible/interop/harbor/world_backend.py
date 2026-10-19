@@ -34,19 +34,9 @@ from harbor.models.trial.paths import TrialPaths
 
 from crucible.core.schema.world import AppSpec
 from crucible.world.backends.base import Backend, BackendCapabilities
-from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
+from crucible.world.exec import CONTAINER_GONE, EnvContainerLost, Exec, ExecOut, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
-
-# what ``docker compose exec`` / ``docker exec`` print for a container that is no longer there or no longer running
-CONTAINER_GONE = re.compile(r"service \"?main\"? is not running|No such container|is not running|container [0-9a-f]+ is (?:not running|paused)"
-                            r"|Cannot connect to the Docker daemon|error during connect", re.IGNORECASE)
-
-
-class EnvContainerLost(RuntimeError):
-    """The task container was removed or stopped from outside the episode (or its daemon is unreachable): infrastructure,
-    masked as ``crucible:env_container_lost`` (M13 audit B2)."""
-
 
 # image pulls and Dockerfile builds that fail (M13 audit B12): the deterministic causes are never retried
 _PULL = re.compile(r"pull access denied|manifest unknown|manifest for \S+ not found|repository does not exist|failed to resolve (?:source metadata|reference)"
