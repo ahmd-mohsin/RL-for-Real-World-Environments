@@ -42,7 +42,6 @@ from pathlib import Path
 from typing import Any
 
 from crucible.verify.runtime.trusted import CandidateError, InfraError
-from crucible.world.exec import container_lost_cause
 
 STATUSES = ("pass", "fail", "infra", "skip")
 
@@ -298,6 +297,18 @@ def _gate_status(states: list[str]) -> str:
     return "pass"
 
 
+def _container_lost(e: BaseException | None) -> BaseException | None:
+    """The exception in ``e``'s cause chain that a lost container raised (``crucible.world.exec.EnvContainerLost``), matched
+    by its failure kind: this runtime ships into verifier images without the rest of Crucible, so it imports nothing else."""
+    seen: set[int] = set()
+    while e is not None and id(e) not in seen:
+        if getattr(e, "failure_kind", None) == "crucible:env_container_lost":
+            return e
+        seen.add(id(e))
+        e = e.__cause__ or e.__context__
+    return None
+
+
 async def _run_check(c: Check, ctx: Context) -> CheckResult:
     t0 = time.monotonic()
     try:
@@ -316,7 +327,7 @@ async def _run_check(c: Check, ctx: Context) -> CheckResult:
     except InfraError as ex:
         st, detail = "infra", {"infra": str(ex)[:2000]}
     except Exception as ex:  # noqa: BLE001 -- judging candidate output: a crash is the candidate's failure
-        if (lost := container_lost_cause(ex)) is not None:  # unless the host confirmed the container is gone (M1 audit R-11)
+        if (lost := _container_lost(ex)) is not None:  # unless the host confirmed the container is gone (M1 audit R-11)
             st, detail = "infra", {"infra": str(lost)[:2000], "failure_kind": lost.failure_kind}
         else:
             st, detail = "fail", {"error": f"{type(ex).__name__}: {ex}"[:2000], "traceback": traceback.format_exc()[-1500:]}

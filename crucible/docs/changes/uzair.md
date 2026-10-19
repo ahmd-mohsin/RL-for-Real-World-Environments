@@ -1383,3 +1383,17 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** none added (a deletion). Suites over the module (MCP servers, MiMo, AWM, agentenv, A2A, SQLite and
   Postgres Apps): 68 passed, 9 skipped.
 - **Merge notes.** Code that imported `Sidecar` must supervise its servers itself, and should mask, not restart.
+
+## 64. M1 R-11 fix: the shipped verifier runtime imports only itself
+
+- **Item.** Fix of entry 56 (R-11), found by the full run's red-team graders: `crucible/verify/runtime` is copied alone
+  into verifier images (`/crucible_verify`), and R-11 made `plan.py` import `crucible.world.exec`, so every grade there
+  crashed (`ModuleNotFoundError: crucible.world`; 17 grader-attack and 2 runtime red-team tests failed).
+- **Files.** `src/crucible/verify/runtime/plan.py` (`_container_lost` replaces the import), `tests/unit/test_grade_container_lost.py` (+1).
+- **Public names.** none.
+- **Behaviour.** as entry 56: a check dying on a lost container is `infra` as `crucible:env_container_lost`; the
+  runtime now finds it by the exception's `failure_kind` along the cause chain instead of by class.
+- **Formats.** none.
+- **Tests.** `test_the_shipped_verifier_runtime_imports_only_itself` (every `crucible` import under
+  `verify/runtime` is `crucible.verify.runtime.*`). Red-team grader and runtime suites: 25 passed.
+- **Merge notes.** Code added under `verify/runtime` may import only the standard library and `crucible.verify.runtime`.

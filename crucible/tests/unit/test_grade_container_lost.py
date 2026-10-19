@@ -63,3 +63,19 @@ async def test_a_grade_on_a_lost_container_is_masked(tmp_path: Path):
         Context(Trusted(tmp_path / "g"), params={"view": View(EnvContainerLost("the task container c1 was removed"))}))
     assert rep.infra["status"] == "masked" and rep.infra["failure_kind"] == "crucible:env_container_lost"
     assert "c1 was removed" in rep.infra["reason"]
+
+
+def test_the_shipped_verifier_runtime_imports_only_itself():
+    """``crucible/verify/runtime`` is copied alone into verifier images (``/crucible_verify``): an import of any other
+    crucible module crashes every grade there (R-11 first imported ``crucible.world.exec``; the red-team graders caught it)."""
+    import ast
+
+    import crucible.verify.runtime as rt
+
+    root = Path(rt.__file__).parent
+    bad = []
+    for f in sorted(root.rglob("*.py")):
+        for node in ast.walk(ast.parse(f.read_text())):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+            bad += [f"{f.relative_to(root)}: {n}" for n in names if n.split(".")[0] == "crucible" and not n.startswith("crucible.verify.runtime")]
+    assert not bad, bad
