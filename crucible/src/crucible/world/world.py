@@ -146,6 +146,7 @@ class VerifierView:
         return list(self._world.apps)
 
     def adapter(self, app: str):
+        self._world._touched += 1  # a query may run a command (op run): a later restore never trusts the old state (R-5)
         return self._world.apps[app].state
 
     async def query(self, app: str, q: Query | dict[str, Any]) -> QueryResult:
@@ -256,6 +257,11 @@ class World:
         self._started = False
         self._closed = False
         self._closing: asyncio.Future[None] | None = None  # the one teardown every close() waits for
+        # restores a WorldRef already in place skips (M1 audit R-5): tool calls and verifier queries so far, and the ref the
+        # state was last set to with that count; ``restored_apps``: the Apps the last restore actually restored
+        self._touched = 0
+        self._settled: tuple[str, int] | None = None
+        self.restored_apps: list[str] = []
         self.health: dict[str, Any] = {}  # app id -> last health check report (M1 item 6)
         self.turns = None  # TurnManager when the spec has turns (M1 item 7)
         if spec.turns is not None:
@@ -318,6 +324,7 @@ class World:
         if self.turns is not None:
             await self.turns.begin()
         self.initial = await self.snapshot()
+        self._settled = (self.initial.fingerprint, self._touched)
         return self.initial
 
     async def _seed_bundles(self) -> None:
@@ -470,6 +477,7 @@ class World:
         """The single choke point for every tool call (policy, simulated people, events): name and ACL checks,
         argument validation against the tool's schema, a deadline, crash containment, output bounding, and the
         fault label that decides whether a failure is the policy's (scored) or the infrastructure's (masked)."""
+        self._touched += 1  # any tool call may change state a fingerprint cannot see (R-5)
 
         def fail(name: str, content: str, error: str, fault: str = "policy") -> ToolResult:
             return ToolResult(tool_call_id=safe_text(call.tool_call_id), function_name=safe_text(name), ok=False, content=safe_text(content), error=error, fault=fault)
@@ -1015,8 +1023,10 @@ class World:
         missing = set(self.apps) ^ set(ref.apps)
         if missing:
             raise WorldError(f"WorldRef apps mismatch: {sorted(missing)}")
+        unchanged = await self._unchanged_apps(ref)
         await self.backend.before_restore(self)
-        await asyncio.gather(*(self.apps[n].state.restore(r) for n, r in ref.apps.items()))
+        self.restored_apps = [n for n in ref.apps if n not in unchanged]
+        await asyncio.gather(*(self.apps[n].state.restore(ref.apps[n]) for n in self.restored_apps))
         await self.backend.after_restore(self)
         for app in self.apps.values():
             await app.after_restore()
@@ -1036,6 +1046,20 @@ class World:
             self.turns.restore(ref.turns)
         self.step_index = ref.step
         self._acl_changed = set()
+        self._settled = (ref.fingerprint, self._touched)
+
+    async def _unchanged_apps(self, ref: WorldRef) -> set[str]:
+        """The Apps a restore of ``ref`` may skip (M1 audit R-5): the World's state was last set to ``ref`` (by start or a
+        restore), no tool call or verifier query ran since, and the App's live fingerprint still equals ``ref``'s. Before
+        step 1 a World is restored up to three times (start, reset, the harness's reset), tens of seconds each for a large
+        seed. A fingerprint cannot see every bit of state (file times, owners, what an App keeps outside its adapter), so it
+        is trusted only when nothing ran; a command run underneath (a setup hook) still shows in it."""
+        if self._settled != (ref.fingerprint, self._touched):
+            return set()
+        await self.flush()
+        names = list(ref.apps)
+        live = await asyncio.gather(*(self.apps[n].state.fingerprint() for n in names))
+        return {n for n, fp in zip(names, live, strict=True) if fp == ref.apps[n].fingerprint}
 
     def verifier_view(self) -> VerifierView:
         return VerifierView(self)

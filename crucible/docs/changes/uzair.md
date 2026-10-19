@@ -1280,3 +1280,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   passes; a 1-step gold is skipped). `audit_world` callers (audit, studio, packs, red team, toy end-to-end): pass, but
   for the known coding-pack failure.
 - **Merge notes.** A World whose App keeps state outside its adapter now fails its audit; fix the App, not the check.
+
+## 59. M1 R-5: a restore of a WorldRef already in place is skipped
+
+- **Item.** R-5 of `docs/research/improvements/2026-10-14/M01-world.md` (should, after R-16), narrowed: the no-op
+  restores only. Pattern from agentenv (restore work only where it pays); no code copied. Not taken: dropping the
+  unused snapshot of a separate verifier's World (no pack uses separate-verifier mode) and baked bases.
+- **Files.** `src/crucible/world/world.py` (`World._touched`, `_settled`, `restored_apps`, `_unchanged_apps`, `restore`,
+  `_start`, `_call_tool`, `VerifierView.adapter`), `docs/modules/M01-world.md` (finding 25),
+  `tests/unit/test_restore_skip.py` (new).
+- **Public names.** `World.restored_apps` (the Apps the last restore restored).
+- **Behaviour.** `restore(ref)` skips an App's state restore when all three hold: the World's state was last set to
+  `ref` (by `start` or a restore), no tool call (`_call_tool`, policy or system) and no verifier query
+  (`VerifierView.adapter`, which `query` and `changes` use) ran since, and the App's live fingerprint (after `flush`)
+  equals `ref`'s. Everything else in a restore (backend hooks, `after_restore`, clock, events, inboxes, responders)
+  runs as before. So `start(); reset()` and a harness's second reset restore nothing; a file changed underneath with
+  no tool call (a setup hook) is caught by the fingerprint and restored; after any tool call every App is restored.
+- **Formats.** none.
+- **Tests.** `test_restore_skip.py` (5: two resets after start restore nothing; after a tool call, after a verifier
+  query, and after a read-only call with unchanged fingerprints every App is restored; a file planted with no tool
+  call is restored). World, runtime, harness, audit, Harbor, state adapter, Postgres, studio and toy end-to-end
+  suites: 90 passed, 1 skipped.
+- **Merge notes.** Code that changes App state between a reset and the next restore without a tool call or a verifier
+  query, in a way the App's fingerprint does not see, must bump `World._touched`.
