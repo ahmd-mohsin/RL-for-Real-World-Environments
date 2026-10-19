@@ -57,6 +57,25 @@ PACKAGING = ("pyproject.toml", "setup.py", "setup.cfg")
 # declared extras and the optional imports its tests reach (P3 reproduced 7 World bugs on the oracle: setuptools x3,
 # make x2, hexdump, PyYAML)
 IMAGE_RECIPE = "3"
+# benchmark v2 World fixes, part of every tag (an image built without them is never reused):
+# 1. when A with every extra does not install (fsspec's ``full`` / ``test_full`` extras pull pyarrow, dask and cloud
+#    clients), A with its test extras alone comes before A bare (fsspec's World had no ``requests``, so its conftest's
+#    ``importorskip`` failed collection);
+# 2. A is installed again, without dependencies, after everything else: a test dependency that requires A from PyPI
+#    (pint: an extra's package pulled a newer pint) replaced A's install with a release carrying B's tests, which the
+#    leak probe caught in site-packages;
+# 3. A's installed copy keeps only its metadata (dist-info, console scripts): one image serves every window whose A has
+#    the same packaging, so it carried the A of whichever window built it first. Executed on the v2 store: w3lib's and
+#    pyjwt's Worlds held another A's ``url.py`` / ``api_jwt.py`` in site-packages (a later A is the solution), and pint
+#    ships its tests, so a later A's tests (new in an earlier window's B) failed the leak probe. The agent's imports
+#    never used that copy (PYTHONPATH puts the workspace first); the metadata stays (humanize reads its version)
+EXTRAS_FALLBACK = "v2:test-extras-fallback,a-reinstalled-last,installed-sources-removed"
+# deletes every installed file of distribution argv[1] but its dist-info and what lies outside site-packages
+DROP_INSTALLED_SOURCES = ("import importlib.metadata as m, pathlib, re, sys; "
+                          "n = lambda x: re.sub(r'[-_.]+', '-', (x or '').lower()); "
+                          "fs = [f for d in m.distributions() if n(d.metadata['Name']) == n(sys.argv[1]) for f in (d.files or [])]; "
+                          "[pathlib.Path(f.locate()).unlink(missing_ok=True) for f in fs "
+                          "if not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..']")  # one line: a Dockerfile RUN
 REQ_FILE = re.compile(r"(^|/)(requirements[-_/]?)?(test|tests|testing|dev)[^/]*\.(txt|in)$|(^|/)requirements[-_](test|tests|testing|dev)[^/]*\.(txt|in)$"
                       r"|^requirements\.txt$", re.IGNORECASE)  # a root requirements.txt: python-dotenv lists its test deps (click, sh) there
 EXTRAS = ("test", "tests", "testing")
@@ -125,6 +144,26 @@ def requirement_sources(tree: Path) -> tuple[list[str], list[str]]:
             for k in ("test", "tests", "testing", "dev"):
                 groups += [x for x in dg.get(k) or [] if isinstance(x, str)]
     return files, groups
+
+
+def tox_test_deps(tree: Path) -> list[str]:
+    """Benchmark v2 World fix: the requirement names of ``tox.ini``'s ``[testenv] deps`` (factor-conditional lines such
+    as ``py37: x``, options and references skipped). graphql-core lists its test plugins only there; without
+    ``pytest-describe`` pytest collected none of its ``describe_*`` tests."""
+    import configparser
+
+    f = Path(tree) / "tox.ini"
+    if not f.is_file():
+        return []
+    cp = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        cp.read_string(f.read_text(errors="replace"))
+    except configparser.Error:
+        return []
+    if not cp.has_section("testenv"):
+        return []
+    lines = [ln.strip() for ln in cp.get("testenv", "deps", fallback="").splitlines()]
+    return requirement_names("\n".join(ln for ln in lines if ln and not re.match(r"^[\w{},.-]+:\s", ln) and not ln.startswith(("{", "-"))))
 
 
 def requirement_names(text: str) -> list[str]:
@@ -320,8 +359,34 @@ def world_needs(tree: Path) -> dict[str, Any]:
     pins: dict[str, str] = {}
     for f in files:
         pins.update(requirement_pins((tree / f).read_text(errors="replace")))
+    runner = pytest_needs(tree)
     return {"apt": sorted(apt), "pip_build": list(PY_BUILD), "extras": declared_extras(tree), "import_deps": sorted(deps), "pins": dict(sorted(pins.items())),
+            **runner,
             "why": {"apt": {k: v[:3] for k, v in sorted(apt.items())}, "import_deps": deps}, "unresolved": {"commands": unresolved_cmds[:40], "imports": unresolved_imports[:40]}}
+
+
+PYTEST_CONFIG = ("pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini")
+BASE_PYTEST = "8.3.3"
+NEWER_PYTEST = "8.4.2"  # the World's pytest when A's configuration asks for a newer one than the base pin
+
+
+def _vtuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def pytest_needs(tree: Path) -> dict[str, Any]:
+    """Benchmark v2 World fixes from A's pytest configuration, empty when none applies (so every other World keeps its
+    tag): ``pytest`` is the runner pin when ``minversion`` is above the base pin (streamlink: ``minversion = 8.4.0``
+    refused pytest 8.3.3 before collecting anything); ``env`` sends coverage data to /tmp when ``addopts`` turns on
+    pytest-cov (jsonpickle: ``--cov`` wrote ``.coverage`` into the read-only workspace mount and aborted the run)."""
+    text = "\n".join((Path(tree) / f).read_text(errors="replace") for f in PYTEST_CONFIG if (Path(tree) / f).is_file())
+    out: dict[str, Any] = {}
+    m = re.search(r"(?m)^\s*minversion\s*=\s*[\"']?(\d+(?:\.\d+)*)", text)
+    if m and _vtuple(m.group(1)) > _vtuple(BASE_PYTEST):
+        out["pytest"] = f"pytest=={NEWER_PYTEST}" if _vtuple(m.group(1)) <= _vtuple(NEWER_PYTEST) else f"pytest>={m.group(1)}"
+    if re.search(r"--cov\b", text):
+        out["env"] = {"COVERAGE_FILE": "/tmp/.coverage"}
+    return out
 
 
 _SHELL_BUILTINS = {"cd", "echo", "export", "set", "if", "fi", "for", "done", "while", "test", "true", "false", "exit", "rm", "cp", "mv", "mkdir",
@@ -350,8 +415,8 @@ def requirement_pins(text: str) -> dict[str, str]:
 
 def world_dockerfile(name: str | None, req_names: list[str], groups: list[str], *, packaged: bool = True, needs: dict[str, Any] | None = None) -> str:
     """``packaged``: A has a ``pyproject.toml`` / ``setup.py`` / ``setup.cfg`` (a bare tree installs nothing of its own).
-    ``needs``: ``world_needs`` (recipe 3): system tools first, then setuptools/wheel, A with every non-doc extra, the
-    known optional imports."""
+    ``needs``: ``world_needs`` (recipe 3): system tools first, then setuptools/wheel, A with every non-doc extra (else
+    with its test extras, else bare: ``EXTRAS_FALLBACK``), the known optional imports."""
     extras = ",".join(dict.fromkeys([*EXTRAS, *((needs or {}).get("extras") or [])]))
     lines = ["FROM " + BASE_IMAGE]
     if needs:
@@ -362,14 +427,27 @@ def world_dockerfile(name: str | None, req_names: list[str], groups: list[str], 
             lines.append("RUN pip install --no-cache-dir " + " ".join(shlex.quote(p) for p in needs["pip_build"]))
     lines += ["COPY a /opt/lh/a", "WORKDIR /opt/lh/a"]
     if packaged:
-        lines.append(f'RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir ".[{extras}]" || SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir .')
-    if groups:
-        lines.append("RUN pip install --no-cache-dir " + " ".join(shlex.quote(g) for g in groups) + " || true")
+        scm = "SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir"
+        lines.append(f'RUN {scm} ".[{extras}]" || {scm} ".[{",".join(EXTRAS)}]" || {scm} .')
+    # one by one, each with a name-only retry (benchmark v2: starlette's dev group in one command failed as a whole on one
+    # unresolvable pin, so its conftest's ``blockbuster`` was never installed); the runner's own pins stay the base's
+    for g in groups:
+        bare = requirement_names(g)
+        if not bare:
+            continue
+        lines.append(f"RUN pip install --no-cache-dir {shlex.quote(g)} || pip install --no-cache-dir {shlex.quote(bare[0])} || true")
     for n in req_names:  # one by one: a name that no longer installs never blocks the others
         lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
     for n in (needs or {}).get("import_deps") or []:
         lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
-    lines.append("RUN pip install --no-cache-dir " + " ".join(BASE_PINS))
+    if packaged:  # A itself last: nothing above may leave another release of A in site-packages
+        lines.append("RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir --no-deps --force-reinstall .")
+        if name:  # and with its metadata only (see EXTRAS_FALLBACK, fix 3)
+            lines.append(f"RUN python -c {shlex.quote(DROP_INSTALLED_SOURCES)} {shlex.quote(name)}")
+    pins = [needs["pytest"] if (needs or {}).get("pytest") and p.startswith("pytest==") else p for p in BASE_PINS]
+    lines.append("RUN pip install --no-cache-dir " + " ".join(shlex.quote(p) for p in pins))
+    for k, v in sorted(((needs or {}).get("env") or {}).items()):
+        lines.append(f"ENV {k}={shlex.quote(str(v))}")
     # the project stays installed: packages read their own metadata (humanize: importlib.metadata.version at import);
     # PYTHONPATH puts the workspace (src/ and root) ahead of site-packages, so every import is the agent's code
     lines += ["WORKDIR /w", "RUN rm -rf /opt/lh /root/.cache"]
@@ -386,13 +464,19 @@ class ImageBook:
 
     def tag_for(self, repo: str, base_dir: Path) -> tuple[str, dict[str, Any]]:
         files, groups = requirement_sources(base_dir)
-        names = sorted({n for f in files for n in requirement_names((base_dir / f).read_text(errors="replace"))})
+        tox = tox_test_deps(base_dir)
+        names = sorted({n for f in files for n in requirement_names((base_dir / f).read_text(errors="replace"))} | set(tox))
         name = project_name(base_dir)
         h = packaging_hash(base_dir, [*PACKAGING, *files])
         slug = re.sub(r"[^a-z0-9_.-]+", "-", repo.lower())
         needs = world_needs(base_dir)
         key = {k: needs[k] for k in ("apt", "pip_build", "extras", "import_deps")}  # what the build installs (the reasons are not part of it)
-        h = sha256_hex(IMAGE_RECIPE + h + json.dumps(key, sort_keys=True))
+        key.update({k: needs[k] for k in ("pytest", "env") if needs.get(k)})  # v2 runner fixes: only the Worlds that need one change tag
+        if tox:
+            key["tox_deps"] = tox
+        if groups:  # installed one by one since v2: only the Worlds with dependency groups change tag
+            key["groups_each"] = groups
+        h = sha256_hex(IMAGE_RECIPE + EXTRAS_FALLBACK + h + json.dumps(key, sort_keys=True))
         return f"{PREFIX}w:{slug}-{h[:12]}", {"project": name, "requirement_files": files, "requirement_names": names, "groups": groups,
                                                "packaging_hash": h, "recipe": IMAGE_RECIPE, "needs": needs}
 
@@ -441,8 +525,14 @@ if [ -s /probe/names ]; then
 else
   echo "NAME_HITS="
 fi
+echo "A_SOURCES=$(python3 -c "$LH_ASRC" "$LH_PKG" 2>/dev/null)"
 cd /probe/ws && echo "GIT_COMMITS=$(git log --all --format=%H | wc -l)" && echo "GIT_TAGS=$(git tag | tr '\n' ' ')"
 """
+# benchmark v2: the project's installed copy holds no Python source (an image shared by windows with the same packaging
+# carried another window's A: a later A is the solution; ``EXTRAS_FALLBACK`` fix 3 removes it at build)
+LEAK_ASRC = ("import importlib.metadata as m, re, sys; n = lambda x: re.sub(r'[-_.]+', '-', (x or '').lower()); "
+             "print(sum(1 for d in m.distributions() if n(d.metadata['Name']) == n(sys.argv[1]) for f in (d.files or []) "
+             "if str(f).endswith('.py') and not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..'))")
 
 
 # a file leaks B's tests when it defines several of them (one shared name such as test_other is a coincidence: pyflakes'
@@ -483,6 +573,9 @@ def judge_leak(fields: dict[str, str], *, version: str | None) -> dict[str, Any]
         "no_new_test_names_in_image": "pass" if not fields.get("NAME_HITS") else "fail",
         "git_log_only_base": "pass" if fields.get("GIT_COMMITS") == "1" and fields.get("GIT_TAGS", "").split() == ["base"] else "fail",
     }
+    if "A_SOURCES" in fields:  # benchmark v2 (a probe run by an older script has no count)
+        n = fields["A_SOURCES"].strip()
+        probes["no_installed_project_source"] = "n/a" if not n.isdigit() else ("pass" if int(n) == 0 else "fail")
     return {"probes": probes, "ok": all(v in ("pass", "n/a") for v in probes.values()), "evidence": {k: fields.get(k, "")[:300] for k in fields}}
 
 
@@ -498,7 +591,7 @@ async def leak_probes(image: str, base_dir: Path, *, package: str | None, versio
         dist = re.sub(r"[-_.]+", "?", (package or "none-such-package"))
         name = f"{name_prefix}{uuid.uuid4().hex[:10]}"
         args = ["run", "--rm", "--name", name, "--network", "none", "-v", f"{probe.resolve()}:/probe:ro", "-e", f"LH_PKG={package or 'none-such-package'}",
-                "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", image, "bash", "-c", LEAK_SCRIPT]
+                "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", "-e", f"LH_ASRC={LEAK_ASRC}", image, "bash", "-c", LEAK_SCRIPT]
         r = await asyncio.to_thread(docker, *args, timeout=600)
     if r.returncode not in (0, 1) and "PIP_RC" not in r.stdout:
         return {"probes": {}, "ok": False, "evidence": {"error": (r.stderr or r.stdout)[-500:]}}

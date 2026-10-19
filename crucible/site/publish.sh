@@ -13,6 +13,7 @@ else mkdir -p "$(dirname "$REPO")"; git clone -q https://github.com/ahmd-mohsin/
 DEST="$REPO/public/crucible"
 rm -rf "$DEST"; mkdir -p "$DEST/assets"
 cp "$HERE/index.html" "$DEST/index.html"
+cp "$HERE/workflow.html" "$DEST/workflow.html"
 cp "$HERE"/assets/*.js "$DEST/assets/"
 
 cd "$REPO"

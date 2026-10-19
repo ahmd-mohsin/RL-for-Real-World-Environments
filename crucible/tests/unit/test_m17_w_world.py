@@ -82,7 +82,7 @@ def test_leak_probes_pass_in_the_world_image(world) -> None:
     out = asyncio.run(leak_probes(card["image"], task.base_dir, package="toyrepo", version="0.2", new_test_names={"test_gamma", "test_beta"}))
     assert out["ok"], out
     assert out["probes"] == {"pip_download_b_fails": "pass", "no_b_distribution_file": "pass", "no_new_test_names_in_image": "pass",
-                             "git_log_only_base": "pass"}
+                             "git_log_only_base": "pass", "no_installed_project_source": "pass"}
 
 
 @pytest.mark.docker

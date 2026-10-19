@@ -4,9 +4,18 @@ model is called (scripted solvers only).
     python crucible/scripts/lh_bench.py <stage> [options]
 
 Stages:
+- ``select``  benchmark v2: the held-out selection (``factory.benchmark.BENCH_V2``) with each repository's organisation
+              checked against every training source (``--train-source``) and its candidate windows after ``--cutoff``
+              counted (git only, no container); ``<out>/selection.json``;
+- ``mine``    benchmark v2: validate every candidate window (``factory.benchmark.mine_heldout``) of the selected
+              repositories (``--clones``: ``<dir>/<name>``) into the held-out store ``--heldout``; ``--extra-store``
+              re-validates an older held-out store's windows that end after the cutoff; containers
+              ``crucible-bench-mine-*`` / ``crucible-lh-bench-leak-*``;
+- ``funnel``  the held-out store's funnel per stage per repository;
 - ``build``   the sealed benchmark from ``--heldout`` against ``--train`` (``factory.benchmark.build``): sealing (repos,
-              orgs, time split, contamination), the S3/S5/S6/S8/S10 gates in ``crucible-lh-p6-*`` / ``crucible-p6-*``
-              containers (journaled per task; a rerun reuses them), ``<out>/manifest.json`` + ``tasks.jsonl`` + ``seal.json``;
+              orgs, time split or ``--cutoff``, contamination; ``--train-source`` adds every other training source), the
+              S3/S5/S6/S8/S10 gates in ``crucible-lh-bench-*`` / ``crucible-bench-*`` containers (journaled per task; a
+              rerun reuses them), ``<out>/manifest.json`` + ``tasks.jsonl`` + ``seal.json`` (+ ``embargo.json``);
 - ``verify``  recompute every manifest hash from the store (``factory.benchmark.verify``);
 - ``rows``    slime JSONL rows for the trainable training windows with an authored prompt (``--prompts``), refusing every
               id the manifest seals (V9);
@@ -14,7 +23,8 @@ Stages:
               partial / infra-death solvers through the native path and through the slime generate path; rewards,
               per-turn credit and masking compared; ``<out>/equiv.json``;
 - ``plan``    the metrics plan;
-- ``cleanup`` removes this phase's containers (``crucible-p6-*``, ``crucible-lh-p6-*``) and nothing else.
+- ``cleanup`` removes this script's containers (``crucible-bench-*``, ``crucible-lh-bench-*``; P6's ``crucible-p6-*``,
+              ``crucible-lh-p6-*``) and nothing else.
 """
 
 from __future__ import annotations
@@ -28,19 +38,88 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-PREFIXES = ("crucible-p6-", "crucible-lh-p6-")
+PREFIXES = ("crucible-bench-", "crucible-lh-bench-", "crucible-p6-", "crucible-lh-p6-")
 
 
 def jdump(x: Any) -> str:
     return json.dumps(x, indent=1, sort_keys=True, default=str)
 
 
+def clone_dirs(a: argparse.Namespace) -> dict[str, Path]:
+    from crucible.factory.lanes.windows import HELD_OUT_REPOS
+
+    root = Path(a.clones) if a.clones else None
+    return {n: root / n for n in HELD_OUT_REPOS if root and (root / n / ".git").exists()}
+
+
+def stage_select(a: argparse.Namespace) -> None:
+    from crucible.factory.benchmark import BENCH_V2, heldout_windows, training_sources, utc
+    from crucible.factory.lanes.windows import HELD_OUT_REPOS, REPO_URLS
+    from crucible.factory.sealing import org_from
+
+    sources, _ = training_sources([Path(a.train), *[Path(x) for x in a.train_source or []]])
+    orgs: dict[str, list[str]] = {}
+    for src in sources:
+        orgs.setdefault(src.org, []).append(f"{src.kind}:{src.repo}")
+    dirs = clone_dirs(a)
+    names = [*BENCH_V2["selected"], *BENCH_V2["kept"], *(BENCH_V2["reserves"] if a.reserves else [])]
+    rows = {}
+    for n in names:
+        org = org_from(n, REPO_URLS)
+        wins = heldout_windows(dirs[n], n, cutoff=a.cutoff, cap=a.cap) if n in dirs else []
+        rows[n] = {"url": REPO_URLS[n], "org": org, "class": HELD_OUT_REPOS[n], "org_shared_with": sorted(orgs.get(org, []))[:5],
+                   "windows_after_cutoff": [(w.id, w.kind, utc(w.b_date), len(w.qualifying)) for w in wins], "clone": str(dirs.get(n, ""))}
+    doc = {"cutoff": utc(a.cutoff), "cap": a.cap, "sources": len(sources), "training_orgs": len(orgs), "repos": rows, "bench_v2": BENCH_V2}
+    Path(a.out).mkdir(parents=True, exist_ok=True)
+    (Path(a.out) / "selection.json").write_text(jdump(doc))
+    print(jdump({n: {"org": r["org"], "shared": r["org_shared_with"], "windows": len(r["windows_after_cutoff"])} for n, r in rows.items()}))
+
+
+async def mine_stage(a: argparse.Namespace) -> dict:
+    import time
+
+    from crucible.factory.benchmark import BENCH_V2, mine_heldout, windows_of
+    from crucible.factory.lanes.windows import ImageBook, WindowStore, sandbox_factory
+
+    dirs = clone_dirs(a)
+    names = a.repos.split(",") if a.repos else [*BENCH_V2["selected"], *BENCH_V2["kept"], *(BENCH_V2["reserves"] if a.reserves else [])]
+    repos = {n: dirs[n] for n in names if n in dirs}
+    store = WindowStore(Path(a.heldout), split="heldout")
+    extra = [r for x in a.extra_store or [] for r in windows_of(Path(x), "heldout", only=None)]
+    log_path = Path(a.out) / "mine_log.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def log(ev: dict) -> None:
+        with log_path.open("a") as fh:
+            fh.write(json.dumps({"t": round(time.time(), 1), **ev}, default=str) + "\n")
+        print(json.dumps(ev, default=str)[:300], flush=True)
+
+    res = await mine_heldout(repos, store, cutoff=a.cutoff, cap=a.cap, extra=extra, images=ImageBook(parallel=a.builds),
+                             sandboxes=sandbox_factory(parallel=a.parallel, name_prefix="crucible-bench-mine-"), reruns=3, parallel_windows=a.windows,
+                             deadline=time.time() + a.hours * 3600 if a.hours else None, log=log,
+                             redo=("deadline", "error", *[x for x in a.redo.split(",") if x]))
+    (Path(a.out) / "mine_plan.json").write_text(jdump(res))
+    return res
+
+
+def stage_mine(a: argparse.Namespace) -> None:
+    print(jdump(asyncio.run(mine_stage(a))))
+
+
+def stage_funnel(a: argparse.Namespace) -> None:
+    from crucible.factory.lanes.windows import WindowStore, funnel
+
+    print(jdump(funnel(WindowStore(Path(a.heldout), split="heldout"))))
+
+
 def stage_build(a: argparse.Namespace) -> None:
-    from crucible.factory.benchmark import BuildConfig, GateConfig, run
+    from crucible.factory.benchmark import BENCH_V2, BuildConfig, GateConfig, run
 
     cfg = BuildConfig(heldout_root=Path(a.heldout), train_root=Path(a.train), out_dir=Path(a.out), train_filter=a.train_filter, time_policy=a.time_policy,
                       model_cutoff=a.model_cutoff, train_prompts=Path(a.prompts) if a.prompts else None, run_gates=not a.no_gates,
-                      only=tuple(a.only or ()), gates=GateConfig(reruns=a.reruns, concurrency=a.concurrency, flake_reruns_per_level=a.reruns // 2))
+                      only=tuple(a.only or ()), gates=GateConfig(reruns=a.reruns, concurrency=a.concurrency, flake_reruns_per_level=a.reruns // 2),
+                      cutoff=a.cutoff if a.v2 else None, train_sources=tuple(Path(x) for x in a.train_source or ()), repo_dirs=clone_dirs(a),
+                      selection=BENCH_V2 if a.v2 else None, task_parallel=a.task_parallel, gate_sealed_only=a.v2, refresh_worlds=a.v2, idiom_chars=a.idiom_chars)
     m = run(cfg, log=lambda s: print(s, flush=True))
     print(jdump({"split_members": m["split_members"], "sealed": m["sealed"], "sealing": m["sealing_summary"],
                  "tasks": {t["id"]: {"in_split": t["in_split"], "excluded": t["excluded"], "gates": t["gates"]} for t in m["tasks"]}}))
@@ -80,7 +159,9 @@ def stage_rows(a: argparse.Namespace) -> None:
 
 # ---- equiv -------------------------------------------------------------------------------------------------------------------
 def kill_world() -> None:
-    names = subprocess.run(["docker", "ps", "--filter", "name=crucible-lh-p6-world-", "--format", "{{.Names}}"], capture_output=True, text=True,
+    from crucible.factory.benchmark import WORLD_PREFIX
+
+    names = subprocess.run(["docker", "ps", "--filter", f"name={WORLD_PREFIX}world-", "--format", "{{.Names}}"], capture_output=True, text=True,
                            check=False).stdout.split()
     for n in names:
         subprocess.run(["docker", "kill", n], capture_output=True, check=False)
@@ -213,7 +294,7 @@ def stage_cleanup(_a: argparse.Namespace) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("stage", choices=["build", "verify", "rows", "equiv", "plan", "cleanup"])
+    p.add_argument("stage", choices=["select", "mine", "funnel", "build", "verify", "rows", "equiv", "plan", "cleanup"])
     p.add_argument("--heldout", help="the held-out window store (store3/heldout)")
     p.add_argument("--train", help="the training window store (store3/train)")
     p.add_argument("--prompts", help="authored training prompts: <dir>/<window id>/prompt.json (P2's lhwork/p2/windows)")
@@ -224,6 +305,21 @@ def main() -> None:
     p.add_argument("--model-cutoff", default=None)
     p.add_argument("--only", nargs="*", help="build: only these held-out window ids (a partial build)")
     p.add_argument("--no-gates", action="store_true")
+    p.add_argument("--v2", action="store_true", help="build: benchmark v2 (the training cutoff, every training source, the selection record)")
+    p.add_argument("--cutoff", default="2026-07-03T00:00:00+00:00", help="the training cutoff (v2): held-out windows end after it")
+    p.add_argument("--train-source", action="append", help="another training source: a train store, scout records.json, pairs.json, a clone dir")
+    p.add_argument("--clones", help="held-out clones, <dir>/<name> (select, mine, build's re-validation)")
+    p.add_argument("--extra-store", action="append", help="mine: an older held-out store whose windows ending after the cutoff are re-validated")
+    p.add_argument("--repos", default="", help="mine: comma-separated held-out names (default: the v2 selection and the kept repositories)")
+    p.add_argument("--reserves", action="store_true", help="select/mine: include the reserve repositories")
+    p.add_argument("--cap", type=int, default=8, help="select/mine: candidate windows per repository")
+    p.add_argument("--hours", type=float, default=0.0)
+    p.add_argument("--idiom-chars", type=int, default=None, help="build: code-substring hits sharing a shorter run are idioms (v2: 100)")
+    p.add_argument("--task-parallel", type=int, default=1, help="build: tasks gated at once")
+    p.add_argument("--redo", default="", help="mine: comma-separated stop-reason prefixes to validate again (after a World fix)")
+    p.add_argument("--parallel", type=int, default=6, help="mine: concurrent test containers")
+    p.add_argument("--windows", type=int, default=3, help="mine: concurrent windows")
+    p.add_argument("--builds", type=int, default=3, help="mine: concurrent image builds")
     p.add_argument("--reruns", type=int, default=60)
     p.add_argument("--concurrency", type=int, default=4)
     p.add_argument("--agent", default="claude_code")
@@ -233,7 +329,7 @@ def main() -> None:
     p.add_argument("--agent-timeout", type=float, default=900.0)
     p.add_argument("--rollout-timeout", type=float, default=2400.0)
     a = p.parse_args()
-    {"build": stage_build, "verify": stage_verify, "rows": stage_rows, "equiv": stage_equiv, "plan": stage_plan, "cleanup": stage_cleanup}[a.stage](a)
+    {"select": stage_select, "mine": stage_mine, "funnel": stage_funnel, "build": stage_build, "verify": stage_verify, "rows": stage_rows, "equiv": stage_equiv, "plan": stage_plan, "cleanup": stage_cleanup}[a.stage](a)
 
 
 if __name__ == "__main__":
