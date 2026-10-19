@@ -1209,3 +1209,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   down once, in reverse order). All 3 fail on the previous code.
 - **Merge notes.** A close can now take up to `APP_STOP_S` per App plus `TEARDOWN_S` and cannot be cut short by a cancel;
   it never hangs past those bounds. An App whose stop needs more than 150 s is cut off: raise `APP_STOP_S` for it.
+
+## 56. M1 R-11: a grade never blames the policy for an outage
+
+- **Item.** R-11 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from NeMo-Gym (sandbox
+  failures are error types, never rewards; Apache-2.0); no code copied. The report's `QueryResult.fault` field is not
+  added: engine errors arrive as text inside an `ExecError`, so the existing schema-error rule (`_policy_broke`) is
+  what tells a policy's damage from an outage, and every consumer would have needed changing.
+- **Files.** `src/crucible/verify/runtime/plan.py` (`_run_check`, the masked grade's `failure_kind`),
+  `src/crucible/verify/sql_checks.py` (`SqlAssertion.evaluate`), `docs/modules/M01-world.md` (finding 22),
+  `tests/unit/test_grade_container_lost.py` (new).
+- **Public names.** none.
+- **Behaviour.** A check that raises `EnvContainerLost`, or an exception caused by one, is `infra` with
+  `failure_kind = crucible:env_container_lost` (was `fail`, the candidate's crash); a grade masked by an infra check
+  takes that check's `failure_kind` when it has one (else `check_infra`, as before). `SqlAssertion` with a failed
+  query: a schema error (`SCHEMA_ERROR`: no such table / column, syntax error) is a fail, anything else is `infra`
+  (was a fail).
+- **Formats.** none.
+- **Tests.** `test_grade_container_lost.py` (3: a check dying on a lost container, directly or wrapped, is infra and any
+  other crash still fails; `SqlAssertion` passes, fails on a dropped table and is infra on a transport error; a whole
+  grade on a lost container is masked as `crucible:env_container_lost`). All 3 fail on the previous code. Verify,
+  SQL-check, EnterpriseOps and pack-audit suites: 312 passed, 26 skipped.
+- **Merge notes.** A SQL assertion whose own query is wrong in a way the schema-error pattern does not name now masks
+  instead of failing; `pack check`'s gold run still catches it.
