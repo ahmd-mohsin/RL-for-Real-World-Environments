@@ -74,7 +74,7 @@ class TerminalApp(App):
         return self.spec.params.get("workdir")
 
     async def tool_exec(self, command: str, timeout_s: float = 600.0):
-        r = await self.ctx.exec.run(command, cwd=self._cwd, timeout_s=min(float(timeout_s), float(self.spec.params.get("max_timeout_s", 3600))))
+        r = await self.ctx.exec.run(command, cwd=self._cwd, timeout_s=self.deadline(timeout_s, self.spec.params.get("max_timeout_s", 3600)))
         return {"exit_code": r.rc, "output": (r.stdout + r.stderr)[-20000:], "timed_out": r.timed_out}
 
     async def tool_read_file(self, path: str):

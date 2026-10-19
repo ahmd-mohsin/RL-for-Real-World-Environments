@@ -33,6 +33,7 @@ class AppContext:
     pack_root: Path | None = None  # seeds referenced by the spec resolve against this (host side)
     extra: dict[str, Any] = field(default_factory=dict)
     seed: int = 0  # this App's own seed: derive_seed(WorldSpec.seed, app id); reproducible from the spec hash in every trace
+    tool_timeout_s: float | None = None  # the World's limits.tool_timeout_s: no tool's own deadline exceeds it (App.deadline)
 
     def resolve(self, p: str) -> str:
         return p if p.startswith("/") else posixpath.normpath(posixpath.join(self.base_path, p))
@@ -143,6 +144,12 @@ class App(ABC):
     def identity(self, actor: str):
         """The calling actor's ``IdentitySpec`` (None for actors without one, and for system calls)."""
         return self.ctx.extra.get("identities", {}).get(actor)
+
+    def deadline(self, requested: float, cap: float | None = None) -> float:
+        """A tool's own time limit: what the caller asked for (at least 1 s), at most ``cap`` and the World's
+        ``tool_timeout_s``. The tool's deadline then fires before the World's, so a policy's hung command comes back as its
+        own scored ``[TIMEOUT]``, never a masked ``transport_timeout`` (NeMo-Gym's deadline layering; M1 audit R-4)."""
+        return max(1.0, min([float(requested), *(float(c) for c in (cap, self.ctx.tool_timeout_s) if c is not None)]))
 
     @property
     def policy_exec(self):

@@ -1133,3 +1133,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Internal commands whose stdout is data (a `run_python` result, the desktop App's base64 screenshot)
   are exact up to 17 MiB per stream; past that the middle is lost. Harbor's background jobs still hold a call until
   the command's deadline (the in-container cut cannot see the command's exit).
+
+## 53. M1 R-4: a policy's hung command is scored, not masked
+
+- **Item.** R-4 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from NeMo-Gym
+  `agent_utils/process_supervisor.py:38-44` (outer budget = tool timeout + cleanup + 30 s; Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/apps/base.py` (`AppContext.tool_timeout_s`, `App.deadline`), `world/world.py`
+  (`TOOL_GRACE_S`, `_call_tool`, the context gets the limit), `world/apps/workspace.py` and `world/apps/toolchain.py`
+  (`tool_shell`), `interop/harbor/inplace.py` (`TerminalApp.tool_exec`), `core/schema/world.py` (comment),
+  `docs/modules/M01-world.md` (finding 19), `tests/unit/test_tool_deadlines.py` (new).
+- **Public names.** `AppContext.tool_timeout_s`, `App.deadline(requested, cap=None)`, `crucible.world.world.TOOL_GRACE_S`.
+- **Behaviour.** The workspace shell, the toolchain shell and Harbor's in-place `exec` run with
+  `max(1, min(asked, max_timeout_s, limits.tool_timeout_s))` seconds (the toolchain shell had no cap; a requested 0
+  meant no deadline). The World waits `tool_timeout_s + 60 s` for any tool, so a shell's own deadline (and the
+  transports' +15 s backstops) always come first: a policy's hung command is a scored `[TIMEOUT]`. A tool still
+  running after the grace is masked as `transport_timeout`, as before, with the reason
+  `<tool> hung past its own deadline (<limit>s + 60s)`. A pack whose `tool_timeout_s` is below a shell's
+  `max_timeout_s` now gets shorter shell deadlines.
+- **Formats.** none.
+- **Tests.** `test_tool_deadlines.py` (4: both shells score a 2 s World limit's `[TIMEOUT]` for `sleep 30` asked at
+  99 s (both masked before), a tool hung past its deadline masks, and `App.deadline`'s caps and floor). Shell,
+  toolchain, in-place and timeout suites: 436 passed, 5 skipped.
+- **Merge notes.** An episode's worst case per hung tool call grows by 60 s. Apps with long calls of their own should
+  take their deadline from `App.deadline` too.

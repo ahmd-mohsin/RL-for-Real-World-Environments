@@ -50,6 +50,9 @@ MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inboun
 
 logger = logging.getLogger(__name__)
 INFRA_ERRORS = frozenset({"transport", "gateway_error", "internal_error", "timeout", "session_lost"})
+# how long past limits.tool_timeout_s the World waits for a tool: its own deadline result (an in-container kill, then the
+# transport backstops of +15 s) arrives first and is scored (NeMo-Gym: outer = tool timeout + cleanup + 30 s)
+TOOL_GRACE_S = 60.0
 
 
 def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
@@ -274,6 +277,7 @@ class World:
                 pack_root=self.pack_root,
                 extra={"peers": self.apps, "seed": self.spec.seed, "identities": self.identities},  # peers: live dict (a browser reaches a website's URL)
                 seed=derive_seed(self.spec.seed, app_spec.id),
+                tool_timeout_s=self.spec.limits.tool_timeout_s,
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
         for app in self.apps.values():
@@ -492,9 +496,11 @@ class World:
         try:
             coro = (router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system) if router is not None
                     else self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id))
-            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s)
+            # a tool's own deadline is at most tool_timeout_s (App.deadline); the World waits TOOL_GRACE_S longer, so it ends
+            # only a tool hung past its own deadline (infrastructure), never a policy's slow command (M1 audit R-4)
+            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s + TOOL_GRACE_S)
         except TimeoutError:
-            self._infra("transport_timeout", f"{qualified} exceeded {self.spec.limits.tool_timeout_s}s")
+            self._infra("transport_timeout", f"{qualified} hung past its own deadline ({self.spec.limits.tool_timeout_s}s + {TOOL_GRACE_S:g}s)")
             return fail(qualified, f"{qualified} timed out", "timeout", "infra")
         except Exception as e:  # noqa: BLE001 - an App crashing is an environment bug: contain it, record it, mask the episode
             if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: an outage, not a tool bug (M1 R-1)
