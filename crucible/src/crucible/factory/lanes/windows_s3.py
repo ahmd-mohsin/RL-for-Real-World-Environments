@@ -8,7 +8,9 @@
   window; the seeded workspace's history is one commit tagged ``base``);
 - ``reruns``: the existing suite ``reruns`` more times (half at concurrency 1, half at ``concurrency``); a rerun is clean
   when its status vector equals the first run's. The Clopper-Pearson upper bound on the unclean rate must be <= 5%
-  (60 clean runs bound it at 4.9%);
+  (60 clean runs bound it at 4.9%). Timing tests (``windows_timing``: the record's ``excluded['timing']`` and every
+  test of A's suite the static rule names) are not compared: they are never checks, and their verdict is the host's
+  load (benchmark v2); they are listed as ``ignored_timing``;
 - ``grading``: the window's own hidden tests in the image: the oracle passes every milestone test and the start state
   passes none of them (a World change must not move the verifier: P2 of ``00`` §5.3).
 
@@ -35,6 +37,7 @@ from typing import Any
 
 from crucible.factory.lanes.windows import grader_tests, passed_group, run_tests, sandbox_factory, suite_targets
 from crucible.factory.lanes.windows_git import _defs
+from crucible.factory.lanes.windows_timing import timing_tests
 from crucible.factory.lanes.windows_world import IMAGE_RECIPE, PREFIX, ImageBook, image_id, leak_probes
 
 S3_PREFIX = f"{PREFIX}p4-"  # World containers of this phase (P4): crucible-lh-p4-*
@@ -82,6 +85,9 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
     out["checks"]["leak_probes_hold"] = bool(leak.get("ok"))
     # reruns of the existing suite: half alone, half ``concurrency`` at a time
     ref = first.results
+    a_tests = {p: f.read_text(errors="replace") for p in {t.split("::", 1)[0] for t in ref} if (f := base_dir / p).is_file()}
+    ignored = set((rec.get("excluded") or {}).get("timing") or []) | set(timing_tests(ref, a_tests))
+    out["ignored_timing"] = sorted(ignored)[:50]
     unclean: list[dict[str, Any]] = []
     done = 0
     half = reruns // 2
@@ -93,7 +99,7 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
         # P5: an id built from the clock (marshmallow parametrizes on datetime.now()) exists in one run only; ids are
         # compared where both runs have them, and the runs must collect the same number of tests (a crashed module still
         # changes the count)
-        common = set(ref) & set(tr.results)
+        common = (set(ref) & set(tr.results)) - ignored
         if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
             diff = sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted(set(ref) ^ set(tr.results))
             unclean.append({"infra": tr.infra, "why": tr.why, "differs": diff[:10]})

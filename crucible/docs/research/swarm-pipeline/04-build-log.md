@@ -748,3 +748,135 @@ stability (§7.6) not run; S15 flags it. S15 routes to S2 pause `exhausted` (no 
 each start window's last run; earlier runs (qwen3.7 planner, 80 turns) were redone. Per-candidate dollars are approximate
 (role clients are shared by concurrent candidates); role totals are exact. (8) Part A's S3/S10 ran while Part B episodes ran
 (host load; all passed). (9) DESIGN.md is left to the merge; Docker-marked tests not run.
+
+## Benchmark v2 (built): one training cutoff, every training source, timing tests out, World fixes
+
+Spec: `00` §10, §0 V9, §7.7; P6's open item (1 of 11 held-out windows sealed). $0: no model is called; every held-out
+task stays `prompt_pending`.
+
+**Files.** Changed: `factory/benchmark.py`, `factory/sealing.py`, `factory/lanes/windows.py` (held-out registry, timing
+rule in `f2p_stage`, the World-mismatch rule), `factory/lanes/windows_s3.py` (S3 reruns skip timing tests),
+`factory/lanes/windows_world.py` (World fixes, a leak probe), `scripts/lh_bench.py` (`select`, `mine`, `funnel`,
+`build --v2`). New: `factory/lanes/windows_timing.py`; tests `tests/unit/test_m17_bench_{timing,sealing,world}.py` (23, no Docker);
+`runs/bench_v2_manifest.json`.
+
+**Cutoff and policy.**
+- `TRAINING_CUTOFF` = 2026-07-03T00:00Z, just after the latest B of any trainable training window (pyparsing,
+  2026-07-02T21:45Z). A later cutoff leaves fewer held-out windows; an earlier one cuts trainable windows.
+- A held-out window must END after the cutoff (UTC). Its repository and organisation must differ from every training
+  source (`benchmark.training_sources`, `sealing.seal_sources`): every window of every training store (store, store2,
+  store3: all 124 mined, trainable or not; P5a rebreak, open, stitched), the stitched pairs, the scouted repositories
+  the lease let through (a lease-refused record was never usable: python-poetry), the probed clones and the training
+  repository list. 1,443 sources, 835 organisations.
+- Training sources that end after the cutoff are the **embargo**: 20 ids, 38 entries over the three copies of the mined
+  store (8 untrainable store3 windows, P5a's 9 open
+  windows and 2 rebreak windows; rebreak's B is its build date). The manifest lists them and `sealed_ids` returns them,
+  so the training row writers refuse them. None of the 28 trainable windows is embargoed; P5a's accepted
+  rb-more-itertools-061d3f39 is.
+- Contamination scans every training store's oracle additions (not only the 28 trainable ones). A code-substring hit
+  whose longest shared run is under 100 normalised characters (two of the scan's 50-character windows, about one line)
+  is an idiom: recorded per task, not blocking (`idiom_chars`; P6 blocked them). The 3 such hits: an alphabet literal
+  (pyjwt vs pyparsing), `def __init__(self, format: Optional[str] = None` (voluptuous vs marshmallow),
+  `return get_type_hints(obj, globalns, localns, include_extras=True)` (sphinx-autodoc-typehints vs typer).
+
+**Timing tests** (`lanes.windows_timing`). Never a milestone or a regression check:
+- static, at mining (before ownership): the name names a measurement (`near_linear`, `scale_quadratically`, `timeout`,
+  `perf`, `benchmark`, `quickly`...), a marker or fixture says so, or the body measures elapsed time (`perf_counter`,
+  `monotonic`, `time.time() - t0`, a helper named like `assert_near_linear`). The first run also matched `scale` and
+  `speedup`: it excluded voluptuous's decimal `precision_scale` tests and mistune's `speedup` plugin test. Both words are
+  out, and the 4 windows were mined again;
+- empirical, at S10: each oracle grade's failing tests are kept. A checked test that fails in some grades of the one end
+  state is load-dependent; the window is validated again without it (`revalidate`) and gated once more;
+- S3's existing-suite reruns do not compare timing tests.
+Result: mistune-w89cbd56 (P6: 12/60 S10 false negatives on its `near_linear` milestones) passes S10 (0/60 after 18
+timing tests left its checks). No v2 task showed a load-dependent test at S10.
+
+**Selection** (before mining; `BENCH_V2`, `lh_bench.py select` -> `selection.json`). 14 new repositories: fsspec,
+filelock, sphinx-autodoc-typehints, w3lib, starlette, pyjwt, jsonpickle, peewee, streamlink, pydash, pint, dateparser,
+graphql-core, alembic. 10 reserves. 5 kept: sqlparse, tomlkit, python-dotenv (no window after the cutoff), voluptuous,
+mistune. jinja dropped (pallets). Excluded at selection:
+- 12 repositories whose organisation a lease-passed scout record holds (PyCQA, executablebooks, sqlglot...);
+- 7 that the grader's pytest would import: a pytest11 plugin or a pytest dependency (packaging, pluggy, anyio,
+  typeguard, faker, pytest-mock, platformdirs). The agent's edit would reach the grader (V4);
+- 28 with no window after the cutoff, 4 with a compiled core or a data download, and sqlfluff (suite too slow).
+Dropped after selection, and still held out: peewee (unittest modules pytest does not collect); filelock (its lock
+tests hang on the bind-mounted workspace, the containers survive `docker kill`); streamlink (suite past the 600 s
+sandbox timeout); alembic (writes SQLite files into the read-only grading mount).
+
+**Mining** (`benchmark.mine_heldout`, store3's pipeline: tolerant ownership, executed prober, revert mutants, recipe-3
+Worlds, leak probes). Candidates: release windows whose B is after the cutoff, then 8-unit commit runs wholly after it,
+newest first, 8 per repository; store3's held-out windows that end after the cutoff are validated again. The
+pre-declared rule then applied (fewer than 20): the reserves were mined, and the cap rose to 12.
+
+| | windows | World built, leak-ok | >= 2 milestones | dependent | mutants valid |
+|---|---|---|---|---|---|
+| 14 selected + 5 kept (8 per repository) | 72 | 72 | 56 | 8 | 8 |
+| 10 reserves | 14 | 14 | 6 | 3 | 2 |
+| cap 8 -> 12 (fsspec, sphinx-autodoc-typehints, w3lib, pint) | 10 | 10 | 10 | 0 | 0 |
+| **all** | **96** | 96 | 72 | 11 | **10** |
+
+filelock's windows never finished (not counted). Stop reasons:
+- 61 independent (no milestone needs an earlier unit): fsspec 12/12, sphinx-autodoc-typehints 11/12, pint 8/9,
+  w3lib 7/9, pydash 6/7, graphql-core 4/4, tomlkit 3/3;
+- 16 no test result at B: streamlink 5, litestar 4 (SQLAlchemy 2.1 deprecation errors), starlette 2 (B's conftest
+  needs `blockbuster`, which A does not declare), nox 2, alembic 2, pydash 1 (mypy test items past the timeout);
+- 6 under 2 milestones (dateparser), 2 real failures at B (huey needs redis), 1 with every revert conflicting
+  (jsonpath-ng).
+
+**World fixes found while mining** (each with a test; only the Worlds that need one change tag, except 3):
+1. A with every extra did not install (fsspec's `full`): the build tries A's test extras before A bare.
+2. 345 xfails read as "354 tests fail at B (environment mismatch)" (w3lib): a mismatch counts only failed or error.
+3. **Structural (leak).** One World image serves every window with the same packaging, so its installed copy of the
+   project is the A of whichever window built it first. Executed: w3lib's and pyjwt's Worlds held another A's sources
+   in site-packages (a later A is the solution); pint ships its tests, and the leak probe caught a later A's tests.
+   In store3 training, 27 of 28 trainable Worlds hold an installed copy, and 1 (arrow-wce69c31) holds another A
+   (9 of 10 files differ). Fix: A is installed again without dependencies last, and its installed copy keeps only its
+   metadata. A new leak probe (`no_installed_project_source`) fails any image that still holds source. Executed: the
+   new pint image passes with 0 files; the old w3lib image fails with 10. `benchmark.refresh_world` rebuilds every
+   candidate's World under the new recipe before gating; all 10 passed the probes again.
+4. `minversion = 8.4.0` refused the pinned pytest 8.3.3 (streamlink): the World pins pytest 8.4.2 when asked.
+5. `--cov` in `addopts` wrote `.coverage` into the read-only mount (jsonpickle): `COVERAGE_FILE=/tmp/.coverage`.
+6. Test plugins listed only in `tox.ini [testenv] deps` (graphql-core's `pytest-describe`) are installed.
+7. A dependency group in one pip command failed whole on one pin (starlette): one by one, with a name-only retry.
+
+**Gates and split** (`lh_bench.py build --v2 --train-filter all --idiom-chars 100`; S3 60 reruns, S10 30 + 30 at
+concurrency 1 and 4; containers `crucible-bench-*` / `crucible-lh-bench-*`). All 10 candidates passed sealing and S6,
+S5, S8, S10 and S3. No S10 grade moved (0/60 each, upper bound 4.87%). Gate time ran from 2 minutes (voluptuous) to
+2.3 hours (pint: S3 reruns a 2-minute suite 60 times).
+
+| task | class | B (UTC) | milestones | executed edges |
+|---|---|---|---|---|
+| jsonpickle-wbddf979-42b78e9 | H1 | 2026-08-06 | 6 | 1 |
+| mistune-w89cbd56-618ebfb | H2 | 2026-10-02 | 11 | 1 |
+| parsel-w05b3d37-9f353b9 (reserve) | H1 | 2026-09-25 | 11 | 1 |
+| pint-wa1db27c-6521366 | H2 | 2026-09-11 | 7 | 1 |
+| pyjwt-w7144e45-c6fe464 | H1 | 2026-09-11 | 13 | 1 |
+| sphinx-autodoc-typehints-w4949f6c-599a386 | H2 | 2026-10-15 | 8 | 1 |
+| tenacity-wa2af454-4410996 (reserve) | H1 | 2026-10-07 | 5 | 3 |
+| voluptuous-w0953225-6cf9450 | H1 | 2026-07-05 | 9 | 2 |
+| w3lib-w6dd8249-0a98564 | H1 | 2026-09-27 | 6 | 1 |
+| w3lib-wd5d5e4f-05aff0d | H1 | 2026-10-03 | 7 | 2 |
+
+**Split: 10 tasks, `sealed: true`.** 9 repositories, 9 organisations; 7 H1 and 3 H2. Manifest sha256 `15897a31c7d60dbe...`
+(`runs/bench_v2_manifest.json`, the full hash inside), `tasks.jsonl` `99a5e949...`, embargo `5dc8883a...`. `verify`
+passes.
+
+**Deviations / open.**
+1. **10 sealed tasks, not >= 20.** The binding constraint is dependency: 61 of 72 gradeable windows are independent.
+   The post-cutoff period is 108 days, so windows are short (8-unit runs), and these libraries' recent work is mostly
+   parallel fixes. The gates passed all 10 that reached them. What would raise it:
+   - more held-out repositories: about 1 sealed task per 10 windows here, so roughly 100 more windows (10 to 15 repos);
+   - time: the cutoff stays fixed, so each month adds windows, and 12-unit runs become possible;
+   - held-out tasks from the other generators on held-out repositories (§10.2: same machine, same gates);
+   - grader-side fixes for the 16 windows with no result at B, and filelock's: a writable grading copy (alembic), B-only
+     test dependencies for the grader (starlette's `blockbuster`), a longer timeout for large suites (streamlink,
+     pydash's mypy items), version repair (litestar: `windows_s3.repair_versions`), file locks on a bind mount
+     (filelock). At about 1 dependent window in 7 gradeable ones, these add 2 to 4 tasks.
+2. The idiom rule is new policy (P6 blocked idioms). Without it, 3 tasks drop (pyjwt, voluptuous,
+   sphinx-autodoc-typehints).
+3. The miner ran alongside the gates (load). S10's level 4 saw that load, and no task moved.
+4. Training side, not changed here:
+   - the embargo removes P5a's accepted rebreak task from training rows;
+   - store3's training Worlds (and P6's) predate fix 3. arrow-wce69c31's World holds another A, and S3 now fails every
+     old image on the new probe. They need `refresh_world` (or `windows_s3.world_fix`) before training.
+5. Run 8-unit commit runs for held-out (training used 12). DESIGN.md is left to the merge.

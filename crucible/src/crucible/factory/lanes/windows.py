@@ -85,6 +85,7 @@ from crucible.factory.lanes.executable import (
 )
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, mine_windows
 from crucible.factory.lanes.windows_imports import project_roots, tolerant_tests
+from crucible.factory.lanes.windows_timing import timing_tests
 from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
 from crucible.factory.pathcheck import PathRules, RequiredAction, ToolCall, check_paths, find_trail
@@ -96,6 +97,15 @@ SMALL_REPOS = ("python-semver", "parse", "boltons", "cachetools", "humanize", "m
 POOL_REPOS = ("click", "marshmallow", "pyparsing", "lark", "markdown", "arrow", "glom", "toolz", "funcy", "cerberus", "typer", "dateutil")
 # chosen before any mining: never written into a training store (H1: same repo class; H2: a larger app, other styles)
 HELD_OUT_REPOS: dict[str, str] = {"sqlparse": "H1", "tomlkit": "H1", "python-dotenv": "H1", "voluptuous": "H1", "jinja": "H2", "mistune": "H2"}
+# benchmark v2 (2026-10-18), chosen before mining (factory/benchmark.py BENCH_V2 records why): organisations disjoint from
+# every training source, permissive licence, pure Python, pytest, windows that end after the training cutoff. jinja stays
+# held out (its windows were seen as held-out) but leaves the benchmark: pallets also owns click (training)
+HELD_OUT_REPOS.update({"fsspec": "H2", "filelock": "H1", "sphinx-autodoc-typehints": "H2", "w3lib": "H1", "starlette": "H2", "pyjwt": "H1",
+                       "jsonpickle": "H1", "peewee": "H2", "streamlink": "H2", "pydash": "H1", "pint": "H2", "dateparser": "H2", "graphql-core": "H2",
+                       "alembic": "H2",
+                       # reserves, mined only if the selection above seals fewer than 20 tasks
+                       "parsel": "H1", "validators": "H1", "huey": "H1", "tenacity": "H1", "cattrs": "H1", "loguru": "H1", "nox": "H2",
+                       "litestar": "H2", "tablib": "H1", "jsonpath-ng": "H1"})
 REPO_URLS = {
     "python-semver": "python-semver/python-semver", "parse": "r1chardj0n3s/parse", "boltons": "mahmoud/boltons", "cachetools": "tkem/cachetools",
     "humanize": "python-humanize/humanize", "more-itertools": "more-itertools/more-itertools", "click": "pallets/click",
@@ -103,6 +113,13 @@ REPO_URLS = {
     "arrow": "arrow-py/arrow", "glom": "mahmoud/glom", "toolz": "pytoolz/toolz", "funcy": "Suor/funcy", "cerberus": "pyeve/cerberus",
     "typer": "fastapi/typer", "dateutil": "dateutil/dateutil", "sqlparse": "andialbrecht/sqlparse", "tomlkit": "python-poetry/tomlkit",
     "python-dotenv": "theskumar/python-dotenv", "voluptuous": "alecthomas/voluptuous", "jinja": "pallets/jinja", "mistune": "lepture/mistune",
+    "fsspec": "fsspec/filesystem_spec", "filelock": "tox-dev/filelock", "sphinx-autodoc-typehints": "tox-dev/sphinx-autodoc-typehints",
+    "w3lib": "scrapy/w3lib", "starlette": "Kludex/starlette", "pyjwt": "jpadilla/pyjwt", "jsonpickle": "jsonpickle/jsonpickle",
+    "peewee": "coleifer/peewee", "streamlink": "streamlink/streamlink", "pydash": "dgilland/pydash", "pint": "hgrecco/pint",
+    "dateparser": "scrapinghub/dateparser", "graphql-core": "graphql-python/graphql-core", "alembic": "sqlalchemy/alembic",
+    "parsel": "scrapy/parsel", "validators": "python-validators/validators", "huey": "coleifer/huey", "tenacity": "jd/tenacity",
+    "cattrs": "python-attrs/cattrs", "loguru": "Delgan/loguru", "nox": "wntrblm/nox", "litestar": "litestar-org/litestar",
+    "tablib": "jazzband/tablib", "jsonpath-ng": "h2non/jsonpath-ng",
 }
 # one module that fails to import must not stop the others from running: a milestone's tests are judged on their own
 COLLECT_ALL = ("--continue-on-collection-errors",)
@@ -649,8 +666,12 @@ def volatile_ids(late: Mapping[str, str] | None, ids: Sequence[str]) -> list[str
     return sorted(t for t in set(ids) if t not in late)
 
 
-async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: DockerSandbox, *, reruns: int = 3, min_milestones: int = 2) -> str | None:
-    """Fail-to-pass / pass-to-pass with reruns, then milestones by owner unit. Returns why the window stops, or None."""
+async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: DockerSandbox, *, reruns: int = 3, min_milestones: int = 2,
+                    exclude: Mapping[str, str] | None = None) -> str | None:
+    """Fail-to-pass / pass-to-pass with reruns, then milestones by owner unit. Returns why the window stops, or None.
+    Benchmark v2: timing tests (``windows_timing.timing_tests``: name, marker, fixture or a body that measures elapsed
+    time) and ``exclude`` (test id -> reason; S10's load-dependent tests) are never checks: they leave fail-to-pass and
+    pass-to-pass before ownership, recorded in ``excluded['timing']`` and ``timing_rule``."""
     if rec.get("import_tolerant"):
         rec["import_roots"] = sorted(project_roots(base, list(rec.get("oracle_files") or {})))
     tests_b, gone = grader_tests(rec, base)[0], rec["tests_deleted"]
@@ -668,10 +689,18 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
         ev["post_tail"] = post[0].tail[-1200:] or post[0].why
         return "no test result at B (collection failed: environment mismatch)"
     cls = classify_runs(pre, post)
+    timing = {**timing_tests([*cls["f2p"], *cls["p2p"]], tests_b), **{t: w for t, w in (exclude or {}).items() if t in {*cls["f2p"], *cls["p2p"]}}}
+    cls["f2p"] = [t for t in cls["f2p"] if t not in timing]
+    cls["p2p"] = [t for t in cls["p2p"] if t not in timing]
     ev.update({k: len(v) for k, v in cls.items()})
-    if not cls["post_pass"] or len(cls["post_fail"]) > max(20, len(cls["post_pass"]) // 5):
-        ev["post_fail_sample"] = cls["post_fail"][:10]
-        return f"{len(cls['post_fail'])} tests fail at B (environment mismatch)"
+    ev["timing"] = len(timing)
+    # a World mismatch is tests that FAIL or ERROR at B; skipped and xfailed tests are not (benchmark v2: w3lib's 345
+    # xfails read as 354 "failures" and stopped every window)
+    hard = [t for t in cls["post_fail"] if all(r.results.get(t) in ("failed", "error") for r in post)]
+    ev["post_hard_fail"] = len(hard)
+    if not cls["post_pass"] or len(hard) > max(20, len(cls["post_pass"]) // 5):
+        ev["post_fail_sample"] = hard[:10]
+        return f"{len(hard)} tests fail at B (environment mismatch)"
     # owner = the first unit after whose prefix the test passes under B's tests (report 11 F3); a test that never passes
     # on a prefix is a collateral regression check
     po = await prefix_owners(rec, repo, base, sandbox, cls["f2p"])
@@ -685,7 +714,8 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
     rec["ownership"] = po
     rec["milestones"] = milestones_from_owners(rec, owners)
     rec.update(targets=targets, p2p=[t for t in cls["p2p"] if t not in volatile], collateral=sorted(t for t, o in owners.items() if o is None),
-               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile})
+               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile, "timing": sorted(timing)},
+               timing_rule=dict(sorted(timing.items())))
     if len(rec["milestones"]) < min_milestones:
         return f"{len(rec['milestones'])} milestone(s) with fail-to-pass tests (need {min_milestones})"
     return None
@@ -693,7 +723,7 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
 
 async def validate_window(win: Window, store: WindowStore, images: ImageBook, sandboxes: Callable[[str], DockerSandbox], *, reruns: int = 3,
                           min_milestones: int = 2, mutants: bool = True, log: Callable[[dict], None] | None = None,
-                          import_tolerant: bool = True, leak_prefix: str | None = None) -> dict[str, Any]:
+                          import_tolerant: bool = True, leak_prefix: str | None = None, exclude: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Every stage for one window; the record (saved whatever stage it reached) says how far it got and why it stopped.
     ``import_tolerant`` (report 11 F8, the default for new windows): the window is classified, probed and graded with
     import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict."""
@@ -735,7 +765,7 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
         return stop(f"leak probe failed: {leak.get('probes') or leak.get('evidence')}")
     rec["stage"] = "leak_ok"
     sandbox = sandboxes(card["image"])
-    why = await f2p_stage(rec, repo, base, sandbox, reruns=reruns, min_milestones=min_milestones)
+    why = await f2p_stage(rec, repo, base, sandbox, reruns=reruns, min_milestones=min_milestones, exclude=exclude)
     if why is not None:
         return stop(why)
     rec["stage"] = "f2p_valid"

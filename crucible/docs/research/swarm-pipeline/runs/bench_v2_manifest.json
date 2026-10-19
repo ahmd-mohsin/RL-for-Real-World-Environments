@@ -1,0 +1,1015 @@
+{
+ "benchmark": "crucible-lh-heldout",
+ "built_utc": "2026-10-19T05:36:10.054669+00:00",
+ "embargo_sha256": "5dc8883ac03f20c7e098886c06e9dc16b1752e2ef298e965a37066d91db419b4",
+ "heldout_funnel": {
+  "dependent": 11,
+  "f2p_valid": 72,
+  "leak_ok": 96,
+  "mutants_valid": 10,
+  "windows": 96,
+  "world_built": 96
+ },
+ "manifest_sha256": "15897a31c7d60dbe7cd0ab040b6a79ec2f26b2f4ca822b97057c3121423bbe1d",
+ "metrics_plan": {
+  "attempts": "n >= 5 per (task, policy); k = 1..5",
+  "calibration": "STATUS.json Brier and ECE over (claimed p, verified y) per requirement",
+  "capability": "pass@1 and pass@k by category, task-clustered bootstrap CI (bench.lh_metrics.pass_hat_k per task)",
+  "categories": "generator x horizon class (H1 same repo class, H2 transfer surface) x intent",
+  "cost": "USD per passing episode by category, with the max/min ratio across tasks (cost per episode rewards giving up)",
+  "held_out_traces": "only intent-level counts leave the benchmark (V9; swarm-pipeline/00 \u00a78.6)",
+  "masked": "infrastructure-masked attempts are counted, never scored (V8)",
+  "progress": "mean final Phi (last measured checkpoint), milestones lost per episode, compaction-boundary loss ratio",
+  "reliability": "pass^k (all k of k pass, tau-bench) by category, task-clustered bootstrap CI",
+  "transfer": "paired base vs trained per task (bench.lh_metrics.paired): mean difference, repo-clustered bootstrap CI, MDE at 80% power",
+  "unit": "task (resampled for every CI); episodes are nested in tasks"
+ },
+ "not_verified": [
+  "S5 fairness lint and the S7 prompt ledger (prompt_pending)",
+  "S9 second verifier and S11-S14 (no prompt, no solver spend)",
+  "S8 valid alternatives from another family (only the oracle's unit steps)",
+  "strong-frontier pass@1 <= 50% (paid; needs approval)",
+  ">= 20 tasks per intent (spec 10.2): see the split size"
+ ],
+ "partial": false,
+ "policy": {
+  "contamination_idiom_chars": 100,
+  "contamination_scope": "the lines each oracle adds to Python sources (tests, packaging, CI, docs, imports excluded) vs the same for training windows plus their authored prompts",
+  "gates": [
+   "s3",
+   "s5",
+   "s6",
+   "s8",
+   "s10"
+  ],
+  "model_cutoff": null,
+  "rules": [
+   "disjoint repositories (every training source)",
+   "disjoint organisations (every training source)",
+   "time: B after the training cutoff 2026-07-03T00:00:00+00:00 (UTC); training sources after it are embargoed",
+   "no contamination hit",
+   "timing tests are never checks (lanes.windows_timing: static rule at mining, load-dependent at S10)"
+  ],
+  "s10_reruns_per_level": 30,
+  "s3_reruns": 60,
+  "time_policy": "strict",
+  "train_filter": "all",
+  "training_cutoff": "2026-07-03T00:00:00+00:00"
+ },
+ "prompt_authoring": {
+  "lint": "S5's fairness lint and the S7 ledger run after authoring",
+  "rule": "held-out prompts are written later, under sealing, by a dedicated author lease; no model authored any held-out text (P6, v2)",
+  "status": "pending"
+ },
+ "sealed": true,
+ "sealing_summary": {
+  "contamination_hits": 5,
+  "cutoff_violations": 0,
+  "embargoed_sources": 38,
+  "heldout_not_after_cutoff": 0,
+  "latest_train": {
+   "date_utc": "2026-10-14T18:49:35+00:00",
+   "window": "rb-more-itertools-0a7a2eb0"
+  },
+  "shared_orgs": [],
+  "shared_repos": [],
+  "source_shared_orgs": {},
+  "time_violations": 9,
+  "training_cutoff": "2026-07-03T00:00:00+00:00"
+ },
+ "selection": {
+  "dropped": {
+   "alembic": "while mining: its tests write SQLite files into the working directory, and the grading sandbox mounts the tree read-only (no test result at B)",
+   "filelock": "while mining: its lock tests hang on the bind-mounted workspace (Docker Desktop file sharing); the containers survive docker kill, so no window finished",
+   "jinja": "pallets also owns click (training); its windows stay held out, out of the benchmark",
+   "peewee": "before mining: its suite is unittest modules not named test_*.py, so pytest collects nothing",
+   "streamlink": "while mining: after the pytest-minversion fix its suite still ran past the 600 s sandbox timeout (2 CPUs, single core busy) on every run of 5 windows"
+  },
+  "excluded": {
+   "compiled core or a build that downloads data": [
+    "tox-dev/pipdeptree (Rust)",
+    "jawah/charset_normalizer (mypyc/Cython)",
+    "falconry/falcon (Cython)",
+    "python-babel/babel (CLDR download)"
+   ],
+   "no release window or 8-unit run ends after the cutoff": [
+    "python-attrs/attrs",
+    "hynek/structlog",
+    "encode/httpx",
+    "carpedm20/emoji",
+    "cloudpipe/cloudpickle",
+    "hukkin/mdformat",
+    "konradhalas/dacite",
+    "lidatong/dataclasses-json",
+    "mitmproxy/pdoc",
+    "pyinvoke/invoke",
+    "pytransitions/transitions",
+    "seperman/deepdiff",
+    "prompt-toolkit/python-prompt-toolkit",
+    "python-jsonschema/jsonschema",
+    "FactoryBoy/factory_boy",
+    "Kludex/python-multipart",
+    "jaraco/inflect",
+    "kurtmckee/feedparser",
+    "prettytable/prettytable",
+    "pypa/wheel",
+    "python-gitlab/python-gitlab",
+    "python-lsp/python-lsp-server",
+    "python-rope/rope",
+    "savoirfairelinux/num2words",
+    "sphinx-doc/sphinx",
+    "sqlalchemy/mako"
+   ],
+   "org shared with a training source (a scouted consumer the lease let through)": [
+    "PyCQA/flake8",
+    "PyCQA/pycodestyle",
+    "PyCQA/pyflakes",
+    "PyCQA/isort",
+    "executablebooks/markdown-it-py",
+    "eliben/pycparser",
+    "pydantic/pydantic-settings",
+    "dry-python/returns",
+    "tobymao/sqlglot",
+    "PyGithub/PyGithub",
+    "RDFLib/rdflib",
+    "trentm/python-markdown2"
+   ],
+   "suite too slow for 3 + 3 reruns per window": [
+    "sqlfluff/sqlfluff"
+   ],
+   "the grader's pytest imports it (a pytest11 plugin or a pytest dependency: the agent's edit would reach the grader, V4)": [
+    "pypa/packaging",
+    "pytest-dev/pluggy",
+    "pytest-dev/pytest-mock",
+    "agronholm/anyio",
+    "agronholm/typeguard",
+    "joke2k/faker",
+    "tox-dev/platformdirs"
+   ]
+  },
+  "kept": {
+   "mistune": "lepture",
+   "python-dotenv": "theskumar (no window ends after the cutoff)",
+   "sqlparse": "andialbrecht",
+   "tomlkit": "python-poetry (a scouted python-poetry record was refused by the lease: never a training source)",
+   "voluptuous": "alecthomas"
+  },
+  "reserve_rule": "mined only if the selection seals fewer than 20 tasks; then the per-repository cap rises from 8 to 12",
+  "reserves": [
+   "parsel",
+   "validators",
+   "huey",
+   "tenacity",
+   "cattrs",
+   "loguru",
+   "nox",
+   "litestar",
+   "tablib",
+   "jsonpath-ng"
+  ],
+  "selected": {
+   "alembic": "sqlalchemy/alembic MIT (0 + 2)",
+   "dateparser": "scrapinghub/dateparser BSD (1 + 5)",
+   "filelock": "tox-dev/filelock MIT (4 + 12)",
+   "fsspec": "fsspec/filesystem_spec BSD (1 release + 15 runs after the cutoff)",
+   "graphql-core": "graphql-python/graphql-core MIT (1 + 3)",
+   "jsonpickle": "jsonpickle/jsonpickle BSD (0 + 2)",
+   "peewee": "coleifer/peewee MIT (8 + 2; the optional Cython playhouse module is not built)",
+   "pint": "hgrecco/pint BSD (0 + 9)",
+   "pydash": "dgilland/pydash MIT (1 + 6)",
+   "pyjwt": "jpadilla/pyjwt MIT (2 + 0)",
+   "sphinx-autodoc-typehints": "tox-dev/sphinx-autodoc-typehints MIT (2 + 31)",
+   "starlette": "Kludex/starlette BSD (3 + 1)",
+   "streamlink": "streamlink/streamlink BSD (2 + 3)",
+   "w3lib": "scrapy/w3lib BSD (0 + 9)"
+  }
+ },
+ "sources": {
+  "contamination_corpus_windows": 226,
+  "heldout_candidates": 10,
+  "heldout_store": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/benchv2/store/heldout",
+  "train_prompts": 28,
+  "train_sources": [
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/lhwork/store/train",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/lhwork/store2/train",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/rebreak/store/train",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/open/store/train",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/stitch/store/train",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/scout/records.json",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/scout/pairs.json",
+   "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5/repos"
+  ],
+  "train_store": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/lhwork/store3/train",
+  "train_windows": 124,
+  "training_sources": {
+   "by_kind": {
+    "clone": 34,
+    "pairs": 12,
+    "repo_list": 18,
+    "scout:consumer": 722,
+    "scout:host_repo": 60,
+    "scout:real_fix": 30,
+    "scout:real_perf": 30,
+    "scout:request": 60,
+    "window_store": 477
+   },
+   "dated": 477,
+   "embargo": 38,
+   "heldout": 10,
+   "latest_source_end": "2026-10-14T18:49:35+00:00",
+   "orgs": 835,
+   "sources": 1443
+  }
+ },
+ "split": "heldout",
+ "split_members": [
+  "jsonpickle-wbddf979-42b78e9",
+  "mistune-w89cbd56-618ebfb",
+  "parsel-w05b3d37-9f353b9",
+  "pint-wa1db27c-6521366",
+  "pyjwt-w7144e45-c6fe464",
+  "sphinx-autodoc-typehints-w4949f6c-599a386",
+  "tenacity-wa2af454-4410996",
+  "voluptuous-w0953225-6cf9450",
+  "w3lib-w6dd8249-0a98564",
+  "w3lib-wd5d5e4f-05aff0d"
+ ],
+ "tasks": [
+  {
+   "a": "bddf9794b567ad7f7c11aad88c7c9cc3ed05a223",
+   "a_date": "2026-07-06T13:40:50-04:00",
+   "b": "42b78e90940a28795486717b703dd223cddc5ba6",
+   "b_date": "2026-08-06T16:32:43+02:00",
+   "b_date_utc": "2026-08-06T14:32:43+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 710.0,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "8bc38e4c9cdf61c4a477ad0cecaf9283b3a3d86c1418775b940cedae15cf1719",
+    "checkset": "66400ed6bbf883fb707939ab90171b22632ed2fd2a400ba413247c75acf08ce6",
+    "hidden_tests": "9e5fe98e78ccce4098e7394fcec6fb30380184d90b0059ec4fb4308d13d35d61",
+    "oracle_patch": "dccdc7a34599a293fc32050fafb6af490722fc3b70e13168d0b48fd956a1e3a7",
+    "verifier_version": "06d1011c8541c914",
+    "window_record": "9def566a0fd6794e98bcbb037010ee0f648a2059f22ca480d4d9b1022c712059",
+    "world_digest": "sha256:fc84754678d4c88267e627600a9f3a4fe5883a1eb2b3e876384c598a4277ab74"
+   },
+   "horizon_class": "H1",
+   "id": "jsonpickle-wbddf979-42b78e9",
+   "image": "crucible-lh-w:jsonpickle-518f54764148",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 6,
+   "org": "jsonpickle",
+   "prompt_status": "prompt_pending",
+   "repo": "jsonpickle",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-08-06T14:32:43+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "jsonpickle",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": []
+  },
+  {
+   "a": "89cbd567d7ddefb96fb2d02c68f15ed6d74ed658",
+   "a_date": "2026-07-22T14:41:16+09:00",
+   "b": "618ebfb1e0e99ee3e18770518b5eca9530eb8633",
+   "b_date": "2026-10-02T19:59:25+09:00",
+   "b_date_utc": "2026-10-02T10:59:25+00:00",
+   "category": "mined_window/H2/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 510.0,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "601b73ac458f335e2a49f3eac78306e96f913d929635b824b07513b94c81bb5a",
+    "checkset": "3c7ffdee4f0539b376601a66758de36c129992d6db9a2e97d55c2bdf5249f9e3",
+    "hidden_tests": "b15bb9c5788dfd3360479276829f8689e44113c3efaddb327caf9b3a2df9eb84",
+    "oracle_patch": "1ff03d99f6468dcd9ff510fdf32c7ae3bfdfa9ea2f91cf0f6fcc73d78cffd0f3",
+    "verifier_version": "1024e6d336e727e5",
+    "window_record": "31adf301a7d0d222bd0d3091a919d62407da24c59f493b7b7bfab3bce0563c53",
+    "world_digest": "sha256:29d08af4be6a354932e6192632359afe21d5a260545102d86b1b9a0aa9dc8444"
+   },
+   "horizon_class": "H2",
+   "id": "mistune-w89cbd56-618ebfb",
+   "image": "crucible-lh-w:mistune-025eaccac478",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 11,
+   "org": "lepture",
+   "prompt_status": "prompt_pending",
+   "repo": "mistune",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-10-02T10:59:25+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "lepture",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "tests/test_misc.py::TestMiscCases::test_deeply_indented_list_does_not_scale_quadratically",
+     "name: test_deeply_indented_list_does_not_scale_quadratically"
+    ],
+    [
+     "tests/test_security_edge_cases.py::TestEdgeCaseSecurity::test_blank_list_continuations_are_near_linear",
+     "name: test_blank_list_continuations_are_near_linear"
+    ],
+    [
+     "tests/test_security_edge_cases.py::TestEdgeCaseSecurity::test_dense_emphasis_is_near_linear",
+     "name: test_dense_emphasis_is_near_linear"
+    ],
+    [
+     "tests/test_security_edge_cases.py::TestEdgeCaseSecurity::test_malformed_images_are_near_linear",
+     "name: test_malformed_images_are_near_linear"
+    ],
+    [
+     "tests/test_security_edge_cases.py::TestEdgeCaseSecurity::test_mixed_emphasis_delimiters_are_near_linear",
+     "name: test_mixed_emphasis_delimiters_are_near_linear"
+    ],
+    [
+     "tests/test_security_edge_cases.py::TestEdgeCaseSecurity::test_unclosed_link_destinations_are_near_linear",
+     "name: test_unclosed_link_destinations_are_near_linear"
+    ],
+    [
+     "tests/test_security_formatting.py::TestFormattingSecurity::test_repeated_formatting_pairs_return_quickly",
+     "name: test_repeated_formatting_pairs_return_quickly"
+    ],
+    [
+     "tests/test_security_formatting.py::TestFormattingSecurity::test_repeated_unclosed_formatting_markers_are_near_linear",
+     "name: test_repeated_unclosed_formatting_markers_are_near_linear"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_adjacent_ruby_tokens_do_not_recurse_forever",
+     "body calls the timing helper assert_near_linear()"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_deep_link_input_does_not_recurse_forever",
+     "body calls the timing helper assert_near_linear()"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_failed_reference_after_nested_brackets_returns_quickly",
+     "name: test_failed_reference_after_nested_brackets_returns_quickly"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_link_title_redos_payload_returns_quickly",
+     "name: test_link_title_redos_payload_returns_quickly"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_nested_bracket_link_input_does_not_recurse_forever",
+     "body calls the timing helper assert_near_linear()"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_repeated_link_suffixes_are_near_linear",
+     "name: test_repeated_link_suffixes_are_near_linear"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_repeated_unclosed_inline_spoilers_are_near_linear",
+     "name: test_repeated_unclosed_inline_spoilers_are_near_linear"
+    ],
+    [
+     "tests/test_security_inline.py::TestInlineParserSecurity::test_unmatched_bracket_input_returns_quickly",
+     "name: test_unmatched_bracket_input_returns_quickly"
+    ],
+    [
+     "tests/test_security_math.py::TestMathSecurity::test_repeated_inline_math_openers_are_near_linear",
+     "name: test_repeated_inline_math_openers_are_near_linear"
+    ],
+    [
+     "tests/test_security_ref_links.py::TestRefLinkSecurity::test_many_reference_links_return_quickly",
+     "name: test_many_reference_links_return_quickly"
+    ]
+   ]
+  },
+  {
+   "a": "05b3d37bf292d012f3d0b71fb7f0697d03af113e",
+   "a_date": "2026-01-29T12:17:14+05:00",
+   "b": "9f353b99d81778b1dc97e99c1e5f0afab48340a4",
+   "b_date": "2026-09-25T09:38:18+02:00",
+   "b_date_utc": "2026-09-25T07:38:18+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 411.2,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "4b5f894e5dd338e284e411bcda9d62751c503e4308407dc54165e07b09497690",
+    "checkset": "094abae48a0955540c2ebc24d724372dee00b2d9ec11ae8daa4af0c6c546f8b1",
+    "hidden_tests": "66ad06c6aa587f7ecd72034c622004f591732be4e0efcb4d5a65f2ed178f8dad",
+    "oracle_patch": "0ccb2f0048a0c0b7e4856f3d0a49c8b105b905153b4a9c71880ff68a079fdbad",
+    "verifier_version": "8105fde4a455dd4a",
+    "window_record": "77160a21753a6994f080e073041e42f1bd86b4c4bf2f33d4cd9a394677594bbe",
+    "world_digest": "sha256:7ce5750320103bb6d01f9fe9b8c8a93b326232481423bfb2703e6396ccdb560f"
+   },
+   "horizon_class": "H1",
+   "id": "parsel-w05b3d37-9f353b9",
+   "image": "crucible-lh-w:parsel-24a69883a58e",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 11,
+   "org": "scrapy",
+   "prompt_status": "prompt_pending",
+   "repo": "parsel",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-09-25T07:38:18+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "scrapy",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": []
+  },
+  {
+   "a": "a1db27c0179dceebfb220190947e8b3dd058f2ba",
+   "a_date": "2026-07-30T09:29:24+01:00",
+   "b": "6521366ea220fa99a023d885498846ccb920f9e5",
+   "b_date": "2026-09-11T06:53:39+09:00",
+   "b_date_utc": "2026-09-10T21:53:39+00:00",
+   "category": "mined_window/H2/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 8397.1,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "49d52a9045c19d9d59f1a06992a882c4e4fab1ae400514c2dd28cbccebe9d9f1",
+    "checkset": "1822f24d0a7a474db44b2e496919c7be621c7fc7fc789f4673a9a3ebf078d61c",
+    "hidden_tests": "b4e1eca5d7e23c1bacdc9b33e5b7b87a777121959c5a008922eb9863bb5f3cc5",
+    "oracle_patch": "d451f9c5bea9eeae13f23eb2afbc12d33c4280b0c6b8d9094ce93c982afb63e3",
+    "verifier_version": "2741d2b0764f6ab6",
+    "window_record": "c7e89c63a6a4ea3dc305d22042d3e7b460ded41214dd52b7cb0ca44e99778c0f",
+    "world_digest": "sha256:e9276b8f9b780cf914fb7ae8023c72d8b8f177fc7215aca091e9d32fd57eb2e9"
+   },
+   "horizon_class": "H2",
+   "id": "pint-wa1db27c-6521366",
+   "image": "crucible-lh-w:pint-8b1005b16001",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 7,
+   "org": "hgrecco",
+   "prompt_status": "prompt_pending",
+   "repo": "pint",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-09-10T21:53:39+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "hgrecco",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": []
+  },
+  {
+   "a": "7144e4534c34810f4525dc4578a32addd8212cff",
+   "a_date": "2026-05-21T15:34:15-04:00",
+   "b": "c6fe464b356ff4b1ebc9ba62172d331a40aa27df",
+   "b_date": "2026-09-11T08:59:11-04:00",
+   "b_date_utc": "2026-09-11T12:59:11+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 939.4,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "0491568622057366c0b14315138bac33defabfb9bdb00bc0fd8f689db6874d52",
+    "checkset": "0580cb10eb11ec62e4569c38bdfffdecef0253fc402b21a25daf2d40875df272",
+    "hidden_tests": "c97e924b271993f12b658fc79529ceb604ac717b0bad2069aa04e3a0c8d7e18a",
+    "oracle_patch": "141aeea9a4eaac439a382c637dedce60559e9ef22c3d3a89bf8ac01149b43889",
+    "verifier_version": "520da9f6f74f4aca",
+    "window_record": "30e7654a8ada9feb624396faea1bea6068b0e46ac3151e42fd087e78644bb915",
+    "world_digest": "sha256:6b8712993526af440b0300602a83e414868fcc6c93960a909f547b0c68bf5030"
+   },
+   "horizon_class": "H1",
+   "id": "pyjwt-w7144e45-c6fe464",
+   "image": "crucible-lh-w:pyjwt-b3276aeb50f5",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 13,
+   "org": "jpadilla",
+   "prompt_status": "prompt_pending",
+   "repo": "pyjwt",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-09-11T12:59:11+00:00",
+    "contamination": [],
+    "contamination_idioms": [
+     {
+      "kind": "code-substring",
+      "shared": "\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+      "shared_chars": 53,
+      "source": "pyparsing-w7d4bda2-ee50a19:diff",
+      "task": "pyjwt-w7144e45-c6fe464"
+     },
+     {
+      "kind": "code-substring",
+      "shared": "\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+      "shared_chars": 53,
+      "source": "pyparsing-w938f59d-4e627f2:diff",
+      "task": "pyjwt-w7144e45-c6fe464"
+     },
+     {
+      "kind": "code-substring",
+      "shared": "\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789",
+      "shared_chars": 63,
+      "source": "pyparsing-wfe800c0-a5e0807:diff",
+      "task": "pyjwt-w7144e45-c6fe464"
+     }
+    ],
+    "contamination_ok": true,
+    "org": "jpadilla",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "tests/test_api_jwt.py::TestJWT::test_decode_skip_expiration_verification",
+     "body subtracts time.time()"
+    ],
+    [
+     "tests/test_jwks_client.py::TestPyJWKClient::test_get_jwt_set_timeout",
+     "name: test_get_jwt_set_timeout"
+    ]
+   ]
+  },
+  {
+   "a": "4949f6cbf8eb34f3a875f78b32a0dc8b93dbbc56",
+   "a_date": "2026-10-14T22:25:18-07:00",
+   "b": "599a386c007f7c78be035ab0845e7321bd871910",
+   "b_date": "2026-10-15T00:04:21-07:00",
+   "b_date_utc": "2026-10-15T07:04:21+00:00",
+   "category": "mined_window/H2/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 2289.4,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "24477fdc244f82a490dd8fa095fac4ca4972e0d00b7924101dcbc0bdf582df8e",
+    "checkset": "24c333350a7d55479e4b396cd766e692f1ba3ba578f86a2501dc10729ed859a8",
+    "hidden_tests": "4ac515fb435dfc2526d86dc80df936ed6110fd72a512189b0e25b87eeae784a6",
+    "oracle_patch": "e4cd31542266c75d524a387fff7950a06f7f0ec49571a0ddb55e5978014b1085",
+    "verifier_version": "42ff586dc0833350",
+    "window_record": "4768557ec4a8f71c1b14553c1e8dc878e578fbc155c1e38ad93986b182511ca2",
+    "world_digest": "sha256:3f73b7f8c93f52a1a2c0953629c255177fd314f67a0274b2f8de134b57bee4ca"
+   },
+   "horizon_class": "H2",
+   "id": "sphinx-autodoc-typehints-w4949f6c-599a386",
+   "image": "crucible-lh-w:sphinx-autodoc-typehints-c9670c19d0b5",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 8,
+   "org": "tox-dev",
+   "prompt_status": "prompt_pending",
+   "repo": "sphinx-autodoc-typehints",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-10-15T07:04:21+00:00",
+    "contamination": [],
+    "contamination_idioms": [
+     {
+      "kind": "code-substring",
+      "shared": ": return get_type_hints(obj, globalns, localns, include_extras=",
+      "shared_chars": 63,
+      "source": "typer-wc3a4c72-458a492:diff",
+      "task": "sphinx-autodoc-typehints-w4949f6c-599a386"
+     }
+    ],
+    "contamination_ok": true,
+    "org": "tox-dev",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": []
+  },
+  {
+   "a": "a2af454834c6bb5a1e39d67334031cdaf0f475b5",
+   "a_date": "2026-08-05T11:48:43Z",
+   "b": "4410996dd9a96864a2733ce0778bcaa112b72811",
+   "b_date": "2026-10-07T11:34:04Z",
+   "b_date_utc": "2026-10-07T11:34:04+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 3,
+   "gate_seconds": 437.6,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "9a5e14d53538bfe0121cb582b3e5ed0af8771cc95f7d0ca2463a6fa63931ea9c",
+    "checkset": "4bdae6f6540f52126f5e9dcb6b2a305b33018f65d4a9702956c97a7769b4b5fb",
+    "hidden_tests": "c2f4711dfbbad1ecee4f758b2b7465874a19643263a489e3b3c94c2ced75df2e",
+    "oracle_patch": "dddef8ba435530241318cf9fa5b48a070dac90a525e3fac8e63545734942a4d4",
+    "verifier_version": "df5f2b21277b1540",
+    "window_record": "a2ccd05e4a34db8457671514dc076634fccbae9d93a631fe50937ab852f962fb",
+    "world_digest": "sha256:2077851ade71ea8eb39dfcfe58ec2f1c990fee099b0129f3ae009a01b18b7591"
+   },
+   "horizon_class": "H1",
+   "id": "tenacity-wa2af454-4410996",
+   "image": "crucible-lh-w:tenacity-c5dba30dd3d6",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 5,
+   "org": "jd",
+   "prompt_status": "prompt_pending",
+   "repo": "tenacity",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-10-07T11:34:04+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "jd",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "tests/test_tenacity.py::TestReraiseExceptions::test_reraise_timeout_from_retry_error",
+     "name: test_reraise_timeout_from_retry_error"
+    ]
+   ]
+  },
+  {
+   "a": "095322559b0a525c90c99d34bc233a93a3b54332",
+   "a_date": "2023-12-14T12:13:44+01:00",
+   "b": "6cf9450c7a3460f5aa102c0ba50204cc43e4e1b9",
+   "b_date": "2026-07-05T05:30:59+05:30",
+   "b_date_utc": "2026-07-05T00:00:59+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 2,
+   "gate_seconds": 119.2,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "dd788df88d1c368c9f6ac4cb79a307c9a2df3a6f531e38094cef8353bd5938ff",
+    "checkset": "20dc00d839849524de203cc9a4342b18fc63f9a8a433b2a0842ab433ab06e001",
+    "hidden_tests": "da956bb878b847227fc9db34ed6f0acc3bf1cb411f4ce2677b0ef962bf25d0f9",
+    "oracle_patch": "6838f4eaede783d170aebe4dc5e84cecb22ad2dd9ad356c3fb13c6f68451c4df",
+    "verifier_version": "4d8814aeb3347956",
+    "window_record": "b1baf923ec3cc5daf4a1e235c62391899bf7e5a3bcf193c20a623bea2baab53c",
+    "world_digest": "sha256:973aa37669637fb418a343888f5d9479b8c6e2a52d5846509b07307b72cb8287"
+   },
+   "horizon_class": "H1",
+   "id": "voluptuous-w0953225-6cf9450",
+   "image": "crucible-lh-w:voluptuous-b47df6d5ef38",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 9,
+   "org": "alecthomas",
+   "prompt_status": "prompt_pending",
+   "repo": "voluptuous",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-07-05T00:00:59+00:00",
+    "contamination": [],
+    "contamination_idioms": [
+     {
+      "kind": "code-substring",
+      "shared": " def __init__( self, format: typing.optional[str] = none, ",
+      "shared_chars": 58,
+      "source": "marshmallow-w2708795-d2a0cdb:diff",
+      "task": "voluptuous-w0953225-6cf9450"
+     }
+    ],
+    "contamination_ok": true,
+    "org": "alecthomas",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "voluptuous/tests/tests.py::test_validation_performance",
+     "name: test_validation_performance"
+    ]
+   ]
+  },
+  {
+   "a": "6dd8249c93eb231cbfad88a52c9a85d5d60fbf60",
+   "a_date": "2026-09-18T16:28:11+05:00",
+   "b": "0a985649429ca25e2b87775a5b4edc9528292964",
+   "b_date": "2026-09-27T13:28:41+05:00",
+   "b_date_utc": "2026-09-27T08:28:41+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 1,
+   "gate_seconds": 1376.6,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "8f7c92eb164bdfeb63e6c5eaae20fe4f44da22d4b45bea3602ca857c404fa3c1",
+    "checkset": "5354cb3e347ea01c71aa7facb53f374fd8a60221a6ff0c4ea993e5a902d4f301",
+    "hidden_tests": "14cd0245f2679252103b8f7ac2901efa558e150f2351007592f5afc0114d171e",
+    "oracle_patch": "ac5088849c130faee19d4c7821db85dd608eb03c116b62e666d0e206161c6e6c",
+    "verifier_version": "e1d32128e2d14cbe",
+    "window_record": "c3d1bbcb7b6f9690afdaef2feca36e4572c314137a819d054f9b1aa49a121c49",
+    "world_digest": "sha256:87638b6269e41135baa4fe4b5d95149d159088d6d7a41ac6476e36661e8fcbd8"
+   },
+   "horizon_class": "H1",
+   "id": "w3lib-w6dd8249-0a98564",
+   "image": "crucible-lh-w:w3lib-4e71356700c1",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 6,
+   "org": "scrapy",
+   "prompt_status": "prompt_pending",
+   "repo": "w3lib",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-09-27T08:28:41+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "scrapy",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "tests/test_html.py::TestGetBaseUrl::test_get_base_url_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_get_meta_refresh_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_get_meta_refresh_no_catastrophic_backtracking_single_tag",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTags::test_remove_tags_no_catastrophic_backtracking[repeated-with-bracket]",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTags::test_remove_tags_no_catastrophic_backtracking[repeated-without-bracket]",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTagsWithContent::test_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestReplaceTags::test_replace_tags_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestUnquoteMarkup::test_no_cdata_catastrophic_backtracking",
+     "body calls process_time()"
+    ]
+   ]
+  },
+  {
+   "a": "d5d5e4f4acaf5ed25e255bfa8639987c165a18a9",
+   "a_date": "2026-09-27T20:07:03+05:00",
+   "b": "05aff0d45fb026520b888b536f60a055017a7693",
+   "b_date": "2026-10-03T20:51:18+05:00",
+   "b_date_utc": "2026-10-03T15:51:18+00:00",
+   "category": "mined_window/H1/unassigned",
+   "excluded": [],
+   "executed_edges": 2,
+   "gate_seconds": 1360.0,
+   "gates": {
+    "s10": true,
+    "s3": true,
+    "s5": true,
+    "s6": true,
+    "s8": true
+   },
+   "generator": "mined_window",
+   "hashes": {
+    "a_tree": "5775230bac7ecd04778f8bab031e4ea00eeb2723fd0b7372907b09e628bec66a",
+    "checkset": "23da7f07bd153492b33e307f9e9ead84842b0f5de70d6181eb2d0820e866de79",
+    "hidden_tests": "649813c7a6851f4887376a33bb53892ba1497e5d979726cb88d1b6c8d0127a89",
+    "oracle_patch": "661b319f53f1f028eadd296023384b89b8827edc64eeb6e374c65ed375cad4e7",
+    "verifier_version": "a81bf305dd547348",
+    "window_record": "260f17dc9fac59b98fe87b17564505dc9640f6fe30183c07cf230436125be03d",
+    "world_digest": "sha256:87638b6269e41135baa4fe4b5d95149d159088d6d7a41ac6476e36661e8fcbd8"
+   },
+   "horizon_class": "H1",
+   "id": "w3lib-wd5d5e4f-05aff0d",
+   "image": "crucible-lh-w:w3lib-4e71356700c1",
+   "in_split": true,
+   "intent": "unassigned",
+   "milestones": 7,
+   "org": "scrapy",
+   "prompt_status": "prompt_pending",
+   "repo": "w3lib",
+   "revalidated": false,
+   "sealing": {
+    "after_model_cutoff": null,
+    "b_date_utc": "2026-10-03T15:51:18+00:00",
+    "contamination": [],
+    "contamination_idioms": [],
+    "contamination_ok": true,
+    "org": "scrapy",
+    "org_ok": true,
+    "org_sources": [],
+    "repo_ok": true,
+    "time_ok": true,
+    "time_rule": "B after the training cutoff 2026-07-03T00:00:00+00:00"
+   },
+   "sealing_flags": [],
+   "timing_excluded": [
+    [
+     "tests/test_html.py::TestGetBaseUrl::test_get_base_url_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_get_meta_refresh_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_get_meta_refresh_no_catastrophic_backtracking_single_tag",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestGetMetaRefresh::test_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTags::test_remove_tags_no_catastrophic_backtracking[repeated-with-bracket]",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTags::test_remove_tags_no_catastrophic_backtracking[repeated-without-bracket]",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestRemoveTagsWithContent::test_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestReplaceTags::test_replace_tags_no_catastrophic_backtracking",
+     "body calls process_time()"
+    ],
+    [
+     "tests/test_html.py::TestUnquoteMarkup::test_no_cdata_catastrophic_backtracking",
+     "body calls process_time()"
+    ]
+   ]
+  }
+ ],
+ "tasks_jsonl_sha256": "99a5e949fff40ff1304c83f438a40a017c7f0d5bf1825637555f398964e10693",
+ "training_embargo": [
+  "click-w3a40e43-7df2f82",
+  "click-w3a40e43-7df2f82",
+  "click-w3a40e43-7df2f82",
+  "boltons-wfb46499-1d52527",
+  "boltons-wfb46499-1d52527",
+  "boltons-wfb46499-1d52527",
+  "op-pyparsing-96711846",
+  "cachetools-we5f8f01-dd181c5",
+  "cachetools-we5f8f01-dd181c5",
+  "cachetools-we5f8f01-dd181c5",
+  "op-pyparsing-25a1f952",
+  "op-more-itertools-cecd215f",
+  "op-markdown-152a16fb",
+  "boltons-w7b577b0-9decba3",
+  "boltons-w7b577b0-9decba3",
+  "boltons-w7b577b0-9decba3",
+  "op-boltons-e00c10a8",
+  "boltons-w9decba3-805c803",
+  "boltons-w9decba3-805c803",
+  "boltons-w9decba3-805c803",
+  "op-funcy-d2b98600",
+  "funcy-w13fac00-04aafae",
+  "funcy-w13fac00-04aafae",
+  "funcy-w13fac00-04aafae",
+  "python-semver-w6adf876-642d1bc",
+  "python-semver-w6adf876-642d1bc",
+  "python-semver-w6adf876-642d1bc",
+  "op-markdown-5d1363ce",
+  "click-w7df2f82-3cbaa76",
+  "click-w7df2f82-3cbaa76",
+  "click-w7df2f82-3cbaa76",
+  "op-markdown-7a29324e",
+  "op-funcy-ab8a8ad8",
+  "more-itertools-w64be96c-737c261",
+  "more-itertools-w64be96c-737c261",
+  "more-itertools-w64be96c-737c261",
+  "rb-more-itertools-061d3f39",
+  "rb-more-itertools-0a7a2eb0"
+ ],
+ "version": "bench-v2"
+}
