@@ -1106,3 +1106,30 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `factory.machine.is_infra_error` and `train.runtime` count it as infrastructure. With `factory.envs.InfraWatch` on, a
   lost container can be recorded more than once (the World per call that hits it, InfraWatch after the step); every
   record is the same masked kind.
+
+## 52. M1 R-2: a command's output is bounded while it is read
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from agentenv
+  `providers/sandbox_providers/local_sandbox.py:349-438` (a bounded tail per stream, dropped bytes counted, return at
+  exit plus 1 s; Apache-2.0) and our guard's `run` loop; no code copied, no THIRD_PARTY.md row.
+- **Files.** `src/crucible/world/exec.py` (`OUT_HEAD`, `OUT_TAIL`, `EXIT_GRACE_S`, `capped_output`, `_Kept`,
+  `_blocking_run` rewritten with `_drain` / `_feed`), `src/crucible/interop/harbor/world_backend.py` (`HarborExec.run`),
+  `docs/modules/M01-world.md` (finding 18), `tests/unit/test_exec_output.py` (new).
+- **Public names.** `crucible.world.exec`: `OUT_HEAD` (1 MiB), `OUT_TAIL` (16 MiB), `EXIT_GRACE_S` (1 s),
+  `capped_output(cmd)`.
+- **Behaviour.** Every command run through `_run_subprocess` (local, Docker, gVisor, SSH, and every `docker` CLI call)
+  keeps at most the first 1 MiB and the last 16 MiB of stdout and of stderr; between them stands
+  `...[N bytes dropped]...`. The call returns 1 s after the command exits even when a background job still holds its
+  pipes (before: until they closed or the timeout); the job keeps running in the command's session, as before, until
+  `kill_sessions` or the World ends. Stdin is fed from its own thread. On Harbor, every command runs as
+  `{ cmd ; } 2>&1 | { head -c OUT_HEAD; tail -c OUT_TAIL; }` with the command's exit status (`PIPESTATUS[0]`), inside the
+  container; no marker there, so an output that fits is byte for byte (Harbor already merged stderr into stdout). An
+  image without `head`/`tail` runs the command unchanged.
+- **Formats.** none.
+- **Tests.** `test_exec_output.py` (7: head + tail and the exact dropped count per stream, byte-exact output that fits,
+  a `run_python` result longer than the head, 300 MB through `LocalExec` adding under 100 MB of peak RSS, `sleep 30 &`
+  returning in about 1 s (30 s before), large stdin and timeouts, Harbor's in-container cut with its exit status and
+  staged stdin, and a Docker-marked 50 MB flood through `DockerExec`).
+- **Merge notes.** Internal commands whose stdout is data (a `run_python` result, the desktop App's base64 screenshot)
+  are exact up to 17 MiB per stream; past that the middle is lost. Harbor's background jobs still hold a call until
+  the command's deadline (the in-container cut cannot see the command's exit).

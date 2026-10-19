@@ -12,14 +12,17 @@ tarballs) is written once in Python and runs identically locally and in any cont
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import math
 import os
 import re
+import selectors
 import shlex
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -153,6 +156,52 @@ def deadline_hit(rc: int, duration_s: float, timeout_s: float | None) -> bool:
     return bool(timeout_s) and rc in (124, 137) and duration_s >= 0.9 * float(timeout_s)
 
 
+# Output kept per stream of one command (M1 audit R-2): the first OUT_HEAD and the last OUT_TAIL bytes. A policy's `yes`
+# no longer grows the orchestrator until the OOM killer takes every World in it. The tail is generous because run_python
+# returns its result at the end of stdout; a shell tool shows the policy 30k characters of it anyway.
+OUT_HEAD = 1 << 20
+OUT_TAIL = 16 << 20
+EXIT_GRACE_S = 1.0  # after the command exits, background jobs still holding its pipes get this long, not the timeout
+
+
+def capped_output(cmd: str) -> str:
+    """``cmd`` with its output cut inside the sandbox to the first ``OUT_HEAD`` and last ``OUT_TAIL`` bytes, stderr merged into
+    stdout, for a transport that keeps all it receives (Harbor's exec, which merges them anyway). The exit status is the
+    command's; nothing marks the cut, so an output that fits passes byte for byte. An image without head/tail: unchanged."""
+    return (f"if command -v head >/dev/null 2>&1 && command -v tail >/dev/null 2>&1; then "
+            f"{{ {cmd} ; }} 2>&1 | {{ head -c {OUT_HEAD}; tail -c {OUT_TAIL}; }}; exit ${{PIPESTATUS[0]}}; else {cmd}; fi")
+
+
+class _Kept:
+    """The first ``OUT_HEAD`` and last ``OUT_TAIL`` bytes of one stream, and how many fell between."""
+
+    def __init__(self) -> None:
+        self.head = bytearray()
+        self.tail: collections.deque[bytes] = collections.deque()
+        self.size = 0  # bytes held in ``tail``
+        self.dropped = 0
+
+    def add(self, b: bytes) -> None:
+        if len(self.head) < OUT_HEAD:
+            n = OUT_HEAD - len(self.head)
+            self.head += b[:n]
+            b = b[n:]
+        if b:
+            self.tail.append(b)
+            self.size += len(b)
+            while self.size - len(self.tail[0]) >= OUT_TAIL:  # whole chunks out while the rest still fills the tail
+                x = self.tail.popleft()
+                self.size -= len(x)
+                self.dropped += len(x)
+
+    def value(self) -> bytes:
+        t = b"".join(self.tail)
+        cut = max(0, len(t) - OUT_TAIL)
+        if not self.dropped + cut:
+            return bytes(self.head) + t
+        return bytes(self.head) + b"\n...[%d bytes dropped]...\n" % (self.dropped + cut) + t[cut:]
+
+
 async def spawn_logged(*argv: str, log: Path | None, **kw: Any) -> asyncio.subprocess.Process:
     """Start a long-running helper process (server, gateway) in its own session, stdout+stderr appended to ``log``.
 
@@ -177,18 +226,69 @@ _WAITERS = ThreadPoolExecutor(max_workers=256, thread_name_prefix="crucible-exec
 
 def _blocking_run(argv: list[str], cwd: str | None, env: dict[str, str], timeout_s: float | None, stdin: bytes | None,
                   started: list[subprocess.Popen], sessions: set[int] | None = None) -> tuple[int, bytes, bytes, bool]:
+    """Run ``argv`` to its exit or ``timeout_s``, reading both pipes as they fill into a head and a tail (``_Kept``): memory
+    per call stays bounded whatever the command prints, and background jobs still holding the pipes after the command
+    exited hold the call for ``EXIT_GRACE_S``, not until the timeout (agentenv ``local_sandbox.py:349-438``; M1 audit R-2)."""
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, start_new_session=True)
     started.append(p)
     if sessions is not None:
         sessions.add(p.pid)  # the session (and process group) id: what the command leaves behind is killed with it
-    try:
-        out, err = p.communicate(stdin, timeout=timeout_s)
-        return p.returncode or 0, out, err, False
-    except subprocess.TimeoutExpired:
+    if stdin is not None:  # fed from its own thread, as communicate does: a large input never blocks the reads
+        threading.Thread(target=_feed, args=(p, stdin), daemon=True).start()
+    assert p.stdout is not None and p.stderr is not None
+    kept = {p.stdout.fileno(): _Kept(), p.stderr.fileno(): _Kept()}
+    deadline = time.monotonic() + timeout_s if timeout_s else math.inf
+    timed_out = _drain(p, kept, deadline)
+    if not timed_out:
+        try:  # the pipes closed (or the grace ran out) while the command may still run
+            p.wait(timeout=None if deadline == math.inf else max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+    if timed_out:
         _killpg(p)
-        out, err = p.communicate()
-        return -9, out, err, True
+        _drain(p, kept, time.monotonic() + EXIT_GRACE_S)  # what the killed group printed last
+    rc = p.wait()
+    p.stdout.close()
+    p.stderr.close()
+    out, err = (k.value() for k in kept.values())
+    return (-9 if timed_out else rc or 0), out, err, timed_out
+
+
+def _feed(p: subprocess.Popen, data: bytes) -> None:
+    assert p.stdin is not None
+    try:
+        p.stdin.write(data)
+    except OSError:  # the command exited or closed its stdin without reading it all
+        pass
+    finally:
+        try:
+            p.stdin.close()
+        except OSError:
+            pass
+
+
+def _drain(p: subprocess.Popen, kept: dict[int, _Kept], deadline: float) -> bool:
+    """Read ``p``'s pipes into ``kept`` until both close or ``p`` exited ``EXIT_GRACE_S`` ago (False), or ``deadline`` (True)."""
+    with selectors.DefaultSelector() as sel:
+        for fd in kept:
+            sel.register(fd, selectors.EVENT_READ)
+        exited = None
+        while sel.get_map():
+            now = time.monotonic()
+            if exited is None and p.poll() is not None:
+                exited = now
+            if now >= deadline:
+                return True
+            if exited is not None and now - exited >= EXIT_GRACE_S:
+                return False
+            for key, _ in sel.select(min(0.2, deadline - now)):
+                chunk = os.read(key.fd, 65536)
+                if chunk:
+                    kept[key.fd].add(chunk)
+                else:
+                    sel.unregister(key.fd)
+    return False
 
 
 def _killpg(p: subprocess.Popen) -> None:

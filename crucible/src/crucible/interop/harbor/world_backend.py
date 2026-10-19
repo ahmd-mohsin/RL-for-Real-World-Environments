@@ -34,7 +34,7 @@ from harbor.models.trial.paths import TrialPaths
 
 from crucible.core.schema.world import AppSpec
 from crucible.world.backends.base import Backend, BackendCapabilities
-from crucible.world.exec import CONTAINER_GONE, EnvContainerLost, Exec, ExecOut, deadline_hit, with_deadline
+from crucible.world.exec import CONTAINER_GONE, EnvContainerLost, Exec, ExecOut, capped_output, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
 
@@ -111,9 +111,10 @@ class HarborExec(Exec):
             await self._put_bytes(stdin, tmp)
             cmd = f"{{ {cmd} ; }} < {tmp}; __rc=$?; rm -f {tmp}; exit $__rc"
         t0 = time.monotonic()
-        try:  # the in-container deadline is the real one; Harbor's client-side timeout is only a backstop
-            r = await self.env.exec(with_deadline(cmd, timeout_s), cwd=cwd, env=env, timeout_sec=int(timeout_s) + 15 if timeout_s else None,
-                                    user=user or self.default_user)
+        try:  # the in-container deadline is the real one; Harbor's client-side timeout is only a backstop. Harbor keeps every byte
+            # its exec receives, so the output is cut to a head and a tail inside the container (M1 audit R-2)
+            r = await self.env.exec(capped_output(with_deadline(cmd, timeout_s)), cwd=cwd, env=env,
+                                    timeout_sec=int(timeout_s) + 15 if timeout_s else None, user=user or self.default_user)
         except RuntimeError as e:
             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
                 return ExecOut(rc=-9, stdout="", stderr=str(e), duration_s=time.monotonic() - t0, timed_out=True)
