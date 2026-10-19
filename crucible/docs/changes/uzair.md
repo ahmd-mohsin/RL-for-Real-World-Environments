@@ -1348,3 +1348,23 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   environment here).
 - **Merge notes.** Pinning the coding seeds is a data change for their owners: run `crucible world pin` on the lab
   daemon and add `image_digest` to each seed's backend params.
+
+## 62. M1 R-26: swap capped at the memory limit
+
+- **Item.** R-26 of `docs/research/improvements/2026-10-14/M01-world.md` (should), step 1 only per triage (no
+  per-backend limit contracts, no refusal of unenforceable limits, no `HostConfig` read-back). Pattern from Harbor and
+  Karotte (memory limits that hold); no code copied.
+- **Files.** `src/crucible/world/sandbox.py` (`DockerSandbox.argv`), `src/crucible/world/apps/ci.py` (runner),
+  `src/crucible/interop/harbor/gpu_docker.py` (`_ensure_overlay`), `src/crucible/interop/harbor/verify_dir.py`,
+  `src/crucible/actors/rlm/kernel.py` (container argv), `docs/modules/M01-world.md` (finding 28),
+  `tests/unit/test_memory_swap.py` (new).
+- **Public names.** none.
+- **Behaviour.** Wherever these set a memory limit they now set swap to the same value (`--memory-swap m`, compose
+  `memswap_limit`), so the container gets no swap beyond its limit. Without a memory limit nothing changes.
+- **Formats.** none.
+- **Tests.** `test_memory_swap.py` (3: the sandbox argv, Harbor's overlay, and Docker: a real sandbox's `HostConfig`
+  has `MemorySwap == Memory`). Sandbox, CI App and RLM suites pass but for the known local `test_ci_hidden_checks`.
+- **Merge notes.** Not changed, for M17's owner: the factory's own `docker run` calls set `--memory` without
+  `--memory-swap` (`factory/sessions.py:200`, `factory/traceaudit.py:717,1745`, `factory/generators/open.py:387,472`,
+  `factory/generators/swarm.py:612`, `factory/lanes/windows_world.py:539`, `factory/lanes/executable.py:259`,
+  `factory/lanes/windows_s3.py:292`).

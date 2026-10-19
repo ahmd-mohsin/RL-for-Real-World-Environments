@@ -88,7 +88,7 @@ class DockerCiRunner(CiRunner):
         if self.params.get("gpus"):
             argv += ["--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all"] if self.params.get("gpu_mode", "runtime") == "runtime" else ["--gpus", "all"]
         if self.params.get("memory"):
-            argv += ["--memory", str(self.params["memory"])]
+            argv += ["--memory", str(self.params["memory"]), "--memory-swap", str(self.params["memory"])]  # no swap past it (R-26)
         argv += [self.params["image"], "sleep", "infinity"]
         out = await _run_subprocess(argv, cwd=None, env=env, timeout_s=600, stdin=None)
         if not out.ok:

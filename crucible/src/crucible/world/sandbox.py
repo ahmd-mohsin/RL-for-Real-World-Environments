@@ -147,8 +147,8 @@ class DockerSandbox:
         if self.sb.cpus:
             a += ["--cpus", str(self.sb.cpus)]
         mem = self.memory or (f"{self.sb.memory_mb}m" if self.sb.memory_mb else None)
-        if mem:
-            a += ["--memory", mem]
+        if mem:  # swap capped at the memory limit: without it the container may use twice its limit, swapping (M1 audit R-26)
+            a += ["--memory", mem, "--memory-swap", mem]
         return [*a, "--entrypoint", "", self.sb.image, "sleep", str(self.lifetime_s)]
 
     @property

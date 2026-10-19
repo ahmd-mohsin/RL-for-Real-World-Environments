@@ -164,7 +164,7 @@ class HarborDirTask:
         if self.cpus:
             argv += ["--cpus", str(self.cpus)]
         if self.memory_mb:
-            argv += ["--memory", f"{int(self.memory_mb)}m"]
+            argv += ["--memory", f"{int(self.memory_mb)}m", "--memory-swap", f"{int(self.memory_mb)}m"]  # no swap past it (R-26)
         if self.user:
             argv += ["--user", str(self.user)]
         envfile = None

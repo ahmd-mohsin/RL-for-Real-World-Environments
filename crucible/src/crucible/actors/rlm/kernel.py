@@ -655,7 +655,7 @@ class DockerLauncher:
             run = asyncio.ensure_future(self._run(
                 "run", "-d", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=256m", *ctl,
                 "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "--memory", self.memory,
-                "--pids-limit", str(self.pids), "--cpus", self.cpus, "--workdir", "/tmp", "--label", "crucible.rlm=1",
+                "--memory-swap", self.memory, "--pids-limit", str(self.pids), "--cpus", self.cpus, "--workdir", "/tmp", "--label", "crucible.rlm=1",
                 "--label", f"{OWNER_LABEL}={owner_id()}", "--label", f"{EXPIRES_LABEL}={deadline + (RENEW_SLACK_S if self.renewable else 0)}",
                 "--env", "HOME=/tmp", self.image, *life))  # a bounded life, never ``sleep infinity``
             try:
