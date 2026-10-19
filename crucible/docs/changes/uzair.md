@@ -1259,3 +1259,24 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   is stopped by the server for both tools and the stopped `UPDATE` is not kept). SQL App, state adapter, EnterpriseOps
   and M11 suites: 202 passed, 4 skipped.
 - **Merge notes.** A pack whose policy legitimately runs SQL longer than 30 s sets `sql_deadline_s` on the App.
+
+## 58. M1 R-16: audit check `runtime.restore_roundtrip`
+
+- **Item.** R-16 of `docs/research/improvements/2026-10-14/M01-world.md` (should; R-5 depends on it). Pattern from
+  agentenv `task_step/task_steps/multienv_validator/verify_universe_roundtrip.py:97-176` (reload an export and compare;
+  Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/audit.py` (`_run` returns tool results, `_restore_roundtrip`, `audit_world`),
+  `docs/modules/M01-world.md` (finding 24), `tests/unit/test_restore_roundtrip.py` (new).
+- **Public names.** audit check id `runtime.restore_roundtrip` (major).
+- **Behaviour.** With a gold trajectory of at least 2 steps, `audit_world` resets, plays the first half, snapshots,
+  plays the rest, then starts a fresh World of the same spec, backend, params and store, restores the halfway snapshot
+  and plays the rest there; it fails when the end fingerprints differ (`apps_differing`, and the first differing tool
+  result as evidence; results alone never fail it: a test run's timings differ). Skipped with a reason for a 1-step
+  gold or when simulated actors are attached (a fresh World needs its own). Without gold it is skipped like the other
+  gold checks. A container World's audit starts one more container.
+- **Formats.** none (a new check id in audit reports).
+- **Tests.** `test_restore_roundtrip.py` (3: the audit's probe App, which resets an in-memory counter on restore, passes
+  every check from reset and fails this one with `{"id": 2}` vs `{"id": 1}`; the same App re-deriving its counter
+  passes; a 1-step gold is skipped). `audit_world` callers (audit, studio, packs, red team, toy end-to-end): pass, but
+  for the known coding-pack failure.
+- **Merge notes.** A World whose App keeps state outside its adapter now fails its audit; fix the App, not the check.
