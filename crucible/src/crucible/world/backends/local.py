@@ -32,6 +32,11 @@ class LocalBackend(Backend):
         for app in self.spec.apps:
             if app.resources.gpus:
                 problems.append(f"app {app.id!r} needs {app.resources.gpus} GPU(s); use the harbor backend")
+        # a host allowlist is a promise this backend cannot keep: its tools reach any host (M1 audit R-13). ``no-network``,
+        # every spec's default, stays allowed and is reported unenforced by audit_world (network.enforced)
+        if self.spec.network == "allowlist" and not self.params.get("accept_unenforced"):
+            problems.append("network 'allowlist' cannot be enforced on the local backend (its tools reach any host): use a container "
+                            "backend, or set backend_params.accept_unenforced to run it unenforced")
         return problems
 
     async def provision(self) -> None:

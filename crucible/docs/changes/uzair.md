@@ -1303,3 +1303,22 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   suites: 90 passed, 1 skipped.
 - **Merge notes.** Code that changes App state between a reset and the next restore without a tool call or a verifier
   query, in a way the App's fingerprint does not see, must bump `World._touched`.
+
+## 60. M1 R-13: the local backend refuses an allowlist; the audit names unenforced networks
+
+- **Item.** R-13 of `docs/research/improvements/2026-10-14/M01-world.md` (should), narrowed further than the triage:
+  the triage would also refuse `no-network`, but `no-network` is every spec's default, so that would refuse almost
+  every local World (toy packs, CI, most tests). Pattern from agentenv (refuse before provisioning; Apache-2.0); no
+  code copied.
+- **Files.** `src/crucible/world/backends/local.py` (`validate`), `src/crucible/world/audit.py` (`network.enforced`),
+  `docs/modules/M01-world.md` (finding 26), `tests/unit/test_local_network.py` (new), `tests/unit/test_audit.py`
+  (the allowlist test opts in).
+- **Public names.** local backend param `accept_unenforced`; audit check id `network.enforced`.
+- **Behaviour.** `World.start` on the local backend fails for `network: allowlist` unless `backend_params.accept_unenforced`
+  is set. `audit_world` adds `network.enforced` (status `skip`, major) for a world whose network is not `public` on a
+  backend whose isolation is `none` (local, ssh), naming the backend and the rule it cannot enforce; a skip does not
+  fail the audit. Container backends are unchanged (their egress checks run under isolation).
+- **Formats.** none.
+- **Tests.** `test_local_network.py` (3: an allowlist is refused; accepted unenforced it runs and the audit reports it;
+  the default `no-network` runs and is reported, a public world is not). Audit suites: 105 passed.
+- **Merge notes.** A local world with an allowlist must add `backend_params: {accept_unenforced: true}`.

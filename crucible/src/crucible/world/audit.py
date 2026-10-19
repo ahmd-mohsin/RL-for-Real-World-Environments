@@ -163,6 +163,11 @@ async def audit_world(world: World, *, gold: list[Action] | None = None, verifie
         add(CheckResult("network.answer_sources", "fail", "major", {"reason": "public network: published fixes, wheels and mirrors are reachable"}))
     else:
         add(CheckResult("network.answer_sources", "pass", "critical", {"network": world.spec.network}))
+    # --- network.enforced: a backend without isolation (local, ssh) cannot hold a world to no-network or an allowlist;
+    # reported as a named SKIP, never an implied pass (M1 audit R-13)
+    if world.spec.network != "public" and world.backend.capabilities.isolation == "none":
+        add(CheckResult("network.enforced", "skip", "major",
+                        {"reason": f"the {world.backend.name} backend does not enforce network {world.spec.network!r}: its tools reach any host"}))
 
     # --- no_solution_leakage (static): fix pointers in what the policy reads before acting
     texts = {"instruction": world.instructions.get(actor, "")} | {f"tool:{t.qualified}": t.description or "" for t in world.tools_for(actor)}

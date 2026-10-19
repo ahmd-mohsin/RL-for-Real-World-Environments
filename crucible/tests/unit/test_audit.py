@@ -106,7 +106,7 @@ async def test_allowlist_must_not_open_answer_sources(tmp_path: Path):
         (tmp_path / name).mkdir()
         d = spec(tmp_path / name).model_dump()
         s = WorldSpec.model_validate({**d, "network": "allowlist", "allowed_hosts": hosts})
-        w = World(s, store=Store(tmp_path / name / "s"), workdir=tmp_path / name / "w")
+        w = World(s, store=Store(tmp_path / name / "s"), workdir=tmp_path / name / "w", backend_params={"accept_unenforced": True})
         await w.start()
         try:
             rep = await audit_world(w)
