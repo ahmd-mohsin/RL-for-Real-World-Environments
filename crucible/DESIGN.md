@@ -873,6 +873,19 @@ $30 cap):
   gate passed it; the auditor and the frontier exposed it.
 - `lh_run.py`'s harness masks a lost World container (`InfraWatch`).
 
+Benchmark v2 and the World leak fix (`factory/benchmark.py`, `factory/sealing.py`, `lanes/windows_world.py`; $0):
+- **Training cutoff** 2026-07-03T00:00Z. Held-out windows end after it and share no repo or org with any of 1,443
+  training sources (835 orgs). Training sources ending after the cutoff are embargoed. Timing tests are never
+  milestones.
+- **10 sealed tasks** (7 H1, 3 H2). 61 of 72 gradeable windows were independent; the path to 20 is more held-out repos.
+- **Leak found and fixed.** One World image was shared by every window of a repo, so the installed copy of the project
+  in site-packages could be a *later* version: the solution, inside the agent's World. Confirmed in held-out w3lib and
+  pyjwt, and in training arrow-wce69c31.
+  - The builder now reinstalls A last.
+  - The leak probe `no_installed_project_source` fails every older image.
+  - **Every store3 / P5 / P6 World must be refreshed (`benchmark.refresh_world`) before training or targeting.**
+  - Earlier "too easy" verdicts may have been inflated by this leak.
+
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):
 - **World fixes (S3, the World expert).** Recipe 3 installs what a World needs beyond packaging, each with its reason:
