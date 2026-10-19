@@ -15,8 +15,8 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from crucible.core.build import BuildInfo
 from crucible.core.schema.base import CrucibleModel, VersionedDocument, register_upcaster
+from crucible.core.schema.build import BuildInfo
 from crucible.core.schema.usage import Timing, UsageTotals
 from crucible.core.text import SafeText, safe_text
 
