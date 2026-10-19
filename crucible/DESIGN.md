@@ -852,6 +852,27 @@ P5a, the generators and scouts (`factory/generators/{rebreak,stitch,open}.py`, `
     the bar).
 - **New lints:** invented version numbers. S3 reruns compare the shared test ids.
 
+P5b, swarm-built windows and frontier targeting (`factory/generators/swarm.py`, `scripts/lh_swarm.py`; $21.96 of a
+$30 cap):
+- **The swarm-built pipeline:**
+  - a planner (given A's call graph; each `why_requires` must name what the earlier milestone adds);
+  - an oracle builder session, one commit per milestone;
+  - a blind verifier-writer session;
+  - a reviewer and a hacker from another family;
+  - then the same executed gates as mined windows. 5 of 14 start windows accepted (semver, boltons, funcy, cachetools,
+    more-itertools).
+- **Frontier target `openai/gpt-6.1-sol`, counterfactual control at n = 8–9 per arm:** attributed (full 0/8, simplified
+  8/8, p ≤ 8e-5, power 0.99) on semver, marshmallow-jsonschema ← marshmallow (stitched), and swarm-built boltons and
+  funcy. The frontier fails these windows because of the dependency, which is the intended axis.
+- **Too easy for the frontier:** glom stitched, rebreak, and swarm semver, cachetools and more-itertools (4/4 in both
+  arms).
+- **The band fails at the frontier:** deterministic success or failure means no spread. Attributed windows are benchmark
+  items for the frontier and training candidates for weaker rungs.
+- **New S7 rule:** every import path the hidden tests use must be importable at A or stated in the prompt.
+- **Open:** an executed oracle-vs-plan check. The cachetools oracle deprecated `MRUCache` instead of removing it; every
+  gate passed it; the auditor and the frontier exposed it.
+- `lh_run.py`'s harness masks a lost World container (`InfraWatch`).
+
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):
 - **World fixes (S3, the World expert).** Recipe 3 installs what a World needs beyond packaging, each with its reason:

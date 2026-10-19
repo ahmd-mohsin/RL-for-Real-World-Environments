@@ -324,12 +324,20 @@ def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None,
 
 
 def harness(cfg: EpisodeCfg, *, checkpoints: bool = True) -> Any:
+    """``WorkspaceHarness`` with the episode limits; its sidecar is ``envs.InfraWatch`` (V8: a World container lost
+    mid-episode is recorded as ``crucible:env_container_lost`` and the attempt is masked, never graded as an ordinary 0)
+    around the checkpoint sidecar (or nothing, with ``checkpoints`` off)."""
     from crucible.factory.checkpoint import CheckpointConfig, checkpoint_sidecar
+    from crucible.factory.envs import InfraWatch
     from crucible.runtime.harness.workspace import WorkspaceHarness
 
+    inner = checkpoint_sidecar(CheckpointConfig(every=10, cap=20)) if checkpoints else None
+
+    def sidecar(attempt: Any) -> Any:
+        return InfraWatch(inner(attempt) if inner is not None else None)
+
     steps = cfg.max_steps if cfg.tool_limit is None else cfg.tool_limit + 2  # the policy stops itself; +1 final write, +1 its Done
-    return WorkspaceHarness(limits=EpisodeLimits(max_steps=steps, timeout_s=cfg.wall_s),
-                            sidecar=checkpoint_sidecar(CheckpointConfig(every=10, cap=20)) if checkpoints else None)
+    return WorkspaceHarness(limits=EpisodeLimits(max_steps=steps, timeout_s=cfg.wall_s), sidecar=sidecar)
 
 
 async def run_episodes(run: Run, run_id: str, tasks: list[Any], policies: list[Any], *, k: int, concurrency: int, stage: str, role: str,

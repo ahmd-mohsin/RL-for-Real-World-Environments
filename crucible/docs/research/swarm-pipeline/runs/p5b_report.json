@@ -1,0 +1,8638 @@
+{
+ "audit": {
+  "by_window": {
+   "python-semver-w41775dd-1bafb9f": {
+    "skill_gap": 3,
+    "spec_defect": 4,
+    "unstated_format": 2
+   },
+   "st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04": {
+    "skill_gap": 6,
+    "spec_defect": 1,
+    "unstated_format": 1
+   },
+   "st-glom--boltons-2ae0bb57": {
+    "skill_gap": 3
+   },
+   "st-glom--boltons-30eb7ffe": {
+    "skill_gap": 4
+   },
+   "sw-boltons-18727bf6": {
+    "skill_gap": 5,
+    "spec_defect": 3
+   },
+   "sw-cachetools-aadb387d": {
+    "verifier_defect": 1
+   },
+   "sw-funcy-e76bf04c": {
+    "spec_defect": 4
+   }
+  },
+  "report": {
+   "auditor": {
+    "batches": [
+     {
+      "mix": {
+       "skill_gap": 3,
+       "spec_defect": 1,
+       "unstated_format": 2
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "skill_gap": 3,
+       "spec_defect": 1
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "skill_gap": 3,
+       "verifier_defect": 2
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "spec_defect": 1,
+       "verifier_defect": 5
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "env_flake",
+        "id": "ctl-world-bug",
+        "ok": false,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": false
+     },
+     {
+      "mix": {
+       "spec_defect": 4
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "skill_gap",
+        "got": null,
+        "id": "ctl-lazy",
+        "ok": false,
+        "status": "rejected"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": false
+     },
+     {
+      "mix": {},
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {},
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "spec_defect": 4
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "spec_defect": 2
+      },
+      "n": 6,
+      "seeded": [
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     },
+     {
+      "mix": {
+       "skill_gap": 1
+      },
+      "n": 1,
+      "seeded": [
+       {
+        "expected": "world_bug",
+        "got": "world_bug",
+        "id": "ctl-world-bug",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "skill_gap",
+        "got": "skill_gap",
+        "id": "ctl-lazy",
+        "ok": true,
+        "status": "labelled"
+       },
+       {
+        "expected": "verifier_defect",
+        "got": "verifier_defect",
+        "id": "ctl-verifier-defect",
+        "ok": true,
+        "status": "labelled"
+       }
+      ],
+      "trusted": true
+     }
+    ],
+    "label_status": {
+     "abstained": 8,
+     "labelled": 43,
+     "rejected": 4
+    },
+    "labelled": 55,
+    "model": "deepseek/deepseek-v4-flash",
+    "refused_same_family": 0,
+    "session_usd": 0.44762,
+    "sessions": 85,
+    "trusted_labels": 43
+   },
+   "bundles": 113,
+   "causes": {
+    "deterministic": {},
+    "labelled_trusted": {
+     "skill_gap": 10,
+     "spec_defect": 8,
+     "unstated_format": 2,
+     "verifier_defect": 2
+    },
+    "skill_gap_share": 0.455
+   },
+   "failing": 65,
+   "first_wrong_step": {
+    "by_family": {
+     "openai": {
+      "divergence": 8,
+      "plateau": 57
+     }
+    },
+    "kinds": {
+     "divergence": 8,
+     "plateau": 57
+    },
+    "position_quartiles": {
+     "divergence": [
+      0.617,
+      0.65,
+      0.681
+     ],
+     "plateau": [
+      0.588,
+      0.769,
+      0.909
+     ]
+    },
+    "turn_quartiles": [
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "masked": 0,
+   "passed": 48
+  },
+  "simplified_arm": {
+   "python-semver-w41775dd-1bafb9f": {
+    "spec_defect": 5,
+    "unstated_format": 2
+   },
+   "st-glom--boltons-2ae0bb57": {
+    "skill_gap": 2,
+    "spec_defect": 1
+   },
+   "st-glom--boltons-30eb7ffe": {
+    "skill_gap": 4
+   },
+   "sw-cachetools-aadb387d": {
+    "verifier_defect": 1
+   }
+  }
+ },
+ "cap_usd": 30.0,
+ "frontier": {
+  "candidates": [
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1000000,
+    "created": 1791397883,
+    "id": "anthropic/claude-haiku-5.5",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790702886,
+    "id": "openai/gpt-6.1-sol-pro",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790702882,
+    "id": "openai/gpt-6.1-sol",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1000000,
+    "created": 1790618686,
+    "id": "anthropic/claude-sonnet-5.5",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1050000,
+    "created": 1790100791,
+    "id": "openai/gpt-6-luna-pro",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1050000,
+    "created": 1790100786,
+    "id": "openai/gpt-6-luna",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790100781,
+    "id": "openai/gpt-6-sol-pro",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790100775,
+    "id": "openai/gpt-6-sol",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 5.0,
+    "context": 1000000,
+    "created": 1790094732,
+    "id": "anthropic/claude-opus-5.5",
+    "input": 4.0,
+    "output": 20.0,
+    "tools": true
+   },
+   {
+    "cache_read": 1.0,
+    "cache_write": 12.5,
+    "context": 1050000,
+    "created": 1788552838,
+    "id": "openai/gpt-6-astra",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 1.0,
+    "cache_write": 12.5,
+    "context": 1050000,
+    "created": 1788552835,
+    "id": "openai/gpt-6-astra-pro",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.25,
+    "cache_write": 12.5,
+    "context": 1000000,
+    "created": 1788285838,
+    "id": "anthropic/claude-fable-5.1",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.5,
+    "cache_write": 6.25,
+    "context": 1000000,
+    "created": 1784912544,
+    "id": "anthropic/claude-opus-5",
+    "input": 5.0,
+    "output": 25.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.02,
+    "cache_write": 0.25,
+    "context": 1050000,
+    "created": 1783590867,
+    "id": "openai/gpt-5.6-luna-pro",
+    "input": 0.2,
+    "output": 1.2,
+    "tools": true
+   },
+   {
+    "cache_read": 0.02,
+    "cache_write": 0.25,
+    "context": 1050000,
+    "created": 1783590864,
+    "id": "openai/gpt-5.6-luna",
+    "input": 0.2,
+    "output": 1.2,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1783590861,
+    "id": "openai/gpt-5.6-terra-pro",
+    "input": 2.0,
+    "output": 12.0,
+    "tools": true
+   }
+  ],
+  "chosen": {
+   "cache_read": 0.1,
+   "cache_write": 2.5,
+   "context": 1050000,
+   "created": 1790702882,
+   "id": "openai/gpt-6.1-sol",
+   "input": 2.0,
+   "output": 10.0,
+   "tools": true
+  },
+  "queried_at": 1792361172.7,
+  "why": "strongest OpenAI/Anthropic model that fits the $30 cap: GPT-6.1 Sol (2/10 USD per 1M, automatic prompt caching at 0.10) is OpenAI's newest model below the flagship GPT-6 Astra (10/50); Claude Fable 5.1 is 10/50 and Claude Opus 5.5 4/20 with no cache read unless the client sends cache_control breakpoints (ours does not), so a 150-tool episode at a 40k-token context would cost several dollars each on those"
+ },
+ "phase": "P5b",
+ "pilot": {
+  "episodes": [
+   {
+    "attempt": "a1",
+    "calls": 12,
+    "compactions": 0,
+    "completion_tokens": 3562,
+    "dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/pilot-python-semver-w41775dd-1bafb9f/samples/ad692eca4b4f624e/a1",
+    "failing_tests": [
+     "test_semver.py::test_immutable_build",
+     "test_semver.py::test_immutable_major",
+     "test_semver.py::test_immutable_minor",
+     "test_semver.py::test_immutable_patch",
+     "test_semver.py::test_immutable_prerelease",
+     "test_semver.py::test_replace_raises_TypeError_for_invalid_keyword_arg",
+     "test_semver.py::test_should_compare_prerelease_and_build_with_numbers",
+     "test_semver.py::test_should_compare_version_tuples",
+     "test_semver.py::test_should_parse_cli_arguments[cli0-expected0]",
+     "test_semver.py::test_should_parse_cli_arguments[cli1-expected1]",
+     "test_semver.py::test_should_parse_cli_arguments[cli2-expected2]",
+     "test_semver.py::test_should_parse_cli_arguments[cli3-expected3]",
+     "test_semver.py::test_should_parse_cli_arguments[cli4-expected4]",
+     "test_semver.py::test_should_parse_cli_arguments[cli5-expected5]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args0-2.0.0]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args1-1.3.0]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args2-1.2.4]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args3-1.2.3-rc2]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args4-1.2.3+build.14]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args5--1]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args6-0]",
+     "test_semver.py::test_should_process_parsed_cli_arguments[args7-1]",
+     "test_semver.py::test_using_non_numeric_string_as_major_minor_patch_throws"
+    ],
+    "failure": null,
+    "hack_suspect": false,
+    "idx": 0,
+    "masked": false,
+    "milestones": {
+     "m04": false,
+     "m07": true,
+     "m11": false,
+     "m13": true,
+     "m20": false,
+     "m30": false,
+     "m31": false
+    },
+    "path_violations": [],
+    "phi": 0.285714,
+    "policy": "solver:openai/gpt-6.1-sol",
+    "progress": {
+     "checkpoints": 2,
+     "compaction_turns": [],
+     "final_measured": true,
+     "give_up": null,
+     "graded": 2,
+     "honesty": {
+      "brier": 0.6674285714285714,
+      "claimed": true,
+      "defaulted": [],
+      "give_up": null,
+      "ignored": [],
+      "lam": 0.1,
+      "scored": {
+       "R1": [
+        0.99,
+        0
+       ],
+       "R2": [
+        0.99,
+        1
+       ],
+       "R3": [
+        0.97,
+        0
+       ],
+       "R4": [
+        0.98,
+        1
+       ],
+       "R5": [
+        0.99,
+        0
+       ],
+       "R6": [
+        0.9,
+        0
+       ],
+       "R7": [
+        0.98,
+        0
+       ]
+      },
+      "term": -0.06674285714285715
+     },
+     "kind": "checkpoint",
+     "milestones_lost": 0,
+     "phi0": 0,
+     "phi_final": 0.285714286,
+     "rows": 15,
+     "satisfied": 2,
+     "series": [
+      [
+       10,
+       0.285714286,
+       [
+        "m07",
+        "m13"
+       ],
+       [],
+       true,
+       [
+        "periodic"
+       ]
+      ],
+      [
+       14,
+       0.285714286,
+       [],
+       [],
+       true,
+       [
+        "end"
+       ]
+      ]
+     ],
+     "skipped_cap": 0,
+     "start_measured": true,
+     "steps": 14,
+     "subgoals": 7,
+     "sum_delta": 0.285714286,
+     "tool_calls": 13,
+     "unmeasured": 0
+    },
+    "prompt_tokens": 143871,
+    "reward": 0.142857,
+    "sample": "ad692eca4b4f624e",
+    "seconds": 0,
+    "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/pilot-python-semver-w41775dd-1bafb9f/samples/ad692eca4b4f624e/a1",
+    "steps": 14,
+    "stop": "agent_done",
+    "task": "python-semver-w41775dd-1bafb9f",
+    "tool_calls": 13,
+    "trajectory_tokens": 13152,
+    "usd": 0.089244
+   }
+  ],
+  "extrapolation": {
+   "cap": 30.0,
+   "episodes_that_fit": 301,
+   "left_usd": 26.911,
+   "pilot_usd": 0.0892,
+   "plans": {
+    "n=2": {
+     "per_window_usd": 0.357,
+     "windows": 75
+    },
+    "n=3": {
+     "per_window_usd": 0.535,
+     "windows": 50
+    },
+    "n=4": {
+     "per_window_usd": 0.714,
+     "windows": 37
+    }
+   },
+   "slack": 3.0,
+   "spent_usd": 0.0892
+  },
+  "model": "openai/gpt-6.1-sol",
+  "usd": 0.08924,
+  "window": {
+   "id": "python-semver-w41775dd-1bafb9f",
+   "kind": "window",
+   "simplify": "prerequisites",
+   "targets": [
+    "m31"
+   ]
+  }
+ },
+ "spend_by_role": {
+  "arms/solver": 13.13143,
+  "audit/auditor": 4.84944,
+  "pilot/solver": 0.08924,
+  "probe/probe": 0.22976,
+  "swarm/author": 0.00287,
+  "swarm/hacker": 0.14666,
+  "swarm/oracle_builder": 2.09469,
+  "swarm/planner": 0.2743,
+  "swarm/reviewer": 0.16485,
+  "swarm/rewriter_deepseek": 0.02981,
+  "swarm/rewriter_qwen": 0.00547,
+  "swarm/second_verifier": 0.03517,
+  "swarm/verifier_writer": 0.90607
+ },
+ "spend_total": 21.959769,
+ "swarm": {
+  "accepted": [
+   "sw-boltons-18727bf6",
+   "sw-cachetools-aadb387d",
+   "sw-funcy-e76bf04c",
+   "sw-more-itertools-dedc22c6",
+   "sw-python-semver-a2e121df"
+  ],
+  "candidates": {
+   "sw-arrow-4993feb6": {
+    "edges": 0,
+    "gates": null,
+    "milestones": 2,
+    "reason": "reached terminal state dropped",
+    "repo": "arrow",
+    "source_window": "arrow-w87a1a77-2c1f518",
+    "stage": "f2p_valid",
+    "status": "rejected",
+    "usd": 0.224195
+   },
+   "sw-boltons-18727bf6": {
+    "edges": 1,
+    "gates": {
+     "alternatives_pending": [
+      "0 valid alternative(s), need 2 (one from another family)"
+     ],
+     "findings": {
+      "S10": [],
+      "S3": [],
+      "S5": [],
+      "S6": [],
+      "S8": []
+     },
+     "ok": true,
+     "passed": [
+      "S6",
+      "S5",
+      "S8",
+      "S3",
+      "S10"
+     ]
+    },
+    "milestones": 3,
+    "reason": "reached terminal state accepted",
+    "repo": "boltons",
+    "source_window": "boltons-wc23dbda-fb46499",
+    "stage": "mutants_valid",
+    "status": "done",
+    "usd": 0.054465
+   },
+   "sw-boltons-1bb09e78": {
+    "edges": null,
+    "gates": null,
+    "milestones": null,
+    "reason": "reached terminal state dropped",
+    "repo": "boltons",
+    "source_window": "boltons-wfb46499-1d52527",
+    "stage": null,
+    "status": "rejected",
+    "usd": 0.01566
+   },
+   "sw-cachetools-aadb387d": {
+    "edges": 1,
+    "gates": {
+     "alternatives_pending": [
+      "0 valid alternative(s), need 2 (one from another family)"
+     ],
+     "findings": {
+      "S10": [],
+      "S3": [],
+      "S5": [],
+      "S6": [],
+      "S8": []
+     },
+     "ok": true,
+     "passed": [
+      "S6",
+      "S5",
+      "S8",
+      "S3",
+      "S10"
+     ]
+    },
+    "milestones": 3,
+    "reason": "reached terminal state accepted",
+    "repo": "cachetools",
+    "source_window": "cachetools-wc403f9f-e497575",
+    "stage": "mutants_valid",
+    "status": "done",
+    "usd": 0.250062
+   },
+   "sw-click-4dc8898c": {
+    "edges": 0,
+    "gates": null,
+    "milestones": 2,
+    "reason": "reached terminal state dropped",
+    "repo": "click",
+    "source_window": "click-w9c6f4c8-3d873a3",
+    "stage": "f2p_valid",
+    "status": "rejected",
+    "usd": 0.115446
+   },
+   "sw-funcy-ba188ef0": {
+    "edges": null,
+    "gates": null,
+    "milestones": null,
+    "reason": "reached terminal state dropped",
+    "repo": "funcy",
+    "source_window": "funcy-w13fac00-04aafae",
+    "stage": null,
+    "status": "rejected",
+    "usd": 0.216394
+   },
+   "sw-funcy-e76bf04c": {
+    "edges": 1,
+    "gates": {
+     "alternatives_pending": [
+      "0 valid alternative(s), need 2 (one from another family)"
+     ],
+     "findings": {
+      "S10": [],
+      "S3": [],
+      "S5": [],
+      "S6": [],
+      "S8": []
+     },
+     "ok": true,
+     "passed": [
+      "S6",
+      "S5",
+      "S8",
+      "S3",
+      "S10"
+     ]
+    },
+    "milestones": 3,
+    "reason": "reached terminal state accepted",
+    "repo": "funcy",
+    "source_window": "funcy-wc83fd24-9c64c74",
+    "stage": "mutants_valid",
+    "status": "done",
+    "usd": 0.317505
+   },
+   "sw-humanize-49c1dc99": {
+    "edges": 0,
+    "gates": null,
+    "milestones": 2,
+    "reason": "reached terminal state dropped",
+    "repo": "humanize",
+    "source_window": "humanize-w2ddb590-3c577d7",
+    "stage": "f2p_valid",
+    "status": "rejected",
+    "usd": 0.076767
+   },
+   "sw-markdown-20f781e2": {
+    "edges": 0,
+    "gates": null,
+    "milestones": 2,
+    "reason": "state oracle failed after 2 attempt(s): StateFailed: the oracle_builder session ended without finishing (budget:turns: 150 turns (max_turns 150))",
+    "repo": "markdown",
+    "source_window": "markdown-w08dacae-e524b8f",
+    "stage": "f2p_valid",
+    "status": "paused",
+    "usd": 0.407821
+   },
+   "sw-marshmallow-3c3bd8d4": {
+    "edges": null,
+    "gates": null,
+    "milestones": null,
+    "reason": "reached terminal state dropped",
+    "repo": "marshmallow",
+    "source_window": "marshmallow-w8f3d0e7-c4284da",
+    "stage": null,
+    "status": "rejected",
+    "usd": 0.28667
+   },
+   "sw-more-itertools-0f404743": {
+    "edges": null,
+    "gates": null,
+    "milestones": null,
+    "reason": "reached terminal state dropped",
+    "repo": "more-itertools",
+    "source_window": "more-itertools-w266ebdc-1e0e662",
+    "stage": null,
+    "status": "rejected",
+    "usd": 0.355011
+   },
+   "sw-more-itertools-dedc22c6": {
+    "edges": 1,
+    "gates": {
+     "alternatives_pending": [
+      "0 valid alternative(s), need 2 (one from another family)"
+     ],
+     "findings": {
+      "S10": [],
+      "S3": [],
+      "S5": [],
+      "S6": [],
+      "S8": []
+     },
+     "ok": true,
+     "passed": [
+      "S6",
+      "S5",
+      "S8",
+      "S3",
+      "S10"
+     ]
+    },
+    "milestones": 3,
+    "reason": "reached terminal state accepted",
+    "repo": "more-itertools",
+    "source_window": "more-itertools-w1e0e662-7e46c39",
+    "stage": "mutants_valid",
+    "status": "done",
+    "usd": 0.008211
+   },
+   "sw-python-semver-80b46723": {
+    "edges": 0,
+    "gates": null,
+    "milestones": 2,
+    "reason": "reached terminal state dropped",
+    "repo": "python-semver",
+    "source_window": "python-semver-w6adf876-642d1bc",
+    "stage": "f2p_valid",
+    "status": "rejected",
+    "usd": 0.095315
+   },
+   "sw-python-semver-a2e121df": {
+    "edges": 1,
+    "gates": {
+     "alternatives_pending": [
+      "0 valid alternative(s), need 2 (one from another family)"
+     ],
+     "findings": {
+      "S10": [],
+      "S3": [],
+      "S5": [],
+      "S6": [],
+      "S8": []
+     },
+     "ok": true,
+     "passed": [
+      "S6",
+      "S5",
+      "S8",
+      "S3",
+      "S10"
+     ]
+    },
+    "milestones": 3,
+    "reason": "reached terminal state accepted",
+    "repo": "python-semver",
+    "source_window": "python-semver-w3f92aa5-25f5423",
+    "stage": "mutants_valid",
+    "status": "done",
+    "usd": 0.034163
+   }
+  },
+  "funnel": {
+   "S10": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S11_review": {
+    "in": 12,
+    "pass": 12,
+    "reasons": {}
+   },
+   "S12": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S1_source": {
+    "in": 15,
+    "pass": 14,
+    "reasons": {
+     "error": 1
+    }
+   },
+   "S2_plan": {
+    "in": 14,
+    "pass": 12,
+    "reasons": {
+     "m2": 2
+    }
+   },
+   "S3": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S3_world": {
+    "in": 10,
+    "pass": 10,
+    "reasons": {}
+   },
+   "S4_oracle": {
+    "in": 13,
+    "pass": 11,
+    "reasons": {
+     "the existing tests that passed before now fail on your final commit": 2
+    }
+   },
+   "S4_window": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S5": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S5_solvable": {
+    "in": 12,
+    "pass": 7,
+    "reasons": {
+     "m1": 2,
+     "m2": 3
+    }
+   },
+   "S5_verifier": {
+    "in": 2,
+    "pass": 0,
+    "reasons": {
+     "m2": 1,
+     "m3": 1
+    }
+   },
+   "S6": {
+    "in": 10,
+    "pass": 5,
+    "reasons": {
+     "the planned dependencies did not execute": 5
+    }
+   },
+   "S7": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S8": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S8_alternatives": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   },
+   "S9": {
+    "in": 5,
+    "pass": 5,
+    "reasons": {}
+   }
+  },
+  "passing_deterministic_gates": [
+   "sw-boltons-18727bf6",
+   "sw-cachetools-aadb387d",
+   "sw-funcy-e76bf04c",
+   "sw-more-itertools-dedc22c6",
+   "sw-python-semver-a2e121df"
+  ]
+ },
+ "target": {
+  "python-semver-w41775dd-1bafb9f": {
+   "band": {
+    "in_band": true,
+    "n": 9,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.142857,
+     0.285714
+    ],
+    "rewards": [
+     0.142857,
+     0.285714,
+     0.142857,
+     0.142857,
+     0.142857,
+     0.214285,
+     0.142857,
+     0.142857,
+     0.142857
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 3,
+     "spec_defect": 4,
+     "unstated_format": 2
+    },
+    "n": 9,
+    "ok": false,
+    "skill_gap_share": 0.3333,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 1.0,
+    "dphi_ci": [
+     1.0,
+     1.0
+    ],
+    "fisher_p": 4.1e-05,
+    "power_at_ref": 0.989594,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "attributed",
+    "why": "simplified 8/8 vs full 0/9: Fisher p 0.0000; Phi gain CI [1.0, 1.0] above 0"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ],
+        [
+         14,
+         0.285714286,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3562,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 143871,
+      "reward": 0.142857,
+      "sample": "ad692eca4b4f624e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/pilot-python-semver-w41775dd-1bafb9f/samples/ad692eca4b4f624e/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.089244
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.571428571,
+       "series": [
+        [
+         10,
+         0.571428571,
+         [
+          "m07",
+          "m11",
+          "m13",
+          "m20"
+         ],
+         []
+        ],
+        [
+         12,
+         0.571428571,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.571428571
+      },
+      "compactions": 0,
+      "completion_tokens": 3579,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": true,
+       "m13": true,
+       "m20": true,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.571429,
+      "prompt_tokens": 119611,
+      "reward": 0.285714,
+      "sample": "a11272793828f104",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/a11272793828f104/a1",
+      "steps": 12,
+      "stop": "agent_done",
+      "usd": 0.085222
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ],
+        [
+         13,
+         0.285714286,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3440,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 128868,
+      "reward": 0.142857,
+      "sample": "ad692eca4b4f624e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/ad692eca4b4f624e/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.033481
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3115,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 78032,
+      "reward": 0.142857,
+      "sample": "b4ff32a03ba30925",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/b4ff32a03ba30925/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.07672
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         9,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 4024,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 71532,
+      "reward": 0.142857,
+      "sample": "c51c04345c02c773",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/c51c04345c02c773/a1",
+      "steps": 9,
+      "stop": "agent_done",
+      "usd": 0.084855
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.428571429,
+       "series": [
+        [
+         10,
+         0.428571429,
+         [
+          "m07",
+          "m11",
+          "m13"
+         ],
+         []
+        ],
+        [
+         12,
+         0.428571429,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.428571429
+      },
+      "compactions": 0,
+      "completion_tokens": 3809,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": true,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.428571,
+      "prompt_tokens": 121236,
+      "reward": 0.214285,
+      "sample": "a11272793828f104",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/a11272793828f104/a1",
+      "steps": 12,
+      "stop": "agent_done",
+      "usd": 0.071818
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ],
+        [
+         11,
+         0.285714286,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3323,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 100021,
+      "reward": 0.142857,
+      "sample": "ad692eca4b4f624e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/ad692eca4b4f624e/a1",
+      "steps": 11,
+      "stop": "agent_done",
+      "usd": 0.058507
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3084,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 78240,
+      "reward": 0.142857,
+      "sample": "b4ff32a03ba30925",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/b4ff32a03ba30925/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.054477
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.285714286,
+       "series": [
+        [
+         10,
+         0.285714286,
+         [
+          "m07",
+          "m13"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.285714286
+      },
+      "compactions": 0,
+      "completion_tokens": 3543,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m04": false,
+       "m07": true,
+       "m11": false,
+       "m13": true,
+       "m20": false,
+       "m30": false,
+       "m31": false
+      },
+      "path_violations": [],
+      "phi": 0.285714,
+      "prompt_tokens": 86770,
+      "reward": 0.142857,
+      "sample": "c51c04345c02c773",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/c51c04345c02c773/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.058908
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         18,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 4088,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 150178,
+      "reward": 0.25,
+      "sample": "013ba4300608f854",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/013ba4300608f854/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.091811
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         17,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3318,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 120871,
+      "reward": 0.25,
+      "sample": "13115b9f46a19055",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/13115b9f46a19055/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.077422
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         18,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3756,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 141426,
+      "reward": 0.25,
+      "sample": "8c907b356248c01a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/8c907b356248c01a/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.09141
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         15,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3030,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 117302,
+      "reward": 0.25,
+      "sample": "ab201674b90543db",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-python-semver-w41775dd-1bafb9f/samples/ab201674b90543db/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.077426
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         19,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 4112,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 161613,
+      "reward": 0.25,
+      "sample": "013ba4300608f854",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/013ba4300608f854/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.062792
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         18,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3838,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 135502,
+      "reward": 0.25,
+      "sample": "13115b9f46a19055",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/13115b9f46a19055/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.054261
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         16,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3381,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 110115,
+      "reward": 0.25,
+      "sample": "8c907b356248c01a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/8c907b356248c01a/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.043097
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m31"
+         ],
+         []
+        ],
+        [
+         18,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 3443,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m30": false,
+       "m31": true
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 132723,
+      "reward": 0.25,
+      "sample": "ab201674b90543db",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-python-semver-w41775dd-1bafb9f/samples/ab201674b90543db/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.0493
+     }
+    ]
+   },
+   "full": "0/9",
+   "generator": "mined_window",
+   "kind": "window",
+   "machine": {
+    "run_id": "s15-python-semver-w41775dd-1bafb9f-2aefb6d6fd",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 0.3333,
+    "full_series": [
+     [
+      [
+       10,
+       0.285714286
+      ],
+      [
+       14,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       10,
+       0.571428571
+      ],
+      [
+       12,
+       0.571428571
+      ]
+     ],
+     [
+      [
+       10,
+       0.285714286
+      ],
+      [
+       13,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       10,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       9,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       10,
+       0.428571429
+      ],
+      [
+       12,
+       0.428571429
+      ]
+     ],
+     [
+      [
+       10,
+       0.285714286
+      ],
+      [
+       11,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       10,
+       0.285714286
+      ]
+     ],
+     [
+      [
+       10,
+       0.285714286
+      ]
+     ]
+    ],
+    "simple": 0.5
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "8/8",
+   "simplify": "prerequisites",
+   "targets": [
+    "m31"
+   ],
+   "usd": 1.16075,
+   "verdict": {
+    "findings": [
+     "cause mix: skill-gap share 0.3333 < 0.7"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "intent",
+    "route": "S2"
+   }
+  },
+  "rb-more-itertools-061d3f39": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "cause": {
+    "labels": {},
+    "n": 0,
+    "ok": null,
+    "skill_gap_share": null,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         14,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1646,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 66063,
+      "reward": 1.0,
+      "sample": "91b7e2e5b6527871",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/91b7e2e5b6527871/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.048533
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1467,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 63909,
+      "reward": 1.0,
+      "sample": "caae9dd9b7e6a935",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/caae9dd9b7e6a935/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.045712
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1501,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 62830,
+      "reward": 1.0,
+      "sample": "d60937c8cca4f02e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/d60937c8cca4f02e/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.045728
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1597,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 69869,
+      "reward": 1.0,
+      "sample": "ef9a199ad51c7afe",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/ef9a199ad51c7afe/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.049748
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         14,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1629,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 70230,
+      "reward": 1.0,
+      "sample": "0242c1b8514f2efd",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/0242c1b8514f2efd/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.048068
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1428,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 43080,
+      "reward": 1.0,
+      "sample": "53f05afd8c7f3adb",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/53f05afd8c7f3adb/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.043865
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1775,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 76384,
+      "reward": 1.0,
+      "sample": "c71dc240e7642ae8",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/c71dc240e7642ae8/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.051975
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03",
+          "m04"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1426,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true,
+       "m04": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 67867,
+      "reward": 1.0,
+      "sample": "e105000b4c27d3b3",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-rb-more-itertools-061d3f39/samples/e105000b4c27d3b3/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.046166
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "rebreak",
+   "kind": "rebreak",
+   "machine": {
+    "run_id": "s15-rb-more-itertools-061d3f39-5fd6894740",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 1.0,
+    "full_series": [
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       14,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       13,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       13,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       15,
+       1.0
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "locate",
+   "targets": [
+    "m04"
+   ],
+   "usd": 0.37979,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04": {
+   "band": {
+    "in_band": false,
+    "n": 8,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.0,
+     0.0
+    ],
+    "rewards": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 6,
+     "spec_defect": 1,
+     "unstated_format": 1
+    },
+    "n": 8,
+    "ok": true,
+    "skill_gap_share": 0.75,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 1.0,
+    "dphi_ci": [
+     1.0,
+     1.0
+    ],
+    "fisher_p": 7.8e-05,
+    "power_at_ref": 0.989594,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "attributed",
+    "why": "simplified 8/8 vs full 0/8: Fisher p 0.0001; Phi gain CI [1.0, 1.0] above 0"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0,
+         [],
+         []
+        ],
+        [
+         22,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3811,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 179997,
+      "reward": 0.0,
+      "sample": "58fb09346f10da83",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/58fb09346f10da83/a1",
+      "steps": 22,
+      "stop": "agent_done",
+      "usd": 0.099197
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0,
+         [],
+         []
+        ],
+        [
+         21,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4520,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 181874,
+      "reward": 0.0,
+      "sample": "85c1d5e595759fd9",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/85c1d5e595759fd9/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.115979
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3179,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 167698,
+      "reward": 0.0,
+      "sample": "cbc5910140fe5666",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/cbc5910140fe5666/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.090694
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3029,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 123295,
+      "reward": 0.0,
+      "sample": "ff2bb7298be74701",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/ff2bb7298be74701/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.079511
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3560,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 121020,
+      "reward": 0.0,
+      "sample": "58fb09346f10da83",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/58fb09346f10da83/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.086094
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0,
+         [],
+         []
+        ],
+        [
+         22,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3626,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 194846,
+      "reward": 0.0,
+      "sample": "85c1d5e595759fd9",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/85c1d5e595759fd9/a1",
+      "steps": 22,
+      "stop": "agent_done",
+      "usd": 0.098465
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 2812,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 107035,
+      "reward": 0.0,
+      "sample": "cbc5910140fe5666",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/cbc5910140fe5666/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.07432
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0,
+         [],
+         []
+        ],
+        [
+         21,
+         0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.0
+      },
+      "compactions": 0,
+      "completion_tokens": 5079,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": false,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 0,
+      "prompt_tokens": 164466,
+      "reward": 0.0,
+      "sample": "ff2bb7298be74701",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/ff2bb7298be74701/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.112764
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         22,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4334,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 147540,
+      "reward": 1.0,
+      "sample": "4af2ee0f9b66c6ec",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/4af2ee0f9b66c6ec/a1",
+      "steps": 22,
+      "stop": "agent_done",
+      "usd": 0.106547
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3999,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 140391,
+      "reward": 1.0,
+      "sample": "befe20e2f60e1648",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/befe20e2f60e1648/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.098327
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4053,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 155679,
+      "reward": 1.0,
+      "sample": "e0a06d83570f589a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/e0a06d83570f589a/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.108479
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         18,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3784,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 133339,
+      "reward": 1.0,
+      "sample": "f5a215ea1e7d3b5b",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/f5a215ea1e7d3b5b/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.10179
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4604,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 144074,
+      "reward": 1.0,
+      "sample": "4af2ee0f9b66c6ec",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/4af2ee0f9b66c6ec/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.105192
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         21,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4051,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 152561,
+      "reward": 1.0,
+      "sample": "befe20e2f60e1648",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/befe20e2f60e1648/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.09953
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 4208,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 156452,
+      "reward": 1.0,
+      "sample": "e0a06d83570f589a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/e0a06d83570f589a/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.09018
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m02c"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3389,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m02c": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 108208,
+      "reward": 1.0,
+      "sample": "f5a215ea1e7d3b5b",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/samples/f5a215ea1e7d3b5b/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.084222
+     }
+    ]
+   },
+   "full": "0/8",
+   "generator": "stitched_window",
+   "kind": "stitched",
+   "machine": {
+    "run_id": "s15-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04-3395170fcf",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 0.0,
+    "full_series": [
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0
+      ],
+      [
+       22,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0
+      ],
+      [
+       21,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       19,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       19,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       19,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0
+      ],
+      [
+       22,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       16,
+       0
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0
+      ],
+      [
+       21,
+       0
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "8/8",
+   "simplify": "locate",
+   "targets": [
+    "m02c",
+    "m02"
+   ],
+   "usd": 1.55129,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] have no spread (pass rate 0.0)"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "st-glom--boltons-2ae0bb57": {
+   "band": {
+    "in_band": true,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.25,
+     0.375
+    ],
+    "rewards": [
+     0.25,
+     0.25,
+     0.25,
+     0.375
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 3
+    },
+    "n": 3,
+    "ok": true,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         23,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 4231,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 276539,
+      "reward": 0.25,
+      "sample": "7d833a37368b0584",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/7d833a37368b0584/a1",
+      "steps": 23,
+      "stop": "agent_done",
+      "usd": 0.136394
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         29,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 0,
+      "completion_tokens": 4857,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 349887,
+      "reward": 0.25,
+      "sample": "7da394c8f805c586",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/7da394c8f805c586/a1",
+      "steps": 29,
+      "stop": "agent_done",
+      "usd": 0.160189
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 5,
+       "compaction_turns": [
+        22
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         22,
+         0.5,
+         [],
+         []
+        ],
+        [
+         30,
+         0.5,
+         [],
+         []
+        ],
+        [
+         34,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 1,
+      "completion_tokens": 6889,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 358486,
+      "reward": 0.25,
+      "sample": "b50afd27719dabe6",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/b50afd27719dabe6/a1",
+      "steps": 34,
+      "stop": "agent_done",
+      "usd": 0.304061
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 5,
+       "compaction_turns": [
+        28
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.75,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.75,
+         [
+          "m08",
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         28,
+         0.75,
+         [],
+         []
+        ],
+        [
+         30,
+         0.75,
+         [],
+         []
+        ],
+        [
+         31,
+         0.75,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.75
+      },
+      "compactions": 1,
+      "completion_tokens": 7180,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": true,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.75,
+      "prompt_tokens": 350581,
+      "reward": 0.375,
+      "sample": "f6491bc68764b475",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/f6491bc68764b475/a1",
+      "steps": 31,
+      "stop": "agent_done",
+      "usd": 0.272641
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 7,
+       "compaction_turns": [
+        17,
+        32
+       ],
+       "graded": 4,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         17,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         20,
+         0.5,
+         [],
+         []
+        ],
+        [
+         30,
+         0.5,
+         [],
+         []
+        ],
+        [
+         32,
+         0.5,
+         [],
+         []
+        ],
+        [
+         40,
+         0.5,
+         [],
+         []
+        ],
+        [
+         49,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 2,
+      "completion_tokens": 13764,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 561296,
+      "reward": 0.25,
+      "sample": "9f353e8f37944f24",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/9f353e8f37944f24/a1",
+      "steps": 49,
+      "stop": "agent_done",
+      "usd": 0.569663
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 5,
+       "compaction_turns": [
+        22
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         22,
+         0.5,
+         [],
+         []
+        ],
+        [
+         30,
+         0.5,
+         [],
+         []
+        ],
+        [
+         35,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 1,
+      "completion_tokens": 8144,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 318003,
+      "reward": 0.25,
+      "sample": "ae3410170ac5cf79",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/ae3410170ac5cf79/a1",
+      "steps": 35,
+      "stop": "agent_done",
+      "usd": 0.299487
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 4,
+       "compaction_turns": [
+        16
+       ],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.75,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0.75,
+         [
+          "m08",
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         20,
+         0.75,
+         [],
+         []
+        ],
+        [
+         24,
+         0.75,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.75
+      },
+      "compactions": 1,
+      "completion_tokens": 6434,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": true,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.75,
+      "prompt_tokens": 244843,
+      "reward": 0.375,
+      "sample": "f0b47c8f82db8dba",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/f0b47c8f82db8dba/a1",
+      "steps": 24,
+      "stop": "agent_done",
+      "usd": 0.282731
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [
+        16
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.5,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0.5,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         19,
+         0.5,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.5
+      },
+      "compactions": 1,
+      "completion_tokens": 6050,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false
+      },
+      "path_violations": [],
+      "phi": 0.5,
+      "prompt_tokens": 253025,
+      "reward": 0.25,
+      "sample": "f7d76d18cd0aa080",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-2ae0bb57/samples/f7d76d18cd0aa080/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.257295
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "stitched_window",
+   "kind": "stitched",
+   "machine": {
+    "run_id": "s15-st-glom--boltons-2ae0bb57-ef4c47a588",
+    "s15_visits": 1,
+    "status": "done",
+    "why": "reached terminal state accepted"
+   },
+   "phi": {
+    "full": 0.5625,
+    "full_series": [
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.5
+      ],
+      [
+       23,
+       0.5
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.5
+      ],
+      [
+       29,
+       0.5
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.5
+      ],
+      [
+       22,
+       0.5
+      ],
+      [
+       30,
+       0.5
+      ],
+      [
+       34,
+       0.5
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.75
+      ],
+      [
+       28,
+       0.75
+      ],
+      [
+       30,
+       0.75
+      ],
+      [
+       31,
+       0.75
+      ]
+     ]
+    ],
+    "simple": 0.5625
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "locate",
+   "targets": [
+    "m12c",
+    "m12"
+   ],
+   "usd": 2.28246,
+   "verdict": {
+    "findings": [],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "paraphrase stability not run"
+    ],
+    "ok": true,
+    "owner": null,
+    "route": null
+   }
+  },
+  "st-glom--boltons-30eb7ffe": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.2,
+     0.2
+    ],
+    "rewards": [
+     0.2,
+     0.2,
+     0.2,
+     0.2
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 4
+    },
+    "n": 4,
+    "ok": true,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 10,
+       "compaction_turns": [
+        23,
+        32,
+        52
+       ],
+       "graded": 5,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         23,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         32,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         50,
+         0.4,
+         [],
+         []
+        ],
+        [
+         52,
+         0.4,
+         [],
+         []
+        ],
+        [
+         60,
+         0.4,
+         [],
+         []
+        ],
+        [
+         65,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 3,
+      "completion_tokens": 18867,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 695933,
+      "reward": 0.2,
+      "sample": "1ea6b2afbcd91374",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/1ea6b2afbcd91374/a1",
+      "steps": 65,
+      "stop": "agent_done",
+      "usd": 0.752905
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 9,
+       "compaction_turns": [
+        21,
+        32,
+        45
+       ],
+       "graded": 6,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         21,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         32,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         45,
+         0.4,
+         [],
+         []
+        ],
+        [
+         50,
+         0.4,
+         [],
+         []
+        ],
+        [
+         57,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 3,
+      "completion_tokens": 23713,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 1012950,
+      "reward": 0.2,
+      "sample": "2969fe9cba4e3db2",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/2969fe9cba4e3db2/a1",
+      "steps": 57,
+      "stop": "agent_done",
+      "usd": 0.838564
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 6,
+       "compaction_turns": [
+        23
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         23,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         41,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 1,
+      "completion_tokens": 13121,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 490564,
+      "reward": 0.2,
+      "sample": "d1a00a77cd570cb4",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/d1a00a77cd570cb4/a1",
+      "steps": 41,
+      "stop": "agent_done",
+      "usd": 0.412269
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 5,
+       "compaction_turns": [
+        21
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         21,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         34,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 1,
+      "completion_tokens": 11828,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 472927,
+      "reward": 0.2,
+      "sample": "e4be0c7227b1db13",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/e4be0c7227b1db13/a1",
+      "steps": 34,
+      "stop": "agent_done",
+      "usd": 0.379813
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 8,
+       "compaction_turns": [
+        23,
+        40,
+        47
+       ],
+       "graded": 4,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         23,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         47,
+         0.4,
+         [],
+         []
+        ],
+        [
+         50,
+         0.4,
+         [],
+         []
+        ],
+        [
+         55,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 3,
+      "completion_tokens": 22424,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 721269,
+      "reward": 0.2,
+      "sample": "9a6d1cc4d7ddc993",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/9a6d1cc4d7ddc993/a1",
+      "steps": 55,
+      "stop": "agent_done",
+      "usd": 0.79615
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 8,
+       "compaction_turns": [
+        16,
+        23,
+        39
+       ],
+       "graded": 6,
+       "milestones_lost": 1,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         20,
+         0.2,
+         [],
+         [
+          "m12c"
+         ]
+        ],
+        [
+         23,
+         0.4,
+         [
+          "m12c"
+         ],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         39,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         49,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 3,
+      "completion_tokens": 19154,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 789074,
+      "reward": 0.2,
+      "sample": "ceaf44671ab43a4b",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/ceaf44671ab43a4b/a1",
+      "steps": 49,
+      "stop": "agent_done",
+      "usd": 0.753332
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 7,
+       "compaction_turns": [
+        17,
+        26
+       ],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         17,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [],
+         []
+        ],
+        [
+         26,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         42,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 2,
+      "completion_tokens": 15070,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 627644,
+      "reward": 0.2,
+      "sample": "f4954d6ba1b85296",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/f4954d6ba1b85296/a1",
+      "steps": 42,
+      "stop": "agent_done",
+      "usd": 0.577513
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 8,
+       "compaction_turns": [
+        25,
+        43
+       ],
+       "graded": 5,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.4,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.4,
+         [
+          "m12",
+          "m12c"
+         ],
+         []
+        ],
+        [
+         25,
+         0.4,
+         [],
+         []
+        ],
+        [
+         30,
+         0.4,
+         [],
+         []
+        ],
+        [
+         40,
+         0.4,
+         [],
+         []
+        ],
+        [
+         43,
+         0.4,
+         [],
+         []
+        ],
+        [
+         50,
+         0.4,
+         [],
+         []
+        ],
+        [
+         57,
+         0.4,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.4
+      },
+      "compactions": 2,
+      "completion_tokens": 16002,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m08": false,
+       "m12": true,
+       "m12c": true,
+       "m19": false,
+       "m22": false
+      },
+      "path_violations": [],
+      "phi": 0.4,
+      "prompt_tokens": 716127,
+      "reward": 0.2,
+      "sample": "f9cec30adefe9c5a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-st-glom--boltons-30eb7ffe/samples/f9cec30adefe9c5a/a1",
+      "steps": 57,
+      "stop": "agent_done",
+      "usd": 0.567986
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "stitched_window",
+   "kind": "stitched",
+   "machine": {
+    "run_id": "s15-st-glom--boltons-30eb7ffe-2e913176fe",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 0.4,
+    "full_series": [
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.4
+      ],
+      [
+       23,
+       0.4
+      ],
+      [
+       30,
+       0.4
+      ],
+      [
+       32,
+       0.4
+      ],
+      [
+       40,
+       0.4
+      ],
+      [
+       50,
+       0.4
+      ],
+      [
+       52,
+       0.4
+      ],
+      [
+       60,
+       0.4
+      ],
+      [
+       65,
+       0.4
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.4
+      ],
+      [
+       21,
+       0.4
+      ],
+      [
+       30,
+       0.4
+      ],
+      [
+       32,
+       0.4
+      ],
+      [
+       40,
+       0.4
+      ],
+      [
+       45,
+       0.4
+      ],
+      [
+       50,
+       0.4
+      ],
+      [
+       57,
+       0.4
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.4
+      ],
+      [
+       23,
+       0.4
+      ],
+      [
+       30,
+       0.4
+      ],
+      [
+       40,
+       0.4
+      ],
+      [
+       41,
+       0.4
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.4
+      ],
+      [
+       21,
+       0.4
+      ],
+      [
+       30,
+       0.4
+      ],
+      [
+       34,
+       0.4
+      ]
+     ]
+    ],
+    "simple": 0.4
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "locate",
+   "targets": [
+    "m12c",
+    "m12"
+   ],
+   "usd": 5.07853,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [0.2, 0.2, 0.2, 0.2] have no spread (pass rate 0.0)"
+    ],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "sw-boltons-18727bf6": {
+   "band": {
+    "in_band": false,
+    "n": 8,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.166666,
+     0.166666
+    ],
+    "rewards": [
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666
+    ]
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 5,
+     "spec_defect": 3
+    },
+    "n": 8,
+    "ok": false,
+    "skill_gap_share": 0.625,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 1.0,
+    "dphi_ci": [
+     1.0,
+     1.0
+    ],
+    "fisher_p": 7.8e-05,
+    "power_at_ref": 0.989594,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "attributed",
+    "why": "simplified 8/8 vs full 0/8: Fisher p 0.0001; Phi gain CI [1.0, 1.0] above 0"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [],
+         []
+        ],
+        [
+         21,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2469,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 190493,
+      "reward": 0.166666,
+      "sample": "29666293b25aea2d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/29666293b25aea2d/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.075188
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2256,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 102425,
+      "reward": 0.166666,
+      "sample": "32f894f658e7374d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/32f894f658e7374d/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.068543
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         15,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2628,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 112449,
+      "reward": 0.166666,
+      "sample": "6d5f87bdebe11f8d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/6d5f87bdebe11f8d/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.076611
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         13,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 1848,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 86459,
+      "reward": 0.166666,
+      "sample": "8091be3e70e4808a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/8091be3e70e4808a/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.063092
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [],
+         []
+        ],
+        [
+         21,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2486,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 190398,
+      "reward": 0.166666,
+      "sample": "29666293b25aea2d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/29666293b25aea2d/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.023602
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         16,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2509,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 103057,
+      "reward": 0.166666,
+      "sample": "32f894f658e7374d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/32f894f658e7374d/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.029201
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         14,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2463,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 96454,
+      "reward": 0.166666,
+      "sample": "6d5f87bdebe11f8d",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/6d5f87bdebe11f8d/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.030027
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         14,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2455,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 103421,
+      "reward": 0.166666,
+      "sample": "8091be3e70e4808a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/8091be3e70e4808a/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.033166
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         9,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1229,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 49172,
+      "reward": 1.0,
+      "sample": "2d169bfb4697c11e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/2d169bfb4697c11e/a1",
+      "steps": 9,
+      "stop": "agent_done",
+      "usd": 0.044551
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1417,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 96954,
+      "reward": 1.0,
+      "sample": "5d82ab36d8689b8a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/5d82ab36d8689b8a/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.052281
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1397,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 79265,
+      "reward": 1.0,
+      "sample": "9ec833ce5babacbd",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/9ec833ce5babacbd/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.041785
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1559,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 97548,
+      "reward": 1.0,
+      "sample": "d7ae311f65753992",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-boltons-18727bf6/samples/d7ae311f65753992/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.050923
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         9,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1223,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 49171,
+      "reward": 1.0,
+      "sample": "2d169bfb4697c11e",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/2d169bfb4697c11e/a1",
+      "steps": 9,
+      "stop": "agent_done",
+      "usd": 0.013406
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1421,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 96977,
+      "reward": 1.0,
+      "sample": "5d82ab36d8689b8a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/5d82ab36d8689b8a/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.013134
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1398,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 79271,
+      "reward": 1.0,
+      "sample": "9ec833ce5babacbd",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/9ec833ce5babacbd/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.008226
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1435,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 87459,
+      "reward": 1.0,
+      "sample": "d7ae311f65753992",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-boltons-18727bf6/samples/d7ae311f65753992/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.013752
+     }
+    ]
+   },
+   "full": "0/8",
+   "generator": "swarm_window",
+   "kind": "swarm",
+   "machine": {
+    "run_id": "s15-sw-boltons-18727bf6-02f1f8286e",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 0.3333,
+    "full_series": [
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       20,
+       0.333333333
+      ],
+      [
+       21,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       16,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       15,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       13,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       20,
+       0.333333333
+      ],
+      [
+       21,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       16,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       14,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       14,
+       0.333333333
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "8/8",
+   "simplify": "prerequisites",
+   "targets": [
+    "m02"
+   ],
+   "usd": 0.63749,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666] have no spread (pass rate 0.0)",
+     "cause mix: skill-gap share 0.625 < 0.7"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "sw-cachetools-aadb387d": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.5,
+     0.5
+    ],
+    "rewards": [
+     0.5,
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "cause": {
+    "labels": {
+     "verifier_defect": 1
+    },
+    "n": 1,
+    "ok": null,
+    "skill_gap_share": 0.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m01",
+          "m02"
+         ],
+         []
+        ],
+        [
+         23,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 5331,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 180697,
+      "reward": 0.5,
+      "sample": "196306bb1e0f1003",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/196306bb1e0f1003/a1",
+      "steps": 23,
+      "stop": "agent_done",
+      "usd": 0.125025
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [],
+         []
+        ],
+        [
+         23,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 5360,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 185335,
+      "reward": 0.5,
+      "sample": "55164a73b7bfbdc8",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/55164a73b7bfbdc8/a1",
+      "steps": 23,
+      "stop": "agent_done",
+      "usd": 0.130277
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [],
+         []
+        ],
+        [
+         24,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 5963,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 219058,
+      "reward": 0.5,
+      "sample": "b9fd46d0e9f3c942",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/b9fd46d0e9f3c942/a1",
+      "steps": 24,
+      "stop": "agent_done",
+      "usd": 0.140163
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [],
+         []
+        ],
+        [
+         25,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 7043,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 269140,
+      "reward": 0.5,
+      "sample": "ed16db64c8570b76",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/ed16db64c8570b76/a1",
+      "steps": 25,
+      "stop": "agent_done",
+      "usd": 0.16316
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         25,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3576,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 200481,
+      "reward": 0.5,
+      "sample": "0bf6e310a24dd174",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/0bf6e310a24dd174/a1",
+      "steps": 25,
+      "stop": "agent_done",
+      "usd": 0.107506
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         22,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3101,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 135477,
+      "reward": 0.5,
+      "sample": "9bfabb12cd46a9ef",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/9bfabb12cd46a9ef/a1",
+      "steps": 22,
+      "stop": "agent_done",
+      "usd": 0.078529
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 3429,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 145319,
+      "reward": 0.5,
+      "sample": "c6d1099e1bd2feaa",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/c6d1099e1bd2feaa/a1",
+      "steps": 20,
+      "stop": "agent_done",
+      "usd": 0.091677
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 2857,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 152207,
+      "reward": 0.5,
+      "sample": "d648d8fd0f532f74",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-cachetools-aadb387d/samples/d648d8fd0f532f74/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.088629
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "swarm_window",
+   "kind": "swarm",
+   "machine": {
+    "run_id": "s15-sw-cachetools-aadb387d-530f15e37a",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 1.0,
+    "full_series": [
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       20,
+       1.0
+      ],
+      [
+       23,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       20,
+       1.0
+      ],
+      [
+       23,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       20,
+       1.0
+      ],
+      [
+       24,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       20,
+       1.0
+      ],
+      [
+       25,
+       1.0
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "prerequisites",
+   "targets": [
+    "m02"
+   ],
+   "usd": 0.92497,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [0.5, 0.5, 0.5, 0.5] have no spread (pass rate 0.0)"
+    ],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "cause mix unmeasured (1 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "sw-funcy-e76bf04c": {
+   "band": {
+    "in_band": false,
+    "n": 8,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.166666,
+     0.166666
+    ],
+    "rewards": [
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666,
+     0.166666
+    ]
+   },
+   "cause": {
+    "labels": {
+     "spec_defect": 4
+    },
+    "n": 4,
+    "ok": false,
+    "skill_gap_share": 0.0,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 1.0,
+    "dphi_ci": [
+     1.0,
+     1.0
+    ],
+    "fisher_p": 7.8e-05,
+    "power_at_ref": 0.989594,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "attributed",
+    "why": "simplified 8/8 vs full 0/8: Fisher p 0.0001; Phi gain CI [1.0, 1.0] above 0"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         11,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 1704,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 49580,
+      "reward": 0.166666,
+      "sample": "6833706b37cc222f",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/6833706b37cc222f/a1",
+      "steps": 11,
+      "stop": "agent_done",
+      "usd": 0.049746
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         13,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2194,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 93762,
+      "reward": 0.166666,
+      "sample": "6b0b8016176f387f",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/6b0b8016176f387f/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.060696
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2558,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 145029,
+      "reward": 0.166666,
+      "sample": "755551a7f42e8bd0",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/755551a7f42e8bd0/a1",
+      "steps": 20,
+      "stop": "agent_done",
+      "usd": 0.074706
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         24,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2491,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 178583,
+      "reward": 0.166666,
+      "sample": "7ee0f2c11db6ddd4",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/7ee0f2c11db6ddd4/a1",
+      "steps": 24,
+      "stop": "agent_done",
+      "usd": 0.076891
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         12,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 1877,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 71903,
+      "reward": 0.166666,
+      "sample": "6833706b37cc222f",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/6833706b37cc222f/a1",
+      "steps": 12,
+      "stop": "agent_done",
+      "usd": 0.021273
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         12,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2927,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 83323,
+      "reward": 0.166666,
+      "sample": "6b0b8016176f387f",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/6b0b8016176f387f/a1",
+      "steps": 12,
+      "stop": "agent_done",
+      "usd": 0.035468
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         21,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 3354,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 160382,
+      "reward": 0.166666,
+      "sample": "755551a7f42e8bd0",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/755551a7f42e8bd0/a1",
+      "steps": 21,
+      "stop": "agent_done",
+      "usd": 0.038064
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 3,
+       "compaction_turns": [],
+       "graded": 3,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 0.333333333,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         20,
+         0.333333333,
+         [
+          "m03"
+         ],
+         []
+        ],
+        [
+         24,
+         0.333333333,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 0.333333333
+      },
+      "compactions": 0,
+      "completion_tokens": 2492,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": false,
+       "m02": false,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 0.333333,
+      "prompt_tokens": 178507,
+      "reward": 0.166666,
+      "sample": "7ee0f2c11db6ddd4",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/7ee0f2c11db6ddd4/a1",
+      "steps": 24,
+      "stop": "agent_done",
+      "usd": 0.030226
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1643,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 93735,
+      "reward": 1.0,
+      "sample": "97d5178fe3544a46",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/97d5178fe3544a46/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.051308
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m02"
+         ],
+         []
+        ],
+        [
+         20,
+         1.0,
+         [
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 2199,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 122082,
+      "reward": 1.0,
+      "sample": "c384f88add6b3a4a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/c384f88add6b3a4a/a1",
+      "steps": 20,
+      "stop": "agent_done",
+      "usd": 0.062198
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 2046,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 103738,
+      "reward": 1.0,
+      "sample": "de9984265a68ff27",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/de9984265a68ff27/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.059078
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1880,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 95664,
+      "reward": 1.0,
+      "sample": "f393768f5d95d957",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-funcy-e76bf04c/samples/f393768f5d95d957/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.062577
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         18,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1971,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 105029,
+      "reward": 1.0,
+      "sample": "97d5178fe3544a46",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/97d5178fe3544a46/a1",
+      "steps": 18,
+      "stop": "agent_done",
+      "usd": 0.020424
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0.5,
+         [
+          "m02"
+         ],
+         []
+        ],
+        [
+         16,
+         1.0,
+         [
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1840,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 96504,
+      "reward": 1.0,
+      "sample": "c384f88add6b3a4a",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/c384f88add6b3a4a/a1",
+      "steps": 16,
+      "stop": "agent_done",
+      "usd": 0.017646
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         14,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1738,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 78893,
+      "reward": 1.0,
+      "sample": "de9984265a68ff27",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/de9984265a68ff27/a1",
+      "steps": 14,
+      "stop": "agent_done",
+      "usd": 0.016854
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0,
+         [],
+         []
+        ],
+        [
+         19,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1964,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 107219,
+      "reward": 1.0,
+      "sample": "f393768f5d95d957",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/armsb2-sw-funcy-e76bf04c/samples/f393768f5d95d957/a1",
+      "steps": 19,
+      "stop": "agent_done",
+      "usd": 0.021039
+     }
+    ]
+   },
+   "full": "0/8",
+   "generator": "swarm_window",
+   "kind": "swarm",
+   "machine": {
+    "run_id": "s15-sw-funcy-e76bf04c-57e7659dc1",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 0.3333,
+    "full_series": [
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       11,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       13,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.333333333
+      ],
+      [
+       24,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       12,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0.333333333
+      ],
+      [
+       12,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.333333333
+      ],
+      [
+       21,
+       0.333333333
+      ]
+     ],
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0.333333333
+      ],
+      [
+       24,
+       0.333333333
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "8/8",
+   "simplify": "prerequisites",
+   "targets": [
+    "m02"
+   ],
+   "usd": 0.69819,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666, 0.166666] have no spread (pass rate 0.0)",
+     "cause mix: skill-gap share 0.0 < 0.7"
+    ],
+    "flags": [
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "sw-more-itertools-dedc22c6": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "cause": {
+    "labels": {},
+    "n": 0,
+    "ok": null,
+    "skill_gap_share": null,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0.666666667,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [
+          "m01"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1350,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 42594,
+      "reward": 1.0,
+      "sample": "3bc7479aa02bbcd2",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/3bc7479aa02bbcd2/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.035619
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         11,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1069,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 35162,
+      "reward": 1.0,
+      "sample": "55bf30814d68d306",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/55bf30814d68d306/a1",
+      "steps": 11,
+      "stop": "agent_done",
+      "usd": 0.030752
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         0.666666667,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         17,
+         1.0,
+         [
+          "m01"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1282,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 39346,
+      "reward": 1.0,
+      "sample": "845ceae96f5802df",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/845ceae96f5802df/a1",
+      "steps": 17,
+      "stop": "agent_done",
+      "usd": 0.030635
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1212,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 33830,
+      "reward": 1.0,
+      "sample": "ba3ef86007018d69",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/ba3ef86007018d69/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.032866
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m03"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1039,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 32583,
+      "reward": 1.0,
+      "sample": "2de98fd3eb50d2c4",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/2de98fd3eb50d2c4/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.028044
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m03"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 921,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 23963,
+      "reward": 1.0,
+      "sample": "7cdef7f04ddea8bd",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/7cdef7f04ddea8bd/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.024107
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m03"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1241,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 37394,
+      "reward": 1.0,
+      "sample": "aea9d6d2c5407b6f",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/aea9d6d2c5407b6f/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.031534
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m03"
+         ],
+         []
+        ],
+        [
+         15,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1145,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 33787,
+      "reward": 1.0,
+      "sample": "d21f3917857fcb6b",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-more-itertools-dedc22c6/samples/d21f3917857fcb6b/a1",
+      "steps": 15,
+      "stop": "agent_done",
+      "usd": 0.030234
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "swarm_window",
+   "kind": "swarm",
+   "machine": {
+    "run_id": "s15-sw-more-itertools-dedc22c6-3ebd9bf648",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 1.0,
+    "full_series": [
+     [
+      [
+       10,
+       0.666666667
+      ],
+      [
+       17,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       11,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       0.666666667
+      ],
+      [
+       17,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ],
+      [
+       15,
+       1.0
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "prerequisites",
+   "targets": [
+    "m03"
+   ],
+   "usd": 0.24379,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  },
+  "sw-python-semver-a2e121df": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "cause": {
+    "labels": {},
+    "n": 0,
+    "ok": null,
+    "skill_gap_share": null,
+    "skill_min": 0.7,
+    "source": "P3 RLM auditor (deepseek, seeded controls) on this phase's frontier trails"
+   },
+   "counterfactual": {
+    "dphi": 0.0,
+    "dphi_ci": [
+     0.0,
+     0.0
+    ],
+    "fisher_p": 1.0,
+    "power_at_ref": 0.0,
+    "simple_vs_ref_p": 1.0,
+    "verdict": "underpowered",
+    "why": "no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8"
+   },
+   "episodes": {
+    "full": [
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 940,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 36186,
+      "reward": 1.0,
+      "sample": "2549377a931d9bdd",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/2549377a931d9bdd/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.024744
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1123,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 35932,
+      "reward": 1.0,
+      "sample": "cc4e4a511911a141",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/cc4e4a511911a141/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.026181
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1097,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 43380,
+      "reward": 1.0,
+      "sample": "eebd7087cffb9d84",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/eebd7087cffb9d84/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.03256
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m01",
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1129,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m01": true,
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 48384,
+      "reward": 1.0,
+      "sample": "fa375784b780c2ea",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/fa375784b780c2ea/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.03296
+     }
+    ],
+    "simple": [
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1222,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 64015,
+      "reward": 1.0,
+      "sample": "1ab45dfeaa78fe17",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/1ab45dfeaa78fe17/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.04056
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 1,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1205,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 44079,
+      "reward": 1.0,
+      "sample": "91668aab0ea68b15",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/91668aab0ea68b15/a1",
+      "steps": 10,
+      "stop": "agent_done",
+      "usd": 0.033292
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 2,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         13,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1268,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 52050,
+      "reward": 1.0,
+      "sample": "a150ec5d930bb7f2",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/a150ec5d930bb7f2/a1",
+      "steps": 13,
+      "stop": "agent_done",
+      "usd": 0.034206
+     },
+     {
+      "checkpoints": {
+       "checkpoints": 2,
+       "compaction_turns": [],
+       "graded": 1,
+       "milestones_lost": 0,
+       "phi0": 0,
+       "phi_final": 1.0,
+       "series": [
+        [
+         10,
+         1.0,
+         [
+          "m02",
+          "m03"
+         ],
+         []
+        ],
+        [
+         12,
+         1.0,
+         [],
+         []
+        ]
+       ],
+       "sum_delta": 1.0
+      },
+      "compactions": 0,
+      "completion_tokens": 1290,
+      "failure": null,
+      "hack_suspect": false,
+      "masked": false,
+      "milestones": {
+       "m02": true,
+       "m03": true
+      },
+      "path_violations": [],
+      "phi": 1.0,
+      "prompt_tokens": 49368,
+      "reward": 1.0,
+      "sample": "c2a9b269b67a3609",
+      "seconds": 0,
+      "src_dir": "/private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/p5b/run/runs/arms-sw-python-semver-a2e121df/samples/c2a9b269b67a3609/a1",
+      "steps": 12,
+      "stop": "agent_done",
+      "usd": 0.038903
+     }
+    ]
+   },
+   "full": "4/4",
+   "generator": "swarm_window",
+   "kind": "swarm",
+   "machine": {
+    "run_id": "s15-sw-python-semver-a2e121df-94b89bcc44",
+    "s15_visits": 2,
+    "status": "paused",
+    "why": "loop exhausted: s15_target -> s2_plan, but s2_plan used all 2 entries"
+   },
+   "phi": {
+    "full": 1.0,
+    "full_series": [
+     [
+      [
+       10,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ]
+     ],
+     [
+      [
+       10,
+       1.0
+      ]
+     ]
+    ],
+    "simple": 1.0
+   },
+   "probe": {
+    "ok": true,
+    "owner": null,
+    "why": ""
+   },
+   "s8_simple": {
+    "failed": [],
+    "ok": true
+   },
+   "simple": "4/4",
+   "simplify": "prerequisites",
+   "targets": [
+    "m03"
+   ],
+   "usd": 0.26341,
+   "verdict": {
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2"
+   }
+  }
+ }
+}

@@ -615,3 +615,136 @@ commits): the herding guard should see them as one family. (7) DESIGN.md is left
 removed in-flight runs of the full-suite rebreak screen; any effect is a missed fix or interaction, never a false accept. (9) Scout `real_fix`/`real_perf`/
 `request` records are leased only; their repositories are filtered when cloned. (10) Docker-marked m17 tests were not
 run; the non-Docker m17 suite passes (480), ruff and lint-imports (4 kept) clean.
+
+## P5b (built): swarm-built windows, and failure targeting against a frontier closed model
+
+Spec: `00` §2, §3, §4, §7, §14, §15 P5 (the paid half). Hard cap $30 (one USD ledger, `p5b/run/spend.jsonl`, every client
+guarded); spend **$21.96** (by role below; $8.04 left, more than the $3 slack). Report `runs/p5b_report.json`.
+
+**Files.** New: `factory/generators/swarm.py`, `scripts/lh_swarm.py`; tests `tests/unit/test_m17_p5b_{swarm,run}.py` (13, scripted
+models, no Docker). Changed: `scripts/lh_run.py` (`harness()`: the sidecar is `envs.InfraWatch` around the checkpoint sidecar, or
+around nothing with checkpoints off, so a World container lost mid-episode is masked, never an ordinary 0: P6's open item).
+
+**Part A, the swarm-built window** (`swarm.py`; P1's machine, sessions, typed hand-offs with the full spec, the family task
+repo, receipts). Source (S1): a store3 *training* window's start A; the requests are the lines the next release added to the
+repository's changelog (else its commit subjects), with the issue or pull request text they cite (GitHub, cached), one `request`
+record each, leased. The real B is never shown to a role. The machine: lease -> planner (a call; A's static call graph between
+the names the requests mention, `code_links`, is in its input) -> oracle builder (an M16 session in a private clone at A, the
+window's World image, offline; one commit per milestone) -> oracle check (count, subjects, library source, A's passing suite
+still passes; a regression the builder cannot remove twice goes to the planner) -> verifier writer (another session, a clone
+holding A only, `isolated_from` the oracle; `crucible_hidden/test_<mid>.py`) -> reviewer (deepseek; blocks once, then advisory:
+V6) -> build (the hidden tests on A and on the oracle: findings name test ids and outcome kinds, never values; then the
+synthetic history: tree k = oracle commit k with test and protected paths back at A plus the hidden files of milestones 1..k,
+and `validate_window` unchanged: World, leak probes, f2p with reruns, prefix owners, the executed prober, commit-revert mutants
+of the oracle's own commits; no executed edge goes back to the planner) -> prompt (S7: `author_generated`, ledger, lint,
+required names, version lint) -> gates (S6, S5, S8, S3 60 reruns, S10 60 grades) -> second (P2's rewriters of both families
+and the deepseek shadow suite: S8 alternatives, S9 differential) -> hacker (deepseek agent in the solver's World, S12) -> accept
+(S17, herding guard). Roles: planner qwen3.8-flash, builder / verifier writer / prompt author qwen3.7-flash (author family);
+reviewer, second verifier, rewriter, hacker deepseek-v4-flash.
+
+Funnel (14 store3 start windows, the last run of each):
+
+| stage | in | out | drops |
+|---|---|---|---|
+| S1 requests (changelog 11, commit subjects 3) | 14 | 14 | |
+| S2 plan | 14 | 12 | 2: `why_requires` names nothing the required milestone adds (boltons 26.1, semver 3.1) |
+| S4 oracle | 12 | 10 | marshmallow: the plan contradicts 2 existing tests (after the planner's second plan); markdown: builder out of turns (paused, V7) |
+| S5 hidden tests vs the reference (+ one verifier loop) | 10 | 5 | arrow, click, funcy 2.1, humanize: tests fail on the oracle; more-itertools 10.2: tests already pass at A |
+| build: World, leak, f2p, S6 executed edge, valid mutants | 5 | 5 | (earlier runs: 3 S6 drops, "claimed" edges that did not execute) |
+| S7 prompt | 5 | 5 | |
+| S6, S5, S8, S3, S10 (deterministic) | 5 | **5** | |
+| S8 alternatives (2, one per family) + S9 | 5 | 5 | 3 needed a re-run: the second verifier's unbounded thinking returned empty replies (`ReasoningCap` added) |
+| S12 hacker | 5 | 5 | 2 hacker passes, both judged valid solutions (below) |
+| S17 accepted | 5 | **5** | |
+
+Accepted (start A, the requests of the release after it): python-semver 2.9.1 (to_tuple, to_dict, `__getitem__` built on
+to_tuple), boltons 25.0.0 (remap `cache`, research forwards it to remap, split maxsplit=0), funcy 1.15 (memoize .skip/.invalidate,
+cache unified on it, reraise callable), cachetools 5.5.2 (`condition` on cached/cachedmethod, func decorators built on it, MRU
+removal), more-itertools 10.2.0 (totient, all_equal `key` parameter, then key semantics). Each: 3 milestones, 1 executed edge, 3/3 valid revert mutants, S3 60/60, S10 0/60 (CP 0.049).
+Example (boltons): requests R4 "Added `cache` option to iterutils.remap and iterutils.research", R5 the split fix; plan m1 remap
+`cache`, m2 research forwards it (`research calls remap`, from `code_links`), m3 split; hidden tests 4/4/4; the prober's edge
+m02 <- m01; prompt R1-R3 in the maintainer's voice; alternatives qwen imperative + deepseek functional; shadow suite gates R3.
+
+Findings that changed the build while running: (1) qwen3.7-flash planned independent series on every candidate in 4 tries and
+its claimed edges did not execute (S6) -> planner on qwen3.8-flash, `code_links`, the `why_requires` name guard, the previous
+plan returned with its findings. (2) 80 session turns ended a 4-milestone build with all four commits made but no
+`rlm.finish` -> 150 turns. (3) deepseek and qwen3.8 thought through 24-32k tokens and answered nothing (`finish=length`) in
+reviews, plans and shadow suites -> `ReasoningCap` (OpenRouter `reasoning.max_tokens` 12k) on call roles. (4) S12 counted any
+hacker reward 1 as a hack; two hackers reported "no bypass worked" and implemented the behaviour. Now executed: a hacker pass is
+re-run under the qualified shadow suite; every measured requirement passing and no path check fired = a valid solution
+(`judge_pass`), else a confirmed hack. (5) A redo reused the previous run's session worktrees -> a redo clears them; an accepted
+task is never rebuilt. (6) Stopped runs left live lease announcements (later runs abstained) -> non-accepted runs retire theirs.
+
+**Part B, frontier targeting.** Model (OpenRouter list, no key read): **openai/gpt-6.1-sol**, $2 / $10 per 1M (cache read $0.10,
+automatic): the strongest OpenAI or Anthropic model the cap affords for >= 4 attempts per arm on several windows (GPT-6 Astra and
+Claude Fable 5.1 are $10/$50; Claude Opus 5.5 $4/$20 with no cache read without `cache_control`, which our client does not send).
+Pilot first (semver, full arm, tool limit 150, checkpoints on): $0.089, 14 steps, Phi 0.29, `agent_done`; extrapolation written
+before scaling (`pilot.json`): 301 such episodes under cap - $3 slack, n = 4 per arm = $0.71 per window. Actual cost per window
+(both arms, probe) $0.24-5.08: glom 30eb7ffe's contexts reached 0.5-1.0M prompt tokens per episode.
+
+Per window (gpt-6.1-sol, tool limit 150, checkpoint sidecar on: every episode's Phi series and turn credit are in the report;
+target = the deepest executed-edge milestone, success = it passes with its `requires`; Phi = the task's mean final Phi; cause
+mix = trusted P3-auditor labels on the full arm's failures; S15 through `targeting.target_verdict` and the S15 machine):
+
+| window (generator; target; simplify) | full | simplified | counterfactual: Fisher p (power at p_ref 0.8) | Phi full / simple | band | cause mix (skill share) | probe | S15 | $ |
+|---|---|---|---|---|---|---|---|---|---|
+| python-semver-w41775dd (mined; m31; prerequisites) | 0/9 | 8/8 | **attributed** 4e-5 (0.99) | 0.33 / 0.50 | yes | skill 3, spec 4, unstated 2 (0.33) | ok | S2 (intent: cause mix) | 1.16 |
+| marshmallow-jsonschema <- marshmallow 0856ed04 (stitched, cross-repo; m02c+m02; locate) | 0/8 | 8/8 | **attributed** 8e-5 (0.99) | 0.00 / 1.00 | no (all 0) | skill 6, spec 1, unstated 1 (0.75) | ok | S2 (out of band) | 1.55 |
+| glom <- boltons 2ae0bb57 (stitched, cross-repo; m12c+m12; locate) | 4/4 | 4/4 | underpowered 1.0 (0) | 0.56 / 0.56 | yes | skill 3 (1.0) | ok | **ok** (flags: underpowered, no paraphrase) | 2.28 |
+| glom <- boltons 30eb7ffe (stitched, cross-repo; m12c+m12; locate) | 4/4 | 4/4 | underpowered 1.0 (0) | 0.40 / 0.40 | no | skill 4 (1.0) | ok | S2 (out of band) | 5.08 |
+| rb-more-itertools-061d3f39 (rebreak; m04; locate) | 4/4 | 4/4 | underpowered 1.0 (0) | 1.00 / 1.00 | no (all 1) | no failure | ok | S2 (harden) | 0.38 |
+| sw-python-semver (swarm; m03; prerequisites) | 4/4 | 4/4 | underpowered 1.0 (0) | 1.00 / 1.00 | no (all 1) | no failure | ok | S2 (harden) | 0.26 |
+| sw-boltons (swarm; m02; prerequisites) | 0/8 | 8/8 | **attributed** 8e-5 (0.99) | 0.33 / 1.00 | no | skill 5, spec 3 (0.63) | ok | S2 (cause mix, band) | 0.64 |
+| sw-funcy (swarm; m02; prerequisites) | 0/8 | 8/8 | **attributed** 8e-5 (0.99) | 0.33 / 1.00 | no | spec 4 (0.0) | ok | S2 (spec defects) | 0.70 |
+| sw-cachetools (swarm; m02; prerequisites) | 4/4 | 4/4 | underpowered 1.0 (0) | 1.00 / 1.00 | no (all 0.5) | verifier_defect 1 (unmeasured) | ok | S2 (out of band) | 0.92 |
+| sw-more-itertools (swarm; m03; prerequisites) | 4/4 | 4/4 | underpowered 1.0 (0) | 1.00 / 1.00 | no (all 1) | no failure | ok | S2 (harden) | 0.24 |
+
+Reading: four windows are attributed at power 0.99 (the frontier fails the dependent milestone in the full task in every
+attempt and passes it in every attempt once the prerequisite is applied or located); five are solved by the frontier in both
+arms (harden: the axis is not hard for it); the frontier's rewards rarely spread across attempts (band fails on 8 of 10: it
+behaves deterministically at the task level), and the auditor sends semver w41775dd and the swarm funcy window back for spec
+defects.
+
+Findings that change the plan (swarm-built windows, exposed only by solving them):
+1. *Unstated import paths* (built). All 4 trusted funcy labels: the hidden tests import `SkipMemoization` from the package root;
+   R2 names the class, but nothing says the root exports it, and S7's required-name rule checks names, not import paths. S7 now
+   runs every `from X import Y` of the hidden tests in A's World image; a pair A cannot import whose path the request does not
+   state gets one fixed lane sentence ("These names must be importable exactly as written: ..."). Executed on the accepted
+   windows: funcy -> `from funcy import SkipMemoization`; boltons, cachetools: nothing. The targeted funcy prompt predates the
+   rule (its next version goes through P3's spec-defect acceptance). Boltons' m1 tests also pin an unstated fact (`cache=False`
+   must raise `RecursionError` on a cycle) that the reviewer passed: open (the verifier brief, the reviewer and S5's lint do
+   not catch an asserted fact the plan never states).
+2. *An oracle that skips part of its plan.* sw-cachetools: R3 asks to remove `MRUCache` and `mru_cache`; the oracle deprecated
+   them instead, its m3 tests are weak enough to pass, and 23 MRU tests stay in the regression check. A correct removal (the
+   frontier, 4/4) gets Phi 1 and reward 0.5; the auditor labelled it `verifier_defect`. Every gate passed: S8's alternatives
+   are rewrites of the oracle (they share the gap) and S9's shadow suite, which gates R3, does not test the removal either.
+   Open: an executed oracle-vs-plan check (each requirement's independent tests written to fail the start state for that
+   behaviour, run on the oracle before the regression set is frozen; a regression test that contradicts a requirement leaves
+   with it). Not built: the second verifier's suites fail the oracle for wrong reasons too often to send the oracle back on
+   their evidence alone (P2: 336 of 858).
+
+Audit: 113 bundles (65 failing), 3 runs (incremental; seeded controls in every batch, 27 of 31 batches trusted). P3's 24-turn cap
+ended 30 of 41 first sessions without a verdict; at 48 turns 4 labels stay rejected. Trusted labels on the full arms: skill_gap
+21, spec_defect 12, unstated_format 3, verifier_defect 1.
+
+Spend by role ($21.96): frontier solver 13.45 (arms 13.13, probes 0.23, pilot 0.09); auditor (deepseek) 4.85; swarm 3.66:
+oracle builder 2.09, verifier writer 0.91, planner 0.27, reviewer 0.16, hacker 0.15, second verifier 0.04, rewriters 0.04,
+prompt author 0.003.
+
+Tests: `test_m17_p5b_swarm.py` (11: requests, plan/oracle/test guards, outcome findings without values, `synthesize`, call
+links, `ReasoningCap`, lane-stated import paths, the machine end to end on a local kernel with scripted planner, sessions and reviewer; frontier pick,
+extrapolation, target specs) and `test_m17_p5b_run.py` (2: `harness()` wraps InfraWatch; a dead World is infra). The non-Docker
+m17 suite passes (525); ruff and lint-imports (4 kept) clean.
+
+**Deviations.** (1) Planner on qwen3.8-flash (same author family; qwen3.7-flash produced no dependent plan). (2) The World expert role is
+not a session: the start World is the store3 window's image (`ImageBook`, recipe 3), and S3 runs on the built window. (3)
+Stitched windows simplify by `locate`, not `host_change`: on observation-only windows host_change pre-applies every milestone
+(nothing left); targets are the observation milestone and the host milestone it requires. Their scripted probe runs the
+consumer's suite; a policy report equal to the sum of its own two runs (two repositories) passes (`two_repo_probe`). (4) The
+auditor's turn cap was raised (24 -> 48) by run configuration, not through `AuditorHarness.refine`; its notes are unchanged. (5)
+The S12 rule change (`judge_pass`) and the shadow-suite fix (`ReasoningCap`) were applied to stored builds by `finish` (S9, S12,
+S17 re-run; the hacker episodes reused, no new one): semver (S12), funcy, cachetools, more-itertools (S9). (6) Paraphrase
+stability (§7.6) not run; S15 flags it. S15 routes to S2 pause `exhausted` (no automated S2, as in P4). (7) The funnel reports
+each start window's last run; earlier runs (qwen3.7 planner, 80 turns) were redone. Per-candidate dollars are approximate
+(role clients are shared by concurrent candidates); role totals are exact. (8) Part A's S3/S10 ran while Part B episodes ran
+(host load; all passed). (9) DESIGN.md is left to the merge; Docker-marked tests not run.
