@@ -281,6 +281,10 @@ class HarborBackend(Backend):
                                "(nftables fib inet)")
         await self._start_env()
         self._exec = HarborExec(self.env, default_user=self.params.get("user"), lost=self.container_lost)
+        if self.params.get("image_digest"):  # the task image's pin (M1 audit R-14): a re-pushed tag never runs
+            from crucible.world.sandbox import check_pinned
+
+            check_pinned(self.params["image_digest"], await self._image_id(), f"task container {self.session_id}-main-1")
         if remote:  # no host bind mounts on a remote daemon: the dirs live in the container and Harbor downloads them
             await self._exec.run("mkdir -p /logs/verifier /logs/agent /logs/artifacts", timeout_s=60, user="root")
         if self.params.get("require_state_tools", True):  # in-place Harbor tasks (process adapter) run on any image

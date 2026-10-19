@@ -91,6 +91,20 @@ async def image_id(ref: str, docker_host: str | None = None, *, container: bool 
     return "layers:" + hashlib.sha256(out.stdout.strip().encode()).hexdigest()
 
 
+class StaleImage(RuntimeError):
+    """The image a World started in is not the one its spec pins (M1 audit R-14): ``crucible:stale_image``, never retried."""
+
+    failure_kind = "crucible:stale_image"
+
+
+def check_pinned(pinned: str | None, current: str | None, what: str) -> None:
+    """Refuse an image other than the pinned ``image_digest`` (``crucible world pin`` prints it): a tag re-pushed or rebuilt
+    under the same name otherwise changes what every task runs, unseen (ARCHITECTURE §7 rule 4). No pin: nothing to check."""
+    if pinned and current != pinned:
+        raise StaleImage(f"{what} is image {current or '(identity unreadable)'}, but the spec pins {pinned}: the tag was re-pushed or "
+                         "rebuilt; check the image, then pin it again with `crucible world pin`")
+
+
 def check_image(state: dict, current: str | None) -> None:
     """A WorldRef restores only into the image it was taken in (DESIGN B.5: stale images silently change behavior)."""
     taken = state.get("image")
@@ -154,6 +168,11 @@ class DockerSandbox:
         if not out.ok:
             raise RuntimeError(f"sandbox container failed to start ({self.description}): {(out.stderr or out.stdout)[-800:]}")
         self.image_id = await image_id(self.name, self.docker_host, container=True)
+        try:
+            check_pinned(self.sb.image_digest, self.image_id, self.sb.image)
+        except StaleImage:
+            await self.close()
+            raise
 
     async def pause(self) -> None:
         """Freeze every process in the container (cgroup freezer): no CPU, memory and files kept as they are (m13 S6)."""

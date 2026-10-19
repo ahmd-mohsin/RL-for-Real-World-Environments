@@ -38,6 +38,9 @@ class SandboxSpec(CrucibleModel):
 
     provider: str = "docker"  # or agentenv providers, a comma-separated fallback chain ("modal,e2b")
     image: str
+    # the image's identity (``layers:<sha256>``, from ``crucible world pin``): a start in any other image is refused as
+    # crucible:stale_image, so a tag re-pushed under the same name cannot silently change the task (M1 audit R-14)
+    image_digest: str | None = None
     gpu_host: str | None = None  # crucible.toml [gpu_hosts.<name>]
     docker_host: str | None = None
     gpu: str | None = None

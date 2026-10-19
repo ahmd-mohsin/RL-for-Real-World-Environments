@@ -45,6 +45,7 @@ NORMALIZE = {
     "env_unreachable": ("transport_unreachable", "env_unreachable"), "env_session_lost": ("session_lost", "env_session_lost"),
     "env_admission_timeout": ("transport_timeout", "env_admission_timeout"), "env_seed_failed": ("crucible:backend_error", "env_seed_failed"),
     "env_server_error": ("crucible:backend_error", "env_server_error"),
+    "StaleImage": ("crucible:stale_image", "StaleImage"),  # world.sandbox: the image is not the pinned one (M1 audit R-14)
     # LLM client
     "UsageBlank": ("crucible:usage_blank", "UsageBlank"), "BudgetExceeded": ("crucible:credits_exhausted", "BudgetExceeded"),
     "ContextOverflow": ("agent_timeout", "context_overflow"),

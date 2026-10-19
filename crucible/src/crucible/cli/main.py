@@ -207,6 +207,21 @@ def world() -> None:
     """World runtime utilities."""
 
 
+@world.command("pin")
+@click.argument("image")
+@click.option("--docker-host", default=None, help="the daemon that holds the image (default: DOCKER_HOST, else the local one)")
+def world_pin(image: str, docker_host: str | None) -> None:
+    """Print IMAGE's identity (the digest of its filesystem layers) to pin as ``image_digest``: a sandbox's
+    ``backend_params.sandbox.image_digest``, or Harbor's ``backend_params.image_digest``. A World whose image differs then
+    refuses to start (crucible:stale_image) instead of running a re-pushed tag (M1 audit R-14)."""
+    from crucible.world.sandbox import image_id
+
+    digest = asyncio.run(image_id(image, docker_host))
+    if digest is None:
+        raise ValueError(f"image {image!r} is not on {docker_host or 'this daemon'}: pull or build it first")
+    click.echo(digest)
+
+
 @world.command("check-mimo")
 @click.argument("envs_root", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--transport", default="inprocess", type=click.Choice(["inprocess", "mcp"]))

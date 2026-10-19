@@ -1322,3 +1322,29 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_local_network.py` (3: an allowlist is refused; accepted unenforced it runs and the audit reports it;
   the default `no-network` runs and is reported, a public world is not). Audit suites: 105 passed.
 - **Merge notes.** A local world with an allowlist must add `backend_params: {accept_unenforced: true}`.
+
+## 61. M1 R-14: pinned image identities
+
+- **Item.** R-14 of `docs/research/improvements/2026-10-14/M01-world.md` (should). Pattern from agentenv `pin_digest`
+  (resolve a tag to a digest; Apache-2.0); not ported: the pin is our own layer digest (`world.sandbox.image_id`),
+  which local builds have too and registry digests do not, so no THIRD_PARTY.md row. Not taken: recording identity in
+  every provider's records (Docker and Harbor already record it in WorldRefs).
+- **Files.** `src/crucible/core/schema/world.py` (`SandboxSpec.image_digest`), `src/crucible/world/sandbox.py`
+  (`StaleImage`, `check_pinned`, `DockerSandbox.start`), `src/crucible/interop/harbor/world_backend.py` (`provision`,
+  Docker path), `src/crucible/runtime/infra.py` (`NORMALIZE["StaleImage"]`), `src/crucible/cli/main.py`
+  (`crucible world pin`), `docs/modules/M01-world.md` (finding 27), `tests/unit/test_image_pin.py` (new).
+- **Public names.** `SandboxSpec.image_digest`; Harbor backend param `image_digest`; `crucible.world.sandbox.StaleImage`,
+  `check_pinned`; CLI `crucible world pin IMAGE [--docker-host]`.
+- **Behaviour.** With `image_digest` set, a `DockerSandbox` (and `GVisorSandbox`) compares its container's image
+  identity after `docker run` and, on a mismatch or an unreadable identity, removes the container and raises
+  `StaleImage`; Harbor's Docker path does the same after its environment starts. `boundary` records it as
+  `crucible:stale_image` (infra blame, never retried). Without a pin nothing changes. `crucible world pin` prints the
+  identity, or fails (exit 4) when the image is not on the daemon.
+- **Formats.** `SandboxSpec` (read from `backend_params.sandbox`, not part of a frozen format) gains an optional field.
+- **Tests.** `test_image_pin.py` (4: the check, including an unreadable identity; the failure's kind, blame and
+  retry rule; Docker: an image pinned with `crucible world pin` starts, the same tag pointed at another image is
+  refused and its container removed; pinning an absent image is a user error). Harbor, agentenv, pool, runtime,
+  formats and core suites: 191 passed. Harbor's pin check is covered through `check_pinned` only (no Harbor test
+  environment here).
+- **Merge notes.** Pinning the coding seeds is a data change for their owners: run `crucible world pin` on the lab
+  daemon and add `image_digest` to each seed's backend params.
