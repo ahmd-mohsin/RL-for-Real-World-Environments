@@ -53,6 +53,9 @@ INFRA_ERRORS = frozenset({"transport", "gateway_error", "internal_error", "timeo
 # how long past limits.tool_timeout_s the World waits for a tool: its own deadline result (an in-container kill, then the
 # transport backstops of +15 s) arrives first and is scored (NeMo-Gym: outer = tool timeout + cleanup + 30 s)
 TOOL_GRACE_S = 60.0
+# World.close bounds (M1 audit R-9): each App's stop (CI's own container removal allows 120 s), then the backend's teardown
+APP_STOP_S = 150.0
+TEARDOWN_S = 600.0
 
 
 def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
@@ -88,6 +91,23 @@ def _inbound_json(m: Inbound) -> dict[str, Any]:
         d.pop("attachments", None)  # no media: the snapshot (and its fingerprint) is what it was before attachments existed
     return d
 
+
+
+async def _to_the_end(task: asyncio.Future[None]) -> None:
+    """Await ``task`` to its end even when the caller is cancelled, absorbing repeated cancels, then re-raise the first: a
+    bare ``asyncio.shield`` returns at once on a cancel and leaves the task orphaned (verifiers ``run_shielded``,
+    ``v1/utils/aio.py:10-31``, MIT). The task's own error propagates, chained under the cancel when there was one."""
+    cancelled: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as e:
+            cancelled = e
+        except BaseException:  # noqa: BLE001, S110 - the task failed: re-raised (or chained) below
+            pass
+    if cancelled is not None:
+        raise cancelled from (None if task.cancelled() else task.exception())
+    task.result()
 
 class WorldError(RuntimeError):
     pass
@@ -235,6 +255,7 @@ class World:
         self._acl_changed: set[str] = set()
         self._started = False
         self._closed = False
+        self._closing: asyncio.Future[None] | None = None  # the one teardown every close() waits for
         self.health: dict[str, Any] = {}  # app id -> last health check report (M1 item 6)
         self.turns = None  # TurnManager when the spec has turns (M1 item 7)
         if spec.turns is not None:
@@ -351,25 +372,33 @@ class World:
         self.clock.resume()
 
     async def close(self) -> None:
-        if self._closed:  # idempotent: a separate verifier closes the policy's World before the harness's cleanup does
-            return
-        self._closed = True
-        try:
-            await self._close()
-        finally:
-            if self._serial is not None:
-                self._serial.release()
-                self._serial = None
+        """Stop the Apps and tear the backend down, to the end even when the caller is cancelled (then re-raised): a cancel
+        used to skip the teardown for good, ``_closed`` being set first (M1 audit R-9). Idempotent: a later or concurrent
+        call waits for the same teardown (a separate verifier closes the policy's World before the harness's cleanup does);
+        ``closed`` holds once it finished."""
+        if self._closing is None:
+            self._closing = asyncio.ensure_future(self._close())
+        await _to_the_end(self._closing)
 
     async def _close(self) -> None:
-        for app in self.apps.values():
+        try:
+            for app in reversed(list(self.apps.values())):  # dependents first: a browser before the sites it opens
+                try:
+                    await asyncio.wait_for(app.stop(), APP_STOP_S)
+                except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent (a timeout included)
+                    logger.warning("world %s: stopping app %s failed: %r", self.spec.world, app.id, e)
+        finally:
             try:
-                await app.stop()
-            except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent
-                logger.warning("world %s: stopping app %s failed: %s", self.spec.world, app.id, e)
-        await self.backend.teardown()
-        if self._own_workdir:
-            shutil.rmtree(self.workdir, ignore_errors=True)
+                await asyncio.wait_for(self.backend.teardown(), TEARDOWN_S)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("world %s: backend teardown failed: %r", self.spec.world, e)
+            finally:
+                if self._own_workdir:
+                    shutil.rmtree(self.workdir, ignore_errors=True)
+                if self._serial is not None:
+                    self._serial.release()
+                    self._serial = None
+                self._closed = True
 
     async def __aenter__(self) -> Self:
         await self.start()

@@ -1189,3 +1189,23 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   hands out a warm sandbox as it is, so one that waited in the pool has less than its full lifetime left (no pack
   uses the pool). Docker keeps a bounded event log: on a very busy host a removed container's `die` may have rolled
   off, which counts as lost (masked), never as the policy's.
+
+## 55. M1 R-9: `World.close` finishes its teardown, bounded
+
+- **Item.** R-9 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Ported from verifiers v1
+  `utils/aio.py:10-31` (`run_shielded`, MIT, e22533430): THIRD_PARTY.md row, `LICENSES/MIT-verifiers.txt` (already shipped).
+- **Files.** `src/crucible/world/world.py` (`APP_STOP_S`, `TEARDOWN_S`, `_to_the_end`, `World._closing`, `close`,
+  `_close`), `THIRD_PARTY.md` (row), `docs/modules/M01-world.md` (finding 21), `tests/unit/test_world_close.py` (new).
+- **Public names.** `crucible.world.world.APP_STOP_S` (150 s), `TEARDOWN_S` (600 s).
+- **Behaviour.** `close()` starts the teardown once, as a task, and awaits it to its end even when the caller is
+  cancelled (repeated cancels absorbed), then re-raises the first cancel; a later or concurrent `close()` awaits the
+  same task. The teardown stops the Apps in reverse start order (a browser before the sites it opens; was start
+  order), each within `APP_STOP_S`, then, in a `finally`, the backend's teardown within `TEARDOWN_S`, removes an owned
+  workdir and releases the serial slot; a timeout or error is logged and the teardown goes on. `closed` turns true
+  when it finished (it was set before anything ran, so a cancelled close was never retried).
+- **Formats.** none.
+- **Tests.** `test_world_close.py` (3: a close cancelled during an App's stop still stops every App and tears down once,
+  and the caller gets its cancel; a hung stop is cut off and a failing teardown never raises; concurrent closes tear
+  down once, in reverse order). All 3 fail on the previous code.
+- **Merge notes.** A close can now take up to `APP_STOP_S` per App plus `TEARDOWN_S` and cannot be cut short by a cancel;
+  it never hangs past those bounds. An App whose stop needs more than 150 s is cut off: raise `APP_STOP_S` for it.
