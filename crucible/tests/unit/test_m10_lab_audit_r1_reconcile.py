@@ -162,13 +162,16 @@ class FakeHarness:
     def __init__(self, level: str):
         self.level = level
 
+    def identity_config(self) -> dict:  # M10 lab audit R-4: a harness holding state declares its configuration
+        return {"level": self.level}
+
     async def run(self, attempt):
         rc = {"level": self.level, "code": "turn_mismatch", "findings": [{"level": self.level, "code": "turn_mismatch", "detail": "d"}], "aux_call_ids": []}
         return HarnessResult(reward=1.0, gates={}, calls={"agent": token_calls(2)}, grade={"reconcile": rc, "agent": {"harbor_version": "0.24.0"}})
 
 
 async def _run(tmp_path, name: str, level: str, mode: str):
-    spec = RunSpec(run_id=name, tasks=[SimpleNamespace(id="t", world_id="w")], policies=[PolicyRef(id="p", make=lambda a: {})],
+    spec = RunSpec(run_id=name, tasks=[SimpleNamespace(id="t", world_id="w")], policies=[PolicyRef(id="p", make=lambda a: {}, config={})],
                    harnesses=[FakeHarness(level)], k=1, rollout_mode=mode, retry=RetryRule(max_attempts=3))
     s = await Runner(tmp_path).run(spec)
     row = json.loads((tmp_path / name / "results.jsonl").read_text().splitlines()[-1])
@@ -217,7 +220,7 @@ async def test_runner_regrade_keeps_the_fatal_reconcile_mask_in_train(tmp_path):
     """M10 lab audit R-1: Runner.regrade never reaches _rollout, so a sample masked at verification (its FATAL reconcile
     only flagged) and then re-graded was scored in train mode."""
     for name, mode in (("rt", "train"), ("re", "eval")):
-        spec = RunSpec(run_id=name, tasks=[SimpleNamespace(id="t", world_id="w")], policies=[PolicyRef(id="p", make=lambda a: {})],
+        spec = RunSpec(run_id=name, tasks=[SimpleNamespace(id="t", world_id="w")], policies=[PolicyRef(id="p", make=lambda a: {}, config={})],
                        harnesses=[ContendedHarness()], k=1, rollout_mode=mode, retry=RetryRule(max_attempts=1))
         s = await Runner(tmp_path).run(spec)
         assert s.masked_terminal == 1 and s.scored == 0

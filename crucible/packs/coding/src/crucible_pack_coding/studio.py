@@ -352,6 +352,15 @@ class DenseReplayTask:
         self.id = f"coding/dense_replay/{task}@cpu2"  # cpu2: the code view of M14 campaign B2
         self.instruction = (TASKS_DIR() / task / "instruction.md").read_text(errors="replace")
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the pack's content (the dense grader, the milestone miner, ``codeonly``: ``tree_digest(PACK_ROOT)``) and
+        the seed's task directory, one digest per top-level entry (``instruction.md``, ``solution``, ``tests``...), whose oracle patch
+        the milestones are mined from, so an edited oracle or test refuses the resume naming the part."""
+        from crucible.runtime.identity import tree_digest, tree_digests
+        from crucible_pack_coding import PACK_ROOT
+
+        return {"pack": tree_digest(PACK_ROOT), "task": self.seed, "files": tree_digests(TASKS_DIR() / self.seed)}
+
     async def open(self, workdir):
         from pathlib import Path
 

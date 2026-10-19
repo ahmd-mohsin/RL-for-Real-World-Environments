@@ -29,7 +29,7 @@ class Boom(ScriptedPolicy):
 
 
 def _boom() -> PolicyRef:
-    return PolicyRef(id="boom", make=lambda a: {"agent": Boom("agent", [])})
+    return PolicyRef(id="boom", make=lambda a: {"agent": Boom("agent", [])}, config={})  # M10 lab audit R-4: declared configuration
 
 
 async def _run(tmp_path, name, task, harness):

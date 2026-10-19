@@ -64,11 +64,11 @@ def _counting(ref: PolicyRef) -> tuple[PolicyRef, list[str]]:
         made.append(a.id)
         return ref.make(a)
 
-    return PolicyRef(id=ref.id, make=make), made
+    return PolicyRef(id=ref.id, make=make, config=ref.config if ref.config is not None else {}), made  # M10 lab audit R-4: the wrapped policy's declaration
 
 
 def _scripted(actions) -> tuple[PolicyRef, list[str]]:
-    return _counting(PolicyRef(id="scripted:counted", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))}))
+    return _counting(PolicyRef(id="scripted:counted", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))}, config={}))
 
 
 def _rows(run: Path, name: str) -> list[dict]:
@@ -670,6 +670,9 @@ async def test_a_scoring_budget_shorter_than_the_grade_never_scores_the_policy_z
 
         def __init__(self):
             self.inner, self.controls = HelpdeskTask(), 0
+
+        def identity_config(self) -> dict:  # M10 lab audit R-4: the wrapped task; never the control counter
+            return {"inner": self.inner}
 
         async def open(self, workdir):
             return await self.inner.open(workdir)

@@ -153,6 +153,7 @@ from crucible.runtime.grading import grade_in_place, grade_summary, grading_wind
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.harness.native import LIMIT_STOPS, _keep_tries, _take_findings
 from crucible.runtime.harness.workspace import WorkspaceHarness
+from crucible.runtime.identity import code_ref, harness_digest
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary
 
 DEFAULT_TIMEOUT_S = 3600.0
@@ -550,13 +551,30 @@ class HarborAgentHarness:
         self.harbor_version = harbor_version or installed_harbor_version()
         # M10 lab audit R-1: the full agent name is digested, because the id keeps only the class of a ``module:Class`` agent
         # and two modules' ``MyAgent`` must not share SampleKeys or GRPO groups
-        self.digest = config_digest(agent=agent, agent_kwargs=self.agent_kwargs, limits=self.limits, limit_policy=self.limit_policy, model=model,
-                                    harbor=self.harbor_version, endpoint_env=self.endpoint_env)
+        # M10 lab audit R-4 review: over the leaves the run's identity compares (``identity.harness_digest``), so a key the comparison
+        # drops (a path, a credential, a timeout in ``agent_kwargs``) neither re-keys every sample nor goes unseen
+        self.digest = harness_digest({"agent": agent, "agent_kwargs": self.agent_kwargs, "limits": self.limits, "limit_policy": self.limit_policy,
+                                      "model": model, "harbor": self.harbor_version, "endpoint_env": self.endpoint_env})
         self.id = f"harbor:{agent.rsplit(':', 1)[-1]}@{version}#{self.digest}"
         # the separate-verifier seam reuses the workspace harness's grade, re-grade and prior-attempt rules unchanged; the
         # in-place grade reads its grading policy from it too (M10 lab audit R-3)
         self._patch = WorkspaceHarness("harbor-patch", "1", perf_guard=perf_guard, host=host, grade_retries=grade_retries,
                                        scoring_budget_s=scoring_budget_s, control_timeout_s=control_timeout_s)
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the harness's document in a run's identity: the agent and its version, model, kwargs, limits and limit
+        policy, endpoint variables, actor, kill command, the agent factory (named, not described: its behaviour is its code) and
+        the grading policy of the composed ``WorkspaceHarness``. The id (R-1) and its digest are unchanged. The Harbor version IS
+        here (``harbor_version``): it is in the id's digest, so an upgrade gives every sample a new key and would run the whole
+        plan again (paid) under the same run id; a leaf the comparison does not see would let that happen with no refusal. A
+        resume under another Harbor is therefore refused naming ``harbor_version`` and accepted only on purpose
+        (``--accept-drift harnesses.*.harbor_version``: a new identity epoch, every sample run again); ``code_versions`` records it
+        as well. The proxy, its URL, the prices, ``self_hosted``, ``host`` and ``perf_guard`` are placement and accounting."""
+        return {"agent": self.agent_name, "version": self.version, "harbor_version": self.harbor_version, "model": self.model,
+                "agent_kwargs": self.agent_kwargs, "limits": self.limits,
+                "limit_policy": self.limit_policy, "endpoint_env": self.endpoint_env, "actor": self.actor, "policy_version": self.policy_version,
+                "kill_command": self.kill_command, "agent_factory": code_ref(self.agent_factory), "grade_retries": self._patch.grade_retries,
+                "scoring_budget_s": self._patch.scoring_budget_s, "control_timeout_s": self._patch.control_timeout_s}
 
     # ---- construction --------------------------------------------------------------------------------------------
     def _endpoint_template(self) -> dict[str, str]:

@@ -63,7 +63,7 @@ def _counting(make_one) -> tuple[PolicyRef, list[str]]:
         made.append(a.id)
         return make_one(a)
 
-    return PolicyRef(id="scripted:counted", make=make), made
+    return PolicyRef(id="scripted:counted", make=make, config={}), made  # M10 lab audit R-4: declared configuration
 
 
 def _rows(run: Path, name: str) -> list[dict]:
@@ -525,6 +525,9 @@ class _Wrapped:
         self.inner = HelpdeskTask()
         self.id = f"toy/helpdesk/{name}@1"
         self.grades: list[Path] = []
+
+    def identity_config(self) -> dict:  # M10 lab audit R-4: the wrapped task; never ``grades`` (what was graded)
+        return {"inner": self.inner}
 
     async def open(self, workdir):
         return await self.inner.open(workdir)

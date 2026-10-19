@@ -113,7 +113,7 @@ async def _run(tmp_path: Path, rid: str, task, actions: list) -> tuple[dict, Pat
     from crucible.runtime.infra import RetryRule
     from crucible.runtime.run import Runner, RunSpec
 
-    ref = PolicyRef(id=f"scripted:{rid}", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))})
+    ref = PolicyRef(id=f"scripted:{rid}", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))}, config={"script": rid})  # M10 lab audit R-4
     await Runner(tmp_path / "runs").run(RunSpec(run_id=rid, tasks=[task], policies=[ref], harnesses=[NativeHarness()], k=1,
                                                 retry=RetryRule(max_attempts=1)))
     rec = json.loads((tmp_path / "runs" / rid / "results.jsonl").read_text().splitlines()[-1])

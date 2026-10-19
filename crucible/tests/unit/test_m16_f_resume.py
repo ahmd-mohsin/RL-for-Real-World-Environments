@@ -124,7 +124,7 @@ async def test_harness_evidence_truncation_and_restore_probe(tmp_path):
     h.__class__ = Keep
     task = BacklogTask(0, 15)
     try:
-        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="s", make=lambda a: {"agent": TitoLLM(model, ByteChatCodec())})],
+        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="s", make=lambda a: {"agent": TitoLLM(model, ByteChatCodec())}, config={})],
                                            harnesses=[h], k=1, rollout_mode="train"))
     finally:
         task.cleanup()

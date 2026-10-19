@@ -145,7 +145,7 @@ async def _run(tmp_path, task, actions, rid):
     from crucible.runtime.harness.native import NativeHarness, PolicyRef
     from crucible.runtime.run import Runner, RunSpec
 
-    ref = PolicyRef(id=f"scripted:{rid}", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(actions))})
+    ref = PolicyRef(id=f"scripted:{rid}", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(actions))}, config={"script": rid})  # M10 lab audit R-4: declared configuration
     await Runner(tmp_path / "runs").run(RunSpec(run_id=rid, tasks=[task], policies=[ref], harnesses=[NativeHarness("native:scripted", limits=EpisodeLimits(max_steps=20))], k=1))
     adir = next((tmp_path / "runs" / rid / "samples").glob("*/a1"))
     return json.loads((adir / "record.json").read_text()), adir

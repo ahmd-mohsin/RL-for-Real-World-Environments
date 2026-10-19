@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMResponse, UsageBlank
+from crucible.runtime.identity import describe
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan
 from crucible.verify.runtime.trusted import InfraError, Trusted
 
@@ -70,6 +71,12 @@ class FlakyGradeTask:
 
     def __getattr__(self, k):
         return getattr(self.task, k)
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the wrapped task's document and the injected fault. The schedule (``on``) is left out: it simulates
+        the state of the infrastructure, which is what a re-grade waits out, not the task's configuration (a test that quiets the
+        node between a run and its regrade changes ``on`` and must still resume)."""
+        return {"task": describe(self.task, "task"), "reason": self.reason, "crash_setup": self.crash_setup}
 
     def _hit(self, d: Path) -> bool:
         return any(f"/{a}/" in str(d) for a in self.on)

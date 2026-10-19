@@ -139,7 +139,7 @@ async def test_imported_run_through_the_runner(image, tmp_path):
     from crucible.runtime.run import Runner, RunSpec
 
     (tmp_path / "p.patch").write_text(FIB_PATCH)
-    pol = PolicyRef(id="import:fib-run1", make=lambda a: {})
+    pol = PolicyRef(id="import:fib-run1", make=lambda a: {}, config={"recorded": "fib-run1"})  # M10 lab audit R-4: declared configuration
     spec = RunSpec(run_id="imp", tasks=[HarborDirTask(harbor_dir(tmp_path), image=image)], policies=[pol],
                    harnesses=[ImportedHarness({"import:fib-run1": tmp_path / "p.patch"})])
     s = await Runner(tmp_path / "runs").run(spec)

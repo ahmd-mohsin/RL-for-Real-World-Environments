@@ -124,6 +124,9 @@ class FakeTask:
     def __init__(self, reward: float = 1.0, on_grade=None):
         self.reward, self.on_grade, self.graded = reward, on_grade, 0
 
+    def identity_config(self) -> dict:  # M10 lab audit R-4: the configuration, never the grade counter or the hook
+        return {"reward": self.reward}
+
     async def open(self, workdir):
         return FakeWorld()
 
@@ -325,7 +328,7 @@ async def test_spend_settles_into_the_runner_ledger_and_trips_the_budget(tmp_pat
         return COMPLETED
 
     proto.script["poll"] = poll
-    s = await Runner(tmp_path / "runs").run(RunSpec(run_id="budget", tasks=[FakeTask()], policies=[PolicyRef(id="a2a:fake", make=lambda a: {})],
+    s = await Runner(tmp_path / "runs").run(RunSpec(run_id="budget", tasks=[FakeTask()], policies=[PolicyRef(id="a2a:fake", make=lambda a: {}, config={})],
                                                     harnesses=[env.harness()], k=3, concurrency=1, budget_usd=1.0, retry=RetryRule(max_attempts=1)))
     rows = [json.loads(x) for x in (tmp_path / "runs" / "budget" / "results.jsonl").read_text().splitlines() if x.strip()]
     assert s.stopped and s.stopped.startswith("budget"), s.stopped
@@ -545,7 +548,7 @@ async def _run_b(tmp_path, run_id: str, *, handler=_ok, agent=None, agent_url: s
         h = A2AHarness(**src, capture=proxy, capture_base_url=base,
                        agent_config={"model": "m", "llm_base_url": "${capture.base_url}/v1", "llm_api_key": "${capture.key}"}, **hkw)
         t = task(base, holder) if task is not None else HelpdeskTask(backend="agentenv")
-        s = await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[t], policies=[PolicyRef(id="a2a:tool-agent", make=lambda a: {})], harnesses=[h],
+        s = await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[t], policies=[PolicyRef(id="a2a:tool-agent", make=lambda a: {}, config={})], harnesses=[h],
                                                k=k, concurrency=1, budget_usd=budget, retry=RetryRule(max_attempts=1)))
         rows = [json.loads(x) for x in (tmp_path / run_id / "results.jsonl").read_text().splitlines() if x.strip()]
         return s, rows, proxy, t
@@ -563,6 +566,9 @@ class KeyCheckTask:
         self.inner = HelpdeskTask(backend="agentenv")
         self.id, self.world_id, self.instruction = self.inner.id, self.inner.world_id, self.inner.instruction
         self.base, self.holder, self.seen = base, holder, []
+
+    def identity_config(self) -> dict:  # M10 lab audit R-4: the wrapped task (the proxy url, the holder and what was seen are not configuration)
+        return {"inner": self.inner}
 
     async def open(self, workdir):
         return await self.inner.open(workdir)

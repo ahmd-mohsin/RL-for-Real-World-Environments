@@ -145,11 +145,14 @@ async def longctx(a: argparse.Namespace) -> dict[str, Any]:
                 solver = LongCtxSolver(fam)
                 h = RLMHarness(RLMConfig(kernel=a.kernel, allow_host=a.kernel == "local", temperature=0.0, cell_timeout_s=600.0), limits=limits)
                 out = {"family": fam, "tokens": size, "chars": len(task.item.context),
-                       "solver": await run(task, PolicyRef(id="scripted:longctx-solver", make=lambda at, solver=solver: {"agent": solver}), h)}
+                       # M10 lab audit R-4: a PolicyRef declares its configuration (the run's identity needs it; ``make`` is a closure)
+                       "solver": await run(task, PolicyRef(id="scripted:longctx-solver", make=lambda at, solver=solver: {"agent": solver},
+                                                           config={"script": "longctx solver", "family": fam}), h)}
                 gold = [ToolCall(tool_call_id=x["tool_call_id"], function_name=x["function_name"], arguments=x["arguments"]) for x in task.oracle_actions()]
                 native = NativeHarness("native:scripted", limits=limits)
-                out["gold"] = await run(task, PolicyRef(id="scripted:gold", make=lambda at, gold=gold: {"agent": ScriptedPolicy("agent", list(gold))}), native)
-                out["noop"] = await run(task, PolicyRef(id="scripted:noop", make=lambda at: {"agent": ScriptedPolicy("agent", [])}), native)
+                out["gold"] = await run(task, PolicyRef(id="scripted:gold", make=lambda at, gold=gold: {"agent": ScriptedPolicy("agent", list(gold))},
+                                                        config={"script": "gold answer"}), native)
+                out["noop"] = await run(task, PolicyRef(id="scripted:noop", make=lambda at: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"}), native)
                 out["controls_ok"] = out["solver"]["reward"] == 1.0 and out["gold"]["reward"] == 1.0 and out["noop"]["reward"] == 0.0
             finally:
                 task.cleanup()

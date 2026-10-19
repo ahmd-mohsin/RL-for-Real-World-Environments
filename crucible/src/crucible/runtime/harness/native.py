@@ -11,8 +11,12 @@ A ``RunTask`` adapter (packs provide them) opens a fresh, reset World for an att
         async def infra_cause(self, world: World) -> Failure | None      # host-side: is the sandbox gone? (M13 audit B2)
         async def grade_control(self, workdir: Path) -> GradeReport | None  # M10 lab audit R-3: known-good work graded by the
                                                                              # same grader (oracle, reference answer); None = none
+        def identity_config(self) -> dict                                    # M10 lab audit R-4: content digests and configuration
+                                                                             # (required unless the task is plain data or stateless)
 
-A ``PolicyRef`` builds the policy for an attempt (``make(attempt) -> {actor: Policy}``) and reports its spend.
+A ``PolicyRef`` builds the policy for an attempt (``make(attempt) -> {actor: Policy}``) and reports its spend; its
+``config`` (M10 lab audit R-4) is the policy's configuration as JSON, which the run's identity needs because ``make`` is a
+closure.
 
 Phases run under ``infra.boundary``: seed (open) -> agent (run_episode) -> verification (grade) -> cleanup (close, which
 can never override a result). An episode the World masked (a tool crash, an exposed answer, a provider outage) becomes a
@@ -73,7 +77,9 @@ from crucible.runtime.grading import (
     write_reports,
 )
 from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.runtime.identity import Undeclared, harness_digest
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, episode_failure
+from crucible.runtime.journal import REFUSED
 from crucible.world.custody import CustodyViolation
 from crucible.world.verifier import hand_off, verifier_world, wants_separate
 
@@ -275,6 +281,17 @@ class PolicyRef:
     make: Callable[[Attempt], dict[str, Any]]  # attempt -> {actor_id: Policy}
     spend: Callable[[], tuple[float, float]] = lambda: (0.0, 0.0)  # (usd, uncertain usd) observed so far
     estimate_usd: float = 0.0
+    # M10 lab audit R-4: the policy's configuration as JSON (model, temperature, prompts or scripts, anything that decides what it
+    # does): ``make`` is a closure, so nothing else says what the policy is, and the run's identity must. A PolicyRef run without
+    # it is refused (``Undeclared``): left out, a changed temperature or model would resume silently into the same results
+    config: dict[str, Any] | None = None
+
+    def identity_config(self) -> dict[str, Any]:
+        """The policy's document in a run's identity: its id and ``config`` (``estimate_usd`` is accounting: operational)."""
+        if self.config is None:
+            raise Undeclared(f"policies.{self.id}: PolicyRef.make is a closure, so its model, temperature and prompts cannot be inspected: declare "
+                             "PolicyRef(config={...}) (M10 lab audit R-4)")
+        return {"id": self.id, "config": self.config}
 
 
 class NativeHarness:
@@ -288,16 +305,47 @@ class NativeHarness:
     during a later grade the earlier try's failure stands, noting the budget; None: each try is bounded only by the
     grader's own timeout, as verifiers' unset scoring budget); ``control_timeout_s``, the budget of a control grade,
     raised to the task's own ``control_timeout_s`` when it declares a longer one (``grading.control_budget``:
-    ``HarborDirTask``, the verifier timeout + 300 s; Harbor in place, agent + verifier timeout + margins)."""
+    ``HarborDirTask``, the verifier timeout + 300 s; Harbor in place, agent + verifier timeout + margins).
+
+    M10 lab audit R-4: the id is ``name@version#<12 hex>`` over what produces the work (``limits``, ``limit_policy``,
+    ``checkpoint_every`` and a subclass's own: the collect mode, the patch contents), so a different configuration gets new
+    ``SampleKey``s and its own GRPO group; the grading policy stays out of the id (R-3) and is in ``identity_config``, the
+    document a resume compares."""
 
     def __init__(self, name: str = "native:llm-tool", version: str = "1", *, limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None,
                  checkpoint_every: int = 0, progress_full_every: int = 250, grade_retries: int = 1, scoring_budget_s: float | None = None,
                  control_timeout_s: float | None = 1800.0):
-        self.id = f"{name}@{version}"
+        self.name, self.version = name, version
         self.limits = limits or EpisodeLimits(max_steps=30)
         self.limit_policy = limit_policy or LimitPolicy()
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
         self.grade_retries, self.scoring_budget_s, self.control_timeout_s = grade_retries, scoring_budget_s, control_timeout_s
+
+    @property
+    def id(self) -> str:
+        """``name@version#<12 hex>`` (M10 lab audit R-4): the digest is over what produces the work (``_id_config``), so a
+        harness with other limits is a different harness: its samples get new ``SampleKey``s and its GRPO group is its own. A
+        property, not an attribute: a copy whose ``limits`` changed (bench's ``_sized``) gets its own id, and the same
+        configuration gives the same id in every process."""
+        return f"{self.name}@{self.version}#{harness_digest(self._id_config())}"
+
+    @property
+    def identity_key(self) -> str:
+        """The key of this harness in a run's resolved document (``identity.harness_keys``): the id without its digest."""
+        return f"{self.name}@{self.version}"
+
+    def _id_config(self) -> dict[str, Any]:
+        """What the id digests: the configuration that produces the work. A subclass adds its own (the collect mode, the
+        patch contents). The grading policy (R-3: ``grade_retries``, ``scoring_budget_s``, ``control_timeout_s``) is not in it:
+        it says how the same work is graded."""
+        return {"limits": self.limits, "limit_policy": self.limit_policy, "checkpoint_every": self.checkpoint_every}
+
+    def identity_config(self) -> dict[str, Any]:
+        """The harness's document in a run's identity (M10 lab audit R-4): the id's configuration plus the grading policy and
+        the progress cadence, which a resume must not change silently either. The timeouts and ``progress_full_every`` are
+        operational (``identity.DENY``): recorded, never compared."""
+        return {"name": self.name, "version": self.version, **self._id_config(), "grade_retries": self.grade_retries,
+                "scoring_budget_s": self.scoring_budget_s, "control_timeout_s": self.control_timeout_s, "progress_full_every": self.progress_full_every}
 
     @staticmethod
     def _inherit_calls(res: HarnessResult, source: object) -> None:
@@ -376,7 +424,12 @@ class NativeHarness:
 
         if not self.checkpoint_every or attempt.n <= 1 or getattr(attempt.task, "steps", None):
             return None
-        prev = checkpoint.attempt_path(attempt.dir.parent, f"a{attempt.n - 1}")
+        # M10 lab audit R-4: a refused reservation (refused.json) dispatched nothing and left no checkpoint, so the resume keeps
+        # looking where it did before R-4, when that attempt's dir was removed and the index reused
+        k = attempt.n - 1
+        while k > 1 and (attempt.dir.parent / f"a{k}" / REFUSED).exists():
+            k -= 1
+        prev = checkpoint.attempt_path(attempt.dir.parent, f"a{k}")
         rec = prev / "record.json"
         ck = checkpoint.load(prev)
         if ck is None:

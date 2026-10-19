@@ -163,6 +163,9 @@ class FakeTask:
         self.graded: list[dict] = []
         self.sent: list[dict] = []  # every command the fake container ran, with its effective env and user
 
+    def identity_config(self) -> dict:  # M10 lab audit R-4: the fake's configuration; the events, the sent commands and the grades are state, not configuration
+        return {"reward": self.reward, "lost": self.lost, "admits": self.admits}
+
     def admits_agent_host(self, host):
         return self.admits
 
@@ -192,6 +195,9 @@ class FakePatchTask(FakeTask):
     def __init__(self, events: list, *, masked_first: bool = False, collect_error: CollectError | None = None, **kw):
         super().__init__(events, **kw)
         self.masked_first, self.collect_error, self.patch_grades = masked_first, collect_error, 0
+
+    def identity_config(self) -> dict:
+        return {**super().identity_config(), "masked_first": self.masked_first, "collect_error": None if self.collect_error is None else str(self.collect_error)}
 
     async def collect(self, world, dest):
         self.events.append("collect")
@@ -285,7 +291,7 @@ class Env:
 
     async def run(self, task, run_id: str = "r", *, harness: HarborAgentHarness | None = None, **spec_kw):
         spec_kw.setdefault("retry", RetryRule(max_attempts=1))
-        s = await Runner(self.tmp / "runs").run(RunSpec(run_id=run_id, tasks=[task], policies=[PolicyRef(id="harbor:m", make=lambda a: {})],
+        s = await Runner(self.tmp / "runs").run(RunSpec(run_id=run_id, tasks=[task], policies=[PolicyRef(id="harbor:m", make=lambda a: {}, config={})],
                                                         harnesses=[harness or self.harness()], **spec_kw))
         rows = [json.loads(x) for x in (self.tmp / "runs" / run_id / "results.jsonl").read_text().splitlines() if x.strip()]
         return s, rows

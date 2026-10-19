@@ -20,7 +20,7 @@ async def test_explorer_routes(tmp_path):
     from crucible.runtime.run import Runner, RunSpec
     from crucible.studio.explorer import CrucibleExplorerPlugin
 
-    await Runner(tmp_path / "runs").run(RunSpec(run_id="demo-run", tasks=[HelpdeskTask()], policies=[PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", list(GOLD))})],
+    await Runner(tmp_path / "runs").run(RunSpec(run_id="demo-run", tasks=[HelpdeskTask()], policies=[PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", list(GOLD))}, config={"script": "gold"})],
                                                 harnesses=[NativeHarness()], k=2))
     (tmp_path / "lab").mkdir()
     (tmp_path / "lab" / "summary.json").write_text('{"command": "label", "datasets": {"sft": 3}, "pack": "toy"}')

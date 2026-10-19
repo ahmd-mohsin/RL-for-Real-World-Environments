@@ -54,6 +54,12 @@ class LongCtxTask:
         write_pack(self.item, self.root, self.parts)
         self.instruction = instruction(self.item, delivery, self.parts)
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the item (family, seed, size, the document, the question, the gold answer: a text over 1,024
+        characters is digested by ``describe``), how it is delivered and the task version. ``root`` is a temporary directory the
+        pack is written to (a path: operational); the docs and answer tool modules are code (``code_versions``)."""
+        return {"item": self.item, "delivery": self.delivery, "version": self.version}
+
     @property
     def context_path(self) -> Path:
         """The document as a host file, for a harness that mounts it as ``CONTEXT``."""

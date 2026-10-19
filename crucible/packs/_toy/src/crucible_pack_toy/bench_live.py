@@ -63,8 +63,9 @@ async def main(a: argparse.Namespace) -> dict:
         studio._MADE[backlog.id] = backlog
         tasks.append(backlog)
     clients = {m: LLMClient(m, budget_usd=a.budget, cache_mode="off") for m in a.models.split(",")}
+    # M10 lab audit R-4: the model and the temperature are what each policy is (PolicyRef.config): a re-run with another is refused by name
     policies = [PolicyRef(id=f"llm:{c.model}", make=lambda att, c=c: {"agent": LLMToolPolicy("agent", c, temperature=a.temperature)},
-                          spend=lambda c=c: (c.spend.usd, c.spend.uncertain_usd)) for c in clients.values()]
+                          spend=lambda c=c: (c.spend.usd, c.spend.uncertain_usd), config={"model": c.model, "temperature": a.temperature}) for c in clients.values()]
     try:
         res = await run_bench("toy-live", root=work / "runs", tasks=tasks, policies=policies,
                               harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=a.max_steps))], k=a.k, ks=(1,), stages_of=toy_stages,
@@ -74,7 +75,8 @@ async def main(a: argparse.Namespace) -> dict:
             rc = LLMClient(a.rlm, budget_usd=a.budget, cache_mode="off")
             h = RLMHarness(RLMConfig(temperature=a.temperature, budget_tokens=24_000, keep_recent_turns=2, max_turns=80), limits=EpisodeLimits(max_steps=a.max_steps))
             r2 = await run_bench("toy-live-rlm", root=work / "runs", tasks=[backlog], policies=[PolicyRef(id=f"llm:{rc.model}", make=lambda att: {"agent": rc},
-                                                                                                          spend=lambda: (rc.spend.usd, 0.0))],
+                                                                                                          spend=lambda: (rc.spend.usd, 0.0),
+                                                                                                          config={"model": rc.model, "temperature": a.temperature})],
                                  harnesses=[h], k=1, stages_of=toy_stages, run_id="toy-live-rlm")
             out["rlm"] = r2["paths"]
             out["spend"]["rlm:" + a.rlm] = round(rc.spend.usd, 4)

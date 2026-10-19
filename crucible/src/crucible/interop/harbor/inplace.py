@@ -82,6 +82,9 @@ no-op get the same (pristine-image) grade: a silent wrong reward.
   agent phases ``open`` never applies) it is refused before any container starts. ``admits_agent_host``, ``multi_step``,
   ``agent_user``, ``agent_timeout_s`` and ``agent_logs`` are the harness's view of the task. Separate-verifier tasks stay refused here;
   ``patch_task.HarborPatchTask`` grades them from a collected patch in a fresh container.
+- **the run identity** (M10 lab audit R-4, ``identity_config``): the task's content as one digest per top-level entry of its directory
+  (``files.tests``, ``files.environment``, ``files.task.toml``...), the Docker image it declares, the reward rule, the grader guard and the
+  environment; a resume with an edited test or image is refused naming the part (``runtime.identity``).
 """
 
 from __future__ import annotations
@@ -96,6 +99,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
+from crucible.runtime.identity import tree_digests
 from crucible.world.apps.base import App, ToolError
 
 
@@ -203,6 +207,20 @@ class HarborInPlaceTask:
         phases = [x for x in self._declared_phases() if x != self.plan.agent_env_baseline]
         if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
             self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: task content digests and declared image refs; a change refuses the resume. ``files`` is one digest
+        per top-level entry of the task directory (``task.toml``, ``instruction.md``, ``tests``, ``environment``, ``solution``), so a
+        refusal names the part that changed (``tasks.harbor/x.files.tests``); it covers the same files as Harbor's own task-tree
+        hash (``task_io``), hidden ones included (``environment/.dockerignore``, ``tests/.expected_output.json``: ``tree_digests``
+        leaves out only version control and junk), and names what that hash would not. The Docker image the task declares, the reward rule, the grader
+        guard, the environment and its kwargs and the user are what runs it. Hosts and ``keep_containers`` are placement
+        (``identity.DENY``: ``*.docker_host``, ``*.gpu_host``, ``*.keep_containers``); ``task_dir`` is a path."""
+        bp = self.backend_params
+        return {"files": tree_digests(self.dir), "docker_image": self.task.config.environment.docker_image, "reward_key": self.reward_key,
+                "grader_integrity": self.grader_integrity, "environment_type": bp.get("environment_type"), "environment_kwargs": bp.get("environment_kwargs"),
+                "user": bp.get("user"), "agent_allowed_hosts": list(self.agent_allowed_hosts), "prebuilt_image": bp.get("docker_image"),
+                "docker_host": bp.get("docker_host"), "gpu_host": bp.get("gpu_host")}
 
     def _declared_phases(self) -> tuple[Any, ...]:
         """The network phases this container must be able to switch to (the agent's, and the verifier's in place)."""

@@ -113,7 +113,7 @@ async def test_b1_a_models_json_escaped_surrogate_is_scored(tmp_path):
 
         return {"agent": LLMToolPolicy("agent", EngineLLM(codec, gen, model="byte"), max_tokens=4000, temperature=1.0)}
 
-    await Runner(tmp_path).run(RunSpec(run_id="b1llm", tasks=[HelpdeskTask()], policies=[PolicyRef(id="llm", make=make)],
+    await Runner(tmp_path).run(RunSpec(run_id="b1llm", tasks=[HelpdeskTask()], policies=[PolicyRef(id="llm", make=make, config={})],
                                        harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=60))], k=1))
     (r,) = [json.loads(x) for x in (tmp_path / "b1llm" / "results.jsonl").read_text().splitlines()]
     assert r["reward"] == 1.0 and not r["mask_sample"], r.get("failure")

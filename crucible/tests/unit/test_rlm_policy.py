@@ -166,7 +166,7 @@ async def test_train_rollout_complete_with_token_records(tmp_path):
 
     out = {}
     for name, make in (("same", make_same), ("other", make_other)):
-        await Runner(tmp_path / name).run(RunSpec(run_id="r", tasks=[HelpdeskTask()], policies=[PolicyRef(id="rlm:fake", make=make)],
+        await Runner(tmp_path / name).run(RunSpec(run_id="r", tasks=[HelpdeskTask()], policies=[PolicyRef(id="rlm:fake", make=make, config={})],
                                                   harnesses=[NativeHarness()], k=1, rollout_mode="train"))
         adir = min((tmp_path / name / "r" / "samples").glob("*/a*"))
         out[name] = RolloutRecord.model_validate_json((adir / "rollout.json").read_text())

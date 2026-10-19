@@ -42,7 +42,7 @@ def script(tokens: bool):
 
 
 def ref(tokens: bool) -> PolicyRef:
-    return PolicyRef(id=f"fake:tok{int(tokens)}", make=lambda a: {"agent": LLMToolPolicy("agent", FakeLLM(script(tokens)))})
+    return PolicyRef(id=f"fake:tok{int(tokens)}", make=lambda a: {"agent": LLMToolPolicy("agent", FakeLLM(script(tokens)))}, config={"tokens": tokens})  # M10 lab audit R-4
 
 
 async def run(tmp_path, tokens: bool, mode: str = "eval", run_id: str = "r"):

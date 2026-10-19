@@ -44,6 +44,11 @@ M10 lab audit R-1 (2026-10-15), besides item 3:
 - Limit stops follow ``limit_policy`` (``score`` by default, ``mask`` or ``penalty:<c>``), as in the native harness;
   only an evidenced stop (Crucible's deadline) can be masked or penalized.
 
+M10 lab audit R-4: the harness id is ``name@version#<12 hex>`` over what produces the work (the agent factory, ``agent_config``,
+``timeout_s``, ``limit_policy``, ``api``), so another agent configuration gets its own ``SampleKey``s; ``agent_url``, the capture proxy,
+prices and the grading policy stay out of the id. ``identity_config()`` is the document a resume compares: it holds ``agent_url``
+too (a remote agent is what the run measures: another one is refused unless the drift is accepted); the grading budgets are operational.
+
 Grading is the task's own (``task.grade(world, dir)``), graded in place exactly as for the native harness (M10 lab audit
 R-3): a failed grade is graded again inside the attempt before the World closes (``runtime.grading.grade_in_place``),
 the attempt then ends terminal-masked (never an agent re-run), and a repeated answer-sensitive failure (a hang, a checker
@@ -82,6 +87,7 @@ from crucible.runtime.agent_evidence import (
 from crucible.runtime.grading import grade_in_place, grade_summary, grading_window, liveness, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.harness.native import LIMIT_STOPS, _keep_tries
+from crucible.runtime.identity import factory_ref, harness_digest
 from crucible.runtime.infra import LimitPolicy, StageFailure, boundary
 
 FAILED_STATES = {"failed", "canceled", "rejected"}  # the agent's own failure reports (``_outcome`` classifies each by evidence)
@@ -178,13 +184,38 @@ class A2AHarness:
         if api is not None and api not in PROXY_APIS:
             raise ValueError(f"api must be one of {PROXY_APIS}, got {api!r}")
         self.api = api
-        self.id = f"{name}@{version}"
+        self.name, self.version = name, version
         self.agent, self.agent_url, self.actor, self.agent_config = agent, agent_url, actor, dict(agent_config or {})
         # the checkpoint version the agent's model server serves (a train rollout needs it on every token record)
         self.capture, self.capture_base_url, self.timeout_s, self.policy_version = capture, capture_base_url, timeout_s, policy_version
         self.limit_policy = limit_policy or LimitPolicy()
         self.sandbox_id, self.prices, self.self_hosted = sandbox_id, prices, self_hosted
         self.grade_retries, self.scoring_budget_s, self.control_timeout_s = grade_retries, scoring_budget_s, control_timeout_s
+        # M10 lab audit R-4: the id carries a digest of what produces the work, as ``NativeHarness``'s does (the R-1 follow-up "the
+        # A2A harness id digest"): the agent (its factory named, a ``functools.partial``'s bound arguments described, a lambda or a
+        # closure refused: ``identity.factory_ref``), its config, the deadline, the limit policy and the dialect. Where the agent
+        # runs (``agent_url``), the capture proxy, prices, ``self_hosted``, ``sandbox_id`` and the grading policy are placement and
+        # accounting, so they stay out of the id. A different agent config is another harness, with its own SampleKeys. The digest
+        # is over the leaves the run's identity compares (``identity.harness_digest``): a leaf the comparison drops (a path, a
+        # credential, a timeout) is not in the id either, so a change to it can neither re-key the samples nor go unseen
+        self.id = f"{name}@{version}#{harness_digest(self._id_config())}"
+
+    def _id_config(self) -> dict[str, Any]:
+        """What the id digests (M10 lab audit R-4)."""
+        return {"agent": factory_ref(self.agent, f"harnesses.{self.name}@{self.version}.agent"), "actor": self.actor, "agent_config": self.agent_config,
+                "timeout_s": self.timeout_s, "limit_policy": self.limit_policy, "api": self.api}
+
+    @property
+    def identity_key(self) -> str:
+        """The key of this harness in a run's resolved document: the id without its digest (``identity.harness_keys``)."""
+        return f"{self.name}@{self.version}"
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the id's configuration plus the checkpoint version the agent's model serves, the grading policy
+        (R-3) and ``agent_url`` (compared, not in the id: it names the remote agent that is measured, so another one is refused
+        or accepted as a new epoch; a factory-served agent has none)."""
+        return {"name": self.name, "version": self.version, **self._id_config(), "policy_version": self.policy_version, "grade_retries": self.grade_retries,
+                "scoring_budget_s": self.scoring_budget_s, "control_timeout_s": self.control_timeout_s, "agent_url": self.agent_url}
 
     def _config(self, key: str | None) -> dict[str, Any]:
         text = json.dumps(self.agent_config)

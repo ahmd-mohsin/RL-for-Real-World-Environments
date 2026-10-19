@@ -15,6 +15,7 @@ from crucible.actors.policy import LLMToolPolicy, ScriptedPolicy
 from crucible.core.schema.actions import ToolCall
 from crucible.core.store import Store
 from crucible.runtime.harness.native import PolicyRef
+from crucible.runtime.identity import code_ref, seed_digest, tree_digest
 from crucible.verify.runtime.plan import Context, GradeReport
 from crucible.verify.runtime.trusted import Trusted
 from crucible.world.world import World
@@ -30,6 +31,15 @@ class HelpdeskTask:
         self.instruction = instruction
         self.world_factory = world_factory
         self.backend = backend  # "agentenv": the same World behind a real agentenv gateway
+
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the pack's content (its world spec, data, grader and tool code: ``tree_digest(PACK_ROOT)``, so an edited
+        grader or seed refuses the resume), the instruction (its text, or the name of the callable that renders it), the backend, and
+        the world factory (named; a factory that declares a ``config`` attribute, as ``crashing_tool_world`` does, adds it)."""
+        wf = self.world_factory
+        factory = code_ref(wf) if not getattr(wf, "config", None) else {"ref": code_ref(wf), **wf.config}
+        return {"pack": tree_digest(PACK_ROOT), "instruction": self.instruction if isinstance(self.instruction, str | dict) else code_ref(self.instruction),
+                "backend": self.backend, "world_factory": factory}
 
     async def open(self, workdir: Path) -> World:
         workdir = Path(workdir)
@@ -181,7 +191,9 @@ class HelpdeskTask:
 
 
 def scripted(name: str, actions: list[ToolCall]) -> PolicyRef:
-    return PolicyRef(id=f"scripted:{name}", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(actions))})
+    # M10 lab audit R-4: a scripted policy is its actions (PolicyRef.config: ``make`` is a closure the run's identity cannot read)
+    return PolicyRef(id=f"scripted:{name}", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(actions))},
+                     config={"script": name, "actions": [a.model_dump(mode="json") for a in actions]})
 
 
 ORACLE = scripted("oracle", GOLD)
@@ -189,8 +201,10 @@ NOOP = scripted("noop", [])
 
 
 def llm_policy(llm, *, temperature: float = 0.7) -> PolicyRef:
+    # M10 lab audit R-4: the model and the temperature are what this policy is: a resume with another one is refused by name
     return PolicyRef(id=f"llm:{llm.model}", make=lambda attempt: {"agent": LLMToolPolicy("agent", llm, temperature=temperature)},
-                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.002)
+                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.002,
+                     config={"model": llm.model, "temperature": temperature})
 
 
 class FibTask:
@@ -200,6 +214,11 @@ class FibTask:
     id = "toy/workspace/fib@1"
     world_id = "toy/workspace"
     instruction = "Create fib.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. Run it to check, then finish."
+
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the task is its class constants and its grader, all inside the pack tree (a subclass that changes
+        them, as a test task does, declares its own)."""
+        return {"pack": tree_digest(PACK_ROOT), "instruction": self.instruction}
 
     def spec(self, workdir: Path):
         from crucible.core.schema.world import WorldSpec
@@ -283,6 +302,9 @@ def crashing_tool_world(pack_root: Path, *, tool: str = "get_ticket", on_attempt
             w.attach(r)
         return w
 
+    # M10 lab audit R-4: what this factory is, for ``HelpdeskTask.identity_config`` (the injected bug is the environment's content;
+    # the attempts it fires on are the injection's schedule, like ``FlakyGradeTask.on``, and stay out)
+    factory.config = {"injected_bug": tool}  # type: ignore[attr-defined]
     return factory
 
 
@@ -302,6 +324,10 @@ class FibWorldTask:
 
     def __init__(self, backend: str = "agentenv"):
         self.backend = backend
+
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the pack's content and the backend."""
+        return {"pack": tree_digest(PACK_ROOT), "backend": self.backend, "instruction": self.instruction}
 
     async def open(self, workdir: Path) -> World:
         from crucible.core.schema.world import WorldSpec
@@ -353,6 +379,10 @@ class WordFileTask:
         self.id = f"toy/wordfile/s{seed}@1"
         self.instruction = (f"Use the workspace tools to create the file {self.name}.txt containing exactly the word {self.word} followed by a "
                             "newline. Then reply that you are done.")
+
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the pack's content and the seed (the word and the file name derive from it)."""
+        return {"pack": tree_digest(PACK_ROOT), "seed": seed_digest(self.seed), "word": self.word, "name": self.name}
 
     async def open(self, workdir: Path) -> World:
         from crucible.core.schema.world import WorldSpec

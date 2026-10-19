@@ -117,6 +117,11 @@ class HarborMultiStepTask(HarborInPlaceTask):
                                    "tests": self._tests_for(s.name), "has_workdir": self.task.paths.step_workdir_dir(s.name).is_dir()}
                           for s in cfg.steps}
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the in-place declaration (the task tree's digests, which cover ``steps/<name>/``) plus the step
+        reward rule and the step names in order. ``self.steps`` holds ``partial`` graders: never described, only named."""
+        return {**super().identity_config(), "step_reward": self.step_reward, "steps": [s.name for s in self.steps]}
+
     def _step_network_plan(self, step):
         from harbor.models.task.verifier_mode import VerifierEnvironmentMode
         from harbor.models.trial.config import AgentConfig as TrialAgentConfig

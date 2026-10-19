@@ -31,6 +31,9 @@ class NaNTask(FakeTask):
         super().__init__()
         self.masked, self.dirs, self.controls = masked, [], 0
 
+    def identity_config(self) -> dict:  # M10 lab audit R-4: the configuration (the injected infra status), never the counters or the dirs
+        return {**super().identity_config(), "masked": self.masked}
+
     async def grade(self, world, workdir):
         self.graded += 1
         self.dirs.append(workdir)
@@ -56,7 +59,7 @@ async def test_a_nan_reward_is_a_masked_grade_failure_never_an_agent_rerun(tmp_p
     env = Env(tmp_path, monkeypatch)
     _completed(proto)
     task = NaNTask()
-    s = await Runner(tmp_path / "runs").run(RunSpec(run_id="nan", tasks=[task], policies=[PolicyRef(id="a2a:fake", make=lambda a: {})],
+    s = await Runner(tmp_path / "runs").run(RunSpec(run_id="nan", tasks=[task], policies=[PolicyRef(id="a2a:fake", make=lambda a: {}, config={})],
                                                     harnesses=[env.harness()], k=1, retry=RetryRule(max_attempts=3), retry_backoff_s=0.0))
     rows = [json.loads(x) for x in (tmp_path / "runs" / "nan" / "results.jsonl").read_text().splitlines() if x.strip()]
     (row,) = rows

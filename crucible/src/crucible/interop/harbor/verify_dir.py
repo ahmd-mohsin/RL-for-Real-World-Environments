@@ -26,9 +26,11 @@ import subprocess
 import tomllib
 import uuid
 from pathlib import Path
+from typing import Any
 
 from crucible.runtime.gpu import GpuHost
 from crucible.runtime.grading import unbudgeted
+from crucible.runtime.identity import file_digest, tree_digests
 from crucible.verify.runtime.plan import GradeReport
 
 
@@ -127,6 +129,20 @@ class HarborDirTask:
         test_sh = self.dir / "tests" / "test.sh"
         kit = (self.dir / "tests" / "crucible" / "verify" / "runtime").is_dir() or (test_sh.exists() and "crucible_verify" in test_sh.read_text(errors="replace"))
         self.trust_mask = kit if trust_mask is None else trust_mask
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: task content digests and declared image refs; a change refuses the resume. ``files`` is one digest
+        per top-level entry of the task directory (``tests``, ``solution``, ``environment``, ``task.toml``, ``instruction.md``), so a
+        refusal names the part that changed (``tasks.<id>.files.tests``); the image the grade runs in (and the digest it must
+        be), the test command, the network mode, the verifier's env and user, the mask trust, the resource limits and the control's
+        patch are what decides the grade. ``timeout`` (operational) is left out, and so is the host of a non-perf task
+        (placement); a perf task's grade is a speedup measured on its host's hardware, so ``host`` (its name) is part of what it
+        measures and moving it is refused (M10 lab audit R-4 review). The files include hidden ones (``environment/.dockerignore``,
+        ``tests/.expected_output.json``): ``identity.tree_digests`` leaves out only version control and junk, as Harbor's task
+        hash does. Stdlib only (through ``runtime.identity``): this module still needs no Harbor."""
+        return {"files": tree_digests(self.dir), "image": self.image, "expected_image": self.expected_image, "command": self.command, "network": self.network,
+                "verifier_env": self.verifier_env, "user": self.user, "trust_mask": self.trust_mask, "perf": self.perf, "gpus": self.gpus, "cpus": self.cpus,
+                "memory_mb": self.memory_mb, "oracle_patch": file_digest(self.oracle_patch), "host": self.host.name if self.perf else None}
 
     def _docker(self, *a: str, timeout: float = 120) -> subprocess.CompletedProcess:
         env = None

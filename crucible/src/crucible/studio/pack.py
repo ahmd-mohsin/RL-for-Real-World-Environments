@@ -1096,6 +1096,7 @@ def policy_refs(raw: Any) -> list[Any]:
     (bench and build run it like any other); a callable ``task -> actions`` becomes a scripted ``PolicyRef``."""
     from crucible.actors.policy import ScriptedPolicy
     from crucible.runtime.harness.native import PolicyRef
+    from crucible.runtime.identity import code_ref
 
     out = []
     for k, p in enumerate(list(raw or [])):
@@ -1105,10 +1106,11 @@ def policy_refs(raw: Any) -> list[Any]:
         if isinstance(p, str):
             continue  # a bound on another entry of the same list (``{"policy": "scripted:noop", "expect_max": 0}``)
         if hasattr(p, "make"):
-            out.append(p)
+            out.append(p)  # M10 lab audit R-4: a PolicyRef the pack wrote itself declares its own config (refused at run without one)
         elif callable(p):
+            # M10 lab audit R-4: the wrapped hook is named (its behaviour is its code, which ``code_versions`` records)
             out.append(PolicyRef(id=str(name or getattr(p, "__name__", f"policy{k}")),
-                                 make=lambda a, p=p: {"agent": ScriptedPolicy("agent", as_actions(p(a.task)))}))
+                                 make=lambda a, p=p: {"agent": ScriptedPolicy("agent", as_actions(p(a.task)))}, config={"hook": code_ref(p)}))
         else:
             raise TypeError(f"hooks.policies entry {k}: a PolicyRef, a callable task -> actions, or {{'policy': ..., 'expect_max': ...}}")
     return out

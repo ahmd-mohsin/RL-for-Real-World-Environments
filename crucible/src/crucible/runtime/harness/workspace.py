@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from typing import Any
 
 from crucible.actors.policy import run_episode
 from crucible.core.schema.run import Failure
@@ -38,6 +39,16 @@ class WorkspaceHarness(NativeHarness):
     def __init__(self, name: str = "native:workspace", version: str = "1", *, collect_mode: str = "tolerant", perf_guard=None, host: str = "local", **kw):
         super().__init__(name, version, **kw)
         self.collect_mode, self.perf_guard, self.host = collect_mode, perf_guard, host
+
+    def _id_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the collect mode decides what a patch holds, so it is part of the id; the perf guard and the host
+        are placement (``host`` is not in the run's identity)."""
+        return {**super()._id_config(), "collect_mode": self.collect_mode}
+
+    def identity_config(self) -> dict[str, Any]:
+        # ``host`` is left out: where the work is collected is placement (a perf task declares its own measuring host in its
+        # document, ``HarborDirTask.identity_config``), and ``*.host`` is no longer in the denylist (M10 lab audit R-4 review)
+        return super().identity_config()
 
     def _prior(self, attempt: Attempt) -> tuple[str, object] | None:
         """What an earlier attempt of this sample left that a retry can reuse instead of re-running the agent. The latest

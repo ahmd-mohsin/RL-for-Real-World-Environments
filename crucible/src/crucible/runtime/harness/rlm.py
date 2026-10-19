@@ -16,7 +16,9 @@ inherited):
   reads it through ``history`` / ``OUT``). A task with ``context_path`` (and ``delivery="context"``) gets it as ``CONTEXT``.
   Each compaction starts a segment: a fresh exact-prefix token sequence.
 - **The config is the harness id.** ``rlm:<sha of RLMConfig>@<version>`` records the window, compaction, budgets, tree
-  limits and output cap, so groups and comparisons stay well-defined.
+  limits and output cap, so groups and comparisons stay well-defined. M10 lab audit R-4: the id also ends ``#<12 hex>`` over
+  what ``NativeHarness`` digests (limits, limit policy, ``checkpoint_every``), and ``identity_config`` carries the whole
+  ``RLMConfig`` for the run's resumable identity (keyed ``rlm@<version>``, so a changed field is named by dotpath).
 - **Container lifetime** follows the episode's wall budget (``RLMConfig.wall_s``, ``kernel.lifetime_for_episode``) and is
   renewed while the episode runs (M16 B9: a fixed 6 h ended long episodes).
 - **Evidence:** ``rlm.<actor>.json`` per RLM actor: the config, counters (root and tree), segments, context-health
@@ -73,6 +75,17 @@ class RLMHarness(NativeHarness):
             # M14 campaign B9: kernel='local' without allow_host was refused only inside each attempt, where it became an
             # unknown-blame mask (retried, and counted toward the run's stop rule). A config that cannot run is refused here
             self.config.launcher()
+
+    @property
+    def identity_key(self) -> str:
+        """``rlm@<version>``: the harness's name carries the config's digest (``rlm:<sha>``), so keyed by it an RLMConfig change
+        would read as one harness removed and another added; keyed without it, the changed field is named by dotpath (M10
+        lab audit R-4). Two RLM harnesses in one run fall back to their full ids (``identity.harness_keys``)."""
+        return f"rlm@{self.version}"
+
+    def identity_config(self) -> dict[str, Any]:
+        """The base document with the RLM configuration whole (the id's own digest is over it too; the launcher is placement)."""
+        return {**super().identity_config(), "name": "rlm", "config": asdict(self.config)}
 
     def wrap(self, attempt: Attempt, actor: str, x: Any) -> Any:
         from crucible.actors.rlm.policy import RLMPolicy

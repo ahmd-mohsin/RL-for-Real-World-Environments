@@ -247,7 +247,8 @@ async def run_tree(cfg: Any, model: Any, codec: Any, *, keep: Path | None = None
     work = Path(tempfile.mkdtemp(prefix="lh-camp-")) if keep is None else keep
     cap = _Capture()
     harness, how = make_harness(cfg, cap)
-    ref = PolicyRef(id=f"scripted:{model.model}", make=lambda attempt: {"agent": LockedTitoLLM(model, codec)})
+    ref = PolicyRef(id=f"scripted:{model.model}", make=lambda attempt: {"agent": LockedTitoLLM(model, codec)},
+                    config={"model": str(model.model)})  # M10 lab audit R-4: a PolicyRef declares its configuration (the run's identity needs it)
     t0 = time.perf_counter()
     try:
         await Runner(work).run(RunSpec(run_id="camp", tasks=[task], policies=[ref], harnesses=[harness], k=1, rollout_mode="train"))
@@ -422,7 +423,7 @@ async def run_real(hf: HFModel, task: Any, cfg: Any, *, seed: int, max_steps: in
     n0 = len(hf.log)
     t0 = time.perf_counter()
     try:
-        await Runner(work).run(RunSpec(run_id="q", tasks=[task], policies=[PolicyRef(id=f"hf:{hf.name}", make=lambda a: {"agent": hf.client()})],
+        await Runner(work).run(RunSpec(run_id="q", tasks=[task], policies=[PolicyRef(id=f"hf:{hf.name}", make=lambda a: {"agent": hf.client()}, config={"model": str(hf.name), "seed": seed})],  # M10 lab audit R-4
                                        harnesses=[h], k=1, rollout_mode="train"))
         adir = max((work / "q" / "samples").glob("*/a*"))
         r = analyze_attempt(adir, task if hasattr(task, "b") else None)

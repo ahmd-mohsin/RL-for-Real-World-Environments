@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
+from crucible.runtime.identity import code_ref
 from crucible.world.apps.base import App
 from crucible.world.state.base import SnapshotMismatch
 
@@ -548,6 +549,18 @@ class OpenEnvTask:
         self.progress = progress or {}
         self.tool_timeout_s, self.tool_quota, self.clock, self.seed = tool_timeout_s, dict(tool_quota or {}), clock, seed
         self.events = list(events or [])  # World events over the imported environment (disruptions, deadlines, messages)
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: every constructor parameter this task stores. ``params`` holds the factory and its kwargs, the reset
+        arguments, the action class and schema, the tool allowlist, the client, the players and the turn mapping (plain data by
+        construction); the instruction is its text, or the name of the callable that derives it from the reset observation; each
+        extra progress check is named (its behaviour is its code, which ``code_versions`` records). ``tool_timeout_s`` is
+        operational (``identity.DENY``), the rest is the World spec's own."""
+        instruction = self.instruction if isinstance(self.instruction, str | dict) else code_ref(self.instruction)
+        return {"id": self.id, "params": self.params, "app": self.app, "instruction": instruction, "reward_range": self.reward_range,
+                "reward_mode": self.reward_mode, "progress": {k: code_ref(f) for k, f in self.progress.items()}, "players": self.players,
+                "zero_sum": self.zero_sum, "tool_timeout_s": self.tool_timeout_s, "tool_quota": self.tool_quota, "clock": self.clock, "seed": self.seed,
+                "events": self.events}
 
     def spec(self, workdir: Path):
         from crucible.core.schema.world import WorldSpec

@@ -32,6 +32,12 @@ class ControlTask:
         self.params = {**({"env": env} if env else {}), **({"factory": factory} if factory else {}), **({"client": dict(client)} if client else {}),
                        "env_kwargs": env_kwargs or {}, **params}
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: every constructor parameter this task stores (the environment, factory or client and its kwargs
+        live in ``params``: plain data by construction), so a changed return range, seed or environment is refused by name."""
+        return {"id": self.id, "params": self.params, "app": self.app, "return_range": self.return_range, "success_return": self.success_return,
+                "instruction": self.instruction, "seed": self.seed, "clock": self.clock}
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 

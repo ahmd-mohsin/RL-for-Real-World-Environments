@@ -115,7 +115,8 @@ def _policies():
         return [ToolCall(tool_call_id=x["tool_call_id"], function_name=x["function_name"], arguments=x.get("arguments") or {}) if x["kind"] == "tool_call"
                 else Message(to=x["to"], text=x["text"]) for x in a]
 
-    return [PolicyRef(id=f"scripted:{name}", make=lambda att, f=frac: {"agent": ScriptedPolicy("agent", acts(att.task, f))})
+    # M10 lab audit R-4: a PolicyRef declares its configuration: here, the fraction of the task's oracle it replays
+    return [PolicyRef(id=f"scripted:{name}", make=lambda att, f=frac: {"agent": ScriptedPolicy("agent", acts(att.task, f))}, config={"script": name, "fraction": frac})
             for name, frac in (("oracle", 1.0), ("half", 0.5), ("noop", 0.0))]
 
 
@@ -188,7 +189,12 @@ async def test_toy_benchmark_generated_and_reported_reproducibly(tmp_path):
     assert o["stage_first_step"]["q1"] < o["stage_first_step"]["q4"] and o["regressions"] == 0
     assert o["tool_calls"] > h["tool_calls"] > 0 and o["messages"] > 0 and n["messages_per_success"] is None
     th = res["extras"]["irt"]["theta"]
-    assert th["scripted:oracle@native:llm-tool@1"] > th["scripted:half@native:llm-tool@1"] >= th["scripted:noop@native:llm-tool@1"]
+    # M10 lab audit R-4: a harness id is name@version#<config digest>, so the respondent keys are built from the harness the run used
+    from crucible.actors.policy import EpisodeLimits
+    from crucible.runtime.harness.native import NativeHarness
+
+    hid = NativeHarness(limits=EpisodeLimits(max_steps=500)).id
+    assert th[f"scripted:oracle@{hid}"] > th[f"scripted:half@{hid}"] >= th[f"scripted:noop@{hid}"]
     eps = res["episodes"]
     cmp = compare.compare([e for e in eps if e.policy == "scripted:oracle"], [e for e in eps if e.policy == "scripted:half"])
     # the task is the unit (M13 audit G2-8): 6 tasks regress, exact McNemar over tasks 2/64, every per-task delta < 0

@@ -7,6 +7,10 @@ artifacts and timings. Harnesses never decide masking themselves beyond classify
 (``regradable``, M10 lab audit R-3): only then is a failure after the agent phase retried, and only as a re-grade. It
 also keeps ``Attempt.phase`` / ``Attempt.regradable`` current, so an attempt timeout after the agent phase is classified
 the same way, and opens the grading's window on the Runner's clock (``Attempt.clock``, ``grading.grading_window``).
+
+M10 lab audit R-4: a harness's ``id`` names it in the ``SampleKey`` (``name@version#<config digest>``: the in-tree harnesses
+digest what produces the work), and its ``identity_config()`` is the document the run's identity compares on a resume
+(``runtime.identity``); a harness that holds state and declares none is refused before the run starts.
 """
 
 from __future__ import annotations
@@ -73,6 +77,12 @@ class HarnessResult(CrucibleModel):
 
 
 class Harness(Protocol):
-    id: str  # name@version: part of the SampleKey (one harness per GRPO group)
+    @property
+    def id(self) -> str: ...  # name@version#config digest: part of the SampleKey (one harness per GRPO group); read-only, so a property satisfies it
+
+    # M10 lab audit R-4: the harness's configuration (and the content digests of what it grades with) as JSON. Required unless the
+    # harness is stateless plain data: ``identity.describe`` refuses an object it cannot inspect, so a knob nobody declared is never
+    # left out of the run's identity. A harness that is not a NativeHarness also puts a digest of its configuration in its ``id``
+    def identity_config(self) -> dict[str, Any]: ...
 
     async def run(self, attempt: Attempt) -> HarnessResult: ...

@@ -162,7 +162,8 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
             llm = FakeLLM(_oracle_script(t.oracle), fail_at=(0, PROVIDER_FAILURES[fail]) if fail and a.n == 1 else None)
             return {"agent": LLMToolPolicy("agent", llm)}
 
-        return PolicyRef(id=f"a11:{name}", make=make, estimate_usd=0.0)
+        # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config): the oracle's script and the injected failure
+        return PolicyRef(id=f"a11:{name}", make=make, estimate_usd=0.0, config={"fake_llm": "oracle script", "fail": fail})
 
     def scripted(name: str, actions: list) -> PolicyRef:
         from crucible.actors.policy import ScriptedPolicy
@@ -170,7 +171,7 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
 
         acts = [ToolCall(tool_call_id=a.get("tool_call_id") or f"o{i}", function_name=a["function_name"], arguments=a.get("arguments") or {})
                 if a.get("function_name") else Message(to=a["to"], text=a.get("text", "")) for i, a in enumerate(actions) if a.get("function_name") or a.get("to")]
-        return PolicyRef(id=f"a11:{name}", make=lambda a: {"agent": ScriptedPolicy("agent", list(acts))})
+        return PolicyRef(id=f"a11:{name}", make=lambda a: {"agent": ScriptedPolicy("agent", list(acts))}, config={"script": name})  # M10 lab audit R-4
 
     # the oracle must fit the episode: a step cap below its length would score the control 0 (M14 audit: finance_ap
     # oracles take 37–85 steps against the default 30, so A11's "oracle is scored 1" control failed)

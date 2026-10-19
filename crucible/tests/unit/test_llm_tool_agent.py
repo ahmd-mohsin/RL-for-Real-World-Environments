@@ -49,7 +49,7 @@ async def test_llm_tool_agent_solves_a_coding_world(tmp_path):
         h = A2AHarness(agent=LLMToolAgent, capture=proxy, capture_base_url=base,
                        agent_config={"model": "scripted", "llm_base_url": "${capture.base_url}/v1", "llm_api_key": "${capture.key}", "max_turns": 8})
         for mode, run_id in (("eval", "e"), ("train", "t")):
-            await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[FibWorldTask()], policies=[PolicyRef(id="a2a:llm-tool-agent", make=lambda a: {})],
+            await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[FibWorldTask()], policies=[PolicyRef(id="a2a:llm-tool-agent", make=lambda a: {}, config={})],
                                                harnesses=[h], k=1, rollout_mode=mode))
         e = RolloutRecord.model_validate_json((min((tmp_path / "e" / "samples").glob("*/a*")) / "rollout.json").read_text())
         t = RolloutRecord.model_validate_json((min((tmp_path / "t" / "samples").glob("*/a*")) / "rollout.json").read_text())

@@ -60,8 +60,10 @@ def control_policies() -> list[Any]:
     from crucible.actors.policy import ScriptedPolicy
     from crucible.runtime.harness.native import PolicyRef
 
-    return [PolicyRef(id=ORACLE, make=lambda att: {"agent": ScriptedPolicy("agent", _oracle_actions(att.task) or [])}),
-            PolicyRef(id=NOOP, make=lambda att: {"agent": ScriptedPolicy("agent", [])})]
+    # M10 lab audit R-4: a policy's configuration is its run identity (``PolicyRef.config``); these two are scripts whose content is
+    # the task's own oracle actions (the task's identity covers them) or nothing
+    return [PolicyRef(id=ORACLE, make=lambda att: {"agent": ScriptedPolicy("agent", _oracle_actions(att.task) or [])}, config={"script": "task oracle"}),
+            PolicyRef(id=NOOP, make=lambda att: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
 
 
 async def run_controls(root: Path, run_id: str, tasks: Sequence[Any], harnesses: Sequence[Any], *, k: int = 3, threshold: float = 1.0,
@@ -128,9 +130,14 @@ async def run_bench(name: str, *, root: Path, tasks: Sequence[Any], policies: Se
     """``spec``: further ``RunSpec`` fields (run_seed, budget_usd, attempt_timeout_s, sampling, concurrency, ...).
     ``config``: anything else the report must disclose (the judge model and version, token caps). ``controls``: run the
     oracle and no-op controls first and exclude invalid tasks; ``validity``: a manifest from elsewhere (M9, import)."""
+    from crucible.runtime.journal import assert_free
     from crucible.runtime.run import Runner, RunSpec
 
     run_id = run_id or f"bench-{name}"
+    # M10 lab audit R-4: a second bench of the same name is refused before it writes anything beside the first (the controls
+    # run, validity.json); Runner.run's lease stays the authority
+    for rid in (run_id, f"{run_id}-controls") if controls else (run_id,):
+        assert_free(Path(root) / rid)
     if controls:
         man = await run_controls(root, run_id, tasks, harnesses, threshold=threshold, spec=spec)
         validity = {**man, **dict(validity or {})}

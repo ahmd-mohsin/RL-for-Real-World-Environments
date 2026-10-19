@@ -208,6 +208,12 @@ class HarborPatchTask(HarborInPlaceTask):
         self.grader = HarborDirTask(self.dir, image=image, host=host, expected_image=expected_image, ref=ref, perf=perf, timeout=timeout)
         self.id, self.perf = self.grader.id, perf
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the in-place declaration (the agent's World: task tree digests, image, environment) plus the
+        grading container's own (``HarborDirTask``: its image and expected image, command, network, verifier env) and ``perf``.
+        A task that changes what its fresh verifier container runs is refused by name, as one that changes its tests is."""
+        return {**super().identity_config(), "grader": self.grader.identity_config(), "perf": self.perf}
+
     def _declared_phases(self) -> tuple[Any, ...]:
         # the separate verifier's phase belongs to the grading container: this one switches only to the agent's
         return (self.plan.agent_phase,)

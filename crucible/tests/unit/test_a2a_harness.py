@@ -97,7 +97,7 @@ async def run(tmp_path, *, with_tokens: bool, fail: bool = False, run_id="r", mo
     try:
         h = A2AHarness(agent=ToolAgent, capture=proxy, capture_base_url=base, policy_version=3,
                        agent_config={"model": "m", "llm_base_url": "${capture.base_url}/v1", "llm_api_key": "${capture.key}", "fail": fail})
-        s = await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[HelpdeskTask(backend="agentenv")], policies=[PolicyRef(id="a2a:tool-agent", make=lambda a: {})],
+        s = await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[HelpdeskTask(backend="agentenv")], policies=[PolicyRef(id="a2a:tool-agent", make=lambda a: {}, config={})],
                                                harnesses=[h], k=1, rollout_mode=mode))
         adir = min((tmp_path / run_id / "samples").glob("*/a*"))
         return s, adir, proxy

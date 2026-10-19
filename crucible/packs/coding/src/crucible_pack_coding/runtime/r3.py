@@ -98,8 +98,9 @@ def spec(proxy: CaptureProxy, proxy_url: str) -> RunSpec:
                                  perf_guard=PerfGuard(probe=LAB.exec, wait_s=12 * 3600, poll_s=120), host=LAB.name)
     # one attempt: a masked agent phase is not paid for twice. A grade masked for the lab (contention) is re-graded later
     # from the stored patch with Runner(RUNS).regrade(spec), never by re-running the agent
-    return RunSpec(run_id=RUN_ID, tasks=[task], policies=[PolicyRef(id=f"harbor:{FORWARDED}", make=lambda a: {})], harnesses=[harness], k=1,
-                   concurrency=1, retry=RetryRule(max_attempts=1), budget_usd=float(os.environ.get("CRUCIBLE_R3_BUDGET_USD", "15")))
+    # M10 lab audit R-4: the model the proxy forwards to is what this policy is (the agent itself is the harness's identity)
+    return RunSpec(run_id=RUN_ID, tasks=[task], policies=[PolicyRef(id=f"harbor:{FORWARDED}", make=lambda a: {}, config={"forwarded_model": FORWARDED})],
+                   harnesses=[harness], k=1, concurrency=1, retry=RetryRule(max_attempts=1), budget_usd=float(os.environ.get("CRUCIBLE_R3_BUDGET_USD", "15")))
 
 
 def preflight() -> list[str]:

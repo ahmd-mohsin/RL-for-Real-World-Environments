@@ -27,6 +27,18 @@ class GreetingTask:
         self.world_id = "__PACK_NAME__/workspace"
         self.instruction = f"Create greeting.txt in the workspace containing exactly the word {self.word!r} followed by a newline."
 
+    def identity_config(self) -> dict:
+        """What a run's identity needs of this task (M10 lab audit R-4): its content and its parameters, as JSON. A resume refuses
+        a changed task by dotpath (``tasks.<id>.pack``: the pack's files, so an edited grader is caught; ``tasks.<id>.seed``).
+        Declare every constructor parameter you store and the digest of every file or tree the grade depends on; a task with state
+        and no ``identity_config()`` is refused when the run starts. Never declare the seed of a held-out (benchmark) item itself:
+        the document is written to ``run.json`` under the bench's shared out directory, and the seed plus the pack's public
+        generator rebuilds the item and its answer. Declare ``seed_digest(seed)``: a changed seed is still a changed digest."""
+        from __PACK_PKG__ import PACK_ROOT
+        from crucible.runtime.identity import seed_digest, tree_digest
+
+        return {"pack": tree_digest(PACK_ROOT), "seed": seed_digest(self.seed)}
+
     async def open(self, workdir: Path) -> World:
         root = (Path(workdir) / "ws").resolve()
         spec = WorldSpec.model_validate({"world": self.world_id, "apps": [{"id": "ws", "template": "common/workspace",
@@ -212,8 +224,10 @@ def generate(seed: int, item_id: str | None = None) -> GreetingTask:
 
 
 def policies() -> list[PolicyRef]:
-    return [PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", a.task.gold())}),
-            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+    # ``config`` is the policy's run identity (M10 lab audit R-4): ``make`` is a closure, so say what the policy is (a model and its
+    # temperature, a script's name); a PolicyRef without it is refused when the run starts
+    return [PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", a.task.gold())}, config={"script": "task gold"}),
+            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
 
 
 def fixtures() -> list[dict]:

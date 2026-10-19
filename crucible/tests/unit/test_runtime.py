@@ -34,7 +34,7 @@ def test_keys_seeds_and_identity(tmp_path):
     a = SampleKey(task="t", policy="p", harness="h", sample_idx=0, seed=derive_seed(7, "t", "p", "h", 0))
     b = a.model_copy(update={"sample_idx": 1, "seed": derive_seed(7, "t", "p", "h", 1)})
     assert a.id() != b.id() and a.seed != b.seed and a.id() == SampleKey(**a.model_dump()).id()
-    RunJournal(tmp_path, "run", "id-1", {})
+    RunJournal(tmp_path, "run", "id-1", {}).close()  # M10 lab audit R-4: a journal holds its run's lease until it is closed
     with pytest.raises(ValueError):
         RunJournal(tmp_path, "run", "id-2", {})  # a different run never resumes into this directory
 
@@ -79,7 +79,9 @@ def llm_ref(name: str, script_fn, *, fail: str | None = None, on: tuple[int, ...
         clients.append(llm)
         return {"agent": LLMToolPolicy("agent", llm)}
 
-    return PolicyRef(id=f"fake:{name}", make=make, spend=lambda: (sum(c.spend.usd for c in clients), 0.0), estimate_usd=0.001)
+    # M10 lab audit R-4: a PolicyRef declares its configuration (the fake's knobs, never the clients it made)
+    return PolicyRef(id=f"fake:{name}", make=make, spend=lambda: (sum(c.spend.usd for c in clients), 0.0), estimate_usd=0.001,
+                     config={"name": name, "fail": fail, "on": list(on), "at": at})
 
 
 def helpdesk_script():
@@ -211,7 +213,7 @@ def counting(ref: PolicyRef) -> tuple[PolicyRef, list]:
         made.append(a.id)
         return ref.make(a)
 
-    return PolicyRef(id=ref.id, make=make), made
+    return PolicyRef(id=ref.id, make=make, config=ref.config), made  # M10 lab audit R-4: the wrapped policy's own declaration
 
 
 async def test_masked_grade_retried_as_regrade_of_stored_patch(tmp_path):

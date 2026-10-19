@@ -22,6 +22,21 @@ derived seed; each attempt ``<sample>-a<N>`` gets its own directory. Per attempt
 
 Stop rules, checked before every dispatch: budget exhaustion (dispatch halts; resumable after ``increase_limit``),
 wall clock, mask fraction > 0.2 after 20 terminal samples (the environment is broken), unknown-blame fraction > 0.05.
+
+M10 lab audit R-4: one writer per run directory. ``run`` and ``regrade`` open the run's journal first, which takes its lease
+(``run.lock``) before ``run.json`` is read, before the ledger opens and before any attempt index is chosen, and hold it for
+the whole call (every exit path, an exception included, and only after every attempt has ended: an exception that escapes
+one attempt cancels the others and waits for them before it propagates); a second caller on the same ``run_id`` raises
+``RunBusy`` naming the owner and changes nothing. A summary counts the plan's own samples only (``RunSummary.superseded``:
+rows an accepted harness-configuration drift left under the old keys). An attempt index is never reused: a reservation the budget refuses keeps its index
+(``refused.json``), is no attempt, and does not use up one of the sample's retries (``RunJournal.dispatched``).
+
+M10 lab audit R-4, identity: ``RunSpec.resolved_doc`` resolves every task, policy and harness to a JSON document
+(``runtime.identity``: what an object declares through ``identity_config()``, or the plain data it holds; a closure or a
+stateful object with no declaration raises ``Undeclared`` before the run directory is touched), and a resume is refused
+(``IdentityDrift``, the dotpaths named) when any leaf but the operational denylist differs. ``RunSpec.accept_drift`` accepts
+named paths and opens a new identity epoch instead; code versions open one too and never refuse. Records written in an epoch
+after the first carry ``meta.epoch``. The ids that name a harness in the ``SampleKey`` carry a digest of its configuration.
 """
 
 from __future__ import annotations
@@ -35,12 +50,13 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.run import Failure, RunRecord
-from crucible.runtime.budget import BudgetLedger, Exhausted
+from crucible.runtime.budget import BudgetLedger, Exhausted, OpReused
 from crucible.runtime.grading import HANDOFF_REF, deciding_record
 from crucible.runtime.harness.base import Attempt, HarnessResult
+from crucible.runtime import identity as ident  # the module, called through its attribute (a test patches ``code_versions``)
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
 from crucible.runtime.journal import RunJournal
-from crucible.runtime.keys import SampleKey, attempt_id, derive_seed, identity
+from crucible.runtime.keys import SampleKey, attempt_id, derive_seed
 
 
 @dataclass
@@ -63,11 +79,30 @@ class RunSpec:
     sampling: dict = field(default_factory=dict)  # recorded on every rollout turn (temperature, top_p, max_tokens)
     attempt_timeout_s: float | None = None  # a harness that runs past this is masked (harness blame); sweep G4 D3: a hang ignored every limit
     retry_backoff_s: float = 0.25  # a retry waits backoff * 2**(n-1) outside the concurrency slot (sweep G2 D2: retries were immediate)
+    # M10 lab audit R-4: dotpaths (or fnmatch patterns, ``identity.accepts``) of configuration changes a resume of this run accepts:
+    # it opens a new identity epoch instead of being refused. Operational, like the fields above: never part of the identity
+    accept_drift: tuple[str, ...] = ()
 
     def identity_doc(self) -> dict:
+        """The ids the run is made of (``run.json`` ``spec``, which bench reads). Not the identity: see ``resolved_doc``."""
         return {"run_id": self.run_id, "tasks": [t.id for t in self.tasks], "policies": [p.id for p in self.policies],
                 "harnesses": [h.id for h in self.harnesses], "k": self.k, "run_seed": self.run_seed, "tier": self.tier,
                 **({"rollout_mode": self.rollout_mode} if self.rollout_mode != "eval" else {})}
+
+    def resolved_doc(self) -> dict:
+        """M10 lab audit R-4: the run's identity v2: every task, policy and harness resolved to JSON by ``identity.describe``
+        (what it declares through ``identity_config()``, or the plain data it holds), keyed by id (a harness by
+        ``name@version``, so a changed configuration is a leaf under the same key), plus the retry rule, the sampling, the
+        rollout mode and the run's operational fields (recorded; ``identity.DENY`` drops them from the comparison). Raises
+        ``Undeclared`` naming the dotpath of an object that cannot be inspected: nothing is written before it is."""
+        return {"v": 2, "run_id": self.run_id, "k": self.k, "run_seed": self.run_seed, "tier": self.tier, "rollout_mode": self.rollout_mode,
+                "retry": ident.describe(self.retry, "retry"), "sampling": ident.describe(self.sampling, "sampling"),
+                "tasks": {str(t.id): ident.describe(t, f"tasks.{t.id}") for t in self.tasks},
+                "policies": {str(p.id): ident.describe(p, f"policies.{p.id}") for p in self.policies},
+                "harnesses": {key: ident.describe(h, f"harnesses.{key}") for key, h in zip(ident.harness_keys(self.harnesses), self.harnesses, strict=True)},
+                "concurrency": self.concurrency, "budget_usd": self.budget_usd, "wall_clock_s": self.wall_clock_s, "attempt_timeout_s": self.attempt_timeout_s,
+                "retry_backoff_s": self.retry_backoff_s, "max_mask_fraction": self.max_mask_fraction, "max_unknown_fraction": self.max_unknown_fraction,
+                "min_terminal_for_health": self.min_terminal_for_health}
 
 
 @dataclass
@@ -84,6 +119,7 @@ class RunSummary:
     attempts: int
     spend: dict
     by_failure: dict[str, int]
+    superseded: int = 0  # M10 lab audit R-4 review: terminal rows under keys this plan does not contain (an earlier epoch's harness ids): not counted above
 
 
 class Runner:
@@ -100,24 +136,49 @@ class Runner:
             if dup:
                 raise ValueError(f"duplicate {what} ids in run {spec.run_id}: {dup}; give each a distinct id (e.g. prefix the dataset or path)")
         out = []
+        hids = [h.id for h in spec.harnesses]  # M10 lab audit R-4: a harness id is a digest of its configuration, computed once per plan
         for t in spec.tasks:
             for p in spec.policies:
-                for h in spec.harnesses:
+                for h, hid in zip(spec.harnesses, hids, strict=True):
                     for i in range(spec.k):
-                        sk = SampleKey(task=t.id, world=getattr(t, "world_id", ""), policy=p.id, harness=h.id, sample_idx=i,
-                                       seed=derive_seed(spec.run_seed, t.id, p.id, h.id, i), tier=spec.tier)  # type: ignore[arg-type]
+                        sk = SampleKey(task=t.id, world=getattr(t, "world_id", ""), policy=p.id, harness=hid, sample_idx=i,
+                                       seed=derive_seed(spec.run_seed, t.id, p.id, hid, i), tier=spec.tier)  # type: ignore[arg-type]
                         out.append((sk, t, p, h))
         return out
 
+    def _open(self, spec: RunSpec) -> RunJournal:
+        """The run's journal, with its lease (M10 lab audit R-4). The one place a Runner opens a run directory. The identity
+        document is resolved first, so an object that cannot be inspected (``identity.Undeclared``) is refused before any
+        file is created; the journal then compares it with the stored one under the lease (``IdentityDrift``, epochs)."""
+        doc = spec.resolved_doc()
+        return RunJournal(self.root, spec.run_id, ident.fingerprint(doc), spec.identity_doc(), resolved=ident.normalize(doc), code=ident.code_versions(),
+                          accept_drift=spec.accept_drift)
+
     async def run(self, spec: RunSpec) -> RunSummary:
-        journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
-        ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
+        """Run (or resume) ``spec``. M10 lab audit R-4: the run's lease is held for the whole call and released on every exit
+        path; a run id another process (or another call of this one) has open raises ``RunBusy`` before anything is touched.
+        The plan is built first, so a duplicate id is refused before the run directory is."""
         plan = self.plan(spec)
-        done = journal.terminal()
+        journal = self._open(spec)
+        try:
+            ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})  # after the lease
+            try:
+                return await self._run(spec, journal, plan, ledger)
+            finally:
+                ledger.db.close()  # before the lease is released: the next writer opens the ledger on a closed file
+        finally:
+            journal.close()
+
+    async def _run(self, spec: RunSpec, journal: RunJournal, plan: list[tuple[SampleKey, Any, Any, Any]], ledger: BudgetLedger) -> RunSummary:
+        # M10 lab audit R-4 review: only the plan's own samples count. After an accepted harness-configuration drift every sample has
+        # a new key, and the earlier epoch's rows (under the old keys) are neither done nor this plan's results: they would count
+        # toward the health rules, ``terminal`` could pass ``planned`` and the means would average two configurations
+        plan_ids = {row[0].id() for row in plan}
+        done = {sid: r for sid, r in journal.terminal().items() if sid in plan_ids}
         health = Health(planned=len(plan))
         for r in done.values():
             health.add(r)
-        journal.event("resume" if done else "planned", planned=len(plan), done=len(done))
+        journal.event("resume" if done else "planned", planned=len(plan), done=len(done), **({"epoch": journal.epoch} if journal.epoch else {}))
         state: dict[str, Any] = {"stopped": None, "attempts": 0, "max_cost": 0.0}
         t_start = time.monotonic()
         sem = asyncio.Semaphore(spec.concurrency)
@@ -163,12 +224,15 @@ class Runner:
                 est = max(est if est > 0 else spec.budget_usd / max(1, spec.concurrency), state["max_cost"])
             try:
                 ledger.reserve(aid, scopes, est)
-            except Exhausted as ex:
-                state["stopped"] = f"budget: {ex}"
-                journal.event("stop_rule", reason=state["stopped"])
-                import shutil
-
-                shutil.rmtree(adir, ignore_errors=True)  # never dispatched: no attempt
+            except (Exhausted, OpReused) as ex:
+                # M10 lab audit R-4: never dispatched, so no attempt and no record, but the index stays taken (refused.json):
+                # removing the dir let a later attempt reuse its id and the ledger op of the same name (audit: crash a1,
+                # refused a2 reused index 1 and overwrote a1's uncertain row). An op id that already exists is the same kind of
+                # stop (it cannot be a fresh attempt), loud as a stop reason: raised, it would leave gather with the other
+                # attempts still running while the run's lease is released
+                state["stopped"] = f"budget: {ex}" if isinstance(ex, Exhausted) else f"ledger: {ex}"
+                journal.event("stop_rule", reason=state["stopped"], attempt=aid)
+                journal.refuse(adir, aid, state["stopped"])
                 return "stop", n
             # M10 lab audit R-3: a grade-only retry is dispatched too, but runs no agent; the journal tells it apart (taken from
             # the previous attempt's record, which a retry always follows, so a resumed run marks it the same way)
@@ -220,14 +284,16 @@ class Runner:
                 ledger.settle(aid, hr.cost_usd, uncertain=hr.cost_uncertain_usd)
             state["max_cost"] = max(state["max_cost"], hr.cost_usd + hr.cost_uncertain_usd)
             try:
-                rec = self._record(spec, sk, aid, task, policy, harness, hr)
+                rec = self._record(spec, sk, aid, task, policy, harness, hr, epoch=journal.epoch)
                 self._rollout(spec, sk, rec, hr, adir)
             except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
                 rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
-                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])))
+                    kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])), epoch=journal.epoch)
             self._evidence(rec)
             # M10 lab audit R-3: a verification-stage failure is retried only when the harness persisted the work for a re-grade
-            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, n, regrade=hr.regradable)
+            # M10 lab audit R-4: the rule counts dispatched attempts, not the index: a refused reservation took an index and ran
+            # nothing, so a budget stop and resume must not use up a retry the sample never had
+            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, journal.dispatched(sk.id(), n), regrade=hr.regradable)
             if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                 state["stopped"] = "budget: provider credits exhausted"
                 journal.event("stop_rule", reason=state["stopped"])
@@ -249,14 +315,27 @@ class Runner:
                     what, n = await attempt_once(sk, task, policy, harness)
                 if what != "retry":
                     return
-                await asyncio.sleep(spec.retry_backoff_s * 2 ** max(0, n - 1))  # outside the slot: a backoff blocks no one
+                tries = journal.dispatched(sk.id(), n)  # M10 lab audit R-4: refused reservations are no tries
+                await asyncio.sleep(spec.retry_backoff_s * 2 ** max(0, tries - 1))  # outside the slot: a backoff blocks no one
 
-        await asyncio.gather(*(one(*row) for row in plan if row[0].id() not in done))
-        recs = journal.records()
+        # M10 lab audit R-4 review: the lease is released when this call ends, so it never ends while an attempt is still running or
+        # unwinding. ``gather`` alone re-raises the first exception and leaves the other attempts running (and a second
+        # ``Runner.run`` would take the lease, move their live dirs to aborted/ and dispatch the same samples again): on any
+        # exception (or a cancellation of this call) every attempt is cancelled and awaited first
+        tasks = [asyncio.ensure_future(one(*row)) for row in plan if row[0].id() not in done]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        final = journal.terminal()
+        recs = [r for sid, r in final.items() if sid in plan_ids]
         summ = RunSummary(run_id=spec.run_id, planned=len(plan), terminal=len(recs), scored=sum(1 for r in recs if r.scored_reward() is not None),
                           masked_terminal=sum(1 for r in recs if r.mask_sample), mean_reward=mean_reward(recs), pass_at_1=pass_at_k(recs, 1),
                           coverage=round(coverage(recs, len(plan)), 4), stopped=state["stopped"], attempts=state["attempts"], spend=ledger.summary(),
-                          by_failure=health.by_kind)
+                          by_failure=health.by_kind, superseded=len(final) - len(recs))
         journal.event("summary", **{k: v for k, v in summ.__dict__.items() if k != "spend"})
         return summ
 
@@ -266,11 +345,24 @@ class Runner:
         ``regrade(attempt, prior_dir)`` method qualify, and only samples whose work was persisted: a stored
         ``artifacts/model.patch`` or (M10 lab audit R-3) a native separate verifier's ``verifier/handoff_ref.json``; the
         newest such attempt is the source. A sample re-graded ``max_regrades`` times is left as it is. In train
-        mode a FATAL capture-vs-ATIF reconcile carried by the re-grade masks it as in ``_rollout`` (M10 lab audit R-1)."""
-        journal = RunJournal(self.root, spec.run_id, identity(spec.identity_doc()), spec.identity_doc())
-        ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})
-        select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
+        mode a FATAL capture-vs-ATIF reconcile carried by the re-grade masks it as in ``_rollout`` (M10 lab audit R-1).
+
+        M10 lab audit R-4: it takes the run's lease like ``run`` and holds it for the whole call (a re-grade writes attempt
+        dirs, ledger rows and results rows, so it is a writer too): a run another process has open raises ``RunBusy``."""
         plan = {sk.id(): (sk, t, p, h) for sk, t, p, h in self.plan(spec)}
+        journal = self._open(spec)
+        try:
+            ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})  # after the lease
+            try:
+                return await self._regrade(spec, journal, plan, select, max_regrades, ledger)
+            finally:
+                ledger.db.close()
+        finally:
+            journal.close()
+
+    async def _regrade(self, spec: RunSpec, journal: RunJournal, plan: dict[str, tuple[SampleKey, Any, Any, Any]], select, max_regrades: int,
+                       ledger: BudgetLedger) -> RunSummary:
+        select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
         n_done = 0
         for sid, r in journal.terminal().items():
             if sid not in plan or not select(r):
@@ -291,16 +383,18 @@ class Runner:
             adir.mkdir(parents=True, exist_ok=True)
             journal.event("regrade", attempt=aid, source=src.name)
             hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
-            rec = self._record(spec, sk, aid, task, policy, harness, hr)
+            rec = self._record(spec, sk, aid, task, policy, harness, hr, epoch=journal.epoch)
             self._reconcile_mask(spec, rec, hr)  # M10 lab audit R-1: no _rollout on this path; the re-attached FATAL reconcile masks as on a grade-only retry
             self._evidence(rec)
             journal.finish(rec, terminal=True)  # the newest terminal row of a sample wins
             n_done += 1
-        recs = journal.records()
+        final = journal.terminal()
+        recs = [r for sid, r in final.items() if sid in plan]  # M10 lab audit R-4 review: this plan's samples only (see ``_run``)
         plan_n = len(plan)
         return RunSummary(run_id=spec.run_id, planned=plan_n, terminal=len(recs), scored=sum(1 for r in recs if r.scored_reward() is not None),
                           masked_terminal=sum(1 for r in recs if r.mask_sample), mean_reward=mean_reward(recs), pass_at_1=pass_at_k(recs, 1),
-                          coverage=round(coverage(recs, plan_n), 4), stopped=None, attempts=n_done, spend=ledger.summary(), by_failure={})
+                          coverage=round(coverage(recs, plan_n), 4), stopped=None, attempts=n_done, spend=ledger.summary(), by_failure={},
+                          superseded=len(final) - len(recs))
 
     @staticmethod
     def _reconcile_mask(spec: RunSpec, rec: RunRecord, hr: HarnessResult) -> tuple[dict, dict] | None:
@@ -373,13 +467,16 @@ class Runner:
         (adir / "rollout.json").write_text(ro.model_dump_json(by_alias=True, exclude_none=True))
 
     @staticmethod
-    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult) -> RunRecord:
+    def _record(spec: RunSpec, sk: SampleKey, aid: str, task, policy, harness, hr: HarnessResult, epoch: int = 0) -> RunRecord:
+        """The attempt's record. M10 lab audit R-4: written in an identity epoch after the first, it carries ``meta.epoch`` (an
+        epoch-0 record is byte-identical to before), so bench splits a run that accepted drift or changed code by it."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         rec = RunRecord(run_id=spec.run_id, task=task.id, world=getattr(task, "world_id", "") or task.id, policy=policy.id, seed=sk.seed, started_at=now,
                         ended_at=now, steps=hr.steps, outcome="completed", reward=hr.reward, cost_usd=hr.cost_usd, cost_uncertain_usd=hr.cost_uncertain_usd,
                         sample=sk.model_dump(mode="json"), attempt=aid,
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates, "timings": hr.timings,
                               "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
+                              **({"epoch": epoch} if epoch else {}),
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),
                               **({"seat_rewards": hr.grade["seat_rewards"]} if hr.grade.get("seat_rewards") else {}),

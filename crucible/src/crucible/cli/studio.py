@@ -410,11 +410,23 @@ async def _awaited(x: Any) -> Any:
     return await x if inspect.isawaitable(x) else x
 
 
+def _assert_bench_free(root: Path, run_id: str, controls: bool) -> None:
+    """M10 lab audit R-4: a second ``bench run`` on the same pack (its run id is derived from the pack's name) is refused before
+    it writes anything beside the first: the item key, the validation episodes under the run dir, the provenance record, the
+    controls run. ``Runner.run``'s lease stays the authority; this is the fast fail (``journal.assert_free``)."""
+    from crucible.runtime.journal import assert_free
+
+    for rid in (run_id, f"{run_id}-controls") if controls else (run_id,):
+        assert_free(Path(root) / rid)
+
+
 async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key_file: Path | None, policies: str | None, ks: list[int] | None,
                       *, controls: bool = True, anchors_path: Path | None = None, harbor: tuple[Path, ...] = (), tasks_ref: str | None = None,
-                      allow: tuple[str, ...] = (), notes: list[str] | None = None) -> dict[str, Any]:
+                      allow: tuple[str, ...] = (), notes: list[str] | None = None, accept_drift: tuple[str, ...] = ()) -> dict[str, Any]:
     """A pack (anchors + fresh validated items) or plain tasks (``--harbor`` dirs, ``--tasks module:attr``), with the
-    oracle / no-op controls first (campaign B4/B5) and the anchor parameters saved for the next version (V12)."""
+    oracle / no-op controls first (campaign B4/B5) and the anchor parameters saved for the next version (V12).
+    ``accept_drift`` (M10 lab audit R-4): dotpaths of configuration changes a resume of the existing run accepts (a new identity
+    epoch); it is operational, so it is in the recorded command and not in its identity."""
     from crucible.actors.policy import EpisodeLimits
     from crucible.bench import dynamic, irt
     from crucible.bench.run import bench_key, gold_and_noop_check, run_bench
@@ -423,15 +435,18 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
 
     anchors = irt.load_anchors(anchors_path) if anchors_path else None
     harness = NativeHarness(limits=EpisodeLimits(max_steps=1000))
+    drift = {"accept_drift": tuple(accept_drift)} if accept_drift else None  # RunSpec.accept_drift, through run_bench's ``spec``
     if pack_ref is None:  # plain tasks: no generator, no fresh items
         if not policies:
             raise ValueError("plain tasks need --policies module:attr returning PolicyRefs")
-        _record(out, "bench_run-plain", {"harbor": [str(h) for h in harbor], "tasks": tasks_ref, "policies": policies, "k": k, "ks": ks, "controls": controls},
+        name = "harbor" if harbor else tasks_ref.split(":")[0].rsplit(".", 1)[-1]  # type: ignore[union-attr]
+        _assert_bench_free(out, f"bench-{name}", controls)
+        _record(out, "bench_run-plain", {"harbor": [str(h) for h in harbor], "tasks": tasks_ref, "policies": policies, "k": k, "ks": ks, "controls": controls,
+                                         "accept_drift": list(accept_drift)},
                 identity={"harbor": [str(h) for h in harbor], "tasks": tasks_ref, "policies": policies, "k": k})
         tasks = _harbor_tasks(harbor) if harbor else [x[0] if isinstance(x, tuple) else x for x in await _awaited(_import(tasks_ref)())]  # type: ignore[arg-type]
-        name = "harbor" if harbor else tasks_ref.split(":")[0].rsplit(".", 1)[-1]  # type: ignore[union-attr]
         return await run_bench(name, root=out, tasks=tasks, policies=list(await _awaited(_import(policies)())), harnesses=[harness], k=k, ks=ks,
-                               controls=controls, anchors=anchors)
+                               controls=controls, anchors=anchors, spec=drift)
     from crucible.studio.build import bench_preflight
     from crucible.studio.pack import policy_refs
 
@@ -441,8 +456,11 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
     bench_preflight(m, allow)
     if not m.hooks.tasks and not m.hooks.generator:
         raise ValueError(f"pack {m.name} declares neither hooks.tasks nor hooks.generator: nothing to benchmark")
+    rdir = Path(out) / f"bench-{m.name}-bench"  # the run dir (run_bench's run id is ``bench-<name>``, named ``<pack>-bench``)
+    _assert_bench_free(out, rdir.name, controls)  # M10 lab audit R-4: before the record, the key, the validation episodes and the controls
     _record(out, f"bench_run-{m.name}", {"pack": m.name, "pack_dir": str(d), "n_fresh": n_fresh, "k": k, "ks": ks, "policies": policies, "controls": controls,
-                                          "anchors": str(anchors_path) if anchors_path else None, "allow": list(allow), "key_file": str(key_file) if key_file else None},
+                                          "anchors": str(anchors_path) if anchors_path else None, "allow": list(allow), "key_file": str(key_file) if key_file else None,
+                                          "accept_drift": list(accept_drift)},
             identity={"pack": m.name, "n_fresh": n_fresh, "k": k, "policies": policies, "controls": controls}, pack_dir=d, manifest=m)
     lo, hi = m.reward.range
     thr = m.label.threshold  # V12: the pack's solved threshold and top of range, not 1.0
@@ -454,7 +472,6 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
             t.bench_gold = list(gold)  # the oracle control replays the pack's gold (hooks.tasks pairs a task with it)
         anchor_items.append((getattr(t, "id", str(i)), "anchor", t))
     gens = {"generated": resolve(d, m.hooks.generator)} if m.hooks.generator and n_fresh else {}  # called with item_id= (dynamic V3)
-    rdir = Path(out) / f"bench-{m.name}-bench"
     key = bench_key(rdir, key_file=key_file, notes=notes)
     try:
         bm = await dynamic.build(f"{m.name}-bench", "v1", key=key, anchors=anchor_items, generators=gens, n_fresh=n_fresh if gens else 0,
@@ -472,8 +489,9 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
         from crucible.bench.run import _oracle_actions
         from crucible.runtime.harness.native import PolicyRef
 
-        pols = [PolicyRef(id="pack:gold", make=lambda a: {"agent": ScriptedPolicy("agent", _oracle_actions(a.task) or [])}),
-                PolicyRef(id="pack:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+        # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config)
+        pols = [PolicyRef(id="pack:gold", make=lambda a: {"agent": ScriptedPolicy("agent", _oracle_actions(a.task) or [])}, config={"script": "pack gold"}),
+                PolicyRef(id="pack:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
         if notes is not None:
             notes.append(f"pack {m.name} has no hooks.policies: benchmarked its gold and a no-op; pass --policies module:attr for models")
     from crucible.studio.runs import provenance
@@ -481,7 +499,8 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
     try:
         res = await run_bench(f"{m.name}-bench", root=out, tasks=[i.task for i in bm.items], policies=pols, harnesses=[harness],
                               k=k, ks=ks, threshold=thr, stages_of=resolve(d, m.hooks.stages) if m.hooks.stages else None,
-                              extras={"manifest": bm.manifest(), "reward_range": [lo, hi], "provenance": provenance(d, m)}, controls=controls, anchors=anchors)
+                              extras={"manifest": bm.manifest(), "reward_range": [lo, hi], "provenance": provenance(d, m)}, controls=controls, anchors=anchors,
+                              spec=drift)
     finally:
         for i in bm.items:
             if callable(getattr(i.task, "cleanup", None)):
@@ -508,16 +527,22 @@ async def _bench_pack(pack_ref: str | None, out: Path, n_fresh: int, k: int, key
 @click.option("--harbor", type=click.Path(path_type=Path, exists=True, file_okay=False), multiple=True, help="a Harbor task dir, run in place (repeatable)")
 @click.option("--tasks", "tasks_ref", default=None, help="module:attr returning tasks (NeMo-Gym rows, EOG, OpenEnv, ... wrapped as RunTasks)")
 @click.option("--allow", default="", help="requirements of the pack this machine satisfies, e.g. gpu,paid (docker and gpu are detected)")
+@click.option("--accept-drift", "accept_drift", multiple=True,
+              help="a dotpath (or fnmatch pattern; escape a '[' in an id as '[[]') of a configuration change to accept when resuming an existing run: "
+                   "it opens a new identity epoch, and reports split by epoch. A harness configuration change gives every sample a new key, so they "
+                   "all run again in the new epoch: prefer a new --out (M10 lab audit R-4)")
 @click.option("--json", "as_json", is_flag=True)
-def bench_run(pack_ref, out, n_fresh, k, ks, key_file, policies, controls, anchors_path, harbor, tasks_ref, allow, as_json) -> None:
+def bench_run(pack_ref, out, n_fresh, k, ks, key_file, policies, controls, anchors_path, harbor, tasks_ref, allow, accept_drift, as_json) -> None:
     """A benchmark on a pack (its tasks as anchors + fresh validated items) or on plain tasks (--harbor / --tasks):
     controls first, every step metric, an HTML report. A pack whose ``requires`` this machine lacks is refused unless
-    --allow vouches for it."""
+    --allow vouches for it. Re-running into an existing --out resumes that run, and refuses a changed configuration (a different
+    max_steps, temperature, grader file...) naming the dotpaths unless --accept-drift covers them; one run is opened by one process at a time."""
     if sum(x is not None and x != () for x in (pack_ref, harbor or None, tasks_ref)) != 1:
         raise click.UsageError("give exactly one of PACK_REF, --harbor or --tasks")
     notes: list[str] = []
     res = asyncio.run(_bench_pack(pack_ref, out, n_fresh, k, key_file, policies, _ks(ks), controls=controls, anchors_path=anchors_path,
-                                  harbor=tuple(harbor), tasks_ref=tasks_ref, allow=tuple(x for x in allow.split(",") if x), notes=notes))
+                                  harbor=tuple(harbor), tasks_ref=tasks_ref, allow=tuple(x for x in allow.split(",") if x), notes=notes,
+                                  accept_drift=tuple(accept_drift)))
     _emit({"summary": res["summary"], "paths": res["paths"], "notes": notes, "next": [f"open {res['paths']['report']}"]}, as_json,
           [f"note: {n}" for n in notes] + _model_lines(res["summary"]) + [f"report {res['paths']['report']}"])
 

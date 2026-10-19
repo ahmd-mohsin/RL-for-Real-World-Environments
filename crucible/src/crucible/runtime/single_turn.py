@@ -33,6 +33,7 @@ from typing import Any
 
 from crucible.core.ids import sha256_text
 from crucible.core.schema.actions import MediaRef
+from crucible.runtime.identity import code_ref
 from crucible.verify.answers import CheckerSpec, CheckerUnavailable, Criterion, Judge, ParserSpec, score_answer
 from crucible.verify.runtime.plan import CheckResult, GradeReport
 
@@ -70,6 +71,16 @@ class SingleTurnTask:
         self.system, self.history, self.instruction, self.media = _split_prompt(self.prompt, self.system)
 
     # ---- RunTask ---------------------------------------------------------------------------------------------------
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: what decides this task's grade, as the run's identity document: the prompt (a long text is a
+        digest), the gold answer, the parser, the rubric, the options, and each judge's model and type (a judge is a callable,
+        so it cannot be inspected: its model and its code name are what a resume can compare). The prompt and answer are
+        the task, so a dataset edited between two runs is refused by name."""
+        judges = {name: {"model": getattr(getattr(j, "llm", j), "model", None), "type": code_ref(type(j)) if hasattr(j, "llm") else code_ref(j)}
+                  for name, j in self.judges.items()}
+        return {"id": self.id, "prompt": self.prompt, "answer": self.answer, "parser": self.parser, "criteria": self.criteria, "options": self.options,
+                "system": self.system, "judges": judges, "meta": self.meta, "world_id": self.world_id, "control_answer": self.control_answer}
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 
@@ -226,7 +237,8 @@ def single_turn_policy(llm, *, temperature: float = 0.7, max_tokens: int = 4096,
         return {ACTOR: p}
 
     return PolicyRef(id=name or f"single_turn:{llm.model}", make=make,
-                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.001)
+                     spend=lambda: (llm.spend.usd, getattr(llm.spend, "uncertain_usd", 0.0)), estimate_usd=0.001,
+                     config={"model": getattr(llm, "model", None), "temperature": temperature, "max_tokens": max_tokens, "vision": vision, "audio": audio})  # M10 lab audit R-4
 
 
 def answer_policy(text_of) -> Any:
@@ -239,7 +251,7 @@ def answer_policy(text_of) -> Any:
         text = text_of(attempt.task)
         return {ACTOR: ScriptedPolicy(ACTOR, [Done(reason=text[:2000], answer=text if len(text) > 2000 else None)])}
 
-    return PolicyRef(id="scripted:answer", make=make)
+    return PolicyRef(id="scripted:answer", make=make, config={"script": code_ref(text_of)})  # M10 lab audit R-4: the callable's name; its behaviour is its code
 
 
 # ------------------------------------------------------------------------------------------------- datasets
