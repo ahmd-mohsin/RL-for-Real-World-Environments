@@ -1061,3 +1061,17 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Formats.** `crucible.toml`: `backends` is a valid key again.
 - **Tests.** `test_config_backends.py` removed; M17's `test_m17_q_models` and `test_m17_q_root` cover the table.
 - **Merge notes.** none: this restores main's line.
+
+## 50. The slime bridge's `CRUCIBLE_SLIME_*` variables are declared
+
+- **Item.** none (R-15 follow-up). Main's slime bridge (`c7a98da`, M17 factory v2 P6) reads seven `CRUCIBLE_SLIME_*`
+  variables that `KNOBS` did not declare, so `test_every_crucible_variable_in_the_code_is_declared` failed on main's CI.
+- **Files.** `src/crucible/core/env.py` (7 knobs).
+- **Public names.** `KNOBS` gains `CRUCIBLE_SLIME_ENV`, `_WORKDIR`, `_ROLLOUT_TIMEOUT_S`, `_AGENT_TIMEOUT_S`, `_TURN_ETA`,
+  `_MAX_STALENESS`, `_WEIGHT_VERSION` (53 declared: 26 user, 8 internal, 19 test/script). The two timeouts are read
+  through an f-string in `slime/generate.py:_knob`, which the scan test cannot see, so they were added by hand.
+- **Behaviour.** none: the bridge still reads `os.environ` itself; the declarations carry its defaults (provider
+  `crucible.factory.envs:slime_provider`, 7200 s / 3600 s, eta 0.1, tau 2) for `crucible env` and `knobs.get`.
+- **Formats.** none.
+- **Tests.** The scan test passes again; core, config and slime suites: 140 passed, 4 skipped (slime not installed).
+- **Merge notes.** A changed slime default must be changed in both `slime/` and `KNOBS`.
