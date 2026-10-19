@@ -50,11 +50,12 @@ class ControlTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         w = World(self.spec(), instructions={ACTOR: self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     def score(self, ret: float) -> float:

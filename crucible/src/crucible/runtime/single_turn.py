@@ -89,14 +89,15 @@ class SingleTurnTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         w = World(self.spec(), instructions={ACTOR: self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
         if self.media:  # images / audio with the question: stored once, attached to the first observation (M1 item 8)
             w.instruction_media[ACTOR] = [w.put_media(m["kind"], m["mime"], m["data"]) if "data" in m else MediaRef(kind=m["kind"], mime=m["mime"], url=m["url"])
                                           for m in self.media]
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     @staticmethod

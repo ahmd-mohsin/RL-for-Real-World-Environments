@@ -13,7 +13,7 @@ finished one dispatched nothing and the report stated the new configuration for 
   a new knob nobody declared is refused instead of left out. Runtime never imports the layers above it, so an adapter
   declares its own document through this duck-typed method (a ``PolicyRef`` through ``config=``).
 - **Comparison.** ``compared(doc)`` drops an operational denylist (``DENY``: concurrency, budgets, wall clocks, timeouts,
-  backoff, health thresholds, a few placement keys (docker and GPU host, sandbox id), paths); every other leaf counts, an
+  backoff, health thresholds, container TTLs and the sweep, a few placement keys (docker and GPU host, sandbox id), paths); every other leaf counts, an
   endpoint (a URL, a host) included where it names the grader, the model, the agent or the hardware that is measured.
   ``diff`` lists the dotpaths that differ (``harnesses.native:llm-tool@1.limits.max_steps: 30 -> 100``). The denylist is
   matched below the id of a task, policy or harness (``tasks.<id>.*``): an id never decides whether its configuration is
@@ -321,6 +321,8 @@ DENY: tuple[str, ...] = (
     # M10 lab audit R-5: the breakers' thresholds and cool-downs (``RunSpec.breaker``, whole subtree): when a run pauses for an outage,
     # not what it measures
     "breaker",
+    # M10 lab audit R-6: container TTLs and the sweep (RunSpec.hygiene, whole subtree): how long an orphan lives, not what is measured
+    "hygiene",
     # health thresholds: they decide when to stop, not what a sample is
     "max_mask_fraction", "max_unknown_fraction", "min_terminal_for_health",
     # timeouts and budgets of grading, tools and the harness's own housekeeping; a price is accounting

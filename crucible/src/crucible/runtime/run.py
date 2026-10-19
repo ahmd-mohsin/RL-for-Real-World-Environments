@@ -64,11 +64,29 @@ stateful object with no declaration raises ``Undeclared`` before the run directo
 (``IdentityDrift``, the dotpaths named) when any leaf but the operational denylist differs. ``RunSpec.accept_drift`` accepts
 named paths and opens a new identity epoch instead; code versions open one too and never refuse. Records written in an epoch
 after the first carry ``meta.epoch``. The ids that name a harness in the ``SampleKey`` carry a digest of its configuration.
+
+M10 lab audit R-6, sandbox hygiene (``world.lifecycle``): every container Crucible starts has an owner and an expiry, and every exit
+path reclaims it. Each dispatched attempt (and each ``regrade`` attempt) runs in a ``lifecycle.Scope`` (``lifecycle.attempt``) that
+labels what starts under it (``crucible.run``, ``crucible.attempt``, ``crucible.lease`` = this run's ``run.lock``, owner and expiry),
+renews the renewable keepers while the attempt lives (the container lifetime is the attempt backstop plus ``RunSpec.hygiene.margin_s``:
+R-3's grading window can move the clock past ``attempt_timeout_s``), and on exit, however it ends (scored, masked, past the clock,
+cancelled), closes the Worlds still open, removes the containers the attempt started (by name and by label) and writes
+``attempt/teardown.json`` ``{terminated, failed, still_up, released}`` before the record (a ``teardown`` event when something is
+``failed`` or ``still_up``). A reservation the budget refused is no attempt and has none. The warm container pools belong to the run:
+``close_pools`` ends them before the lease is released (a ``pools_closed`` event). After a crash, kill -9 or OOM kill the next start
+reclaims (``Runner._sweep``, a ``sweep`` event): ``run`` and ``regrade`` sweep right after taking the lease (so a resume is just another
+start), over the local daemon, every docker host the run used before (``RunJournal.sandbox_hosts``) and every one the plan names
+(``Runner._plan_hosts``: a task's ``docker_hosts()``), and remove this run's own containers, those of a run on this host whose
+``run.lock`` is free or gone, and any container past its expiry (a renewable one by its real deadline: its label is a floor); it
+decides by the run lock, never by pid (no ``os.kill(pid, 0)`` on Windows) and never fails the run. ``close_pools`` is keyed by the
+run's lease and bounded on the normal path (``lifecycle.POOLS_CLOSE_S``). ``RunSpec.hygiene`` is operational
+(``identity.DENY``): the TTL margin, the lifetime without a backstop and ``sweep``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from collections.abc import Sequence
@@ -83,8 +101,11 @@ from crucible.runtime.grading import HANDOFF_REF, deciding_record
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime import identity as ident  # the module, called through its attribute (a test patches ``code_versions``)
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
-from crucible.runtime.journal import BREAKER_META, RunJournal
+from crucible.runtime.journal import BREAKER_META, LOCK, RunJournal, atomic_write
 from crucible.runtime.keys import SampleKey, attempt_id, derive_seed
+from crucible.world import lifecycle
+from crucible.world.lifecycle import Hygiene
+from crucible.world.pool import close_pools
 
 
 @dataclass
@@ -116,6 +137,10 @@ class RunSpec:
     # M10 lab audit R-4: dotpaths (or fnmatch patterns, ``identity.accepts``) of configuration changes a resume of this run accepts:
     # it opens a new identity epoch instead of being refused. Operational, like the fields above: never part of the identity
     accept_drift: tuple[str, ...] = ()
+    # M10 lab audit R-6: container lifecycle settings (``world.lifecycle.Hygiene``): the TTL margin and floor added to ``attempt_timeout_s``,
+    # the lifetime without an attempt backstop, and whether a Runner start sweeps orphans. Operational (``identity.DENY``): how long an
+    # orphan lives, not what a run measures, so changing it never drifts a run
+    hygiene: Hygiene = field(default_factory=Hygiene)
 
     def identity_doc(self) -> dict:
         """The ids the run is made of (``run.json`` ``spec``, which bench reads). Not the identity: see ``resolved_doc``."""
@@ -136,6 +161,7 @@ class RunSpec:
                 "harnesses": {key: ident.describe(h, f"harnesses.{key}") for key, h in zip(ident.harness_keys(self.harnesses), self.harnesses, strict=True)},
                 "concurrency": self.concurrency, "budget_usd": self.budget_usd, "wall_clock_s": self.wall_clock_s, "attempt_timeout_s": self.attempt_timeout_s,
                 "retry_backoff_s": self.retry_backoff_s, "breaker": ident.describe(self.breaker, "breaker"),
+                "hygiene": ident.describe(self.hygiene, "hygiene"),
                 "max_mask_fraction": self.max_mask_fraction, "max_unknown_fraction": self.max_unknown_fraction,
                 "min_terminal_for_health": self.min_terminal_for_health}
 
@@ -203,13 +229,100 @@ class Runner:
         plan = self.plan(spec)
         journal = self._open(spec)
         try:
+            await self._sweep(spec, journal)  # M10 lab audit R-6: only under the lease; a resume is just another start
             ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})  # after the lease
             try:
                 return await self._run(spec, journal, plan, ledger)
             finally:
                 ledger.db.close()  # before the lease is released: the next writer opens the ledger on a closed file
         finally:
-            journal.close()
+            try:
+                await self._close_pools(spec, journal)  # M10 lab audit R-6: the warm pool belongs to the run, and ends with it
+            finally:
+                journal.close()
+
+    @staticmethod
+    async def _sweep(spec: RunSpec, journal: RunJournal) -> None:
+        """M10 lab audit R-6: reclaim what a crashed run left (``lifecycle.sweep``), at the start of ``run`` and ``regrade`` and only
+        once the run's lease is held (a resume is just another start). It covers the local daemon (when a docker CLI exists) and every
+        docker host this run has already started containers on (``RunJournal.sandbox_hosts``), and removes: containers carrying this
+        run's lease (no attempt of this run is live yet), containers of a run on this host whose ``run.lock`` is free or gone, and
+        any ``crucible.owner`` container past its expiry (a renewable one by its real deadline). It decides by the run lock, never by pid
+        (``os.kill(pid, 0)`` has no meaning on Windows). Journaled as a ``sweep`` event; ``RunSpec.hygiene.sweep`` turns it off. Never
+        fails the run: an error is the event's ``errors``. Review round 1: the docker hosts the plan names (``_plan_hosts``) are swept
+        too, so a fresh run id reaches the lab host where an earlier run was killed mid-grade; a host that is neither named nor used
+        is covered by the container TTL and the expiry rule only."""
+        if not spec.hygiene.sweep or not lifecycle.docker_available():
+            return
+        try:
+            hosts = journal.sandbox_hosts() | {""} | Runner._plan_hosts(spec)
+            rep = await lifecycle.sweep(hosts, own_lock=str((journal.dir / LOCK).resolve()), reclaim_own=True)
+            journal.event("sweep", **rep.as_dict())
+        except Exception as ex:  # noqa: BLE001 -- a sweep that cannot run is journaled, never a failed run
+            with contextlib.suppress(Exception):
+                journal.event("sweep", hosts=[], removed=[], failed=[], kept=0, errors={"*": f"{type(ex).__name__}: {ex}"[:300]})
+
+    @staticmethod
+    def _plan_hosts(spec: RunSpec) -> set[str]:
+        """The docker hosts the plan names, for the start sweep (M10 lab audit R-6 review round 1): what each task adapter says through
+        an optional ``docker_hosts()`` (``HarborDirTask``: its grading host; ``HarborInPlaceTask``: its World's host). A fresh run id has
+        no ``sandbox_host`` events, so without this a lab host whose grade a killed run left running was never swept by another run.
+        Never raises: an adapter that cannot say names none."""
+        out: set[str] = set()
+        for t in spec.tasks:
+            fn = getattr(t, "docker_hosts", None)
+            if callable(fn):
+                with contextlib.suppress(Exception):
+                    out |= {str(h) for h in fn() if h}
+        return out
+
+    @staticmethod
+    async def _close_pools(spec: RunSpec, journal: RunJournal) -> None:
+        """M10 lab audit R-6: the run's warm container pools (``world.pool``) end with the run, before its lease is released
+        (``close_pools`` had no caller: a pool outlived the run that built it), keyed by the run's lease (``run.lock`` path: a run id is
+        unique only within a root). Shielded from a cancel and bounded on the normal path too (``POOLS_CLOSE_S``: a pool refill stuck in
+        ``docker run`` must not hold the lease; the close keeps going in the background); what it removed or failed to remove is a
+        ``pools_closed`` event. Never raises: a pool that cannot be closed is left to its TTL and the next sweep."""
+        try:
+            fut = lifecycle.hold(close_pools(owner=str((journal.dir / LOCK).resolve())))
+            fut.add_done_callback(lambda f: f.cancelled() or f.exception())  # retrieved: a close that outlives its wait is nobody's error
+            try:
+                done, _ = await asyncio.wait({fut}, timeout=lifecycle.POOLS_CLOSE_S)
+            except asyncio.CancelledError:
+                await lifecycle.finish(fut, lifecycle.POOLS_CLOSE_S)
+                raise
+            if not done:
+                journal.event("pools_closed", terminated=[], failed=[], unfinished=0, timed_out=True)
+                return
+            rep = fut.result()
+            if rep["terminated"] or rep["failed"] or rep["unfinished"]:
+                journal.event("pools_closed", **rep)
+        except Exception:  # noqa: BLE001 -- cleanup never replaces the run's own result or error
+            pass
+
+    @staticmethod
+    def _scope_base(spec: RunSpec, journal: RunJournal) -> tuple[str, int]:
+        """What every attempt scope of this call shares: the absolute path of the run's lease (``crucible.lease``: the sweep decides a
+        container's owner is gone by this lock, never by pid) and the container lifetime, the attempt backstop plus a margin
+        (``lifecycle.lifetime_for``; ``Hygiene``)."""
+        h = spec.hygiene
+        return (str((journal.dir / LOCK).resolve()),
+                lifecycle.lifetime_for(spec.attempt_timeout_s, margin_s=h.margin_s, floor_s=h.floor_s, default_s=h.default_s))
+
+    @staticmethod
+    def _teardown(journal: RunJournal, adir: Path, aid: str, scope: lifecycle.Scope) -> None:
+        """M10 lab audit R-6: ``teardown.json`` of an attempt that ended (any way: scored, masked, timed out, cancelled), written
+        atomically before its ``record.json``: ``{terminated, failed, still_up, released}``. A reservation the budget refused is no
+        attempt and has none. A container the attempt could not confirm removed is also a ``teardown`` event. Then the scope stops
+        journaling: nothing may be written to the run after its lease is released."""
+        rep = scope.report()
+        try:
+            atomic_write(adir / "teardown.json", json.dumps(rep, default=str))
+        except OSError:
+            pass
+        if rep["failed"] or rep["still_up"]:
+            journal.event("teardown", attempt=aid, failed=len(rep["failed"]), still_up=rep["still_up"])
+        scope.event = None
 
     async def _run(self, spec: RunSpec, journal: RunJournal, plan: list[tuple[SampleKey, Any, Any, Any]], ledger: BudgetLedger) -> RunSummary:
         # M10 lab audit R-4 review: only the plan's own samples count. After an accepted harness-configuration drift every sample has
@@ -244,6 +357,10 @@ class Runner:
         held: set[str] = set()
         stop_ev = asyncio.Event()  # set by the first stop rule: a retry backoff sleeps on it (review round 1), never past a stop
         state_masked = {"breaker": 0}  # terminal masks Health did not count (``RunSummary.breaker_masked``)
+        # M10 lab audit R-6: what every attempt's lifecycle scope shares: the lease path, the container lifetime and the docker hosts this
+        # run has used (journaled once per host as ``sandbox_host``)
+        lock, ttl = self._scope_base(spec, journal)
+        run_hosts: set[str] = journal.sandbox_hosts()  # the hosts an earlier call used: ``sandbox_host`` is journaled once per host per run
 
         def wake_all() -> None:
             """A stop rule fired: a sample in a retry backoff and one waiting on an open key both see it at once."""
@@ -319,43 +436,54 @@ class Runner:
             state["attempts"] += 1
             attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes,
                               timeout_s=spec.attempt_timeout_s or None)
+            # M10 lab audit R-6: every dispatched attempt runs in a lifecycle scope. Containers started under it (a World sandbox, a
+            # grade container, a borrowed pooled one) are recorded and, while the attempt lives, renewed; on exit, however it ends
+            # (scored, masked, past the clock, cancelled), the scope closes any World still open, removes what the attempt started
+            # (by name and by its ``crucible.attempt`` label) and writes ``teardown.json``. Renewable, because R-3's grading window
+            # can move the attempt clock past ``attempt_timeout_s`` (``grading.grading_window``) and a fixed TTL would end an
+            # in-place grade or its control. The reclaim runs after the clock's block ends, so it is never cut short by it
+            scope = lifecycle.Scope(run=spec.run_id, attempt=aid, lock=lock, ttl_s=ttl, renewable=True, event=journal.event, hosts=run_hosts)
             try:
-                hr: HarnessResult
-                if spec.attempt_timeout_s:
-                    # M10 lab audit R-3 review round 2: the clock is handed to the harness (Attempt.clock), which opens the
-                    # grading's own window on it (grading.grading_window); asyncio.wait_for kept it out of reach
-                    async with asyncio.timeout(spec.attempt_timeout_s) as clock:
-                        attempt.clock = clock
-                        hr = await harness.run(attempt)
-                else:
-                    hr = await harness.run(attempt)
-            except asyncio.CancelledError:
-                raise
-            except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
-                # M13 audit G1 D13: a run past attempt_timeout_s stays masked. The clock wraps the whole harness (seed,
-                # agent, verification, cleanup), so it cannot tell a slow policy from a hung container or verifier
-                # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
-                # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
-                timeout = isinstance(ex, TimeoutError)
-                # M10 lab audit R-3: the clock also covers the in-attempt re-grades and the control. Past the agent phase
-                # (the harness's Attempt.phase) a timeout is the grade's: recorded at that stage, regradable only when the
-                # work was persisted (Attempt.regradable), so RetryRule answers it with a re-grade or ends it terminal-
-                # masked. Read as the agent's, it was retried as a fresh agent run, and an answer that hung the tests past
-                # the clock escaped its 0. A policy that runs past the clock during its agent phase stays stage agent
-                stage = str(getattr(attempt, "phase", "agent") or "agent") if timeout else "agent"
-                stage = stage if stage in ("collect", "verification") else "agent"  # a phase a third-party harness made up reads as before
-                why = f"harness {harness.id} ran past {spec.attempt_timeout_s}s" + ("" if stage == "agent" else f" after the agent phase (during {stage})")
-                # M10 lab audit R-3 review round 2: past the agent phase with nothing persisted (a clock firing during the
-                # workspace collect or the World's close, before _grade stores the patch; an in-place grade) there is no
-                # work to re-grade, so the attempt ends terminal-masked. Left retryable, RetryRule (which refuses only stage
-                # verification) retried a collect-stage timeout, and the next attempt found no stored patch and ran the
-                # agent again. RetryRule itself is unchanged: refusing stage collect there would drop the re-collect of an
-                # empty_collection
-                regradable = stage != "agent" and bool(getattr(attempt, "regradable", False))
-                hr = HarnessResult(failure=Failure(kind="agent_run_error", stage=stage, blame="harness", retryable=stage == "agent" or regradable,
-                                                   reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500] if not timeout else why,
-                                                   detail="attempt_timeout" if timeout else None),
-                                   cost_uncertain_usd=est, regradable=regradable)
+                async with lifecycle.attempt(scope):
+                    try:
+                        hr: HarnessResult
+                        if spec.attempt_timeout_s:
+                            # M10 lab audit R-3 review round 2: the clock is handed to the harness (Attempt.clock), which opens the
+                            # grading's own window on it (grading.grading_window); asyncio.wait_for kept it out of reach
+                            async with asyncio.timeout(spec.attempt_timeout_s) as clock:
+                                attempt.clock = clock
+                                hr = await harness.run(attempt)
+                        else:
+                            hr = await harness.run(attempt)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
+                        # M13 audit G1 D13: a run past attempt_timeout_s stays masked. The clock wraps the whole harness (seed,
+                        # agent, verification, cleanup), so it cannot tell a slow policy from a hung container or verifier
+                        # (M10 taxonomy: unclear blame masks). A policy that exhausts its own episode limits is decided inside the
+                        # harness by its LimitPolicy (scored, penalized or masked). The detail lets bench report this mask apart.
+                        timeout = isinstance(ex, TimeoutError)
+                        # M10 lab audit R-3: the clock also covers the in-attempt re-grades and the control. Past the agent phase
+                        # (the harness's Attempt.phase) a timeout is the grade's: recorded at that stage, regradable only when the
+                        # work was persisted (Attempt.regradable), so RetryRule answers it with a re-grade or ends it terminal-
+                        # masked. Read as the agent's, it was retried as a fresh agent run, and an answer that hung the tests past
+                        # the clock escaped its 0. A policy that runs past the clock during its agent phase stays stage agent
+                        stage = str(getattr(attempt, "phase", "agent") or "agent") if timeout else "agent"
+                        stage = stage if stage in ("collect", "verification") else "agent"  # a phase a third-party harness made up reads as before
+                        why = f"harness {harness.id} ran past {spec.attempt_timeout_s}s" + ("" if stage == "agent" else f" after the agent phase (during {stage})")
+                        # M10 lab audit R-3 review round 2: past the agent phase with nothing persisted (a clock firing during the
+                        # workspace collect or the World's close, before _grade stores the patch; an in-place grade) there is no
+                        # work to re-grade, so the attempt ends terminal-masked. Left retryable, RetryRule (which refuses only stage
+                        # verification) retried a collect-stage timeout, and the next attempt found no stored patch and ran the
+                        # agent again. RetryRule itself is unchanged: refusing stage collect there would drop the re-collect of an
+                        # empty_collection
+                        regradable = stage != "agent" and bool(getattr(attempt, "regradable", False))
+                        hr = HarnessResult(failure=Failure(kind="agent_run_error", stage=stage, blame="harness", retryable=stage == "agent" or regradable,
+                                                           reason=f"harness {harness.id} raised {type(ex).__name__}: {ex}"[:500] if not timeout else why,
+                                                           detail="attempt_timeout" if timeout else None),
+                                           cost_uncertain_usd=est, regradable=regradable)
+            finally:
+                self._teardown(journal, adir, aid, scope)
             if hr.failure is not None and hr.failure.delivery == "not_sent" and not hr.cost_usd:
                 ledger.release(aid)  # the request never left: it cost nothing
             else:
@@ -510,17 +638,23 @@ class Runner:
         plan = {sk.id(): (sk, t, p, h) for sk, t, p, h in self.plan(spec)}
         journal = self._open(spec)
         try:
+            await self._sweep(spec, journal)  # M10 lab audit R-6: a regrade is a start too (it takes the lease and starts containers)
             ledger = BudgetLedger(journal.dir / "ledger.sqlite", {"run": spec.budget_usd} if spec.budget_usd is not None else {})  # after the lease
             try:
                 return await self._regrade(spec, journal, plan, select, max_regrades, ledger)
             finally:
                 ledger.db.close()
         finally:
-            journal.close()
+            try:
+                await self._close_pools(spec, journal)  # M10 lab audit R-6
+            finally:
+                journal.close()
 
     async def _regrade(self, spec: RunSpec, journal: RunJournal, plan: dict[str, tuple[SampleKey, Any, Any, Any]], select, max_regrades: int,
                        ledger: BudgetLedger) -> RunSummary:
         select = select or (lambda r: r.mask_sample and r.failure is not None and r.failure.stage == "verification")
+        lock, ttl = self._scope_base(spec, journal)  # M10 lab audit R-6: a regrade attempt runs in a lifecycle scope like a dispatched one
+        run_hosts: set[str] = journal.sandbox_hosts()
         n_done = 0
         for sid, r in journal.terminal().items():
             if sid not in plan or not select(r):
@@ -540,7 +674,12 @@ class Runner:
             adir = journal.attempt_dir(sid, n)
             adir.mkdir(parents=True, exist_ok=True)
             journal.event("regrade", attempt=aid, source=src.name)
-            hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
+            scope = lifecycle.Scope(run=spec.run_id, attempt=aid, lock=lock, ttl_s=ttl, renewable=True, event=journal.event, hosts=run_hosts)
+            try:
+                async with lifecycle.attempt(scope):
+                    hr = await harness.regrade(Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger), src)
+            finally:
+                self._teardown(journal, adir, aid, scope)  # M10 lab audit R-6: a regrade attempt dir has its teardown.json too
             rec = self._record(spec, sk, aid, task, policy, harness, hr, epoch=journal.epoch)
             self._reconcile_mask(spec, rec, hr)  # M10 lab audit R-1: no _rollout on this path; the re-attached FATAL reconcile masks as on a grade-only retry
             self._evidence(rec)

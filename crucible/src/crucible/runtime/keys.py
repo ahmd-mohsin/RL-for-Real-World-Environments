@@ -5,8 +5,9 @@ audit R-4: the digest makes a harness with other limits another harness, so anot
 hash of the canonical JSON, so the same plan always yields the same ids and a re-run resumes instead of re-sampling.
 Seeds are derived, not counted: ``derive_seed(run_seed, task, policy, harness, idx)`` gives every sample its own sampling
 seed (sent to the endpoint and used as the LLM cache key), so k samples never collapse onto one replayed completion.
-An attempt of a sample is ``<sample_id>-a<N>`` (NeMo-Gym ``rollout_id-a<N>``); sandboxes, containers, capture sessions
-and logs are named after it.
+An attempt of a sample is ``<sample_id>-a<N>`` (NeMo-Gym ``rollout_id-a<N>``); capture sessions and logs are named after it, and
+every sandbox and grade container carries it as its ``crucible.attempt`` label (M10 lab audit R-6). Containers are not named
+after it: they are ``crucible-sbx-<world>-<uuid8>`` and ``crucible-hgrade-<uuid10>``.
 """
 
 from __future__ import annotations

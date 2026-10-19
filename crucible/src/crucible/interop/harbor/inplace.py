@@ -208,6 +208,23 @@ class HarborInPlaceTask:
         if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
             self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
 
+    def docker_hosts(self) -> set[str]:
+        """The docker daemon this task's World runs on (its ``docker_host``, or its ``gpu_host`` resolved through ``crucible.toml``), for
+        the Runner's start sweep (``Runner._plan_hosts``; M10 lab audit R-6 review round 1). The containers Harbor creates there carry no
+        ``crucible.*`` label (the recorded gap), so what the sweep finds on that host is Crucible's own: grade containers and sandboxes
+        of runs that ended. Empty for the local daemon (always swept), an unconfigured ``gpu_host`` or a non-Docker environment."""
+        bp = self.backend_params
+        if bp.get("environment_type", "docker") != "docker" or not (bp.get("docker_host") or bp.get("gpu_host")):
+            return set()
+        from crucible.core.schema.world import SandboxSpec
+        from crucible.world.sandbox import resolve_docker_host
+
+        try:
+            host = resolve_docker_host(SandboxSpec(image="-", docker_host=bp.get("docker_host"), gpu_host=bp.get("gpu_host")))
+        except Exception:  # noqa: BLE001 -- a host that cannot be resolved here is one the sweep cannot reach either
+            return set()
+        return {host} if host else set()
+
     @property
     def breaker_host(self) -> str | None:
         """M10 lab audit R-5 review round 1: the machine this task's sandbox runs on, for the host breaker (``runtime.breaker.host_name``):
@@ -355,6 +372,7 @@ class HarborInPlaceTask:
         against is recorded after the healthcheck and before ``before_agent``, so nothing an installed agent or the policy
         starts is ever spared."""
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         if self.QUIESCE and self.backend_params.get("environment_type", "docker") != "docker":
@@ -374,22 +392,25 @@ class HarborInPlaceTask:
         workdir = Path(workdir)
         w = World(self.spec(workdir), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", backend="harbor",
                   backend_params=self.backend_params)
-        await w.start()
-        await w.reset()
-        await self._healthcheck(w)
-        if self.QUIESCE:  # M10 lab audit R-2: before an install, the grader capture or the policy; the container is trusted now
-            await self._record_baseline(w)
-        if before_agent is not None:
-            try:
-                await before_agent(w)
-            except BaseException:
-                with contextlib.suppress(Exception):
-                    await w.close()
-                raise
-        if self.grader_integrity == "verify":
-            await self._capture_grader(w, workdir)
-        if not self.task.config.steps:
-            await self._apply_agent_phase(w)
+        # M10 lab audit R-6: a failure anywhere after start (the reset, the healthcheck, the baseline, the install, the grader capture, the
+        # agent phase) closes the World (an unhealthy or unresettable container was one leaked Harbor environment per retry). The inner
+        # closes stay: ``World.close`` is idempotent
+        async with lifecycle.opening(w):
+            await w.reset()
+            await self._healthcheck(w)
+            if self.QUIESCE:  # M10 lab audit R-2: before an install, the grader capture or the policy; the container is trusted now
+                await self._record_baseline(w)
+            if before_agent is not None:
+                try:
+                    await before_agent(w)
+                except BaseException:
+                    with contextlib.suppress(Exception):
+                        await w.close()
+                    raise
+            if self.grader_integrity == "verify":
+                await self._capture_grader(w, workdir)
+            if not self.task.config.steps:
+                await self._apply_agent_phase(w)
         return w
 
     def grader_scripts(self) -> list[Path]:

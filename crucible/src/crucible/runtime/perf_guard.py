@@ -10,6 +10,11 @@ The grader's own ``LoadGuard`` and round-spread check (``verify/runtime/patterns
   ``crucible:node_contention`` (infra, masked; re-graded later from the stored artifacts, never re-run by the agent);
 - samples are returned for the attempt's evidence.
 
+M10 lab audit R-6: a ``crucible*`` container past its ``crucible.expires`` label is an orphan of a crashed run (the Runner sweep
+removes it), never contention: counting it held one perf gate closed for 12 h and masked its grades ``crucible:node_contention``.
+The exception is a renewable keeper (``crucible.renewable=1``, a Runner attempt's or a pool's life loop): its label is a floor that a
+live holder outruns (R-3's grading window moves the attempt clock past the backstop), so a running one always counts.
+
 ``probe`` runs a shell command on the host (locally, or over ssh/docker for a lab node) and returns ``(rc, stdout)``.
 """
 
@@ -34,7 +39,33 @@ def local_probe(cmd: str) -> tuple[int, str]:
     return r.returncode, r.stdout
 
 
-def sample(probe: Probe) -> dict:
+# one line per running container: name, ``crucible.expires``, ``crucible.renewable`` (tab-separated; docker turns ``\t`` into a tab)
+DOCKER_PS = r"""docker ps --format '{{.Names}}\t{{.Label "crucible.expires"}}\t{{.Label "crucible.renewable"}}' 2>/dev/null || true"""
+
+
+def crucible_containers(out: str, now: float) -> int:
+    """How many of the ``DOCKER_PS`` lines are contention (M10 lab audit R-6): running containers named ``crucible*``, except an
+    orphan: one past its ``crucible.expires`` label that is not renewable. A fixed keeper (``sleep <ttl>``) or a grade container
+    cannot run past its label while its holder is alive, so one that has is a crashed run's, which the Runner sweep removes; held,
+    it kept gate R1 closed for 12 h. A renewable keeper (``crucible.renewable=1``) is the opposite: its label is a floor, and only a
+    live holder keeps it running past it, so it always counts. An empty or unparseable expiry counts (nothing says it is dead). The
+    comparison uses this host's clock (skew is small against a TTL of 600 s or more)."""
+    n = 0
+    for line in out.splitlines():
+        f = line.rstrip("\r\n").split("\t")
+        if not f[0].startswith("crucible"):
+            continue
+        try:
+            expired = float(f[1]) < now if len(f) > 1 else False
+        except ValueError:
+            expired = False
+        if expired and not (len(f) > 2 and f[2].strip()):
+            continue
+        n += 1
+    return n
+
+
+def sample(probe: Probe, now: float | None = None) -> dict:
     s: dict = {"gpu_util": None, "foreign": [], "foreign_mib": 0, "load_per_core": None, "crucible_containers": 0}
     rc, out = probe("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null")
     vals = [int(x) for x in out.split() if x.strip().isdigit()] if rc == 0 else []
@@ -46,8 +77,8 @@ def sample(probe: Probe) -> dict:
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 s["foreign"].append({"pid": int(parts[0]), "mib": int(parts[1])})
         s["foreign_mib"] = sum(p["mib"] for p in s["foreign"])
-    rc, out = probe("docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^crucible' || true")
-    s["crucible_containers"] = int(out.strip() or 0) if out.strip().isdigit() else 0
+    rc, out = probe(DOCKER_PS)
+    s["crucible_containers"] = crucible_containers(out, time.time() if now is None else now)
     rc, out = probe("cat /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg; nproc 2>/dev/null || sysctl -n hw.ncpu")
     nums = [x for x in out.replace("{", " ").replace("}", " ").split()]
     try:

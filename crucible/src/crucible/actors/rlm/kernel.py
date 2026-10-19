@@ -79,6 +79,9 @@ from pathlib import Path
 from typing import Any
 
 from crucible.world.exec import _run_subprocess_raw
+from crucible.world.lifecycle import CTL_DIR, DEFAULT_LIFETIME_S, LIFE_LOOP, RENEW_SLACK_S  # noqa: F401 -- M10 lab audit R-6: shared with World sandboxes
+from crucible.world.lifecycle import finish as _finish
+from crucible.world.lifecycle import lifetime_for as lifetime_for_episode
 
 REPL_PATH = Path(__file__).with_name("repl.py")
 PROTOCOL = 3  # 3: a per-session frame key (``hello``) and an HMAC on every frame (M14 campaign B10)
@@ -482,20 +485,10 @@ class ExecLauncher:
 # process removes its own containers at exit (atexit and SIGTERM), containers whose owner is dead or whose lifetime passed
 # are reaped when a process first starts one, and each container ends by itself after ``lifetime_s`` (``sleep <n>``).
 OWNER_LABEL, EXPIRES_LABEL = "crucible.rlm.owner", "crucible.rlm.expires"
-DEFAULT_LIFETIME_S = 6 * 3600
-RENEW_SLACK_S = 3600  # a renewable container's expiry label lies this far past its start deadline (a label cannot be renewed)
-CTL_DIR = "/crucible-ctl"  # renewable containers: a root-owned tmpfs holding the deadline (the kernel's user cannot write it)
-# PID 1 of a renewable container: exits at the later of its start deadline and the one ``renew`` wrote
-LIFE_LOOP = ('d=$1; while :; do n=$(cat ' + CTL_DIR + '/deadline 2>/dev/null); [ "${n:-0}" -gt "$d" ] 2>/dev/null && d=$n; '
-             '[ "$(date +%s)" -lt "$d" ] || exit 0; sleep 2; done')
-
-
-def lifetime_for_episode(wall_s: float | None, *, margin_s: float = 900.0, floor_s: float = 600.0) -> int:
-    """The kernel container's lifetime for an episode with wall budget ``wall_s`` (M16 B9: a fixed 6 h ended long
-    episodes): the budget plus a margin for restores and grading; the 6 h default when the episode has no wall budget."""
-    if not wall_s or wall_s <= 0:
-        return DEFAULT_LIFETIME_S
-    return int(max(floor_s, float(wall_s) + margin_s))
+# M10 lab audit R-6: the World sandbox lifecycle reuses this design, so there is one in the repository. The life loop, its deadline
+# file, the renewal slack, the default lifetime, ``lifetime_for_episode`` (``lifecycle.lifetime_for``) and ``_finish``
+# (``lifecycle.finish``) now live in ``crucible.world.lifecycle``, which World sandboxes, pools and grade containers share; the
+# kernel keeps every old name. Its own ``crucible.rlm.*`` labels, ``owner_id``, ``reap_own`` and ``reap_stale`` are unchanged.
 _LIVE: dict[str, str] = {}  # container name -> docker binary: started by this process, not yet removed
 _REAPER: dict[str, Any] = {"installed": False, "stale_checked": set()}
 
@@ -582,12 +575,19 @@ def reap_stale(docker: str = "docker", *, now: float | None = None) -> list[str]
 
 def _on_sigterm(signum: int, frame: Any) -> None:
     reap_own()
+    prev = _REAPER.get("prev_sigterm")  # M10 lab audit R-6 review round 1: chained, so ``world.lifecycle``'s reaper runs too
+    if callable(prev):
+        prev(signum, frame)
+        return
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     os.kill(os.getpid(), signal.SIGTERM)
 
 
 def _install_reaper() -> None:
-    """Once per process: remove this process's containers at exit and on SIGTERM (when nothing else handles it)."""
+    """Once per process: remove this process's containers at exit and on SIGTERM. M10 lab audit R-6 review round 1: the handler chains
+    to one that is already installed (``world.lifecycle._install_reaper``'s, which a World sandbox's first start installs, or an
+    application's) instead of leaving SIGTERM to it alone, and ``lifecycle`` chains to this one the same way: neither pre-empts the
+    other. A process that ignores SIGTERM keeps ignoring it."""
     if _REAPER["installed"]:
         return
     import atexit
@@ -597,14 +597,10 @@ def _install_reaper() -> None:
     atexit.register(reap_own)
     if threading.current_thread() is threading.main_thread():
         with contextlib.suppress(ValueError, OSError):
-            if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, None):
+            prev = signal.getsignal(signal.SIGTERM)
+            if prev is not signal.SIG_IGN:
+                _REAPER["prev_sigterm"] = prev if callable(prev) else None
                 signal.signal(signal.SIGTERM, _on_sigterm)
-
-
-async def _finish(task: asyncio.Future, timeout: float) -> None:
-    """Let a shielded task finish after its awaiter was cancelled (bounded)."""
-    with contextlib.suppress(BaseException):
-        await asyncio.wait_for(asyncio.shield(task), timeout)
 
 
 class DockerLauncher:

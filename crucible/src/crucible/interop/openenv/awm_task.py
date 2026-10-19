@@ -98,14 +98,15 @@ class AwmTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec_doc, instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        await w.reset()
-        db = Path(w.apps["api"].state_params["path"])
-        shutil.copyfile(db, workdir / "initial.db")
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
+            db = Path(w.apps["api"].state_params["path"])
+            shutil.copyfile(db, workdir / "initial.db")
         w._awm_initial = workdir / "initial.db"  # the verifier's reference state, taken before any policy action
         return w
 

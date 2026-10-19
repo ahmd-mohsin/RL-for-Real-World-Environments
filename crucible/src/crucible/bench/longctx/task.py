@@ -77,9 +77,11 @@ class LongCtxTask:
                      store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w", pack_root=self.root)
 
     async def open(self, workdir: Path) -> Any:
+        from crucible.world import lifecycle
+
         w = self.world(workdir)
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     async def submitted(self, world: Any) -> str | None:

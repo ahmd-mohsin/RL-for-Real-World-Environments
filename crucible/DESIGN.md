@@ -1577,16 +1577,23 @@ background, and `open_sandbox` returns a `PooledSandbox` when `pool > 0`.
 - **Fresh mode (default):** a released container is destroyed and replaced, so no rollout inherits another's
   processes, files or the guard's policy user.
 - **Reuse mode (`pool_reuse`):** hygiene runs in Python inside the container. It kills every process except PID 1,
-  the `sleep infinity` keeper and its own exec session's tree; empties `/tmp`, `/var/tmp`, `/dev/shm` and the
+  the keeper (the earliest-started child of PID 1: `sleep <ttl>` or the renewable life loop, and its children; M10 lab audit
+  R-6) and its own exec session's tree; empties `/tmp`, `/var/tmp`, `/dev/shm` and the
   workdir; removes added users and homes; and clears System V IPC. A verify step must then report
   `procs=0 files=0 users=0`; otherwise the container is destroyed.
 - **Shell-hygiene finding:** a first shell version killed its own `docker exec` wrapper (exit 137), and its verify
   step counted its own processes. The session-tree rule fixes both.
+- **Pool lifecycle (M10 lab audit R-6):** pooled containers belong to the run, never to an attempt. They carry run-scoped
+  labels (`crucible.run`, `crucible.lease`, owner, expiry; no `crucible.attempt`), run the renewable life loop and are
+  renewed on hand-out (and by the borrowing attempt while it lives); one whose renewal fails is dead and replaced. Pools
+  are keyed by (the run's lease, signature) (a run id is unique only within a root), and every `Runner.run` and `regrade`
+  closes its run's pools, warm and handed out, before the run's lease is released (`close_pools(owner=lease)`), in bounded
+  time: a refill still in `docker run` is not waited for past `POOL_CLOSE_WAIT_S` and removes its own container later.
 - **Measured on the Mac:** cold `docker run` p50 0.16 s vs warm acquire p50 about 20 µs.
 - **Tests:**
   - the warm acquire is under 10% of cold, fresh mode never repeats a container, and the refill keeps up;
-  - in reuse mode, a planted process, file and user are all gone, and a container that cannot be verified clean is
-    destroyed;
+  - in reuse mode, a planted process, file and user are all gone, the keeper survives the hygiene, and a container that
+    cannot be verified clean is destroyed;
   - `open_sandbox` shares one pool per signature.
 
 **G-13 / G-14 (2026-10-10): the Judge and family specialists.**

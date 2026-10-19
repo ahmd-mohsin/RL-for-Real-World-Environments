@@ -63,6 +63,13 @@ async def test_warm_acquire_is_under_a_tenth_of_cold():
     assert pool.stats["hits"] == 8 and pool.stats["destroyed"] == 8 and pool.stats["reused"] == 0
 
 
+def _count_procs(pattern: str) -> str:
+    """A shell command that prints how many processes' command lines match ``pattern`` (a grep expression, ``[x]``-bracketed so the
+    probing shell's own command line does not match). Read from ``/proc``: ``python:3.13-slim`` has no procps, so ``ps -eo args | grep -c``
+    printed 0 whether or not the process existed (review round 1: the keeper assertion could never pass, the `sleep 999` one never failed)."""
+    return f"for f in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < \"$f\" 2>/dev/null; echo; done | grep -c '{pattern}'"
+
+
 async def test_reuse_mode_hygiene_is_verified():
     pool = SandboxPool(SandboxSpec(image=IMAGE), _spec(), size=1, reuse=True)
     try:
@@ -77,9 +84,17 @@ async def test_reuse_mode_hygiene_is_verified():
         assert pool.stats["reused"] == 1 and pool.stats["dirty"] == 0
         again = await pool.acquire()
         assert again.name == s.name
-        out = await again.exec.run("ls -A /crucible /tmp; id leftover 2>&1; ps -eo args | grep -v grep | grep -c 'sleep 999'", timeout_s=30, user="0")
+        out = await again.exec.run(f"ls -A /crucible /tmp; id leftover 2>&1; {_count_procs('[s]leep 999')}", timeout_s=30, user="0")
         lines = out.stdout.split()
         assert "f" not in lines and "t" not in lines and "no such user" in out.stdout and lines[-1] == "0", out.stdout
+        # M10 lab audit R-6: the keeper is the kernel's life loop now, not `sleep infinity`: the start-time rule spared it (and its `sleep 2`)
+        # while the planted `sleep 999` above was killed
+        keeper = await again.exec.run(_count_procs("[c]rucible-life"), timeout_s=30, user="0")
+        assert int(keeper.stdout.strip() or 0) >= 1, keeper.stdout
+        # the planted process counted above: the same probe finds it where it exists, so a 0 is not "no ps in this image" (review round 1)
+        # (the arithmetic keeps the literal ``sleep 998`` out of this probing shell's own command line)
+        planted = await again.exec.run("(nohup sleep $((997 + 1)) >/dev/null 2>&1 &); sleep 0.2; " + _count_procs("[s]leep 998"), timeout_s=30, user="0")
+        assert int(planted.stdout.strip() or 0) >= 1, planted.stdout
 
         async def never_clean(sbx):  # a container that cannot be verified clean is destroyed, never pooled
             pool.stats["dirty"] += 1

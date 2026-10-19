@@ -626,14 +626,15 @@ class OpenEnvTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec(workdir), store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        app = w.apps[self.app]
-        text = self.instruction(app.reset_observation) if callable(self.instruction) else self.instruction
-        await w.reset(instructions={a: (text if isinstance(text, str) else text[a]) for a in (self.players or ["agent"])})
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            app = w.apps[self.app]
+            text = self.instruction(app.reset_observation) if callable(self.instruction) else self.instruction
+            await w.reset(instructions={a: (text if isinstance(text, str) else text[a]) for a in (self.players or ["agent"])})
         return w
 
     # ---- grading ----------------------------------------------------------------------------------------------

@@ -15,11 +15,18 @@ Layout under ``data/runs/<run_id>/``:
     journal.jsonl   planned | dispatched | phase | budget | finished | retry_scheduled | stop_rule | epoch (torn tail tolerated);
                     M10 lab audit R-5, breakers (``runtime.breaker``): waiting (a sample held back by an open key) | breaker_open |
                     breaker_probe | breaker_closed | quarantine (a key given up on, with its reason) | deferred (an infra-masked
-                    attempt made non-terminal while its key was open) | quarantined (a sample left owed by a quarantine)
-    results.jsonl   one RunRecord per terminal sample (scored, policy-failed, or masked with no retry left)
+                    attempt made non-terminal while its key was open) | quarantined (a sample left owed by a quarantine);
+                    M10 lab audit R-6, container hygiene (``world.lifecycle``): teardown (an attempt whose containers or Worlds were
+                    not all confirmed removed: ``failed`` and ``still_up``) | pools_closed (the warm pools ended with the run) |
+                    sandbox_host (a docker host this run first started a container on, so a resume sweeps it) | sweep (orphan
+                    containers removed at a Runner start, and why) | renew_failed (a container a scope could not renew)
+    results.jsonl  one RunRecord per terminal sample (scored, policy-failed, or masked with no retry left)
     failures.jsonl  every masked attempt (never read by metrics; read by status, coverage and retry)
     samples/<sample_id>/a<N>/record.json (+ trajectory, steps.jsonl, verifier/, artifacts/)
     samples/<sample_id>/a<N>/refused.json   a reservation the budget (or the ledger) refused: nothing was dispatched
+    samples/<sample_id>/a<N>/teardown.json  {terminated, failed, still_up, released}: what the attempt's containers and Worlds became
+                    (M10 lab audit R-6); written for every dispatched attempt (a grade-only retry, a cancelled or timed-out one and a
+                    ``Runner.regrade`` attempt included) after it ends and before its ``record.json``; a refused reservation has none
     samples/<sample_id>/a<N>/record.json    ``meta.breaker`` = {deferred: [keys]} marks an attempt an open breaker deferred (R-5): it
                     is not terminal and uses up none of the sample's retries (``RunJournal.tries``)
 
@@ -254,6 +261,13 @@ class RunJournal:
 
     def event(self, event_type: str, /, **data: Any) -> None:
         _append(self.events, {"ts": round(time.time(), 3), "event": event_type, **data})
+
+    def sandbox_hosts(self) -> set[str]:
+        """The docker hosts this run's attempts started containers on (M10 lab audit R-6): one ``sandbox_host`` event per host,
+        journaled by ``world.lifecycle.Scope.started`` the first time the run used it (``''`` is the local daemon). A resume sweeps each
+        of them (``Runner._sweep``), so a container a killed run left on a lab GPU host is found by the next start, not only the
+        local one's. Read under the run's lease."""
+        return {str(e.get("host") or "") for e in _read_jsonl(self.events) if e.get("event") == "sandbox_host"}
 
     def attempt_dir(self, sample_id: str, n: int) -> Path:
         return self.dir / "samples" / sample_id / f"a{n}"

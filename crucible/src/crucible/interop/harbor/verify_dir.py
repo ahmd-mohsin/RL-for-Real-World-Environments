@@ -26,6 +26,18 @@ verifier's timeout is the answer's ``verifier_timeout``. Review round 1: and so 
 its bound after ``docker run`` returned (``check_infra``, answer-sensitive: the directory is mounted read-write where the
 patch's code ran, so its size is the answer's, not the host's).
 
+M10 lab audit R-6: the grade container is named and labelled like every container Crucible starts (``world.lifecycle``:
+``crucible.owner``, ``crucible.expires`` = the grade's timeout plus ``GRADE_MARGIN_S``, and ``crucible.run`` / ``crucible.attempt`` /
+``crucible.lease`` inside a Runner attempt) and recorded in the attempt's scope before ``docker run`` (``Scope.started``; its outcome
+is ``Scope.closed``, so ``teardown.json`` lists it). Review round 1: the grade command (the task's own, unchanged) runs under an
+in-container bound of the timeout plus ``GRADE_MARGIN_S`` (``lifecycle.BOUND_SH``: ``timeout -k 30`` where the image has one), so a
+grade a killed runner left ends by itself even on a host no later Runner sweeps; in a live run ``docker run``'s own timeout kills the
+CLI and its ``rm -f`` runs long before that, and after a crash the next Runner sweep (this task names its host: ``docker_hosts``)
+removes it through its ``crucible.expires`` label. A removal that follows a cancelled or failed ``docker run`` looks again ``RECHECK_S`` later
+(a daemon can create the container after the client was killed, after the first ``rm -f`` answered "No such container"), and a
+``BaseException`` the branches above do not catch still reaches a shielded removal in the ``finally``, before the staging is
+deleted or ``staging_kept.json`` is written. The attempt scope's reclaim removes anything the attempt's label still lists.
+
 The task can be pinned to a git ref (``ref=``): a historical run is re-graded against the task *as it was* when the
 run was graded (research m9-m10/02 §6.1: task02's suite was tightened after its frontier run).
 """
@@ -47,6 +59,7 @@ from crucible.runtime.gpu import GpuHost, HostTimeout
 from crucible.runtime.grading import unbudgeted
 from crucible.runtime.identity import file_digest, tree_digests
 from crucible.verify.runtime.plan import GradeReport
+from crucible.world import lifecycle
 from crucible.world.exec import ExecOut, _run_subprocess
 
 _T = TypeVar("_T")
@@ -179,6 +192,12 @@ class HarborDirTask:
                 "verifier_env": self.verifier_env, "user": self.user, "trust_mask": self.trust_mask, "perf": self.perf, "gpus": self.gpus, "cpus": self.cpus,
                 "memory_mb": self.memory_mb, "oracle_patch": file_digest(self.oracle_patch), "host": self.host.name if self.perf else None}
 
+    def docker_hosts(self) -> set[str]:
+        """The docker host the grading container runs on (``''`` is the local daemon, which every start sweep covers anyway): what
+        ``Runner._plan_hosts`` adds to the start sweep, so a grade a killed run left on a lab host is found by any later run (M10 lab
+        audit R-6 review round 1)."""
+        return {self.host.docker_host} if self.host.docker_host else set()
+
     async def _docker(self, *a: str, timeout: float = 120) -> ExecOut:
         """One docker CLI call on the grading host, off the event loop (M10 lab audit R-5 item 4). Past ``timeout`` the CLI's
         session is killed; the result is ``timed_out`` for ``docker run`` (the grade's own ``verifier_timeout``, the caller
@@ -190,14 +209,27 @@ class HarborDirTask:
             raise HostTimeout(f"docker {a[0] if a else ''} on {self.host.name} ran past {timeout:g}s")
         return out
 
-    async def _remove(self, name: str) -> bool:
+    async def _remove(self, name: str, *, recheck: bool = False) -> bool:
         """``docker rm -f <name>``: True when the container is known gone (removed, or "No such container"), False when that
-        could not be confirmed (an error, a daemon that does not answer): the staging then stays (M10 lab audit R-5 item 4)."""
-        try:
-            out = await self._docker("rm", "-f", name)
-        except Exception:  # noqa: BLE001 -- removal is best effort; the caller keeps the staging when it is False
-            return False
-        return out.rc == 0 or "no such container" in out.stderr.lower()
+        could not be confirmed (an error, a daemon that does not answer): the staging then stays (M10 lab audit R-5 item 4).
+        M10 lab audit R-6, ``recheck`` (after a ``docker run`` that was cancelled or failed): once the first removal is confirmed,
+        look again ``lifecycle.RECHECK_S`` later: a daemon that received the run request before its client was killed creates the
+        container after the first ``rm -f`` answered "No such container". Gone only if both are confirmed."""
+        for round_ in range(2 if recheck else 1):
+            if round_:
+                await asyncio.sleep(lifecycle.RECHECK_S)
+            try:
+                out = await self._docker("rm", "-f", name)
+            except Exception:  # noqa: BLE001 -- removal is best effort; the caller keeps the staging when it is False
+                return False
+            if not (out.rc == 0 or "no such container" in out.stderr.lower()):
+                return False
+        return True
+
+    async def _removed(self, name: str) -> tuple[bool, str]:
+        """``_remove`` in the form ``Scope`` retries a container's removal in (its reclaim, when the grade could not confirm it)."""
+        ok = await self._remove(name)
+        return ok, "" if ok else "not confirmed removed"
 
     def _masked(self, kind: str, reason: str, t0: float) -> GradeReport:
         import time
@@ -229,6 +261,8 @@ class HarborDirTask:
         envfile = None
         root: str | None = None  # the host path of this grade's staging (known once ``apath`` answered)
         started = gone = unwinding = False  # ``docker run`` was issued; its container is known gone; an exception is propagating
+        tried = False  # a removal was attempted by one of the branches around ``docker run``
+        scope = lifecycle.current()  # M10 lab audit R-6: who this container belongs to (the attempt's scope under a Runner)
         # M10 lab audit R-5 item 4 (critic amendment 4): the try opens before the first transfer, so a cancel or a HostTimeout
         # during an rsync still reaches the cleanup below (the transfers are awaits now, where they used to be uninterruptible)
         try:
@@ -237,7 +271,9 @@ class HarborDirTask:
                 tests = await self.host.aput(self.dir / "tests", f"{key}/tests")
                 arts = await self.host.aput(art, f"{key}/artifacts")
                 out = await self.host.aput(gdir / "stage" / "verifier", f"{key}/verifier")
-            argv = ["run", "--rm", "--init", "--name", name, "--label", "crucible.sandbox=1", "--shm-size", "8g",
+            bound = int(self.timeout + lifecycle.GRADE_MARGIN_S)  # the in-container bound (``BOUND_SH``) and the expiry label are one number
+            expires = time.time() + bound
+            argv = ["run", "--rm", "--init", "--name", name, "--label", "crucible.sandbox=1", *scope.labels(expires=expires), "--shm-size", "8g",
                     "-v", f"{tests}:/tests:ro", "-v", f"{arts}:/logs/artifacts:ro", "-v", f"{out}:/logs/verifier"]
             if self.network != "public":
                 argv += ["--network", "none"]
@@ -257,7 +293,9 @@ class HarborDirTask:
                 with os.fdopen(fd, "w") as f:
                     f.write("".join(f"{k}={v}\n" for k, v in self.verifier_env.items()))
                 argv += ["--env-file", envfile]
-            argv += ["--entrypoint", "bash", self.image, "-c", self.command]
+            # M10 lab audit R-6 review round 1: ``bash -c <command>`` as before, under ``timeout -k 30 <bound>`` where the image has one
+            argv += ["--entrypoint", "bash", self.image, "-c", lifecycle.BOUND_SH, "crucible-bound", str(bound), "bash", "-c", self.command]
+            scope.started(name, self.host.docker_host, renewable=False, deadline=expires, remove=lambda: self._removed(name))  # before the run
             started = True  # from here a container may exist, whatever happens to the call that created it
             try:
                 p = await self._docker(*argv, timeout=self.timeout)
@@ -266,15 +304,20 @@ class HarborDirTask:
                 # the cancelled call killed the docker CLI's session, which leaves the container running on the daemon.
                 # Remove it before the finally deletes its staged mounts, and before grading.settle grades the control in
                 # the same PerfGuard slot (an orphan still running the policy's hang contaminates the control, masks it, and
-                # blames the task). Shielded: a second cancel does not abandon the removal
-                gone = await _shielded(self._remove(name), False, unwinding=True)
+                # blames the task). Shielded: a second cancel does not abandon the removal. M10 lab audit R-6: and looked at again
+                # after ``RECHECK_S``, for a daemon that creates the container after its client was killed
+                tried = True
+                gone = await _shielded(self._remove(name, recheck=True), False, unwinding=True)
                 raise
             except Exception:  # noqa: BLE001 -- the docker client failed to start or died: the container may still exist
-                gone = await _shielded(self._remove(name), False, unwinding=True)
+                tried = True
+                gone = await _shielded(self._remove(name, recheck=True), False, unwinding=True)
                 raise
             if p.timed_out:
                 # the grade ran past its own timeout: the answer's verifier_timeout (the CLI's session is dead, the container
-                # is not); the staging goes only once the container does
+                # is not: the CLI ran to its bound, so the daemon had the request long ago and no recheck is needed); the staging
+                # goes only once the container does
+                tried = True
                 gone = await _shielded(self._remove(name), False, unwinding=False)
                 return self._masked("verifier_timeout", f"grade exceeded {self.timeout:.0f}s; container {name} "
                                     + ("removed" if gone else "NOT removed: staging kept"), t0)
@@ -299,6 +342,12 @@ class HarborDirTask:
         finally:  # staged files never stay on the host (H1 V21: a timeout returned before the cleanup)
             if envfile:
                 Path(envfile).unlink(missing_ok=True)
+            if started and not gone and not tried:
+                # M10 lab audit R-6: a BaseException the branches above do not catch (they cover CancelledError and Exception) left
+                # the container unremoved: remove it here, shielded, before the staging decision below
+                gone = await _shielded(self._remove(name, recheck=True), False, unwinding=True)
+            if started:
+                scope.closed(name, ok=gone, error=None if gone else "not confirmed removed")  # teardown.json, and the scope's reclaim retries it
             if root is not None and root.rstrip("/").endswith(key):
                 if not started or gone:
                     try:

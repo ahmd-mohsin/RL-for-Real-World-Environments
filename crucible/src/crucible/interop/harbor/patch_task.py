@@ -208,6 +208,11 @@ class HarborPatchTask(HarborInPlaceTask):
         self.grader = HarborDirTask(self.dir, image=image, host=host, expected_image=expected_image, ref=ref, perf=perf, timeout=timeout)
         self.id, self.perf = self.grader.id, perf
 
+    def docker_hosts(self) -> set[str]:
+        """The docker hosts this task starts containers on: the agent's World host and the grading container's (``Runner._plan_hosts``,
+        the start sweep; M10 lab audit R-6 review round 1)."""
+        return super().docker_hosts() | self.grader.docker_hosts()
+
     @property
     def breaker_host(self) -> str | None:
         """M10 lab audit R-5 review round 1: the host breaker's key (``HarborInPlaceTask.breaker_host``): the agent's World host when one
