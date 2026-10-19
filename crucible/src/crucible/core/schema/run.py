@@ -130,9 +130,14 @@ class Failure(CrucibleModel):
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
     detail: str | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
     # M10 lab audit R-3: {probe: alive|dead|unprobed, control: passed|failed|none, status} on every masked failure (a
-    # non-policy blame carries its evidence); the R-5 task breaker reads ``control``. None until the harness or the Runner
+    # non-policy blame carries its evidence); M10 lab audit R-5: the (task, harness) breaker counts a task-blamed grade failure and its
+    # ``breaker_open`` / ``quarantine`` events report ``control``. None until the harness or the Runner
     # fills it; dropped from canonical JSON while None, so no content hash moves
     evidence: dict[str, Any] | None = None
+    # M10 lab audit R-5 item 3: the seconds the provider asked to wait (HTTP Retry-After on a 429 or 503), read by
+    # ``RetryRule.backoff`` (a floor under the jittered wait) and by the provider breaker's cool-down. None when unknown;
+    # dropped from canonical JSON while None (the ``evidence`` pattern), so no content hash moves
+    retry_after: float | None = Field(default=None, ge=0)
 
     @field_validator("reason")
     @classmethod

@@ -33,6 +33,7 @@ from crucible.runtime.grading import answer_sensitive, decided, deciding_record,
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, save_episode
 from crucible.runtime.infra import StageFailure, boundary, episode_failure
+from crucible.world.exec import _run_subprocess
 
 
 class WorkspaceHarness(NativeHarness):
@@ -176,7 +177,15 @@ class WorkspaceHarness(NativeHarness):
                                                reason="no recorded base commit for the preserved workspace"))
                 res.stop = "recollected"
                 self._inherit_calls(res, prior[1])
-                c = collect(prior[1], base=base_file.read_text().strip(), mode="tolerant")
+                c = await collect(prior[1], base=base_file.read_text().strip(), mode="tolerant")
+                if c.stalled:
+                    # M10 lab audit R-5 review round 1: the first collection of this workspace stalled (a masked empty_collection, the
+                    # host's) and so does the re-collect of the same preserved tree: what answers or not is the repository's own
+                    # config and attributes (a filter driver or ``textconv`` the policy planted), not the host. The policy's
+                    # outcome, scored 0: a masked retry loop would drop the policy's 0 from mean and pass@k
+                    raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason=(
+                        "git does not answer in the agent's repository (the collection of the preserved workspace ran past its timeout again): "
+                        + "; ".join(c.errors))[:400]))
                 f = classify(c)
                 if f:
                     raise StageFailure(f)
@@ -189,7 +198,7 @@ class WorkspaceHarness(NativeHarness):
             t0 = time.monotonic()
             # the commit the agent starts from, recorded before it runs: the ``base`` tag is in the agent's own repository
             # and can be deleted or moved (M7 audit)
-            base_sha = _base_sha(attempt.task.workspace(world))
+            base_sha = await _base_sha(attempt.task.workspace(world))
             if base_sha:
                 (attempt.dir / "base_sha").write_text(base_sha + "\n")
             with boundary("agent"):
@@ -208,12 +217,12 @@ class WorkspaceHarness(NativeHarness):
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
             ws = attempt.task.workspace(world)
-            broken += [b for b in repo_broken(ws, base_sha) if b not in broken]
+            broken += [b for b in await repo_broken(ws, base_sha) if b not in broken]
             if broken:
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
             t0 = time.monotonic()
             attempt.phase = "collect"  # M10 lab audit R-3: the agent phase is over (run.py reads it when its attempt clock fires)
-            c = collect(ws, base=base_sha or "base", mode=self.collect_mode)
+            c = await collect(ws, base=base_sha or "base", mode=self.collect_mode)
             t["collect"] = time.monotonic() - t0
             f = classify(c)
             if f:  # keep the agent's tree as it is (a rename: unreadable files survive) for a re-collect-only retry
@@ -241,11 +250,12 @@ class WorkspaceHarness(NativeHarness):
         return res
 
 
-def _base_sha(ws) -> str | None:
-    import subprocess
-
+async def _base_sha(ws) -> str | None:
+    """The commit the agent starts from (the ``base`` tag), read through ``world.exec._run_subprocess``: off the event loop,
+    bounded, its session killed past the bound (M10 lab audit R-5 item 4). None when git is missing, fails or does not answer
+    (the re-collect then refuses to guess a base)."""
     try:
-        r = subprocess.run(["git", "-C", str(ws), "rev-parse", "--verify", "-q", "base^{commit}"], capture_output=True, text=True, timeout=60, check=False)
-    except (OSError, subprocess.SubprocessError):
+        out = await _run_subprocess(["git", "-C", str(ws), "rev-parse", "--verify", "-q", "base^{commit}"], cwd=None, env=None, timeout_s=60, stdin=None)
+    except OSError:
         return None
-    return r.stdout.strip() or None
+    return (out.stdout.strip() or None) if out.ok else None

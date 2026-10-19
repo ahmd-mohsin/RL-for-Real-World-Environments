@@ -10,7 +10,8 @@ derived seed; each attempt ``<sample>-a<N>`` gets its own directory. Per attempt
    rollout whose capture does not reconcile with the agent's ATIF (``interop.harbor.reconcile`` level fatal) is masked
    ``crucible:capture_incomplete`` (M10 lab audit R-1); a masked failure without evidence gets ``{probe: unprobed,
    control: none, status}`` (M10 lab audit R-3, ``_evidence``);
-4. a masked failure is retried while its ``RetryRule`` allows (infra/harness/task blame only), with a fresh attempt. A
+4. a masked failure is retried while its ``RetryRule`` allows (infra/harness/task blame only), with a fresh attempt after
+   ``RetryRule.backoff`` (M10 lab audit R-5: jittered, capped, never below the failure's ``retry_after``). A
    failure after the agent phase (stage ``verification``) is retried only when the harness persisted the work
    (``HarnessResult.regradable``), and the retry re-grades that work without running the agent (M10 lab audit R-3:
    ``grade_only`` on its ``dispatched`` and ``retry_scheduled`` events); otherwise the attempt ends terminal-masked. A
@@ -18,10 +19,36 @@ derived seed; each attempt ``<sample>-a<N>`` gets its own directory. Per attempt
    retryable only when the work was persisted (``Attempt.regradable``): a collect-phase timeout before the patch is
    stored ends terminal-masked. The clock is the harness's too (``Attempt.clock``): its verification phase opens the
    grading's own window on it (``grading.grading_window``), so a grade that hangs ends inside the attempt as
-   ``verifier_timeout`` and is decided by the task's control, never cut short by a clock sized for the agent.
+   ``verifier_timeout`` and is decided by the task's control, never cut short by a clock sized for the agent. M10 lab audit
+   R-5: an infra-masked attempt whose breaker key is open (``runtime.breaker``) is never made terminal either: it is
+   deferred (``meta.breaker``, a ``deferred`` event), stays owed, and uses up none of the sample's retries
+   (``RunJournal.tries``).
 
 Stop rules, checked before every dispatch: budget exhaustion (dispatch halts; resumable after ``increase_limit``),
-wall clock, mask fraction > 0.2 after 20 terminal samples (the environment is broken), unknown-blame fraction > 0.05.
+wall clock, mask fraction > 0.2 after 20 terminal samples (the environment is broken), unknown-blame fraction > 0.05. A
+sample waiting on an open breaker (R-5, below) checks them too, each time something changes and when the wall clock would
+expire, so a run whose every sample waits still stops on time; so does one in a retry backoff (R-5 review round 1: the wait
+ends at the first stop rule and at the wall clock, so a provider's 300 s Retry-After never holds the run, or its lease, past
+either).
+
+M10 lab audit R-5, an outage pauses the run instead of masking its samples (``runtime.breaker``): a breaker per provider
+endpoint (``PolicyRef.endpoint``), per host and per (task, harness) opens after consecutive failures blamed on infra, harness
+or task (``RunSpec.breaker``; None disables them). A sample whose key is open waits before dispatch, outside the concurrency
+slot, holding no index and no ledger reservation; after a cool-down one probe attempt runs and its verdict closes the key. A
+key still failing after ``BreakerRule.quarantine_s`` is quarantined: journaled with its reason, its samples left owed
+(``RunSummary.quarantined``, ``quarantined_samples``) while the rest of the run continues. The breakers are in memory and
+start closed on every ``run``; every transition is a journal event. On a resume (item 2) a masked-terminal sample whose failure was an
+infra outage at the admission, seed or agent stage that the run's ``RetryRule`` allows (``Runner._reopens``) is dispatched again with a
+fresh retry budget (the ``resume`` event lists it under ``reopened``; its attempts before the terminal one are not counted:
+``RunJournal.tries(since=)``), and the stop rules count only the samples that end in this call (``Health`` is not seeded with the
+earlier windows); ``by_failure`` still reports every masked kind of the plan's final rows.
+
+M10 lab audit R-5 review round 1: the run-global ``Health`` is not fed the terminal masks of a (task, harness) or host key that is
+open or quarantined (``RunSummary.breaker_masked``): a broken grader's masks are what its breaker already pauses, and counted there
+they would stop the whole campaign on the mask-fraction rule. A grade-only retry needs no provider key (``SampleKeys.provider`` is
+None: it neither waits on, probes nor closes the endpoint's breaker), and the breakers' ``failures`` is clamped to
+``RetryRule.max_attempts``. A sample a quarantine left owed is not a terminal row of the summary, even when a masked row of an
+earlier call is still its newest.
 
 M10 lab audit R-4: one writer per run directory. ``run`` and ``regrade`` open the run's journal first, which takes its lease
 (``run.lock``) before ``run.json`` is read, before the ledger opens and before any attempt index is chosen, and hold it for
@@ -45,17 +72,18 @@ import asyncio
 import json
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from crucible.core.schema.run import Failure, RunRecord
+from crucible.core.schema.run import NON_RETRYABLE_KINDS, Failure, RunRecord
+from crucible.runtime.breaker import BreakerRule, Breakers, SampleKeys, sample_keys
 from crucible.runtime.budget import BudgetLedger, Exhausted, OpReused
 from crucible.runtime.grading import HANDOFF_REF, deciding_record
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime import identity as ident  # the module, called through its attribute (a test patches ``code_versions``)
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
-from crucible.runtime.journal import RunJournal
+from crucible.runtime.journal import BREAKER_META, RunJournal
 from crucible.runtime.keys import SampleKey, attempt_id, derive_seed
 
 
@@ -78,7 +106,13 @@ class RunSpec:
     rollout_mode: str = "eval"  # "train": a rollout without complete token records is masked as crucible:capture_incomplete
     sampling: dict = field(default_factory=dict)  # recorded on every rollout turn (temperature, top_p, max_tokens)
     attempt_timeout_s: float | None = None  # a harness that runs past this is masked (harness blame); sweep G4 D3: a hang ignored every limit
-    retry_backoff_s: float = 0.25  # a retry waits backoff * 2**(n-1) outside the concurrency slot (sweep G2 D2: retries were immediate)
+    # a retry waits ``retry.backoff(failure, tries, retry_backoff_s)`` outside the concurrency slot (sweep G2 D2: retries were
+    # immediate); M10 lab audit R-5 item 3: the base of a jittered, capped doubling that is never below a provider's Retry-After
+    retry_backoff_s: float = 0.25
+    # M10 lab audit R-5 item 1: breakers keyed by provider endpoint, host and (task, harness) (``runtime.breaker``): an outage pauses the
+    # samples that need the dependency (deferred, probed after a cool-down, quarantined if it stays down) instead of masking them. None:
+    # no breakers, the behaviour before R-5. Operational (``identity.DENY``): when a run pauses, not what it measures
+    breaker: BreakerRule | None = field(default_factory=BreakerRule)
     # M10 lab audit R-4: dotpaths (or fnmatch patterns, ``identity.accepts``) of configuration changes a resume of this run accepts:
     # it opens a new identity epoch instead of being refused. Operational, like the fields above: never part of the identity
     accept_drift: tuple[str, ...] = ()
@@ -101,7 +135,8 @@ class RunSpec:
                 "policies": {str(p.id): ident.describe(p, f"policies.{p.id}") for p in self.policies},
                 "harnesses": {key: ident.describe(h, f"harnesses.{key}") for key, h in zip(ident.harness_keys(self.harnesses), self.harnesses, strict=True)},
                 "concurrency": self.concurrency, "budget_usd": self.budget_usd, "wall_clock_s": self.wall_clock_s, "attempt_timeout_s": self.attempt_timeout_s,
-                "retry_backoff_s": self.retry_backoff_s, "max_mask_fraction": self.max_mask_fraction, "max_unknown_fraction": self.max_unknown_fraction,
+                "retry_backoff_s": self.retry_backoff_s, "breaker": ident.describe(self.breaker, "breaker"),
+                "max_mask_fraction": self.max_mask_fraction, "max_unknown_fraction": self.max_unknown_fraction,
                 "min_terminal_for_health": self.min_terminal_for_health}
 
 
@@ -120,6 +155,13 @@ class RunSummary:
     spend: dict
     by_failure: dict[str, int]
     superseded: int = 0  # M10 lab audit R-4 review: terminal rows under keys this plan does not contain (an earlier epoch's harness ids): not counted above
+    # M10 lab audit R-5: breaker keys quarantined in this call (key -> reason) and the samples left owed by them: neither terminal nor lost,
+    # they run again on a resume (the breakers start closed)
+    quarantined: dict[str, str] = field(default_factory=dict)
+    quarantined_samples: int = 0
+    # M10 lab audit R-5 review round 1: terminal masks of this call that ``Health`` did not count because their (task, harness) or host
+    # breaker key was open or quarantined (the breaker pauses what they point at; the stop rules would read a broken grader as a broken run)
+    breaker_masked: int = 0
 
 
 class Runner:
@@ -174,14 +216,40 @@ class Runner:
         # a new key, and the earlier epoch's rows (under the old keys) are neither done nor this plan's results: they would count
         # toward the health rules, ``terminal`` could pass ``planned`` and the means would average two configurations
         plan_ids = {row[0].id() for row in plan}
-        done = {sid: r for sid, r in journal.terminal().items() if sid in plan_ids}
+        ended = {sid: r for sid, r in journal.terminal().items() if sid in plan_ids}
+        # M10 lab audit R-5 item 2: a masked-terminal sample an outage left (a retryable infra kind before the verification phase) is
+        # dispatched again on a resume, with a fresh retry budget: ``base`` is the index of its terminal attempt, and
+        # ``RunJournal.tries(..., since=base)`` counts only the attempts after it. An owed sample (no terminal row) counts from 0, so a
+        # resume after a crash is unchanged. A reopened sample that ends this call deferred, quarantined or stopped keeps its older
+        # masked row as its newest (``journal.terminal``: the newest row wins), and the next resume reopens it again
+        # (review round 1: and only when the run's own ``RetryRule`` would retry that failure: a rule that excludes the kind or the blame
+        # means "never retried", and a resume must not spend a fresh paid attempt on it. ``_reopens`` guarantees ``r.failure``)
+        reopened = {sid: r for sid, r in ended.items() if self._reopens(r) and spec.retry.allows(r.failure, 0)}  # type: ignore[arg-type]
+        done = {sid: r for sid, r in ended.items() if sid not in reopened}
+        base = {sid: self._attempt_index(r) for sid, r in reopened.items()}
+        # M10 lab audit R-5 item 2: the stop rules count this call's window only. Seeded with the earlier windows' rows, a resume after an
+        # outage (3 masked of 3 terminal) stopped at its first dispatch on the mask-fraction rule, and the run could never recover the
+        # samples the outage had cost it
         health = Health(planned=len(plan))
-        for r in done.values():
-            health.add(r)
-        journal.event("resume" if done else "planned", planned=len(plan), done=len(done), **({"epoch": journal.epoch} if journal.epoch else {}))
+        journal.event("resume" if ended else "planned", planned=len(plan), done=len(done), **({"reopened": sorted(reopened)} if reopened else {}),
+                      **({"epoch": journal.epoch} if journal.epoch else {}))
         state: dict[str, Any] = {"stopped": None, "attempts": 0, "max_cost": 0.0}
         t_start = time.monotonic()
         sem = asyncio.Semaphore(spec.concurrency)
+        # M10 lab audit R-5 item 1: the breakers (in memory: they start closed on every call, a resume probes again) and the samples a
+        # quarantine left owed. ``journal.event`` is how every transition is recorded
+        # review round 1: ``failures`` never above the retries a sample has, so no sample ends masked-terminal on a key still closed
+        breakers = (Breakers(replace(spec.breaker, failures=max(1, min(spec.breaker.failures, spec.retry.max_attempts))), journal.event)
+                    if spec.breaker is not None else None)
+        held: set[str] = set()
+        stop_ev = asyncio.Event()  # set by the first stop rule: a retry backoff sleeps on it (review round 1), never past a stop
+        state_masked = {"breaker": 0}  # terminal masks Health did not count (``RunSummary.breaker_masked``)
+
+        def wake_all() -> None:
+            """A stop rule fired: a sample in a retry backoff and one waiting on an open key both see it at once."""
+            stop_ev.set()
+            if breakers is not None:
+                breakers.wake()
 
         def stop_check() -> str | None:
             if state["stopped"]:
@@ -196,25 +264,34 @@ class Runner:
                 state["stopped"] = f"health: {reason}"
             if state["stopped"]:
                 journal.event("stop_rule", reason=state["stopped"])
+                wake_all()  # M10 lab audit R-5: a sample waiting on an open key or in a backoff sees the stop at once
             return state["stopped"]
 
-        async def attempt_once(sk: SampleKey, task, policy, harness) -> tuple[str, int]:
-            """One attempt: ("done" | "retry" | "stop", attempt index). Nothing raised by a harness, its record or its
-            rollout escapes (M10 audit V11: one exception aborted the whole run and left every reservation open)."""
+        def wall_left() -> float | None:
+            return None if spec.wall_clock_s is None else spec.wall_clock_s - (time.monotonic() - t_start)
+
+        async def attempt_once(sk: SampleKey, task, policy, harness, keys: SampleKeys) -> tuple[str, int, Failure | None]:
+            """One attempt: ("done" | "retry" | "deferred" | "wait" | "stop", attempt index, the failure a retry follows: M10 lab
+            audit R-5 item 3, its Retry-After sets the wait). "wait": a breaker key the sample needs closed on it between its
+            admission and its slot (nothing was taken: no index, no reservation); "deferred": the attempt ran and an open
+            breaker kept it from being terminal. Nothing raised by a harness, its record or its rollout escapes (M10 audit
+            V11: one exception aborted the whole run and left every reservation open)."""
             sid = sk.id()
             if stop_check():
-                return "stop", 0
+                return "stop", 0, None
+            if breakers is not None and breakers.check(sid, keys)[0] not in ("go", "probe"):
+                return "wait", 0, None  # in the slot, before ``next_attempt`` and the reservation: an open key costs a waiting sample nothing
             n = journal.next_attempt(sid)
             aid = attempt_id(sid, n)
             adir = journal.attempt_dir(sid, n)
             adir.mkdir(parents=True, exist_ok=True)
             journal.live.add(adir)  # B7: a running attempt's dir is never moved to aborted/ by another attempt's bookkeeping
             try:
-                return await _attempt(sk, task, policy, harness, n, aid, adir)
+                return await _attempt(sk, task, policy, harness, n, aid, adir, keys)
             finally:
                 journal.live.discard(adir)
 
-        async def _attempt(sk: SampleKey, task, policy, harness, n: int, aid: str, adir: Path) -> tuple[str, int]:
+        async def _attempt(sk: SampleKey, task, policy, harness, n: int, aid: str, adir: Path, keys: SampleKeys) -> tuple[str, int, Failure | None]:
             scopes = ["run", f"run/policy/{policy.id}", f"run/task/{task.id}"]
             est = float(getattr(policy, "estimate_usd", 0.0) or 0.0)
             if spec.budget_usd is not None:
@@ -233,7 +310,8 @@ class Runner:
                 state["stopped"] = f"budget: {ex}" if isinstance(ex, Exhausted) else f"ledger: {ex}"
                 journal.event("stop_rule", reason=state["stopped"], attempt=aid)
                 journal.refuse(adir, aid, state["stopped"])
-                return "stop", n
+                wake_all()
+                return "stop", n, None
             # M10 lab audit R-3: a grade-only retry is dispatched too, but runs no agent; the journal tells it apart (taken from
             # the previous attempt's record, which a retry always follows, so a resumed run marks it the same way)
             extra = {"grade_only": True} if self._grade_only_retry(adir, n) else {}
@@ -293,30 +371,99 @@ class Runner:
             # M10 lab audit R-3: a verification-stage failure is retried only when the harness persisted the work for a re-grade
             # M10 lab audit R-4: the rule counts dispatched attempts, not the index: a refused reservation took an index and ran
             # nothing, so a budget stop and resume must not use up a retry the sample never had
-            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, journal.dispatched(sk.id(), n), regrade=hr.regradable)
+            # M10 lab audit R-5 item 1: and not the attempts an open breaker deferred (``RunJournal.tries``): they failed because a
+            # dependency was down, so they say nothing of whether another attempt would
+            open_keys = breakers.record(sk.id(), keys, rec) if breakers is not None else []
+            tries = journal.tries(sk.id(), n, since=base.get(sk.id(), 0))  # R-5 item 2: a reopened sample's earlier attempts are not its tries
+            retry = rec.mask_sample and rec.failure is not None and spec.retry.allows(rec.failure, tries, regrade=hr.regradable)
+            deferred = False
             if rec.failure and rec.failure.kind == "crucible:credits_exhausted":
                 state["stopped"] = "budget: provider credits exhausted"
                 journal.event("stop_rule", reason=state["stopped"])
+                wake_all()
                 retry = False
                 terminal = False  # resumable: the sample stays owed
+            elif (open_keys and rec.failure is not None and rec.failure.who == "infra" and rec.failure.detail != "attempt_timeout"
+                  and spec.retry.allows(rec.failure, 0, regrade=hr.regradable)):
+                # M10 lab audit R-5 item 1: an infra-masked attempt whose key is open (it opened it, or it was already open, probing
+                # or quarantined) never becomes terminal: the dependency is down, not the sample. It stays owed, waits at admission
+                # until the key's probe closes it, and its sample's retry budget is untouched (``meta.breaker`` is read by
+                # ``RunJournal.tries``; set before ``finish`` so record.json carries it). Only a failure a retry could have changed
+                # is deferred: a non-retryable kind, or a verification failure with no persisted work, ends as ``RetryRule`` says
+                # (its sample's later samples wait). A harness- or task-blamed failure counts toward opening the key but is never
+                # deferred either: its attempt ran the policy, and running it again for as long as a key is open would pick the
+                # samples that finish (survivorship, P23); a run past ``attempt_timeout_s`` is that too (M13 audit G1 D13)
+                retry = False
+                terminal = False
+                deferred = True
+                rec.meta[BREAKER_META] = {"deferred": open_keys}
             else:
                 terminal = not retry
             journal.finish(rec, terminal=terminal)
             if terminal:
-                health.add(rec)
+                if any(not k.startswith("provider:") for k in open_keys):
+                    # M10 lab audit R-5 review round 1: a terminal mask counted against a (task, harness) or host key that is open or
+                    # quarantined is what that key's breaker already pauses (a grader that fails its control is task-blamed and never
+                    # deferred: the attempts before the key opened, every failed probe after it did). Fed to the run-global Health
+                    # they were the mask-fraction rule's, and one broken grader stopped the campaign. A provider key is left out of
+                    # this: its outage is deferred, never terminal, so an infra mask that reaches here is the sample's own
+                    state_masked["breaker"] += 1
+                else:
+                    health.add(rec)
+            if deferred:
+                journal.event("deferred", attempt=aid, keys=open_keys, kind=rec.failure.kind)  # type: ignore[union-attr]
+                return "deferred", n, rec.failure
             if retry:
                 journal.event("retry_scheduled", attempt=aid, kind=rec.failure.kind, grade_only=rec.failure.stage == "verification")  # type: ignore[union-attr]
-                return "retry", n
-            return "done", n
+                return "retry", n, rec.failure
+            return "done", n, None
 
         async def one(sk: SampleKey, task, policy, harness) -> None:
+            sid = sk.id()
+            planned_keys = sample_keys(sk, task, policy, harness)
             while True:
+                keys = planned_keys
+                if breakers is not None and keys.provider is not None:
+                    # M10 lab audit R-5 review round 1: the keys are the next attempt's, not the sample's: a grade-only retry (R-3) runs
+                    # no agent and calls no model, so it neither waits on nor probes nor closes the provider key (a clean regrade says
+                    # nothing of an endpoint that is still down). Decided as the harness and the journal decide it
+                    n_next = journal.next_attempt(sid)
+                    if self._grade_only_retry(journal.attempt_dir(sid, n_next), n_next):
+                        keys = planned_keys.without_provider()
+                if breakers is not None:
+                    # M10 lab audit R-5 item 1: a sample whose key is open waits here, outside the slot (it holds no concurrency, no
+                    # index, no reservation), until the key's probe closes it; one whose key was quarantined is left owed
+                    got = await breakers.admit(sid, keys, stopped=lambda: bool(stop_check()), remaining=wall_left)
+                    if got == "quarantined":
+                        held.add(sid)
+                        journal.event("quarantined", sample=sid, reasons={k: v for k, v in breakers.quarantined().items() if k in keys.all()})
+                        return
+                    if got == "stopped":
+                        return
                 async with sem:
-                    what, n = await attempt_once(sk, task, policy, harness)
+                    what, n, f = await attempt_once(sk, task, policy, harness, keys)
+                if breakers is not None and what in ("wait", "stop"):
+                    breakers.release(sid)  # a probe this sample claimed but did not run is the next sample's
+                if what in ("wait", "deferred"):
+                    continue
                 if what != "retry":
                     return
-                tries = journal.dispatched(sk.id(), n)  # M10 lab audit R-4: refused reservations are no tries
-                await asyncio.sleep(spec.retry_backoff_s * 2 ** max(0, tries - 1))  # outside the slot: a backoff blocks no one
+                # M10 lab audit R-4: refused reservations are no tries; R-5: nor are deferred attempts, nor a reopened sample's earlier ones
+                tries = journal.tries(sid, n, since=base.get(sid, 0))
+                # M10 lab audit R-5 item 3: jittered, capped, and never below the provider's Retry-After (``RetryRule.backoff``)
+                delay = spec.retry.backoff(f, tries, spec.retry_backoff_s)
+                left = wall_left()
+                if left is not None:
+                    # review round 1: never past the wall clock (a 300 s Retry-After is a wait, not a stop); 10 ms over, so the timer
+                    # cannot fire a clock tick early and let ``stop_check`` below read the clock as not yet expired
+                    delay = min(delay, max(0.0, left) + 0.01)
+                if delay > 0:
+                    try:
+                        await asyncio.wait_for(stop_ev.wait(), timeout=delay)  # outside the slot: a backoff blocks no one; a stop wakes it
+                    except TimeoutError:
+                        pass
+                if stop_check():
+                    return
 
         # M10 lab audit R-4 review: the lease is released when this call ends, so it never ends while an attempt is still running or
         # unwinding. ``gather`` alone re-raises the first exception and leaves the other attempts running (and a second
@@ -331,11 +478,22 @@ class Runner:
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
         final = journal.terminal()
-        recs = [r for sid, r in final.items() if sid in plan_ids]
+        # review round 1: a sample a quarantine left owed is owed, not terminal, even when a masked row of an earlier call (a reopened
+        # sample) is still its newest: counted in ``quarantined_samples`` only, never also in ``terminal`` / ``masked_terminal`` / ``by_failure``
+        recs = [r for sid, r in final.items() if sid in plan_ids and sid not in held]
+        # M10 lab audit R-5 item 2: the masked kinds of the plan's final records, not ``health.by_kind`` (Health counts this call's window
+        # only, so a resumed run's summary would have dropped every earlier window's masks while ``masked_terminal`` still counted them)
+        by_failure: dict[str, int] = {}
+        for r in recs:
+            if r.mask_sample:
+                k = r.failure.kind if r.failure else "?"
+                by_failure[k] = by_failure.get(k, 0) + 1
         summ = RunSummary(run_id=spec.run_id, planned=len(plan), terminal=len(recs), scored=sum(1 for r in recs if r.scored_reward() is not None),
                           masked_terminal=sum(1 for r in recs if r.mask_sample), mean_reward=mean_reward(recs), pass_at_1=pass_at_k(recs, 1),
                           coverage=round(coverage(recs, len(plan)), 4), stopped=state["stopped"], attempts=state["attempts"], spend=ledger.summary(),
-                          by_failure=health.by_kind, superseded=len(final) - len(recs))
+                          by_failure=by_failure, superseded=sum(1 for sid in final if sid not in plan_ids),
+                          quarantined=breakers.quarantined() if breakers is not None else {}, quarantined_samples=len(held),
+                          breaker_masked=state_masked["breaker"])
         journal.event("summary", **{k: v for k, v in summ.__dict__.items() if k != "spend"})
         return summ
 
@@ -417,6 +575,31 @@ class Runner:
         return rc, fatal
 
     @staticmethod
+    def _reopens(r: RunRecord) -> bool:
+        """M10 lab audit R-5 item 2: whether a terminal row is a sample an outage left masked, so a resume dispatches it again with
+        a fresh retry budget. An outage that outlasted the retries ended its samples terminal-masked at the stages before the
+        verdict, and nothing reopened them: their coverage was lost for good (``Runner.regrade`` covers verification only). True
+        for a masked, infra-blamed, retryable failure of a kind a retry can change, at the admission, seed or agent stage (the
+        caller adds the run's own rule: ``spec.retry.allows(r.failure, 0)``, review round 1: a kind or blame the ``RetryRule``
+        excludes is never retried, and a resume does not spend a paid attempt on it). Not
+        reopened: a verification or collect failure (R-3: the policy is never sampled again because a grade or a collect failed;
+        ``regrade`` re-grades the stored work), a harness-, task- or unknown-blamed one (not an outage: the same attempt would fail
+        the same way, and re-running a policy that hangs a harness picks the samples that finish), a ``NON_RETRYABLE_KINDS`` kind
+        and exhausted provider credits (a retry cannot fix them)."""
+        f = r.failure
+        return (r.mask_sample and f is not None and f.who == "infra" and f.retryable and f.kind not in NON_RETRYABLE_KINDS
+                and f.kind != "crucible:credits_exhausted" and f.stage in ("admission", "seed", "agent"))
+
+    @staticmethod
+    def _attempt_index(r: RunRecord) -> int:
+        """The index ``N`` of a record's attempt ``<sample>-a<N>`` (0 when it names none): where a reopened sample's fresh retry budget
+        starts counting (``RunJournal.tries(..., since=N)``)."""
+        try:
+            return int((r.attempt or "").rsplit("-a", 1)[1])
+        except (IndexError, ValueError):
+            return 0
+
+    @staticmethod
     def _grade_only_retry(adir: Path, n: int) -> bool:
         """M10 lab audit R-3: attempt ``n`` follows a verification-stage mask (``RetryRule`` retries one only when its work
         was persisted, so the harness re-grades it and runs no agent). The deciding attempt is the harnesses' own
@@ -432,7 +615,7 @@ class Runner:
         """M10 lab audit R-3: every masked failure in a record carries its evidence ``{probe, control, status}``. A harness
         that knows more (a liveness probe, a control grade) fills it; anything else masked here (a harness crash, an
         attempt timeout, a reconcile or capture mask, an ungraded result) is recorded as unprobed and uncontrolled, so a
-        reader (bench, the R-5 task breaker) never has to guess whether a non-policy blame was checked. Evidence that lacks
+        reader (bench, the (task, harness) breaker's events) never has to guess whether a non-policy blame was checked. Evidence that lacks
         a key (a budget expiry's ``{budget_s, tries}`` on a failure no ``settle`` saw) keeps what it has and gets the rest."""
         f = rec.failure
         if f is not None and f.masks and not {"probe", "control", "status"} <= set(f.evidence or {}):

@@ -67,6 +67,9 @@ class BudgetExceeded(RuntimeError):
 
 class LLMError(RuntimeError):
     failure_kind: str | None = "provider_unavailable"
+    # M10 lab audit R-5 item 3: the provider's Retry-After (seconds) of the answer that ended the retries; None when it gave none.
+    # ``LLMToolPolicy`` carries it to the episode's failure, where ``RetryRule.backoff`` reads it
+    retry_after: float | None = None
 
     def __init__(self, *args: object):
         # provider errors can echo the request: a key, a signed URL (M10 audit V12: a credential reached 14 record and
@@ -157,17 +160,29 @@ UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a host
 RATE_LIMIT_ATTEMPTS = 6  # a 429 gets at least this many attempts, on a slower curve: 3 tries over 4.5 s gave up mid-burst
 
 
+def _retry_after(e: Exception) -> float | None:
+    """M10 lab audit R-5 item 3: the provider's Retry-After of the error's response in seconds (the HTTP-date form is not
+    read), or None when it is absent, unreadable, not finite or negative."""
+    import math
+
+    headers = getattr(getattr(e, "response", None), "headers", None) or {}
+    try:
+        v = float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) and v >= 0 else None
+
+
 def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
     """Provider's Retry-After (seconds) when given, else capped exponential backoff with jitter (Karotte's agent
     loop; verifiers' ``backoff`` curve). Rate limits back off from 5 s instead of 1.5 s."""
     import random
 
-    headers = getattr(getattr(e, "response", None), "headers", None) or {}
-    try:
-        return min(float(headers.get("retry-after")), cap)
-    except (TypeError, ValueError):
-        base = 5.0 if getattr(e, "status_code", None) == 429 else 1.5
-        return min(min(base * 2**attempt, cap) * (0.5 + random.random()), cap)
+    ra = _retry_after(e)
+    if ra is not None:
+        return min(ra, cap)
+    base = 5.0 if getattr(e, "status_code", None) == 429 else 1.5
+    return min(min(base * 2**attempt, cap) * (0.5 + random.random()), cap)
 
 
 def _approx_tokens(messages: list[dict[str, Any]]) -> int:
@@ -343,7 +358,9 @@ class LLMClient:
                     limit = max(limit, RATE_LIMIT_ATTEMPTS)
                 attempt += 1
                 if attempt >= limit:
-                    raise LLMError(f"{self.model} failed after {attempt} attempts: {last}") from e
+                    err = LLMError(f"{self.model} failed after {attempt} attempts: {last}")
+                    err.retry_after = _retry_after(e)  # M10 lab audit R-5 item 3: the last answer's Retry-After rides to the Failure
+                    raise err from e
                 await asyncio.sleep(_retry_delay(e, attempt - 1))
         choice = resp.choices[0]
         msg = choice.message

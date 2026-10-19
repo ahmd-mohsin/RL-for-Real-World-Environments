@@ -281,8 +281,10 @@ async def _run(tmp_path: Path, name: str, task, policies: dict, *, k: int = 3) -
         return lambda a: {"agent": factory()}
 
     refs = [PolicyRef(id=pid, make=maker(f), config={"chaos": pid}) for pid, f in policies.items()]  # M10 lab audit R-4: declared configuration
+    # M10 lab audit R-5: the chaos kinds fail every sample of one (task, harness) on purpose; this measures their classification, not the
+    # (task, harness) breaker that would defer them after the third (breaker=None: the behaviour before R-5)
     await Runner(tmp_path / "runs").run(RunSpec(run_id=name, tasks=[task], policies=refs, harnesses=[NativeHarness()], k=k, concurrency=3,
-                                                retry=RetryRule(max_attempts=1)))
+                                                retry=RetryRule(max_attempts=1), breaker=None))
     return [json.loads(x) for x in (tmp_path / "runs" / name / "results.jsonl").read_text().splitlines()]
 
 

@@ -58,8 +58,10 @@ under one scoring deadline); Harbor's regrade from artifacts.
   flag ``no_control``. An answer-sensitive failure graded only once (``grade_retries=0``, a step graded once, or an
   earlier try that failed for another reason) is masked with flag ``not_repeated`` and never controlled (review round
   2: one such grade says nothing yet about the answer). A dead liveness probe (``liveness``: the task's ``infra_cause``
-  named a cause) skips the control (the sandbox, not the answer). Every result carries ``evidence = {probe, control, status}`` (the R-5 task breaker
-  reads ``control``). Accepted trade-off (Reasoning): a flaky grader whose control passes by chance scores the policy
+  named a cause) skips the control (the sandbox, not the answer). Every result carries ``evidence = {probe, control, status}`` (M10 lab audit R-5: a
+  task-blamed grade failure counts toward the (task, harness) breaker, ``runtime.breaker``, whose ``breaker_open`` and
+  ``quarantine`` events report ``control``, so a grader that fails its own control is paused and named instead of masking
+  every sample). Accepted trade-off (Reasoning): a flaky grader whose control passes by chance scores the policy
   0; the evidence makes each such case auditable.
 
 Only ``core`` and ``runtime.infra`` are imported here: interop harnesses (Harbor in place) use it too.

@@ -233,7 +233,7 @@ def test_calibrate_and_tiers():
     assert 0.03 < rate < 0.07 and audit_sample("r1") == audit_sample("r1")
 
 
-def test_leak_audit_and_collect(tmp_path):
+async def test_leak_audit_and_collect(tmp_path):
     import subprocess
 
     from crucible.verify.collect import collect
@@ -264,7 +264,7 @@ def test_leak_audit_and_collect(tmp_path):
     (ws / "build").mkdir()
     (ws / "build" / "big.o").write_bytes(b"\0" * 10)
     (ws / "src" / "b.py").write_text("print('new')\n")
-    c = collect(ws, base=base)
+    c = await collect(ws, base=base)  # M10 lab audit R-5 item 4: a coroutine (git runs off the event loop)
     assert "src/b.py" in c["patch"] and "big.o" not in c["patch"] and "build/" in c["excluded"]
 
 

@@ -208,6 +208,15 @@ class HarborInPlaceTask:
         if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
             self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
 
+    @property
+    def breaker_host(self) -> str | None:
+        """M10 lab audit R-5 review round 1: the machine this task's sandbox runs on, for the host breaker (``runtime.breaker.host_name``):
+        its configured GPU host name, else the Docker daemon it is pointed at, else None (the local daemon: ``host:local``). Placement
+        only (``identity.DENY``), read by name, never part of the identity: without it every Harbor task keyed ``host:local`` and an
+        outage of one lab host paused (and a local verdict closed the key of) the samples of every other."""
+        bp = self.backend_params
+        return str(bp.get("gpu_host") or bp.get("docker_host") or "") or None
+
     def identity_config(self) -> dict[str, Any]:
         """M10 lab audit R-4: task content digests and declared image refs; a change refuses the resume. ``files`` is one digest
         per top-level entry of the task directory (``task.toml``, ``instruction.md``, ``tests``, ``environment``, ``solution``), so a

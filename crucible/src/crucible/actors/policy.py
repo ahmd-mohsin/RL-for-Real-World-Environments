@@ -168,6 +168,7 @@ class LLMToolPolicy(Policy):
         self._held: list[dict[str, Any]] = []  # messages that arrived while a batch was in flight
         self.error: str | None = None
         self.failure_kind: str | None = None
+        self.retry_after: float | None = None  # M10 lab audit R-5 item 3: the provider's Retry-After of the LLMError that ended the episode (not in state_dict)
         self.stop: str | None = None
         self.sample_key: str | None = None
         self.model_calls: list[dict[str, Any]] = []
@@ -380,6 +381,7 @@ class LLMToolPolicy(Policy):
         except (LLMError, BudgetExceeded) as e:
             self.failure_kind = getattr(e, "failure_kind", None) or "provider_unavailable"
             self.error = f"{self.failure_kind}: {e}"
+            self.retry_after = getattr(e, "retry_after", None)
             return Done(reason=f"policy error: {e}")
         if (r.tokens or {}).get("new_segment") and self.model_calls:  # the engine re-rendered the history (thinking mode): a new segment
             self._new_segment("rerender", approx_tokens(self.messages), len(self.messages))
@@ -622,7 +624,9 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         state["stop"] = "timeout"
     observed = [await o.on_end(world) for o in observers]
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
-    failures += [{"kind": p.failure_kind, "reason": p.error} for p in policies.values() if getattr(p, "error", None)]
+    # M10 lab audit R-5 item 3: a provider's Retry-After travels with the policy's failure (``episode_failure`` keeps it)
+    failures += [{"kind": p.failure_kind, "reason": p.error, **({"retry_after": ra} if (ra := getattr(p, "retry_after", None)) is not None else {})}
+                 for p in policies.values() if getattr(p, "error", None)]
     if state.get("policy_failure"):
         failures.append(state["policy_failure"])
     failures += [f.model_dump() for f in world.failures]  # infra faults at the World's choke point (tool crashed, transport)

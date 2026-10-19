@@ -12,11 +12,16 @@ Layout under ``data/runs/<run_id>/``:
                     resume compares every leaf but the operational denylist; a difference is refused naming its dotpaths
                     (``IdentityDrift``) unless it is accepted (``accept_drift``), which, like a code-version change, opens a new
                     epoch; a ``run.json`` from before identity v2 is refused unless ``*`` is accepted
-    journal.jsonl   planned | dispatched | phase | budget | finished | retry_scheduled | stop_rule | epoch (torn tail tolerated)
+    journal.jsonl   planned | dispatched | phase | budget | finished | retry_scheduled | stop_rule | epoch (torn tail tolerated);
+                    M10 lab audit R-5, breakers (``runtime.breaker``): waiting (a sample held back by an open key) | breaker_open |
+                    breaker_probe | breaker_closed | quarantine (a key given up on, with its reason) | deferred (an infra-masked
+                    attempt made non-terminal while its key was open) | quarantined (a sample left owed by a quarantine)
     results.jsonl   one RunRecord per terminal sample (scored, policy-failed, or masked with no retry left)
     failures.jsonl  every masked attempt (never read by metrics; read by status, coverage and retry)
     samples/<sample_id>/a<N>/record.json (+ trajectory, steps.jsonl, verifier/, artifacts/)
     samples/<sample_id>/a<N>/refused.json   a reservation the budget (or the ledger) refused: nothing was dispatched
+    samples/<sample_id>/a<N>/record.json    ``meta.breaker`` = {deferred: [keys]} marks an attempt an open breaker deferred (R-5): it
+                    is not terminal and uses up none of the sample's retries (``RunJournal.tries``)
 
 Resume: done = terminal rows in ``results.jsonl``; owed = planned samples without one; the next attempt index is
 1 + the highest index seen live, in ``aborted/`` or refused (M10 lab audit R-4: an index is never reused, so neither is the
@@ -54,6 +59,7 @@ from crucible.runtime.identity import IdentityDrift, accepts, compared, diff, no
 LOCK = "run.lock"
 OWNER = "owner.json"
 REFUSED = "refused.json"
+BREAKER_META = "breaker"  # M10 lab audit R-5: ``record.json``'s ``meta`` key of an attempt an open breaker deferred (``RunJournal.tries`` skips it)
 _LIVE = re.compile(r"a(\d+)")
 _SEEN = re.compile(r"a(\d+)(?:~\d+)?")  # a live attempt dir, or an aborted one (``a<N>~<k>`` when ``a<N>`` was taken)
 
@@ -304,6 +310,25 @@ class RunJournal:
         it must not use up one of the sample's retries."""
         d = self.dir / "samples" / sample_id
         return n - sum(1 for k in range(1, n) if (d / f"a{k}" / REFUSED).exists())
+
+    def tries(self, sample_id: str, n: int, *, since: int = 0) -> int:
+        """How many of the sample's attempts with an index in ``(since, n]`` count toward its ``RetryRule`` (M10 lab audit
+        R-5): the dispatched ones (``dispatched``: no ``refused.json``) that an open breaker did not defer (``meta.breaker`` in
+        their ``record.json``). A deferred attempt failed because a dependency was down, which says nothing of whether another
+        attempt would fail: counting it let an outage use up a sample's retries. An attempt with no readable record (the one
+        being decided, or one a crash left) counts. ``since``: the index after which counting starts (0: the whole sample)."""
+        d = self.dir / "samples" / sample_id
+        out = 0
+        for k in range(since + 1, n + 1):
+            if (d / f"a{k}" / REFUSED).exists():
+                continue
+            try:
+                if BREAKER_META in (json.loads((d / f"a{k}" / "record.json").read_text()).get("meta") or {}):
+                    continue
+            except (OSError, ValueError, AttributeError, TypeError):
+                pass
+            out += 1
+        return out
 
     def records(self) -> list[RunRecord]:
         return list(self.terminal().values())

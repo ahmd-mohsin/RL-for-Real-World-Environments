@@ -24,9 +24,6 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import subprocess
-import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -42,6 +39,7 @@ from crucible.runtime.infra import StageFailure, classify_verifier
 from crucible.runtime.run import Runner, RunSpec
 from crucible.runtime.single_turn import SingleTurnTask, answer_policy
 from crucible.verify.runtime.plan import GradeReport
+from crucible.world.exec import ExecOut
 from tests.unit.test_verifier_separate import HIDDEN, CustodyTask, _call
 
 LOOP = "import os\nwhile True:\n    pass\n"
@@ -527,25 +525,30 @@ def test_an_untrusted_reason_is_classified_by_its_kind_alone():
 
 
 class _Host:
-    """A ``GpuHost`` stand-in for ``HarborDirTask.grade_patch``: ``get`` copies ``src`` (what the grading container wrote
-    to ``/logs/verifier``) into the local dir; ``calls``: every host call, in order."""
+    """A ``GpuHost`` stand-in for ``HarborDirTask.grade_patch``: ``aget`` copies ``src`` (what the grading container wrote
+    to ``/logs/verifier``) into the local dir; ``calls``: every host call, in order. M10 lab audit R-5 item 4: the host
+    calls are coroutines (``GpuHost.aput`` / ``aget`` / ``aexec`` / ``apath``)."""
 
+    name = "local"
     docker_host = None
     workroot = "w"
 
     def __init__(self, src: Path | None = None):
         self.src, self.calls = src, []
 
-    def put(self, local, rel):
+    async def apath(self, rel):
+        return f"/h/{self.workroot}/{rel}"
+
+    async def aput(self, local, rel, *, timeout=None):
         self.calls.append(("put", rel))
         return str(local)
 
-    def get(self, rel, local):
+    async def aget(self, rel, local, *, timeout=None):
         self.calls.append(("get", rel))
         if self.src is not None:
             shutil.copytree(self.src, local, dirs_exist_ok=True)
 
-    def exec(self, cmd):
+    async def aexec(self, cmd, *, timeout=120):
         self.calls.append(("exec", cmd))
         return 0, ""
 
@@ -575,7 +578,11 @@ async def test_a_patch_mode_non_finite_reward_is_answer_sensitive(tmp_path, file
     for name, text in files.items():
         (out / name).write_text(text)
     dt = HarborDirTask(_dir_task(tmp_path), image="img", host=_Host(out), trust_mask=trust)  # type: ignore[arg-type]
-    dt._docker = lambda *a, timeout=120: subprocess.CompletedProcess(a, 0, "", "")  # type: ignore[method-assign]
+
+    async def ok(*a, timeout=120):
+        return ExecOut(rc=0, stdout="", stderr="")
+
+    dt._docker = ok  # type: ignore[method-assign]
     rep = await dt.grade_patch("diff --git a/x b/x\n", tmp_path / "g")
     f = classify_verifier(rep.infra)
     assert rep.infra["status"] == "masked" and (f.kind, f.detail) == ("verifier_error", detail), rep.infra
@@ -696,22 +703,22 @@ async def test_a_scoring_budget_shorter_than_the_grade_never_scores_the_policy_z
 
 
 async def test_a_budget_cancelled_patch_grade_removes_its_container_first(tmp_path):
-    """A scoring budget cancels ``HarborDirTask.grade_patch``'s await, not its thread or its container: the container is
+    """A scoring budget cancels ``HarborDirTask.grade_patch``'s await, not its container: the container is
     removed before the staged mounts are deleted and before the control could run in the same slot."""
     from crucible.interop.harbor.verify_dir import HarborDirTask
 
     host = _Host()
-    gone = threading.Event()
+    gone = asyncio.Event()
     dt = HarborDirTask(_dir_task(tmp_path), image="img", host=host)  # type: ignore[arg-type]
 
-    def docker(*a, timeout=120):
+    async def docker(*a, timeout=120):
         host.calls.append(("docker", a[0], a[-1]))
         if a[0] == "run":
-            gone.wait(10)  # the policy's hang: the container runs until it is removed
-            return subprocess.CompletedProcess(a, 137, "", "")
+            await gone.wait()  # the policy's hang: the container runs until it is removed
+            return ExecOut(rc=137, stdout="", stderr="")
         if a[0] == "rm":
             gone.set()
-        return subprocess.CompletedProcess(a, 0, "", "")
+        return ExecOut(rc=0, stdout="", stderr="")
 
     dt._docker = docker  # type: ignore[method-assign]
     reps, f = await grade_in_place(lambda d: dt.grade_patch("diff --git a/x b/x\n", d), tmp_path / "grade", retries=1, budget_s=0.05)
@@ -724,7 +731,7 @@ async def test_a_budget_cancelled_patch_grade_removes_its_container_first(tmp_pa
 @pytest.mark.parametrize("slow", ["inspect", "put"])
 async def test_a_slow_image_inspect_or_host_transfer_never_runs_out_the_patch_grades_budget(tmp_path, slow):
     """M10 lab audit R-3 review round 2 (tested in review round 3): ``HarborDirTask``'s image inspect and host put are
-    infrastructure (``grading.unbudgeted``): blocking past the scoring budget, they never make a correct patch the answer's
+    infrastructure (``grading.unbudgeted``): running past the scoring budget, they never make a correct patch the answer's
     ``verifier_timeout`` (the expiry was delivered at the docker run's first await, and a control whose transfers were
     fast scored the answer 0)."""
     from crucible.interop.harbor.verify_dir import HarborDirTask
@@ -733,22 +740,22 @@ async def test_a_slow_image_inspect_or_host_transfer_never_runs_out_the_patch_gr
     out.mkdir()
     (out / "reward.txt").write_text("1\n")
     host = _Host(out)
-    put = host.put
+    aput = host.aput
 
-    def slow_put(local, rel):
+    async def slow_aput(local, rel, *, timeout=None):
         if slow == "put":
-            time.sleep(0.3)  # a slow ssh transfer: GpuHost.put blocks the loop
-        return put(local, rel)
+            await asyncio.sleep(0.3)  # a slow ssh transfer
+        return await aput(local, rel, timeout=timeout)
 
-    host.put = slow_put  # type: ignore[method-assign]
+    host.aput = slow_aput  # type: ignore[method-assign]
     dt = HarborDirTask(_dir_task(tmp_path), image="img", host=host, expected_image="sha256:img")  # type: ignore[arg-type]
 
-    def docker(*a, timeout=120):
+    async def docker(*a, timeout=120):
         if a[:2] == ("image", "inspect"):
             if slow == "inspect":
-                time.sleep(0.3)
-            return subprocess.CompletedProcess(a, 0, "sha256:img\n", "")
-        return subprocess.CompletedProcess(a, 0, "", "")
+                await asyncio.sleep(0.3)
+            return ExecOut(rc=0, stdout="sha256:img\n", stderr="")
+        return ExecOut(rc=0, stdout="", stderr="")
 
     dt._docker = docker  # type: ignore[method-assign]
     reps, f = await grade_in_place(lambda d: dt.grade_patch("diff --git a/x b/x\n", d), tmp_path / "grade", retries=0, budget_s=0.2)

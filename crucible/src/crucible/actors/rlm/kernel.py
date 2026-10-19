@@ -78,6 +78,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.world.exec import _run_subprocess_raw
+
 REPL_PATH = Path(__file__).with_name("repl.py")
 PROTOCOL = 3  # 3: a per-session frame key (``hello``) and an HMAC on every frame (M14 campaign B10)
 Handler = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -454,15 +456,14 @@ class ExecLauncher:
             raise KernelStartError(f"cannot start {argv[0]}: {e}", "crucible:env_container_lost") from e
 
     async def run(self, *argv: str, timeout: float = 20) -> tuple[int, str]:
-        p = await asyncio.create_subprocess_exec(*self.prefix, *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.STDOUT)
-        try:
-            out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                p.kill()
+        """One command through the prefix, off the event loop. M10 lab audit R-5 item 4 (review round 1): it was asyncio's child
+        watcher (``world/exec.py`` note above ``_WAITERS``) with a ``wait_for`` that left the client running on a cancel; it is
+        ``_run_subprocess_raw`` now, which kills the client's session past ``timeout`` or on a cancel. stdout and stderr are one
+        text, as before."""
+        rc, out, err, timed_out, _d = await _run_subprocess_raw([*self.prefix, *argv], cwd=None, env=None, timeout_s=timeout, stdin=None)
+        if timed_out:
             return -1, "timeout"
-        return p.returncode or 0, out.decode(errors="replace")
+        return rc, (out + err).decode(errors="replace")
 
     async def kill(self, proc: Any, pgid: int | None) -> bool:
         """SIGKILL the kernel's group inside the sandbox and wait until it is gone (True), or report it is not (False)."""
@@ -630,13 +631,20 @@ class DockerLauncher:
         self.name: str | None = None
         self._exec: ExecLauncher | None = None
 
-    async def _run(self, *argv: str) -> None:
+    async def _run(self, *argv: str, timeout: float | None = None, stdin: bytes | None = None) -> None:
+        """One docker CLI call off the event loop, bounded (M10 lab audit R-5 item 4, review round 1). It was asyncio's child watcher
+        with no timeout, so a wedged daemon (or a lost child exit, ``world/exec.py`` note above ``_WAITERS``) held the attempt, its
+        concurrency slot and the run's lease with no record. ``timeout``: ``docker run`` 900 s (its image pull included), anything
+        else 120 s; past it the CLI's session is killed and the start fails as ``env_container_lost`` (infrastructure, masked).
+        ``stdin``: bytes written to the command (``docker exec -i``)."""
+        limit = timeout if timeout is not None else (900.0 if argv[:1] == ("run",) else 120.0)
         try:
-            p = await asyncio.create_subprocess_exec(self.docker, *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            rc, _, err, timed_out, _d = await _run_subprocess_raw([self.docker, *argv], cwd=None, env=None, timeout_s=limit, stdin=stdin)
         except OSError as e:
             raise KernelStartError(f"docker is not available: {e}", "crucible:env_container_lost") from e
-        _, err = await p.communicate()
-        if p.returncode != 0:
+        if timed_out:
+            raise KernelStartError(f"docker {argv[0]} ran past {limit:g}s", "crucible:env_container_lost")
+        if rc != 0:
             text = err.decode(errors="replace")[-400:]
             raise KernelStartError(f"docker {argv[0]} failed: {text}", classify_sandbox_error(text))
 
@@ -669,12 +677,11 @@ class DockerLauncher:
                 raise
 
             async def push(src: Path, dest: str) -> None:  # docker cp cannot write into a tmpfs: stream the file through the shell
-                p = await asyncio.create_subprocess_exec(self.docker, "exec", "-i", self.name, "sh", "-c", f"cat > {dest}", stdin=asyncio.subprocess.PIPE,
-                                                         stderr=asyncio.subprocess.PIPE)
-                _, err = await p.communicate(src.read_bytes())
-                if p.returncode != 0:
-                    text = err.decode(errors="replace")[-300:]
-                    raise KernelStartError(f"pushing the kernel failed: {text}", classify_sandbox_error(text))
+                # M10 lab audit R-5 item 4 (review round 1): bounded and off the event loop like every host docker call (``_run``)
+                try:
+                    await self._run("exec", "-i", str(self.name), "sh", "-c", f"cat > {dest}", timeout=120.0, stdin=src.read_bytes())
+                except KernelStartError as e:
+                    raise KernelStartError(f"pushing the kernel failed: {e}", e.failure_kind) from e
 
             self._exec = ExecLauncher([self.docker, "exec", "-i", self.name], push=push)
         return await self._exec.start(seed)

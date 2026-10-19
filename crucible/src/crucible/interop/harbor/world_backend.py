@@ -34,7 +34,7 @@ from harbor.models.trial.paths import TrialPaths
 
 from crucible.core.schema.world import AppSpec
 from crucible.world.backends.base import Backend, BackendCapabilities
-from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
+from crucible.world.exec import Exec, ExecOut, _run_subprocess_raw, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
 
@@ -332,14 +332,15 @@ class HarborBackend(Backend):
         return self.params.get("environment_type", "docker") == "docker" and self.env is not None
 
     async def docker(self, *args: str, timeout: float = 120.0) -> tuple[int, bytes, str]:
-        proc = await asyncio.create_subprocess_exec("docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                                                    stdin=asyncio.subprocess.DEVNULL)
-        try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout)
-        except TimeoutError:
-            proc.kill()
-            return -9, b"", f"docker {args[0]} timed out after {timeout:.0f}s"
-        return proc.returncode or 0, out, err.decode("utf-8", "replace")
+        """One docker CLI call on the host: ``(rc, stdout bytes, stderr text)``. M10 lab audit R-5 item 4: through
+        ``world.exec._run_subprocess_raw`` (a thread-pool ``Popen`` in its own session, never ``asyncio.create_subprocess_exec``:
+        asyncio's child watcher is forbidden, see ``world/exec.py`` above ``_WAITERS``); a timeout or a cancel kills the CLI's
+        whole session, where this used to kill only the client. stdout stays the bytes the command wrote (the grader guard
+        reads ``docker cp <cid>:<path> -`` tar streams from it). A timeout is ``(-9, b"", "docker <cmd> timed out ...")``."""
+        rc, out, err, timed_out, _ = await _run_subprocess_raw(["docker", *args], cwd=None, env=None, timeout_s=timeout, stdin=None)
+        if timed_out:
+            return -9, b"", f"docker {args[0] if args else ''} timed out after {timeout:.0f}s"
+        return rc, out, err.decode("utf-8", "replace")
 
     async def main_container(self) -> str | None:
         """The main service's container id, found once (while it exists) and remembered: a removed container keeps its id."""

@@ -635,6 +635,7 @@ Every module card has the same fields: **Purpose · Contents · Takes · We buil
 - **Purpose:** run agents or policies on tasks at scale and classify every failure.
 - **Contents:**
   - `run.py` (k samples, seeds);
+  - `breaker.py` (per provider endpoint, host and (task, harness) breakers: deferral, probe, quarantine; lab audit R-5);
   - `harness/` (Harbor agents, verifiers harnesses, A2A agents through agentenv, an OpenAI-compatible endpoint for policies in training);
   - `collect.py` (tolerant collect hooks);
   - `infra.py` (`failure_kind`, masks);

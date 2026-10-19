@@ -14,24 +14,59 @@ still masked first, as ``non_finite_reward``: answer-sensitive (a patch can make
 is decided by the control. A grade cancelled by its caller (a scoring budget) removes its container before the staged
 mounts go and before the control runs in the same slot.
 
+M10 lab audit R-5 item 4: every host call (docker, the staging rsync and ssh) is a coroutine on
+``world.exec._run_subprocess`` (off the event loop, bounded, its session killed past the bound or on a cancel), so a stalled
+transfer or daemon freezes no other attempt. A cancelled or timed-out grade runs ``docker rm -f <name>`` first, and the staged
+mounts (``<workroot>/grades/<key>`` on the host) are deleted only once the container is known gone: ``docker run`` returned,
+or ``rm -f`` returned 0 or "No such container". If the removal cannot be confirmed the staging stays and
+``<gdir>/staging_kept.json`` names the host, the path and the container (evidence for R-6's sweep): deleting the mounts
+under a container that may still be running the policy's code is worse than a leaked directory. A host call past its
+timeout raises ``HostTimeout`` (``transport_unreachable``, infrastructure); only ``docker run`` itself running past the
+verifier's timeout is the answer's ``verifier_timeout``. Review round 1: and so is the fetch of ``<key>/verifier`` running past
+its bound after ``docker run`` returned (``check_infra``, answer-sensitive: the directory is mounted read-write where the
+patch's code ran, so its size is the answer's, not the host's).
+
 The task can be pinned to a git ref (``ref=``): a historical run is re-graded against the task *as it was* when the
 run was graded (research m9-m10/02 §6.1: task02's suite was tightened after its frontier run).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shlex
 import shutil
 import subprocess
 import tomllib
 import uuid
+from collections.abc import Awaitable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
-from crucible.runtime.gpu import GpuHost
+from crucible.runtime.gpu import GpuHost, HostTimeout
 from crucible.runtime.grading import unbudgeted
 from crucible.runtime.identity import file_digest, tree_digests
 from crucible.verify.runtime.plan import GradeReport
+from crucible.world.exec import ExecOut, _run_subprocess
+
+_T = TypeVar("_T")
+_BACKGROUND: set[asyncio.Future] = set()  # removals a second cancel left running: held so they are not collected mid-flight
+
+
+async def _shielded(aw: Awaitable[_T], default: _T, *, unwinding: bool) -> _T:
+    """Run ``aw`` to its end even if this task is cancelled meanwhile (M10 lab audit R-5 item 4: the removal of a grading
+    container must finish before the staging goes, whatever cancelled the grade). A cancel that arrives while it runs
+    leaves it to finish in the background; when this task is already unwinding from an earlier cancel or error
+    (``unwinding``) that second cancel is absorbed and ``default`` returned (the first propagates), otherwise it is raised."""
+    fut = asyncio.ensure_future(aw)
+    _BACKGROUND.add(fut)
+    fut.add_done_callback(_BACKGROUND.discard)
+    try:
+        return await asyncio.shield(fut)
+    except asyncio.CancelledError:
+        if not unwinding:
+            raise
+        return default
 
 
 def export_ref(repo: Path, task_dir: Path, ref: str, dest: Path) -> Path:
@@ -144,13 +179,25 @@ class HarborDirTask:
                 "verifier_env": self.verifier_env, "user": self.user, "trust_mask": self.trust_mask, "perf": self.perf, "gpus": self.gpus, "cpus": self.cpus,
                 "memory_mb": self.memory_mb, "oracle_patch": file_digest(self.oracle_patch), "host": self.host.name if self.perf else None}
 
-    def _docker(self, *a: str, timeout: float = 120) -> subprocess.CompletedProcess:
-        env = None
-        if self.host.docker_host:
-            import os
+    async def _docker(self, *a: str, timeout: float = 120) -> ExecOut:
+        """One docker CLI call on the grading host, off the event loop (M10 lab audit R-5 item 4). Past ``timeout`` the CLI's
+        session is killed; the result is ``timed_out`` for ``docker run`` (the grade's own ``verifier_timeout``, the caller
+        removes the container), and ``HostTimeout`` for anything else (an inspect or ``rm`` that did not answer is the
+        host's, never the answer's)."""
+        env = {"DOCKER_HOST": self.host.docker_host} if self.host.docker_host else None
+        out = await _run_subprocess(["docker", *a], cwd=None, env=env, timeout_s=timeout, stdin=None)
+        if out.timed_out and a[:1] != ("run",):
+            raise HostTimeout(f"docker {a[0] if a else ''} on {self.host.name} ran past {timeout:g}s")
+        return out
 
-            env = {**os.environ, "DOCKER_HOST": self.host.docker_host}
-        return subprocess.run(["docker", *a], capture_output=True, text=True, timeout=timeout, env=env, check=False)
+    async def _remove(self, name: str) -> bool:
+        """``docker rm -f <name>``: True when the container is known gone (removed, or "No such container"), False when that
+        could not be confirmed (an error, a daemon that does not answer): the staging then stays (M10 lab audit R-5 item 4)."""
+        try:
+            out = await self._docker("rm", "-f", name)
+        except Exception:  # noqa: BLE001 -- removal is best effort; the caller keeps the staging when it is False
+            return False
+        return out.rc == 0 or "no such container" in out.stderr.lower()
 
     def _masked(self, kind: str, reason: str, t0: float) -> GradeReport:
         import time
@@ -159,18 +206,18 @@ class HarborDirTask:
                            infra={"status": "masked", "failure_kind": kind, "reason": reason}, trusted=True, elapsed_s=round(time.monotonic() - t0, 2))
 
     async def grade_patch(self, patch: str, gdir: Path) -> GradeReport:
-        import asyncio
         import time
 
         t0 = time.monotonic()
         gdir = Path(gdir)
         if self.expected_image:
             # M10 lab audit R-3 review round 2: the image inspect and the host put/get are infrastructure, not the patch's
-            # grade: outside the scoring budget (runtime.grading.unbudgeted holds it while they block), so a budget expiry
+            # grade: outside the scoring budget (runtime.grading.unbudgeted holds it while they run), so a budget expiry
             # is only ever the test run's own (it was delivered at the docker run's first await, labelled verifier_timeout,
-            # and a control whose transfers happened to be fast scored the answer 0)
+            # and a control whose transfers happened to be fast scored the answer 0). M10 lab audit R-5 item 4: they are
+            # awaited now (off the loop), and one that runs past its own timeout is a HostTimeout, never the answer's
             with unbudgeted():
-                got = self._docker("image", "inspect", "--format", "{{.Id}}", self.image).stdout.strip() or None
+                got = (await self._docker("image", "inspect", "--format", "{{.Id}}", self.image)).stdout.strip() or None
             if got != self.expected_image:
                 return self._masked("check_infra", f"stale image: {self.image} is {got}, the task pins {self.expected_image}", t0)
         key = f"grades/{uuid.uuid4().hex[:12]}"
@@ -178,59 +225,93 @@ class HarborDirTask:
         art.mkdir(parents=True, exist_ok=True)
         (art / "model.patch").write_text(patch)
         (gdir / "stage" / "verifier").mkdir(exist_ok=True)
-        with unbudgeted():
-            tests = self.host.put(self.dir / "tests", f"{key}/tests")
-            arts = self.host.put(art, f"{key}/artifacts")
-            out = self.host.put(gdir / "stage" / "verifier", f"{key}/verifier")
         name = f"crucible-hgrade-{uuid.uuid4().hex[:10]}"
-        argv = ["run", "--rm", "--init", "--name", name, "--label", "crucible.sandbox=1", "--shm-size", "8g",
-                "-v", f"{tests}:/tests:ro", "-v", f"{arts}:/logs/artifacts:ro", "-v", f"{out}:/logs/verifier"]
-        if self.network != "public":
-            argv += ["--network", "none"]
-        if self.gpus:
-            argv += self.host.docker_gpu_flags()
-        if self.cpus:
-            argv += ["--cpus", str(self.cpus)]
-        if self.memory_mb:
-            argv += ["--memory", f"{int(self.memory_mb)}m"]
-        if self.user:
-            argv += ["--user", str(self.user)]
         envfile = None
-        if self.verifier_env:  # an env file, never ``-e K=V`` (values would sit on the command line)
-            import os
-            import tempfile
-
-            fd, envfile = tempfile.mkstemp(prefix="crucible-venv-", suffix=".env")
-            with os.fdopen(fd, "w") as f:
-                f.write("".join(f"{k}={v}\n" for k, v in self.verifier_env.items()))
-            argv += ["--env-file", envfile]
-        argv += ["--entrypoint", "bash", self.image, "-c", self.command]
+        root: str | None = None  # the host path of this grade's staging (known once ``apath`` answered)
+        started = gone = unwinding = False  # ``docker run`` was issued; its container is known gone; an exception is propagating
+        # M10 lab audit R-5 item 4 (critic amendment 4): the try opens before the first transfer, so a cancel or a HostTimeout
+        # during an rsync still reaches the cleanup below (the transfers are awaits now, where they used to be uninterruptible)
         try:
-            try:
-                p = await asyncio.to_thread(self._docker, *argv, timeout=self.timeout)
-            except subprocess.TimeoutExpired:
-                self._docker("rm", "-f", name)
-                return self._masked("verifier_timeout", f"grade exceeded {self.timeout:.0f}s; container {name} removed", t0)
-            except asyncio.CancelledError:
-                # M10 lab audit R-3: a scoring budget (grading.grade_in_place) cancels this await but not the thread or the
-                # container: remove it before the finally deletes its staged mounts, and before grading.settle grades the
-                # control in the same PerfGuard slot (an orphan still running the policy's hang contaminates the control,
-                # masks it, and blames the task)
-                try:
-                    self._docker("rm", "-f", name)  # the thread's docker run then returns
-                except Exception:  # noqa: BLE001, S110 -- removal is best effort; the cancellation still propagates
-                    pass
-                raise
-            local = gdir / "verifier"
             with unbudgeted():
-                self.host.get(f"{key}/verifier", local)
+                root = await self.host.apath(key)  # one absolute path: the cleanup runs from any cwd (the relative one was the local host's $HOME)
+                tests = await self.host.aput(self.dir / "tests", f"{key}/tests")
+                arts = await self.host.aput(art, f"{key}/artifacts")
+                out = await self.host.aput(gdir / "stage" / "verifier", f"{key}/verifier")
+            argv = ["run", "--rm", "--init", "--name", name, "--label", "crucible.sandbox=1", "--shm-size", "8g",
+                    "-v", f"{tests}:/tests:ro", "-v", f"{arts}:/logs/artifacts:ro", "-v", f"{out}:/logs/verifier"]
+            if self.network != "public":
+                argv += ["--network", "none"]
+            if self.gpus:
+                argv += self.host.docker_gpu_flags()
+            if self.cpus:
+                argv += ["--cpus", str(self.cpus)]
+            if self.memory_mb:
+                argv += ["--memory", f"{int(self.memory_mb)}m"]
+            if self.user:
+                argv += ["--user", str(self.user)]
+            if self.verifier_env:  # an env file, never ``-e K=V`` (values would sit on the command line)
+                import os
+                import tempfile
+
+                fd, envfile = tempfile.mkstemp(prefix="crucible-venv-", suffix=".env")
+                with os.fdopen(fd, "w") as f:
+                    f.write("".join(f"{k}={v}\n" for k, v in self.verifier_env.items()))
+                argv += ["--env-file", envfile]
+            argv += ["--entrypoint", "bash", self.image, "-c", self.command]
+            started = True  # from here a container may exist, whatever happens to the call that created it
+            try:
+                p = await self._docker(*argv, timeout=self.timeout)
+            except asyncio.CancelledError:
+                # M10 lab audit R-3: a scoring budget (grading.grade_in_place) cancels this await; M10 lab audit R-5 item 4:
+                # the cancelled call killed the docker CLI's session, which leaves the container running on the daemon.
+                # Remove it before the finally deletes its staged mounts, and before grading.settle grades the control in
+                # the same PerfGuard slot (an orphan still running the policy's hang contaminates the control, masks it, and
+                # blames the task). Shielded: a second cancel does not abandon the removal
+                gone = await _shielded(self._remove(name), False, unwinding=True)
+                raise
+            except Exception:  # noqa: BLE001 -- the docker client failed to start or died: the container may still exist
+                gone = await _shielded(self._remove(name), False, unwinding=True)
+                raise
+            if p.timed_out:
+                # the grade ran past its own timeout: the answer's verifier_timeout (the CLI's session is dead, the container
+                # is not); the staging goes only once the container does
+                gone = await _shielded(self._remove(name), False, unwinding=False)
+                return self._masked("verifier_timeout", f"grade exceeded {self.timeout:.0f}s; container {name} "
+                                    + ("removed" if gone else "NOT removed: staging kept"), t0)
+            gone = True  # ``docker run --rm`` returned: the container exited and was removed
+            local = gdir / "verifier"
+            try:
+                with unbudgeted():
+                    await self.host.aget(f"{key}/verifier", local)
+            except HostTimeout:
+                # M10 lab audit R-5 review round 1: ``<key>/verifier`` is bind-mounted read-write into the container the patch's own
+                # code ran in (``-v {out}:/logs/verifier``), so its size is the answer's: a patch whose tests write gigabytes there
+                # makes this transfer outlive its bound. A HostTimeout is host infrastructure (``transport_unreachable``, counted on
+                # the host's breaker, never controlled), which would let one answer open ``host:<name>`` for every sample and
+                # keep its own 0. The container already ran to its end (``gone``): an answer-sensitive grade failure
+                # (``check_infra``), graded again and decided by the task's control. Transfers whose size the answer does not set
+                # (tests, artifacts, ``apath``, ``mkdir``) stay HostTimeout
+                return self._masked("check_infra", f"the verifier output of container {name} could not be fetched within its bound "
+                                    "(its size is set by the graded patch)", t0)
+        except BaseException:
+            unwinding = True  # a cancel or an error is propagating: a second cancel during the cleanup is absorbed
+            raise
         finally:  # staged files never stay on the host (H1 V21: a timeout returned before the cleanup)
             if envfile:
                 Path(envfile).unlink(missing_ok=True)
-            try:
-                self.host.exec(f"rm -rf {self.host.workroot}/{key}")
-            except Exception:  # noqa: BLE001, S110 -- cleanup never overrides the grade
-                pass
+            if root is not None and root.rstrip("/").endswith(key):
+                if not started or gone:
+                    try:
+                        await _shielded(self.host.aexec(f"rm -rf {shlex.quote(root)}"), None, unwinding=unwinding)
+                    except Exception:  # noqa: BLE001, S110 -- cleanup never overrides the grade
+                        pass
+                else:  # M10 lab audit R-5 item 4: never delete the mounts under a container that may still be running
+                    try:
+                        (gdir / "staging_kept.json").write_text(json.dumps({
+                            "host": self.host.name, "path": root, "container": name,
+                            "reason": "the grading container could not be confirmed removed (M10 lab audit R-5)"}))
+                    except OSError:
+                        pass
         (gdir / "console.log").write_text((p.stdout + p.stderr)[-50000:])
         try:
             report = json.loads((local / "report.json").read_text()) if (local / "report.json").exists() else {}
@@ -258,11 +339,11 @@ class HarborDirTask:
                 # turn into a number, which a patch can cause (the tests compute it, or the code under test writes it):
                 # graded again, then decided by the control. Harbor's name stays in the reason
                 kind = "non_finite_reward"
-            return self._masked("no_reward_json" if kind == "RewardFileNotFoundError" else kind, f"{problem} (rc {p.returncode})", t0)
+            return self._masked("no_reward_json" if kind == "RewardFileNotFoundError" else kind, f"{problem} (rc {p.rc})", t0)
         gates = _gates(report if isinstance(report, dict) else {})
         shutil.rmtree(gdir / "stage", ignore_errors=True)
         return GradeReport(task=self.id, tier="full", checks=[], gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
-                           elapsed_s=round(time.monotonic() - t0, 2), meta={"report": report, "rc": p.returncode})
+                           elapsed_s=round(time.monotonic() - t0, 2), meta={"report": report, "rc": p.rc})
 
     async def grade_control(self, workdir: Path) -> GradeReport | None:
         """M10 lab audit R-3: the task's control (``runtime.grading.settle``): the oracle patch graded exactly as a

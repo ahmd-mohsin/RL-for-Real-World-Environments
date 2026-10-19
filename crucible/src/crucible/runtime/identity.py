@@ -316,6 +316,11 @@ def harness_keys(harnesses: Iterable[Any]) -> list[str]:
 DENY: tuple[str, ...] = (
     # run-level operational fields (RunSpec)
     "concurrency", "budget_usd", "wall_clock_s", "attempt_timeout_s", "retry_backoff_s",
+    # M10 lab audit R-5: the backoff's caps (RetryRule): how long a retry waits, not what is measured
+    "retry.backoff_cap_s", "retry.retry_after_cap_s",
+    # M10 lab audit R-5: the breakers' thresholds and cool-downs (``RunSpec.breaker``, whole subtree): when a run pauses for an outage,
+    # not what it measures
+    "breaker",
     # health thresholds: they decide when to stop, not what a sample is
     "max_mask_fraction", "max_unknown_fraction", "min_terminal_for_health",
     # timeouts and budgets of grading, tools and the harness's own housekeeping; a price is accounting

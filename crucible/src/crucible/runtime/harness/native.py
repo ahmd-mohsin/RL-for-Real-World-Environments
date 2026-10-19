@@ -285,6 +285,10 @@ class PolicyRef:
     # does): ``make`` is a closure, so nothing else says what the policy is, and the run's identity must. A PolicyRef run without
     # it is refused (``Undeclared``): left out, a changed temperature or model would resume silently into the same results
     config: dict[str, Any] | None = None
+    # M10 lab audit R-5: the provider endpoint this policy calls (``base_url`` plus model, whatever names the server): policies that
+    # share one share a provider breaker (``runtime.breaker``), so an outage opens it once. Defaults to the policy id. Placement,
+    # not what is measured: it is not part of ``identity_config``
+    endpoint: str | None = None
 
     def identity_config(self) -> dict[str, Any]:
         """The policy's document in a run's identity: its id and ``config`` (``estimate_usd`` is accounting: operational)."""

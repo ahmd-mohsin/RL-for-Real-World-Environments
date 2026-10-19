@@ -13,7 +13,9 @@ agentenv's missing reward file, mini-swe-agent's batch resume...). Here:
   ``classify_exception`` is that classification without the raise;
 - ``episode_failure`` rebuilds an episode's failure dict as a ``Failure`` with its blame, mask and retryable kept;
 - ``RetryRule`` retries only infra/harness/task blame (never policy: "retry until ok" is survivorship bias), and a
-  verification-stage failure only as a re-grade of persisted work (M10 lab audit R-3: never a fresh agent run);
+  verification-stage failure only as a re-grade of persisted work (M10 lab audit R-3: never a fresh agent run). Its
+  ``backoff`` (M10 lab audit R-5 item 3) is a capped full-jitter wait that never undercuts a provider's Retry-After
+  (``Failure.retry_after``, itself capped);
 - ``LimitPolicy`` decides whether hitting a wall-clock/step/context limit is scored (default) or masked (Karotte);
 - the aggregates (``pass_at_k``, ``mean_reward``, ``coverage``) drop masked samples from numerators **and**
   denominators and report coverage = scored / planned.
@@ -23,7 +25,8 @@ from __future__ import annotations
 
 import contextlib
 import math
-from collections.abc import Iterable, Iterator
+import random
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 
 from crucible.core.schema.run import DEFAULT_BLAME, NON_RETRYABLE_KINDS, Failure, RunRecord, is_failure_kind
@@ -164,7 +167,8 @@ def episode_failure(f: dict, stage: str = "agent", prefix: str = "") -> Failure:
     unclassified policy exception (``actors/policy.py:586-587``, blame unknown) fell back to ``agent_run_error``'s harness
     default, was retried, and ``Health.unknown`` never counted it. Only the keys that are present (not None) are passed, so
     ``failure()``'s unmapped -> unknown rule and the kind's default blame still apply when the dict names no blame."""
-    keep = {k: f[k] for k in ("blame", "mask", "retryable", "detail", "delivery") if f.get(k) is not None}
+    # M10 lab audit R-5 item 3: ``retry_after`` (the provider's Retry-After, filled by ``LLMToolPolicy``) travels with the failure
+    keep = {k: f[k] for k in ("blame", "mask", "retryable", "detail", "delivery", "retry_after") if f.get(k) is not None}
     return failure(str(f["kind"]), stage, prefix + str(f.get("reason", "")), **keep)
 
 
@@ -173,6 +177,24 @@ class RetryRule:
     kinds: tuple[str, ...] = ()  # empty = any kind of the allowed blames
     blames: tuple[str, ...] = ("infra", "harness", "task")
     max_attempts: int = 3
+    # M10 lab audit R-5 item 3: the longest jittered wait, and the longest Retry-After honoured (a provider asking for an hour
+    # does not park a slot's sample for an hour). Both are operational (``identity.DENY``): how long to wait, not what is measured
+    backoff_cap_s: float = 30.0
+    retry_after_cap_s: float = 300.0
+
+    def backoff(self, f: Failure | None, tries: int, base_s: float, *, rand: Callable[[], float] = random.random) -> float:
+        """Seconds the Runner waits, outside the concurrency slot, before the next attempt of a sample that has spent ``tries``
+        attempts. M10 lab audit R-5 item 3. PATTERN: verifiers ``v1/utils/retries.py:40-42`` (MIT; the curve
+        ``actors/llm._retry_delay`` already uses): ``base_s * 2**(tries-1)`` capped at ``backoff_cap_s`` and scaled by
+        ``0.5 + rand()`` (jitter, so the samples an outage failed together do not return together), capped again. The
+        provider's Retry-After (``f.retry_after``, at most ``retry_after_cap_s``) is a floor: the wait is never shorter, so a
+        retry never lands inside the window the provider asked for. ``base_s <= 0`` keeps immediate retries (tests, and a run
+        that opted out of waiting) unless the provider named a delay."""
+        ra = min(f.retry_after, self.retry_after_cap_s) if f is not None and f.retry_after else 0.0
+        if base_s <= 0:
+            return ra
+        d = min(min(base_s * 2 ** max(0, tries - 1), self.backoff_cap_s) * (0.5 + rand()), self.backoff_cap_s)
+        return max(d, ra)
 
     def allows(self, f: Failure, attempt: int, *, regrade: bool = False) -> bool:
         """``regrade``: the attempt persisted its work for a grade-only retry (``HarnessResult.regradable``)."""
@@ -239,6 +261,11 @@ def pass_at_k(records: Iterable[RunRecord], k: int, *, threshold: float = 1.0) -
 
 @dataclass
 class Health:
+    """The run's stop-rule counters (``stop_reason``). M10 lab audit R-5 item 2: the Runner feeds it only the terminal records of the
+    current ``Runner.run`` window, never the rows an earlier call left. Seeded with them, a resume after an outage (every sample masked,
+    so 100% of the terminal rows) stopped at its first dispatch on the mask-fraction rule, and the samples the outage had cost the run
+    (``Runner._reopens``) could never be recovered. The summary's ``by_failure`` is computed from the plan's final records instead."""
+
     planned: int
     terminal: int = 0
     masked: int = 0

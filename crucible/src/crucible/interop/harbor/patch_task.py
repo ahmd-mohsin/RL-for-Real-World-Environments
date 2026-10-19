@@ -208,6 +208,14 @@ class HarborPatchTask(HarborInPlaceTask):
         self.grader = HarborDirTask(self.dir, image=image, host=host, expected_image=expected_image, ref=ref, perf=perf, timeout=timeout)
         self.id, self.perf = self.grader.id, perf
 
+    @property
+    def breaker_host(self) -> str | None:
+        """M10 lab audit R-5 review round 1: the host breaker's key (``HarborInPlaceTask.breaker_host``): the agent's World host when one
+        is configured, else the grading container's host when that is a remote one (``GpuHost.ssh`` or ``docker_host``; its default
+        ``local`` host names no machine), else None (the local daemon)."""
+        h = self.grader.host
+        return super().breaker_host or (str(h.name) if (getattr(h, "ssh", None) or getattr(h, "docker_host", None)) and getattr(h, "name", None) else None)
+
     def identity_config(self) -> dict[str, Any]:
         """M10 lab audit R-4: the in-place declaration (the agent's World: task tree digests, image, environment) plus the
         grading container's own (``HarborDirTask``: its image and expected image, command, network, verifier env) and ``perf``.

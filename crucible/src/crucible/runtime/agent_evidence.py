@@ -41,6 +41,9 @@ class name parsed from its output) is recorded with ``why="agent-reported"`` and
 let a policy turn its own failure into a mask. An upstream context-overflow answer is recorded (``why`` names it) but
 not evidenced: the policy can provoke one with an oversized request of its own.
 
+M10 lab audit R-5 item 3: a ``provider_unavailable`` the proxy's evidence proves carries the last row's Retry-After
+(``UpstreamEvidence.retry_after``) as ``Failure.retry_after``, so the Runner's retry waits at least that long.
+
 No framework is imported here: Harbor classes are matched by name (``error_names``).
 """
 
@@ -323,7 +326,10 @@ def _upstream_failure(up: UpstreamEvidence, what: str, context: str) -> AgentEnd
         return _failure("agent_run_error", f"{what}; the last upstream call answered {up.verdict} ({up.detail}) but {_probe_note(up)}: "
                         "the session log is writable by the agent's commands", context, blame="unknown", detail=f"unconfirmed:{up.verdict}")
     if up.verdict == "infra":
-        return _failure("provider_unavailable", f"{what}; the proxy's last upstream call failed: {up.detail}", context, detail=up.detail[:200] or None)
+        # M10 lab audit R-5 item 3: the last row's Retry-After (a 429 or 503) rides on the failure: ``RetryRule.backoff`` waits at
+        # least that long and the provider breaker's cool-down is never shorter. The cap-spent branch below has no such row
+        kw = {} if up.retry_after is None else {"retry_after": up.retry_after}
+        return _failure("provider_unavailable", f"{what}; the proxy's last upstream call failed: {up.detail}", context, detail=up.detail[:200] or None, **kw)
     if up.verdict == "credits":
         return _failure("crucible:credits_exhausted", f"{what}; the upstream refused for credits or quota ({up.detail})", context, detail="credits")
     if up.verdict in ("auth", "not_found"):

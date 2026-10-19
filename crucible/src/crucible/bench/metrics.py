@@ -306,10 +306,17 @@ def run_info(run_dir: Path, eps: Sequence[Episode] | None = None) -> dict[str, A
     if stopped is None and owed and not summaries:
         stopped = "incomplete: the runner left no summary (killed, or still running)"
     planned = _plan(run_dir)
+    # M10 lab audit R-5: the breaker keys the last call quarantined (key -> reason): their samples are owed, not failed, so a report that
+    # shows only ``owed`` would read an outage as a gap. Absent when nothing was quarantined, so every other summary is unchanged
+    q = (summaries[-1].get("quarantined") if summaries else None) or {}
     info = {"planned": len(planned) if planned is not None else len(eps), "terminal": sum(not e.owed for e in eps),
             "measured": sum(not e.masked for e in eps), "masked": sum(e.masked and not e.owed for e in eps), "owed": owed,
-            "stopped": stopped, "complete": owed == 0 and stopped is None,
+            # review round 1: a run with a quarantined key is not complete: a reopened sample it left owed still has its older masked row
+            # as its newest terminal one (it reads as terminal here, so ``owed`` alone would call the run complete)
+            "stopped": stopped, "complete": owed == 0 and stopped is None and not q,
             "attempts": sum(e.attempts for e in eps), "aborted_attempts": sum(e.aborted_attempts for e in eps)}
+    if q:
+        info["quarantined"] = q
     epochs = _epochs_info(run_dir, eps)
     if epochs:
         info["epochs"] = epochs
