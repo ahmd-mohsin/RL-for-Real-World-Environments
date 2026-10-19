@@ -52,7 +52,7 @@ def mine(ps):
     return keep
 def strangers():
     ps = procs()
-    keep = mine(ps) | {1} | {p for p, (pp, c) in ps.items() if pp == 1 and c == "sleep infinity"}
+    keep = mine(ps) | {1} | {p for p, (pp, c) in ps.items() if pp == 1 and c == "{main}"}  # the container's own sleep (R-6)
     return [p for p in ps if p not in keep]
 """
 
@@ -153,9 +153,9 @@ class SandboxPool:
         self._refill()
 
     async def _clean(self, sbx: DockerSandbox) -> bool:
-        wd = self.sb.workdir
-        await sbx.exec.run(HYGIENE.replace("{workdir}", wd), timeout_s=60, user="0")
-        out = await sbx.exec.run(VERIFY.replace("{workdir}", wd), timeout_s=60, user="0")
+        wd, main = self.sb.workdir, f"sleep {sbx.lifetime_s}"
+        await sbx.exec.run(HYGIENE.replace("{workdir}", wd).replace("{main}", main), timeout_s=60, user="0")
+        out = await sbx.exec.run(VERIFY.replace("{workdir}", wd).replace("{main}", main), timeout_s=60, user="0")
         ok = out.ok and "procs=0 files=0 users=0" in out.stdout
         if not ok:
             self.stats["dirty"] += 1

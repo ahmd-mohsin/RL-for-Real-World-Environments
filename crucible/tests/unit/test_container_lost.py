@@ -42,7 +42,7 @@ async def test_a_removed_container_raises_once_the_daemon_confirms(monkeypatch):
     verbs = fake_docker(monkeypatch, out=GONE, inspect=ExecOut(1, "", "Error: No such object: c1"))
     with pytest.raises(EnvContainerLost, match="c1 was removed") as e:
         await DockerExec("c1").run("ls")
-    assert verbs == ["exec", "inspect"] and e.value.failure_kind == "crucible:env_container_lost"
+    assert verbs == ["exec", "inspect", "events"] and e.value.failure_kind == "crucible:env_container_lost"  # no die seen: not the policy's
 
 
 async def test_the_words_alone_never_decide(monkeypatch):
@@ -60,6 +60,27 @@ async def test_stopped_from_outside_is_lost_but_a_container_that_exited_by_itsel
         await DockerExec("c1").run("true")
     fake_docker(monkeypatch, out=stopped, inspect=state(OOMKilled=True), events="start\noom\ndie\n")  # its own process: the episode's doing
     assert (await DockerExec("c1").run("true")).rc == 1
+
+
+async def test_a_removed_container_is_lost_only_on_evidence(monkeypatch):
+    # --rm deletes a container whose main process exited: the events tell who ended it (M1 audit R-6)
+    gone = ExecOut(1, "", "Error: No such object: c1")
+    fake_docker(monkeypatch, out=GONE, inspect=gone, events="start\ndie\ndestroy\n")  # died from inside: the policy's doing
+    assert (await DockerExec("c1").run("true")).rc == 1
+    fake_docker(monkeypatch, out=GONE, inspect=gone, events="start\nkill\ndie\ndestroy\n")  # docker rm -f
+    with pytest.raises(EnvContainerLost, match="was removed"):
+        await DockerExec("c1").run("true")
+    fake_docker(monkeypatch, out=GONE, inspect=gone, events="")  # no evidence either way: not the policy's
+    with pytest.raises(EnvContainerLost, match="was removed"):
+        await DockerExec("c1").run("true")
+    ex = DockerExec("c1")
+    ex.expires_at = 0.0  # its lifetime ran out: the sandbox's end, not the policy's
+    fake_docker(monkeypatch, out=GONE, inspect=gone, events="start\ndie\ndestroy\n")
+    with pytest.raises(EnvContainerLost, match="end of its lifetime"):
+        await ex.run("true")
+    fake_docker(monkeypatch, out=ExecOut(1, "", "Error response from daemon: container 3f2a is not running"), inspect=state(), events="die\n")
+    with pytest.raises(EnvContainerLost, match="end of its lifetime"):
+        await ex.run("true")
 
 
 async def test_paused_and_unreachable_daemons_are_lost(monkeypatch):

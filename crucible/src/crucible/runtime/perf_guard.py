@@ -23,8 +23,10 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
+from crucible.actors.rlm.kernel import OWNER_LABEL as RLM_OWNER_LABEL
 from crucible.core.schema.run import Failure
 from crucible.runtime.infra import StageFailure
+from crucible.world.sandbox import OWNER_LABEL, owner_dead
 
 Probe = Callable[[str], tuple[int, str]]
 
@@ -46,8 +48,11 @@ def sample(probe: Probe) -> dict:
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 s["foreign"].append({"pid": int(parts[0]), "mib": int(parts[1])})
         s["foreign_mib"] = sum(p["mib"] for p in s["foreign"])
-    rc, out = probe("docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^crucible' || true")
-    s["crucible_containers"] = int(out.strip() or 0) if out.strip().isdigit() else 0
+    # a container whose owner is a dead process on this host is a crashed run's leftover, not a grade in progress (M1 audit
+    # R-6): it ends by itself within its lifetime, and any work still running in it shows in the GPU and load checks
+    rc, out = probe(f"docker ps --format '{{{{.Names}}}}|{{{{.Label \"{OWNER_LABEL}\"}}}}|{{{{.Label \"{RLM_OWNER_LABEL}\"}}}}' 2>/dev/null || true")
+    rows = [line.split("|") for line in out.splitlines()]
+    s["crucible_containers"] = sum(1 for r in rows if r[0].startswith("crucible") and not any(owner_dead(o) for o in r[1:] if o))
     rc, out = probe("cat /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg; nproc 2>/dev/null || sysctl -n hw.ncpu")
     nums = [x for x in out.replace("{", " ").replace("}", " ").split()]
     try:

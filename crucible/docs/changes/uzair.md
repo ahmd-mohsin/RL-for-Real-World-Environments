@@ -1156,3 +1156,36 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   toolchain, in-place and timeout suites: 436 passed, 5 skipped.
 - **Merge notes.** An episode's worst case per hung tool call grows by 60 s. Apps with long calls of their own should
   take their deadline from `App.deadline` too.
+
+## 54. M1 R-6: sandbox containers end on their own; R-1's removed-container rule corrected
+
+- **Item.** R-6 of `docs/research/improvements/2026-10-14/M01-world.md` (must, narrowed in triage: no lease renewal, no
+  reaper, no run label). Pattern from our RLM kernel containers (`actors/rlm/kernel.py:477-596`: owner label,
+  `sleep <lifetime>`); no outside code.
+- **Files.** `src/crucible/world/sandbox.py` (`OWNER_LABEL`, `LIFETIME_MARGIN_S`, `owner_id`, `owner_dead`,
+  `DockerSandbox.lifetime_s`, `argv`, `start`), `world/pool.py` (hygiene keeps the container's own `sleep <n>`),
+  `world/exec.py` (`OUTSIDE_ACTIONS`, `DockerExec.since` / `expires_at`, `lost`, `_actions`), `runtime/perf_guard.py`
+  (`sample`), `docs/modules/M01-world.md` (finding 20), `tests/unit/test_sandbox_lifetime.py` (new),
+  `tests/unit/test_container_lost.py`, `tests/unit/test_sandboxes.py`.
+- **Public names.** `crucible.world.sandbox`: `OWNER_LABEL` (`crucible.owner`), `LIFETIME_MARGIN_S` (900),
+  `owner_id()`, `owner_dead(owner)`, `DockerSandbox.lifetime_s`; `crucible.world.exec.OUTSIDE_ACTIONS`,
+  `DockerExec.since`, `DockerExec.expires_at`.
+- **Behaviour.** A `DockerSandbox` (and `GVisorSandbox`) runs `sleep <SandboxSpec.timeout_s + 900>` (default 8100 s)
+  instead of `sleep infinity` and is labelled `crucible.owner=<host>:<pid>`; one left by a crashed process ends and is
+  removed (`--rm`) within that time. The perf guard counts a `crucible*` container unless its `crucible.owner` or
+  `crucible.rlm.owner` names a dead process on this host (unlabelled and other hosts' containers count as before; a
+  leftover still doing work shows in the GPU and load checks). Correction to entry 51: `--rm` deletes a container the
+  moment its main process dies, so a policy that killed its own `sleep` read as "removed" and was masked. `lost()` now
+  reads a removed container's events since its exec was made: died with no `kill`/`stop`/`pause` and before its
+  lifetime (`expires_at`, set by the sandbox) is the episode's doing (scored); a kill or stop, a passed lifetime, or no
+  evidence is lost. A stopped container past its lifetime is lost too.
+- **Formats.** none (a new container label).
+- **Tests.** `test_sandbox_lifetime.py` (5: the command and label, `owner_dead`, the perf guard over a fake and a real
+  daemon, and a real `--rm` container whose `sleep` the policy kills: scored, not masked); `test_container_lost.py`
+  (+1: removed with die / with kill / with no events / past its lifetime, stopped past its lifetime);
+  `test_sandboxes.py` (`sleep 8100`). Sandbox, pool, gVisor, agentenv, perf guard, World and core suites: 231 passed,
+  3 skipped, 1 known failure (`test_agentenv_mcp_env::test_card_tools_only_hides_uncarded`).
+- **Merge notes.** A sandbox that must live past `timeout_s` + 15 min needs a larger `timeout_s` (up to 24 h). The pool
+  hands out a warm sandbox as it is, so one that waited in the pool has less than its full lifetime left (no pack
+  uses the pool). Docker keeps a bounded event log: on a very busy host a removed container's `die` may have rolled
+  off, which counts as lost (masked), never as the policy's.

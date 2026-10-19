@@ -30,7 +30,7 @@ def test_docker_sandbox_flags_for_the_lab_gpu_host():
     assert sb.docker_host == "ssh://ahmed@100.100.101.36"
     assert "--runtime=nvidia" in a and "NVIDIA_VISIBLE_DEVICES=all" in a and "--gpus" not in a  # --gpus fails on that host
     assert a[a.index("--network") + 1] == "none" and a[a.index("--pids-limit") + 1] == "512" and "SYS_RESOURCE" in a
-    assert a[-3:] == ["task04-pcl-gpu-cuda12:v1", "sleep", "infinity"] and "--init" in a and a[a.index("--memory") + 1] == "16384m"
+    assert a[-3:] == ["task04-pcl-gpu-cuda12:v1", "sleep", "8100"] and "--init" in a and a[a.index("--memory") + 1] == "16384m"  # 2 h + 15 min (R-6)
     b = DockerSandbox(SandboxSpec(image="x", gpu_mode="devices"), world(gpus=2, network="public", policy_user=None)).argv()
     assert b[b.index("--gpus") + 1] == "2" and "--network" not in b and "SYS_RESOURCE" not in b
 

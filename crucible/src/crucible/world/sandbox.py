@@ -9,12 +9,39 @@ agentenv providers) live in ``crucible.interop.agentenv.sandbox`` behind the sam
 
 from __future__ import annotations
 
+import os
 import shlex
+import socket
+import time
 import uuid
 from typing import Protocol
 
 from crucible.core.schema.world import SandboxSpec, WorldSpec
 from crucible.world.exec import DockerExec, Exec, _run_subprocess, deadline_hit, with_deadline
+
+# A sandbox container ends by itself (M1 audit R-6): its main process is ``sleep <timeout_s + LIFETIME_MARGIN_S>``, not
+# ``sleep infinity``, so one left by a crashed or killed process is gone (``--rm``) within its lifetime; it is labelled
+# with its owner (host:pid), and the perf guard ignores containers whose owner is a dead process on this host.
+OWNER_LABEL = "crucible.owner"
+LIFETIME_MARGIN_S = 900  # restores and grading after the episode's own budget
+
+
+def owner_id() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def owner_dead(owner: str) -> bool:
+    """True when ``owner`` (``host:pid``) is a process on this host that no longer runs; unknown or other hosts: False."""
+    host, _, pid = owner.rpartition(":")
+    if host != socket.gethostname() or not pid.isdigit() or int(pid) == os.getpid():
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return True
+    except OSError:  # another user's live process
+        return False
+    return False
 
 
 class Sandbox(Protocol):
@@ -84,7 +111,8 @@ class DockerSandbox:
         self.description = f"docker {sb.image} on {self.docker_host or 'local daemon'}" + (f", {self.gpus} GPU(s)" if self.gpus else "")
 
     def argv(self) -> list[str]:
-        a = ["docker", "run", "-d", "--rm", "--init", "--name", self.name, "--label", f"crucible.world={self.spec.world}", "--label", "crucible.sandbox=1"]
+        a = ["docker", "run", "-d", "--rm", "--init", "--name", self.name, "--label", f"crucible.world={self.spec.world}", "--label", "crucible.sandbox=1",
+             "--label", f"{OWNER_LABEL}={owner_id()}"]
         if self.spec.network == "no-network":
             a += ["--network", "none"]
         if self.pids_limit:
@@ -107,7 +135,12 @@ class DockerSandbox:
         mem = self.memory or (f"{self.sb.memory_mb}m" if self.sb.memory_mb else None)
         if mem:
             a += ["--memory", mem]
-        return [*a, "--entrypoint", "", self.sb.image, "sleep", "infinity"]
+        return [*a, "--entrypoint", "", self.sb.image, "sleep", str(self.lifetime_s)]
+
+    @property
+    def lifetime_s(self) -> int:
+        """How long the container lives at most: the sandbox's ``timeout_s`` plus a margin, then it ends and is removed."""
+        return self.sb.timeout_s + LIFETIME_MARGIN_S
 
     def _env(self) -> dict[str, str] | None:
         return {"DOCKER_HOST": self.docker_host} if self.docker_host else None
@@ -115,6 +148,8 @@ class DockerSandbox:
     image_id: str | None = None
 
     async def start(self) -> None:
+        if isinstance(self.exec, DockerExec):  # taken before the run: the container cannot outlive it (its end is infrastructure)
+            self.exec.expires_at = time.time() + self.lifetime_s
         out = await _run_subprocess(self.argv(), cwd=None, env=self._env(), timeout_s=1800, stdin=None)
         if not out.ok:
             raise RuntimeError(f"sandbox container failed to start ({self.description}): {(out.stderr or out.stdout)[-800:]}")

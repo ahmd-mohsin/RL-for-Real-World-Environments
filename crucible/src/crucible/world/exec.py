@@ -55,6 +55,10 @@ CONTAINER_GONE = re.compile(r"service \"?main\"? is not running|No such containe
                             r"|Cannot connect to the Docker daemon|error during connect", re.IGNORECASE)
 
 
+# daemon API actions on a container that no process inside it can cause: from outside the episode
+OUTSIDE_ACTIONS = frozenset({"kill", "stop", "pause"})
+
+
 class EnvContainerLost(RuntimeError):
     """The task container was removed or stopped from outside the episode (or its daemon is unreachable): infrastructure,
     masked as ``crucible:env_container_lost`` (M13 audit B2, M1 audit R-1). Raised only after the host confirmed it."""
@@ -375,6 +379,8 @@ class DockerExec(Exec):
         self.docker_host = docker_host
         self.default_user = default_user
         self.python = python
+        self.since = time.time()  # the container's events are read from here (a removed one has no StartedAt left)
+        self.expires_at: float | None = None  # set by the sandbox that runs it for a fixed lifetime (sandbox.DockerSandbox)
 
     def _env(self) -> dict[str, str] | None:
         return {"DOCKER_HOST": self.docker_host} if self.docker_host else None
@@ -397,26 +403,37 @@ class DockerExec(Exec):
         return await self._unless_lost(out)
 
     async def lost(self) -> str | None:
-        """Why the container is lost to the episode (removed, paused or stopped from outside, daemon unreachable), asked of
-        the daemon on the same ``DOCKER_HOST``, or None. ``docker stop`` / ``kill`` / ``rm`` / ``pause`` go through the daemon
-        API, which no process in the container can do; a container whose own main process exited (the policy killed it, or
-        it ran out of memory) is the episode's doing, not lost (the rule Harbor's ``container_lost`` applies)."""
+        """Why the container is lost to the episode (removed, paused or stopped from outside, its lifetime over, daemon
+        unreachable), asked of the daemon on the same ``DOCKER_HOST``, or None. ``docker stop`` / ``kill`` / ``rm`` /
+        ``pause`` go through the daemon API, which no process in the container can do; a container whose own main process
+        exited (the policy killed it, or it ran out of memory) is the episode's doing, not lost (the rule Harbor's
+        ``container_lost`` applies). ``--rm`` deletes such a container at once, so a removed one is the episode's only when
+        its events show it died with no kill or stop before its lifetime ran out (M1 audit R-6); no evidence: lost."""
         st = await _run_subprocess(["docker", "inspect", "--format", "{{json .State}}", self.container], cwd=None, env=self._env(),
                                    timeout_s=60, stdin=None)
+        expired = self.expires_at is not None and time.time() >= self.expires_at
         if not st.ok:
-            if "no such" in st.stderr.lower():
-                return f"the task container {self.container} was removed"
-            return f"the Docker daemon cannot be reached: {st.stderr.strip()[-300:]}"
+            if "no such" not in st.stderr.lower():
+                return f"the Docker daemon cannot be reached: {st.stderr.strip()[-300:]}"
+            acts = await self._actions(str(int(self.since) - 1))
+            if acts is not None and "die" in acts and not acts & OUTSIDE_ACTIONS and not expired:
+                return None
+            return f"the task container {self.container} " + ("reached the end of its lifetime" if expired else "was removed")
         state = json.loads(st.stdout or "{}")
         if state.get("Paused"):
             return f"the task container {self.container} was paused from outside"
         if state.get("Running"):
             return None
-        ev = await _run_subprocess(["docker", "events", "--since", state.get("StartedAt") or "0", "--until", str(int(time.time()) + 1),
-                                    "--filter", f"container={self.container}", "--format", "{{.Action}}"], cwd=None, env=self._env(),
-                                   timeout_s=30, stdin=None)
-        outside = sorted({a.split(":")[0].strip() for a in ev.stdout.splitlines()} & {"kill", "stop", "destroy", "pause"}) if ev.ok else []
+        if expired:
+            return f"the task container {self.container} reached the end of its lifetime"
+        outside = sorted((await self._actions(state.get("StartedAt") or "0") or set()) & OUTSIDE_ACTIONS)
         return f"the task container {self.container} was stopped from outside ({', '.join(outside)}; status {state.get('Status')})" if outside else None
+
+    async def _actions(self, since: str) -> set[str] | None:
+        """The container's event actions since ``since`` (``die``, ``kill``, ...), or None when the daemon gives none."""
+        ev = await _run_subprocess(["docker", "events", "--since", since, "--until", str(int(time.time()) + 1), "--filter",
+                                    f"container={self.container}", "--format", "{{.Action}}"], cwd=None, env=self._env(), timeout_s=30, stdin=None)
+        return {a.split(":")[0].strip() for a in ev.stdout.splitlines() if a.strip()} if ev.ok else None
 
     async def _unless_lost(self, out: ExecOut) -> ExecOut:
         """``out``, unless it is the docker CLI reporting a lost container and the daemon confirms it: then EnvContainerLost.
