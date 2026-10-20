@@ -60,6 +60,8 @@ from crucible.runtime.infra import LimitPolicy, RetryRule
 from crucible.runtime.run import Runner, RunSpec
 from crucible.verify.runtime.plan import GradeReport
 
+CONNECT_ERROR = 'error during connect: Get "http://docker.example/v1.47/containers/x/json": ssh: connect to host lab port 22: Connection reset\n'
+
 F = Path(__file__).resolve().parents[1] / "fixtures" / "harbor_inplace"
 PRICED = {"m": [1_000_000.0, 1_000_000.0]}  # 3 prompt + 2 completion tokens -> 5.0 USD per call
 HOST_KEY, HOST_ANT = "sk-real-host-123456", "sk-ant-real-123456"
@@ -1347,7 +1349,6 @@ class _TrialPaths:
 
 NOISE = ("bash: warning: setlocale: LC_ALL: cannot change locale (xx_XX.UTF-8)\n"
          "WARN[0000] /t/docker-compose.yaml: the attribute `version` is obsolete, it will be ignored, please remove it\n")
-CONNECT_ERROR = 'error during connect: Get "http://docker.example/v1.47/containers/x/json": ssh: connect to host lab port 22: Connection reset\n'
 # runc's refusals to start a process in the container's present state (review round 3): bash removed, the working directory removed
 OCI_NO_BASH = ('OCI runtime exec failed: exec failed: unable to start container process: exec: "bash": executable file not found in $PATH: '
                "unknown\n")

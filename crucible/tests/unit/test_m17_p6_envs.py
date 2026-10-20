@@ -70,7 +70,7 @@ def test_infra_watch_masks_a_dead_world_once() -> None:
     assert calls == [("crucible:env_container_lost", "the World's sandbox died (after step 1)")] and out["infra_dead"] == "after step 1"
 
 
-def test_native_two_timeouts(toy) -> None:
+def test_native_two_timeouts(toy, monkeypatch) -> None:
     from crucible.runtime.run import Runner
 
     o = toy.rec["oracle_files"]
@@ -85,6 +85,13 @@ def test_native_two_timeouts(toy) -> None:
     HostWindow._dead = False
     agent = asyncio.run(run("agent-timeout", Timeouts(agent_s=1.2, rollout_s=600)))
     assert not agent["mask_sample"] and agent["meta"]["stop"] == "timeout" and agent["reward"] == pytest.approx(1 / 6, abs=1e-5)  # m01 only: graded
+    real_snapshot = HostWindow.snapshot_patch
+
+    async def slow_snapshot(self, world) -> str:  # grading outlasts rollout_s on any host; setup speed must not decide the outcome
+        await asyncio.sleep(5)
+        return await real_snapshot(self, world)
+
+    monkeypatch.setattr(HostWindow, "snapshot_patch", slow_snapshot)
     roll = asyncio.run(run("rollout-timeout", Timeouts(agent_s=0.5, rollout_s=0.8)))
     assert roll["mask_sample"] and roll["reward"] is None
 
