@@ -540,9 +540,10 @@ def _overloaded(holder: dict, req: httpx.Request) -> httpx.Response:
 
 
 async def _run_b(tmp_path, run_id: str, *, handler=_ok, agent=None, agent_url: str | None = None, task=None, k: int = 1,
-                 budget: float | None = None, **hkw):
+                 budget: float | None = None, spec: dict | None = None, **hkw):
     """One run of a real A2A agent (served per attempt from ``agent``, default ``ToolAgent``; or the running one at
-    ``agent_url``) on the toy helpdesk World behind agentenv's gateway, with the capture proxy served over HTTP."""
+    ``agent_url``) on the toy helpdesk World behind agentenv's gateway, with the capture proxy served over HTTP. ``spec``:
+    more ``RunSpec`` fields (``hkw`` goes to the harness)."""
     pytest.importorskip("agent_env")
     from crucible_pack_toy.runtime import HelpdeskTask
 
@@ -559,7 +560,7 @@ async def _run_b(tmp_path, run_id: str, *, handler=_ok, agent=None, agent_url: s
                        agent_config={"model": "m", "llm_base_url": "${capture.base_url}/v1", "llm_api_key": "${capture.key}"}, **hkw)
         t = task(base, holder) if task is not None else HelpdeskTask(backend="agentenv")
         s = await Runner(tmp_path).run(RunSpec(run_id=run_id, tasks=[t], policies=[PolicyRef(id="a2a:tool-agent", make=lambda a: {}, config={})], harnesses=[h],
-                                               k=k, concurrency=1, budget_usd=budget, retry=RetryRule(max_attempts=1)))
+                                               k=k, concurrency=1, budget_usd=budget, retry=RetryRule(max_attempts=1), **(spec or {})))
         rows = [json.loads(x) for x in (tmp_path / run_id / "results.jsonl").read_text().splitlines() if x.strip()]
         return s, rows, proxy, t
     finally:
@@ -601,7 +602,10 @@ async def test_a2a_capture_key_is_rejected_during_verification(tmp_path):
 
 
 async def test_a2a_agent_error_after_upstream_5xx_is_masked(tmp_path):
-    _s, rows, _proxy, _t = await _run_b(tmp_path, "5xx", handler=_overloaded)
+    # the blame is under test, not the outage pause: with M10 lab audit R-5's provider breaker on, this upstream that never
+    # recovers defers the attempt and quarantines the sample after quarantine_s (900 s), so no terminal row is ever written
+    # (the Harbor twin, test_upstream_503_then_nonzero_exit_is_masked_provider_unavailable, runs with breaker=None too)
+    _s, rows, _proxy, _t = await _run_b(tmp_path, "5xx", handler=_overloaded, spec={"breaker": None})
     f = Failure.model_validate(rows[0]["failure"])
     assert f.kind == "provider_unavailable" and rows[0]["mask_sample"] and f.who != "policy", f
 
