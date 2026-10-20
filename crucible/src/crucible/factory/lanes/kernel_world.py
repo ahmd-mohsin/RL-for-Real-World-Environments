@@ -215,7 +215,7 @@ def leak_probe(image: str, needles: Sequence[str], *, roots: Sequence[str] = ("/
     pat = "\n".join(n.strip() for n in needles)
     name = f"{PREFIX}leak-{uuid.uuid4().hex[:10]}"
     roots_q = " ".join(shlex.quote(r) for r in roots)
-    script = f"cat > /tmp/n.txt <<'CRUCIBLE_EOF'\n{pat}\nCRUCIBLE_EOF\nfor r in {roots_q}; do [ -e \"$r\" ] && grep -rIlF -f /tmp/n.txt \"$r\" 2>/dev/null; done | head -20; true"
+    script = f"cat > /tmp/n.txt <<'KLEAK_EOF'\n{pat}\nKLEAK_EOF\nfor r in {roots_q}; do [ -e \"$r\" ] && grep -rIlF -f /tmp/n.txt \"$r\" 2>/dev/null; done | head -20; true"
     p = docker("run", "--rm", "--name", name, "--network", "none", image, "bash", "-c", script, timeout=timeout)
     hits = [ln for ln in p.stdout.splitlines() if ln.strip()]
     return {"ok": p.returncode == 0 and not hits, "probed": len(needles), "hits": hits, "rc": p.returncode}
