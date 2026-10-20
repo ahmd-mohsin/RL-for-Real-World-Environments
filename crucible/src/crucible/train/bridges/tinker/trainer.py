@@ -46,6 +46,13 @@ a run is refused unless every task has a targeting record for this base model (`
 ``model`` = the base and ``band.in_band``; ``require_band=False`` only for smoke runs), and unless every task is a
 training task (held-out tasks never train: V9).
 
+**Dashboards** (``sinks``, the ``train.sinks.Sink`` protocol through a ``Tracking``; ``observe.ObsRun`` is the W&B one,
+swarm-pipeline/11 §4.2): after each optimizer step ``step_metrics`` logs reward mean/std/min/max, Φ final, gate pass
+rate, pass rate, advantage stats (sequence and token), loss and every ``forward_backward`` metric, sample-vs-train
+logprob gap (``kl/sample_vs_train``) and importance ratio stats, staleness, drops by reason, tokens and USD booked since
+the previous step, cumulative spend vs the cap, and the sampler version; each drop is a ``record("drop", ...)``; the run
+summary goes to ``summary``. The trainer never finishes the sinks it is given: the caller does, after its own logging.
+
 Layering: ``crucible.train`` never imports ``crucible.factory``; environments are anything with ``task``,
 ``run_spec(run_id=, policies=, k=, **kw)`` and ``policy_kwargs()`` (``factory.envs.NativeEnv``).
 """
@@ -55,6 +62,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import statistics
 import time
 from collections.abc import Mapping, Sequence
@@ -67,6 +75,7 @@ from crucible.train.bridges.tinker.datums import build_datums, scale
 from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
+from crucible.train.sinks import Sink, Tracking
 
 LOSSES = ("importance_sampling", "ppo", "cispo")
 RESUMABLE_CHANGES = ("steps", "cap_usd")
@@ -188,6 +197,62 @@ def _append(path: Path, row: Mapping[str, Any]) -> None:
         f.write(json.dumps(dict(row), sort_keys=True, default=str) + "\n")
 
 
+def _stats(xs: Sequence[float], prefix: str) -> dict[str, float]:
+    xs = [float(x) for x in xs if x is not None and math.isfinite(float(x))]
+    if not xs:
+        return {}
+    return {f"{prefix}/mean": statistics.fmean(xs), f"{prefix}/std": statistics.pstdev(xs) if len(xs) > 1 else 0.0, f"{prefix}/min": min(xs),
+            f"{prefix}/max": max(xs)}
+
+
+def step_metrics(batch: Sequence[Group], datums: Sequence[Any], fb: Any, kl: Sequence[float], *, version: int, sampler_version: int, drops: Mapping[str, int],
+                 usd_step: float, usd_cum: float, cap_usd: float, tokens: Mapping[str, int], train_s: float, step_s: float | None = None) -> dict[str, float]:
+    """The dashboard row of one optimizer step (module doc): flat ``a/b`` keys, numbers only."""
+    recs = [r for g in batch for r in g.records if not r.mask_sample and r.reward is not None]
+    out: dict[str, float] = {}
+    out.update(_stats([float(r.reward) for r in recs], "reward"))  # type: ignore[arg-type]
+    phis = [float(r.progress["phi_final"]) for r in recs if isinstance((r.progress or {}).get("phi_final"), int | float)]
+    out.update({f"phi/final_{k.split('/')[1]}": v for k, v in _stats(phis, "phi").items()})
+    gate_ok = []
+    for r in recs:
+        gs = [bool(v) for k, v in (r.gates or {}).items() if (r.gate_kinds or {}).get(k, "gate") == "gate"]
+        if gs:
+            gate_ok.append(all(gs))
+    if gate_ok:
+        out["gates/pass_rate"] = sum(gate_ok) / len(gate_ok)
+    if recs:
+        out["pass_rate"] = sum(float(r.reward) >= 1.0 - 1e-9 for r in recs) / len(recs)  # type: ignore[arg-type]
+    out.update(_stats([d.meta.get("seq_adv") for d in datums if d.meta.get("seq_adv") is not None], "advantage/sequence"))
+    tok_adv = [a for d in datums for a, m in zip(d.advantages, d.mask, strict=False) if m]
+    out.update(_stats(tok_adv, "advantage/token"))
+    if tok_adv:
+        out["advantage/token_abs_mean"] = statistics.fmean(abs(a) for a in tok_adv)
+    for k, v in (getattr(fb, "metrics", None) or {}).items():
+        if isinstance(v, int | float) and math.isfinite(float(v)):
+            out[f"train/{k}"] = float(v)
+    if "train/loss:sum" in out:
+        out["train/loss"] = out["train/loss:sum"]
+    if kl:
+        out["kl/sample_vs_train"] = statistics.fmean(kl)
+        out["kl/sample_vs_train_abs_max"] = max(abs(x) for x in kl)
+        ratios = [math.exp(max(-50.0, min(50.0, -x))) for x in kl]  # π_train / π_sample per token
+        out.update(_stats(ratios, "ratio"))
+    stale = [version - mv for g in batch if (mv := g.min_version()) is not None]
+    if stale:
+        out["staleness/max"], out["staleness/mean"] = float(max(stale)), statistics.fmean(stale)
+    for k, v in drops.items():
+        out[f"drops/{k}"] = float(v)
+    out["drops/total"] = float(sum(drops.values()))
+    for k, v in tokens.items():
+        out[f"tokens/{k}"] = float(v)
+    out.update({"usd/step": usd_step, "usd/cum": usd_cum, "usd/cap": cap_usd, "usd/cap_frac": usd_cum / cap_usd if cap_usd else 0.0,
+                "sampler/version": float(sampler_version), "episodes": float(sum(len(g.records) for g in batch)), "groups": float(len(batch)),
+                "datums": float(len(datums)), "time/train_s": train_s})
+    if step_s is not None:
+        out["time/step_s"] = step_s
+    return out
+
+
 def read_group(root: Path, run_id: str, k: int) -> list[RolloutRecord]:
     """The group's ``k`` rollouts from the Runner's run directory (a sample without a rollout is masked)."""
     out = []
@@ -206,8 +271,12 @@ def read_group(root: Path, run_id: str, k: int) -> list[RolloutRecord]:
 
 class TinkerTrainer:
     def __init__(self, envs: Sequence[TrainerEnv], *, config: TrainConfig, backend: Any, run_dir: Path, codec: Any, objective_id: str,
-                 targeting: Mapping[str, Mapping[str, Any]] | None = None, name: str | None = None):
+                 targeting: Mapping[str, Mapping[str, Any]] | None = None, name: str | None = None, sinks: Sequence[Sink] = ()):
         self.envs, self.cfg, self.backend, self.codec = list(envs), config, backend, codec
+        self.tracking = Tracking(sinks)
+        self._last_tokens: dict[str, int] = {}
+        self._last_usd = 0.0
+        self._last_step_t: float | None = None
         self.dir = Path(run_dir)
         self.model: TinkerModel = resolve(config.model)
         self.objective_id = objective_id
@@ -300,8 +369,10 @@ class TinkerTrainer:
     def _drop(self, g: Group, reason: str) -> None:
         self.drops[reason] = self.drops.get(reason, 0) + 1
         why = g.error or next((f"{r.rollout_id}: {r.failure_kind}" for r in g.records if r.mask_sample), None)
-        _append(self.dir / "drops.jsonl", {"step": self.state["step"], "version": self.state["version"], "group": g.run_id, "task": g.task_id,
-                                            "reason": reason, "detail": why, "rewards": g.rewards(), "min_version": g.min_version()})
+        row = {"step": self.state["step"], "version": self.state["version"], "group": g.run_id, "task": g.task_id, "reason": reason, "detail": why,
+               "rewards": g.rewards(), "min_version": g.min_version()}
+        _append(self.dir / "drops.jsonl", row)
+        self.tracking.record("drop", row, int(self.state["step"]))
 
     # ---- the update ----
     async def _step(self, batch: list[Group]) -> None:
@@ -342,6 +413,14 @@ class TinkerTrainer:
                "usd_cum": round(self.meter.spent, 6), "drops": dict(self.drops), "min_versions": [g.min_version() for g in batch]}
         self.step_rows.append(row)
         _append(self.dir / "steps.jsonl", row)
+        t = self.meter.totals
+        tok = {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample, "train": t.train}
+        now = time.monotonic()
+        self.tracking.log(step_metrics(batch, datums, fb, kl, version=step, sampler_version=self.sampler.version, drops=self.drops,
+                                       usd_step=self.meter.spent - self._last_usd, usd_cum=self.meter.spent, cap_usd=self.cfg.cap_usd,
+                                       tokens={**{k: v - self._last_tokens.get(k, 0) for k, v in tok.items()}, "trained": n_tr},
+                                       train_s=train_s, step_s=(now - self._last_step_t) if self._last_step_t is not None else None), step)
+        self._last_tokens, self._last_usd, self._last_step_t = tok, self.meter.spent, now
 
     async def _checkpoint(self) -> None:
         path = await self.trainer.save_state(f"{self.name}-state-s{self.state['step']:06d}", ttl_s=self.cfg.ttl_s)
@@ -356,6 +435,9 @@ class TinkerTrainer:
         self._open()
         cfg = self.cfg
         self.meter = SpendMeter(cfg.cap_usd, path=self.dir / "spend.jsonl")
+        t = self.meter.totals  # a resumed run's per-step deltas start from what earlier processes booked
+        self._last_usd, self._last_tokens = self.meter.spent, {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample,
+                                                               "train": t.train}
         res = self.state.get("resume")
         if res:  # requeue-safe: back to the last saved state (weights + optimizer) and that step's sampler weights
             self.state.update(step=res["step"], version=res["step"], sampler_path=res["sampler_path"], state_path=res["state_path"])
@@ -435,4 +517,5 @@ class TinkerTrainer:
                "trained_episodes": eps, "usd_per_episode": (self.meter.spent / max(1, self.groups_seen * self.cfg.group_size)),
                "wall_s": round(wall_s, 1), "steps_log": self.step_rows, "codec": self.codec.settings() if hasattr(self.codec, "settings") else None}
         _atomic(self.dir / "summary.json", out)
+        self.tracking.summary({k: v for k, v in out.items() if k not in ("steps_log", "versions")})
         return out

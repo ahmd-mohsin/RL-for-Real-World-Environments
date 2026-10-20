@@ -42,6 +42,9 @@ answers = ["math-verify>=0.7"]
 ray = ["ray>=2.40"]
 # Tinker (Thinking Machines) as trainer and sampler (train/bridges/tinker; Apache-2.0 SDK, imported lazily).
 tinker = ["tinker>=0.34", "transformers>=4.56"]
+# Observability (crucible.observe, swarm-pipeline/11): W&B runs/tables/artifacts offline (`wandb sync` later), Weave traces
+# (replayed from local spans once a key exists), the W&B Reports API for the report template.
+observe = ["wandb>=0.31", "weave>=0.53", "wandb-workspaces>=0.4"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
 verifiers = ["verifiers"]
 dev = [
@@ -150,6 +153,7 @@ type = "forbidden"
 source_modules = [
   "crucible.core", "crucible.world", "crucible.actors", "crucible.connectors", "crucible.signals", "crucible.workflow",
   "crucible.credit", "crucible.verify", "crucible.runtime", "crucible.forge", "crucible.accept", "crucible.train", "crucible.bench",
+  "crucible.observe",
 ]
 forbidden_modules = ["harbor", "agent_env", "agentenv_protocol", "verifiers", "openenv", "nemo_gym"]
 ignore_imports = ["crucible.runtime.record -> harbor"]  # a TYPE_CHECKING annotation only
@@ -167,6 +171,17 @@ source_modules = ["crucible.connectors", "crucible.signals"]
 forbidden_modules = ["crucible.world", "crucible.actors", "crucible.interop", "harbor", "agent_env", "verifiers", "openenv", "crucible_pack_coding", "crucible_pack_toy"]
 
 [[tool.importlinter.contracts]]
+name = "Only crucible.observe imports W&B and Weave: every result, graph and trace is logged (and redacted) through one module"
+type = "forbidden"
+source_modules = [
+  "crucible.cli", "crucible.studio", "crucible.factory", "crucible.interop", "crucible.train", "crucible.bench", "crucible.accept", "crucible.forge",
+  "crucible.runtime", "crucible.verify", "crucible.credit", "crucible.workflow", "crucible.connectors", "crucible.signals", "crucible.actors",
+  "crucible.world", "crucible.core",
+]
+forbidden_modules = ["wandb", "weave", "wandb_workspaces"]
+allow_indirect_imports = true  # through crucible.observe is the point
+
+[[tool.importlinter.contracts]]
 name = "Layering (M0 audit D3): a package may import only packages below it; siblings on one line are independent"
 type = "layers"
 layers = [
@@ -180,6 +195,7 @@ layers = [
   "crucible.verify",
   "crucible.credit",
   "crucible.workflow",
+  "crucible.observe",  # swarm-pipeline/11: W&B and Weave; reachable from the runtime up, uses only the redaction and core
   "crucible.connectors | crucible.signals",
   "crucible.actors",
   "crucible.world",

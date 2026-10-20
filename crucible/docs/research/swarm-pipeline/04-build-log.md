@@ -1089,3 +1089,41 @@ declared.
 
 **Open.** Live resume and outage backoff; Kimi-K2.6 and gpt-oss live (text protocol); `uv lock` on main; the
 `register_backend("tinker", ...)` line at merge.
+
+## Observability (built): every result, graph and agent trace in W&B, offline until a key exists
+
+Spec: `11-observability.md` (the user, 2026-10-20: all results and graphs visible in W&B, agent traces viewable the way
+people view agent traces). No W&B key yet: nothing was uploaded; spend USD 0.
+
+**Files.** New: `observe/` (`naming`, `redact`, `run`, `charts`, `traces`, `weave_sync`, `train_views`, `bench`,
+`factory_views`, `report`, `backfill`), `scripts/observe.py` (status, backfill, sync, trace, episodes, links, report,
+replay), tests `tests/unit/test_observe.py` (16). Changed: `train/bridges/tinker/trainer.py` (`sinks=`, `step_metrics`, a
+drop is a record), `train/sinks.py` (`WandbSink` is `observe.WandbSink`), `factory/tinker.py` (`observe=` on `train`,
+`benchmark`, `compare`; `task_meta`), `scripts/tinker_rl.py` (observability on by default, `--no-observe`),
+`pyproject.toml` (extra `observe`; the layer between `workflow` and `connectors | signals`; a contract that only
+`crucible.observe` imports `wandb`, `weave`, `wandb_workspaces`), `THIRD_PARTY.md`, `DESIGN.md` §7.6.
+
+**Weave offline, checked in weave 0.53.12's source.** `weave.init` calls `wandb.login` and the server's version
+endpoint before a client exists; `WEAVE_DISABLED` drops calls; the WAL needs an authenticated client. So traces are
+Weave-shaped spans on disk, replayed with `WeaveClient.create_call(_call_id_override=, started_at=)` / `finish_call(
+ended_at=)`: deterministic UUIDv7 ids keep today's links valid after the upload. The test checks those keywords on the
+installed weave and replays through a fake client (parents first, ids and parents kept, nothing twice).
+
+**Verified (offline, the fake Tinker on the toy window).** `train` logs both steps through the trainer's sink with
+every dashboard key (reward, Φ, gate pass rate, pass rate, advantages, loss, KL and ratio, staleness, drops, tokens,
+USD per step and cumulative vs the cap, sampler version), exports the 4 trained episodes as traces and the adapter's
+`tinker://` path as artifact metadata; `compare` logs the headline chart with CIs, the paired difference (+1.0 on the
+scripted arms), the protocol problem (`no baseline arm`), per-task and per-language tables and pass@k curves, and each
+arm as a run of the same group with its episodes table and trace links; every episode is root → turns → tools with Φ
+per turn (the passing one ends at Φ 1 with ΔΦ summing to 1); a `FailureFinding` attaches to its episode's trace (its
+bundle id equals the episode key); a planted vendor key in a tool call and its output, and a prefix-less
+`WANDB_API_KEY` value, appear in nothing written or handed to W&B; one real `wandb` offline run is written for a later
+sync; the report template builds with the Reports API offline; the backfill turns the repo's run reports into views
+once.
+
+**Backfill.** `docs/research/swarm-pipeline/runs` and the Tinker smoke directories: 36 offline runs and 13 traced
+episodes in `data/observe` (4.4 MB; `11` §7).
+
+**Open.** The `lh_*` factory scripts are logged through `backfill`, not live; `_call_id_override` is private API (the
+fallback writes `links.json`); per-turn timestamps are reconstructed; the first real sync is untested (no key); `uv lock`
+for the `observe` extra.
