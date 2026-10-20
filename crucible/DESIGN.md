@@ -1809,6 +1809,22 @@ user namespaces, so no container runtime can run there.
 - **Pending:** the Runpod acceptance (sm_89 preflight, verifier score equals a manual run) needs a running pod. The
   recorded pod refused connections on 2026-10-10.
 
+**S4b (2026-10-19): the `apptainer` backend** (`world/backends/apptainer.py`; HPC hosts without Docker, first Marlowe:
+`docs/research/swarm-pipeline/05-marlowe.md`).
+- **`ApptainerSandbox`:** the `DockerSandbox` contract over one unprivileged instance per World
+  (`--containall --cleanenv --no-home --net --network none --writable-tmpfs`, the workspace bound at its host path,
+  `--nv` for GPUs). `ApptainerExec` runs `apptainer exec --cleanenv instance://...` (an exec without `--cleanenv` carries the
+  host environment in); files travel on stdin and back as base64. `ExecSandbox` over it is slime's four-method `Sandbox`;
+  a vanished instance raises `ExecError`, which becomes `SandboxTerminatedError` (V8).
+- **Measured isolation (login node):** loopback only, a public connect fails; no host home, code, venv or `/cm/shared`;
+  no scheduler or credential variables; own PID namespace; `instance stop` ends what the policy left. Not achieved:
+  cgroup limits (refused on the login node, so `cgroups="auto"` starts without them and says so; the Slurm job's cgroup
+  bounds the World) and a demoted `policy_user` (commands run as the invoking user; there is no root to demote from).
+- **Also:** `ApptainerBackend` (registry key `apptainer`), `open_workspace_world` (the window lane's World with the tools
+  in the instance), `run_once` (a fresh container for grading). `APPTAINER_CONFIGDIR` moves instance state off a full home.
+- **Tests:** `tests/unit/test_marlowe_apptainer.py` (fake runner: flags, cgroup fallback, files, the slime contract, a dead
+  instance, the stage driver's guards and TERM forwarding); a real rollout through it on the Marlowe login node.
+
 **S5 (2026-10-10): the gVisor tier.** `SandboxSpec.runtime` takes three values:
 - `runc` (the default);
 - `runsc`, when a daemon has gVisor registered (`--runtime=runsc`);
