@@ -1458,8 +1458,12 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `CRUCIBLE_R3_*` knobs, `ExecTask.identity_config`, `WindowTask.identity_config`. Format: `crucible.run/v2.1`.
 - **Tests.** ruff: no new finding (64 left, all on Azaan's tip); lint-imports: 4 kept. Full unit + toy_e2e run before the
   M17, format and media fixes: 3163 passed; after them, the suites they touch (core audits, run lock, task digest,
-  formats, media, third party, M1 World, M6, M10, M17): all pass but the failures below. The full run on the final tree
-  is recorded with the merge of origin/dev that follows.
+  formats, media, third party, M1 World, M6, M10, M17): all pass but the failures below. Full run on the final tree
+  (with origin/dev b83aedd merged, 1ae5e64; the 15-min A2A test deselected): 3231 passed, 61 skipped, 15 failed, 1 error,
+  every one listed below; `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under
+  full-suite load only, and `test_native_two_timeouts` passes under it only (both timing). Main's own run at b83aedd
+  also fails `test_core_audit::test_every_crucible_variable_in_the_code_is_declared` (six `CRUCIBLE_*` names in the
+  kernel lane, Ahmed's).
 - **Merge notes.** Left for the authors (they fail on Azaan's own tip too): on Azaan's tip: `test_m10_lab_audit_r1_harbor.py` does not collect (`CONNECT_ERROR` undefined),
   `r1_a2a::test_a2a_agent_error_after_upstream_5xx_is_masked` waits 15 min for the R-5 breaker's quarantine and fails,
   `r2_quiesce::test_counted_by_bench_and_studio_hack_kinds`, `r3_control` / `r3_regrade` Harbor in place, two `r4_identity`
