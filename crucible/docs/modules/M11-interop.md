@@ -23,8 +23,10 @@
 3. **The policy's failures are scored.** A rejected action, a 4xx tool reply, an answer that breaks a verifier, a
    container the policy broke: scored 0. A health check decides when it is ambiguous (OpenEnv: replay the journal; AWM:
    run the verifier on the untouched DB; Harbor in place: can the verifier user still write its reward).
-4. **The policy never reaches the grader or the control plane.** Agents get role-pinned `/mcp` (agentenv proxy), one
-   grade per session ends it (NeMo-Gym), the grader's directories are emptied and grader-only files removed before a
+4. **The policy never reaches the grader or the control plane.** Agents get role-pinned `/mcp` (agentenv proxy; the
+   agentenv gateway itself listens on loopback only, and the actor tokens Crucible carries to App servers are tool-bound
+   and single-use: M11 lab audit R-2), outside agents are cut before every grade (`agentenv/cut.py`: every policy actor
+   done, later calls refused as `late_call`, quiesce, A2A cancel; `quiesce.json`), one grade per session ends it (NeMo-Gym), the grader's directories are emptied and grader-only files removed before a
    grade (Harbor, verifiers), separate-verifier tasks are refused in place, policy SQL cannot ATTACH or VACUUM INTO.
 5. **Framework semantics are the framework's.** Harbor's reward rules (`harbor/rewards.py`), network phases, verifier
    env and user; NeMo-Gym's pydantic models; verifiers' `ok` and branches; EnterpriseOps-Gym's `_compare_values`;
@@ -58,7 +60,7 @@ other rows, else the current step: v1 converts every tag with `dtype=int` after 
 |---|---|---|
 | `canonical.py`, `replay.py` | both | canonical JSON and tool names, derived `call_id`s; replay of any transcript (World trace, ATIF, Responses, OpenEnv calls, agentenv events) in a fresh World, final answers included; an incomplete replay masks `crucible:replay_incomplete` |
 | `harbor/` | import + export + harness | `agent_harness` (Harbor installed agents as a harness, never Harbor Trial/Job: M10 lab audit R-1), `patch_task` (the separate-verifier patch seam: collect hooks, then `verify_dir` in a fresh container), `reconcile` (OpenEnv's ATIF reconcile, ported: capture vs ATIF), `task_io` (task dirs), `inplace` (agent and Harbor's verifier in one container; dirs reset, agent phase applied, agent-phase hosts admitted for the capture proxy, separate verifiers refused in place (`patch_task` grades them from a collected patch); the grader's toolchain held to the pristine image host-side and container loss / grade-time network loss masked: M13 audit B1, B2), `grader_guard` (that toolchain check: `crucible:grader_tampered`), `multi_step`, `verify_dir` (patch mode with Harbor's rules), `rewards` (Harbor's reward parser), `atif` / `atif_import` / `trajectories`, `metrics` (masked mean), `world_backend` / `gpu_docker`, `role_runner` |
-| `agentenv/` | export + harness | `world_backend` (Apps behind a real gateway; outside calls are World steps; `AgentProxy`), `plugin/steps` (`crucible_world`, `crucible_verify`), `harness` (A2A agents as a harness; blame from capture evidence, agent liveness: M10 lab audit R-1), `agents`, `mcp_env`, `sandbox`, `a2a` |
+| `agentenv/` | export + harness | `world_backend` (Apps behind a real gateway; outside calls are World steps; `AgentProxy`), `plugin/steps` (`crucible_world`, `crucible_verify`), `harness` (A2A agents as a harness; blame from capture evidence, agent liveness: M10 lab audit R-1), `cut` (the pre-grade cut and its `quiesce.json` receipt: M11 lab audit R-2), `agents`, `mcp_env`, `sandbox`, `a2a` |
 | `verifiers/` | export + import | `vf_taskset` (the `crucible-vf` plugin: `CrucibleTaskset`, `HarborEnv`), `taskset` (`build()`), `v1_import` (verifiers traces as `crucible.rollout/v1`) |
 | `nemo_gym/` | export + import | `server` (resources server), `client` (remote Worlds for the M12 runtime), `import_server` (any NeMo-Gym server as an App + task), `serve_resource` |
 | `openenv/` | import + export | `import_env` (any OpenEnv `Environment` as an App, replay-journal state), `export` (a Crucible task as an `Environment`), `awm` / `awm_task` / `awm_check` (AgentWorldModel), `catalog` |

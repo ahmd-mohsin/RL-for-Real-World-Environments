@@ -16,6 +16,14 @@ outside call is a World step now), and the replay must reproduce the live reward
 ``reward`` row, agentenv's reward-mode shape (G4 D7: one row per gate made ``aggregate_verifiers`` score the gate mean),
 the gates under ``crucible.gates``, and ``metadata["score"]``. **A masked grade records the row with ``skipped: True``
 and then raises**, so the run is FAILED (infrastructure), never scored 0. It closes the World unless ``close=False``.
+
+M11 lab audit R-2: the grade starts with the pre-grade cut (``agentenv.cut``): every policy actor is done in the World, so
+an agent still calling tools through its proxy is refused and recorded as a ``late_call``, and the World is quiesced. The
+receipt is ``quiesce.json`` in the verify directory and ``verifications[...]["crucible"]["quiesce"]``; late calls add the
+non-scoring flag ``policy_late_call`` (``["crucible"]["flags"]``). With ``close=False`` the cut is lifted after a clean
+grade, so the next episode on the World can act; after a masked or failed grade it stays (a retried verify sees no new
+policy call; a restore or the next task step ends it). A quiesce that fails writes the receipt and raises. The A2A task
+belongs to agentenv's own steps here, so ``a2a_state`` is None.
 """
 
 from __future__ import annotations
@@ -114,13 +122,19 @@ class CrucibleVerifyStep(TaskStep):
 
     async def execute(self, context):
         from crucible.actors.policy import _masking_failure
+        from crucible.interop.agentenv.cut import late_call_flag, pre_grade_cut, receipt
         from crucible.interop.replay import from_world_trace, replay
         from crucible.verify.runtime.plan import write_reward_files
 
         instance = instance_for(context, self.env_id)
         s = WORLDS[instance]
         task, world, d = s["task"], s["world"], s["dir"]
+        cut, graded, masked = None, False, False
         try:
+            cut = await pre_grade_cut(world)  # M11 lab audit R-2: no policy call reaches the World once the grade starts
+            if cut["quiesce_error"]:
+                receipt(world, cut, d / f"verify-{self.verifier_id}" / "quiesce.json")
+                raise cut["exception"]
             rep = await task.grade(world, d / "grade")
             rj = rep.reward_json()
             infra = dict(rj.get("infra") or {})
@@ -147,18 +161,24 @@ class CrucibleVerifyStep(TaskStep):
             masked = infra.get("status") == "masked"
             rows = [json.loads(x) for x in (steps_dir / "steps.jsonl").read_text().splitlines() if x.strip()]
             reward = None if masked else float(rj["reward"])
+            q = receipt(world, cut, d / f"verify-{self.verifier_id}" / "quiesce.json")
+            flag = late_call_flag(q)
             # agentenv's reward-mode verifier row (G4 D7); agentenv's aggregators test ``result is True`` (C3)
             results = [{"id": "reward", "score": 0.0 if masked else reward, "result": bool(not masked and reward >= 1.0), "weight": 1.0,
                         **({"skipped": True} if masked else {})}]
             context.metadata.setdefault("verifications", {})[self.verifier_id] = {
                 "results": results, "score": reward, "actions_replayed": len(actions),
                 "crucible": {"reward_json": doc, "masked": masked, "failure_kind": infra.get("failure_kind") if masked else None, "steps": rows,
-                             "gates": {g: bool(v) for g, v in sorted((rj.get("gates") or {}).items())}, "out_dir": str(d / f"verify-{self.verifier_id}")}}
+                             "gates": {g: bool(v) for g, v in sorted((rj.get("gates") or {}).items())}, "out_dir": str(d / f"verify-{self.verifier_id}"),
+                             "quiesce": q, "flags": [flag] if flag is not None else []}}
             context.metadata["score"] = reward  # what ``agentenv eval run`` prints (G4 D16)
+            graded = True
         finally:
             if self.close:
                 WORLDS.pop(instance, None)
                 await world.close()
+            elif cut is not None and graded and not masked:
+                world.lift_cut()  # the World serves another episode; after a failed or masked grade it stays cut (a retry sees no new call)
         if masked:
             raise CrucibleMaskedGrade(f"crucible grade masked: {infra.get('failure_kind')}")
         return context

@@ -102,11 +102,21 @@ def proto(monkeypatch):
 
 class FakeWorld:
     def __init__(self):
-        self.backend = SimpleNamespace(agent_mcp_url=self._mcp)
+        self.backend = SimpleNamespace(agent_mcp_url=self._mcp, gateway_isolation="bound_loopback")
         self.closed = False
+        self.late_calls: list[dict] = []  # M11 lab audit R-2: the pre-grade cut's surface (World.cut_policy, quiesce)
+        self.events: list[str] = []
 
     async def _mcp(self, actor):
         return "http://world/mcp"
+
+    async def cut_policy(self, actors=None):
+        self.events.append("cut")
+        return ["agent"]
+
+    async def quiesce(self):
+        self.events.append("quiesce")
+        return None
 
     def stream_trace(self, path):
         pass

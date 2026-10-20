@@ -76,9 +76,11 @@ async def test_hardened_agentenv_world_in_a_docker_sandbox(image: str, tmp_path:
         assert r.ok, r.content
         assert "hello" in (await call(w, "mail.list_sent")).content  # App-owned state works through the App's tools
         assert b.egress_report["isolated"] and any(str(b.gateway_port) in t for t in b.egress_report["tested"])
-        # an MCP client that names an actor without the World's signature acts as the default actor, not as "boss"
-        assert b.verify_actor("boss") is None and b.verify_actor("boss:" + "0" * 32) is None
-        assert b.verify_actor(b.sign_actor("boss")) == "boss"
+        # an MCP client that names an actor without the World's signature is never "boss" (M11 lab audit R-2: tool-bound,
+        # single-use tokens; an App server refuses a token that fails)
+        assert b.verify_actor("boss", "mail__send_email") is None and b.verify_actor("boss:" + "0" * 32, "mail__send_email") is None
+        token = b.sign_actor("boss", "mail__send_email")
+        assert b.verify_actor(token, "mail__send_email") == "boss" and b.verify_actor(token, "mail__send_email") is None
         await call(w, "repo.shell", command="echo '# x' >> calc.py; touch /tmp/stash")
         s1 = await w.snapshot()
         await w.reset()
