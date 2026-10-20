@@ -48,6 +48,25 @@ CMAKE_CUDA = ("-DGGML_CUDA=ON", *CMAKE_COMMON, "-DCMAKE_EXPORT_COMPILE_COMMANDS=
 CMAKE_CPU = ("-DGGML_CUDA=OFF", *CMAKE_COMMON)
 
 
+TESTS_CMAKE = "tests/CMakeLists.txt"
+TARGET_SHIM = (f"\n# crucible: the grader's op-test target (this repository keeps the file but no longer declares it)\n"
+               f"add_executable({TARGET} test-backend-ops.cpp)\ntarget_link_libraries({TARGET} PRIVATE ggml)\n")
+
+
+def ensure_target(tests_cmake: str) -> str:
+    """``tests/CMakeLists.txt`` with the op-test target declared (the grader owns build files: forks such as ik_llama.cpp
+    dropped the declaration but keep and maintain the source)."""
+    return tests_cmake if TARGET in tests_cmake else tests_cmake.rstrip("\n") + "\n" + TARGET_SHIM
+
+
+def prepare_tree(tree: Path, harness_text: str) -> None:
+    """The grader's tree: the patched harness in place and its target declared."""
+    harness_file(tree).write_text(harness_text)
+    cm = Path(tree) / TESTS_CMAKE
+    if cm.is_file():
+        cm.write_text(ensure_target(cm.read_text(errors="replace")))
+
+
 def cuda_arch_flag(arches: Sequence[str]) -> str:
     """``CMAKE_CUDA_ARCHITECTURES`` for the grader: real (SASS) targets only, so no PTX can be JIT-compiled for another GPU."""
     return ";".join(f"{a}-real" for a in arches)
@@ -163,50 +182,44 @@ static bool crucible_case_selected(const std::string & name) {
 """
 
 INCLUDE_END = re.compile(r"(?:^#include[^\n]*\n)+", re.MULTILINE)
-STATIC_ENGINES = re.compile(r"static\s+std::vector<std::default_random_engine>\s+generators\s*=\s*\[\]\s*\(\s*\)\s*\{\s*std::random_device\s+rd\s*;")
-DIALECTS: dict[str, dict[str, object]] = {
-    "ggml-2025": {
-        "detect": re.compile(r"ud->tc->max_err\(ud->backend1\)"),
-        "engine": re.compile(r"thread_local\s+std::default_random_engine\s+gen\s*\(\s*std::random_device\s*\{\s*\}\s*\(\s*\)\s*\)\s*;"),
-        "init_fn": re.compile(r"static void init_tensor_uniform\s*\([^)]*\)\s*\{"),
-        "err": re.compile(r"^(?P<ind>[ \t]*)double err = ud->tc->err\(f1\.data\(\), f2\.data\(\), f1\.size\(\)\);[ \t]*$", re.MULTILINE),
-        "max_err": "ud->tc->max_err(ud->backend1)",
-        "compare": re.compile(r"^(?P<ind>[ \t]*)const bool cmp_ok = ggml_backend_compare_graph_backend\(", re.MULTILINE),
-        "case_name": 'current_op_name + "(" + vars() + ")"',
-        "filter": re.compile(r"if \(!matches_filter\(out, op_names_filter\)"),
-        "filter_new": 'if (!crucible_case_selected(op_desc(out) + "(" + vars() + ")") || !matches_filter(out, op_names_filter)',
-        "cpu_skip": re.compile(r"if \(backend_filter == NULL && ggml_backend_dev_type\(dev\) == GGML_BACKEND_DEVICE_TYPE_CPU"),
-        # perf mode: with CRUCIBLE_REPS, exactly that many timed iterations instead of "at least one second"
-        "perf": re.compile(r"\}\s*while\s*\(\s*total_time_us\s*<\s*1000\s*\*\s*1000\s*\)\s*;"),
-        "perf_new": "} while (crucible_reps() > 0 ? total_runs / std::max(1, n_runs) < crucible_reps() : total_time_us < 1000*1000);",
-    },
-    "ggml-2024": {
-        "detect": re.compile(r"double err = nmse\(f1\.data\(\), f2\.data\(\), f1\.size\(\)\);"),
-        "engine": None,  # static per-thread engines seeded once from the (replaced) random device: deterministic already
-        "init_fn": re.compile(r"static void init_tensor_uniform\s*\([^)]*\)\s*\{"),
-        "err": re.compile(r"^(?P<ind>[ \t]*)double err = nmse\(f1\.data\(\), f2\.data\(\), f1\.size\(\)\);[ \t]*$", re.MULTILINE),
-        "max_err": "ud->max_err",
-        "compare": re.compile(r"^(?P<ind>[ \t]*)const bool cmp_ok = ggml_backend_compare_graph_backend\(", re.MULTILINE),
-        "case_name": 'op_desc(out) + "(" + vars() + ")"',
-        "filter": re.compile(r"if \(op_name != nullptr && op_desc\(out\) != op_name\)"),
-        "filter_new": 'if (!crucible_case_selected(op_desc(out) + "(" + vars() + ")") || (op_name != nullptr && op_desc(out) != op_name))',
-        "cpu_skip": re.compile(r"if \(backend_filter == NULL && ggml_backend_is_cpu\(backend\)\)"),
-        "perf": re.compile(r"int64_t start_time = ggml_time_us\(\);\n(?P<ind>[ \t]*)ggml_backend_graph_compute\(backend, gf\);"),
-        "perf_new": "int64_t start_time = ggml_time_us();\n\\g<ind>for (int crucible_i = 0; crucible_i < std::max(1, crucible_reps()); ++crucible_i) "
-                    "ggml_backend_graph_compute(backend, gf);",
-    },
+# The harness changed shape over 2024-2026; each hook has the forms seen in ggml-org/llama.cpp (2025-09 .. 2026-10) and
+# in the 2024 layout forks keep. A form not listed is a missing anchor (the task is refused at S5).
+ANCHORS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "init_fn": (re.compile(r"static void init_tensor_uniform\s*\([^)]*\)\s*\{"),),
+    "engine_thread_local": (re.compile(r"thread_local\s+std::default_random_engine\s+gen\s*\(\s*std::random_device\s*\{\s*\}\s*\(\s*\)\s*\)\s*;"),),
+    "engine_static": (re.compile(r"static\s+std::vector<std::default_random_engine>\s+generators\s*=\s*\[\]\s*\(\s*\)\s*\{\s*std::random_device\s+rd\s*;"),),
+    "err": (re.compile(r"^(?P<ind>[ \t]*)double err = (?:ud->tc->err|nmse)\(f1\.data\(\), f2\.data\(\), f1\.size\(\)\);[ \t]*\n[ \t]*if \(err > "
+                       r"(?P<max>ud->tc->max_err\(ud->backend1\)|ud->tc->max_err\(\)|ud->max_err)\)", re.MULTILINE),),
+    "compare": (re.compile(r"^(?P<ind>[ \t]*)const bool cmp_ok = ggml_backend_compare_graph_backend\(", re.MULTILINE),),
+    "filter": (re.compile(r"if \(!matches_filter\(out, op_names_filter\)"), re.compile(r"if \(op_name != nullptr && op_desc\(out\) != op_name\)")),
+    "cpu_skip": (re.compile(r"if \(backend_filter == NULL && ggml_backend_dev_type\(dev\) == GGML_BACKEND_DEVICE_TYPE_CPU"),
+                 re.compile(r"if \(backend_filter == NULL && ggml_backend_is_cpu\(backend\)\)")),
+    "perf": (re.compile(r"\}\s*while\s*\(\s*total_time_us\s*<\s*1000\s*\*\s*1000\s*\)\s*;"),
+             re.compile(r"int64_t start_time = ggml_time_us\(\);\n(?P<ind>[ \t]*)ggml_backend_graph_compute\(backend, gf\);")),
 }
+PERF_NEW = ("} while (crucible_reps() > 0 ? total_runs / std::max(1, n_runs) < crucible_reps() : total_time_us < 1000*1000);",
+            ("int64_t start_time = ggml_time_us();\n\\g<ind>for (int crucible_i = 0; crucible_i < std::max(1, crucible_reps()); ++crucible_i) "
+             "ggml_backend_graph_compute(backend, gf);"))
+SELECT = 'crucible_case_selected(op_desc(out) + "(" + vars() + ")")'
+FILTER_NEW = (f"if (!{SELECT} || !matches_filter(out, op_names_filter)", f"if (!{SELECT} || (op_name != nullptr && op_desc(out) != op_name))")
+STATIC_ENGINES = ANCHORS["engine_static"][0]
 
 
-def _rx(d: Mapping[str, object], key: str) -> re.Pattern[str]:
-    v = d[key]
-    assert isinstance(v, re.Pattern)
-    return v
+def _find(text: str, key: str) -> tuple[int, re.Match[str]] | None:
+    for i, rx in enumerate(ANCHORS[key]):
+        m = rx.search(text)
+        if m:
+            return i, m
+    return None
 
 
 def dialect_of(text: str) -> str | None:
-    """The harness dialect of ``text`` (``DIALECTS``), or None."""
-    return next((name for name, d in DIALECTS.items() if _rx(d, "detect").search(text)), None)
+    """``ggml-2025`` (per-case filters: ggml-org/llama.cpp since mid 2025) or ``ggml-2024`` (one op filter), when the
+    compare callback is recognised; else None."""
+    if _find(text, "err") is None:
+        return None
+    f = _find(text, "filter")
+    return "ggml-2024" if f is not None and f[0] == 1 else "ggml-2025"
 
 
 def patch_harness(text: str, *, need_perf: bool = False) -> str:
@@ -217,13 +230,12 @@ def patch_harness(text: str, *, need_perf: bool = False) -> str:
     name = dialect_of(text)
     if name is None:
         raise HarnessPatchError("harness dialect unknown (no compare-callback anchor)")
-    d = DIALECTS[name]
-    keys = ("init_fn", "err", "compare", "filter", "cpu_skip", *(("perf",) if need_perf else ()))
-    missing = [k for k in keys if d[k] is not None and not _rx(d, k).search(text)]
+    keys = ("init_fn", "compare", "filter", "cpu_skip", *(("perf",) if need_perf else ()))
+    missing = [k for k in keys if _find(text, k) is None]
     # the initialisation engines: per-call thread_local engines (rewritten), or static per-thread engines seeded once from
     # the random device (deterministic once the device is replaced); anything else is unknown
-    engine = d["engine"] is not None and _rx(d, "engine").search(text) is not None
-    if not engine and not STATIC_ENGINES.search(text):
+    engine = _find(text, "engine_thread_local") is not None
+    if not engine and _find(text, "engine_static") is None:
         missing.append("engine")
     inc = list(INCLUDE_END.finditer(text))
     if not inc:
@@ -234,24 +246,31 @@ def patch_harness(text: str, *, need_perf: bool = False) -> str:
     out = text[:end] + PRELUDE + text[end:]
     if engine:
         # one call index per init_tensor_uniform call (main thread, deterministic order); each slice's engine from (seed, call, start)
-        out = _rx(d, "init_fn").sub(lambda m: m.group(0) + "\n    const uint64_t crucible_call = crucible_next();", out, count=1)
-        out = _rx(d, "engine").sub("std::default_random_engine gen((unsigned) crucible_splitmix(crucible_call ^ ((uint64_t) start * 0x100000001B3ull)));",
-                                   out, count=1)
+        out = ANCHORS["init_fn"][0].sub(lambda m: m.group(0) + "\n    const uint64_t crucible_call = crucible_next();", out, count=1)
+        out = ANCHORS["engine_thread_local"][0].sub(
+            "std::default_random_engine gen((unsigned) crucible_splitmix(crucible_call ^ ((uint64_t) start * 0x100000001B3ull)));", out, count=1)
     out = re.sub(r"\bstd::random_device\b", "crucible_random_device", out)
-    out = _rx(d, "err").sub(lambda m: f"{m.group(0)}\n{m.group('ind')}crucible_dump(crucible_case_name, index, ggml_op_desc(t1), {d['max_err']}, "
-                                      "f1.data(), f2.data(), f1.size());", out, count=1)
+    err = ANCHORS["err"][0]
+    out = err.sub(lambda m: m.group(0).replace(
+        "\n", f"\n{m.group('ind')}crucible_dump(crucible_case_name, index, ggml_op_desc(t1), {m.group('max')}, f1.data(), f2.data(), f1.size());\n", 1),
+        out, count=1)
+    case_name = 'current_op_name + "(" + vars() + ")"' if re.search(r"current_op_name\s*=\s*op_desc\(out\)", text) else 'op_desc(out) + "(" + vars() + ")"'
 
     def compare(m: re.Match[str]) -> str:
         i = m.group("ind")
-        return (f"{i}crucible_case_name = {d['case_name']};\n"
+        return (f"{i}crucible_case_name = {case_name};\n"
                 f"{i}for (int crucible_i = 0, crucible_n = crucible_reps(); crucible_i < crucible_n; ++crucible_i) {{\n"
                 f"{i}    ggml_backend_graph_compute(backend1, gf);\n{i}}}\n"
                 f"{i}if (crucible_reps() > 0) {{\n{i}    ggml_backend_synchronize(backend1);\n{i}}}\n{m.group(0)}")
 
-    out = _rx(d, "compare").sub(compare, out, count=1)
-    out = _rx(d, "filter").sub(str(d["filter_new"]), out)
-    out = _rx(d, "perf").sub(str(d["perf_new"]), out, count=1)
-    out = _rx(d, "cpu_skip").sub(lambda m: m.group(0).replace("if (", "if (!getenv(\"CRUCIBLE_ALLOW_CPU\") && ", 1), out, count=1)
+    out = ANCHORS["compare"][0].sub(compare, out, count=1)
+    fi, _ = _find(text, "filter")
+    out = ANCHORS["filter"][fi].sub(FILTER_NEW[fi], out)
+    pf = _find(text, "perf")
+    if pf is not None:
+        out = ANCHORS["perf"][pf[0]].sub(PERF_NEW[pf[0]], out, count=1)
+    ci, _ = _find(text, "cpu_skip")
+    out = ANCHORS["cpu_skip"][ci].sub(lambda m: m.group(0).replace("if (", "if (!getenv(\"CRUCIBLE_ALLOW_CPU\") && ", 1), out, count=1)
     return out
 
 

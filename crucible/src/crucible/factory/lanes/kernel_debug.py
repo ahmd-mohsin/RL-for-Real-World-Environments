@@ -469,9 +469,11 @@ def author(rec: dict[str, Any], authored: Mapping[str, Any]) -> dict[str, Any]:
     if not str(authored.get("builder") or ""):
         problems.append("provenance: no builder recorded")
     ids = [m["id"] for m in rec["milestones"]]
-    got = authored.get("requirements") or {}
+    gone = set(rec.get("dropped_milestones") or [])  # the GPU calibration dropped them: their requirement lines go too (V5)
+    got = {k: v for k, v in (authored.get("requirements") or {}).items() if k not in gone}
     problems += [f"unknown_requirement_id: {k}" for k in got if k not in ids]
     problems += [f"unmapped_milestone: {k}" for k in ids if not str(got.get(k) or "").strip()]
+    authored = {**authored, "requirements": got}
     prompt, reqs, spans = compose(authored, rec)
     authored_text = "\n".join([str(authored.get("opening") or ""), str(authored.get("closing") or ""), *[str(v) for v in got.values()]])
     problems += lint_prompt(authored_text, rec)
@@ -482,6 +484,32 @@ def author(rec: dict[str, Any], authored: Mapping[str, Any]) -> dict[str, Any]:
     rec["prompt_provenance"] = {"builder": str(authored.get("builder") or ""), "kind": "symptom report", "sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                                 "states_only": "symptoms and goals; no fix, faulty names, files or hidden case names (lint_prompt)"}
     return {"findings": problems}
+
+
+FUNCTIONAL = {"golden", "racecheck", "synccheck", "memcheck", "perf"}
+
+
+def fairness(rec: Mapping[str, Any]) -> dict[str, Any]:
+    """The fairness lint (``00`` §5.8, HUD): every check is functional (outputs against the reference build, sanitizer
+    verdicts, the grader's own timing: no source-text check), every check is stated (the epilogue names the op test,
+    its tolerance, the sanitizer and the timing; a perf requirement carries the bar token), and no check would refuse a
+    valid alternative fix by construction (the GPU output of B is reported, never gated: a fix that accumulates in a
+    different order passes within the case's tolerance; any CUDA kernel may compute an op). Two valid alternatives per
+    task need solver passes or rewrites by another family (S8): ``alternatives_pending`` until then."""
+    out: list[str] = []
+    for m in rec["milestones"]:
+        bad = [c for c in m["checks"] if c not in FUNCTIONAL]
+        out += [f"{m['id']}: check {c!r} is not functional" for c in bad]
+    prompt = str(rec.get("prompt") or "")
+    if prompt:
+        if any("perf" in m["checks"] for m in rec["milestones"]) and PERF_TOKEN not in prompt:
+            out.append("a perf check without its bar stated in the prompt")
+        if any(set(m["checks"]) & {"racecheck", "synccheck", "memcheck"} for m in rec["milestones"]) and "compute-sanitizer" not in prompt:
+            out.append("a sanitizer check the prompt does not state")
+        if "tolerance" not in prompt:
+            out.append("the golden tolerance is not stated")
+    alts = len(rec.get("alternatives") or [])
+    return {"ok": not out, "findings": out, "alternatives": alts, "alternatives_pending": alts < 2}
 
 
 def instruction(prompt: str, arch: str, perf_bar: str | None = None) -> str:

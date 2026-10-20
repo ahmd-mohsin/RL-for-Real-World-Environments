@@ -151,6 +151,16 @@ def test_console_status_and_listing():
     assert kh.cases_file(["A(x)", "B(y)"]) == "A(x)\nB(y)\n"
 
 
+def test_the_grader_declares_the_op_test_target_when_a_fork_dropped_it(tmp_path):
+    assert kh.ensure_target("llama_build_and_test(test-backend-ops.cpp)\n") == "llama_build_and_test(test-backend-ops.cpp)\n"
+    shim = kh.ensure_target("llama_build_and_test(test-jinja.cpp)\n")
+    assert "add_executable(test-backend-ops test-backend-ops.cpp)" in shim and kh.ensure_target(shim) == shim
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/CMakeLists.txt").write_text("llama_build_and_test(test-jinja.cpp)\n")
+    kh.prepare_tree(tmp_path, "patched")
+    assert (tmp_path / kh.HARNESS).read_text() == "patched" and "add_executable" in (tmp_path / "tests/CMakeLists.txt").read_text()
+
+
 def test_grader_cmake_builds_sass_only():
     flags = kh.cmake_cuda(["90", "120"])
     assert "-DCMAKE_CUDA_ARCHITECTURES=90-real;120-real" in flags and "-DGGML_CUDA=ON" in flags and "-DGGML_NATIVE=OFF" in flags

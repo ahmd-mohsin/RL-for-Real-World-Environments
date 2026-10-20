@@ -91,7 +91,7 @@ class KDGrader:
         harness = self.ref / "harness.cpp"
         if not harness.is_file():
             raise InfraError("the reference bundle has no patched harness")
-        shutil.copy2(harness, src / kh.HARNESS)
+        kh.prepare_tree(src, harness.read_text(errors="replace"))
         self.t.give(src)
         return src
 

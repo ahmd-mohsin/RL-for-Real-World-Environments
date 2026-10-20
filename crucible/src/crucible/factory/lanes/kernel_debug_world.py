@@ -52,7 +52,7 @@ class Run:
     timed_out: bool = False
 
 
-def docker_run(script: str, mounts: Sequence[tuple[Path | str, str]], *, tag: str, timeout: float = 7200, cpus: str = "2", memory: str = "6g",
+def docker_run(script: str, mounts: Sequence[tuple[Path | str, str]], *, tag: str, timeout: float = 7200, cpus: str = "2", memory: str = "3800m",
                env: Mapping[str, str] | None = None, image: str = IMAGE) -> Run:
     """One throwaway container (``crucible-lh-k-<tag>-<id>``, no network) running ``bash -c script``."""
     name = f"{PREFIX}{tag}-{uuid.uuid4().hex[:8]}"
@@ -120,10 +120,13 @@ def unit_commands(bld: Path) -> dict[str, dict[str, str]]:
     return out
 
 
-def unit_command(cmd: str, i: int) -> str:
+def unit_command(cmd: str, i: int, *, arch: str | None = None) -> str:
     """CMake's compile command for one unit with its object sent to the container's /tmp and its dependency-file flags
-    dropped (``-MD``, ``-MT x``, ``-MF x``), so a unit compile never writes into the shared build directory."""
+    dropped (``-MD``, ``-MT x``, ``-MF x``), so a unit compile never writes into the shared build directory. ``arch``:
+    keep only that architecture's ``--generate-code`` (a mutant's build check needs one arch, not both)."""
     parts = shlex.split(cmd)
+    if arch is not None:
+        parts = [a for a in parts if not (a.startswith("--generate-code=") and not a.startswith(f"--generate-code=arch=compute_{arch}"))]
     out: list[str] = []
     skip = False
     for j, a in enumerate(parts):
@@ -152,7 +155,7 @@ class UnitResult:
         return {"ok": self.ok, "rc": self.rc, "seconds": self.seconds, "errors": self.errors}
 
 
-def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float = 7200) -> dict[str, UnitResult]:
+def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float = 7200, arch: str | None = None, retry: bool = True) -> dict[str, UnitResult]:
     """Compile each of ``units`` (repo-relative ``.cu``/``.cpp``) from ``tree`` with the command CMake generated in ``bld``
     (both grading arches in one invocation), objects to the container's /tmp. One container, units in sequence."""
     cmds = unit_commands(bld)
@@ -160,7 +163,7 @@ def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float
     known = [u for u in units if u in cmds]
     for i, u in enumerate(known):
         c = cmds[u]
-        q = unit_command(c["command"], i)
+        q = unit_command(c["command"], i, arch=arch)
         lines.append(f"t0=$(date +%s); ( cd {shlex.quote(c['directory'])} && {q} ) > /tmp/u/{i}.log 2>&1; echo $? $(( $(date +%s) - t0 )) > /tmp/u/{i}.rc")
     lines.append(f"for i in $(seq 0 {max(len(known) - 1, 0)}); do echo \"@@UNIT $i $(cat /tmp/u/$i.rc 2>/dev/null)\"; grep -E ' error|error:' /tmp/u/$i.log | head -12; done")
     out: dict[str, UnitResult] = {u: UnitResult(False, 127, 0.0, ["no compile command for this unit in the configured build"]) for u in units if u not in cmds}
@@ -180,21 +183,32 @@ def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float
             res[cur].errors.append(ln.strip()[:240])
     for i, u in enumerate(known):
         out[u] = res.get(i) or UnitResult(False, 1, 0.0, ["unit did not report (container failed)" + (" (timed out)" if r.timed_out else "")])
+    killed = [u for u in known if out[u].rc in (137, -9)]
+    if killed and retry:  # the shared machine's memory, not the code: once more, alone
+        out.update(compile_units(tree, bld, killed, timeout=timeout, arch=arch, retry=False))
+    for u in known:
+        if out[u].rc in (137, -9):
+            out[u].errors = ["killed (out of memory): infrastructure, not a compile failure", *out[u].errors]
     return out
 
 
 # ---- the harness on the CPU backend -------------------------------------------------------------------------------------------------
-def cpu_harness_build(tree: Path, bld: Path, harness_text: str, *, timeout: float = 5400) -> dict[str, Any]:
+# the 2024 layout's own CPU kernels (iqk) are x86/ARM-specific and do not build on this machine's aarch64 Linux: the CPU
+# gate builds that layout with its portable kernels; the GPU hosts' reference build keeps the repository's defaults
+CPU_GATE_EXTRA = {"ggml/src/ggml-cuda.cu": ("-DGGML_IQK_MUL_MAT=OFF", "-DGGML_IQK_FLASH_ATTENTION=OFF")}
+
+
+def cpu_harness_build(tree: Path, bld: Path, harness_text: str, *, timeout: float = 5400, extra: Sequence[str] = ()) -> dict[str, Any]:
     """Build ``test-backend-ops`` with the CPU backend only from ``tree`` with ``harness_text`` (the grader's patched
     harness) in place of the tree's own file. The tree is copied (the harness file is replaced in the copy)."""
     src = bld / "src"
     if src.exists():
         shutil.rmtree(src)
     shutil.copytree(tree, src, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-    kh.harness_file(src).write_text(harness_text)
+    kh.prepare_tree(src, harness_text)
     b = bld / "b"
     b.mkdir(parents=True, exist_ok=True)
-    args = " ".join(shlex.quote(a) for a in CMAKE_CPU)
+    args = " ".join(shlex.quote(a) for a in (*CMAKE_CPU, *extra))
     r = docker_run(f"set -o pipefail; (cmake -S /src -B /b -G Ninja {args} && cmake --build /b --target test-backend-ops -j 2) > /b/crucible_build.log 2>&1; rc=$?; "
                    "tail -30 /b/crucible_build.log | grep -E 'error|FAILED' ; exit $rc", [(src, "/src:ro"), (b, "/b")], tag="cpuh", timeout=timeout)
     ok = r.rc == 0 and (b / "bin" / "test-backend-ops").exists()

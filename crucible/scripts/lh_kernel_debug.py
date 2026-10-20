@@ -6,6 +6,7 @@
     python scripts/lh_kernel_debug.py gates [--ids ...]    # CPU gates in Docker (compile units, harness on the CPU, World, floors, mutants)
     python scripts/lh_kernel_debug.py author               # the builder's symptom reports (prompts/<id>.json): lint + ledger + intent
     python scripts/lh_kernel_debug.py stage-gpu            # the persistent GPU bundle (data/kernel_debug/gpu_bundle)
+    python scripts/lh_kernel_debug.py ingest-gpu           # the bundle's calibration and GPU gates back into the records
     python scripts/lh_kernel_debug.py report               # funnel per family, candidates, pending GPU gates
 
 Everything lives under ``data/kernel_debug`` (clones, derived clones with the synthetic refs, the record store, Docker
@@ -215,7 +216,8 @@ def cmd_gates(a: argparse.Namespace) -> None:
             g["units"] = units
             if cfg["ok"]:
                 g["compile_b"] = {u: r.to_json() for u, r in kdw.compile_units(tree_b, bld, units).items()}
-                g["compile_a"] = {u: r.to_json() for u, r in kdw.compile_units(tree_a, bld, units).items()}
+                # a unit a fault adds (a new template instance) does not exist at A': the start builds without it
+                g["compile_a"] = {u: r.to_json() for u, r in kdw.compile_units(tree_a, bld, [u for u in units if (tree_a / u).is_file()]).items()}
             ok_b = cfg["ok"] and all(v["ok"] for v in (g.get("compile_b") or {}).values()) and bool(units)
             ok_a = cfg["ok"] and all(v["ok"] for v in (g.get("compile_a") or {}).values()) and bool(units)
             g["S4_oracle_builds"], g["S3_start_builds"] = ok_b, ok_a
@@ -230,7 +232,7 @@ def cmd_gates(a: argparse.Namespace) -> None:
                 mres[mu["id"]] = {"applies": ok_apply}
                 if ok_apply and cfg["ok"]:
                     mu_units = kd.units_for(mt, [f for f in mfiles if f in patch_files(mu["patch"])], layout)
-                    rr = kdw.compile_units(mt, bld, mu_units)
+                    rr = kdw.compile_units(mt, bld, mu_units, arch="90")  # one arch: the mutant must build, the GPU decides the rest
                     mres[mu["id"]]["builds"] = all(r.ok for r in rr.values()) and bool(rr)
                 del derived
             g["mutants"] = mres
@@ -248,7 +250,7 @@ def cmd_gates(a: argparse.Namespace) -> None:
                 pb = pa = None
             if pb is not None:
                 hbld = ROOT / "cpu_harness" / rec["id"]
-                hbuild = kdw.cpu_harness_build(tree_b, hbld, pb)
+                hbuild = kdw.cpu_harness_build(tree_b, hbld, pb, extra=kdw.CPU_GATE_EXTRA.get(layout.dispatch_file, ()))
                 g["harness_build_b"] = hbuild
                 if hbuild["ok"]:
                     pools_b = list_cases(kdw, hbld, rec, kh.dialect_of(hb))
@@ -283,6 +285,9 @@ def cmd_gates(a: argparse.Namespace) -> None:
                              and (g.get("harness_build_b") or {}).get("ok") and pools_ok and (g.get("seeded") or {}).get("ok") and (g.get("history") or {}).get("ok")
                              and (g.get("leak") or {}).get("ok") and (g.get("configure_a") or {}).get("ok") and mut_ok
                              and all(v["applies"] for v in (g.get("floors") or {}).values()))
+        oom = [k for side in ("compile_a", "compile_b") for k, v in (g.get(side) or {}).items() if v.get("rc") in (137, -9)]
+        if oom:
+            g["infra"] = f"units killed for memory: {oom[:4]} (re-run; not a gate verdict)"
         g["seconds"] = round(time.time() - t0)
         rec.setdefault("gates", {})["cpu"] = g
         kd.save(store, rec)
@@ -377,6 +382,8 @@ def cmd_author(a: argparse.Namespace) -> None:
             continue
         res = kd.author(rec, json.loads(p.read_text()))
         rec["intent"] = kd.task_intent(rec)
+        rec["fairness"] = kd.fairness(rec)
+        res["findings"] += [f"fairness: {f}" for f in rec["fairness"]["findings"]]
         kd.save(store, rec)
         fn.note("kernel_debug", rec["id"], "S7", not res["findings"], "; ".join(res["findings"])[:300], family=rec["family"], split=rec["split"])
         print(rec["id"], "lint", res["findings"] or "clean", flush=True)
@@ -448,7 +455,57 @@ python3 run_gpu.py --arch "$ARCH" --mode "$MODE" "${@:2}"
 """
 
 
+# ---- ingest the GPU results ----------------------------------------------------------------------------------------------------------------
+def cmd_ingest_gpu(a: argparse.Namespace) -> None:
+    """Write a bundle's calibration and GPU gates back to the records: each milestone's calibrated cases, its executed
+    ``requires`` edges (``requires_evidence: executed``), sanitizer checks kept or dropped, perf cases and bars per GPU
+    model; milestones the calibration dropped leave the record with their requirements (the prompt is re-composed by
+    ``author``); ``gates.gpu`` holds S5/S8/S10 per GPU model."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    bundle = Path(a.bundle) if a.bundle else ROOT / "gpu_bundle"
+    store = ROOT / "store"
+    for rec in kd.records(store):
+        res_p, cal_p = bundle / "results" / f"{rec['id']}.json", bundle / "tasks" / rec["id"] / "kdspec.calibrated.json"
+        if not res_p.exists() or not cal_p.exists():
+            continue
+        res, cal = json.loads(res_p.read_text()), json.loads(cal_p.read_text())
+        kept = {m["id"]: m for m in cal["milestones"]}
+        ms = []
+        for m in rec["milestones"]:
+            c = kept.get(m["id"])
+            if c is None:
+                continue
+            m.update(cases=c.get("cases") or [], checks=c["checks"], tests=[f"{m['id']}:{x}" for x in c["checks"]], perf_cases=c.get("perf_cases") or [],
+                     requires=list(c.get("requires") or []), requires_evidence={q: "executed" for q in c.get("requires") or []})
+            ms.append(m)
+        rec["dropped_milestones"] = sorted({m["id"] for m in rec["milestones"]} - {m["id"] for m in ms} | set(rec.get("dropped_milestones") or []))
+        rec["milestones"] = ms
+        rec["perf_bars"] = {**(rec.get("perf_bars") or {}), **(cal.get("perf_bars") or {})}
+        rec.setdefault("gates", {}).setdefault("gpu", {})[res.get("gpu", "unknown")] = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone",
+                                                                                                                "S10", "flake", "calibration", "at", "arch")}
+        kd.save(store, rec)
+        print(rec["id"], "milestones", [m["id"] for m in ms], "edges", [(m["id"], m["requires"]) for m in ms if m["requires"]], flush=True)
+
+
 # ---- report ------------------------------------------------------------------------------------------------------------------------------
+def sealing_report(recs: list[dict[str, Any]]) -> dict[str, Any]:
+    """``factory.sealing.seal`` on the training vs held-out records: repositories must be disjoint; the time split and the
+    prompt/diff contamination scan are reported (the held-out kernels share the training period: a time split is not
+    possible for this source, so ``time_violations`` is expected and stated, not hidden)."""
+    from crucible.factory.sealing import seal
+
+    tr = [r for r in recs if r["split"] == "train"]
+    ho = [r for r in recs if r["split"] == "heldout"]
+    if not tr or not ho:
+        return {"skipped": "one split is empty"}
+    rep = seal(tr, ho, repo=lambda r: r["repo"], date=lambda r: r.get("b_date"), prompt=lambda r: r.get("prompt") or "", diff=lambda r: r.get("oracle_patch") or "",
+               wid=lambda r: r["id"], model_cutoff="2026-04-15")
+    d = rep.to_dict()
+    return {"repos_disjoint": not d["shared_repos"], "shared_repos": d["shared_repos"], "time_violations": len(d["time_violations"]),
+            "contamination_hits": len(d["contamination"]), "cutoff_violations": len(d["cutoff_violations"]), "counts": d["counts"]}
+
+
 def cmd_report(a: argparse.Namespace) -> None:
     from crucible.factory.lanes import kernel_debug as kd
 
@@ -484,7 +541,8 @@ def cmd_report(a: argparse.Namespace) -> None:
                      "cutoff": r.get("cutoff"), "fault_dates": sorted(v[:10] for v in (r.get("fault_dates") or {}).values()), "gpu_pending": GPU_PENDING})
     for f in fam.values():
         f["drop_reasons"] = dict(f["drop_reasons"])
-    rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING}
+    rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING,
+           "sealing": sealing_report(recs)}
     jdump(Path(a.out), rep)
     print(json.dumps({"families": fam, "cpu_pass": sum(1 for x in rows if x["cpu_pass"])}, indent=1, default=str))
 
@@ -507,10 +565,12 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("stage-gpu")
     s.add_argument("--out")
     s.add_argument("--redo", action="store_true")
+    s = sub.add_parser("ingest-gpu")
+    s.add_argument("--bundle")
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "report": cmd_report}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report}[a.cmd](a)
     return 0
 
 

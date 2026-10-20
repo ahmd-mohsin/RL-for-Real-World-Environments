@@ -127,7 +127,7 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     shutil.copytree(d / "b", src, symlinks=True)
     text = (src / kh.HARNESS).read_text(errors="replace")
     patched = kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]))
-    (src / kh.HARNESS).write_text(patched)
+    kh.prepare_tree(src, patched)
     ref.mkdir()
     (ref / "harness.cpp").write_text(patched)
     jobs = str(max(2, min(32, os.cpu_count() or 4)))
