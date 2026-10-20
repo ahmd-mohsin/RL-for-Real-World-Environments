@@ -873,8 +873,8 @@ $30 cap):
 - **The band fails at the frontier:** deterministic success or failure means no spread. Attributed windows are benchmark
   items for the frontier and training candidates for weaker rungs.
 - **New S7 rule:** every import path the hidden tests use must be importable at A or stated in the prompt.
-- **Open:** an executed oracle-vs-plan check. The cachetools oracle deprecated `MRUCache` instead of removing it; every
-  gate passed it; the auditor and the frontier exposed it.
+- **An oracle that skipped its plan:** the cachetools oracle deprecated `MRUCache` instead of removing it, and every gate
+  passed it; the auditor and the frontier exposed it. Phase A's S4.5 now catches it.
 - `lh_run.py`'s harness masks a lost World container (`InfraWatch`).
 
 Benchmark v2 and the World leak fix (`factory/benchmark.py`, `factory/sealing.py`, `lanes/windows_world.py`; $0):
@@ -889,6 +889,31 @@ Benchmark v2 and the World leak fix (`factory/benchmark.py`, `factory/sealing.py
   - The leak probe `no_installed_project_source` fails every older image.
   - **Every store3 / P5 / P6 World must be refreshed (`benchmark.refresh_world`) before training or targeting.**
   - Earlier "too easy" verdicts may have been inflated by this leak.
+
+Phase A, clean-up (`lanes/windows_world.py`, `lanes/windows_s3.py`, `generators/{stitch,swarm,open}.py`, new
+`factory/oracleplan.py`, `factory/root.py`, `factory/traceaudit.py`, `scripts/lh_phase_a.py`; $1.63):
+- **Every World refreshed, with evidence.** 65 tasks across every store. Each leak goes through the executed `world_bug`
+  acceptance and gets a task version. The old Worlds of 55 tasks held installed source, 10 held another A, and 6 held the
+  solution: training rebreak, arrow-wce69c31 and open toolz, plus 3 held-out tasks. No stored solver trail read it.
+  - 47 Worlds were refreshed and pass S3.
+  - The 8 whose rebuilt World fails S3 keep the old image and must not be trained on. 7 of them fail S3 before the
+    rebuild too.
+- **The fix had gaps, now closed:**
+  - an unstated project name (semver) dropped nothing and the probe passed blind. The probe now also finds the
+    installed copy through A's own modules;
+  - stitched Worlds had no fix at all;
+  - "A reinstalled last" broke python-dotenv. A PEP 517 fallback fixes it.
+- **The too-easy verdicts hold.** On the refreshed Worlds the frontier still solves rebreak 5/5 and swarm semver and
+  more-itertools 4/4. Cachetools and glom were not re-checked: the OpenRouter account ran out of credit.
+- **S4.5, the oracle against its plan** (`oracleplan.py`; the swarm machine's `oracle_plan` state). It executes each
+  planned removal, deprecation, addition and option on A and on the oracle, and tells deprecation apart from removal.
+  A test of A that uses a removed name is a defect, never a regression check. Of 10 stored swarm windows, it catches
+  only cachetools: `MRUCache` and `mru_cache` were deprecated, not removed, and 23 contradicting tests still pass.
+- **Root curator:** per-family task repo, in-flight announcements checked before a lease, free abstention, and the 40%
+  herding guard at the S17 merge.
+- **Auditor forced final-verdict turn:** a harness switch that only `AuditorHarness.refine` can enable. Verdicts on
+  capped sessions rose from 0/16 to 13/17. `evaluate` rejected it twice, both times for exogenous noise, so it stays
+  off.
 
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):
@@ -908,6 +933,20 @@ P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/win
   - parse, glom and humanize are `not_attributed` (target 0–1/4 even with prerequisites applied);
   - python-semver is `underpowered`: 0/4 vs 3/4, Fisher p 0.071, power 0.41;
   - parse's paraphrases are stable.
+
+Kernel-migration family (`docs/research/swarm-pipeline/06-kernel-family.md`; `factory/lanes/kernel*.py`, `scripts/lh_kernel.py`,
+`scripts/lh_kernel_gpu.py`; $0.36):
+- **Ground truth:** real GPU-migration commits (texture/surface references, legacy warp intrinsics, removed cuSPARSE calls)
+  mined by pickaxe from permissive repos; the oracle is the commit. PCL (task04's repo) is sealed from training.
+- **Grader** (`lanes/kernel_plan.py`, a kit plan): the grader owns the nvcc command (`sm_<arch>` SASS only, arch from
+  `CRUCIBLE_CUDA_ARCH`); `compile` milestones (CPU) and `run` milestones (GPU: binary check, CUPTI launch count, the
+  program's observation, i.e. stdout, device-to-host bytes via link wraps and written files, equal to the original built
+  with CUDA 11.8 as compute_60 PTX, fresh `srand` seed; sanitizer and grader-clock perf for L4).
+- **Result:** 40 windows, 21 pass every CPU gate (S3, S4, original, S6 compile edges, S7, S8 through the kit); 20 are L1,
+  1 has an L3 shape; GPU gates are staged, not run (lab unreachable). The 7B student compiled 0/26 L1 episodes before
+  OpenRouter's credits ran out: L1 is above its band.
+- **Fixed while running:** CRLF sources gave unappliable oracle patches; the grader now always links `libcuda`; a masked
+  episode (provider 402) was read as a 0 by the targeting script.
 
 ## 8. Layer 4: verification and isolation
 
@@ -1812,6 +1851,22 @@ user namespaces, so no container runtime can run there.
   - both refusals fire.
 - **Pending:** the Runpod acceptance (sm_89 preflight, verifier score equals a manual run) needs a running pod. The
   recorded pod refused connections on 2026-10-10.
+
+**S4b (2026-10-19): the `apptainer` backend** (`world/backends/apptainer.py`; HPC hosts without Docker, first Marlowe:
+`docs/research/swarm-pipeline/05-marlowe.md`).
+- **`ApptainerSandbox`:** the `DockerSandbox` contract over one unprivileged instance per World
+  (`--containall --cleanenv --no-home --net --network none --writable-tmpfs`, the workspace bound at its host path,
+  `--nv` for GPUs). `ApptainerExec` runs `apptainer exec --cleanenv instance://...` (an exec without `--cleanenv` carries the
+  host environment in); files travel on stdin and back as base64. `ExecSandbox` over it is slime's four-method `Sandbox`;
+  a vanished instance raises `ExecError`, which becomes `SandboxTerminatedError` (V8).
+- **Measured isolation (login node):** loopback only, a public connect fails; no host home, code, venv or `/cm/shared`;
+  no scheduler or credential variables; own PID namespace; `instance stop` ends what the policy left. Not achieved:
+  cgroup limits (refused on the login node, so `cgroups="auto"` starts without them and says so; the Slurm job's cgroup
+  bounds the World) and a demoted `policy_user` (commands run as the invoking user; there is no root to demote from).
+- **Also:** `ApptainerBackend` (registry key `apptainer`), `open_workspace_world` (the window lane's World with the tools
+  in the instance), `run_once` (a fresh container for grading). `APPTAINER_CONFIGDIR` moves instance state off a full home.
+- **Tests:** `tests/unit/test_marlowe_apptainer.py` (fake runner: flags, cgroup fallback, files, the slime contract, a dead
+  instance, the stage driver's guards and TERM forwarding); a real rollout through it on the Marlowe login node.
 
 **S5 (2026-10-10): the gVisor tier.** `SandboxSpec.runtime` takes three values:
 - `runc` (the default);

@@ -412,7 +412,7 @@ async def stage_audit(a: argparse.Namespace) -> dict[str, Any]:
     from crucible.actors.rlm.agent import RLMConfig
     from crucible.factory.audit import AuditConfig
     from crucible.factory.models import parse_spec
-    from crucible.factory.traceaudit import P3Launcher, RLMAuditor
+    from crucible.factory.traceaudit import AuditorHarness, P3Launcher, RLMAuditor
 
     # P3's auditor with its notes and checks unchanged; its turn cap is raised from 24 to ``--auditor-turns`` (the frontier's
     # trails are long: 30 of 41 first sessions ended at 24 turns with no verdict, a rejected label)
@@ -420,7 +420,8 @@ async def stage_audit(a: argparse.Namespace) -> dict[str, Any]:
     client = run.solver_client(spec.ref.split(":", 1)[-1], tag="auditor")
     auditor = RLMAuditor(client, model=spec.model, workdir=out / "audit" / "auditor", launcher=P3Launcher, config=AuditConfig(concurrency=4),
                          rlm_config=RLMConfig(temperature=0.0, tree_max_depth=0, max_turns=a.auditor_turns, window_tokens=64_000, max_tokens=4000,
-                                              cell_timeout_s=60.0, wall_s=1500.0), max_steps=a.auditor_turns + 16)
+                                              cell_timeout_s=60.0, wall_s=1500.0), max_steps=a.auditor_turns + 16,
+                           harness=AuditorHarness(Path(a.auditor_harness)) if a.auditor_harness else None)  # Phase A: refined switches
     # incremental: a bundle with a verdict from an earlier audit run keeps it (its batch's trust with it); only new bundles and
     # those whose label was rejected (no verdict) are labelled again
     lp = out / "audit" / "labels.json"
@@ -532,6 +533,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--frontier-why", default="")
     ap.add_argument("--auditor", default=f"openrouter:{REVIEW}")
     ap.add_argument("--auditor-turns", type=int, default=48)
+    ap.add_argument("--auditor-harness", default="", help="the auditor's HarnessState file (refined notes and switches, e.g. the final-verdict turn)")
     ap.add_argument("--controls", default=str(Path(__file__).resolve().parents[1] / "docs/research/task-factory/runs/controls.json"))
     ap.add_argument("--no-solvers", action="store_true")
     ap.add_argument("--report-to", default="")

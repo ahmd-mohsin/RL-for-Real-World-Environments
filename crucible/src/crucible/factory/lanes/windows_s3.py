@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -38,7 +39,7 @@ from typing import Any
 from crucible.factory.lanes.windows import grader_tests, passed_group, run_tests, sandbox_factory, suite_targets
 from crucible.factory.lanes.windows_git import _defs
 from crucible.factory.lanes.windows_timing import timing_tests
-from crucible.factory.lanes.windows_world import IMAGE_RECIPE, PREFIX, ImageBook, image_id, leak_probes
+from crucible.factory.lanes.windows_world import _DIST_SEL, IMAGE_RECIPE, PREFIX, ImageBook, image_id, leak_probes, workspace_modules
 
 S3_PREFIX = f"{PREFIX}p4-"  # World containers of this phase (P4): crucible-lh-p4-*
 
@@ -80,7 +81,7 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
     out["checks"]["existing_tests_run"] = ran
     w = rec.get("world") or {}
     leak = await leak_probes(image, base_dir, package=w.get("project") or rec.get("repo"), version=rec.get("b_version"),
-                             new_test_names=new_names(rec, base_dir), name_prefix=f"{name_prefix}leak-")
+                             new_test_names=new_names(rec, base_dir), name_prefix=f"{name_prefix}leak-", installed=w.get("projects"))
     out["leak"] = leak
     out["checks"]["leak_probes_hold"] = bool(leak.get("ok"))
     # reruns of the existing suite: half alone, half ``concurrency`` at a time
@@ -273,10 +274,13 @@ class WindowWorldPort:
     (``traceaudit.repro_command``)."""
 
     def __init__(self, rec: Mapping[str, Any], base_dir: Path, *, image: str | None = None, s3_reruns: int = 60, concurrency: int = 4,
-                 timeout_s: float = 300.0, sandboxes: Callable[[str], Any] | None = None):
+                 timeout_s: float = 300.0, sandboxes: Callable[[str], Any] | None = None, name_prefix: str = S3_PREFIX):
+        if not name_prefix.startswith(PREFIX):
+            raise ValueError(f"World containers are named {PREFIX}*, got {name_prefix!r}")
         self.rec, self.base = dict(rec), Path(base_dir)
         self.image = image or (rec.get("world") or {}).get("image")
         self.s3_reruns, self.concurrency, self.timeout_s, self.sandboxes = s3_reruns, concurrency, timeout_s, sandboxes
+        self.name_prefix = name_prefix
         self.s3_results: list[dict[str, Any]] = []
 
     def _tree(self, dest: Path, state: Any) -> Path:
@@ -294,7 +298,7 @@ class WindowWorldPort:
     async def run(self, command: str, *, state: Any, image: str) -> tuple[int, str]:
         with tempfile.TemporaryDirectory(prefix="p4-ww-") as d:
             t = self._tree(Path(d) / "t", state)
-            name = f"{S3_PREFIX}repro-{uuid.uuid4().hex[:10]}"
+            name = f"{self.name_prefix}repro-{uuid.uuid4().hex[:10]}"
             argv = ["docker", "run", "--rm", "--network", "none", "--name", name, "--memory", "2g", "--cpus", "2", "-v", f"{t}:/w", "-w", "/w",
                     "-e", "PYTHONPATH=/w/src:/w", "-e", "HOME=/tmp", image, "sh", "-c", command]
             p = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
@@ -326,9 +330,160 @@ class WindowWorldPort:
 
     async def s3(self, *, fix: Mapping[str, Any] | None = None) -> dict[str, Any]:
         image = str((fix or {}).get("image") or self.image)
-        res = await world_s3(self.rec, self.base, image, reruns=self.s3_reruns, concurrency=self.concurrency, sandboxes=self.sandboxes)
+        res = await world_s3(self.rec, self.base, image, reruns=self.s3_reruns, concurrency=self.concurrency, sandboxes=self.sandboxes,
+                             name_prefix=f"{self.name_prefix}s3-")
         self.s3_results.append(res)
         return res
 
     def content(self) -> dict[str, Any]:
         return {"image": self.image}
+
+
+# ---- Phase A: the site-packages leak, evidence and the executed World fix -----------------------------------------------------
+# Benchmark v2 found that one World image served every window whose A had the same packaging, so its installed copy of the
+# project was the A of whichever window built it first (a later A is the solution). ``EXTRAS_FALLBACK`` fix 3 removes it at
+# build and ``no_installed_project_source`` probes it. Phase A rebuilds every World built before the fix, with evidence.
+LEAK_OBSERVED = "LEAK: installed project source files present"
+_TESTISH = re.compile(r"(^|/)(tests?|testing)(/|$)|(^|/)test_[^/]*\.py$|_test\.py$|(^|/)conftest\.py$")
+
+
+LEAK_REPRO = ("import importlib.metadata as m, re, sys; " + _DIST_SEL + "c = sum(1 for d in m.distributions() if own(d) for f in (d.files or []) "
+              "if str(f).endswith('.py') and not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..'); "
+              f"print('{LEAK_OBSERVED}: %d' % c if c else 'clean'); sys.exit(1 if c else 0)")
+
+
+def leak_repro_command(names: Sequence[str], modules: Sequence[str] = ()) -> str:
+    """A shell command that fails (exit 1, printing ``LEAK_OBSERVED`` and the count) when the World's installed copy of any
+    of ``names`` (or of a distribution installing one of A's own ``modules``) holds Python source: the
+    ``no_installed_project_source`` probe as a ``world_bug`` reproduction. ``-I``: site-packages only (the workspace on
+    ``PYTHONPATH`` is not the installed copy)."""
+    args = [*(n for n in names if n), *(f"mod:{m}" for m in modules)]
+    return f"python -I -c {shlex.quote(LEAK_REPRO)} " + " ".join(shlex.quote(x) for x in args)
+
+
+def _added(a: str | None, b: str | None) -> set[str]:
+    """Non-trivial lines of ``b`` that ``a`` does not contain (stripped; short lines, comments and docstring quotes out)."""
+    al = {x.strip() for x in (a or "").splitlines()}
+    return {x.strip() for x in (b or "").splitlines() if len(x.strip()) >= 12 and not x.strip().startswith(("#", '"""', "'''")) and x.strip() not in al}
+
+
+def compare_installed(files: Mapping[str, str], base_dir: Path, oracle_files: Mapping[str, str | None]) -> dict[str, Any]:
+    """The installed copy (``windows_world.installed_copy`` files) against the window's A (``base_dir``) and B (A plus
+    ``oracle_files``). Each installed file is mapped to the workspace path that ends with its site-packages path (the
+    shortest: ``src/`` layouts and a stitched workspace's ``host/`` / ``consumer/``) and classed ``unchanged`` (A == B
+    == installed), ``b`` (equals B, differs from A), ``a`` (equals A, differs from B), ``other`` or ``unmatched``. For
+    every source file the oracle changes (tests out): whether the installed copy equals B, and the share of the oracle's
+    added lines it contains. ``solution_present``: some changed file is installed as B, or at least half of the oracle's
+    added lines are in the installed copy."""
+    base_dir = Path(base_dir)
+    paths = sorted({str(f.relative_to(base_dir)) for f in base_dir.rglob("*.py") if f.is_file() and ".git" not in f.parts} | set(oracle_files))
+
+    def where(rel: str) -> str | None:
+        hits = [p for p in paths if p == rel or p.endswith("/" + rel)]
+        return min(hits, key=len) if hits else None
+
+    def a_text(p: str) -> str | None:
+        f = base_dir / p
+        return f.read_text(errors="replace") if f.is_file() else None
+
+    classes: dict[str, int] = {}
+    mapped: dict[str, str] = {}
+    for rel, txt in files.items():
+        p = where(rel)
+        if p is None:
+            k = "unmatched"
+        else:
+            mapped[p] = txt
+            a = a_text(p)
+            b = oracle_files.get(p, a)
+            k = "unchanged" if txt == a == b else "b" if txt == b else "a" if txt == a else "other"
+        classes[k] = classes.get(k, 0) + 1
+    changed = []
+    tot_added = tot_present = 0
+    for p, b in sorted(oracle_files.items()):
+        if not p.endswith(".py") or _TESTISH.search(p):
+            continue
+        a = a_text(p)
+        add = _added(a, b)
+        inst = mapped.get(p)
+        present = len(add & {x.strip() for x in (inst or "").splitlines()}) if inst is not None else 0
+        tot_added += len(add)
+        tot_present += present
+        changed.append({"path": p, "installed": "absent" if inst is None else "b" if inst == b else "a" if inst == a else "other",
+                        "added_lines": len(add), "present": present})
+    share = round(tot_present / tot_added, 3) if tot_added else None
+    return {"installed_files": len(files), "classes": classes, "changed": changed, "added_lines": tot_added, "added_present": tot_present,
+            "added_share": share, "solution_present": any(c["installed"] == "b" for c in changed) or bool(share and share >= 0.5)}
+
+
+def identify_copy(files: Mapping[str, str], trees: Mapping[str, Path]) -> dict[str, Any]:
+    """Which known start tree the installed copy is (``trees``: label -> a window's A): the label with the most installed
+    files equal to the tree's file at the same mapped path, and whether every file matched."""
+    best: dict[str, Any] = {"label": None, "equal": 0, "of": len(files), "exact": False}
+    for label, root in trees.items():
+        root = Path(root)
+        idx = {str(f.relative_to(root)): f for f in root.rglob("*.py") if f.is_file() and ".git" not in f.parts}
+        eq = 0
+        for rel, txt in files.items():
+            hits = [p for p in idx if p == rel or p.endswith("/" + rel)]
+            if hits and idx[min(hits, key=len)].read_text(errors="replace") == txt:
+                eq += 1
+        if eq > best["equal"]:
+            best = {"label": label, "equal": eq, "of": len(files), "exact": eq == len(files)}
+    return best
+
+
+async def leak_world_fix(rec: Mapping[str, Any], base_dir: Path, *, images: Any, versions: Any, names: Sequence[str], current_image: str | None = None,
+                         sandboxes: Callable[[str], Any] | None = None, name_prefix: str = S3_PREFIX, s3_reruns: int = 60, concurrency: int = 4,
+                         carry_repair: Mapping[str, Any] | None = None, s3_rec: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The leak as a ``world_bug`` through the executed acceptance (``traceaudit.accept_world_bug``, 00 §8.3): the
+    reproduction (``leak_repro_command``) must fail on the oracle state in ``current_image`` (the World solvers used: the
+    record's, or its head version's), pass in the rebuilt World (``images.ensure`` under the current recipe, plus a
+    carried version-repair layer ``{dist, version}`` from an earlier fix), and the rebuilt World must pass S3 (60 reruns,
+    every leak probe including ``no_installed_project_source`` over ``names``). An accepted fix becomes a task version
+    (``traceaudit.version_accepted``: parent = the head, or a new root). ``s3_rec``: the record S3 runs on (an open task's
+    has no milestones). Returns ``{status, reasons, proposal, fix, version, before, after, s3}``."""
+    from crucible.factory.traceaudit import Proposal, TaskContext, accept_world_bug, version_accepted
+
+    base_dir = Path(base_dir)
+    wid = str(rec["id"])
+    old = current_image or (rec.get("world") or {}).get("image")
+    p = Proposal(kind="world_bug", task=wid, traces=[], source="s3", why="the World's installed copy of the project holds source (site-packages leak)",
+                 artifact={"type": "repro", "function": "repo.shell", "arguments": {"command": leak_repro_command(names, workspace_modules(base_dir))},
+                           "observed": LEAK_OBSERVED,
+                           "signature": "installed project source in site-packages"}, change={"world_fix": None})
+    built: dict[str, Any] = {}
+
+    async def fixer(_p: Any) -> dict[str, Any] | None:
+        card = await images.ensure(str(rec["repo"]), base_dir)
+        built["card"] = {k: v for k, v in card.items() if k != "build_log"}
+        if not card["ok"]:
+            built["build_log"] = str(card.get("build_log") or "")[-800:]
+            return None
+        image, digest = card["image"], card["digest"]
+        if carry_repair and carry_repair.get("dist") and carry_repair.get("version"):
+            dist, ver = str(carry_repair["dist"]), str(carry_repair["version"])
+            tag = f"{image}-{re.sub(r'[^a-z0-9]+', '', dist.lower())}-{ver}"
+            if image_id(tag) is None:
+                with tempfile.TemporaryDirectory(prefix="pafix-") as td:
+                    (Path(td) / "Dockerfile").write_text(f"FROM {image}\nRUN pip install --no-cache-dir {dist}=={ver}\n")
+                    brc, blog = await _docker("build", "-q", "-t", tag, td, timeout=900)
+                if brc != 0:
+                    built["build_log"] = blog[-800:]
+                    return None
+            image, digest = tag, image_id(tag)
+        return {"type": "world_image", "recipe": IMAGE_RECIPE, "fix": "installed-sources-removed", "image": image, "digest": digest, "from_image": old,
+                "repair": dict(carry_repair) if carry_repair else None}
+
+    s3r = dict(s3_rec or rec)
+    s3r["world"] = {**(s3r.get("world") or {}), "projects": list(names)}
+    port = WindowWorldPort(s3r, base_dir, image=old, s3_reruns=s3_reruns, concurrency=concurrency, sandboxes=sandboxes, name_prefix=name_prefix)
+    p = await accept_world_bug(p, port, oracle={"files": dict(rec.get("oracle_files") or {})}, fixer=fixer)
+    out: dict[str, Any] = {"status": p.status, "reasons": list(p.reasons), "proposal": p.id, "fix": p.change.get("world_fix"), "built": built,
+                           "before": p.evidence.get("before_fix_on_oracle"), "after": p.evidence.get("after_fix_on_oracle"), "version": None}
+    s3 = p.evidence.get("s3") or (port.s3_results[-1] if port.s3_results else None)
+    out["s3"] = {k: s3.get(k) for k in ("ok", "why", "image", "digest", "checks", "existing_tests", "reruns", "leak", "grading", "ignored_timing")} if s3 else None
+    if p.status == "accepted":
+        v = version_accepted(p, versions, TaskContext(wid, prompt=""))
+        out["version"] = v.id if v else None
+    return out

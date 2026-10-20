@@ -1,0 +1,11 @@
+# GPU World base for kernel-migration tasks (migration_tasks/task04_pcl_gpu_cuda12 uses the same base): nvcc 12.8, Python,
+# git. Run with --nv (the host driver, 580.x on Marlowe, is bound in; CUDA 12.8 runs on it).
+Bootstrap: docker
+From: nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+%post
+    apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 python3-pip >/dev/null && rm -rf /var/lib/apt/lists/*
+    git config --system safe.directory '*'
+
+%labels
+    crucible.image cuda128

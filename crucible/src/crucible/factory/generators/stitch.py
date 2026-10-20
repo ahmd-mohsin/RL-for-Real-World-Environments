@@ -75,7 +75,9 @@ from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _bodies, f
 from crucible.factory.lanes.windows_world import (
     BASE_IMAGE,
     BASE_PINS,
+    DROP_INSTALLED_SOURCES,
     EXTRAS,
+    EXTRAS_FALLBACK,
     ImageBook,
     docker,
     ensure_base,
@@ -253,10 +255,12 @@ def consumer_window(consumer: Path, bump: Mapping[str, Any], *, look: int = 5) -
 
 # ---- the World ------------------------------------------------------------------------------------------------------------------
 def stitch_dockerfile(host_dist: str, host_version: str, needs: Mapping[str, Mapping[str, Any]], reqs: Mapping[str, Sequence[str]],
-                      groups: Mapping[str, Sequence[str]], packaged: Mapping[str, bool]) -> str:
+                      groups: Mapping[str, Sequence[str]], packaged: Mapping[str, bool], *, consumer_dist: str | None = None) -> str:
     """Host from A (``SETUPTOOLS_SCM_PRETEND_VERSION`` = A's version), then the consumer from C0 under a pip constraint that
     pins the host to the installed version; the build fails when site-packages ends with another host version (B's code
-    must never be in the image)."""
+    must never be in the image). Phase A (``windows_world.EXTRAS_FALLBACK`` fix 3 for two projects): both sides are
+    installed again without dependencies last, and both installed copies keep only their metadata (an image shared by
+    two windows of one pair held the consumer of whichever built it first)."""
     apt = sorted({p for s in SIDES for p in (needs[s].get("apt") or [])})
     pip_build = sorted({p for s in SIDES for p in (needs[s].get("pip_build") or [])})
     lines = [f"FROM {BASE_IMAGE}"]
@@ -286,6 +290,13 @@ def stitch_dockerfile(host_dist: str, host_version: str, needs: Mapping[str, Map
                 lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
         for n in needs[s].get("import_deps") or []:
             lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
+    if packaged["host"]:  # each side last, without dependencies, then with its metadata only
+        lines.append(f"RUN cd /opt/lh/h && SETUPTOOLS_SCM_PRETEND_VERSION={pv} pip install --no-cache-dir --no-deps --force-reinstall .")
+    if packaged["consumer"]:
+        lines.append("RUN cd /opt/lh/c && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir --no-deps --force-reinstall .")
+    for dist in (host_dist if packaged["host"] else None, consumer_dist if packaged["consumer"] else None):
+        if dist and dist != "none-such":
+            lines.append(f"RUN python -c {shlex.quote(DROP_INSTALLED_SOURCES)} {shlex.quote(dist)}")
     lines.append("RUN pip install --no-cache-dir " + " ".join(BASE_PINS))
     check = f"import importlib.metadata as m; v = m.version({host_dist!r}); assert v == open('/opt/lh/cons.txt').read().strip().split('==')[1], v"
     lines += [f"RUN python -c {shlex.quote(check)}", "ENV PIP_CONSTRAINT=", "WORKDIR /w", "RUN rm -rf /opt/lh /root/.cache"]
@@ -304,7 +315,7 @@ class StitchImageBook(ImageBook):
         from crucible.factory.lanes.windows_world import IMAGE_RECIPE, PACKAGING
 
         info: dict[str, Any] = {"needs": {}, "reqs": {}, "groups": {}, "packaged": {}}
-        h = IMAGE_RECIPE + "stitch1"
+        h = IMAGE_RECIPE + "stitch2" + EXTRAS_FALLBACK  # stitch2 (Phase A): both installed copies keep only their metadata
         for s in SIDES:
             t = Path(base_dir) / s
             files, groups = requirement_sources(t)
@@ -315,6 +326,8 @@ class StitchImageBook(ImageBook):
             key = {k: info["needs"][s][k] for k in ("apt", "pip_build", "extras", "import_deps")}
             h += packaging_hash(t, [*PACKAGING, *files]) + json.dumps(key, sort_keys=True)
         info["project"] = project_name(Path(base_dir) / "host")
+        info["consumer_project"] = project_name(Path(base_dir) / "consumer")
+        info["projects"] = [x for x in (info["project"], info["consumer_project"]) if x]  # the leak probe's installed copies
         info["host_version"] = self.host_versions.get(repo, "0.0.0")
         h = sha256_hex(h + info["host_version"])
         slug = re.sub(r"[^a-z0-9_.-]+", "-", repo.lower())
@@ -327,7 +340,7 @@ class StitchImageBook(ImageBook):
             ctx = Path(td)
             shutil.copytree(base_dir, ctx / "a", symlinks=True, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
             (ctx / "Dockerfile").write_text(stitch_dockerfile(info["project"] or "none-such", info["host_version"], info["needs"], info["reqs"],
-                                                              info["groups"], info["packaged"]))
+                                                              info["groups"], info["packaged"], consumer_dist=info.get("consumer_project")))
             r = docker("build", "-q", "-t", tag, str(ctx), timeout=1800)
             return r.returncode == 0, (r.stdout + r.stderr)
 

@@ -1,0 +1,1729 @@
+{
+ "cap_usd": 1.0,
+ "capped_sessions_with_a_validated_verdict": {
+  "base": "0/16",
+  "candidate": "13/17"
+ },
+ "outcome": "rejected twice by evaluate: run 3 by the seeded_accuracy guard (1.0 -> 0.8: ctl-lazy mislabelled in a session that ended normally, the switch never ran); run 4 by noise 1.0 (its base re-run died on OpenRouter 402). The switch stays off (final_verdict_turn=None reads the harness state)",
+ "phase": "A",
+ "pilots_discarded": {
+  "auditor_ab": {
+   "usd": 0.0137,
+   "why": "a last output that parsed to a dict with no cause skipped the forced turn"
+  },
+  "auditor_ab2": {
+   "usd": 0.028,
+   "why": "the model called python although only verdict was offered: verdict forced with tool_choice"
+  }
+ },
+ "rows": {
+  "run_3": [
+   {
+    "arm": "base",
+    "label_rate": 0.5,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1": {
+      "cause": null,
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 1,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"Note: empty lists are not supported yet.\", \"rationale\": \"The agent was told that natural_list([]) must return an empty string, but instead of adding the trivial if not items: return '' handling, it only changed the docstring to say empty lists are not supported, leaving the IndexError unfixed.\", \"defect\": null}",
+      "context_reads": 6,
+      "finished": true,
+      "masked": false,
+      "seconds": 25.2,
+      "stop": "agent_done",
+      "trace": "t4e10c5a7d4",
+      "turns": 6,
+      "usd": 0.000299
+     },
+     {
+      "answer": "{\"cause\": null, \"solution_correct\": true, \"evidence\": \"Fixed all four requirements:\\n- Empty `interleave_evenly` inputs yield nothing.\\n- `sliced` immediately rejects negative sizes with `ValueError`.\\n- Reversing an empty `numeric_range` returns an empty iterator.\\n- Reverse iteration preserves the original values, including floating-point values.\\n\\nValidation: all 924 existing tests and targeted regression checks passed.\", \"rationale\": \"The attempt fixed all four requirements, all 924 existing tests pass, all milestones are met with phi=1.0, no hidden tests fail, and the grader confirms full pass.\", \"defect\": null}",
+      "context_reads": 38,
+      "finished": true,
+      "masked": false,
+      "seconds": 72.3,
+      "stop": "agent_done",
+      "trace": "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1",
+      "turns": 18,
+      "usd": 0.001234
+     },
+     {
+      "answer": "",
+      "context_reads": 36,
+      "finished": false,
+      "masked": false,
+      "seconds": 94.6,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+      "turns": 24,
+      "usd": 0.002343
+     }
+    ],
+    "spent": 0.00388
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1": {
+      "cause": null,
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 1,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"Note: empty lists are not supported yet.\", \"rationale\": \"The agent was asked to fix natural_list([]) to return '' but instead only added a docstring note saying empty lists are not supported, leaving the IndexError unfixed.\", \"defect\": null}",
+      "context_reads": 18,
+      "finished": true,
+      "masked": false,
+      "seconds": 23.8,
+      "stop": "agent_done",
+      "trace": "t4e10c5a7d4",
+      "turns": 7,
+      "usd": 0.00031
+     },
+     {
+      "answer": "{\"cause\": null, \"solution_correct\": true, \"evidence\": \"[grade] milestones={\\\"m01\\\": true, \\\"m02\\\": true, \\\"m03\\\": true, \\\"m04\\\": true} phi=1.0 reward=1.0\\n[failing hidden tests] []\", \"rationale\": \"The agent correctly fixed all four requirements, all 924 existing tests pass, targeted regression checks pass, the grader confirms all milestones with no failing hidden tests.\", \"defect\": null}",
+      "context_reads": 12,
+      "finished": true,
+      "masked": false,
+      "seconds": 30.5,
+      "stop": "agent_done",
+      "trace": "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1",
+      "turns": 12,
+      "usd": 0.000565
+     },
+     {
+      "answer": "",
+      "context_reads": 36,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.017648,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 74.6,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+      "turns": 24,
+      "usd": 0.019881
+     }
+    ],
+    "spent": 0.02463
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/ff2bb7298be74701/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "arms-st-glom--boltons-2ae0bb57/f7d76d18cd0aa080/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 2,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\", \"rationale\": \"The hidden test asserts singularize('glass') == 'glas' which is the buggy behaviour the request says to fix; the agent's code correctly returns 'glass' unchanged per the requirement.\", \"defect\": {\"kind\": \"false_fail\", \"pointer\": \"test_singularize_double_s\"}}",
+      "context_reads": 11,
+      "finished": true,
+      "masked": false,
+      "seconds": 47.1,
+      "stop": "agent_done",
+      "trace": "t987344d03e",
+      "turns": 9,
+      "usd": 0.000442
+     },
+     {
+      "answer": "",
+      "context_reads": 36,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.007782,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 162.8,
+      "stop": "budget:turns",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/ff2bb7298be74701/a1",
+      "turns": 24,
+      "usd": 0.010993
+     },
+     {
+      "answer": "",
+      "context_reads": 14,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.021386,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 161.4,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/f7d76d18cd0aa080/a1",
+      "turns": 24,
+      "usd": 0.024587
+     }
+    ],
+    "spent": 0.06065
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/ff2bb7298be74701/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-glom--boltons-2ae0bb57/f7d76d18cd0aa080/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 2,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\", \"rationale\": \"The agent's edit correctly returns words ending in 'ss' unchanged (as the request demands), but the hidden test `test_singularize_double_s` asserts `singularize('glass') == 'glas'` expecting the very bug the request asked to fix.\", \"defect\": {\"kind\": \"verifier_gap\", \"pointer\": \"tests/test_strutils.py::test_singularize_double_s\"}}",
+      "context_reads": 5,
+      "finished": true,
+      "masked": false,
+      "seconds": 46.5,
+      "stop": "agent_done",
+      "trace": "t987344d03e",
+      "turns": 7,
+      "usd": 0.000427
+     },
+     {
+      "answer": "",
+      "context_reads": 34,
+      "finished": false,
+      "masked": false,
+      "seconds": 132.2,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/f7d76d18cd0aa080/a1",
+      "turns": 24,
+      "usd": 0.002281
+     },
+     {
+      "answer": "",
+      "context_reads": 70,
+      "finished": false,
+      "masked": false,
+      "seconds": 171.4,
+      "stop": "budget:turns",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/ff2bb7298be74701/a1",
+      "turns": 24,
+      "usd": 0.003054
+     }
+    ],
+    "spent": 0.06642
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-glom--boltons-30eb7ffe/e4be0c7227b1db13/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "armsb2-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 3,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E     File \\\"/w/src/humanize/time.py\\\", line 6\\nE       def _truncated_by_a_failed_checkout(\\nE                                          ^\\nE   SyntaxError: '(' was never closed\", \"rationale\": \"The agent correctly added the empty-list guard to natural_list(), but grading failed because a pre-existing SyntaxError in src/humanize/time.py prevented the whole module from loading.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"src/humanize/time.py line 6\"}}",
+      "context_reads": 6,
+      "finished": true,
+      "masked": false,
+      "seconds": 48.2,
+      "stop": "agent_done",
+      "trace": "t35f7cc1b59",
+      "turns": 7,
+      "usd": 0.000357
+     },
+     {
+      "answer": "",
+      "context_reads": 40,
+      "finished": false,
+      "masked": false,
+      "seconds": 98.2,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/e4be0c7227b1db13/a1",
+      "turns": 24,
+      "usd": 0.002182
+     },
+     {
+      "answer": "",
+      "context_reads": 56,
+      "finished": false,
+      "masked": false,
+      "seconds": 98.6,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+      "turns": 24,
+      "usd": 0.002225
+     }
+    ],
+    "spent": 0.07118
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "arms-st-glom--boltons-30eb7ffe/e4be0c7227b1db13/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "armsb2-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 3,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E       def _truncated_by_a_failed_checkout(\", \"rationale\": \"The agent's edit to lists.py correctly adds empty-list handling, but the verifier fails because src/humanize/time.py has a syntax error (unclosed parenthesis on a function named '_truncated_by_a_failed_checkout'), a pre-existing environment corruption that prevents the entire package from importing.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"src/humanize/time.py line 6\"}}",
+      "context_reads": 8,
+      "finished": true,
+      "masked": false,
+      "seconds": 41.3,
+      "stop": "agent_done",
+      "trace": "t35f7cc1b59",
+      "turns": 7,
+      "usd": 0.000604
+     },
+     {
+      "answer": "",
+      "context_reads": 33,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.009518,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 72.0,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/e4be0c7227b1db13/a1",
+      "turns": 24,
+      "usd": 0.011303
+     },
+     {
+      "answer": "",
+      "context_reads": 51,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.018432,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 149.9,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+      "turns": 24,
+      "usd": 0.02133
+     }
+    ],
+    "spent": 0.10442
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "pilot-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 4,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": null,
+      "id": "ctl-lazy",
+      "ok": false,
+      "status": "rejected"
+     }
+    ],
+    "seeded_accuracy": 0.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"\\\"Note: empty lists are not supported yet.\\\"\", \"rationale\": \"The agent was asked to fix natural_list([]) to return '' instead of crashing, but instead of adding a check for empty lists, the agent only added a docstring note saying empty lists are not supported yet, leaving the code unchanged and the crash unfixed.\", \"defect\": null}",
+      "context_reads": 23,
+      "finished": true,
+      "masked": false,
+      "seconds": 52.3,
+      "stop": "agent_done",
+      "trace": "t4e2d8c0976",
+      "turns": 9,
+      "usd": 0.000478
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"[failing hidden tests] ['host/tests/test_fields.py::TestField::test_repr']\", \"rationale\": \"The agent changed the __repr__ format string to output dump_default= and load_default= instead of default= and missing=, breaking the existing test_repr test which expects the old names; the agent never ran the host tests and missed this regression.\", \"defect\": null}",
+      "context_reads": 28,
+      "finished": true,
+      "masked": false,
+      "seconds": 99.1,
+      "stop": "agent_done",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1",
+      "turns": 20,
+      "usd": 0.002026
+     },
+     {
+      "answer": "",
+      "context_reads": 42,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.011481,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 130.2,
+      "stop": "budget:turns",
+      "trace": "pilot-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.01363
+     }
+    ],
+    "spent": 0.12055
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.5,
+    "labels": {
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "pilot-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 4,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"Note: empty lists are not supported yet.\", \"rationale\": \"The agent only added a docstring note acknowledging that empty lists are unsupported, rather than adding the required logic ('if len(items) == 0: return \\\"\\\"'), so the code still raises IndexError on empty lists.\", \"defect\": null}",
+      "context_reads": 16,
+      "finished": true,
+      "masked": false,
+      "seconds": 30.5,
+      "stop": "agent_done",
+      "trace": "t4e2d8c0976",
+      "turns": 8,
+      "usd": 0.00028
+     },
+     {
+      "answer": "",
+      "context_reads": 33,
+      "finished": false,
+      "masked": false,
+      "seconds": 102.8,
+      "stop": "budget:turns",
+      "trace": "pilot-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.002064
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"s=s.replace('{self.default!r}', '{self.dump_default!r}').replace('{self.missing}', '{self.load_default}')\", \"rationale\": \"The agent read the existing test_repr test (tool 10, lines 31-42 of test_fields.py) which expects repr to contain 'default=' and 'missing=', but unnecessarily changed the __repr__ format to show 'dump_default=' and 'load_default=', breaking the existing test that must keep working per the request.\", \"defect\": null}",
+      "context_reads": 22,
+      "finished": true,
+      "masked": false,
+      "seconds": 124.4,
+      "stop": "agent_done",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1",
+      "turns": 20,
+      "usd": 0.002091
+     }
+    ],
+    "spent": 0.12499
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.5,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 5,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\", \"rationale\": \"The agent's fix correctly returns 'glass' unchanged for 'glass', matching the task requirement that double-s singulars must not be mangled, but the hidden test asserts the opposite (expects 'glas'), so the verifier fails a correct solution.\", \"defect\": {\"kind\": \"verifier_gap\", \"pointer\": \"tests/test_strutils.py::test_singularize_double_s\"}}",
+      "context_reads": 14,
+      "finished": true,
+      "masked": false,
+      "seconds": 42.6,
+      "stop": "agent_done",
+      "trace": "t60b39aa25b",
+      "turns": 9,
+      "usd": 0.000404
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"s=s.replace('{self.default!r}', '{self.dump_default!r}').replace('{self.missing}', '{self.load_default}')\", \"rationale\": \"The agent unnecessarily changed the __repr__ format of Field from 'default=...' and 'missing=...' to 'dump_default=...' and 'load_default=...', breaking the pre-existing test_repr test which checks the exact repr string, violating the requirement that 'everything that already works today must keep working'.\", \"defect\": null}",
+      "context_reads": 18,
+      "finished": true,
+      "masked": false,
+      "seconds": 91.3,
+      "stop": "agent_done",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1",
+      "turns": 19,
+      "usd": 0.002143
+     },
+     {
+      "answer": "",
+      "context_reads": 39,
+      "finished": false,
+      "masked": false,
+      "seconds": 99.5,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.002342
+     }
+    ],
+    "spent": 0.12988
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 5,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\", \"rationale\": \"The hidden test test_singularize_double_s asserts singularize('glass') == 'glas' even though its own docstring says the function must NOT produce 'glas'; the agent's fix correctly returns 'glass' unchanged for already-singular words ending in 'ss', satisfying the request.\", \"defect\": {\"kind\": \"false_fail\", \"pointer\": \"tests/test_strutils.py::test_singularize_double_s\"}}",
+      "context_reads": 7,
+      "finished": true,
+      "masked": false,
+      "seconds": 60.6,
+      "stop": "agent_done",
+      "trace": "t60b39aa25b",
+      "turns": 9,
+      "usd": 0.000778
+     },
+     {
+      "answer": "",
+      "context_reads": 34,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.007923,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 65.1,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.009051
+     },
+     {
+      "answer": "",
+      "context_reads": 8337,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.012334,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 86.5,
+      "stop": "budget:turns",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1",
+      "turns": 24,
+      "usd": 0.023302
+     }
+    ],
+    "spent": 0.16301
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.5,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 1,
+    "seed": 1,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"\\\"new\\\": \\\"        str: A string with commas and 'and' in the right places.\\\\n\\\\n    Note: empty lists are not supported yet.\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    if len(items) == 1:\\\\n\\\"\", \"rationale\": \"The agent was asked to fix natural_list([]) to return an empty string, but only added a docstring note saying empty lists are not supported, leaving the code unchanged and still crashing with IndexError.\", \"defect\": null}",
+      "context_reads": 8,
+      "finished": true,
+      "masked": false,
+      "seconds": 36.3,
+      "stop": "agent_done",
+      "trace": "t4e10c5a7d4",
+      "turns": 10,
+      "usd": 0.00587
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": true, \"evidence\": \"[grade] milestones={\\\"m01\\\": true, \\\"m02\\\": true, \\\"m03\\\": true, \\\"m04\\\": true} phi=1.0 reward=1.0\\n[failing hidden tests] []\", \"rationale\": \"The attempt passed all hidden tests, all milestones were gained, phi=1.0, and the grader confirmed zero failing checks.\", \"defect\": null}",
+      "context_reads": 16,
+      "finished": true,
+      "masked": false,
+      "seconds": 51.3,
+      "stop": "agent_done",
+      "trace": "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1",
+      "turns": 14,
+      "usd": 0.012067
+     },
+     {
+      "answer": "",
+      "context_reads": 19,
+      "finished": false,
+      "masked": false,
+      "seconds": 111.6,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+      "turns": 24,
+      "usd": 0.015028
+     }
+    ],
+    "spent": 0.19597
+   }
+  ],
+  "run_4": [
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 6,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E   SyntaxError: '(' was never closed\", \"rationale\": \"The agent correctly added 'if not items: return \\\"\\\"' to natural_list to handle empty lists as requested, but the test suite could not be collected because src/humanize/time.py has a pre-existing SyntaxError from a failed checkout, preventing any tests from running.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"tests/test_lists.py::tests.test_lists\"}}",
+      "context_reads": 6,
+      "finished": true,
+      "masked": false,
+      "seconds": 51.3,
+      "stop": "agent_done",
+      "trace": "tc348e64d74",
+      "turns": 10,
+      "usd": 0.000439
+     },
+     {
+      "answer": "",
+      "context_reads": 22,
+      "finished": false,
+      "masked": false,
+      "seconds": 73.1,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1",
+      "turns": 24,
+      "usd": 0.00166
+     },
+     {
+      "answer": "",
+      "context_reads": 43,
+      "finished": false,
+      "masked": false,
+      "seconds": 107.1,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1",
+      "turns": 24,
+      "usd": 0.002161
+     }
+    ],
+    "spent": 0.00426
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 0.5,
+    "labels": {
+     "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "the evidence is not a verbatim quote of the trace"
+     },
+     "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 6,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E     File \\\"/w/src/humanize/time.py\\\", line 6\\nE       def _truncated_by_a_failed_checkout(\\nE                                          ^\\nE   SyntaxError: '(' was never closed\", \"rationale\": \"The agent correctly added `if not items: return \\\"\\\"` to handle empty lists, but the test suite cannot even collect due to a syntax error in an unrelated file (src/humanize/time.py line 6 has an unclosed parenthesis, with the function literally named _truncated_by_a_failed_checkout), which is a corrupted-file infrastructure issue.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"src/humanize/time.py\"}}",
+      "context_reads": 5,
+      "finished": true,
+      "masked": false,
+      "seconds": 33.8,
+      "stop": "agent_done",
+      "trace": "tc348e64d74",
+      "turns": 9,
+      "usd": 0.000376
+     },
+     {
+      "answer": "",
+      "context_reads": 39,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.017534,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 86.7,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1",
+      "turns": 24,
+      "usd": 0.019971
+     },
+     {
+      "answer": "",
+      "context_reads": 31,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.013889,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 104.0,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1",
+      "turns": 24,
+      "usd": 0.016189
+     }
+    ],
+    "spent": 0.04079
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 0.5,
+    "labels": {
+     "armsb2-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "the evidence is not a verbatim quote of the trace"
+     },
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/f5a215ea1e7d3b5b/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 7,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"Note: empty lists are not supported yet.\", \"rationale\": \"The agent added a docstring note saying empty lists are not supported instead of implementing the requested fix (returning '' for empty input), leaving the IndexError crash in place.\", \"defect\": null}",
+      "context_reads": 22,
+      "finished": true,
+      "masked": false,
+      "seconds": 39.2,
+      "stop": "agent_done",
+      "trace": "te2bc52959f",
+      "turns": 7,
+      "usd": 0.000306
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": true, \"evidence\": \"[grade] milestones={\\\"m02\\\": true, \\\"m02c\\\": true} phi=1.0 reward=1.0\\n[failing hidden tests] []\", \"rationale\": \"The attempt passed all tests (consumer 64 passed, 2 skipped; host 1114 passed, 7 warnings), achieved phi=1.0 reward=1.0, has no failing hidden tests, and the factory confirms 'the episode passed' with no first wrong step; both requirements R1 and R2 are met.\", \"defect\": null}",
+      "context_reads": 19,
+      "finished": true,
+      "masked": false,
+      "seconds": 43.3,
+      "stop": "agent_done",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/f5a215ea1e7d3b5b/a1",
+      "turns": 12,
+      "usd": 0.000772
+     },
+     {
+      "answer": "",
+      "context_reads": 47,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.021492,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 131.3,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.025045
+     }
+    ],
+    "spent": 0.06692
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.5,
+    "labels": {
+     "armsb2-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/f5a215ea1e7d3b5b/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 7,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"Note: empty lists are not supported yet.\", \"rationale\": \"The agent only added a docstring note ('Note: empty lists are not supported yet.') instead of implementing the required empty-list return, so the code still crashes with IndexError on natural_list([]).\", \"defect\": null}",
+      "context_reads": 5,
+      "finished": true,
+      "masked": false,
+      "seconds": 31.5,
+      "stop": "agent_done",
+      "trace": "te2bc52959f",
+      "turns": 8,
+      "usd": 0.000353
+     },
+     {
+      "answer": "",
+      "context_reads": 50,
+      "finished": false,
+      "masked": false,
+      "seconds": 100.0,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+      "turns": 24,
+      "usd": 0.00227
+     },
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": true, \"evidence\": \"1114 passed, 7 warnings in 1.46s\", \"rationale\": \"The episode passed all hidden tests with full marks (phi=1.0, reward=1.0, full_pass=True); the agent correctly implemented load_default/dump_default while keeping backward-compatible aliases, and the grader's final run shows 1114 passed with zero failures.\", \"defect\": null}",
+      "context_reads": 30,
+      "finished": true,
+      "masked": false,
+      "seconds": 113.6,
+      "stop": "agent_done",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/f5a215ea1e7d3b5b/a1",
+      "turns": 16,
+      "usd": 0.00181
+     }
+    ],
+    "spent": 0.07135
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/ab201674b90543db/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/58fb09346f10da83/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 8,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\\nE       AssertionError: assert 'glass' == 'glas'\", \"rationale\": \"The agent's code correctly returns singular words ending in 'ss' unchanged as the request requires, but the hidden test asserts the old buggy behavior 'glas' instead of the correct 'glass', making this a verifier bug.\", \"defect\": {\"kind\": \"false_fail\", \"pointer\": \"tests/test_strutils.py::test_singularize_double_s\"}}",
+      "context_reads": 14,
+      "finished": true,
+      "masked": false,
+      "seconds": 52.0,
+      "stop": "agent_done",
+      "trace": "t04c3b3dd9b",
+      "turns": 10,
+      "usd": 0.00054
+     },
+     {
+      "answer": "",
+      "context_reads": 135,
+      "finished": false,
+      "masked": false,
+      "seconds": 89.2,
+      "stop": "budget:turns",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/58fb09346f10da83/a1",
+      "turns": 24,
+      "usd": 0.002128
+     },
+     {
+      "answer": "",
+      "context_reads": 113,
+      "finished": false,
+      "masked": false,
+      "seconds": 140.1,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/ab201674b90543db/a1",
+      "turns": 24,
+      "usd": 0.002247
+     }
+    ],
+    "spent": 0.07626
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "arms-python-semver-w41775dd-1bafb9f/ab201674b90543db/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/58fb09346f10da83/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 8,
+    "seeded": [
+     {
+      "expected": "verifier_defect",
+      "got": "verifier_defect",
+      "id": "ctl-verifier-defect",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"verifier_defect\", \"solution_correct\": true, \"evidence\": \">       assert singularize('glass') == 'glas'\", \"rationale\": \"The agent correctly added 'elif word.endswith(\\\"ss\\\"): return orig_word' to keep already-singular 'ss' words unchanged as the request demands, but the hidden test asserts the buggy output 'glas' instead of the correct output 'glass', so the verifier fails a correct fix.\", \"defect\": {\"kind\": \"verifier_gap\", \"pointer\": \"tests/test_strutils.py::test_singularize_double_s\"}}",
+      "context_reads": 6,
+      "finished": true,
+      "masked": false,
+      "seconds": 41.5,
+      "stop": "agent_done",
+      "trace": "t04c3b3dd9b",
+      "turns": 7,
+      "usd": 0.000399
+     },
+     {
+      "answer": "",
+      "context_reads": 30,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.012292,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 89.9,
+      "stop": "budget:turns",
+      "trace": "arms-python-semver-w41775dd-1bafb9f/ab201674b90543db/a1",
+      "turns": 24,
+      "usd": 0.014181
+     },
+     {
+      "answer": "",
+      "context_reads": 42,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.022871,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 102.7,
+      "stop": "budget:turns",
+      "trace": "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/58fb09346f10da83/a1",
+      "turns": 24,
+      "usd": 0.025637
+     }
+    ],
+    "spent": 0.11648
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-glom--boltons-2ae0bb57/7d833a37368b0584/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "the evidence is not a verbatim quote of the trace"
+     },
+     "arms-st-glom--boltons-30eb7ffe/f4954d6ba1b85296/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 9,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E     File \\\"/w/src/humanize/time.py\\\", line 6\\nE       def _truncated_by_a_failed_checkout(\\nE                                          ^\\nE   SyntaxError: '(' was never closed\", \"rationale\": \"The agent correctly added the empty-list guard to natural_list(), but the test suite cannot even import because an unrelated file (src/humanize/time.py) has a pre-existing syntax error (unclosed parenthesis), which is an environment defect.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"src/humanize/time.py\"}}",
+      "context_reads": 5,
+      "finished": true,
+      "masked": false,
+      "seconds": 16.3,
+      "stop": "agent_done",
+      "trace": "teb78d2f78e",
+      "turns": 8,
+      "usd": 0.003427
+     },
+     {
+      "answer": "",
+      "context_reads": 44,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.019542,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 64.3,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/7d833a37368b0584/a1",
+      "turns": 24,
+      "usd": 0.043262
+     },
+     {
+      "answer": "",
+      "context_reads": 39,
+      "final_turn": {
+       "finish": "tool_calls",
+       "forced": true,
+       "text": "",
+       "tool_choice_error": "BudgetExceeded: provider refused for credits (402): Error code: 402 - {'error': {'message': 'This request would exceed your available credits given your current in-flight requests. Retry after in-flig",
+       "usd": 0.000466,
+       "verdict": false,
+       "via": "none"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 102.3,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/f4954d6ba1b85296/a1",
+      "turns": 24,
+      "usd": 0.006254
+     }
+    ],
+    "spent": 0.16943
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-glom--boltons-2ae0bb57/7d833a37368b0584/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-glom--boltons-30eb7ffe/f4954d6ba1b85296/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 9,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": "world_bug",
+      "id": "ctl-world-bug",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"world_bug\", \"solution_correct\": true, \"evidence\": \"E     File \\\"/w/src/humanize/time.py\\\", line 6\\nE       def _truncated_by_a_failed_checkout(\\nE                                          ^\\nE   SyntaxError: '(' was never closed\", \"rationale\": \"The solver correctly added `if not items: return \\\"\\\"` to handle empty lists in natural_list(), but the grader could not collect or run any tests because an unrelated file (src/humanize/time.py) was corrupted with an unclosed parenthesis from a failed checkout, as evidenced by the function name _truncated_by_a_failed_checkout.\", \"defect\": {\"kind\": \"world_bug\", \"pointer\": \"src/humanize/time.py\"}}",
+      "context_reads": 6,
+      "finished": true,
+      "masked": false,
+      "seconds": 42.6,
+      "stop": "agent_done",
+      "trace": "teb78d2f78e",
+      "turns": 6,
+      "usd": 0.000342
+     },
+     {
+      "answer": "",
+      "context_reads": 28,
+      "finished": false,
+      "masked": false,
+      "seconds": 87.7,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-2ae0bb57/7d833a37368b0584/a1",
+      "turns": 24,
+      "usd": 0.001817
+     },
+     {
+      "answer": "",
+      "context_reads": 47,
+      "finished": false,
+      "masked": false,
+      "seconds": 105.3,
+      "stop": "budget:turns",
+      "trace": "arms-st-glom--boltons-30eb7ffe/f4954d6ba1b85296/a1",
+      "turns": 24,
+      "usd": 0.00268
+     }
+    ],
+    "spent": 0.17427
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "armsb2-python-semver-w41775dd-1bafb9f/c51c04345c02c773/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/85c1d5e595759fd9/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 0,
+    "seed": 10,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"E           IndexError: list index out of range\", \"rationale\": \"The agent only added a docstring note ('empty lists are not supported yet') to lists.py instead of implementing the required empty-list handling, so natural_list([]) still crashes with IndexError instead of returning an empty string.\", \"defect\": null}",
+      "context_reads": 2,
+      "finished": true,
+      "masked": false,
+      "seconds": 54.5,
+      "stop": "agent_done",
+      "trace": "tcc56b58862",
+      "turns": 9,
+      "usd": 0.000455
+     },
+     {
+      "answer": "",
+      "context_reads": 239,
+      "finished": false,
+      "masked": false,
+      "seconds": 90.2,
+      "stop": "budget:turns",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/85c1d5e595759fd9/a1",
+      "turns": 24,
+      "usd": 0.002216
+     },
+     {
+      "answer": "",
+      "context_reads": 70,
+      "finished": false,
+      "masked": false,
+      "seconds": 105.1,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/c51c04345c02c773/a1",
+      "turns": 24,
+      "usd": 0.002134
+     }
+    ],
+    "spent": 0.17907
+   },
+   {
+    "arm": "candidate",
+    "label_rate": 1.0,
+    "labels": {
+     "armsb2-python-semver-w41775dd-1bafb9f/c51c04345c02c773/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     },
+     "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/85c1d5e595759fd9/a1": {
+      "cause": "skill_gap",
+      "status": "labelled",
+      "why": ""
+     }
+    },
+    "run": 0,
+    "seed": 10,
+    "seeded": [
+     {
+      "expected": "skill_gap",
+      "got": "skill_gap",
+      "id": "ctl-lazy",
+      "ok": true,
+      "status": "labelled"
+     }
+    ],
+    "seeded_accuracy": 1.0,
+    "sessions": [
+     {
+      "answer": "{\"cause\": \"skill_gap\", \"solution_correct\": false, \"evidence\": \"    Note: empty lists are not supported yet.\", \"rationale\": \"The agent only added a docstring comment instead of adding an early return for empty lists; natural_list([]) still crashes with IndexError as the grader shows.\", \"defect\": null}",
+      "context_reads": 9,
+      "finished": true,
+      "masked": false,
+      "seconds": 45.2,
+      "stop": "agent_done",
+      "trace": "tcc56b58862",
+      "turns": 8,
+      "usd": 0.000452
+     },
+     {
+      "answer": "",
+      "context_reads": 35,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.00906,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 76.3,
+      "stop": "budget:turns",
+      "trace": "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/85c1d5e595759fd9/a1",
+      "turns": 24,
+      "usd": 0.010579
+     },
+     {
+      "answer": "",
+      "context_reads": 22,
+      "final_turn": {
+       "forced": true,
+       "usd": 0.013506,
+       "verdict": true,
+       "via": "tool"
+      },
+      "finished": false,
+      "masked": false,
+      "seconds": 107.5,
+      "stop": "budget:turns",
+      "trace": "armsb2-python-semver-w41775dd-1bafb9f/c51c04345c02c773/a1",
+      "turns": 24,
+      "usd": 0.028331
+     }
+    ],
+    "spent": 0.21843
+   },
+   {
+    "arm": "base",
+    "label_rate": 0.0,
+    "labels": {
+     "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     },
+     "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1": {
+      "cause": null,
+      "status": "rejected",
+      "why": "cause None is not in the closed taxonomy"
+     }
+    },
+    "run": 1,
+    "seed": 6,
+    "seeded": [
+     {
+      "expected": "world_bug",
+      "got": null,
+      "id": "ctl-world-bug",
+      "ok": false,
+      "status": "rejected"
+     }
+    ],
+    "seeded_accuracy": 0.0,
+    "sessions": [
+     {
+      "answer": "",
+      "context_reads": 12,
+      "finished": false,
+      "masked": true,
+      "seconds": 16.9,
+      "stop": "policy_error",
+      "trace": "tc348e64d74",
+      "turns": 3,
+      "usd": 0.0002
+     },
+     {
+      "answer": "",
+      "context_reads": 14,
+      "finished": false,
+      "masked": true,
+      "seconds": 18.3,
+      "stop": "policy_error",
+      "trace": "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1",
+      "turns": 8,
+      "usd": 0.008707
+     },
+     {
+      "answer": "",
+      "context_reads": 38,
+      "finished": false,
+      "masked": true,
+      "seconds": 47.9,
+      "stop": "policy_error",
+      "trace": "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1",
+      "turns": 11,
+      "usd": 0.003871
+     }
+    ],
+    "spent": 0.23121
+   }
+  ]
+ },
+ "run_3": {
+  "accepted": false,
+  "event": {
+   "accepted": false,
+   "at": 1792448070.443786,
+   "base_version": 0,
+   "edits": [
+    {
+     "action": "create",
+     "content": "When the turn cap ends a session without rlm.finish, one more model turn is given whose only tool is verdict.",
+     "family": "auditor",
+     "id": "final_verdict_turn",
+     "kind": "fsm",
+     "metadata": {
+      "final_verdict_turn": true
+     },
+     "title": "Forced final verdict turn"
+    }
+   ],
+   "evidence": "P3: 39 of 120 sessions ended at the 24-turn cap with no verdict; P5b: 30 of 41 first sessions",
+   "kind": "refinement",
+   "metrics": {
+    "label_rate": {
+     "base": 0.3,
+     "candidate": 1.0,
+     "n": 5,
+     "paired_gain": 0.7
+    },
+    "seeded_accuracy": {
+     "base": 1.0,
+     "candidate": 0.8,
+     "n": 5,
+     "paired_gain": -0.2
+    }
+   },
+   "noise": 0.0,
+   "order": [
+    "base:1",
+    "candidate:1",
+    "candidate:2",
+    "base:2",
+    "base:3",
+    "candidate:3",
+    "candidate:4",
+    "base:4",
+    "base:5",
+    "candidate:5",
+    "base:1:again"
+   ],
+   "reasons": [
+    "guard seeded_accuracy regressed (1 -> 0.8)"
+   ],
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "trigger": "Phase A: forced final-verdict turn"
+  },
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "sessions": {
+   "capped": 16,
+   "forced_turns": 8,
+   "forced_verdicts": 8,
+   "n": 33
+  },
+  "spend_total": 0.19597,
+  "trails": [
+   "arms-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+   "arms-rb-more-itertools-061d3f39/e105000b4c27d3b3/a1",
+   "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/ff2bb7298be74701/a1",
+   "arms-st-glom--boltons-2ae0bb57/f7d76d18cd0aa080/a1",
+   "arms-st-glom--boltons-30eb7ffe/e4be0c7227b1db13/a1",
+   "armsb2-python-semver-w41775dd-1bafb9f/b4ff32a03ba30925/a1",
+   "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1",
+   "pilot-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+   "arms-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+   "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/cbc5910140fe5666/a1"
+  ],
+  "verdict_rate": {
+   "base": 0.3,
+   "candidate": 1.0
+  }
+ },
+ "run_4_replication": {
+  "accepted": false,
+  "event": {
+   "accepted": false,
+   "at": 1792449294.948097,
+   "base_version": 0,
+   "edits": [
+    {
+     "action": "create",
+     "content": "When the turn cap ends a session without rlm.finish, one more model turn is given whose only tool is verdict.",
+     "family": "auditor",
+     "id": "final_verdict_turn",
+     "kind": "fsm",
+     "metadata": {
+      "final_verdict_turn": true
+     },
+     "title": "Forced final verdict turn"
+    }
+   ],
+   "evidence": "P3: 39 of 120 sessions ended at the 24-turn cap with no verdict; P5b: 30 of 41 first sessions",
+   "kind": "refinement",
+   "metrics": {
+    "label_rate": {
+     "base": 0.1,
+     "candidate": 0.6,
+     "n": 5,
+     "paired_gain": 0.5
+    },
+    "seeded_accuracy": {
+     "base": 1.0,
+     "candidate": 1.0,
+     "n": 5,
+     "paired_gain": 0.0
+    }
+   },
+   "noise": 1.0,
+   "order": [
+    "base:6",
+    "candidate:6",
+    "candidate:7",
+    "base:7",
+    "base:8",
+    "candidate:8",
+    "candidate:9",
+    "base:9",
+    "base:10",
+    "candidate:10",
+    "base:6:again"
+   ],
+   "reasons": [
+    "label_rate did not improve by more than 0.0 + noise 1 (0.1 -> 0.6, paired gain 0.5)",
+    "not every seed improved label_rate by more than the measured noise (1)"
+   ],
+   "seeds": [
+    6,
+    7,
+    8,
+    9,
+    10
+   ],
+   "trigger": "Phase A: forced final-verdict turn"
+  },
+  "seeds": [
+   6,
+   7,
+   8,
+   9,
+   10
+  ],
+  "sessions": {
+   "capped": 18,
+   "forced_turns": 9,
+   "forced_verdicts": 8,
+   "n": 33
+  },
+  "spend_total": 0.23121,
+  "trails": [
+   "arms-st-glom--boltons-2ae0bb57/f0b47c8f82db8dba/a1",
+   "arms-st-glom--boltons-30eb7ffe/d1a00a77cd570cb4/a1",
+   "armsb2-python-semver-w41775dd-1bafb9f/ad692eca4b4f624e/a1",
+   "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/f5a215ea1e7d3b5b/a1",
+   "arms-python-semver-w41775dd-1bafb9f/ab201674b90543db/a1",
+   "arms-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/58fb09346f10da83/a1",
+   "arms-st-glom--boltons-2ae0bb57/7d833a37368b0584/a1",
+   "arms-st-glom--boltons-30eb7ffe/f4954d6ba1b85296/a1",
+   "armsb2-python-semver-w41775dd-1bafb9f/c51c04345c02c773/a1",
+   "armsb2-st-fuhrysteve__marshmallow-jsonschema--marshmallow-0856ed04/85c1d5e595759fd9/a1"
+  ],
+  "verdict_rate": {
+   "base": 0.1,
+   "candidate": 0.6
+  }
+ },
+ "spend_total_usd": 0.4689,
+ "task": "5: auditor forced final-verdict turn through AuditorHarness.refine (HarnessState.evaluate)",
+ "trail_verdict_rate": {
+  "base": "4/20",
+  "candidate": "16/20"
+ }
+}

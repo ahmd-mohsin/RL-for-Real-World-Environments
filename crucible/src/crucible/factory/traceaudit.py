@@ -643,6 +643,40 @@ Finish with exactly one call: rlm.finish(json.dumps({"cause": ..., "solution_cor
 "rationale": "<one sentence>", "defect": {...} or None}))"""
 
 
+# Phase A: the forced final-verdict turn. P3 ended 39 of 120 sessions at the 24-turn cap with no verdict (rejected, never
+# guessed); P5b 30 of 41 first sessions. When the cap ends a session without ``rlm.finish``, the auditor gets one more model
+# turn whose only tool is ``verdict`` (the same JSON the brief asks ``rlm.finish`` for; ``audit.validate`` checks it the same
+# way: the closed taxonomy and a verbatim quote). It is a harness switch, an ``fsm`` entry of the auditor's ``HarnessState``
+# (``FINAL_VERDICT_EDIT``), so it is enabled only through ``AuditorHarness.refine`` (a measured paired A/B), never by hand.
+FINAL_VERDICT_SWITCH = "final_verdict_turn"
+FINAL_VERDICT_EDIT = {"action": "create", "kind": "fsm", "id": FINAL_VERDICT_SWITCH, "family": "auditor", "title": "Forced final verdict turn",
+                      "content": "When the turn cap ends a session without rlm.finish, one more model turn is given whose only tool is verdict.",
+                      "metadata": {FINAL_VERDICT_SWITCH: True}}
+FINAL_VERDICT_PROMPT = ("You have reached the turn limit: no more python calls. Decide now from what you have already read: call the `verdict` "
+                        "tool exactly once (the same fields rlm.finish would carry). `evidence` is checked character for character against "
+                        "the attempt: copy one short span (5 to 15 words) exactly as it appeared in a [tool], [result], message or [grader "
+                        "tail] line your python calls printed above; never paraphrase, never quote the [facts] or [first wrong step] lines. "
+                        "Use cause \"abstain\" if you cannot decide.")
+VERDICT_TOOL = {"type": "function", "function": {
+    "name": "verdict", "description": "Your final audit verdict for this attempt.",
+    "parameters": {"type": "object", "required": ["cause", "solution_correct", "evidence", "rationale"], "properties": {
+        "cause": {"type": "string", "enum": ["skill_gap", "spec_defect", "unstated_format", "world_bug", "verifier_defect", "budget", "env_flake", "abstain"]},
+        "solution_correct": {"type": ["boolean", "null"]},
+        "evidence": {"type": "string", "description": "a verbatim quote from the attempt"},
+        "rationale": {"type": "string"},
+        "defect": {"type": ["object", "null"], "properties": {"kind": {"type": "string"}, "pointer": {"type": "string"}}}}}}}
+
+
+def switch_on(entries: Mapping[str, Any] | None, key: str = FINAL_VERDICT_SWITCH) -> bool:
+    """Whether a harness switch entry (``metadata[key]`` true, family auditor or ``*``) is present in ``entries``."""
+    for e in (entries or {}).values():
+        md = getattr(e, "metadata", None) if not isinstance(e, Mapping) else e.get("metadata")
+        fam = getattr(e, "family", None) if not isinstance(e, Mapping) else e.get("family")
+        if isinstance(md, Mapping) and md.get(key) and fam in ("auditor", "*"):
+            return True
+    return False
+
+
 class AuditorHarness:
     """The auditor's supplemental notes (an m14 ``HarnessState``, family ``auditor``). They change only through
     ``refine`` (``HarnessState.evaluate``: a paired A/B on the same seeds, alternating order, a noise re-run, guards); this
@@ -670,14 +704,20 @@ class AuditorHarness:
     def digest(self, query: str, entries: Mapping[str, Any] | None = None) -> str:
         from crucible.actors.rlm.harness_state import HarnessState
 
-        if entries is None:
-            hs = self._state
+        src = dict(self._state.entries if entries is None else entries)
+        # a harness switch (an fsm entry with a switch flag) is behaviour, never prompt text
+        keep = {k: v for k, v in src.items() if not (getattr(v, "kind", "") == "fsm" and switch_on({k: v}))}
+        if entries is None and len(keep) == len(src):
+            hs = self._state  # the shown/used counters stay on the real state
         else:
             hs = HarnessState(None)
-            hs.entries = dict(entries)
+            hs.entries = keep
         if not hs.select(self.FAMILY):
             return ""
         return hs.digest(query, family=self.FAMILY)
+
+    def switched(self, key: str = FINAL_VERDICT_SWITCH) -> bool:
+        return switch_on(self._state.entries, key)
 
     async def refine(self, edits: Sequence[dict[str, Any]], fn: Callable[[dict[str, Any], int], Awaitable[dict[str, float]]], seeds: Sequence[int],
                      **kw: Any) -> dict[str, Any]:
@@ -758,7 +798,8 @@ class RLMAuditor(Auditor):
     ``LocalLauncher(allow_host=True)`` for scripted tests only). ``sessions`` records turns, stop and cost per label."""
 
     def __init__(self, llm: Any, *, model: str, workdir: Path, launcher: Callable[[], Any] | None = None, config: AuditConfig | None = None,
-                 rlm_config: Any = None, harness: AuditorHarness | None = None, entries: Mapping[str, Any] | None = None, max_steps: int = 40):
+                 rlm_config: Any = None, harness: AuditorHarness | None = None, entries: Mapping[str, Any] | None = None, max_steps: int = 40,
+                 final_verdict_turn: bool | None = None):
         super().__init__(llm, model=model, config=config)
         from crucible.actors.rlm.agent import RLMConfig
 
@@ -767,7 +808,52 @@ class RLMAuditor(Auditor):
         self.rlm_config = rlm_config or RLMConfig(temperature=0.0, tree_max_depth=0, max_turns=24, window_tokens=48_000, max_tokens=4000,
                                                   cell_timeout_s=60.0, wall_s=900.0)
         self.harness, self.entries, self.max_steps = harness, entries, max_steps
+        # None: the harness decides (``FINAL_VERDICT_SWITCH`` in ``entries``, else in the harness state); True/False forces it
+        self._final_verdict_turn = final_verdict_turn
         self.sessions: list[dict[str, Any]] = []
+
+    @property
+    def final_verdict_turn(self) -> bool:
+        if self._final_verdict_turn is not None:
+            return self._final_verdict_turn
+        if self.entries is not None:
+            return switch_on(self.entries)
+        return bool(self.harness is not None and self.harness.switched())
+
+    async def final_verdict(self, policy: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        """One more model turn after the cap: the session's own messages, the cap notice, and only the ``verdict`` tool.
+        Returns (the reply as ``rlm.finish`` would carry it, a row for the session record)."""
+        msgs = [*list(getattr(policy, "messages", None) or []), {"role": "user", "content": FINAL_VERDICT_PROMPT}]
+        row: dict[str, Any] = {"forced": True}
+        try:  # the verdict function is forced (a model given only one tool still tried to call python: A/B pilot)
+            r = await self.llm.complete(msgs, tools=[VERDICT_TOOL], max_tokens=1500, temperature=0.0, seed=0,
+                                        tool_choice={"type": "function", "function": {"name": "verdict"}})
+        except Exception as e:  # noqa: BLE001 - a provider without named tool_choice: once more without it
+            row["tool_choice_error"] = f"{type(e).__name__}: {e}"[:200]
+            try:
+                r = await self.llm.complete(msgs, tools=[VERDICT_TOOL], max_tokens=1500, temperature=0.0, seed=0)
+            except Exception as e2:  # noqa: BLE001 - the forced turn failing leaves the session as it was (no verdict, rejected)
+                row["error"] = f"{type(e2).__name__}: {e2}"[:300]
+                return {}, row
+        row["usd"] = round(float(getattr(r, "cost_usd", 0.0) or 0.0), 6)
+        reply: dict[str, Any] = {}
+        for tc in getattr(r, "tool_calls", None) or []:
+            name = tc.get("name") or (tc.get("function") or {}).get("name")
+            args = tc.get("arguments") if "arguments" in tc else (tc.get("function") or {}).get("arguments")
+            if name == "verdict":
+                reply = args if isinstance(args, dict) else _parse_answer(str(args or ""))
+                break
+        if not reply:
+            reply = _parse_answer(getattr(r, "text", "") or "")
+            row["via"] = "text" if reply else "none"
+            if not reply:
+                row["text"], row["finish"] = str(getattr(r, "text", "") or "")[:300], getattr(r, "raw_finish", None)
+        else:
+            row["via"] = "tool"
+        if reply.get("cause") == "abstain":
+            reply["cause"] = None
+        row["verdict"] = bool(reply)
+        return reply, row
 
     async def label(self, t: Trace, *, prompt: str, requirements: Sequence[Any] = ()) -> AuditLabel:
         c = self.config
@@ -799,7 +885,7 @@ class RLMAuditor(Auditor):
         d.mkdir(parents=True, exist_ok=True)
         ctx = d / "context.txt"
         ctx.write_text(t.text)
-        notes = self.harness.digest(t.text[:2000], self.entries) if self.harness is not None else ""
+        notes = self.harness.digest(t.text[:2000], self.entries if self.entries is not None else self.harness.entries) if self.harness is not None else ""
         reqs = [{"id": getattr(r, "id", ""), "text": getattr(r, "text", "")} for r in requirements]
         task = (AUDITOR_TASK + f"\n\nVerifier verdict: {'pass' if t.verifier_pass else 'fail'}; failing checks: {t.failing_checks[:30]}"
                 + (f"\nRequirements: {json.dumps(reqs)[:4000]}" if reqs else "") + (f"\nBatch request: {prompt[:2000]}" if prompt else "")
@@ -822,11 +908,14 @@ class RLMAuditor(Auditor):
         row = {"trace": t.id, "stop": policy.stop, "turns": policy.counters.get("turns", 0), "context_reads": policy.counters.get("context_reads", 0),
                "usd": round(sum(float(c.get("cost_usd") or 0.0) for c in calls), 6), "seconds": round(time.monotonic() - t0, 1),
                "masked": bool(getattr(ep, "masked", False)), "answer": (policy.answer or "")[:2000], "finished": policy.answer is not None}
-        self.sessions.append(row)
-        (d / "session.json").write_text(json.dumps(row, indent=1))
         reply = _parse_answer(policy.answer)
         if not reply and policy.stop and policy.stop.startswith("budget"):  # out of turns with its verdict printed: the last output
             reply = _parse_answer(getattr(policy, "_last_output", ""))
+        if not reply.get("cause") and policy.stop and policy.stop.startswith("budget:turns") and self.final_verdict_turn:
+            reply, row["final_turn"] = await self.final_verdict(policy)
+            row["usd"] = round(row["usd"] + float(row["final_turn"].get("usd") or 0.0), 6)
+        self.sessions.append(row)
+        (d / "session.json").write_text(json.dumps(row, indent=1))
         return reply
 
 

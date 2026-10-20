@@ -18,6 +18,19 @@ never verification).
 - **Persistent specialists** (``Specialists``): a hacker memory per family (``forge/specialists.FamilyMemory`` +
   ``SpecialistHacker``), a World expert per World, any other named specialist: created once per root and shared by
   every machine (the ``actors/rlm/tree.ChildRegistry`` pattern: get-or-spawn by name, kept for the run).
+- **The family's task repo** (Phase A; swarm-pipeline/00 §3.1, §3.4, S0, S17; P1's ``handoff.TaskRepo``, GitSwarm
+  PATTERN), one per family (the intent) unless injected:
+  - *in-flight first*: before a cell is leased, the repo's live announcements are read; one whose scope overlaps the
+    cell's (another holder's) skips the cell with no lease and no attempt. After the lease the root announces the cell's
+    scope with its abort criteria (a race that lost raises ``DuplicateWork``: the lease is released);
+  - *abstention is free*: a run that abstains ("nothing new to add": its lease state refused, or it reached an
+    ``abstained`` terminal), or ``abstain(cell)`` by the root, retires the announcement ``abstained``, closes the cell
+    ``abstained`` and costs no attempt and no yield-book rejection;
+  - *the herding guard at the S17 merge*: a gate-accepted card whose parent idea (``parent_of``: the card's declared
+    ``parent`` / ``template`` / ``source``, else its run id) would hold more than 40% of the family's accepted tasks
+    (from 5 accepted) is not merged; it waits (``herded``) and is merged at the end of the run when other parents made
+    room, else its announcement is retired ``rejected`` with the reason. A merged task is retired ``accepted`` with its
+    parent, so the next check counts it. A machine that ran S17 itself on the same repo is not counted twice.
 """
 
 from __future__ import annotations
@@ -33,6 +46,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.factory.handoff import HERDING_CAP, HERDING_FLOOR, DuplicateWork, TaskRepo
 from crucible.factory.machine import MachineRun, RunResult
 from crucible.forge.budget import Ledger
 from crucible.forge.economy import YieldBook
@@ -40,6 +54,7 @@ from crucible.forge.specialists import FamilyMemory, SpecialistHacker
 
 MAX_SURFACE_SHARE = 0.40  # 05 §8 v1
 SURFACE_SHARE_FLOOR = 5  # below this many accepted tasks a share is noise
+ACCEPTED_BY_MACHINE = "already accepted by the machine's own S17"  # the herding guard's note: not counted twice
 _SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -58,7 +73,7 @@ class Cell:
     observations: list[dict[str, Any]] = field(default_factory=list)
     accepted: list[str] = field(default_factory=list)
     attempts: int = 0
-    status: str = "open"  # open | filled | escalated | closed
+    status: str = "open"  # open | filled | escalated | closed | abstained | herded
 
     @property
     def key(self) -> str:
@@ -261,6 +276,19 @@ class RootReport:
     max_parallel: int
     matrix: dict[str, Any]
     launches: list[dict[str, Any]]
+    abstained: list[str] = field(default_factory=list)  # run ids (or cell keys the root abstained on)
+    herded: list[str] = field(default_factory=list)  # run ids the herding guard kept out of the merge
+    inflight_skipped: list[dict[str, Any]] = field(default_factory=list)  # cells skipped for another holder's live announcement
+
+
+def default_parent(cell: Cell, card: Mapping[str, Any], run_id: str) -> str:
+    """The parent idea a task was built on (the herding guard counts these): the card's declared ``parent``, or its
+    lineage's ``parent`` / ``template`` / ``source``; else the run id (an undeclared parent never herds)."""
+    lin = card.get("lineage") or {}
+    for v in (card.get("parent"), lin.get("parent"), lin.get("template"), lin.get("source")):
+        if v:
+            return v if isinstance(v, str) else json.dumps(v, sort_keys=True, default=str)
+    return f"run:{run_id}"
 
 
 class RootCurator:
@@ -270,7 +298,9 @@ class RootCurator:
     def __init__(self, root: Path, matrix: CoverageMatrix, *, make_run: MakeRun, ledger: Ledger, book: YieldBook | None = None,
                  concurrency: int = 4, holder: str = "root", merge: Callable[[dict[str, Any]], Any] | None = None,
                  max_attempts_per_cell: int = 3, generator: Callable[[Cell], str] | None = None, lease_ttl_s: float = 3600.0,
-                 max_surface_share: float = MAX_SURFACE_SHARE, reload_spend: bool = True):
+                 max_surface_share: float = MAX_SURFACE_SHARE, reload_spend: bool = True, task_repo: Any = "per_family",
+                 parent_of: Callable[[Cell, Mapping[str, Any], str], str] = default_parent, herding_cap: float = HERDING_CAP,
+                 herding_floor: int = HERDING_FLOOR):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.matrix, self.make_run, self.ledger, self.concurrency, self.holder = matrix, make_run, ledger, concurrency, holder
@@ -284,11 +314,19 @@ class RootCurator:
         self.decisions: dict[str, dict[str, Any]] = {}  # run id -> decision request (escalated machines)
         self.runs: dict[str, MachineRun] = {}
         self.cards: dict[str, dict[str, Any]] = {}
-        self.out: dict[str, list[str]] = {"merged": [], "deferred": [], "rejected": [], "escalated": [], "stopped": []}
+        self.out: dict[str, list[Any]] = {"merged": [], "deferred": [], "rejected": [], "escalated": [], "stopped": [], "abstained": [], "herded": [],
+                                          "inflight_skipped": []}
         self.launches: list[dict[str, Any]] = []
         self._active = 0
         self._max_active = 0
         self._cell_of: dict[str, str] = {}
+        # Phase A: the family task repos (``task_repo``: "per_family" = one under ``<root>/family/<family>``; a TaskRepo
+        # shared by every family; a callable family -> TaskRepo; None: no repo, P1-era behaviour)
+        self._task_repo = task_repo
+        self._repos: dict[str, TaskRepo] = {}
+        self.parent_of, self.herding_cap, self.herding_floor = parent_of, herding_cap, herding_floor
+        self._ann: dict[str, str] = {}  # run id -> its live announcement id
+        self._herded: dict[str, str] = {}  # run id -> parent (gate-accepted, held back by the herding guard)
         self.past_usd = self.reload_spend() if reload_spend else 0.0
 
     def reload_spend(self) -> float:
@@ -315,6 +353,99 @@ class RootCurator:
     def _log(self, ev: dict[str, Any]) -> None:
         with self.journal.open("a") as f:
             f.write(json.dumps({"ts": round(time.time(), 3), **ev}, default=str) + "\n")
+
+    # ---- the family task repo (Phase A) -------------------------------------------------------------------------------
+    @staticmethod
+    def family_of(cell: Cell) -> str:
+        return str(cell.intent.get("id", cell.behaviour))
+
+    def task_repo(self, family: str) -> TaskRepo | None:
+        if self._task_repo is None:
+            return None
+        if isinstance(self._task_repo, TaskRepo):
+            return self._task_repo
+        if callable(self._task_repo):
+            return self._task_repo(family)
+        if family not in self._repos:
+            self._repos[family] = TaskRepo(self.root / "family" / slug(family), family)
+        return self._repos[family]
+
+    def scope_of(self, cell: Cell) -> dict[str, Any]:
+        return {"cell": cell.key, "behaviour": cell.behaviour, "surface": cell.surface, "family": self.family_of(cell)}
+
+    def _foreign(self, repo: TaskRepo, cell: Cell) -> list[dict[str, Any]]:
+        """Live announcements overlapping the cell that another holder made (this holder's own, e.g. from a crashed
+        process of this root, are its own work: resumed, not skipped)."""
+        return [a for a in repo.conflicts(self.scope_of(cell)) if a.get("holder") != self.holder]
+
+    def _announce(self, cell: Cell, run_id: str) -> bool:
+        """Announce the leased cell's scope; False when another holder's announcement won the race."""
+        repo = self.task_repo(self.family_of(cell))
+        if repo is None:
+            return True
+        own = [a for a in repo.conflicts(self.scope_of(cell)) if a.get("holder") == self.holder]
+        if own:
+            self._ann[run_id] = own[0]["id"]
+            return True
+        try:
+            ann = repo.announce(self.holder, self.scope_of(cell), [f"cell {cell.key} is filled or closed", "the family's intent changes"],
+                                ttl_s=max(self.leases.ttl_s, 3600.0))
+        except DuplicateWork as e:
+            self._log({"event": "inflight_duplicate", "cell": cell.key, "conflicts": [c["id"] for c in e.conflicts]})
+            return False
+        self._ann[run_id] = ann["id"]
+        self._log({"event": "announce", "cell": cell.key, "run_id": run_id, "announcement": ann["id"]})
+        return True
+
+    def _retire(self, cell: Cell, run_id: str, outcome: str, *, reason: str = "", task_id: str | None = None, parent: str | None = None) -> None:
+        repo = self.task_repo(self.family_of(cell))
+        ann = self._ann.pop(run_id, None)
+        if repo is None or ann is None or ann in self._ann.values():  # another run of this root still works under it
+            return
+        repo.retire(ann, outcome, reason=reason[:300], task_id=task_id, parent=parent)
+        self._log({"event": "retire", "run_id": run_id, "announcement": ann, "outcome": outcome, "reason": reason[:200]})
+
+    @staticmethod
+    def abstained_run(res: RunResult | None) -> bool:
+        """A run that abstained: its lease state refused the scope, it reached an ``abstained`` terminal, or a state said
+        ``abstain``."""
+        if res is None or res.status != "rejected":
+            return False
+        if ((res.outputs.get("lease") or {}).get("lease") or {}).get("ok") is False:
+            return True
+        if "abstain" in str(res.reason or "").lower():
+            return True
+        return any(isinstance(v, Mapping) and any(isinstance(x, Mapping) and x.get("abstain") for x in v.values()) for v in res.outputs.values())
+
+    def abstain(self, cell_key: str, reason: str = "nothing new to add") -> None:
+        """The root abstains on a cell (free: no attempt, no rejection): recorded in the family's task repo."""
+        cell = self.matrix.cells[cell_key]
+        repo = self.task_repo(self.family_of(cell))
+        if repo is not None:
+            ann = repo.announce(self.holder, self.scope_of(cell), ["the root abstained"])
+            repo.abstain(ann["id"], reason)
+        cell.status = "abstained"
+        self.out["abstained"].append(cell_key)
+        self._log({"event": "abstain", "cell": cell_key, "reason": reason})
+
+    def _herding(self, cell: Cell, run_id: str, card: Mapping[str, Any]) -> tuple[bool, str, str]:
+        """(ok, parent, reason) of the herding guard for one gate-accepted card."""
+        repo = self.task_repo(self.family_of(cell))
+        parent = self.parent_of(cell, card, run_id)
+        if repo is None:
+            return True, parent, ""
+        tid = str(card.get("id") or run_id)
+        if any(a.get("task_id") == tid for a in repo.accepted()):
+            return True, parent, ACCEPTED_BY_MACHINE
+        v = repo.herding_check(parent, cap=self.herding_cap, floor=self.herding_floor)
+        return v.ok, parent, v.reason
+
+    def _accept_and_merge(self, cell: Cell, run_id: str, card: dict[str, Any], parent: str, note: str) -> None:
+        if note != ACCEPTED_BY_MACHINE:
+            self._retire(cell, run_id, "accepted", task_id=str(card.get("id") or run_id), parent=parent)
+        else:
+            self._ann.pop(run_id, None)
+        self._merge(cell, run_id, card)
 
     # ---- what may launch ------------------------------------------------------------------------------------------
     def _launchable(self, cell: Cell, busy: set[str]) -> str | None:
@@ -369,7 +500,15 @@ class RootCurator:
             self.out["escalated"].append(run_id)
             self.leases.renew(lease)  # the cell stays leased while a person decides: no other root starts a duplicate
             return
+        if self.abstained_run(res):  # abstention is free: no attempt, no rejection in the yield book
+            self._retire(cell, run_id, "abstained", reason=str(res.reason if res else "")[:300])
+            cell.attempts = max(0, cell.attempts - 1)
+            cell.status = "abstained"
+            self.out["abstained"].append(run_id)
+            self.leases.release(lease)
+            return
         if status == "stopped":
+            self._retire(cell, run_id, "aborted", reason=f"stopped: {res.reason if res else err}")
             self.out["stopped"].append(run_id)
             # (M17 e2e) the run keeps its journal and the next lease on this cell resumes it (it was a new attempt, which
             # paid again for every settled state); a stopped run is not a finished attempt
@@ -384,19 +523,29 @@ class RootCurator:
                 self._log({"event": "refused_merge", "run_id": run_id, "why": "no gate-accepted card"})
                 self.book.record_construction(run_id, gen, seed=cell.key, family=fam, state="rejected", cost_usd=usd)
                 self.out["rejected"].append(run_id)
+                self._retire(cell, run_id, "rejected", reason="no gate-accepted card")
             else:
+                self.cards[run_id] = card
+                ok, parent, why_h = self._herding(cell, run_id, card)
+                if not ok:  # S17: the herding guard (Phase A) holds it back; re-checked when the run ends
+                    self._herded[run_id] = parent
+                    self.out["herded"].append(run_id)
+                    cell.status = "herded"  # no new machine on the cell while its task waits for the guard
+                    self._log({"event": "herded", "run_id": run_id, "parent": parent, "why": why_h})
+                    self.leases.release(lease, filled=cell.status == "filled")
+                    return
                 self.book.record_construction(run_id, gen, seed=cell.key, family=fam, state="constructed", cost_usd=usd)
                 self.book.record_acceptance(run_id, True, hacks=int(((card.get("verifier") or {}).get("hacks_confirmed")) or 0))
                 admitted, why = self.book.admit(run_id)
-                self.cards[run_id] = card
                 if admitted:
-                    self._merge(cell, run_id, card)
+                    self._accept_and_merge(cell, run_id, card, parent, why_h)
                 else:
                     self.out["deferred"].append(run_id)
                     self._log({"event": "deferred", "run_id": run_id, "why": why})
         else:  # rejected (dropped by select, or a person dropped it) or failed
             self.book.record_construction(run_id, gen, seed=cell.key, family=fam, state="rejected" if status == "rejected" else "abandoned", cost_usd=usd)
             self.out["rejected"].append(run_id)
+            self._retire(cell, run_id, "rejected" if status == "rejected" else "aborted", reason=str(res.reason if res else err)[:300])
         self.leases.release(lease, filled=cell.status == "filled")
 
     def _merge(self, cell: Cell, run_id: str, card: dict[str, Any]) -> None:
@@ -417,11 +566,22 @@ class RootCurator:
                         break
                     if self._launchable(cell, set(inflight.values())) is not None:
                         continue
+                    repo = self.task_repo(self.family_of(cell))
+                    foreign = self._foreign(repo, cell) if repo is not None else []
+                    if foreign:  # S0: duplicate work is visible before it starts (no lease, no attempt)
+                        row = {"cell": cell.key, "announcements": [a["id"] for a in foreign], "holders": sorted({str(a.get("holder")) for a in foreign})}
+                        if row not in self.out["inflight_skipped"]:
+                            self.out["inflight_skipped"].append(row)
+                        self._log({"event": "inflight_skip", **row})
+                        continue
                     lease = self.leases.acquire(cell.key, self.holder)
                     if lease is None:  # another root holds it, or filled it
                         if self.leases.filled(cell.key):
                             cell.status = "closed"
                         self._log({"event": "lease_busy", "cell": cell.key})
+                        continue
+                    if not self._announce(cell, lease.run_id):
+                        self.leases.release(lease)
                         continue
                     cell.attempts += 1
                     self._cell_of[lease.run_id] = cell.key
@@ -429,7 +589,7 @@ class RootCurator:
                     self._log({"event": "launch", "cell": cell.key, "run_id": lease.run_id})
                     inflight[asyncio.ensure_future(self._one(cell, lease))] = cell.key
             if not inflight:
-                stop = self._stop_reason(set()) or "the remaining open cells are leased by another holder"
+                stop = self._stop_reason(set()) or "the remaining open cells are leased or announced by another holder"
                 break
             done, _ = await asyncio.wait(inflight, return_when=asyncio.FIRST_COMPLETED)
             for t in done:
@@ -438,7 +598,25 @@ class RootCurator:
         for rid in self.book.release():  # deferred tasks the quota now admits
             if rid in self.cards and rid in self.out["deferred"]:
                 self.out["deferred"].remove(rid)
-                self._merge(self.matrix.cells[self._cell_of[rid]], rid, self.cards[rid])
+                cell = self.matrix.cells[self._cell_of[rid]]
+                self._accept_and_merge(cell, rid, self.cards[rid], self.parent_of(cell, self.cards[rid], rid), "")
+        for rid, parent in list(self._herded.items()):  # S17 again: other parents accepted since may make room
+            cell = self.matrix.cells[self._cell_of[rid]]
+            ok, _parent, why = self._herding(cell, rid, self.cards[rid])
+            if ok:
+                del self._herded[rid]
+                self.out["herded"].remove(rid)
+                self.book.record_construction(rid, self.generator(cell), seed=cell.key, family=self.family_of(cell), state="constructed", cost_usd=0.0)
+                self.book.record_acceptance(rid, True)
+                self._accept_and_merge(cell, rid, self.cards[rid], parent, why)
+                if cell.status == "herded":
+                    cell.status = "filled" if len(cell.accepted) >= cell.quota else "open"
+            else:
+                self._retire(cell, rid, "rejected", reason=f"herding guard: {why}")
+        for rid in list(self.out["deferred"]):
+            if rid in self._ann:
+                cell = self.matrix.cells[self._cell_of[rid]]
+                self._retire(cell, rid, "aborted", reason="deferred by the diversity quota when the run ended")
         self._log({"event": "stop", "reason": stop})
         return self.report(stop or "done")
 
@@ -462,7 +640,8 @@ class RootCurator:
     def report(self, stop_reason: str) -> RootReport:
         return RootReport(stop_reason, list(self.out["merged"]), list(self.out["deferred"]), list(self.out["rejected"]),
                           list(self.out["escalated"]), list(self.out["stopped"]), round(self.ledger.committed, 6), self._max_active,
-                          self.matrix.view(), list(self.launches))
+                          self.matrix.view(), list(self.launches), list(self.out["abstained"]), list(self.out["herded"]),
+                          list(self.out["inflight_skipped"]))
 
     def as_dict(self, rep: RootReport) -> dict[str, Any]:
         return {**asdict(rep), "yield": self.book.report()["total"], "decisions": self.decisions}

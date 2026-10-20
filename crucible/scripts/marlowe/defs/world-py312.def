@@ -1,0 +1,15 @@
+# The window lane's base World (factory/lanes/windows_world.BASE_DOCKERFILE) as an Apptainer image, built on the cluster
+# (x86_64): Python 3.12, git, the pinned test runner. Built unprivileged (apptainer uses fakeroot for %post).
+Bootstrap: docker
+From: python:3.12-slim
+
+%post
+    apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null && rm -rf /var/lib/apt/lists/*
+    pip install --no-cache-dir pytest==8.3.3 pytest-timeout==2.3.1 hypothesis==6.112.1 freezegun==1.5.1 pytest-mock==3.14.0 pytz simplejson typing_extensions
+    git config --system safe.directory '*' && git config --system user.email agent@sandbox && git config --system user.name agent
+
+%environment
+    export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+%labels
+    crucible.image world-py312

@@ -274,6 +274,18 @@ async def test_machine_end_to_end_with_sessions_on_a_local_kernel(tmp_path: Path
         return sw.verdict(True)
 
     svc.build_fn, svc.prompt_fn, svc.gates_fn, svc.second_fn, svc.hack_fn = build, ok, ok, ok, ok
+
+    async def oracle_plan(shas: list[str], plan: dict) -> dict:  # Phase A, S4.5 on the host interpreter
+        from crucible.factory.oracleplan import check, host_runner
+
+        at_a = tmp_path / "at_a"
+        if not at_a.exists():
+            at_a.mkdir()
+            sh(tmp_path, f"git -C {src} archive {a} | tar -x -C {at_a}")
+        files = {f: sh(src, f"git show {shas[-1]}:{f}") for f in sh(src, f"git diff --name-only {a} {shas[-1]}").split()}
+        return await check(plan, at_a, files, runner=host_runner(at_a), regression_ids=["tests/test_calc.py::test_add"])
+
+    svc.oracle_plan_fn = oracle_plan
     run = MachineRun(m, run_dir=tmp_path / "machine", run_id="sw-calc-e2e", models=sw.ROLE_MODELS, params=pool.params,
                      handlers=sw.handlers(svc, lease=lease_state(family), accept=accept_state(family)), services=svc, **pool.machine_kwargs())
     try:
@@ -281,8 +293,11 @@ async def test_machine_end_to_end_with_sessions_on_a_local_kernel(tmp_path: Path
     finally:
         await pool.close()
     assert res.status == "done", (res.reason, res.decision_request)
-    assert res.entries == {"lease": 1, "plan": 2, "oracle": 1, "oracle_check": 1, "verifier": 2, "review": 2, "build": 1, "prompt": 1, "gates": 1,
-                           "second": 1, "hack": 1, "accept": 1}
+    assert res.entries == {"lease": 1, "plan": 2, "oracle": 1, "oracle_check": 1, "oracle_plan": 1, "verifier": 2, "review": 2, "build": 1, "prompt": 1,
+                           "gates": 1, "second": 1, "hack": 1, "accept": 1}
+    # S4.5 (Phase A): both planned names are added by the oracle, executed on A and on the oracle
+    op = svc.results["oracle_plan"]
+    assert op["ok"] and {(r["name"], r["verdict"]) for r in op["probes"]} == {("mul", "ok"), ("power", "ok")}
     assert "must be dependent" in planner.seen[1][1]["content"]  # the S2 guard's finding reached the second plan
     assert res.outputs["oracle"]["oracle"]["subjects"] == ["m1: mul", "m2: power"] and len(res.outputs["oracle_check"]["verdict"]["shas"]) == 2
     # generation and verification never shared a context: the verifier's clone has no oracle commit, its TASK no oracle code
@@ -295,7 +310,8 @@ async def test_machine_end_to_end_with_sessions_on_a_local_kernel(tmp_path: Path
     assert ho["spec"] == spec and set(ho["ports"]) == {"plan"}  # typed hand-off with the full original spec
     assert [x["task_id"] for x in family.accepted()] == ["sw-calc-e2e"] and built["states"] == ["prompt", "gates", "second", "hack"]
     raw = [json.loads(x) for x in (tmp_path / "funnel.jsonl").read_text().splitlines()]  # every row; the summary keeps the last per stage
-    assert [(r["stage"], r["ok"]) for r in raw] == [("S2_plan", False), ("S2_plan", True), ("S4_oracle", True), ("S11_review", False), ("S11_review", True)]
+    assert [(r["stage"], r["ok"]) for r in raw] == [("S2_plan", False), ("S2_plan", True), ("S4_oracle", True), ("S4_5_oracle_plan", True),
+                                                        ("S11_review", False), ("S11_review", True)]
 
 
 def test_pick_frontier_and_extrapolate_and_target_specs() -> None:

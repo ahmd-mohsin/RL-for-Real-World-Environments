@@ -1,0 +1,1648 @@
+{
+ "blocked": "OpenRouter account credit exhausted (total_credits 1130, total_usage 1129.90): every remaining gpt-6.1-sol call was refused with 402 in_flight_budget_exhausted, masked (V8); cachetools 3 of 4 and both glom windows' 8 episodes not re-checked",
+ "cap_usd": 8.0,
+ "frontier": {
+  "candidates": [
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1000000,
+    "created": 1791397883,
+    "id": "anthropic/claude-haiku-5.5",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790702886,
+    "id": "openai/gpt-6.1-sol-pro",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790702882,
+    "id": "openai/gpt-6.1-sol",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context": 1000000,
+    "created": 1790618686,
+    "id": "anthropic/claude-sonnet-5.5",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1050000,
+    "created": 1790100791,
+    "id": "openai/gpt-6-luna-pro",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.01,
+    "cache_write": 0.125,
+    "context": 1050000,
+    "created": 1790100786,
+    "id": "openai/gpt-6-luna",
+    "input": 0.1,
+    "output": 0.5,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790100781,
+    "id": "openai/gpt-6-sol-pro",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1790100775,
+    "id": "openai/gpt-6-sol",
+    "input": 2.0,
+    "output": 10.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 5.0,
+    "context": 1000000,
+    "created": 1790094732,
+    "id": "anthropic/claude-opus-5.5",
+    "input": 4.0,
+    "output": 20.0,
+    "tools": true
+   },
+   {
+    "cache_read": 1.0,
+    "cache_write": 12.5,
+    "context": 1050000,
+    "created": 1788552838,
+    "id": "openai/gpt-6-astra",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 1.0,
+    "cache_write": 12.5,
+    "context": 1050000,
+    "created": 1788552835,
+    "id": "openai/gpt-6-astra-pro",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.25,
+    "cache_write": 12.5,
+    "context": 1000000,
+    "created": 1788285838,
+    "id": "anthropic/claude-fable-5.1",
+    "input": 10.0,
+    "output": 50.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.5,
+    "cache_write": 6.25,
+    "context": 1000000,
+    "created": 1784912544,
+    "id": "anthropic/claude-opus-5",
+    "input": 5.0,
+    "output": 25.0,
+    "tools": true
+   },
+   {
+    "cache_read": 0.02,
+    "cache_write": 0.25,
+    "context": 1050000,
+    "created": 1783590867,
+    "id": "openai/gpt-5.6-luna-pro",
+    "input": 0.2,
+    "output": 1.2,
+    "tools": true
+   },
+   {
+    "cache_read": 0.02,
+    "cache_write": 0.25,
+    "context": 1050000,
+    "created": 1783590864,
+    "id": "openai/gpt-5.6-luna",
+    "input": 0.2,
+    "output": 1.2,
+    "tools": true
+   },
+   {
+    "cache_read": 0.2,
+    "cache_write": 2.5,
+    "context": 1050000,
+    "created": 1783590861,
+    "id": "openai/gpt-5.6-terra-pro",
+    "input": 2.0,
+    "output": 12.0,
+    "tools": true
+   }
+  ],
+  "chosen": {
+   "cache_read": 0.1,
+   "cache_write": 2.5,
+   "context": 1050000,
+   "created": 1790702882,
+   "id": "openai/gpt-6.1-sol",
+   "input": 2.0,
+   "output": 10.0,
+   "tools": true
+  },
+  "queried_at": 1792361172.7,
+  "why": "strongest OpenAI/Anthropic model that fits the $30 cap: GPT-6.1 Sol (2/10 USD per 1M, automatic prompt caching at 0.10) is OpenAI's newest model below the flagship GPT-6 Astra (10/50); Claude Fable 5.1 is 10/50 and Claude Opus 5.5 4/20 with no cache read unless the client sends cache_control breakpoints (ours does not), so a 150-tool episode at a 40k-token context would cost several dollars each on those"
+ },
+ "phase": "A",
+ "pilot": {
+  "extrapolation": {
+   "cap": 8.0,
+   "episodes_that_fit": 232,
+   "left_usd": 7.667,
+   "pilot_usd": 0.033,
+   "plans": {
+    "n=2": {
+     "per_window_usd": 0.132,
+     "windows": 58
+    },
+    "n=3": {
+     "per_window_usd": 0.198,
+     "windows": 38
+    },
+    "n=4": {
+     "per_window_usd": 0.264,
+     "windows": 29
+    }
+   },
+   "slack": 0.3,
+   "spent_usd": 0.033
+  },
+  "model": "openai/gpt-6.1-sol",
+  "usd": 0.03297,
+  "window": {
+   "id": "rb-more-itertools-061d3f39",
+   "kind": "rebreak",
+   "simplify": "locate",
+   "targets": [
+    "m04"
+   ]
+  }
+ },
+ "procedure": "P5b's (gpt-6.1-sol, tool limit 150, checkpoint sidecar, targeting.py) staged: pilot, scripted probe, probe episode, full arm n=4; the simplified arm only below ceiling",
+ "spend_by_role": {
+  "arms/solver": 1.00017,
+  "pilot/solver": 0.03297,
+  "probe/probe": 0.12511
+ },
+ "spend_total": 1.15826,
+ "task": "2: P5b's too-easy windows on the refreshed Worlds",
+ "windows": {
+  "rb-more-itertools-061d3f39": {
+   "band": {
+    "in_band": false,
+    "n": 5,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (5/5): no simplified arm can show a gain"
+   },
+   "kind": "rebreak",
+   "new": {
+    "band": false,
+    "full": "5/5",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": true
+   },
+   "old": {
+    "band": false,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 1.0,
+     "full_series": [
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        14,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        13,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        13,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        15,
+        1.0
+       ]
+      ]
+     ],
+     "simple": 1.0
+    },
+    "simple": "4/4",
+    "usd": 0.37979,
+    "verdict": {
+     "findings": [
+      "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+     ],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "cause mix unmeasured (0 trusted labels)",
+      "paraphrase stability not run"
+     ],
+     "ok": false,
+     "owner": "planner",
+     "route": "S2"
+    },
+    "world": null
+   },
+   "phi_full": 1.0,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 924,
+     "seen_in_own_runs": [
+      924
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 python -m unittest"
+     ],
+     "tool_calls": 8,
+     "truth": [
+      760
+     ],
+     "usd": 0.007105,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_more.py tests/test_recipes.py",
+     "ok": true,
+     "passed": 760,
+     "passed_repo_config": 760,
+     "test_output_tail": "........... [ 37%]\n........................................................................ [ 47%]\n........................................................................ [ 56%]\n........................................................................ [ 66%]\n........................................................................ [ 75%]\n........................................................................ [ 85%]\n........................................................................ [ 94%]\n........................................                                 [100%]\n760 passed in 27.19s\n",
+     "tests_ran": true,
+     "truths": [
+      760
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "simplify": "locate",
+   "skipped": null,
+   "targets": [
+    "m04"
+   ],
+   "usd": 0.16176,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 5,
+      "pass_rate": 1.0,
+      "reward_range": [
+       1.0,
+       1.0
+      ],
+      "rewards": [
+       1.0,
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 924,
+       "seen_in_own_runs": [
+        924
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "PYTHONDONTWRITEBYTECODE=1 python -m unittest"
+       ],
+       "tool_calls": 8,
+       "truth": [
+        760
+       ],
+       "usd": 0.007105,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_more.py tests/test_recipes.py",
+       "ok": true,
+       "passed": 760,
+       "passed_repo_config": 760,
+       "test_output_tail": "........... [ 37%]\n........................................................................ [ 47%]\n........................................................................ [ 56%]\n........................................................................ [ 66%]\n........................................................................ [ 75%]\n........................................................................ [ 85%]\n........................................................................ [ 94%]\n........................................                                 [100%]\n760 passed in 27.19s\n",
+       "tests_ran": true,
+       "truths": [
+        760
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "rb-more-itertools-061d3f39"
+    },
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "rb-more-itertools-061d3f39"
+   },
+   "world": "crucible-lh-w:more-itertools-436a11593ec6",
+   "world_previous": "crucible-lh-w:more-itertools-efe9e3b5a21e"
+  },
+  "st-glom--boltons-2ae0bb57": {
+   "band": {
+    "in_band": false,
+    "n": 0,
+    "pass_rate": null,
+    "reward_range": null,
+    "rewards": []
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (0/0): no simplified arm can show a gain"
+   },
+   "kind": "stitched",
+   "new": {
+    "band": false,
+    "full": "0/0",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": false
+   },
+   "old": {
+    "band": true,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 0.5625,
+     "full_series": [
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.5
+       ],
+       [
+        23,
+        0.5
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.5
+       ],
+       [
+        29,
+        0.5
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.5
+       ],
+       [
+        22,
+        0.5
+       ],
+       [
+        30,
+        0.5
+       ],
+       [
+        34,
+        0.5
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.75
+       ],
+       [
+        28,
+        0.75
+       ],
+       [
+        30,
+        0.75
+       ],
+       [
+        31,
+        0.75
+       ]
+      ]
+     ],
+     "simple": 0.5625
+    },
+    "simple": "4/4",
+    "usd": 2.28246,
+    "verdict": {
+     "findings": [],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "paraphrase stability not run"
+     ],
+     "ok": true,
+     "owner": null,
+     "route": null
+    },
+    "world": null
+   },
+   "phi_full": null,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": false,
+     "ran_tests": true,
+     "reported": 615,
+     "seen_in_own_runs": [
+      132
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "pwd; git status --short; cat host/pytest.ini host/tox.ini consumer/pytest.ini consumer/tox.ini; find consumer -type d -name '*test*'; cat host/tests/conftest.py",
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$PWD/host:$PWD/consumer\" python -m pytest -p no:cacheprovider --doctest-modules host/boltons host/tests consumer/glom",
+      "export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$PWD/host:$PWD/consumer\"; (cd host && python -m pytest -p no:cacheprovider --doctest-modules --continue-on-collection-errors -q boltons tests); (cd consumer && python -m pytest -p no:cacheprovider --doctest-modules --continue-on-collection-errors -q glom); git status --short"
+     ],
+     "tool_calls": 4,
+     "truth": [
+      88
+     ],
+     "usd": 0.039269,
+     "why": "reported 615, the suite has [88] passing"
+    },
+    "ok": false,
+    "owner": "policy",
+    "scripted": {
+     "command": "cd consumer && python -m pytest -q -p no:cacheprovider -o addopts= --continue-on-collection-errors glom/test/test_basic.py glom/test/test_check.py glom/test/test_fill.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_streaming.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+     "ok": true,
+     "passed": 88,
+     "passed_repo_config": null,
+     "test_output_tail": "dleware\n    func_label = ''.join(get_callable_labels(func))\n/usr/local/lib/python3.12/site-packages/face/sinter.py:76: in get_callable_labels\n    return '.'.join(ctx_parts), fb.name, fb.get_invocation_str()\n../host/boltons/funcutils.py:545: in get_invocation_str\n    sig = inspect.formatargspec(self.args,\nE   AttributeError: module 'inspect' has no attribute 'formatargspec'. Did you mean: 'formatargvalues'?\n=========================== short test summary info ============================\nERROR glom/test/test_main.py - AttributeError: module 'inspect' has no attrib...\n88 passed, 1 error in 1.35s\n",
+     "tests_ran": true,
+     "truths": [
+      88
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": "policy probe: reported 615, the suite has [88] passing"
+   },
+   "simplify": "locate",
+   "skipped": null,
+   "targets": [
+    "m12c",
+    "m12"
+   ],
+   "usd": 0.06539,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 0,
+      "pass_rate": null,
+      "reward_range": null,
+      "rewards": []
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": false,
+       "ran_tests": true,
+       "reported": 615,
+       "seen_in_own_runs": [
+        132
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "pwd; git status --short; cat host/pytest.ini host/tox.ini consumer/pytest.ini consumer/tox.ini; find consumer -type d -name '*test*'; cat host/tests/conftest.py",
+        "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$PWD/host:$PWD/consumer\" python -m pytest -p no:cacheprovider --doctest-modules host/boltons host/tests consumer/glom",
+        "export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$PWD/host:$PWD/consumer\"; (cd host && python -m pytest -p no:cacheprovider --doctest-modules --continue-on-collection-errors -q boltons tests); (cd consumer && python -m pytest -p no:cacheprovider --doctest-modules --continue-on-collection-errors -q glom); git status --short"
+       ],
+       "tool_calls": 4,
+       "truth": [
+        88
+       ],
+       "usd": 0.039269,
+       "why": "reported 615, the suite has [88] passing"
+      },
+      "ok": false,
+      "owner": "policy",
+      "scripted": {
+       "command": "cd consumer && python -m pytest -q -p no:cacheprovider -o addopts= --continue-on-collection-errors glom/test/test_basic.py glom/test/test_check.py glom/test/test_fill.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_streaming.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+       "ok": true,
+       "passed": 88,
+       "passed_repo_config": null,
+       "test_output_tail": "dleware\n    func_label = ''.join(get_callable_labels(func))\n/usr/local/lib/python3.12/site-packages/face/sinter.py:76: in get_callable_labels\n    return '.'.join(ctx_parts), fb.name, fb.get_invocation_str()\n../host/boltons/funcutils.py:545: in get_invocation_str\n    sig = inspect.formatargspec(self.args,\nE   AttributeError: module 'inspect' has no attribute 'formatargspec'. Did you mean: 'formatargvalues'?\n=========================== short test summary info ============================\nERROR glom/test/test_main.py - AttributeError: module 'inspect' has no attrib...\n88 passed, 1 error in 1.35s\n",
+       "tests_ran": true,
+       "truths": [
+        88
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": "policy probe: reported 615, the suite has [88] passing"
+     },
+     "task": "st-glom--boltons-2ae0bb57"
+    },
+    "findings": [
+     "prerequisite probe: policy probe: reported 615, the suite has [88] passing: the intent card is wrong for this policy",
+     "out of band: the target rung's rewards [] have no spread (pass rate None)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "intent",
+    "route": "S2",
+    "task": "st-glom--boltons-2ae0bb57"
+   },
+   "world": "crucible-lh-p5-w:stitch-glom--boltons-971b6cc47005",
+   "world_previous": "crucible-lh-p5-w:stitch-glom--boltons-8b5306770d8b"
+  },
+  "st-glom--boltons-30eb7ffe": {
+   "band": {
+    "in_band": false,
+    "n": 0,
+    "pass_rate": null,
+    "reward_range": null,
+    "rewards": []
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (0/0): no simplified arm can show a gain"
+   },
+   "kind": "stitched",
+   "new": {
+    "band": false,
+    "full": "0/0",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": false
+   },
+   "old": {
+    "band": false,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 0.4,
+     "full_series": [
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.4
+       ],
+       [
+        23,
+        0.4
+       ],
+       [
+        30,
+        0.4
+       ],
+       [
+        32,
+        0.4
+       ],
+       [
+        40,
+        0.4
+       ],
+       [
+        50,
+        0.4
+       ],
+       [
+        52,
+        0.4
+       ],
+       [
+        60,
+        0.4
+       ],
+       [
+        65,
+        0.4
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.4
+       ],
+       [
+        21,
+        0.4
+       ],
+       [
+        30,
+        0.4
+       ],
+       [
+        32,
+        0.4
+       ],
+       [
+        40,
+        0.4
+       ],
+       [
+        45,
+        0.4
+       ],
+       [
+        50,
+        0.4
+       ],
+       [
+        57,
+        0.4
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.4
+       ],
+       [
+        23,
+        0.4
+       ],
+       [
+        30,
+        0.4
+       ],
+       [
+        40,
+        0.4
+       ],
+       [
+        41,
+        0.4
+       ]
+      ],
+      [
+       [
+        10,
+        0
+       ],
+       [
+        20,
+        0.4
+       ],
+       [
+        21,
+        0.4
+       ],
+       [
+        30,
+        0.4
+       ],
+       [
+        34,
+        0.4
+       ]
+      ]
+     ],
+     "simple": 0.4
+    },
+    "simple": "4/4",
+    "usd": 5.07853,
+    "verdict": {
+     "findings": [
+      "out of band: the target rung's rewards [0.2, 0.2, 0.2, 0.2] have no spread (pass rate 0.0)"
+     ],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "paraphrase stability not run"
+     ],
+     "ok": false,
+     "owner": "planner",
+     "route": "S2"
+    },
+    "world": null
+   },
+   "phi_full": null,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 578,
+     "seen_in_own_runs": [
+      95,
+      483
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "pwd; git status --short; cat host/pytest.ini host/tox.ini consumer/pytest.ini consumer/tox.ini; find consumer -type d -name '*test*'; cat host/tests/conftest.py; cat host/requirements-test.txt",
+      "cd host && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../consumer python -m pytest -p no:cacheprovider --doctest-modules boltons tests",
+      "cd consumer && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../host python -m pytest -p no:cacheprovider --doctest-modules glom",
+      "cd host && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../consumer python -m pytest -p no:cacheprovider --doctest-modules boltons tests --continue-on-collection-errors --tb=short -q",
+      "cd consumer && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../host python -m pytest -p no:cacheprovider --doctest-modules glom --continue-on-collection-errors --tb=short -q"
+     ],
+     "tool_calls": 8,
+     "truth": [
+      72
+     ],
+     "two_repo_sum": true,
+     "usd": 0.052014,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "cd consumer && python -m pytest -q -p no:cacheprovider -o addopts= --continue-on-collection-errors glom/test/test_basic.py glom/test/test_check.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+     "ok": true,
+     "passed": 72,
+     "passed_repo_config": null,
+     "test_output_tail": "dleware\n    func_label = ''.join(get_callable_labels(func))\n/usr/local/lib/python3.12/site-packages/face/sinter.py:76: in get_callable_labels\n    return '.'.join(ctx_parts), fb.name, fb.get_invocation_str()\n../host/boltons/funcutils.py:545: in get_invocation_str\n    sig = inspect.formatargspec(self.args,\nE   AttributeError: module 'inspect' has no attribute 'formatargspec'. Did you mean: 'formatargvalues'?\n=========================== short test summary info ============================\nERROR glom/test/test_main.py - AttributeError: module 'inspect' has no attrib...\n72 passed, 1 error in 1.38s\n",
+     "tests_ran": true,
+     "truths": [
+      72
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "simplify": "locate",
+   "skipped": null,
+   "targets": [
+    "m12c",
+    "m12"
+   ],
+   "usd": 0.04229,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 0,
+      "pass_rate": null,
+      "reward_range": null,
+      "rewards": []
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 578,
+       "seen_in_own_runs": [
+        95,
+        483
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "pwd; git status --short; cat host/pytest.ini host/tox.ini consumer/pytest.ini consumer/tox.ini; find consumer -type d -name '*test*'; cat host/tests/conftest.py; cat host/requirements-test.txt",
+        "cd host && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../consumer python -m pytest -p no:cacheprovider --doctest-modules boltons tests",
+        "cd consumer && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../host python -m pytest -p no:cacheprovider --doctest-modules glom",
+        "cd host && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../consumer python -m pytest -p no:cacheprovider --doctest-modules boltons tests --continue-on-collection-errors --tb=short -q",
+        "cd consumer && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:../host python -m pytest -p no:cacheprovider --doctest-modules glom --continue-on-collection-errors --tb=short -q"
+       ],
+       "tool_calls": 8,
+       "truth": [
+        72
+       ],
+       "two_repo_sum": true,
+       "usd": 0.052014,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "cd consumer && python -m pytest -q -p no:cacheprovider -o addopts= --continue-on-collection-errors glom/test/test_basic.py glom/test/test_check.py glom/test/test_main.py glom/test/test_mutation.py glom/test/test_path_and_t.py glom/test/test_reduction.py glom/test/test_spec.py glom/test/test_target_types.py glom/test/test_tutorial.py",
+       "ok": true,
+       "passed": 72,
+       "passed_repo_config": null,
+       "test_output_tail": "dleware\n    func_label = ''.join(get_callable_labels(func))\n/usr/local/lib/python3.12/site-packages/face/sinter.py:76: in get_callable_labels\n    return '.'.join(ctx_parts), fb.name, fb.get_invocation_str()\n../host/boltons/funcutils.py:545: in get_invocation_str\n    sig = inspect.formatargspec(self.args,\nE   AttributeError: module 'inspect' has no attribute 'formatargspec'. Did you mean: 'formatargvalues'?\n=========================== short test summary info ============================\nERROR glom/test/test_main.py - AttributeError: module 'inspect' has no attrib...\n72 passed, 1 error in 1.38s\n",
+       "tests_ran": true,
+       "truths": [
+        72
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "st-glom--boltons-30eb7ffe"
+    },
+    "findings": [
+     "out of band: the target rung's rewards [] have no spread (pass rate None)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "st-glom--boltons-30eb7ffe"
+   },
+   "world": "crucible-lh-p5-w:stitch-glom--boltons-b86725eb504d",
+   "world_previous": "crucible-lh-p5-w:stitch-glom--boltons-5bf99c1636e7"
+  },
+  "sw-cachetools-aadb387d": {
+   "band": {
+    "in_band": false,
+    "n": 1,
+    "pass_rate": 0.0,
+    "reward_range": [
+     0.5,
+     0.5
+    ],
+    "rewards": [
+     0.5
+    ]
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (1/1): no simplified arm can show a gain"
+   },
+   "kind": "swarm",
+   "new": {
+    "band": false,
+    "full": "1/1",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": false
+   },
+   "old": {
+    "band": false,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 1.0,
+     "full_series": [
+      [
+       [
+        10,
+        0.333333333
+       ],
+       [
+        20,
+        1.0
+       ],
+       [
+        23,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        20,
+        1.0
+       ],
+       [
+        23,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        20,
+        1.0
+       ],
+       [
+        24,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        20,
+        1.0
+       ],
+       [
+        25,
+        1.0
+       ]
+      ]
+     ],
+     "simple": 1.0
+    },
+    "simple": "4/4",
+    "usd": 0.92497,
+    "verdict": {
+     "findings": [
+      "out of band: the target rung's rewards [0.5, 0.5, 0.5, 0.5] have no spread (pass rate 0.0)"
+     ],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "cause mix unmeasured (1 trusted labels)",
+      "paraphrase stability not run"
+     ],
+     "ok": false,
+     "owner": "planner",
+     "route": "S2"
+    },
+    "world": null
+   },
+   "phi_full": 1.0,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 216,
+     "seen_in_own_runs": [
+      216
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m pytest -p no:cacheprovider"
+     ],
+     "tool_calls": 6,
+     "truth": [
+      216
+     ],
+     "usd": 0.01118,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_cache.py tests/test_cached.py tests/test_cachedmethod.py tests/test_fifo.py tests/test_func.py tests/test_keys.py tests/test_lfu.py tests/test_lru.py tests/test_mru.py tests/test_rr.py tests/test_tlru.py tests/test_ttl.py",
+     "ok": true,
+     "passed": 216,
+     "passed_repo_config": 216,
+     "test_output_tail": "a981/scratchpad/phase_a/target/probe/sw-cachetools-aadb387d/ws/tests/__init__.py:114: DeprecationWarning: MRUCache is deprecated\n    self.Cache(maxsize=2).popitem()\n\ntests/test_mru.py::MRUCacheTest::test_update\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/phase_a/target/probe/sw-cachetools-aadb387d/ws/tests/__init__.py:36: DeprecationWarning: MRUCache is deprecated\n    cache = self.Cache(maxsize=2)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n216 passed, 15 warnings in 0.87s\n",
+     "tests_ran": true,
+     "truths": [
+      216
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "simplify": "prerequisites",
+   "skipped": null,
+   "targets": [
+    "m02"
+   ],
+   "usd": 0.31654,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 1,
+      "pass_rate": 0.0,
+      "reward_range": [
+       0.5,
+       0.5
+      ],
+      "rewards": [
+       0.5
+      ]
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 216,
+       "seen_in_own_runs": [
+        216
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m pytest -p no:cacheprovider"
+       ],
+       "tool_calls": 6,
+       "truth": [
+        216
+       ],
+       "usd": 0.01118,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_cache.py tests/test_cached.py tests/test_cachedmethod.py tests/test_fifo.py tests/test_func.py tests/test_keys.py tests/test_lfu.py tests/test_lru.py tests/test_mru.py tests/test_rr.py tests/test_tlru.py tests/test_ttl.py",
+       "ok": true,
+       "passed": 216,
+       "passed_repo_config": 216,
+       "test_output_tail": "a981/scratchpad/phase_a/target/probe/sw-cachetools-aadb387d/ws/tests/__init__.py:114: DeprecationWarning: MRUCache is deprecated\n    self.Cache(maxsize=2).popitem()\n\ntests/test_mru.py::MRUCacheTest::test_update\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/phase_a/target/probe/sw-cachetools-aadb387d/ws/tests/__init__.py:36: DeprecationWarning: MRUCache is deprecated\n    cache = self.Cache(maxsize=2)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n216 passed, 15 warnings in 0.87s\n",
+       "tests_ran": true,
+       "truths": [
+        216
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "sw-cachetools-aadb387d"
+    },
+    "findings": [
+     "out of band: the target rung's rewards [0.5] have no spread (pass rate 0.0)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "sw-cachetools-aadb387d"
+   },
+   "world": "crucible-lh-w:cachetools-3692c95c3daa",
+   "world_previous": "crucible-lh-w:cachetools-ace3d60e39d7"
+  },
+  "sw-more-itertools-dedc22c6": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (4/4): no simplified arm can show a gain"
+   },
+   "kind": "swarm",
+   "new": {
+    "band": false,
+    "full": "4/4",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": true
+   },
+   "old": {
+    "band": false,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 1.0,
+     "full_series": [
+      [
+       [
+        10,
+        0.666666667
+       ],
+       [
+        17,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        11,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        0.666666667
+       ],
+       [
+        17,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ],
+       [
+        15,
+        1.0
+       ]
+      ]
+     ],
+     "simple": 1.0
+    },
+    "simple": "4/4",
+    "usd": 0.24379,
+    "verdict": {
+     "findings": [
+      "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+     ],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "cause mix unmeasured (0 trusted labels)",
+      "paraphrase stability not run"
+     ],
+     "ok": false,
+     "owner": "planner",
+     "route": "S2"
+    },
+    "world": null
+   },
+   "phi_full": 1.0,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 773,
+     "seen_in_own_runs": [
+      774
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest"
+     ],
+     "tool_calls": 8,
+     "truth": [
+      626
+     ],
+     "usd": 0.007623,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_more.py tests/test_recipes.py",
+     "ok": true,
+     "passed": 626,
+     "passed_repo_config": 626,
+     "test_output_tail": "s\ntests/test_more.py::ZipEqualTest::test_unequal_lists\ntests/test_more.py::ZipEqualTest::test_unequal_lists\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/phase_a/target/probe/sw-more-itertools-dedc22c6/ws/more_itertools/more.py:1653: DeprecationWarning: zip_equal will be removed in a future version of more-itertools. Use the builtin zip function with strict=True instead.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n626 passed, 1 skipped, 5 warnings in 5.17s\n",
+     "tests_ran": true,
+     "truths": [
+      626
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "simplify": "prerequisites",
+   "skipped": null,
+   "targets": [
+    "m03"
+   ],
+   "usd": 0.07805,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 4,
+      "pass_rate": 1.0,
+      "reward_range": [
+       1.0,
+       1.0
+      ],
+      "rewards": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 773,
+       "seen_in_own_runs": [
+        774
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest"
+       ],
+       "tool_calls": 8,
+       "truth": [
+        626
+       ],
+       "usd": 0.007623,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= tests/test_more.py tests/test_recipes.py",
+       "ok": true,
+       "passed": 626,
+       "passed_repo_config": 626,
+       "test_output_tail": "s\ntests/test_more.py::ZipEqualTest::test_unequal_lists\ntests/test_more.py::ZipEqualTest::test_unequal_lists\n  /private/tmp/claude-501/-Users-muahmed-Desktop-Projects-RL-for-Real-World-Environments/54b8300a-e533-4d3f-9f31-c0f8369fa981/scratchpad/phase_a/target/probe/sw-more-itertools-dedc22c6/ws/more_itertools/more.py:1653: DeprecationWarning: zip_equal will be removed in a future version of more-itertools. Use the builtin zip function with strict=True instead.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n626 passed, 1 skipped, 5 warnings in 5.17s\n",
+       "tests_ran": true,
+       "truths": [
+        626
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "sw-more-itertools-dedc22c6"
+    },
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "sw-more-itertools-dedc22c6"
+   },
+   "world": "crucible-lh-w:more-itertools-708132f41c53",
+   "world_previous": "crucible-lh-w:more-itertools-8bd8254d2eef"
+  },
+  "sw-python-semver-a2e121df": {
+   "band": {
+    "in_band": false,
+    "n": 4,
+    "pass_rate": 1.0,
+    "reward_range": [
+     1.0,
+     1.0
+    ],
+    "rewards": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "counterfactual": {
+    "verdict": "not_run",
+    "why": "full arm at ceiling (4/4): no simplified arm can show a gain"
+   },
+   "kind": "swarm",
+   "new": {
+    "band": false,
+    "full": "4/4",
+    "route": "S2",
+    "simple": "not run",
+    "too_easy": true
+   },
+   "old": {
+    "band": false,
+    "counterfactual": "underpowered",
+    "full": "4/4",
+    "phi": {
+     "full": 1.0,
+     "full_series": [
+      [
+       [
+        10,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ]
+      ],
+      [
+       [
+        10,
+        1.0
+       ]
+      ]
+     ],
+     "simple": 1.0
+    },
+    "simple": "4/4",
+    "usd": 0.26341,
+    "verdict": {
+     "findings": [
+      "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+     ],
+     "flags": [
+      "counterfactual underpowered: no significant difference (Fisher p 1.000, Phi gain CI [0.0, 0.0]) and the simplified arm is not clearly failing (p 1.000); power at the reference effect 0.00 < 0.8",
+      "cause mix unmeasured (0 trusted labels)",
+      "paraphrase stability not run"
+     ],
+     "ok": false,
+     "owner": "planner",
+     "route": "S2"
+    },
+    "world": null
+   },
+   "phi_full": 1.0,
+   "probe": {
+    "episode": {
+     "masked": false,
+     "ok": true,
+     "ran_tests": true,
+     "reported": 195,
+     "seen_in_own_runs": [
+      195
+     ],
+     "stop": "agent_done",
+     "test_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 COVERAGE_FILE=/tmp/semver-test-coverage python -m pytest -p no:cacheprovider"
+     ],
+     "tool_calls": 8,
+     "truth": [
+      175,
+      195
+     ],
+     "usd": 0.007924,
+     "why": ""
+    },
+    "ok": true,
+    "owner": null,
+    "scripted": {
+     "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_semver.py",
+     "ok": true,
+     "passed": 175,
+     "passed_repo_config": 195,
+     "test_output_tail": "[exit 0]\n........................................................................ [ 41%]\n........................................................................ [ 82%]\n...............................                                          [100%]\n175 passed in 0.92s\n",
+     "tests_ran": true,
+     "truths": [
+      175,
+      195
+     ],
+     "why": "",
+     "world_opened": true,
+     "write_ok": true,
+     "write_result": "wrote 6 bytes to .crucible_probe.txt"
+    },
+    "why": ""
+   },
+   "simplify": "prerequisites",
+   "skipped": null,
+   "targets": [
+    "m03"
+   ],
+   "usd": 0.08527,
+   "verdict": {
+    "counterfactual": null,
+    "evidence": {
+     "band": {
+      "in_band": false,
+      "n": 4,
+      "pass_rate": 1.0,
+      "reward_range": [
+       1.0,
+       1.0
+      ],
+      "rewards": [
+       1.0,
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "cause": null,
+     "counterfactual": null,
+     "notes": {},
+     "paraphrase": null,
+     "probe": {
+      "episode": {
+       "masked": false,
+       "ok": true,
+       "ran_tests": true,
+       "reported": 195,
+       "seen_in_own_runs": [
+        195
+       ],
+       "stop": "agent_done",
+       "test_commands": [
+        "PYTHONDONTWRITEBYTECODE=1 COVERAGE_FILE=/tmp/semver-test-coverage python -m pytest -p no:cacheprovider"
+       ],
+       "tool_calls": 8,
+       "truth": [
+        175,
+        195
+       ],
+       "usd": 0.007924,
+       "why": ""
+      },
+      "ok": true,
+      "owner": null,
+      "scripted": {
+       "command": "python -m pytest -q -p no:cacheprovider -o addopts= test_semver.py",
+       "ok": true,
+       "passed": 175,
+       "passed_repo_config": 195,
+       "test_output_tail": "[exit 0]\n........................................................................ [ 41%]\n........................................................................ [ 82%]\n...............................                                          [100%]\n175 passed in 0.92s\n",
+       "tests_ran": true,
+       "truths": [
+        175,
+        195
+       ],
+       "why": "",
+       "world_opened": true,
+       "write_ok": true,
+       "write_result": "wrote 6 bytes to .crucible_probe.txt"
+      },
+      "why": ""
+     },
+     "task": "sw-python-semver-a2e121df"
+    },
+    "findings": [
+     "out of band: the target rung's rewards [1.0, 1.0, 1.0, 1.0] have no spread (pass rate 1.0)"
+    ],
+    "flags": [
+     "counterfactual not run",
+     "cause mix unmeasured (0 trusted labels)",
+     "paraphrase stability not run"
+    ],
+    "ok": false,
+    "owner": "planner",
+    "route": "S2",
+    "task": "sw-python-semver-a2e121df"
+   },
+   "world": "crucible-lh-w:python-semver-7f02ca96e263",
+   "world_previous": "crucible-lh-w:python-semver-3abb0cfc90f6"
+  }
+ }
+}
