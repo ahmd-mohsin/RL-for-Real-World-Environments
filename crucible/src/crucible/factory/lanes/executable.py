@@ -984,6 +984,12 @@ class ExecTask:
         self.src0: str | None = min(self._src_base) if self._src_base else None
         self.negatives = self._negatives()
 
+    def identity_config(self) -> dict[str, Any]:
+        """What a resume compares (M10 lab audit R-4, declared at the 2026-10-20 merge into dev): the mined commit pins the
+        repository content, ``task_hash`` covers the prompt, the check set and the oracle."""
+        return {"id": self.task_id, "repo": self.mined.repo, "sha": self.mined.sha, "parent": self.mined.parent, "task_hash": self.task_hash,
+                "requirements": self.requirements}
+
     # -- grading ---------------------------------------------------------------------------------------------------
     def _before(self, written: Mapping[str, Any]) -> dict[str, str]:
         out = {}

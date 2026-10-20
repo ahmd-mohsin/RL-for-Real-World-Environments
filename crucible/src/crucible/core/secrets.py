@@ -6,8 +6,9 @@ reasons, journals) that cannot import connectors."""
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
-_B = r"(?<![A-Za-z0-9_\-])"  # prefix-format keys start at a word boundary: "task-04-gpu-migration" is not an "sk-" key
+_B =r"(?<![A-Za-z0-9_\-])"  # prefix-format keys start at a word boundary: "task-04-gpu-migration" is not an "sk-" key
 SECRET_PATTERNS = [
     # OpenAI / OpenRouter / Anthropic; a bare "sk-" key must carry a digit (prose like "sk-learn-compatible-..." does not)
     _B + r"sk-(?:(?:or-v1-|ant-|proj-|svcacct-|admin-)[A-Za-z0-9_\-]{20,}|(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{20,})",
@@ -63,36 +64,40 @@ def register_secret(value: str) -> None:
         _KNOWN = tuple(sorted({*_KNOWN, value}, key=len, reverse=True))  # longest first: a secret inside another goes whole
 
 
-def scrub_secrets(text: str) -> str:
+def scrub_secrets(text: str, replace: Callable[[str], str] | None = None) -> str:
     """Every registered secret value and credential-shaped substring replaced by ``<secret>``; a ``key = value``
-    assignment keeps its key."""
+    assignment keeps its key.
+    ``replace`` (M10 lab audit R-4): what stands for a removed value, given the value (the whole match for a key format, the
+    assigned value for an assignment); the run identity passes a keyed digest, so two different credentials do not compare
+    equal. The result must not itself look like a credential (the later patterns run over it)."""
     if not text:
         return text
+    rep = replace or (lambda _v: "<secret>")
     out = text
     for value in _KNOWN:
-        out = out.replace(value, "<secret>")
+        out = out.replace(value, rep(value))
     for rx in _SECRETS:
-        out = rx.sub("<secret>", out)
+        out = rx.sub(lambda m: rep(m.group(0)), out)
 
     def assign(m: re.Match) -> str:
         v = m.group("qv") or m.group("v") or ""
         if _CODE_VALUE.fullmatch(v):
             return m.group(0)
         q = m.group("q") or ""
-        return f"{m.group('key')}{m.group('sep')}{q}<secret>{q}"
+        return f"{m.group('key')}{m.group('sep')}{q}{rep(v)}{q}"
 
     return _ASSIGN.sub(assign, out)
 
 
-def scrub_obj(obj: object) -> object:
+def scrub_obj(obj: object, replace: Callable[[str], str] | None = None) -> object:
     """Every string inside a JSON-like structure scrubbed (keys and values); structure untouched. Use this, not
     ``scrub_secrets`` on serialized JSON: the assignment rule would rewrite ``"token_ids": [1, 2`` as a credential."""
     if isinstance(obj, str):
-        return scrub_secrets(obj)
+        return scrub_secrets(obj, replace)
     if isinstance(obj, dict):
-        return {scrub_secrets(k) if isinstance(k, str) else k: scrub_obj(v) for k, v in obj.items()}
+        return {scrub_secrets(k, replace) if isinstance(k, str) else k: scrub_obj(v, replace) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [scrub_obj(v) for v in obj]
+        return [scrub_obj(v, replace) for v in obj]
     return obj
 
 

@@ -799,7 +799,7 @@ def tasks():
     return [_T["t"]]
 
 def policies():
-    return [PolicyRef(id="noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+    return [PolicyRef(id="noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
 ''')
     monkeypatch.syspath_prepend(str(tmp_path))
     res = CliRunner().invoke(cli, ["bench", "run", "--tasks", "b17mod:tasks", "--policies", "b17mod:policies", "--k", "1", "--out", str(tmp_path / "o"), "--json"],

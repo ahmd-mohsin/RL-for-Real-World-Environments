@@ -5,19 +5,33 @@ task02's first frontier run produced an empty patch because a legacy ``git add .
 path. An empty patch is two very different things: if the tree changed (``git status --porcelain`` non-empty) or the hook
 reported errors, collection failed (``crucible:empty_collection``, harness blame, masked, re-collect from the preserved
 workspace); if nothing changed, the agent did nothing (scored 0).
+
+M10 lab audit R-5 item 4: every git call here runs through ``world.exec._run_subprocess`` (off the event loop, bounded by
+``verify.collect.GIT_TIMEOUT_S``, killed with its session on a timeout or a cancel), so ``collect``, ``changed_paths``,
+``tree_changed`` and ``repo_broken`` are coroutines. A host stall is never the agent's outcome: a timed-out ``git status``
+counts as "changed" (``['?']``), a timed-out collection is an empty patch with an error (``crucible:empty_collection``, masked,
+re-collected), and ``repo_broken`` reports only a git that answered with a failure, never one that did not answer.
+
+M10 lab audit R-5 review round 1: the repository is the agent's, so every call here runs with ``verify.collect.GIT_FLAGS`` (no
+fsmonitor command, no hooks), and ``Collected.stalled`` says a git call did not answer: the first stall of a workspace is the
+host's (masked, re-collected), the same preserved workspace stalling again is the policy's (``WorkspaceHarness``:
+``crucible:agent_broke_env``), because a policy that plants a filter driver in its own ``.git/config`` would otherwise turn its 0
+into a masked ``empty_collection`` on both attempts.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from crucible.core.schema.run import Failure
+from crucible.verify import collect as vcollect
 from crucible.verify.collect import collect as tolerant_collect
+from crucible.world.exec import ExecOut, _run_subprocess
 
-LEGACY = "git add -A && git diff --cached --binary {base}"  # the chain task02's task.toml used
+_G = "git " + " ".join(vcollect.GIT_FLAGS)  # M10 lab audit R-5 review round 1: the same flags on the legacy chain
+LEGACY = _G + " add -A && " + _G + " diff --cached --binary --no-textconv --no-ext-diff {base}"  # the chain task02's task.toml used
 
 
 @dataclass
@@ -27,34 +41,52 @@ class Collected:
     tree_changed: bool
     errors: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)  # the collectable paths the agent changed (``git status``, derived files dropped)
+    stalled: bool = False  # M10 lab audit R-5 review round 1: a git call of this collection ran past its timeout (it did not answer)
 
 
-def _git(ws: Path, *a: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(ws), *a], capture_output=True, text=True, check=False)
+async def _git(ws: Path, *a: str) -> ExecOut:
+    """One git call off the event loop, bounded by ``verify.collect.GIT_TIMEOUT_S`` (read at call time) and killed with its
+    session past it (M10 lab audit R-5 item 4): ``out.timed_out`` says it did not answer. ``GIT_FLAGS``: the repository is the
+    agent's (see the module doc)."""
+    return await _run_subprocess(["git", "-C", str(ws), *vcollect.GIT_FLAGS, *a], cwd=None, env=None, timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
 
 
-def changed_paths(ws: Path) -> list[str]:
-    from crucible.verify.collect import is_derived
+async def _status(ws: Path) -> tuple[list[str], bool]:
+    """The collectable changed paths and whether ``git status`` timed out (then ``['?']``: unknown counts as changed, so a
+    stalled git is never read as "the agent changed nothing", which scores 0)."""
+    out = await _git(ws, "status", "--porcelain", "--untracked-files=all")
+    if out.timed_out:
+        return ["?"], True
+    lines = out.stdout.splitlines()
+    return [p for ln in lines if ln.strip() and not vcollect.is_derived(p := ln[3:].split(" -> ")[-1].strip('"'))], False
 
-    lines = _git(ws, "status", "--porcelain", "--untracked-files=all").stdout.splitlines()
-    return [p for ln in lines if ln.strip() and not is_derived(p := ln[3:].split(" -> ")[-1].strip('"'))]
+
+async def changed_paths(ws: Path) -> list[str]:
+    return (await _status(ws))[0]
 
 
-def tree_changed(ws: Path) -> bool:
+async def tree_changed(ws: Path) -> bool:
     """Whether the agent changed anything the hook collects: derived files (``__pycache__``, build trees) do not count
     (M7 audit: a do-nothing agent that ran Python had an empty patch and a "changed" tree, so it was masked, not scored 0)."""
-    return bool(changed_paths(ws))
+    return bool(await changed_paths(ws))
 
 
-def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Collected:
+async def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Collected:
     ws = Path(ws)
-    paths = changed_paths(ws)
+    paths, stalled = await _status(ws)
+    status_err = [f"git status timed out after {vcollect.GIT_TIMEOUT_S:g}s"] if stalled else []
     if mode == "legacy":
-        r = subprocess.run(["bash", "-c", LEGACY.format(base=base)], cwd=ws, capture_output=True, text=True, check=False)
-        _git(ws, "reset", "-q")
-        return Collected(r.stdout if r.returncode == 0 else "", mode, bool(paths), [r.stderr[-400:]] if r.returncode else [], paths)
-    c = tolerant_collect(ws, base=base)
-    return Collected(c["patch"], mode, bool(paths), c["errors"], paths)
+        out = await _run_subprocess(["bash", "-c", LEGACY.format(base=base)], cwd=str(ws), env=None, timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
+        if out.timed_out:  # the killed chain's lock would fail the tolerant re-collect of the preserved workspace
+            try:
+                (ws / ".git" / "index.lock").unlink(missing_ok=True)
+            except OSError:
+                pass
+        await _git(ws, "reset", "-q")
+        errors = [f"the legacy collect hook timed out after {vcollect.GIT_TIMEOUT_S:g}s"] if out.timed_out else ([out.stderr[-400:]] if out.rc else [])
+        return Collected(out.stdout if out.ok else "", mode, bool(paths), [*status_err, *errors], paths, stalled or out.timed_out)
+    c = await tolerant_collect(ws, base=base)
+    return Collected(c["patch"], mode, bool(paths), [*status_err, *c["errors"]], paths, stalled or bool(c.get("stalled")))
 
 
 # per-path errors git reports for a file the agent made unreadable (tolerant hook): the agent's work product
@@ -83,16 +115,20 @@ def classify(c: Collected) -> Failure | None:
     return None
 
 
-def repo_broken(ws: Path, base: str | None) -> list[str]:
+async def repo_broken(ws: Path, base: str | None) -> list[str]:
     """Problems with the agent's repository that make its work uncollectable by its own doing (M10 audit V1: a corrupt
-    ``.git/HEAD`` or index, or a deleted base commit, was masked as a harness failure)."""
+    ``.git/HEAD`` or index, or a deleted base commit, was masked as a harness failure). M10 lab audit R-5 item 4: a git call
+    that timed out is *not* a problem of the repository (a host stall is not the policy's 0): only a git that answered with a
+    failure is reported."""
     ws = Path(ws)
     if not (ws / ".git").exists():
         return ["the workspace repository (.git) was deleted"]
     out = []
-    st = _git(ws, "status", "--porcelain")
-    if st.returncode != 0:
+    st = await _git(ws, "status", "--porcelain")
+    if not st.timed_out and st.rc != 0:
         out.append(f"git status fails in the workspace: {st.stderr.strip()[:200]}")
-    if base and _git(ws, "cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
-        out.append(f"the base commit {base[:12]} is gone from the workspace repository")
+    if base:
+        base_ok = await _git(ws, "cat-file", "-e", f"{base}^{{commit}}")
+        if not base_ok.timed_out and base_ok.rc != 0:
+            out.append(f"the base commit {base[:12]} is gone from the workspace repository")
     return out

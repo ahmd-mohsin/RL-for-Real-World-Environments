@@ -17,6 +17,7 @@ ever calls ``reset`` / ``step``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
 import fnmatch
 import json
@@ -41,6 +42,7 @@ from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutco
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
 from crucible.core.text import safe_json, safe_text, unencodable
+from crucible.world import lifecycle
 from crucible.world.apps.base import App, AppContext
 from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
@@ -53,9 +55,9 @@ INFRA_ERRORS = frozenset({"transport", "gateway_error", "internal_error", "timeo
 # how long past limits.tool_timeout_s the World waits for a tool: its own deadline result (an in-container kill, then the
 # transport backstops of +15 s) arrives first and is scored (NeMo-Gym: outer = tool timeout + cleanup + 30 s)
 TOOL_GRACE_S = 60.0
-# World.close bounds (M1 audit R-9): each App's stop (CI's own container removal allows 120 s), then the backend's teardown
+# World.close bounds each App's stop (M1 audit R-9; CI's own container removal allows 120 s); the whole close is bounded by
+# ``World.close_timeout_s`` (M10 lab audit R-6)
 APP_STOP_S = 150.0
-TEARDOWN_S = 600.0
 
 
 def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
@@ -91,23 +93,6 @@ def _inbound_json(m: Inbound) -> dict[str, Any]:
         d.pop("attachments", None)  # no media: the snapshot (and its fingerprint) is what it was before attachments existed
     return d
 
-
-
-async def _to_the_end(task: asyncio.Future[None]) -> None:
-    """Await ``task`` to its end even when the caller is cancelled, absorbing repeated cancels, then re-raise the first: a
-    bare ``asyncio.shield`` returns at once on a cancel and leaves the task orphaned (verifiers ``run_shielded``,
-    ``v1/utils/aio.py:10-31``, MIT). The task's own error propagates, chained under the cancel when there was one."""
-    cancelled: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as e:
-            cancelled = e
-        except BaseException:  # noqa: BLE001, S110 - the task failed: re-raised (or chained) below
-            pass
-    if cancelled is not None:
-        raise cancelled from (None if task.cancelled() else task.exception())
-    task.result()
 
 class WorldError(RuntimeError):
     pass
@@ -190,6 +175,10 @@ class VerifierView:
 
 
 class World:
+    # M10 lab audit R-6: what ``close`` may take before it is given up on (recorded in the attempt scope, never raised): a backend
+    # teardown that hangs (a Harbor compose ``down``) must not hold an attempt, or the lease behind it, for ever
+    close_timeout_s: float = lifecycle.WORLD_CLOSE_TIMEOUT_S
+
     def __init__(
         self,
         spec: WorldSpec,
@@ -256,7 +245,9 @@ class World:
         self._acl_changed: set[str] = set()
         self._started = False
         self._closed = False
-        self._closing: asyncio.Future[None] | None = None  # the one teardown every close() waits for
+        self._closing: asyncio.Future | None = None  # M10 lab audit R-6: the one shielded close every caller shares
+        self._close_exc: BaseException | None = None  # what ``_close`` raised, for the first caller to see
+        self._scope: lifecycle.Scope | None = None  # the lifecycle scope this World was started in: its close is recorded there
         # restores a WorldRef already in place skips (M1 audit R-5): tool calls and verifier queries so far, and the ref the
         # state was last set to with that count; ``restored_apps``: the Apps the last restore actually restored
         self._touched = 0
@@ -275,6 +266,8 @@ class World:
         problems = self.backend.validate()
         if problems:
             raise WorldError("; ".join(problems))
+        self._scope = lifecycle.current()  # M10 lab audit R-6: an attempt scope closes (and records) every World started under it
+        self._scope.track_world(self)
         try:
             if self.spec.serial:  # one episode of this world at a time on this host (shared live services)
                 from crucible.world.health import SerialLock
@@ -286,8 +279,10 @@ class World:
             return await self._start()
         except BaseException:
             # A failed start must not leak containers, gateways or servers (found: a crashed App.provision
-            # left a Harbor sandbox running).
-            await self.close()
+            # left a Harbor sandbox running). M10 lab audit R-6: a failing close never replaces the start's own error (a
+            # HealthcheckError is retryable infra; a teardown error would have masked it)
+            with contextlib.suppress(Exception):
+                await self.close()
             raise
 
     async def _start(self) -> WorldRef:
@@ -379,33 +374,61 @@ class World:
         self.clock.resume()
 
     async def close(self) -> None:
-        """Stop the Apps and tear the backend down, to the end even when the caller is cancelled (then re-raised): a cancel
-        used to skip the teardown for good, ``_closed`` being set first (M1 audit R-9). Idempotent: a later or concurrent
-        call waits for the same teardown (a separate verifier closes the policy's World before the harness's cleanup does);
-        ``closed`` holds once it finished."""
+        """Stop the Apps, tear the backend down, release the serial lock. M10 lab audit R-6: shielded (a cancelled caller lets the
+        close run to its end, bounded by ``close_timeout_s``, and is cancelled after it), idempotent (a second or concurrent caller
+        awaits the same close; a separate verifier closes the policy's World before the harness's cleanup does) and bounded. It
+        raises only what ``_close`` raised before R-6 (a backend teardown error), to the first caller; a close that ran past
+        ``close_timeout_s`` is recorded in the attempt scope it started in (``Scope.world_closed``) and logged, never raised: a
+        verifier's grade that was already computed must not become a failure because a teardown was slow."""
         if self._closing is None:
-            self._closing = asyncio.ensure_future(self._close())
-        await _to_the_end(self._closing)
+            self._closed = True
+            self._closing = lifecycle.hold(self._close_bounded())
+        closing = self._closing
+        if not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                await lifecycle.finish(closing, self.close_timeout_s)
+                raise
+        exc, self._close_exc = self._close_exc, None  # the first caller to look takes it
+        if exc is not None:
+            raise exc
+
+    async def _close_bounded(self) -> None:
+        """The one close, in its own task: it never raises (``close`` re-raises ``_close_exc``) so a shielded task nobody awaits any
+        more cannot log 'exception never retrieved'."""
+        error: str | None = None
+        bound = asyncio.timeout(self.close_timeout_s)
+        try:
+            async with bound:
+                await self._close()
+        except Exception as e:  # noqa: BLE001 - recorded for the attempt's teardown.json
+            if isinstance(e, TimeoutError) and bound.expired():  # the bound fired (a TimeoutError a teardown raised itself is its own error)
+                error = f"closing world {self.spec.world} ran past {self.close_timeout_s:g}s"
+                logger.warning("%s", error)
+            else:
+                error = f"{type(e).__name__}: {e}"
+                logger.warning("world %s: close failed: %s", self.spec.world, error)
+                self._close_exc = e  # re-raised to the first caller, as before R-6
+        finally:
+            if self._serial is not None:
+                self._serial.release()
+                self._serial = None
+            if self._scope is not None:
+                self._scope.world_closed(self, error)
 
     async def _close(self) -> None:
         try:
             for app in reversed(list(self.apps.values())):  # dependents first: a browser before the sites it opens
                 try:
+                    # bounded each (M1 audit R-9): one hung stop must not use up ``close_timeout_s`` before the backend's teardown
                     await asyncio.wait_for(app.stop(), APP_STOP_S)
                 except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent (a timeout included)
                     logger.warning("world %s: stopping app %s failed: %r", self.spec.world, app.id, e)
+            await self.backend.teardown()
         finally:
-            try:
-                await asyncio.wait_for(self.backend.teardown(), TEARDOWN_S)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("world %s: backend teardown failed: %r", self.spec.world, e)
-            finally:
-                if self._own_workdir:
-                    shutil.rmtree(self.workdir, ignore_errors=True)
-                if self._serial is not None:
-                    self._serial.release()
-                    self._serial = None
-                self._closed = True
+            if self._own_workdir:  # M10 lab audit R-6: removed even when the teardown raised or ran past its bound
+                shutil.rmtree(self.workdir, ignore_errors=True)
 
     async def __aenter__(self) -> Self:
         await self.start()

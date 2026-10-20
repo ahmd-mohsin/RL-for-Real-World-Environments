@@ -302,8 +302,12 @@ def _killpg(p: subprocess.Popen) -> None:
         pass
 
 
-async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None,
-                          sessions: set[int] | None = None) -> ExecOut:
+async def _run_subprocess_raw(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None,
+                              sessions: set[int] | None = None) -> tuple[int, bytes, bytes, bool, float]:
+    """``_run_subprocess`` without the decoding: ``(rc, stdout, stderr, timed_out, duration_s)``, the output as the bytes the
+    command wrote. M10 lab audit R-5 (critic amendment 1): a caller that reads a binary stream (the grader guard's
+    ``docker cp <cid>:<path> -`` tar, a ``docker diff`` read with ``surrogateescape``) must not get it back through
+    ``errors="replace"``, which turns every non-UTF-8 byte into U+FFFD and corrupts the tar."""
     t0 = time.monotonic()
     started: list[subprocess.Popen] = []
     full_env = safe_environ(env)
@@ -318,7 +322,21 @@ async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, st
         for p in started:
             _killpg(p)
         raise
-    return ExecOut(rc=rc, stdout=out.decode(errors="replace"), stderr=err.decode(errors="replace"), duration_s=time.monotonic() - t0, timed_out=timed_out)
+    return rc, out, err, timed_out, time.monotonic() - t0
+
+
+async def _run_subprocess(argv: list[str], *, cwd: str | None, env: dict[str, str] | None, timeout_s: float | None, stdin: bytes | None,
+                          sessions: set[int] | None = None) -> ExecOut:
+    """M10 lab audit R-5 item 4: the one path for every host CLI call an attempt makes (git, docker, rsync, ssh, bash): the
+    command is a ``Popen`` waited on in ``_WAITERS`` (a blocking ``communicate`` in the pool, never asyncio's child watcher:
+    see the note above ``_WAITERS``), so the event loop keeps stepping every other attempt while it runs, in its own
+    session. Past ``timeout_s`` its whole session is killed (``_killpg``) and the result is ``timed_out`` (rc -9); a caller
+    that is cancelled kills the session too (no orphan keeps running). ``env`` is merged over ``safe_environ()``
+    (credential-named variables of the operator's shell are dropped), and an ``ssh://`` ``DOCKER_HOST`` goes through
+    ``docker_tunnel.rewrite_env``. ``cwd``, ``env``, ``timeout_s`` and ``stdin`` have no defaults: a caller says what each is
+    (``timeout_s=None`` is an explicit "unbounded"). A binary stdout is ``_run_subprocess_raw``'s."""
+    rc, out, err, timed_out, duration_s = await _run_subprocess_raw(argv, cwd=cwd, env=env, timeout_s=timeout_s, stdin=stdin, sessions=sessions)
+    return ExecOut(rc=rc, stdout=out.decode(errors="replace"), stderr=err.decode(errors="replace"), duration_s=duration_s, timed_out=timed_out)
 
 
 class LocalExec(Exec):

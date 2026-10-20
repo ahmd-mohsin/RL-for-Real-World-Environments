@@ -1474,6 +1474,13 @@ class WindowTask(ExecTask):
         self.world_image: str | None = None
         self.workspace_mode: str = "rw"
 
+    def identity_config(self) -> dict[str, Any]:
+        """``ExecTask``'s plus the window (its world image, milestones and tests), the reward's weights and Phi share, the
+        grader (``verifier_version``: recipe, import mode, path rules, check tests) and the agent's World (M10 lab audit R-4,
+        declared at the 2026-10-20 merge into dev)."""
+        return {**super().identity_config(), "window": self.window, "spans": self.spans, "weights": self.weights, "phi_weight": self.phi_weight,
+                "verifier_version": self.verifier_version, "world_image": self.world_image, "workspace_mode": self.workspace_mode}
+
     # -- the oracle as steps (horizon replay, shortcut probe) -------------------------------------------------------
     def oracle_steps(self) -> list[dict[str, Any]]:
         repo = RepoGit(Path(self.lane.repo_dirs[self.window["repo"]])) if self.window["repo"] in self.lane.repo_dirs else None

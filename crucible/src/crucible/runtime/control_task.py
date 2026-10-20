@@ -39,6 +39,12 @@ class ControlTask:
         return definition_digest({"id": self.id, "app": self.app, "return_range": self.return_range, "success_return": self.success_return,
                                   "instruction": self.instruction, "seed": self.seed, "clock": self.clock, "params": self.params})
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: every constructor parameter this task stores (the environment, factory or client and its kwargs
+        live in ``params``: plain data by construction), so a changed return range, seed or environment is refused by name."""
+        return {"id": self.id, "params": self.params, "app": self.app, "return_range": self.return_range, "success_return": self.success_return,
+                "instruction": self.instruction, "seed": self.seed, "clock": self.clock}
+
     def spec(self):
         from crucible.core.schema.world import WorldSpec
 
@@ -51,11 +57,12 @@ class ControlTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         w = World(self.spec(), instructions={ACTOR: self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     def score(self, ret: float) -> float:

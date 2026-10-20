@@ -1,77 +1,49 @@
-"""Sandbox containers end on their own (M1 audit 2026-10-14 R-6): the main process sleeps for the sandbox's lifetime, not
-forever, every container names its owner, and the perf guard no longer waits on containers a dead process left behind."""
+"""A sandbox container's end by itself is infrastructure, its end by the policy's hand is not (M1 audit 2026-10-14 R-1, R-6).
+The bounded life, the owner and expiry labels, the perf guard's orphans and the sweep are M10 lab audit R-6's
+(``world.lifecycle``, tests ``test_m10_lab_audit_r6_*``), which replaced M1 R-6's ``sleep <timeout_s + 900>`` and pid owners
+on the 2026-10-20 merge into dev; here: the sandbox tells its exec when its keeper ends, renewals included, and a policy that
+kills its own container is scored."""
 
 from __future__ import annotations
 
 import asyncio
-import os
-import socket
 import subprocess
+import time
 import uuid
 
 import pytest
 
 from crucible.core.schema.world import SandboxSpec, WorldSpec
-from crucible.runtime.perf_guard import PerfGuard, local_probe, sample
-from crucible.world.exec import DockerExec
-from crucible.world.sandbox import DockerSandbox, owner_dead, owner_id
-
-HOST = socket.gethostname()
+from crucible.world import lifecycle
+from crucible.world import sandbox as sandbox_mod
+from crucible.world.exec import DockerExec, ExecOut
+from crucible.world.sandbox import DockerSandbox
 
 
 def world() -> WorldSpec:
     return WorldSpec.model_validate({"world": "test/life", "apps": [], "actors": [{"id": "agent", "kind": "policy", "tools": []}]})
 
 
-def dead_pid() -> int:
-    p = subprocess.Popen(["true"])
-    p.wait()
-    return p.pid
+async def test_the_exec_learns_when_the_keeper_ends_and_each_renewal(monkeypatch):
+    async def docker(argv, *, cwd=None, env=None, timeout_s=None, stdin=None, sessions=None):
+        return ExecOut(0, "", "")
 
-
-def test_a_sandbox_sleeps_for_its_lifetime_and_names_its_owner():
-    sbx = DockerSandbox(SandboxSpec(image="x", timeout_s=600), world())
-    a = sbx.argv()
-    assert a[-3:] == ["x", "sleep", "1500"] and sbx.lifetime_s == 600 + 900 and "--rm" in a
-    assert f"crucible.owner={HOST}:{os.getpid()}" in a and owner_id() == f"{HOST}:{os.getpid()}"
-
-
-def test_owner_dead_only_for_a_gone_process_on_this_host():
-    assert owner_dead(f"{HOST}:{dead_pid()}")
-    assert not owner_dead(owner_id()) and not owner_dead(f"{HOST}:1")  # alive (pid 1 always is)
-    assert not owner_dead(f"elsewhere:{dead_pid()}") and not owner_dead("") and not owner_dead(f"{HOST}:x")  # unknown
-
-
-def test_the_perf_guard_ignores_containers_of_dead_owners():
-    dead = f"{HOST}:{dead_pid()}"
-
-    def probe(cmd: str):
-        if cmd.startswith("docker ps"):
-            return 0, (f"crucible-sbx-a|{dead}|\ncrucible-rlm-b||{dead}\ncrucible-sbx-c|{owner_id()}|\ncrucible-grade-d||\n"
-                       "crucible-sbx-e|elsewhere:7|\nharbor-main-1||\n")
-        return 0, ""
-
-    s = sample(probe)
-    assert s["crucible_containers"] == 3  # c (alive), d (no label), e (another host); a and b were left by a dead process
-    assert "3 other crucible" in " ".join(PerfGuard(probe=probe).busy(s))
+    monkeypatch.setattr(sandbox_mod, "_run_subprocess", docker)
+    monkeypatch.setattr(lifecycle, "_run_subprocess", docker)
+    monkeypatch.setattr(lifecycle, "_install_reaper", lambda: None)
+    monkeypatch.setattr(lifecycle, "_HOSTS", set())
+    sbx = DockerSandbox(SandboxSpec(image="x"), world(), lifetime_s=600, renewable=True)
+    await sbx.start()
+    try:
+        assert isinstance(sbx.exec, DockerExec) and sbx.exec.expires_at == sbx.deadline and sbx.deadline > time.time() + 500
+        assert await sbx.renew(3600)  # a loss before the renewed deadline is still the policy's or the daemon's, never the TTL's
+        assert sbx.exec.expires_at == sbx.deadline and sbx.deadline > time.time() + 3500
+    finally:
+        await sbx.close()
 
 
 def _docker(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=120, check=False)
-
-
-@pytest.mark.docker
-def test_the_perf_guard_reads_owner_labels_from_docker():
-    tag = uuid.uuid4().hex[:8]
-    base = sample(local_probe)["crucible_containers"]
-    names = []
-    try:
-        for kind, owner in (("dead", f"{HOST}:{dead_pid()}"), ("live", owner_id())):
-            names.append(f"crucible-r6-{kind}-{tag}")
-            assert _docker("run", "-d", "--rm", "--name", names[-1], "--label", f"crucible.owner={owner}", "python:3.12-slim", "sleep", "120").returncode == 0
-            assert sample(local_probe)["crucible_containers"] == base + (kind == "live")  # the dead owner's never counts
-    finally:
-        _docker("rm", "-f", *names)
 
 
 @pytest.mark.docker

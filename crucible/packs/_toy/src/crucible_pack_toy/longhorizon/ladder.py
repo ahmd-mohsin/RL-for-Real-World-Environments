@@ -420,10 +420,14 @@ async def run_rung(cfg: LadderConfig, *, root: Path | None = None, codec: Any = 
             cap.policies.append(p)
             return {"agent": p}
 
-        ref = PolicyRef(id="replay:diligent", make=make)
+        # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config)
+        ref = PolicyRef(id="replay:diligent", make=make, config={"script": "diligent replay", "budget_tokens": cfg.budget_tokens, "trigger": cfg.trigger,
+                                                                 "keep_recent_turns": cfg.keep_recent_turns, "summary_max_tokens": cfg.summary_max_tokens})
     else:
         model, client = make_model(cfg, codec)
-        ref = PolicyRef(id=f"scripted:{model.model}", make=lambda attempt: {"agent": with_faults(cfg, client(), attempt, fired)})
+        ref = PolicyRef(id=f"scripted:{model.model}", make=lambda attempt: {"agent": with_faults(cfg, client(), attempt, fired)},
+                        config={"model": model.model, "variant": cfg.variant, "model_kwargs": cfg.model_kwargs, "faults": cfg.faults, "tito": cfg.tito,
+                                "enforce_window": cfg.enforce_window, "budget_tokens": cfg.budget_tokens})
     t0 = time.perf_counter()
     try:
         with checkpoint_meter() as saves:

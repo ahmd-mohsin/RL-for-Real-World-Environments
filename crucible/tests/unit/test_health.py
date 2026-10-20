@@ -57,7 +57,7 @@ async def test_unhealthy_world_does_not_start_and_is_masked(tmp_path):
             await w.start()
             return w
 
-    await Runner(tmp_path / "runs").run(RunSpec(run_id="r", tasks=[Task()], policies=[PolicyRef("scripted:noop", lambda a: {"agent": ScriptedPolicy("agent", [])})],
+    await Runner(tmp_path / "runs").run(RunSpec(run_id="r", tasks=[Task()], policies=[PolicyRef("scripted:noop", lambda a: {"agent": ScriptedPolicy("agent", [])}, config={})],
                                                 harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=2))], k=1))
     rec = json.loads(next((tmp_path / "runs" / "r" / "samples").glob("*/a*/record.json")).read_text())
     assert rec["failure"]["kind"] == "crucible:backend_error" and rec["mask_sample"]  # not ready is never the policy's 0

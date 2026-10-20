@@ -184,7 +184,7 @@ async def test_constraint_audit_flags_the_backlog_adversaries(tmp_path):
         for name, acts in cases.items():
             pol = [ToolCall(tool_call_id=a["tool_call_id"], function_name=a["function_name"], arguments=a.get("arguments") or {})
                    if a["kind"] == "tool_call" else Message(to=a["to"], text=a["text"]) for a in acts]
-            ref = PolicyRef(id=f"scripted:{name}", make=lambda a, pol=pol: {"agent": ScriptedPolicy("agent", list(pol))})
+            ref = PolicyRef(id=f"scripted:{name}", make=lambda a, pol=pol: {"agent": ScriptedPolicy("agent", list(pol))}, config={"script": name})  # M10 lab audit R-4
             await Runner(tmp_path / name).run(RunSpec(run_id="x", tasks=[task], policies=[ref],
                                                       harnesses=[NativeHarness("native:scripted", limits=EpisodeLimits(max_steps=100_000, max_tool_errors=None))], k=1))
             adir = next((tmp_path / name / "x" / "samples").glob("*/a1"))

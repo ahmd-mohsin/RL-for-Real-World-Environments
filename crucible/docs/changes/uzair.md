@@ -1397,3 +1397,75 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Tests.** `test_the_shipped_verifier_runtime_imports_only_itself` (every `crucible` import under
   `verify/runtime` is `crucible.verify.runtime.*`). Red-team grader and runtime suites: 25 passed.
 - **Merge notes.** Code added under `verify/runtime` may import only the standard library and `crucible.verify.runtime`.
+
+## 65. Merge of uzair, haseeb and Azaan into dev (2026-10-20)
+
+- **Item.** Integration on `dev`: `uzair` (M1 audit, entries 51-64) fast-forwarded, `haseeb` (M6 R1-R3 per-turn credit,
+  the `core.build` import-cycle fix) merged clean, `Azaan` (M10 lab audit R-1..R-6, branched from c27f5ca, 77 commits
+  behind) merged with 18 conflicted files. Where two branches solved the same problem the merge keeps one design and says
+  which below; nothing of either branch was dropped silently.
+- **Overlaps and how they were resolved.**
+  - *Run identity* (M0 R-1/R-2 run lock vs M10 R-4 identity v2; decided by the user): identity v2 is the one gate. A
+    changed resume is refused by `IdentityDrift` and accepted by `RunSpec.accept_drift` (epochs in `run.json`). The lock
+    still writes `lock.json` and `launches/`, stamps every record (`lock`, `launch`, `task_digest`) and gives R-2 its task
+    digests (a task edited before or during an attempt is masked `crucible:task_changed`), but `lock.ensure` records a
+    change instead of raising. Removed: `RunLockMismatch`, `RunSpec.allow_change`. Kept both component hooks
+    (`lock_settings()` / `PolicyRef.settings`, `identity_config()` / `PolicyRef.config`). M10's `breaker`, `accept_drift`
+    and `hygiene` RunSpec fields are operational in the lock; a harness's grading timeouts are out of `lock_settings`, as
+    identity v2 leaves them out.
+  - *Container lifecycle* (M1 R-6 vs M10 R-6): M10's `world/lifecycle.py` (owner `host:pid:start` and expiry labels, the
+    renewable life loop, attempt scopes, the start sweep, the SIGTERM/atexit reaper, PerfGuard's expired-orphan rule)
+    replaces M1 R-6's `sleep <timeout_s + 900>` keeper, `sandbox.OWNER_LABEL` / `owner_id` / `owner_dead` /
+    `LIFETIME_MARGIN_S` and the pid-based PerfGuard skip (`perf_guard.py` and `pool.py` are Azaan's as written). Kept from
+    M1: `--memory-swap` (R-26) on the sandbox and the Harbor grade container, `check_pinned` (R-14) inside M10's guarded
+    `image_id` block (a `StaleImage` closes the container like any other error there), and R-1's `DockerExec.expires_at`,
+    now the keeper's deadline, moved out by every `renew`.
+  - *World.close* (M1 R-9 vs M10 R-6): M10's shielded, bounded close (`close_timeout_s`, recorded in the attempt scope)
+    wraps M1's teardown body (Apps in reverse start order, each within `APP_STOP_S`, so one hung stop cannot use up the
+    whole close budget before the backend teardown). Behaviour change for R-9: a backend teardown error is raised to the
+    first caller again (M10's rule, as before both changes); a timeout is still recorded, never raised. `_to_the_end` and
+    `TEARDOWN_S` are gone (unused), with `_to_the_end`'s THIRD_PARTY row.
+  - *Grading* (M10 R-3 re-grades vs M6 R2 gate kinds): wherever M10's `grade_in_place` path sets `res.gates`, it now also
+    sets `res.gate_kinds` (native, workspace, agentenv A2A, the regrade path).
+  - *Smaller*: `scrub_secrets` keeps registered values (M0) and takes M10's `replace` (a registered value gets the keyed
+    digest too); `Failure.detail` stays `SafeText` beside M10's `evidence` / `retry_after`; `HarnessResult` has `usage`,
+    `model_s` and `regradable`; `settle_usage` (R-19) runs on M10's capture path; agentenv capture calls keep the R-19
+    usage/finish shape plus M10's `status` / `error` / `complete` / `latency_s`; `RunJournal` keeps `child_path`; tasks keep
+    both `digest()` and `identity_config()`.
+  - *M0 rules over M10 code*: `CRUCIBLE_R3_PROXY_HOST`, `_PROXY_PORT`, `_UPSTREAM`, `_BUDGET_USD` (coding pack R3 gate)
+    declared in `core/env.py`; `agent_harness._TREE_KILL`'s `pgrep -f {pattern}` marked for the self-match lint (every
+    pattern it is formatted with is bracketed); `Failure.evidence` / `retry_after` get `exclude_if` and the run record is
+    `crucible.run/v2.1` (frozen; a v1 record still upcasts to v2); a media prompt enters `run.json` as its digest
+    (`SingleTurnTask.identity_config`: no media bytes in run files); the two M10 MIT rows of THIRD_PARTY name their notices.
+  - *M10 R-4 over M17 code* (decided by the user; for Ahmed to review): identity v2 refuses what it cannot inspect, so
+    `factory.envs.scripted_policy` declares `PolicyRef(config=...)` (the steps by digest), `ExecTask.identity_config()`
+    (mined repo, sha, parent, `task_hash`, requirements) and `WindowTask.identity_config()` (plus the window, spans,
+    weights, Phi share, `verifier_version`, the agent's world image and workspace mode); five M17 test policies declare a
+    `config`. `WindowTask.checkpoint` is left out (the sidecar writes progress, not the grade).
+- **Files.** the 18 conflicted files (`THIRD_PARTY.md`, `core/schema/run.py`, `core/secrets.py`, `interop/agentenv/harness.py`,
+  `interop/harbor/verify_dir.py`, `interop/harbor/world_backend.py`, `runtime/control_task.py`,
+  `runtime/harness/{base,native,workspace}.py`, `runtime/journal.py`, `runtime/perf_guard.py`, `runtime/run.py`,
+  `runtime/single_turn.py`, `world/{pool,sandbox,world}.py`, `tests/unit/test_sandboxes.py`), plus `runtime/lock.py`,
+  `core/env.py`, `interop/harbor/agent_harness.py` (one comment), `factory/envs.py`, `factory/lanes/{executable,windows}.py`,
+  `schemas/crucible.run/v2.1.*`, `tests/unit/_formats.py`, `tests/unit/test_m17_{c_harness,e_run,w_world}.py` (policy configs),
+  `docs/modules/M01-world.md` (findings 20, 21), `tests/unit/test_sandbox_lifetime.py` (rewritten for the
+  removed M1 R-6 names: the exec learns the keeper's deadline and each renewal), `tests/unit/test_world_close.py` (a
+  teardown error reaches the first caller), `tests/unit/test_run_lock.py` and `tests/unit/test_task_digest.py` (the
+  refusal is `IdentityDrift`, the allowance `accept_drift`).
+- **Public names.** removed: `crucible.runtime.lock.RunLockMismatch`, `RunSpec.allow_change`,
+  `crucible.world.sandbox.OWNER_LABEL`, `owner_id`, `owner_dead`, `LIFETIME_MARGIN_S`, `DockerSandbox.lifetime_s` as a
+  property (M10's constructor argument now), `crucible.world.world.TEARDOWN_S`, `_to_the_end`. Added: the four
+  `CRUCIBLE_R3_*` knobs, `ExecTask.identity_config`, `WindowTask.identity_config`. Format: `crucible.run/v2.1`.
+- **Tests.** ruff: no new finding (64 left, all on Azaan's tip); lint-imports: 4 kept. Full unit + toy_e2e run before the
+  M17, format and media fixes: 3163 passed; after them, the suites they touch (core audits, run lock, task digest,
+  formats, media, third party, M1 World, M6, M10, M17): all pass but the failures below. The full run on the final tree
+  is recorded with the merge of origin/dev that follows.
+- **Merge notes.** Left for the authors (they fail on Azaan's own tip too): on Azaan's tip: `test_m10_lab_audit_r1_harbor.py` does not collect (`CONNECT_ERROR` undefined),
+  `r1_a2a::test_a2a_agent_error_after_upstream_5xx_is_masked` waits 15 min for the R-5 breaker's quarantine and fails,
+  `r2_quiesce::test_counted_by_bench_and_studio_hack_kinds`, `r3_control` / `r3_regrade` Harbor in place, two `r4_identity`
+  tests, `r5_breaker::test_a_key_still_failing_after_quarantine_s_is_quarantined_once`, and the 64 ruff findings; on Haseeb's
+  tip: `test_sampling` expects `crucible.rollout/v1.1` (now v1.2); on main: `card_tools_only`, CI hidden checks, Ray
+  placement, two studio tests, the coding pack fixture. Between M10 and M17: `test_m17_p6_envs::test_native_two_timeouts`
+  expects a rollout past `rollout_s` to be masked, but M10 R-3's grading window lets its grade finish (scored 0.0): which
+  rule wins is Azaan's and Ahmed's call. Open: RLM kernel orphans
+  (`crucible.rlm.expires`) count as PerfGuard contention until they end, which M1 R-6's pid rule used to skip.

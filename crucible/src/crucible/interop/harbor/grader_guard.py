@@ -38,8 +38,13 @@ The rule here: **the container is trusted only before the policy acts; afterward
 
 Not covered (residual, documented in the M13 audit): shared libraries, a forged package database (a stub *and* its
 md5sums / RECORD entry), uv / pip project config in the agent's own working directory, ``.pth`` files of a system Python
-the grader shares with the policy by design, and a policy process racing a check within the grade. Environments without
-a host-side Docker CLI cannot be checked; ``HarborInPlaceTask`` refuses them unless ``grader_integrity="off"``.
+the grader shares with the policy by design, and a process the grade itself starts from the policy's code under test
+(pytest imports the agent's module) that swaps a tool during the Verifier. A policy process racing a check is no longer
+one: the grade starts only after the host-side quiesce killed every process the policy started (M10 lab audit R-2,
+``quiesce``), so no writer of the policy re-creates a reward in ``/logs/verifier`` after the reset (bind-mounted:
+``docker diff`` never sees it). Environments without a
+host-side Docker CLI can be neither checked nor quiesced; ``HarborInPlaceTask`` refuses them in place outright (R-2;
+``grader_integrity="off"`` no longer admits them).
 """
 
 from __future__ import annotations

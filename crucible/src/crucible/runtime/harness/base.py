@@ -3,7 +3,14 @@
 A harness gets an ``Attempt`` (sample key, attempt id, attempt directory, a budget lease) and returns a
 ``HarnessResult``: how the agent stopped, the grade (reward + gates, or ``None``), a classified failure if any, spend,
 artifacts and timings. Harnesses never decide masking themselves beyond classifying a failure; the runner applies
-``Failure.masks`` and the limit policy.
+``Failure.masks`` and the limit policy. A harness that persisted the attempt's work for a re-grade says so
+(``regradable``, M10 lab audit R-3): only then is a failure after the agent phase retried, and only as a re-grade. It
+also keeps ``Attempt.phase`` / ``Attempt.regradable`` current, so an attempt timeout after the agent phase is classified
+the same way, and opens the grading's window on the Runner's clock (``Attempt.clock``, ``grading.grading_window``).
+
+M10 lab audit R-4: a harness's ``id`` names it in the ``SampleKey`` (``name@version#<config digest>``: the in-tree harnesses
+digest what produces the work), and its ``identity_config()`` is the document the run's identity compares on a resume
+(``runtime.identity``); a harness that holds state and declares none is refused before the run starts.
 """
 
 from __future__ import annotations
@@ -31,6 +38,20 @@ class Attempt:
     policy: Any  # a PolicyRef (pack/runner provided)
     ledger: Any = None
     scopes: list[str] = field(default_factory=list)
+    # M10 lab audit R-3: what the harness updates while it runs, read by the Runner when its attempt clock cancels the
+    # harness (its HarnessResult is lost then): the phase it is in (``agent``, ``collect``, ``verification``; a harness that
+    # never sets it stays ``agent``) and whether the work is persisted for a re-grade (mirrors ``HarnessResult.regradable``).
+    # A timeout after the agent phase is then a grade failure, retried only as a re-grade, never by sampling the policy again
+    phase: str = "agent"
+    regradable: bool = False
+    # M10 lab audit R-3 review round 2: the Runner's attempt clock (its ``asyncio.Timeout``, None without
+    # ``attempt_timeout_s``) and its length. A harness entering the verification phase opens the grading's own window on it
+    # (``grading.grading_window``: the scoring budget defaults to the clock's length, and the clock is moved past that
+    # budget and the control's), so a hang ends as ``verifier_timeout`` and is decided by the control, never cut by a clock
+    # sized for the agent; ``agent_left`` is what the clock had left for the agent then (``grading.agent_clock``)
+    clock: Any = None
+    timeout_s: float | None = None
+    agent_left: float | None = None
 
 
 class HarnessResult(CrucibleModel):
@@ -54,6 +75,10 @@ class HarnessResult(CrucibleModel):
     trajectory_tokens: dict[str, int] = Field(default_factory=dict)  # actor -> tokens that entered its context, before compaction
     usage: UsageTotals | None = None  # the attempt's own model calls summed, with coverage (R-19); None: none of its own known
     model_s: float | None = None  # their summed latency: the part of the agent stage spent waiting on the model (R-19)
+    # M10 lab audit R-3: this attempt's work is persisted for a grade-only retry (a stored ``artifacts/model.patch``, a
+    # quiesced hand-off in ``verifier/handoff_ref.json``) and the next attempt re-grades it instead of running the agent;
+    # ``RetryRule`` refuses a verification-stage retry without it (the policy is never sampled again because a grade failed)
+    regradable: bool = False
 
 
 def settle_usage(res: HarnessResult, calls: Mapping[str, Iterable[Mapping[str, Any]]], exclude: Collection[str] = ()) -> None:
@@ -65,6 +90,12 @@ def settle_usage(res: HarnessResult, calls: Mapping[str, Iterable[Mapping[str, A
 
 
 class Harness(Protocol):
-    id: str  # name@version: part of the SampleKey (one harness per GRPO group)
+    @property
+    def id(self) -> str: ...  # name@version#config digest: part of the SampleKey (one harness per GRPO group); read-only, so a property satisfies it
+
+    # M10 lab audit R-4: the harness's configuration (and the content digests of what it grades with) as JSON. Required unless the
+    # harness is stateless plain data: ``identity.describe`` refuses an object it cannot inspect, so a knob nobody declared is never
+    # left out of the run's identity. A harness that is not a NativeHarness also puts a digest of its configuration in its ``id``
+    def identity_config(self) -> dict[str, Any]: ...
 
     async def run(self, attempt: Attempt) -> HarnessResult: ...

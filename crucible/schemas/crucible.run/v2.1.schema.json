@@ -1,0 +1,449 @@
+{
+ "$defs": {
+  "Failure": {
+   "additionalProperties": false,
+   "properties": {
+    "blame": {
+     "anyOf": [
+      {
+       "enum": [
+        "infra",
+        "harness",
+        "task",
+        "policy",
+        "unknown"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "delivery": {
+     "default": "delivered",
+     "enum": [
+      "not_sent",
+      "possibly_delivered",
+      "delivered"
+     ],
+     "type": "string"
+    },
+    "detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "evidence": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "kind": {
+     "type": "string"
+    },
+    "mask": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "reason": {
+     "default": "",
+     "type": "string"
+    },
+    "retry_after": {
+     "anyOf": [
+      {
+       "minimum": 0,
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "retryable": {
+     "default": true,
+     "type": "boolean"
+    },
+    "stage": {
+     "enum": [
+      "admission",
+      "seed",
+      "agent",
+      "collect",
+      "verification",
+      "cleanup"
+     ],
+     "type": "string"
+    }
+   },
+   "required": [
+    "kind",
+    "stage"
+   ],
+   "type": "object"
+  },
+  "Timing": {
+   "additionalProperties": false,
+   "properties": {
+    "agent": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "cleanup": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "collect": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "extra": {
+     "additionalProperties": {
+      "type": "number"
+     },
+     "type": "object"
+    },
+    "model": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "seed": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "verification": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "type": "object"
+  },
+  "UsageTotals": {
+   "additionalProperties": false,
+   "properties": {
+    "blank": {
+     "default": 0,
+     "type": "integer"
+    },
+    "cache_read_tokens": {
+     "default": 0,
+     "type": "integer"
+    },
+    "cache_write_tokens": {
+     "default": 0,
+     "type": "integer"
+    },
+    "calls": {
+     "default": 0,
+     "type": "integer"
+    },
+    "estimated": {
+     "default": 0,
+     "type": "integer"
+    },
+    "input_tokens": {
+     "default": 0,
+     "type": "integer"
+    },
+    "output_tokens": {
+     "default": 0,
+     "type": "integer"
+    },
+    "reasoning_tokens": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "replayed": {
+     "default": 0,
+     "type": "integer"
+    },
+    "replayed_tokens": {
+     "default": 0,
+     "type": "integer"
+    },
+    "reported": {
+     "default": 0,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "attempt": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "cost_uncertain_usd": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "cost_usd": {
+   "default": 0.0,
+   "type": "number"
+  },
+  "ended_at": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "failure": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Failure"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "final_state": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "launch": {
+   "anyOf": [
+    {
+     "minimum": 1,
+     "type": "integer"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "lock": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "mask_sample": {
+   "default": false,
+   "type": "boolean"
+  },
+  "meta": {
+   "additionalProperties": true,
+   "type": "object"
+  },
+  "outcome": {
+   "default": "running",
+   "enum": [
+    "completed",
+    "failed",
+    "masked",
+    "running"
+   ],
+   "type": "string"
+  },
+  "policy": {
+   "type": "string"
+  },
+  "reward": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "run_id": {
+   "type": "string"
+  },
+  "sample": {
+   "anyOf": [
+    {
+     "additionalProperties": true,
+     "type": "object"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "schema_version": {
+   "default": "",
+   "type": "string"
+  },
+  "seed": {
+   "default": 0,
+   "type": "integer"
+  },
+  "started_at": {
+   "type": "string"
+  },
+  "steps": {
+   "default": 0,
+   "type": "integer"
+  },
+  "task": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "task_digest": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "timing": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Timing"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "trajectory": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "usage": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/UsageTotals"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "world": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "run_id",
+  "world",
+  "policy",
+  "started_at"
+ ],
+ "type": "object"
+}

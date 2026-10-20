@@ -121,9 +121,10 @@ def policies() -> list:
         acts = _actions(a.task)
         return acts[: len(acts) // 2]
 
-    return [PolicyRef(id="scripted:oracle", make=lambda a: {"agent": ScriptedPolicy("agent", _actions(a.task))}),
-            PolicyRef(id="scripted:half", make=lambda a: {"agent": ScriptedPolicy("agent", half(a))}),
-            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+    # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config): these scripts are derived from the task's own oracle
+    return [PolicyRef(id="scripted:oracle", make=lambda a: {"agent": ScriptedPolicy("agent", _actions(a.task))}, config={"script": "task oracle"}),
+            PolicyRef(id="scripted:half", make=lambda a: {"agent": ScriptedPolicy("agent", half(a))}, config={"script": "first half of the task oracle"}),
+            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
 
 
 def _forged_approval(task) -> list:

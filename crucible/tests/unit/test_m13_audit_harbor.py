@@ -180,7 +180,8 @@ async def test_b1_tampering_is_the_policys_scored_failure_in_the_run_record(tmp_
     from crucible.runtime.run import Runner, RunSpec
 
     task = HarborInPlaceTask(make_task(tmp_path, "guard"))
-    pol = PolicyRef(id="adv_shadow", make=lambda a: {"agent": ScriptedPolicy("agent", [*ADVERSARIES["path_shadow"], Done(reason="done")])})
+    pol = PolicyRef(id="adv_shadow", make=lambda a: {"agent": ScriptedPolicy("agent", [*ADVERSARIES["path_shadow"], Done(reason="done")])},
+                    config={"script": "path_shadow adversary"})  # M10 lab audit R-4: declared configuration
     s = await Runner(tmp_path / "runs").run(RunSpec(run_id="shadow", tasks=[task], policies=[pol], harnesses=[NativeHarness()], k=1,
                                                     retry=RetryRule(max_attempts=1)))
     rec = json.loads((tmp_path / "runs" / "shadow" / "results.jsonl").read_text().splitlines()[-1])
@@ -279,9 +280,11 @@ async def _run(tmp_path: Path, name: str, task, policies: dict, *, k: int = 3) -
     def maker(factory):
         return lambda a: {"agent": factory()}
 
-    refs = [PolicyRef(id=pid, make=maker(f)) for pid, f in policies.items()]
+    refs = [PolicyRef(id=pid, make=maker(f), config={"chaos": pid}) for pid, f in policies.items()]  # M10 lab audit R-4: declared configuration
+    # M10 lab audit R-5: the chaos kinds fail every sample of one (task, harness) on purpose; this measures their classification, not the
+    # (task, harness) breaker that would defer them after the third (breaker=None: the behaviour before R-5)
     await Runner(tmp_path / "runs").run(RunSpec(run_id=name, tasks=[task], policies=refs, harnesses=[NativeHarness()], k=k, concurrency=3,
-                                                retry=RetryRule(max_attempts=1)))
+                                                retry=RetryRule(max_attempts=1), breaker=None))
     return [json.loads(x) for x in (tmp_path / "runs" / name / "results.jsonl").read_text().splitlines()]
 
 
@@ -382,7 +385,7 @@ async def test_b8_a_callable_instruction_does_not_mask_the_attempt(tmp_path):
             finally:
                 self.instruction = render
 
-    pol = PolicyRef(id="noop", make=lambda a: {"agent": ScriptedPolicy("agent", [Done(reason="done")])})
+    pol = PolicyRef(id="noop", make=lambda a: {"agent": ScriptedPolicy("agent", [Done(reason="done")])}, config={"script": "done"})  # M10 lab audit R-4
     await Runner(tmp_path).run(RunSpec(run_id="b8", tasks=[Rendered()], policies=[pol], harnesses=[NativeHarness()], k=1))
     rec = json.loads((tmp_path / "b8" / "results.jsonl").read_text().splitlines()[-1])
     assert not rec["mask_sample"] and rec["reward"] is not None, rec["failure"]
@@ -415,7 +418,7 @@ def oracle(a):
 
 
 async def main(d):
-    s = await Runner(d).run(RunSpec(run_id="portsim", tasks=[portsim("train", 0)], policies=[PolicyRef(id="oracle", make=oracle)],
+    s = await Runner(d).run(RunSpec(run_id="portsim", tasks=[portsim("train", 0)], policies=[PolicyRef(id="oracle", make=oracle, config={"script": "portsim optimal plan"})],
                                     harnesses=[NativeHarness()], k=1, retry=RetryRule(max_attempts=1)))
     print(json.dumps([json.loads(x) for x in (d / "portsim" / "results.jsonl").read_text().splitlines()]))
 

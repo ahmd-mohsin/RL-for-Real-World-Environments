@@ -123,7 +123,7 @@ async def test_an_episode_in_the_window_world(world, tmp_path: Path) -> None:
         seen.append(obs.model_dump_json())
         return acts[len(seen) - 1] if len(seen) <= len(acts) else Done(reason="done")
 
-    ref = PolicyRef(id="scripted:window", make=lambda a: {"agent": ScriptedPolicy("agent", step)})
+    ref = PolicyRef(id="scripted:window", make=lambda a: {"agent": ScriptedPolicy("agent", step)}, config={"script": "window"})  # M10 lab audit R-4
     await Runner(tmp_path).run(RunSpec(run_id="win", tasks=[task], policies=[ref], harnesses=[WorkspaceHarness()], k=1))
     adir = min((tmp_path / "win" / "samples").glob("*/a*"))
     out = json.loads((adir / "record.json").read_text())

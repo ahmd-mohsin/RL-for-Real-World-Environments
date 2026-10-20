@@ -1,5 +1,6 @@
 """World.close finishes its teardown, bounded (M1 audit 2026-10-14 R-9): a cancel during close no longer skips the
-backend teardown for good, a hung App stop is cut off, Apps stop in reverse start order, and a teardown runs once."""
+backend teardown for good, a hung App stop is cut off, Apps stop in reverse start order, and a teardown runs once. Since
+the 2026-10-20 merge into dev the shielded, bounded close itself is M10 lab audit R-6's (test_m10_lab_audit_r6_exit_paths)."""
 
 from __future__ import annotations
 
@@ -55,7 +56,7 @@ async def test_a_cancelled_close_still_tears_down(tmp_path: Path):
     assert seen.count("teardown") == 1  # a later close waits for the same teardown, never a second one
 
 
-async def test_a_hung_stop_is_cut_off_and_teardown_failures_never_raise(tmp_path: Path, monkeypatch):
+async def test_a_hung_stop_is_cut_off_and_the_teardown_still_runs(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(world_mod, "APP_STOP_S", 0.2)
     w, seen = await started(tmp_path)
 
@@ -68,7 +69,9 @@ async def test_a_hung_stop_is_cut_off_and_teardown_failures_never_raise(tmp_path
 
     w.apps["b"].stop, w.backend.teardown = hang, broken
     t0 = time.monotonic()
-    await w.close()
+    with pytest.raises(RuntimeError, match="compose down failed"):  # the teardown's own error, to the first caller (M10 lab audit R-6)
+        await w.close()
+    await w.close()  # not to the second
     assert time.monotonic() - t0 < 5 and seen == ["stop:a", "teardown"] and w.closed  # b was cut off at 0.2 s
 
 

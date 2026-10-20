@@ -86,6 +86,9 @@ def docker_grade(*, image: str, bundle_dir: Path, plan: str, out_dir: Path, moun
     ``expected_image``: the image id the task pins. A different id is a stale verifier image (Appendix B.5): the grade is
     masked as ``stale image`` before any grading process starts. A grade that exceeds ``timeout`` kills its (named)
     container and is masked as ``verifier_timeout``; a run that leaves no reward document is masked ``no_reward_json``.
+    M10 lab audit R-6: the container carries ``crucible.owner`` and ``crucible.expires`` (``world.lifecycle``) so the Runner's sweep
+    reaches one a killed runner left, and ends by itself at ``timeout`` plus ``GRADE_MARGIN_S`` (``lifecycle.BOUND_PY``); it is not
+    recorded in an attempt scope (synchronous, no production caller).
     """
     import os
     import uuid
@@ -107,15 +110,25 @@ def docker_grade(*, image: str, bundle_dir: Path, plan: str, out_dir: Path, moun
         if probe.returncode != 0:
             return Grade(_masked("check_infra", f"bind-mount sources are not on the docker host {dh}: stage the bundle there at the same path "
                                  f"(or grade on that host's local daemon)"), {}, probe.stderr[-500:], -1)
+    import time
+
+    from crucible.world import lifecycle
+
     name = name or f"crucible-grade-{uuid.uuid4().hex[:12]}"
+    # M10 lab audit R-6: the same owner and expiry labels as every container Crucible starts (and the attempt's run, lease and attempt
+    # labels when this runs under a Runner: ``asyncio.to_thread`` copies the context), so a crashed runner's grade is swept. This call is
+    # synchronous and has no scope record (a hung grade ends at ``timeout``, or at its in-container bound after a crash)
     argv = ["docker", "run", "--rm", "--network", "none", "--init", "--shm-size", "8g", "--name", name, "--label", "crucible.sandbox=1",
+            *lifecycle.current().labels(expires=time.time() + timeout + lifecycle.GRADE_MARGIN_S),
             "-v", f"{Path(bundle_dir).resolve()}:{MOUNT}:ro", "-v", f"{out_dir.resolve()}:/logs/verifier"]
     if gpu:
         argv += ["--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all"]
     for h, c in (mounts or {}).items():
         argv += ["-v", f"{h}:{c}:ro"]
-    argv += ["--entrypoint", "python3", image, "-I", f"{MOUNT}/crucible/verify/runtime/run.py", "--plan", plan, "--out", "/logs/verifier",
-             "--tier", tier, "--require-root"]
+    # review round 1: the same python3 entrypoint, with a SIGALRM armed for ``timeout + GRADE_MARGIN_S`` that survives the exec
+    # (``lifecycle.BOUND_PY``): a grade a killed runner left ends by itself, with no ``timeout`` binary needed in the image
+    argv += ["--entrypoint", "python3", image, "-I", "-c", lifecycle.BOUND_PY, str(int(timeout + lifecycle.GRADE_MARGIN_S)),
+             "-I", f"{MOUNT}/crucible/verify/runtime/run.py", "--plan", plan, "--out", "/logs/verifier", "--tier", tier, "--require-root"]
     if base:
         argv += ["--base", base]
     if pre_patch:

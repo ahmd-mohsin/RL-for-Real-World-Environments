@@ -16,7 +16,9 @@ inherited):
   reads it through ``history`` / ``OUT``). A task with ``context_path`` (and ``delivery="context"``) gets it as ``CONTEXT``.
   Each compaction starts a segment: a fresh exact-prefix token sequence.
 - **The config is the harness id.** ``rlm:<sha of RLMConfig>@<version>`` records the window, compaction, budgets, tree
-  limits and output cap, so groups and comparisons stay well-defined.
+  limits and output cap, so groups and comparisons stay well-defined. M10 lab audit R-4: the id also ends ``#<12 hex>`` over
+  what ``NativeHarness`` digests (limits, limit policy, ``checkpoint_every``), and ``identity_config`` carries the whole
+  ``RLMConfig`` for the run's resumable identity (keyed ``rlm@<version>``, so a changed field is named by dotpath).
 - **Container lifetime** follows the episode's wall budget (``RLMConfig.wall_s``, ``kernel.lifetime_for_episode``) and is
   renewed while the episode runs (M16 B9: a fixed 6 h ended long episodes).
 - **Evidence:** ``rlm.<actor>.json`` per RLM actor: the config, counters (root and tree), segments, context-health
@@ -35,7 +37,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import json
 import zlib
 from collections.abc import Callable
@@ -76,6 +77,17 @@ class RLMHarness(NativeHarness):
             # unknown-blame mask (retried, and counted toward the run's stop rule). A config that cannot run is refused here
             self.config.launcher()
 
+    @property
+    def identity_key(self) -> str:
+        """``rlm@<version>``: the harness's name carries the config's digest (``rlm:<sha>``), so keyed by it an RLMConfig change
+        would read as one harness removed and another added; keyed without it, the changed field is named by dotpath (M10
+        lab audit R-4). Two RLM harnesses in one run fall back to their full ids (``identity.harness_keys``)."""
+        return f"rlm@{self.version}"
+
+    def identity_config(self) -> dict[str, Any]:
+        """The base document with the RLM configuration whole (the id's own digest is over it too; the launcher is placement)."""
+        return {**super().identity_config(), "name": "rlm", "config": asdict(self.config)}
+
     def wrap(self, attempt: Attempt, actor: str, x: Any) -> Any:
         from crucible.actors.rlm.policy import RLMPolicy
 
@@ -101,9 +113,16 @@ class RLMHarness(NativeHarness):
             return out
 
         ref = PolicyRef(id=inner.id, make=make, spend=inner.spend, estimate_usd=getattr(inner, "estimate_usd", 0.0))
+        # M10 lab audit R-3 review round 2: NativeHarness keeps Attempt.phase / Attempt.regradable current on the Attempt it
+        # runs, opens the grading window on Attempt.clock, and the Runner reads phase and regradable from its own Attempt when
+        # its clock cancels the harness (run.py). A copy (dataclasses.replace) hid them, so a clock firing during the grade,
+        # its re-grade or the control read as the agent's and re-sampled the policy: the policy is swapped in place on the
+        # Runner's Attempt and restored on the way out (the Runner records with its own policy, never attempt.policy)
+        attempt.policy = ref
         try:
-            res = await super().run(dataclasses.replace(attempt, policy=ref))
+            res = await super().run(attempt)
         finally:  # every kernel and container closed, even when the attempt is cancelled mid-flight (M14 campaign B4)
+            attempt.policy = inner
             closes = [asyncio.ensure_future(p.aclose()) for p in made.values() if isinstance(p, RLMPolicy)]
             if closes:
                 try:

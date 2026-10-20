@@ -32,9 +32,11 @@ from typing import Any
 from crucible.core.schema.state import Query
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
+from crucible.runtime.identity import seed_digest, tree_digest
 from crucible.verify.progress import Subgoal
 from crucible.verify.runtime.plan import GradeReport
 from crucible.world.world import World
+from crucible_pack_toy import PACK_ROOT
 from crucible_pack_toy.longhorizon.world import Backlog, draw, instruction, oracle, write_pack
 
 TASK_VERSION = 3  # @3: notes say why, approvals bound to a ticket or order and consumed once (M14 campaign B8)
@@ -149,6 +151,7 @@ class BacklogTask:
         if reward not in ("share", "all"):
             raise ValueError("reward is 'share' (Φ at the end) or 'all' (1 only when every ticket is correct)")
         self.reward_mode = reward
+        self.seed, self.n = seed, n
         self.b = draw(seed, n)
         self.root = Path(root or tempfile.mkdtemp(prefix="backlog-pack-"))
         # M14 audit V12: callers that never call cleanup() leaked one dir per task (1,028 in $TMPDIR); an owned temp root
@@ -161,6 +164,14 @@ class BacklogTask:
         self.world_id = "toy/helpdesk_backlog"
         self.instruction = instruction(self.b)
         self.subgoals = BacklogSubgoals(self.b)
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the pack's content (the world generator, the grader and the tool code: ``tree_digest(PACK_ROOT)``),
+        a digest of the seed (``identity.seed_digest``: the seed of a held-out bench item is an HMAC of the secret key and must
+        not reach ``run.json``, which the bench's out directory shares) and the size the backlog is drawn from, the reward mode
+        and the instruction. ``root`` is the temporary directory the pack is written to (a path, operational)."""
+        return {"pack": tree_digest(PACK_ROOT), "seed": seed_digest(self.seed), "n": self.n, "reward_mode": self.reward_mode, "version": self.version,
+                "instruction": self.instruction}
 
     def world(self, workdir: Path) -> World:
         from crucible.actors.scripted import RelayActor, Rule
@@ -410,4 +421,5 @@ def oracle_policy(task: BacklogTask):
 
     acts = [ToolCall(tool_call_id=a["tool_call_id"], function_name=a["function_name"], arguments=a.get("arguments") or {}) if a["kind"] == "tool_call"
             else Message(to=a["to"], text=a["text"]) for a in task.oracle_actions()]
-    return PolicyRef(id="scripted:backlog-oracle", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(acts))})
+    # M10 lab audit R-4: the oracle is the task's own (its seed and size are the task's identity); the policy declares what it is
+    return PolicyRef(id="scripted:backlog-oracle", make=lambda attempt: {"agent": ScriptedPolicy("agent", list(acts))}, config={"script": "backlog oracle"})

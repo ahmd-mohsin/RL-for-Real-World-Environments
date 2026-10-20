@@ -90,6 +90,7 @@ class Episode:
     peer_messages: int = 0  # messages from one policy actor to another (P28 communication cost)
     seed: int | None = None
     flags: list[str] = field(default_factory=list)  # rule flags the harness raised (rollout.json ``flags``): campaign B1
+    epoch: int = 0  # the run's identity epoch the terminal attempt was written in (M10 lab audit R-4: ``meta.epoch``; 0 = the first)
 
     @property
     def masked(self) -> bool:
@@ -135,6 +136,14 @@ def _json(path: Path) -> Any:
 def _sample_tuple(sk: Mapping[str, Any], r: Any) -> tuple[str, str, str, int]:
     return (str(sk.get("task") or r.task or ""), str(sk.get("policy") or r.policy), str(sk.get("harness") or (r.meta or {}).get("harness") or ""),
             int(sk.get("sample_idx") or 0))
+
+
+def _epoch_of(rec: Any) -> int:
+    """The identity epoch a record was written in (M10 lab audit R-4): ``meta.epoch``, absent (0) in the run's first epoch."""
+    try:
+        return int((rec.meta or {}).get("epoch") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _attempt_n(attempt: str | None) -> int:
@@ -264,7 +273,7 @@ def load_run(run_dir: Path, *, tags_of: Callable[[str], Iterable[str]] | None = 
             rows=_jsonl(adir / "progress.jsonl"), phi_final=prog.get("phi_final"), phi0=prog.get("phi0"),
             probes_attempted=_probes_attempted(adir, comps), progress_tracked=(adir / "progress.jsonl").exists(), exposed=exposed,
             tags=list(tags_of(key[0]) if tags_of else []), failure_kind=kind, failure_detail=r.failure.detail if r.failure else None,
-            aborted_attempts=aborted.get(sid, 0), seed=sk.get("seed"), flags=flags))
+            aborted_attempts=aborted.get(sid, 0), seed=sk.get("seed"), flags=flags, epoch=_epoch_of(r)))
     if plan:
         spent: dict[tuple[str, str, str, int], list[str]] = {}  # samples without a terminal row: their attempts' spend is still spend
         for sid, ats in attempts.items():
@@ -299,10 +308,41 @@ def run_info(run_dir: Path, eps: Sequence[Episode] | None = None) -> dict[str, A
     if stopped is None and owed and not summaries:
         stopped = "incomplete: the runner left no summary (killed, or still running)"
     planned = _plan(run_dir)
-    return {"planned": len(planned) if planned is not None else len(eps), "terminal": sum(not e.owed for e in eps),
+    # M10 lab audit R-5: the breaker keys the last call quarantined (key -> reason): their samples are owed, not failed, so a report that
+    # shows only ``owed`` would read an outage as a gap. Absent when nothing was quarantined, so every other summary is unchanged
+    q = (summaries[-1].get("quarantined") if summaries else None) or {}
+    info = {"planned": len(planned) if planned is not None else len(eps), "terminal": sum(not e.owed for e in eps),
             "measured": sum(not e.masked for e in eps), "masked": sum(e.masked and not e.owed for e in eps), "owed": owed,
-            "stopped": stopped, "complete": owed == 0 and stopped is None,
+            # review round 1: a run with a quarantined key is not complete: a reopened sample it left owed still has its older masked row
+            # as its newest terminal one (it reads as terminal here, so ``owed`` alone would call the run complete)
+            "stopped": stopped, "complete": owed == 0 and stopped is None and not q,
             "attempts": sum(e.attempts for e in eps), "aborted_attempts": sum(e.aborted_attempts for e in eps)}
+    if q:
+        info["quarantined"] = q
+    epochs = _epochs_info(run_dir, eps)
+    if epochs:
+        info["epochs"] = epochs
+    return info
+
+
+def _epochs_info(run_dir: Path, eps: Sequence[Episode]) -> list[dict[str, Any]]:
+    """M10 lab audit R-4: the run's identity epochs that hold results, when the terminal samples span more than one (a run resumed
+    under accepted configuration drift, or new code, reports per epoch: the headline metrics mix them). An epoch that was opened
+    and dispatched nothing (a finished run re-opened after a commit) holds no results and is not listed, so re-opening a run
+    never turns its report into a mixed one. ``accepted`` and ``code_changed`` come from ``run.json``; ``mean_reward`` is the mean
+    of the epoch's measured episodes' values (None when it measured none). A single-epoch run has no such block, so its summary,
+    digest and episodes are unchanged."""
+    held = sorted({e.epoch for e in eps if not e.owed})
+    if len(held) < 2:
+        return []
+    doc = {int(x.get("epoch", i)): x for i, x in enumerate((_json(Path(run_dir) / "run.json") or {}).get("epochs") or []) if isinstance(x, dict)}
+    out = []
+    for n in held:
+        mine = [e for e in eps if not e.owed and e.epoch == n]
+        vals = [float(e.value or 0.0) for e in mine if not e.masked]
+        out.append({"epoch": n, "accepted": list((doc.get(n) or {}).get("accepted") or []), "code_changed": list((doc.get(n) or {}).get("code_changed") or []),
+                    "terminal": len(mine), "measured": len(vals), "mean_reward": (sum(vals) / len(vals)) if vals else None})
+    return out
 
 
 # ---- per-episode metrics -------------------------------------------------------------------------------------------------
@@ -896,4 +936,5 @@ def deterministic_digest(summary: dict[str, Any]) -> str:
 
 
 def episodes_json(eps: Sequence[Episode]) -> list[dict[str, Any]]:
-    return [{k: v for k, v in asdict(e).items() if k != "rows"} for e in eps]
+    # M10 lab audit R-4: ``epoch`` is exported only past the first identity epoch, so a single-epoch run's episodes.json is as it was
+    return [{k: v for k, v in asdict(e).items() if k != "rows" and not (k == "epoch" and v == 0)} for e in eps]

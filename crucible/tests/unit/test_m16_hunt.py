@@ -328,7 +328,7 @@ async def test_h5_other_model_sub_calls_are_frozen_in_a_real_tree_rollout(tmp_pa
 
     h = RLMHarness(RLMConfig(window_tokens=24_000, max_tokens=4_000, kernel="local", allow_host=True, temperature=0.0),
                    limits=EpisodeLimits(max_steps=1_000, max_tool_errors=None))
-    await Runner(tmp_path).run(RunSpec(run_id="c", tasks=[HelpdeskTask()], policies=[PolicyRef(id="p", make=make)], harnesses=[h], k=1,
+    await Runner(tmp_path).run(RunSpec(run_id="c", tasks=[HelpdeskTask()], policies=[PolicyRef(id="p", make=make, config={})], harnesses=[h], k=1,
                                        rollout_mode="train"))
     adir = max((tmp_path / "c" / "samples").glob("*/a*"))
     _check_train_record(RolloutRecord.model_validate_json((adir / "rollout.json").read_text()), sub_frozen=True)

@@ -147,6 +147,15 @@ class Failure(CrucibleModel):
     blame: Blame | None = None  # None: the kind's default (DEFAULT_BLAME)
     delivery: Literal["not_sent", "possibly_delivered", "delivered"] = "delivered"  # did the model call reach the provider (budget settle)
     detail: SafeText | None = None  # the original sub-kind (e.g. no_reward_json, RewardFileNotFoundError)
+    # M10 lab audit R-3: {probe: alive|dead|unprobed, control: passed|failed|none, status} on every masked failure (a
+    # non-policy blame carries its evidence); M10 lab audit R-5: the (task, harness) breaker counts a task-blamed grade failure and its
+    # ``breaker_open`` / ``quarantine`` events report ``control``. None until the harness or the Runner
+    # fills it; dropped from canonical JSON while None, so no content hash moves
+    evidence: dict[str, Any] | None = Field(default=None, exclude_if=lambda v: v is None)  # crucible.run/v2.1
+    # M10 lab audit R-5 item 3: the seconds the provider asked to wait (HTTP Retry-After on a 429 or 503), read by
+    # ``RetryRule.backoff`` (a floor under the jittered wait) and by the provider breaker's cool-down. None when unknown;
+    # dropped from canonical JSON while None (the ``evidence`` pattern), so no content hash moves
+    retry_after: float | None = Field(default=None, ge=0, exclude_if=lambda v: v is None)  # crucible.run/v2.1
 
     @field_validator("reason")
     @classmethod
@@ -173,9 +182,11 @@ class RunRecord(VersionedDocument):
 
     ``crucible.run/v2`` (R-1 step 3): the record names the lock and launch it ran under (``lock.json`` fingerprint,
     ``launches/<n>.json``), and carries the task digest (R-2), token usage and stage timing (R-19) as typed fields; v1's
-    never-filled ``tokens`` is gone. ``None`` is unknown: a v1 record, or a producer outside the runner."""
+    never-filled ``tokens`` is gone. ``None`` is unknown: a v1 record, or a producer outside the runner.
 
-    SCHEMA = "crucible.run/v2"
+    ``crucible.run/v2.1`` (M10 lab audit R-3, R-5): ``Failure.evidence`` and ``Failure.retry_after``, left out while unset."""
+
+    SCHEMA = "crucible.run/v2.1"
 
     run_id: str
     task: str | None = None  # the task id; its content is task_digest
@@ -249,7 +260,7 @@ register_upcaster("crucible.run", 1, _run_v1_to_v2)
 
 
 class LockChange(CrucibleModel):
-    """A change of settings a resume was allowed to make (``RunSpec.allow_change``), kept in the lock's history."""
+    """A change of settings a resume made (the run identity accepted it, ``RunSpec.accept_drift``), kept in the lock's history."""
 
     at: str
     changed: list[str]  # the dotpaths that changed
@@ -259,8 +270,8 @@ class LockChange(CrucibleModel):
 
 class RunLock(VersionedDocument):
     """What a run is (R-1): the projected settings of its whole ``RunSpec`` (``core.fingerprint``) and their fingerprint.
-    Written to ``<run>/lock.json`` before the first dispatch; a resume whose settings differ is refused unless every
-    changed setting is allowed by name, and then the change is recorded in ``changes``."""
+    Written to ``<run>/lock.json`` before the first dispatch; a resume whose settings differ records the change in
+    ``changes`` (refusing one is the run identity's, ``runtime.identity``)."""
 
     SCHEMA: ClassVar[str] = "crucible.run_lock/v1"
     run_id: str

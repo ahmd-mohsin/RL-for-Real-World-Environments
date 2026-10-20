@@ -1,4 +1,5 @@
-"""The run lock (M0 audit 2026-10-14 R-1): core.fingerprint and runtime.lock."""
+"""The run lock (M0 audit 2026-10-14 R-1): core.fingerprint and runtime.lock. Since the 2026-10-20 merge into dev the lock
+records and the run identity (M10 lab audit R-4, ``IdentityDrift``, ``accept_drift``) refuses."""
 
 from __future__ import annotations
 
@@ -10,7 +11,8 @@ from crucible_pack_toy.runtime import NOOP, ORACLE, HelpdeskTask
 
 from crucible.core.fingerprint import SCHEME, describe, diff, excluded, fingerprint, project
 from crucible.runtime.harness.native import NativeHarness, PolicyRef
-from crucible.runtime.lock import OPERATIONAL, RunLockMismatch, build
+from crucible.runtime.identity import IdentityDrift
+from crucible.runtime.lock import OPERATIONAL, build
 from crucible.runtime.run import Runner, RunSpec
 
 
@@ -55,9 +57,10 @@ async def test_a_resume_with_other_settings_is_refused_naming_them(tmp_path):
     lock = json.loads((tmp_path / "r" / "lock.json").read_text())
     assert lock["schema_version"] == "crucible.run_lock/v1" and lock["settings"]["sampling.temperature"] == 0.0
     h = NativeHarness("native:scripted", limits=dataclasses.replace(NativeHarness().limits, max_steps=300))
-    with pytest.raises(RunLockMismatch) as e:
+    with pytest.raises(IdentityDrift) as e:
         await Runner(tmp_path).run(_spec(sampling={"temperature": 1.0}, harnesses=[h]))
-    assert "sampling.temperature: 0.0 -> 1.0" in str(e.value) and "harnesses.0.settings.limits.max_steps: 30 -> 300" in str(e.value)
+    assert "sampling.temperature: 0.0 -> 1.0" in str(e.value) and "harnesses.native:scripted@1.limits.max_steps: 30 -> 300" in str(e.value)
+    assert json.loads((tmp_path / "r" / "lock.json").read_text()) == lock  # refused before the lock was touched
 
 
 async def test_operational_changes_resume_freely(tmp_path):
@@ -66,9 +69,9 @@ async def test_operational_changes_resume_freely(tmp_path):
     assert s.terminal == 1
 
 
-async def test_an_allowed_change_is_recorded_in_the_lock(tmp_path):
+async def test_an_accepted_change_is_recorded_in_the_lock(tmp_path):
     await Runner(tmp_path).run(_spec(sampling={"temperature": 0.0}))
-    await Runner(tmp_path).run(_spec(sampling={"temperature": 0.5}, allow_change=["sampling.*"]))
+    await Runner(tmp_path).run(_spec(sampling={"temperature": 0.5}, accept_drift=("sampling.*",)))
     lock = json.loads((tmp_path / "r" / "lock.json").read_text())
     assert lock["settings"]["sampling.temperature"] == 0.5 and lock["changes"][0]["changed"] == ["sampling.temperature"]
     events = [json.loads(x) for x in (tmp_path / "r" / "journal.jsonl").read_text().splitlines()]
@@ -81,7 +84,7 @@ async def test_a_run_from_before_the_lock_is_adopted_once(tmp_path):
     await Runner(tmp_path).run(_spec())
     events = [json.loads(x) for x in (tmp_path / "r" / "journal.jsonl").read_text().splitlines()]
     assert [e["status"] for e in events if e["event"] == "run_lock"] == ["created", "adopted"]
-    with pytest.raises(RunLockMismatch):
+    with pytest.raises(IdentityDrift):
         await Runner(tmp_path).run(_spec(sampling={"temperature": 1.0}))
 
 
@@ -112,10 +115,10 @@ async def test_records_name_the_lock_and_launch_they_ran_under(tmp_path):
     """R-1 step 3: every record carries the lock fingerprint and launch number of the invocation that wrote it."""
     await Runner(tmp_path).run(_spec())
     first = json.loads((tmp_path / "r" / "lock.json").read_text())["fingerprint"]
-    await Runner(tmp_path).run(_spec(k=2, allow_change=["k"]))  # a resume that adds a sample under a changed lock
+    await Runner(tmp_path).run(_spec(k=2, accept_drift=("k",)))  # a resume that adds a sample under a changed lock
     second = json.loads((tmp_path / "r" / "lock.json").read_text())["fingerprint"]
     recs = sorted((json.loads(p.read_text()) for p in (tmp_path / "r" / "samples").glob("*/a*/record.json")), key=lambda r: r["sample"]["sample_idx"])
-    assert [(r["schema_version"], r["lock"], r["launch"]) for r in recs] == [("crucible.run/v2", first, 1), ("crucible.run/v2", second, 2)]
+    assert [(r["schema_version"], r["lock"], r["launch"]) for r in recs] == [("crucible.run/v2.1", first, 1), ("crucible.run/v2.1", second, 2)]
     assert first != second and all("tokens" not in r and r["timing"] for r in recs)
 
 
@@ -136,4 +139,4 @@ def test_a_v1_record_reads_as_v2(tmp_path):
     j = RunJournal(tmp_path, "r", "id", {})
     j.results.write_text(json.dumps({**base, "schema_version": "crucible.run/v1", "attempt": "s1-a1", "tokens": {}}) + "\n"
                          + RunRecord(**base, attempt="s2-a1", lock="sha256:01", launch=2).model_dump_json() + "\n")
-    assert {sid: (r.schema_version, r.launch) for sid, r in j.terminal().items()} == {"s1": ("crucible.run/v2", None), "s2": ("crucible.run/v2", 2)}
+    assert {sid: (r.schema_version, r.launch) for sid, r in j.terminal().items()} == {"s1": ("crucible.run/v2", None), "s2": ("crucible.run/v2.1", 2)}

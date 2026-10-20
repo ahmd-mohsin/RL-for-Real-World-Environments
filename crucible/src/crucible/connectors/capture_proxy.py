@@ -30,10 +30,37 @@ M3 audit (2026-10-12):
   ``harness_message``, not the human; images leave a marker; server tools (web search) are tool calls; retries
   collapse only when marked (SDK ``x-stainless-retry-count``, or a failed earlier attempt); a torn last line is
   skipped; user and tool messages carry the request time.
+
+M10 lab audit R-1 (2026-10-15): the proxy log is the evidence an external agent's blame is decided from
+(``runtime.agent_evidence``), so it must tell a dropped stream from a finished one and a capped session from a live one.
+- A streamed exchange is ``complete`` only when it ended with its dialect's terminal marker (OpenAI ``[DONE]`` or a
+  ``finish_reason``; Anthropic ``message_stop``; Responses ``response.completed`` / ``response.incomplete``) and carried
+  no error event. A body that just ends is ``complete: false`` with ``error: "stream_drop: ..."``; an error event gives
+  ``"stream_error: ..."`` (PATTERN: prime-agent ``crates/pa-ai/src/providers/openai_completions/stream.rs:704-715``).
+  Every stream used to be recorded complete when the upstream closed it, cut or not.
+- ``register(session, max_calls=n)`` caps the model calls the proxy forwards for a session (no agent obeys its own
+  step setting). Past the cap the proxy answers, in the caller's dialect, a non-empty assistant stop message
+  (``LIMIT_STOP_TEXT``; an empty one reads as a failed generation and is retried) that is never forwarded and never
+  recorded as an exchange: the log gets one ``{"kind": "limit_stop"}`` row per stop up to ``LIMIT_STOP_ROWS``, and the
+  rest as one row with ``count`` when the key is revoked (a flood past the cap cannot grow the log without bound);
+  ``CaptureLogConnector`` and ``read_upstream_evidence`` add them up and skip them, so no turn the model did not generate
+  can reach training data (PATTERN: OpenEnv ``src/openenv/core/harness/capture/sessions.py:158-178``,
+  ``server.py:975-999``). A forwarded call that failed counts.
+- ``probe(api, model)``: one minimal generation Crucible itself sends straight to the upstream, outside every session and
+  never logged. The session log is writable by the agent's commands (they hold the capture key), so a non-policy upstream
+  verdict read from it counts only when this probe of the same upstream answers the same (``agent_evidence``).
+- The key is checked again after a request's body is read: a key revoked meanwhile gets 401 (it was forwarded uncapped,
+  since ``unregister`` drops the cap, and recorded after the evidence read). A refused exchange keeps the upstream's
+  ``retry_after``, so the probe of a 429 waits it out.
+- Review round 3: ``inflight[session]`` counts the session's forwarded calls not yet answered and recorded, past
+  ``unregister`` (a killed client does not cancel the proxy's forward, so a revoked session's calls still load the
+  upstream and leave no row until they end); ``drain(session, timeout_s)`` waits for them. The self-load guard of
+  ``agent_evidence`` counts what is left, so Crucible's probe never queues behind the session's own calls.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -56,6 +83,37 @@ MAX_TEXT = 4000
 MAX_BODY = 64 * 1024 * 1024
 PASS_HEADERS = ("retry-after", "x-request-id", "request-id", "anthropic-ratelimit-requests-remaining", "x-ratelimit-remaining-requests")
 RETRY_HEADERS = ("x-stainless-retry-count", "idempotency-key", "x-stainless-timeout")
+# M10 lab audit R-1: the per-session call cap's row kind and its stop message (non-empty: OpenEnv found an empty
+# assistant message is read as a failed generation and retried, server.py:975-982)
+LIMIT_STOP_KIND = "limit_stop"
+LIMIT_STOP_TEXT = "[crucible] The model-call limit for this attempt is reached. Stop now."
+STREAM_DROP = "stream_drop: the upstream body ended without a terminal marker"
+# M10 lab audit R-1: limit-stop rows per session. Past the cap the proxy's answer is local, instant and free, so one row
+# per answer let a policy that floods the proxy (its agent phase held open) grow the log on the Crucible host without
+# bound. Stops past this many are counted in memory and written as one coalesced row when the key is revoked (OpenEnv
+# keeps only an in-memory count, sessions.py:173 ``budget_stop_count``)
+LIMIT_STOP_ROWS = 8
+PROBE_TEXT = "Reply OK."
+
+
+def limit_stop_count(row: dict[str, Any]) -> int:
+    """How many stop answers a ``limit_stop`` row stands for: 1, or a coalesced row's ``count`` (M10 lab audit R-1)."""
+    n = row.get("count", 1)
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 1
+
+
+def _upstream_headers(api: str, up: Upstream, version: str = "2023-06-01", beta: str | None = None) -> dict[str, str]:
+    """The headers of a request to the upstream: its own key, never the agent's (Anthropic: version and beta)."""
+    headers = {"content-type": "application/json"}
+    if api == "anthropic":
+        headers["anthropic-version"] = version
+        if beta:
+            headers["anthropic-beta"] = beta
+        if up.key:
+            headers["x-api-key"] = up.key
+    elif up.key:
+        headers["authorization"] = f"Bearer {up.key}"
+    return headers
 
 
 @dataclass
@@ -76,19 +134,81 @@ class CaptureProxy:
         self.timeout_s, self.max_body = timeout_s, max_body
         self.transport = transport
         self.sessions: dict[str, str] = {}  # key -> session id
+        # M10 lab audit R-1: per session, the call cap (0 = unlimited) and the calls forwarded so far (counted on forward,
+        # a failed call included: OpenEnv sessions.py:160-163, a call the upstream rejected still cost an attempt)
+        self.max_calls: dict[str, int] = {}
+        self.forwarded: dict[str, int] = {}
+        self.limit_stops: dict[str, int] = {}  # M10 lab audit R-1: per session, the stops answered past its cap
+        # M10 lab audit R-1 review round 3: per session, forwarded calls not yet answered and recorded (kept past unregister)
+        self.inflight: dict[str, int] = {}
 
-    def register(self, session: str) -> str:
-        """A capability key for one session. A session has one live key (two would interleave two runs in one log)."""
+    def register(self, session: str, *, max_calls: int = 0) -> str:
+        """A capability key for one session. A session has one live key (two would interleave two runs in one log).
+        ``max_calls`` > 0 caps the calls forwarded for it; past the cap the proxy answers a stop itself (module doc)."""
         if not SESSION.fullmatch(session):
             raise ValueError(f"session id must match {SESSION.pattern}: {session!r}")
         if session in self.sessions.values():
             raise ValueError(f"session {session!r} already has a live key (unregister it first)")
+        if max_calls < 0:
+            raise ValueError(f"max_calls must be >= 0 (0 = unlimited), got {max_calls}")
         key = "cap-" + secrets.token_urlsafe(18)
         self.sessions[key] = session
+        self.max_calls[session], self.forwarded[session], self.limit_stops[session] = int(max_calls), 0, 0
         return key
 
     def unregister(self, key: str) -> None:
-        self.sessions.pop(key, None)
+        """Idempotent: an unknown (or already revoked) key does nothing."""
+        session = self.sessions.pop(key, None)
+        if session is not None:
+            self.max_calls.pop(session, None)
+            self.forwarded.pop(session, None)
+            over = self.limit_stops.pop(session, 0) - LIMIT_STOP_ROWS
+            if over > 0:  # M10 lab audit R-1: the stops past the row bound, as one row; harnesses revoke the key before reading the log
+                with contextlib.suppress(OSError):  # unregister runs in finally blocks: a full disk must not replace the result
+                    self._record(session, {"kind": LIMIT_STOP_KIND, "time": _now(), "count": over, "coalesced": True})
+
+    def _done(self, session: str) -> None:
+        """M10 lab audit R-1 review round 3: one forwarded call of ``session`` answered and recorded (or abandoned)."""
+        n = self.inflight.get(session, 0) - 1
+        if n > 0:
+            self.inflight[session] = n
+        else:
+            self.inflight.pop(session, None)
+
+    async def drain(self, session: str, timeout_s: float) -> int:
+        """M10 lab audit R-1 review round 3: wait up to ``timeout_s`` for the session's forwarded calls still in flight
+        upstream (``inflight``; a revoked session's too); returns how many are left. A harness calls it after the agent
+        phase and before it reads the session's log, so those calls are read and billed, and what is left is counted as
+        the session's own load (``agent_evidence._self_loaded``)."""
+        end = time.monotonic() + max(0.0, timeout_s)
+        while self.inflight.get(session, 0) > 0 and time.monotonic() < end:
+            await asyncio.sleep(min(0.2, max(0.0, end - time.monotonic())))
+        return self.inflight.get(session, 0)
+
+    async def probe(self, api: str, model: str) -> dict[str, Any]:
+        """M10 lab audit R-1: one minimal generation of ``model`` sent by Crucible itself straight to the upstream of ``api``
+        with the upstream key, outside every session and never written to any log, as a row-shaped dict (``status``,
+        ``response``; the proxy's own 502 shape on a transport error; ``{}`` with no upstream for ``api``). The session log
+        is writable by the agent's commands (they hold the capture key and pick the model, ``max_tokens`` and when to stop),
+        so ``agent_evidence.confirm_upstream`` accepts a non-policy upstream verdict only when this answers the same. No
+        token-limit key on the OpenAI body: gpt-5-family models reject ``max_tokens``."""
+        import httpx
+
+        up = self.upstreams.get("openai" if api == "responses" else api)
+        if up is None:
+            return {}
+        if api == "anthropic":
+            path, body = "messages", {"model": model, "max_tokens": 16, "messages": [{"role": "user", "content": PROBE_TEXT}]}
+        elif api == "responses":
+            path, body = "responses", {"model": model, "input": PROBE_TEXT, "max_output_tokens": 16}
+        else:
+            path, body = "chat/completions", {"model": model, "messages": [{"role": "user", "content": PROBE_TEXT}]}
+        try:
+            async with httpx.AsyncClient(timeout=min(self.timeout_s, 60), transport=self.transport) as c:
+                r = await c.post(f"{up.base.rstrip('/')}/{path}", json=body, headers=_upstream_headers(api, up))
+        except httpx.HTTPError as e:
+            return {"status": 502, "complete": False, "error": f"{type(e).__name__}: {e}"}
+        return {"status": r.status_code, "response": _json_or_text(r.content, r.headers.get("content-type", ""))}
 
     def _record(self, session: str, entry: dict[str, Any]) -> None:
         # ASCII-safe: a lone surrogate in an agent's request made the write fail after the upstream had billed the call
@@ -120,16 +240,7 @@ class CaptureProxy:
             return None
 
         def upstream_headers(request: Request, api: str, up: Upstream) -> dict[str, str]:
-            headers = {"content-type": "application/json"}
-            if api == "anthropic":
-                headers["anthropic-version"] = request.headers.get("anthropic-version", "2023-06-01")
-                if request.headers.get("anthropic-beta"):
-                    headers["anthropic-beta"] = request.headers["anthropic-beta"]
-                if up.key:
-                    headers["x-api-key"] = up.key
-            elif up.key:
-                headers["authorization"] = f"Bearer {up.key}"
-            return headers
+            return _upstream_headers(api, up, request.headers.get("anthropic-version", "2023-06-01"), request.headers.get("anthropic-beta"))
 
         def url_of(request: Request, up: Upstream, path: str) -> str:
             q = request.url.query
@@ -138,14 +249,21 @@ class CaptureProxy:
         def passed(r: Any) -> dict[str, str]:
             return {h: r.headers[h] for h in PASS_HEADERS if h in r.headers}
 
+        def retry_after(r: Any) -> dict[str, str]:
+            # M10 lab audit R-1: a refusal's Retry-After is recorded, so Crucible's probe of a 429 waits it out
+            return {"retry_after": r.headers["retry-after"]} if r.status_code >= 400 and "retry-after" in r.headers else {}
+
         async def passthrough(request: Request, api: str, path: str):
             """Unrecorded calls the SDKs make besides generation (token counting, model listing)."""
             up = proxy.upstreams.get(api)
             if up is None:
                 return error(api, 404, f"no {api} upstream configured")
-            if not session_of(request):
+            session = session_of(request)
+            if not session:
                 return error(api, 401, "unknown session key")
             raw = await request.body()
+            if session_of(request) != session:  # M10 lab audit R-1: the key was revoked while the body was read
+                return error(api, 401, "unknown session key")
             r = await client.request(request.method, url_of(request, up, path), content=raw or None, headers=upstream_headers(request, api, up))
             return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"), headers=passed(r))
 
@@ -157,12 +275,46 @@ class CaptureProxy:
             if not session:  # only registered keys: the key is the capability
                 return error(api, 401, "unknown session key")
             raw = await request.body()
+            # M10 lab audit R-1: the body read awaits; a key revoked meanwhile (the agent phase ended) is refused, never
+            # forwarded uncapped (unregister drops the cap) or recorded after the evidence read. The same session, not just
+            # a live one: a session id registered again must not take a request held under its old key
+            if session_of(request) != session:
+                return error(api, 401, "unknown session key")
             if len(raw) > proxy.max_body:
                 return error(api, 413, f"request body over {proxy.max_body} bytes")
             try:
                 body = json.loads(raw)
             except ValueError:
                 return error(api, 400, "request body is not JSON")
+            if not isinstance(body, dict):
+                return error(api, 400, "request body is not a JSON object")
+            # M10 lab audit R-1: the session's call cap. Past it the proxy answers a stop itself: nothing is forwarded and
+            # no exchange is recorded (only a limit_stop row), so the stop can never become a trained turn
+            cap, n = proxy.max_calls.get(session, 0), proxy.forwarded.get(session, 0)
+            if cap and n >= cap:
+                # one row per stop up to LIMIT_STOP_ROWS, then counted in memory (unregister writes the rest as one row); a
+                # nonzero cap means the key is still live
+                k = proxy.limit_stops[session] = proxy.limit_stops.get(session, 0) + 1
+                if k <= LIMIT_STOP_ROWS:
+                    proxy._record(session, {"kind": LIMIT_STOP_KIND, "api": api, "time": _now(), "calls": n, "max_calls": cap,
+                                            "stream": bool(body.get("stream"))})
+                return _limit_stop_response(api, body)
+            # no await between the check and this count, so concurrent calls cannot overshoot the cap; the key was re-checked
+            # after the body read, with no await since
+            proxy.forwarded[session] = n + 1
+            # M10 lab audit R-1 review round 3: in flight until its row is written (relay's finally for a stream, else this
+            # handler's); no await since the count above
+            proxy.inflight[session] = proxy.inflight.get(session, 0) + 1
+            handed: list[bool] = []  # set when a stream's relay() takes the call over (its finally marks it done)
+            try:
+                return await forward_call(request, api, path, up, session, raw, body, handed)
+            finally:
+                if not handed:
+                    proxy._done(session)
+
+        async def forward_call(request: Request, api: str, path: str, up: Upstream, session: str, raw: bytes, body: dict[str, Any],
+                               handed: list[bool]):
+            """One forwarded call of ``forward`` (counted in flight there): to the upstream, recorded, relayed."""
             headers = upstream_headers(request, api, up)
             entry = {"api": api, "digest": hashlib.blake2b(raw, digest_size=16).hexdigest(), "request": body, "request_time": _now(),
                      "headers": {h: request.headers[h] for h in RETRY_HEADERS if h in request.headers}}
@@ -180,13 +332,30 @@ class CaptureProxy:
                     await r.aclose()
                     out = _json_or_text(content, r.headers.get("content-type", ""))
                     proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code,
-                                            "stream": True, "response": out})
+                                            "stream": True, "response": out, **retry_after(r)})
                     return Response(content, status_code=r.status_code, media_type=r.headers.get("content-type"), headers=passed(r))
 
                 async def relay() -> AsyncIterator[bytes]:
                     events: list[dict[str, Any]] = []
                     data: list[str] = []
                     complete, err = False, None
+                    terminal, stream_err = False, None  # M10 lab audit R-1: did the stream end with its marker, or an error event
+
+                    def take(payload: str) -> None:
+                        nonlocal terminal, stream_err
+                        if payload.strip() == "[DONE]":
+                            terminal = True
+                            return
+                        try:
+                            ev = json.loads(payload)
+                        except ValueError:
+                            return
+                        events.append(ev)
+                        if isinstance(ev, dict):
+                            done, bad = _stream_mark(api, ev)
+                            terminal = terminal or done
+                            stream_err = stream_err or bad
+
                     try:
                         async for line in r.aiter_lines():
                             if line.startswith("data:"):
@@ -194,21 +363,27 @@ class CaptureProxy:
                             elif not line.strip() and data:  # an SSE event ends at a blank line; its data lines join
                                 payload = "\n".join(data)
                                 data = []
-                                if payload.strip() != "[DONE]":
-                                    with contextlib.suppress(ValueError):
-                                        events.append(json.loads(payload))
+                                take(payload)
                             yield (line + "\n").encode()
-                        if data and "\n".join(data).strip() != "[DONE]":
-                            with contextlib.suppress(ValueError):
-                                events.append(json.loads("\n".join(data)))
-                        complete = True
+                        if data:
+                            take("\n".join(data))
+                        # M10 lab audit R-1: a body that just ends was cut mid-flight (prime-agent stream.rs:704-715); it
+                        # used to be recorded complete, so a dropped turn read as the agent's own answer
+                        complete = terminal and stream_err is None
+                        err = stream_err or (None if terminal else STREAM_DROP)
                     except BaseException as e:  # upstream failure or the client left (an interrupted turn is the strongest signal)
                         err = f"{type(e).__name__}: {e}" if not isinstance(e, GeneratorExit) else "client disconnected"
                         raise
                     finally:
-                        await r.aclose()
-                        proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code,
-                                                "stream": True, "complete": complete, **({"error": err} if err else {}), "response": assemble(events)})
+                        try:
+                            await r.aclose()
+                            proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code,
+                                                    "stream": True, "complete": complete, **({"error": err} if err else {}), "response": assemble(events)})
+                        finally:
+                            proxy._done(session)  # M10 lab audit R-1 review round 3: the call is no longer in flight
+                # M10 lab audit R-1 review round 3: relay() marks the call done; a relay that never starts (the client left
+                # first) leaves it counted, which only keeps the probe off (conservative)
+                handed.append(True)
                 return StreamingResponse(relay(), media_type="text/event-stream", headers=passed(r))
             try:
                 r = await client.post(url, content=raw, headers=headers)
@@ -216,7 +391,8 @@ class CaptureProxy:
                 proxy._record(session, {**entry, "time": _now(), "status": 502, "complete": False, "error": f"{type(e).__name__}: {e}"})
                 return error(api, 502, f"upstream unreachable: {type(e).__name__}")
             out = _json_or_text(r.content, r.headers.get("content-type", ""))
-            proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code, "response": out})
+            proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code, "response": out,
+                                    **retry_after(r)})
             return JSONResponse(out, status_code=r.status_code, headers=passed(r))
 
         async def chat(request: Request):
@@ -257,6 +433,77 @@ def _json_or_text(content: bytes, ctype: str) -> Any:
         with contextlib.suppress(ValueError):
             return json.loads(content)
     return {"error": content.decode("utf-8", "replace")[:2000]}
+
+
+def _stream_error(x: Any) -> str:
+    return "stream_error: " + str(x)[:300]
+
+
+def _stream_mark(api: str, ev: dict[str, Any]) -> tuple[bool, str | None]:
+    """(is this event its dialect's terminal marker, the error it carries). M10 lab audit R-1: a stream is complete only
+    with a terminal marker and no error event (``[DONE]`` is handled by the caller; it is not JSON)."""
+    t = ev.get("type")
+    if api == "anthropic":
+        if t == "message_stop":
+            return True, None
+        return False, (_stream_error(ev.get("error") or ev) if t == "error" else None)
+    if api == "responses":
+        if t in ("response.completed", "response.incomplete"):
+            return True, None
+        if t == "response.failed":
+            return False, _stream_error((ev.get("response") or {}).get("error") or t)
+        if t == "error":
+            return False, _stream_error(ev.get("error") or ev.get("message") or ev)
+        return False, None
+    if ev.get("error"):  # an OpenAI-compatible mid-stream error chunk (assemble_openai keeps it in the response)
+        return False, _stream_error(ev["error"])
+    choices = ev.get("choices")
+    done = isinstance(choices, list) and any(isinstance(c, dict) and c.get("finish_reason") for c in choices)
+    return done, None
+
+
+def _limit_stop_response(api: str, body: dict[str, Any]) -> Any:
+    """The proxy's own answer past a session's call cap (M10 lab audit R-1), in the dialect and mode the caller asked for:
+    a non-empty assistant message that ends the turn (OpenAI ``finish_reason: stop``, Anthropic ``end_turn``, Responses
+    ``completed``) and carries no tool call, so the agent's loop ends cleanly (OpenEnv server.py:975-999)."""
+    from starlette.responses import JSONResponse, StreamingResponse
+
+    model, created = body.get("model"), int(time.time())
+    stream = bool(body.get("stream"))
+
+    def sse(events: list[tuple[str | None, Any]]) -> Any:
+        lines = [(f"event: {name}\n" if name else "") + f"data: {data if isinstance(data, str) else json.dumps(data)}\n\n" for name, data in events]
+        return StreamingResponse(iter(lines), media_type="text/event-stream")
+
+    if api == "anthropic":
+        msg = {"id": "msg_crucible_limit_stop", "type": "message", "role": "assistant", "model": model, "content": [{"type": "text", "text": LIMIT_STOP_TEXT}],
+               "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}
+        if not stream:
+            return JSONResponse(msg)
+        evs: list[dict[str, Any]] = [
+            {"type": "message_start", "message": {**msg, "content": [], "stop_reason": None}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": LIMIT_STOP_TEXT}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}},
+            {"type": "message_stop"}]
+        return sse([(e["type"], e) for e in evs])
+    if api == "responses":
+        resp = {"id": "resp_crucible_limit_stop", "object": "response", "created_at": created, "status": "completed", "model": model,
+                "output": [{"type": "message", "id": "msg_crucible_limit_stop", "status": "completed", "role": "assistant",
+                            "content": [{"type": "output_text", "text": LIMIT_STOP_TEXT, "annotations": []}]}],
+                "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}}
+        if not stream:
+            return JSONResponse(resp)
+        return sse([("response.created", {"type": "response.created", "response": {**resp, "status": "in_progress", "output": []}}),
+                    ("response.completed", {"type": "response.completed", "response": resp})])
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    if not stream:
+        return JSONResponse({"id": "chatcmpl-crucible-limit-stop", "object": "chat.completion", "created": created, "model": model,
+                             "choices": [{"index": 0, "message": {"role": "assistant", "content": LIMIT_STOP_TEXT}, "finish_reason": "stop"}], "usage": usage})
+    chunk = {"id": "chatcmpl-crucible-limit-stop", "object": "chat.completion.chunk", "created": created, "model": model,
+             "choices": [{"index": 0, "delta": {"role": "assistant", "content": LIMIT_STOP_TEXT}, "finish_reason": "stop"}], "usage": usage}
+    return sse([(None, chunk), (None, "[DONE]")])
 
 
 def assemble_openai(chunks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -378,6 +625,7 @@ class CaptureLogConnector:
         that failed or did not complete. A repeated body is otherwise a real second call (best-of-n). Logs from clients
         that send no retry information keep the old rule (an adjacent identical body is a retry)."""
         exchanges: list[dict[str, Any]] = []
+        limit_stops = 0
         lines = Path(ref.meta["path"]).read_text(encoding="utf-8").splitlines()
         for n, x in enumerate(lines):
             if not x.strip():
@@ -388,6 +636,9 @@ class CaptureLogConnector:
                 if n == len(lines) - 1:  # the proxy is still writing this line
                     continue
                 raise
+            if ex.get("kind") == LIMIT_STOP_KIND:  # M10 lab audit R-1: the proxy's own stop, never an exchange (no request)
+                limit_stops += limit_stop_count(ex)
+                continue
             hdr = {k.lower(): v for k, v in (ex.get("headers") or {}).items()}
             retry = hdr.get("x-stainless-retry-count")
             same = [i for i in range(len(exchanges) - 1, max(-1, len(exchanges) - 6), -1) if ex.get("digest") and exchanges[i].get("digest") == ex["digest"]]
@@ -404,7 +655,7 @@ class CaptureLogConnector:
                 exchanges[target] = ex  # the agent saw this attempt's response, not the earlier one
             else:
                 exchanges.append(ex)
-        return RawRecord(ref=ref, payload={"exchanges": exchanges}, privacy=self.privacy)  # type: ignore[arg-type]
+        return RawRecord(ref=ref, payload={"exchanges": exchanges, "limit_stops": limit_stops}, privacy=self.privacy)  # type: ignore[arg-type]
 
     def normalize(self, raw: RawRecord) -> Trace:
         events: list[TraceEvent] = []

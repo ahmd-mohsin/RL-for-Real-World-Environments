@@ -78,6 +78,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.world.exec import _run_subprocess_raw
+from crucible.world.lifecycle import CTL_DIR, DEFAULT_LIFETIME_S, LIFE_LOOP, RENEW_SLACK_S  # noqa: F401 -- M10 lab audit R-6: shared with World sandboxes
+from crucible.world.lifecycle import finish as _finish
+from crucible.world.lifecycle import lifetime_for as lifetime_for_episode
+
 REPL_PATH = Path(__file__).with_name("repl.py")
 PROTOCOL = 3  # 3: a per-session frame key (``hello``) and an HMAC on every frame (M14 campaign B10)
 Handler = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -454,15 +459,14 @@ class ExecLauncher:
             raise KernelStartError(f"cannot start {argv[0]}: {e}", "crucible:env_container_lost") from e
 
     async def run(self, *argv: str, timeout: float = 20) -> tuple[int, str]:
-        p = await asyncio.create_subprocess_exec(*self.prefix, *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.STDOUT)
-        try:
-            out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                p.kill()
+        """One command through the prefix, off the event loop. M10 lab audit R-5 item 4 (review round 1): it was asyncio's child
+        watcher (``world/exec.py`` note above ``_WAITERS``) with a ``wait_for`` that left the client running on a cancel; it is
+        ``_run_subprocess_raw`` now, which kills the client's session past ``timeout`` or on a cancel. stdout and stderr are one
+        text, as before."""
+        rc, out, err, timed_out, _d = await _run_subprocess_raw([*self.prefix, *argv], cwd=None, env=None, timeout_s=timeout, stdin=None)
+        if timed_out:
             return -1, "timeout"
-        return p.returncode or 0, out.decode(errors="replace")
+        return rc, (out + err).decode(errors="replace")
 
     async def kill(self, proc: Any, pgid: int | None) -> bool:
         """SIGKILL the kernel's group inside the sandbox and wait until it is gone (True), or report it is not (False)."""
@@ -481,20 +485,10 @@ class ExecLauncher:
 # process removes its own containers at exit (atexit and SIGTERM), containers whose owner is dead or whose lifetime passed
 # are reaped when a process first starts one, and each container ends by itself after ``lifetime_s`` (``sleep <n>``).
 OWNER_LABEL, EXPIRES_LABEL = "crucible.rlm.owner", "crucible.rlm.expires"
-DEFAULT_LIFETIME_S = 6 * 3600
-RENEW_SLACK_S = 3600  # a renewable container's expiry label lies this far past its start deadline (a label cannot be renewed)
-CTL_DIR = "/crucible-ctl"  # renewable containers: a root-owned tmpfs holding the deadline (the kernel's user cannot write it)
-# PID 1 of a renewable container: exits at the later of its start deadline and the one ``renew`` wrote
-LIFE_LOOP = ('d=$1; while :; do n=$(cat ' + CTL_DIR + '/deadline 2>/dev/null); [ "${n:-0}" -gt "$d" ] 2>/dev/null && d=$n; '
-             '[ "$(date +%s)" -lt "$d" ] || exit 0; sleep 2; done')
-
-
-def lifetime_for_episode(wall_s: float | None, *, margin_s: float = 900.0, floor_s: float = 600.0) -> int:
-    """The kernel container's lifetime for an episode with wall budget ``wall_s`` (M16 B9: a fixed 6 h ended long
-    episodes): the budget plus a margin for restores and grading; the 6 h default when the episode has no wall budget."""
-    if not wall_s or wall_s <= 0:
-        return DEFAULT_LIFETIME_S
-    return int(max(floor_s, float(wall_s) + margin_s))
+# M10 lab audit R-6: the World sandbox lifecycle reuses this design, so there is one in the repository. The life loop, its deadline
+# file, the renewal slack, the default lifetime, ``lifetime_for_episode`` (``lifecycle.lifetime_for``) and ``_finish``
+# (``lifecycle.finish``) now live in ``crucible.world.lifecycle``, which World sandboxes, pools and grade containers share; the
+# kernel keeps every old name. Its own ``crucible.rlm.*`` labels, ``owner_id``, ``reap_own`` and ``reap_stale`` are unchanged.
 _LIVE: dict[str, str] = {}  # container name -> docker binary: started by this process, not yet removed
 _REAPER: dict[str, Any] = {"installed": False, "stale_checked": set()}
 
@@ -581,12 +575,19 @@ def reap_stale(docker: str = "docker", *, now: float | None = None) -> list[str]
 
 def _on_sigterm(signum: int, frame: Any) -> None:
     reap_own()
+    prev = _REAPER.get("prev_sigterm")  # M10 lab audit R-6 review round 1: chained, so ``world.lifecycle``'s reaper runs too
+    if callable(prev):
+        prev(signum, frame)
+        return
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     os.kill(os.getpid(), signal.SIGTERM)
 
 
 def _install_reaper() -> None:
-    """Once per process: remove this process's containers at exit and on SIGTERM (when nothing else handles it)."""
+    """Once per process: remove this process's containers at exit and on SIGTERM. M10 lab audit R-6 review round 1: the handler chains
+    to one that is already installed (``world.lifecycle._install_reaper``'s, which a World sandbox's first start installs, or an
+    application's) instead of leaving SIGTERM to it alone, and ``lifecycle`` chains to this one the same way: neither pre-empts the
+    other. A process that ignores SIGTERM keeps ignoring it."""
     if _REAPER["installed"]:
         return
     import atexit
@@ -596,14 +597,10 @@ def _install_reaper() -> None:
     atexit.register(reap_own)
     if threading.current_thread() is threading.main_thread():
         with contextlib.suppress(ValueError, OSError):
-            if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, None):
+            prev = signal.getsignal(signal.SIGTERM)
+            if prev is not signal.SIG_IGN:
+                _REAPER["prev_sigterm"] = prev if callable(prev) else None
                 signal.signal(signal.SIGTERM, _on_sigterm)
-
-
-async def _finish(task: asyncio.Future, timeout: float) -> None:
-    """Let a shielded task finish after its awaiter was cancelled (bounded)."""
-    with contextlib.suppress(BaseException):
-        await asyncio.wait_for(asyncio.shield(task), timeout)
 
 
 class DockerLauncher:
@@ -630,13 +627,20 @@ class DockerLauncher:
         self.name: str | None = None
         self._exec: ExecLauncher | None = None
 
-    async def _run(self, *argv: str) -> None:
+    async def _run(self, *argv: str, timeout: float | None = None, stdin: bytes | None = None) -> None:
+        """One docker CLI call off the event loop, bounded (M10 lab audit R-5 item 4, review round 1). It was asyncio's child watcher
+        with no timeout, so a wedged daemon (or a lost child exit, ``world/exec.py`` note above ``_WAITERS``) held the attempt, its
+        concurrency slot and the run's lease with no record. ``timeout``: ``docker run`` 900 s (its image pull included), anything
+        else 120 s; past it the CLI's session is killed and the start fails as ``env_container_lost`` (infrastructure, masked).
+        ``stdin``: bytes written to the command (``docker exec -i``)."""
+        limit = timeout if timeout is not None else (900.0 if argv[:1] == ("run",) else 120.0)
         try:
-            p = await asyncio.create_subprocess_exec(self.docker, *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            rc, _, err, timed_out, _d = await _run_subprocess_raw([self.docker, *argv], cwd=None, env=None, timeout_s=limit, stdin=stdin)
         except OSError as e:
             raise KernelStartError(f"docker is not available: {e}", "crucible:env_container_lost") from e
-        _, err = await p.communicate()
-        if p.returncode != 0:
+        if timed_out:
+            raise KernelStartError(f"docker {argv[0]} ran past {limit:g}s", "crucible:env_container_lost")
+        if rc != 0:
             text = err.decode(errors="replace")[-400:]
             raise KernelStartError(f"docker {argv[0]} failed: {text}", classify_sandbox_error(text))
 
@@ -669,12 +673,11 @@ class DockerLauncher:
                 raise
 
             async def push(src: Path, dest: str) -> None:  # docker cp cannot write into a tmpfs: stream the file through the shell
-                p = await asyncio.create_subprocess_exec(self.docker, "exec", "-i", self.name, "sh", "-c", f"cat > {dest}", stdin=asyncio.subprocess.PIPE,
-                                                         stderr=asyncio.subprocess.PIPE)
-                _, err = await p.communicate(src.read_bytes())
-                if p.returncode != 0:
-                    text = err.decode(errors="replace")[-300:]
-                    raise KernelStartError(f"pushing the kernel failed: {text}", classify_sandbox_error(text))
+                # M10 lab audit R-5 item 4 (review round 1): bounded and off the event loop like every host docker call (``_run``)
+                try:
+                    await self._run("exec", "-i", str(self.name), "sh", "-c", f"cat > {dest}", timeout=120.0, stdin=src.read_bytes())
+                except KernelStartError as e:
+                    raise KernelStartError(f"pushing the kernel failed: {e}", e.failure_kind) from e
 
             self._exec = ExecLauncher([self.docker, "exec", "-i", self.name], push=push)
         return await self._exec.start(seed)

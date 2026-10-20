@@ -63,6 +63,13 @@ class TicketTask:
                       TaskStep("close", "A customer filed T2. Close it.", g2, min_reward=gates[1], setup=file_t2),
                       TaskStep("cleanup", "Delete T1.", g3, min_reward=gates[2], fresh_context=fresh)]
 
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the steps as data (their graders are closures: named by the step, not described) and the strategy; never
+        ``graded_in`` / ``opened``. ``step_grades_once`` is set by tests that need the harness's once-only rule."""
+        return {"step_reward": self.step_reward, "separate": self.separate, "step_grades_once": getattr(self, "step_grades_once", False),
+                "steps": [{"name": s.name, "instruction": s.instruction, "min_reward": s.min_reward, "max_steps": s.max_steps, "fresh_context": s.fresh_context}
+                          for s in self.steps]}
+
     def spec(self):
         d = {"world": "t/tickets",
              "apps": [{"id": "api", "template": "common/json_api", "state": {"adapter": "json_doc", "params": {"path": "api/doc.json"}},
@@ -98,7 +105,7 @@ class Counting:
         def make(attempt):
             self.made += 1
             return {"agent": ScriptedPolicy("agent", list(self.actions))}
-        return PolicyRef(id="scripted:steps", make=make)
+        return PolicyRef(id="scripted:steps", make=make, config={})  # M10 lab audit R-4: declared configuration
 
 
 async def _run(tmp_path, task, actions, rid):

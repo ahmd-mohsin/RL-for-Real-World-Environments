@@ -7,17 +7,49 @@ A ``RunTask`` adapter (packs provide them) opens a fresh, reset World for an att
         id: str
         async def open(self, workdir: Path) -> World          # started + reset, responders attached
         async def grade(self, world: World, workdir: Path) -> GradeReport
+        # optional
+        async def infra_cause(self, world: World) -> Failure | None      # host-side: is the sandbox gone? (M13 audit B2)
+        async def grade_control(self, workdir: Path) -> GradeReport | None  # M10 lab audit R-3: known-good work graded by the
+                                                                             # same grader (oracle, reference answer); None = none
+        def identity_config(self) -> dict                                    # M10 lab audit R-4: content digests and configuration
+                                                                             # (required unless the task is plain data or stateless)
 
-A ``PolicyRef`` builds the policy for an attempt (``make(attempt) -> {actor: Policy}``) and reports its spend.
+A ``PolicyRef`` builds the policy for an attempt (``make(attempt) -> {actor: Policy}``) and reports its spend; its
+``config`` (M10 lab audit R-4) is the policy's configuration as JSON, which the run's identity needs because ``make`` is a
+closure.
 
 Phases run under ``infra.boundary``: seed (open) -> agent (run_episode) -> verification (grade) -> cleanup (close, which
 can never override a result). An episode the World masked (a tool crash, an exposed answer, a provider outage) becomes a
 masked failure; a limit stop follows the limit policy; a grade whose report is masked (``check_infra``,
 ``grader_exception``) becomes ``verifier_error`` (task blame, masked).
+
+M10 lab audit R-3: a failed grade is graded again on the same work, never by running the agent again (before R-3 the
+Runner's retry of a verification mask re-ran the whole episode here, hidden by deterministic oracles). In place the World
+is gone after the attempt, so the grade is retried inside it (``runtime.grading.grade_in_place``, ``grade_retries`` /
+``scoring_budget_s``) and the attempt then ends terminal-masked. A separate verifier persists its quiesced hand-off
+(``verifier/handoff_ref.json``), and a retry of the attempt (or ``Runner.regrade``) re-grades it in a fresh verifier World
+(``regrade``) with the agent attempt's calls, flags, stop and limit penalty; an answer-sensitive failure (a hang or a
+checker outage on this answer) is graded again at once over the same snapshot. A multi-step step persists nothing and
+is graded again inside the attempt like an in-place grade (a separate-verifier step in a fresh verifier World over the
+same snapshot, a contaminated node or a transport failure included: review round 2), unless the task declares
+``step_grades_once`` (``HarborMultiStepTask``: R-2's per-step state is used up by the step's grade), whose steps are
+graded once.
+A grade failure no further grade of this work will answer goes through ``grading.settle``: the policy's World is probed
+(``infra_cause``) and closed, and an answer-sensitive failure is decided by the task's control (``grade_control``, own
+budget ``control_timeout_s``): ``crucible:policy_error`` / ``grader_failed_on_answer`` scored 0 when the control passes,
+a task-blamed ``verifier_error`` mask when it fails, a mask with flag ``no_control`` without one (``step_grades_once``
+steps: always; a multi-step task's ``grade_control`` must exercise every step's grader). The harness records on the
+``Attempt`` which phase it is in and whether the work is persisted (``Attempt.phase`` / ``Attempt.regradable``), so the
+Runner's attempt clock firing during a grade is a verification failure, never an agent re-run. Review round 2: the
+verification phase opens the grading's own window on that clock (``grading.grading_window``), so a grade that hangs ends
+as ``verifier_timeout`` and is settled, never cut short; the scoring budget counts only the grade, not the verifier
+World's start or close (``grading.unbudgeted``); and only an answer-sensitive failure that repeated (``grading.decided``)
+is controlled.
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import time
@@ -28,8 +60,26 @@ from typing import Any, Protocol
 
 from crucible.actors.policy import EpisodeLimits, run_episode
 from crucible.core.schema.run import Failure
+from crucible.runtime.grading import (
+    HANDOFF_REF,
+    agent_clock,
+    answer_sensitive,
+    decided,
+    deciding_record,
+    grade_in_place,
+    grade_summary,
+    grading_window,
+    liveness,
+    regradable,
+    seen_before,
+    settle,
+    unbudgeted,
+    write_reports,
+)
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
-from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, classify_verifier, failure
+from crucible.runtime.identity import Undeclared, harness_digest
+from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, episode_failure
+from crucible.runtime.journal import REFUSED
 from crucible.world.custody import CustodyViolation
 from crucible.world.verifier import hand_off, verifier_world, wants_separate
 
@@ -120,28 +170,47 @@ def save_episode(attempt: Attempt, ep: Any, res: HarnessResult, harness_id: str,
 async def _masked_episode(task: Any, world: Any, ep: Any, *, prefix: str = "") -> Failure:
     """The failure of an episode the World masked. A task that can see the infrastructure from the host
     (``infra_cause``: Harbor in place asks Docker whether its container is gone) names the cause; else the World's first
-    recorded fault (M13 audit B2: a removed container was a generic tool crash, or worse, the policy's failed command)."""
+    recorded fault (M13 audit B2: a removed container was a generic tool crash, or worse, the policy's failed command).
+
+    M10 lab audit R-3: the episode's own failure keeps its blame, mask and retryable (``infra.episode_failure``: an
+    unclassified policy exception stays unknown blame, never retried and counted by ``Health.unknown``), and the result
+    carries its evidence: ``probe`` is what ``infra_cause`` said (``dead`` when it named a cause, ``alive`` when it found
+    none, ``unprobed`` without the hook or when asking failed; verifiers v1/harness.py:173-193, probe before blaming the
+    sandbox), ``control`` is ``none`` (no grade ran), ``status`` the cause's detail or the episode's stop."""
     cause = None
+    probe = "unprobed"
     if hasattr(task, "infra_cause") and world is not None:
         try:
             cause = await task.infra_cause(world)
+            probe = "dead" if cause is not None else "alive"
         except Exception:  # noqa: BLE001 -- asking the host is best effort; the World's own fault still masks
             cause = None
     if cause is not None:
-        return cause.model_copy(update={"reason": prefix + cause.reason}) if prefix else cause
+        upd: dict[str, Any] = {"evidence": cause.evidence or {"probe": "dead", "control": "none", "status": cause.detail or cause.kind}}
+        if prefix:
+            upd["reason"] = prefix + cause.reason
+        return cause.model_copy(update=upd)
     f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
-    return failure(f["kind"], "agent", prefix + f.get("reason", ""))
+    return episode_failure(f, "agent", prefix).model_copy(update={"evidence": {"probe": probe, "control": "none", "status": ep.stop_condition}})
 
 
-def _take_grade_findings(rep: Any, res: HarnessResult, *, prefix: str = "") -> None:
+def _flag_key(f: dict[str, Any]) -> tuple[str, str]:
+    return str(f.get("rule")), json.dumps(f.get("evidence"), sort_keys=True, default=str)
+
+
+def _take_grade_findings(rep: Any, res: HarnessResult, *, prefix: str = "", seen: set[tuple[str, str]] | None = None) -> None:
     """What a grade found about the policy beyond its reward: rule flags (``meta.flags``, e.g. ``grader_tampered`` with
     its evidence) join the rollout's flags, and a policy-blamed outcome in ``meta.failure`` (``crucible:grader_tampered``,
     ``crucible:agent_broke_env``) becomes the attempt's failure: scored 0, never masked, and visible to bench and the
-    hack detector (M13 audit B1: the grade's verdict was only a 0 in report.json)."""
+    hack detector (M13 audit B1: the grade's verdict was only a 0 in report.json). ``seen``: the (rule, evidence) of
+    flags already taken from an earlier grade of the same work (``_take_findings``), which are not taken again."""
     from crucible.core.schema.run import default_blame, is_failure_kind
 
     meta = getattr(rep, "meta", None) or {}
     flags = [f for f in meta.get("flags") or [] if isinstance(f, dict) and f.get("rule")]
+    if seen is not None:
+        flags = [f for f in flags if _flag_key(f) not in seen]
+        seen.update(_flag_key(f) for f in flags)
     if flags:
         res.flags = [*res.flags, *flags]
     f = meta.get("failure") or {}
@@ -199,6 +268,62 @@ def probed(policies: dict[str, Any], sidecar: Any, world: Any) -> dict[str, Any]
     return {a: _ActProbe(p, a, sidecar, world) for a, p in policies.items()}
 
 
+def _take_findings(reps: list[Any], res: HarnessResult, *, prefix: str = "", seen: set[tuple[str, str]] | None = None) -> None:
+    """``_take_grade_findings`` for every grade of one piece of work, in order (M10 lab audit R-3: a re-grade inside the
+    attempt grades it again). A flag repeated by a later grade (or already in ``seen``: a re-grade's inherited flags) is
+    taken once, since bench counts the rollout's flags; the verdict comes from the grade that carries it (the earlier
+    grades were masked, and a masked report's verdict is never taken)."""
+    seen = set() if seen is None else seen
+    for r in reps:
+        _take_grade_findings(r, res, prefix=prefix, seen=seen)
+
+
+def _keep_tries(vdir: Path, reps: list[Any], res: HarnessResult) -> None:
+    """M10 lab audit R-3: the grades of one piece of work that came back before a later try raised (a ``StageFailure``
+    of R-2's quiesce, or an exception the boundary classified): their reports are written (``write_reports``) and their
+    rule flags (``policy_process_killed``) join the rollout's, once each. No verdict is taken from them (they were masked
+    or failed). Before, the tries' reports were lost with the exception, and a quiesce flag was dropped."""
+    write_reports(vdir, reps)
+    seen = {_flag_key(x) for x in res.flags}
+    new: list[dict[str, Any]] = []
+    for r in reps:
+        for x in (getattr(r, "meta", None) or {}).get("flags") or []:
+            if isinstance(x, dict) and x.get("rule") and _flag_key(x) not in seen:
+                seen.add(_flag_key(x))
+                new.append(x)
+    if new:
+        res.flags = [*res.flags, *new]
+    if reps:
+        res.grade["grades"] = len(reps)
+
+
+@dataclass
+class _HandedOff:
+    """M10 lab audit R-3: the policy's World as ``verifier_world`` reads it (spec, store, pack root, trace, episode start
+    and id), rebuilt from ``verifier/handoff_ref.json``: a re-grade starts nothing of the policy's and opens no task World.
+    It has no Apps of its own, so ``verifier_world``'s shared-root check has nothing to compare."""
+
+    spec: Any
+    store: Any
+    pack_root: Path | None
+    log: list[Any]
+    episode_start: Any
+    episode_id: str
+    initial: Any = None
+    apps: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+    async def close(self) -> None:
+        return None
+
+
+def _read_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        doc = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
 @dataclass
 class PolicyRef:
     id: str
@@ -208,9 +333,24 @@ class PolicyRef:
     # what the policy is beyond its id: model, endpoint, request defaults, sampling (runtime.lock, R-1); empty means
     # only the id identifies it, and the run lock lists the policy as opaque
     settings: dict[str, Any] = field(default_factory=dict)
+    # M10 lab audit R-4: the policy's configuration as JSON (model, temperature, prompts or scripts, anything that decides what it
+    # does): ``make`` is a closure, so nothing else says what the policy is, and the run's identity must. A PolicyRef run without
+    # it is refused (``Undeclared``): left out, a changed temperature or model would resume silently into the same results
+    config: dict[str, Any] | None = None
+    # M10 lab audit R-5: the provider endpoint this policy calls (``base_url`` plus model, whatever names the server): policies that
+    # share one share a provider breaker (``runtime.breaker``), so an outage opens it once. Defaults to the policy id. Placement,
+    # not what is measured: it is not part of ``identity_config``
+    endpoint: str | None = None
 
     def lock_settings(self) -> dict[str, Any] | None:
         return self.settings or None
+
+    def identity_config(self) -> dict[str, Any]:
+        """The policy's document in a run's identity: its id and ``config`` (``estimate_usd`` is accounting: operational)."""
+        if self.config is None:
+            raise Undeclared(f"policies.{self.id}: PolicyRef.make is a closure, so its model, temperature and prompts cannot be inspected: declare "
+                             "PolicyRef(config={...}) (M10 lab audit R-4)")
+        return {"id": self.id, "config": self.config}
 
 
 class NativeHarness:
@@ -218,17 +358,33 @@ class NativeHarness:
     previous attempt's last checkpoint (``runtime.checkpoint``). A task with ``subgoals`` gets a dense progress stream
     (``progress.jsonl``, ``verify.progress``); the trace always streams to ``trace.jsonl``. ``sidecar(attempt)`` (or the task's
     ``episode_sidecar``; M17 checkpoint credit) is an opt-in ``EpisodeSidecar``: it replaces the subgoal stream as the writer
-    of ``progress.jsonl`` and is not attached to a resumed or multi-step attempt."""
+    of ``progress.jsonl`` and is not attached to a resumed or multi-step attempt.
+
+    M10 lab audit R-3, grading policy (not part of the id: it says how the same work is graded, not what produced it):
+    ``grade_retries``, how many more times a failed grade is graded again inside the attempt (``grading.grade_in_place``);
+    ``scoring_budget_s``, one budget for all of a grade's tries (its expiry during the first grade is ``verifier_timeout``;
+    during a later grade the earlier try's failure stands, noting the budget; None: each try is bounded only by the
+    grader's own timeout, as verifiers' unset scoring budget); ``control_timeout_s``, the budget of a control grade,
+    raised to the task's own ``control_timeout_s`` when it declares a longer one (``grading.control_budget``:
+    ``HarborDirTask``, the verifier timeout + 300 s; Harbor in place, agent + verifier timeout + margins).
+
+    M10 lab audit R-4: the id is ``name@version#<12 hex>`` over what produces the work (``limits``, ``limit_policy``,
+    ``checkpoint_every`` and a subclass's own: the collect mode, the patch contents), so a different configuration gets new
+    ``SampleKey``s and its own GRPO group; the grading policy stays out of the id (R-3) and is in ``identity_config``, the
+    document a resume compares."""
 
     def __init__(self, name: str = "native:llm-tool", version: str = "1", *, limits: EpisodeLimits | None = None, limit_policy: LimitPolicy | None = None,
-                 checkpoint_every: int = 0, progress_full_every: int = 250, sidecar: Callable[[Attempt], Any] | None = None):
-        self.id = f"{name}@{version}"
+                 checkpoint_every: int = 0, progress_full_every: int = 250, grade_retries: int = 1, scoring_budget_s: float | None = None,
+                 control_timeout_s: float | None = 1800.0, sidecar: Callable[[Attempt], Any] | None = None):
+        self.name, self.version = name, version
         self.limits = limits or EpisodeLimits(max_steps=30)
         self.limit_policy = limit_policy or LimitPolicy()
         self.checkpoint_every, self.progress_full_every = checkpoint_every, progress_full_every
         self.sidecar = sidecar
+        self.grade_retries, self.scoring_budget_s, self.control_timeout_s = grade_retries, scoring_budget_s, control_timeout_s
 
-    LOCK_EXCLUDE: tuple[str, ...] = ("progress_full_every",)  # how often progress is written, not what the episode is
+    # how often progress is written and the grading timeouts (operational in identity.DENY too), not what the episode is
+    LOCK_EXCLUDE: tuple[str, ...] = ("progress_full_every", "scoring_budget_s", "control_timeout_s")
 
     def lock_settings(self) -> dict[str, Any]:
         """Every public, non-callable attribute (subclasses' included, so a new setting counts without being listed)
@@ -238,6 +394,101 @@ class NativeHarness:
         return {k: jsonable(v) for k, v in sorted(vars(self).items())
                 if not k.startswith("_") and k not in ("id", *self.LOCK_EXCLUDE) and not callable(v)}
 
+    @property
+    def id(self) -> str:
+        """``name@version#<12 hex>`` (M10 lab audit R-4): the digest is over what produces the work (``_id_config``), so a
+        harness with other limits is a different harness: its samples get new ``SampleKey``s and its GRPO group is its own. A
+        property, not an attribute: a copy whose ``limits`` changed (bench's ``_sized``) gets its own id, and the same
+        configuration gives the same id in every process."""
+        return f"{self.name}@{self.version}#{harness_digest(self._id_config())}"
+
+    @property
+    def identity_key(self) -> str:
+        """The key of this harness in a run's resolved document (``identity.harness_keys``): the id without its digest."""
+        return f"{self.name}@{self.version}"
+
+    def _id_config(self) -> dict[str, Any]:
+        """What the id digests: the configuration that produces the work. A subclass adds its own (the collect mode, the
+        patch contents). The grading policy (R-3: ``grade_retries``, ``scoring_budget_s``, ``control_timeout_s``) is not in it:
+        it says how the same work is graded."""
+        return {"limits": self.limits, "limit_policy": self.limit_policy, "checkpoint_every": self.checkpoint_every}
+
+    def identity_config(self) -> dict[str, Any]:
+        """The harness's document in a run's identity (M10 lab audit R-4): the id's configuration plus the grading policy and
+        the progress cadence, which a resume must not change silently either. The timeouts and ``progress_full_every`` are
+        operational (``identity.DENY``): recorded, never compared."""
+        return {"name": self.name, "version": self.version, **self._id_config(), "grade_retries": self.grade_retries,
+                "scoring_budget_s": self.scoring_budget_s, "control_timeout_s": self.control_timeout_s, "progress_full_every": self.progress_full_every}
+
+    @staticmethod
+    def _inherit_calls(res: HarnessResult, source: object) -> None:
+        """A re-grade or re-collect measures the source attempt's work: its rollout is that attempt's model calls (V3: in
+        train mode a call-less re-grade was masked ``capture_incomplete``)."""
+        src = Path(str(source))
+        src = src.parent if src.name == "preserved_ws" else src
+        f = src / "calls.json"
+        if f.exists():
+            try:
+                res.calls = json.loads(f.read_text())
+                res.artifacts["calls_from"] = src.name
+            except json.JSONDecodeError:
+                pass
+
+    def _regrade_source(self, attempt: Attempt) -> Path | None:
+        """M10 lab audit R-3: the attempt whose persisted hand-off this attempt re-grades, or None. Only when the attempt
+        that decides (``grading.deciding_record``: the newest recorded one, past an attempt the process died in or a
+        grade-only retry that reached no verdict) was masked at verification (``RetryRule`` retries that only for persisted
+        work); the hand-off is found by looking back to the newest attempt holding ``verifier/handoff_ref.json`` (a
+        re-grade carries the ref on)."""
+        if attempt.n <= 1:
+            return None
+        got = deciding_record(attempt.dir.parent, attempt.n)
+        if got is None:
+            return None
+        r = got[1]
+        if not (r.get("mask_sample") and (r.get("failure") or {}).get("stage") == "verification"):
+            return None
+        for k in range(attempt.n - 1, 0, -1):
+            d = attempt.dir.parent / f"a{k}"
+            if (d / "verifier" / HANDOFF_REF).exists():
+                return d
+        return None
+
+    @staticmethod
+    def _persist_handoff(attempt: Attempt, world: Any, final: Any, vdir: Path, res: HarnessResult) -> None:
+        """M10 lab audit R-3: what ``regrade`` needs to grade this hand-off again without the policy's World:
+        ``vdir/handoff_ref.json`` holds the quiesced ``WorldRef`` and the episode's start ref and id, the trace length
+        (the trace itself is the attempt's ``trace.jsonl``), the spec, the store root (where the snapshot's blobs live) and
+        the pack root, and names the attempt that ran the agent (``source``). Written before any verifier World starts;
+        a ref that cannot be written leaves the attempt not regradable."""
+        root = getattr(getattr(world, "store", None), "root", None)
+        if root is None:
+            return
+        start = world.episode_start or world.initial
+        doc = {"source": attempt.dir.name, "final": final.model_dump(mode="json"), "start": start.model_dump(mode="json") if start is not None else None,
+               "episode_id": world.episode_id, "log_len": len(world.log), "spec": world.spec.model_dump(mode="json", exclude_none=True, by_alias=True),
+               "store_root": str(Path(root).resolve()), "pack_root": str(world.pack_root) if world.pack_root is not None else None}
+        try:
+            (vdir / HANDOFF_REF).write_text(json.dumps(doc, default=str))
+        except OSError:
+            return
+        res.regradable = attempt.regradable = True  # the Attempt's copy outlives a result the attempt clock cancels (run.py)
+
+    @staticmethod
+    def _on_again(attempt: Attempt) -> Callable[[Failure], None]:
+        """M10 lab audit R-3 review round 2: ``grade_in_place``'s ``on_again`` on a persisted hand-off or patch. An
+        answer-sensitive failure being graded again on this work is decided in this attempt once it repeats, so
+        ``attempt.regradable`` is cleared before that grade starts: an attempt clock firing during it (or during the
+        control) ends the attempt instead of scheduling a grade-only retry that grades it twice more. ``res.regradable`` is
+        left as it is (a StageFailure from that try's verifier World start is still re-graded from the hand-off), and the
+        caller sets ``attempt.regradable`` back from it once the grade returns."""
+
+        def clear(f: Failure) -> None:
+            if answer_sensitive(f):
+                attempt.regradable = False
+
+        return clear
+
     def _resumable(self, attempt: Attempt) -> tuple[Path, dict] | None:
         """(the previous attempt's dir, its checkpoint) when the previous attempt was masked mid-episode, or when the
         process died (no record; the journal moved the dir to ``aborted/``: M10 audit V9, the "dies at step 3,000" case
@@ -246,7 +497,12 @@ class NativeHarness:
 
         if not self.checkpoint_every or attempt.n <= 1 or getattr(attempt.task, "steps", None):
             return None
-        prev = checkpoint.attempt_path(attempt.dir.parent, f"a{attempt.n - 1}")
+        # M10 lab audit R-4: a refused reservation (refused.json) dispatched nothing and left no checkpoint, so the resume keeps
+        # looking where it did before R-4, when that attempt's dir was removed and the index reused
+        k = attempt.n - 1
+        while k > 1 and (attempt.dir.parent / f"a{k}" / REFUSED).exists():
+            k -= 1
+        prev = checkpoint.attempt_path(attempt.dir.parent, f"a{k}")
         rec = prev / "record.json"
         ck = checkpoint.load(prev)
         if ck is None:
@@ -257,10 +513,37 @@ class NativeHarness:
         return (prev, ck) if r.get("mask_sample") and (r.get("failure") or {}).get("stage") == "agent" else None
 
     async def _grade(self, attempt: Attempt, world: Any, grade_fn: Callable, vdir: Path, gdir: Path, artifacts_dir: Path, res: HarnessResult,
-                     *, close_source: bool = True) -> Any:
+                     *, close_source: bool = True, persist: bool = False, retries: int | None = None) -> tuple[list[Any], Failure | None]:
         """Grade ``world`` with ``grade_fn(world, gdir)``: in place, or (``verifier.mode: separate``) in a fresh World
-        restored from a quiesced, custody-checked snapshot. Writes ``vdir/report.json`` (and ``handoff.json``)."""
+        restored from a quiesced, custody-checked snapshot. Writes ``vdir/report.json`` (and ``handoff.json``).
+
+        M10 lab audit R-3: returns ``(reports, failure)`` (``runtime.grading``; ``failure`` None when the last grade
+        passed through). In place the World is gone after the attempt, so a failed grade is graded again here
+        (``grade_in_place``: up to ``retries`` more times, default ``grade_retries``, under ``scoring_budget_s``; with more
+        than one try every report is kept and ``grades.json`` lists them) and the attempt is never regradable. Separate:
+        ``persist`` (a single-step task) writes ``vdir/handoff_ref.json`` before any verifier World starts and sets
+        ``res.regradable`` (``_persist_handoff``), so a failure another attempt can answer (a contaminated node, a
+        transport failure) is re-graded from it by the next attempt (``regrade``); an answer-sensitive failure
+        (``grading.answer_sensitive``: a hang or a checker outage on this answer) is graded again at once in a second
+        verifier World over the same snapshot (``verifier_world`` tolerates the closed source) and, when it repeats, is
+        decided in this attempt (no longer regradable; ``run`` settles it with the task's control).
+
+        ``attempt.phase`` becomes ``verification`` here and ``attempt.regradable`` mirrors ``res.regradable`` (M10 lab
+        audit R-3): the Runner reads them when its attempt clock cancels the harness. A later try that raises keeps the
+        reports of the tries before it (``_keep_tries``).
+
+        Review round 2: the grading's window opens on the Runner's clock (``grading.grading_window``: the scoring budget
+        defaults to the clock's length); the verifier World's start and close run outside the scoring budget
+        (``grading.unbudgeted``); only an answer-sensitive failure graded twice (or out of budget, ``grading.decided``)
+        is decided here, one graded once stays regradable; ``attempt.regradable`` is cleared before an answer-sensitive
+        failure is graded again (``on_again``), so a clock firing then ends the attempt. Without ``persist`` (a
+        multi-step step) nothing is left for a fresh attempt, so a separate step's snapshot is graded again here like an
+        in-place grade (``again=regradable``, a fresh verifier World per try, a failed start included)."""
+        attempt.phase = "verification"
+        budget = grading_window(attempt, attempt.task, budget_s=self.scoring_budget_s, control_s=self.control_timeout_s)
         vdir.mkdir(parents=True, exist_ok=True)
+        tries = self.grade_retries if retries is None else retries
+        reps: list[Any] = []
         if wants_separate(world):  # M1: grade a restored copy in a fresh World; the policy's World is closed first
             with boundary("verification"):
                 try:
@@ -269,15 +552,70 @@ class NativeHarness:
                     (vdir / "custody.json").write_text(json.dumps({"problems": e.problems}, indent=1))
                     raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="verification", reason=str(e)[:400], blame="policy", mask=False)) from e
             (vdir / "handoff.json").write_text(json.dumps(handoff.to_dict(), indent=1))
-            with boundary("verification"):
-                async with verifier_world(world, final, workdir=vdir / "world", close_source=close_source) as vworld:
-                    rep = await grade_fn(vworld, gdir)
             res.artifacts[f"handoff:{vdir.relative_to(attempt.dir)}"] = str((vdir / "handoff.json").relative_to(attempt.dir))
+            if persist:
+                self._persist_handoff(attempt, world, final, vdir, res)
+
+            async def separate(d: Path) -> Any:
+                wd = vdir / "world" if d == gdir else d.parent / vdir.name / "world"  # each try its own verifier World
+                stack = contextlib.AsyncExitStack()
+                try:
+                    # M10 lab audit R-3: closing the source, the verifier World's start (a serial host lock, an App's
+                    # readiness), its restore and its fingerprint check are infrastructure, not this answer's grade (no
+                    # grader has seen the answer yet): boundary classifies them as before R-3 (a TimeoutError ->
+                    # transport_timeout, infra, retryable). grade_in_place re-raises the StageFailure unchanged, so the
+                    # persisted hand-off (res.regradable) is re-graded by a fresh attempt, never retried here as
+                    # verifier_timeout and never decided by a control the verifier World is not part of. Review round 2:
+                    # they run outside the scoring budget (unbudgeted), so a budget expiry is only ever the grade's own (a
+                    # budget that ran out in a serial lock was the answer's verifier_timeout, and a control that needs no
+                    # verifier World scored the policy 0). Review round 3: the restore's length is the policy's state (its
+                    # snapshot), but the same state hand_off just snapshotted on the attempt clock with no budget at all, and
+                    # verifier_world cannot split the restore from the serial lock's wait, which a capped hold
+                    # (unbudgeted(answer=True)) would charge to the answer; so the hold stays uncapped, bounded by the clock,
+                    # which gets the time back once the World has started (grade_in_place's attempt)
+                    try:
+                        with boundary("verification"), unbudgeted():
+                            vworld = await stack.enter_async_context(verifier_world(world, final, workdir=wd, close_source=close_source))
+                    except StageFailure as sf:
+                        if persist:
+                            raise  # the persisted hand-off is re-graded by a fresh attempt
+                        # M10 lab audit R-3 review round 2: a step persists nothing, so its snapshot is graded again in a
+                        # fresh verifier World inside the attempt. Chained, so grade_in_place reads the boundary's own
+                        # classification (classify_exception's StageFailure link; _raised_timeout stops at it, so never
+                        # verifier_timeout), and one it does not grade again is re-raised and turned back into the same
+                        # StageFailure by the outer boundary
+                        raise RuntimeError(f"the verifier World did not start: {sf.failure.reason}"[:500]) from sf
+                    return await grade_fn(vworld, d)
+                finally:
+                    with unbudgeted():
+                        await stack.aclose()
+
+            # M10 lab audit R-3 review round 2: a step (no persist) leaves no hand-off for a fresh attempt, so any regradable
+            # failure (a contaminated node, a transport failure, a verifier World that did not start) is graded again here,
+            # like an in-place grade; with a persisted hand-off only an answer-sensitive one is (the rest waits for regrade)
+            again = answer_sensitive if persist else regradable
+            try:
+                with boundary("verification"):
+                    _, f = await grade_in_place(separate, gdir, retries=tries, budget_s=budget, again=again, out=reps, on_again=self._on_again(attempt),
+                                                attempt=attempt)
+            except StageFailure:
+                _keep_tries(vdir, reps, res)
+                raise
+            if f is not None and decided(f):
+                # graded again on this snapshot already (or the scoring budget ran out during its first grade): decided here,
+                # never a third grade in a fresh attempt. Review round 2: one answer-sensitive grade alone (grade_retries=0)
+                # stays regradable, so a grade-only retry grades it again (seen_before) before any control decides
+                res.regradable = False
+            attempt.regradable = res.regradable
         else:
-            with boundary("verification"):
-                rep = await grade_fn(world, gdir)
-        (vdir / "report.json").write_text(json.dumps(rep.to_dict(), default=str, indent=1))
-        return rep
+            try:
+                with boundary("verification"):
+                    _, f = await grade_in_place(lambda d: grade_fn(world, d), gdir, retries=tries, budget_s=budget, out=reps, attempt=attempt)
+            except StageFailure:
+                _keep_tries(vdir, reps, res)
+                raise
+        write_reports(vdir, reps)
+        return reps, f
 
     async def _run_steps(self, attempt: Attempt, world: Any, policies: dict[str, Any], res: HarnessResult) -> tuple[Any, dict[str, Any]]:
         """A multi-step task in one World (M1 item 4; Harbor ``trial/multi_step.py``). Each ``TaskStep``: optional setup,
@@ -302,6 +640,8 @@ class NativeHarness:
         for i, st in enumerate(steps):
             sdir = attempt.dir / "steps" / f"{i:02d}-{st.name}"
             sdir.mkdir(parents=True, exist_ok=True)
+            attempt.phase = "agent"  # M10 lab audit R-3: this step's episode (an attempt clock firing here is the agent's, run.py)
+            agent_clock(attempt)  # review round 2: the previous step's grading window never extends this agent phase
             with boundary("agent"):
                 if i == 0:
                     await world.reset()
@@ -326,11 +666,28 @@ class NativeHarness:
             if broken:  # the policy broke its environment: its own outcome, scored 0, never masked
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason=f"step {st.name}: " + "; ".join(broken)[:400]))
             t0 = time.monotonic()
-            rep = await self._grade(attempt, world, st.grade, sdir / "verifier", sdir / "grade", sdir / "artifacts", res,
-                                    close_source=i == len(steps) - 1)
-            _take_grade_findings(rep, res, prefix=f"step {st.name}: ")
-            if rep.infra.get("status") == "masked":
-                raise StageFailure(classify_verifier(rep.infra))
+            # M10 lab audit R-3: a step persists no hand-off, and is graded again inside the attempt like an in-place grade
+            # (grade_retries, scoring_budget_s; review round 2: a separate-verifier step too, in a fresh verifier World over
+            # the same snapshot, a contaminated node or a transport failure included), unless the task declares its step grades unrepeatable (step_grades_once:
+            # HarborMultiStepTask, whose R-2 per-step state, the setup listing and the previous grade's leftovers, is used up
+            # by the step's grade, so a second grade of it would not be the same grade). A failed step grade ends the
+            # attempt terminal-masked (never an agent re-run)
+            once = bool(getattr(attempt.task, "step_grades_once", False))
+            reps, f = await self._grade(attempt, world, st.grade, sdir / "verifier", sdir / "grade", sdir / "artifacts", res,
+                                        close_source=i == len(steps) - 1, retries=0 if once else None)
+            _take_findings(reps, res, prefix=f"step {st.name}: ")
+            if f is not None:
+                # M10 lab audit R-3 item 2: a step_grades_once task has no control (its step grade cannot be repeated on the
+                # same state): an answer-sensitive step failure masks with flag no_control, never retried. Any other task's
+                # control decides it, as run() does: the World probed, then closed (nothing of the policy's runs beside the
+                # control; World.close is idempotent), then the control (it must exercise every step's grader)
+                probe = "unprobed" if wants_separate(world) else await liveness(attempt.task, world)
+                if not once:
+                    with contextlib.suppress(Exception):  # cleanup never overrides a result
+                        await world.close()
+                raise StageFailure(await settle(attempt.task, f, workdir=sdir / "control", timeout_s=self.control_timeout_s, probe=probe, control=not once,
+                                                attempt=attempt))
+            rep = reps[-1]
             flat = flat_reward(rep.reward_json()) or {"reward": rep.reward}
             why = _below(flat, st.min_reward)
             results.append({"name": st.name, "reward": rep.reward, "outcome": rep.outcome, "gates": rep.gate_bits(), "gate_kinds": rep.gate_kinds(),
@@ -358,9 +715,130 @@ class NativeHarness:
         ep = dataclasses.replace(ep, steps=total_steps, model_calls=merged, trace=world.to_trace())
         return ep, policies
 
+    async def regrade(self, attempt: Attempt, prior: Any) -> HarnessResult:
+        """M10 lab audit R-3: grade the hand-off an earlier attempt persisted (``verifier/handoff_ref.json``) again, for a
+        grade-only retry and ``Runner.regrade``: no agent, no spend. The policy's World is rebuilt only as
+        ``verifier_world`` reads it (``_HandedOff``: the persisted spec, the store holding the snapshot's blobs, the trace
+        up to the hand-off, the episode's start ref and id), and a fresh verifier World restores the quiesced ``WorldRef``
+        and is graded, as ``_grade`` does; an answer-sensitive failure is graded once more over the same snapshot and, when
+        it repeats, decided by the task's control (``grading.settle``: scored 0, a task mask, or ``no_control``). A ref
+        that cannot be read, or whose trace is missing or shorter than the hand-off (``handoff_unreadable``), or whose spec
+        is not the snapshot's (``handoff_spec_mismatch``) is a
+        harness fault, masked and never retried. The record measures the attempt that ran the agent (``source``): its
+        calls, steps, truncation, progress, seat rewards and rule flags, and its limit stop's penalty; the ref is carried
+        into this attempt, so a later re-grade finds it here too."""
+        from crucible.core.schema.state import WorldRef
+        from crucible.core.schema.world import WorldSpec
+        from crucible.core.store import Store
+        from crucible.world.world import World
+
+        prior = Path(str(prior))
+        attempt.phase = "verification"  # M10 lab audit R-3: no agent here; an attempt clock firing is this grade's (run.py)
+        budget = grading_window(attempt, attempt.task, budget_s=self.scoring_budget_s, control_s=self.control_timeout_s)  # review round 2
+        res = HarnessResult(stop="regraded")
+        t: dict[str, float] = {}
+        t0 = time.monotonic()
+        vdir, gdir = attempt.dir / "verifier", attempt.dir / "grade"
+        source, prev = prior, {}
+        reps: list[Any] = []
+        try:
+            with boundary("verification"):
+                vdir.mkdir(parents=True, exist_ok=True)
+                try:
+                    doc = json.loads((prior / "verifier" / HANDOFF_REF).read_text())
+                    source = prior.parent / str(doc.get("source") or prior.name)
+                    spec = WorldSpec.model_validate(doc["spec"])
+                    final = WorldRef.model_validate(doc["final"])
+                    start = WorldRef.model_validate(doc["start"]) if doc.get("start") is not None else None
+                    if not Path(doc["store_root"]).is_dir():
+                        raise FileNotFoundError(f"the hand-off's store {doc['store_root']} is gone")
+                    trace, n = source / "trace.jsonl", int(doc["log_len"])
+                    # M10 lab audit R-3: the trace is part of the persisted hand-off, like the store: a missing or short one is
+                    # handoff_unreadable, never an empty episode (a trace-reading check would pass on events it never sees)
+                    log = World.read_trace(trace, upto=n)  # a missing file raises FileNotFoundError (OSError)
+                    if len(log) < n:
+                        raise ValueError(f"the trace {trace.name} of {source.name} holds {len(log)} events, the hand-off {n}")
+                    store = Store(doc["store_root"])
+                except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+                    raise StageFailure(Failure(kind="agent_run_error", stage="verification", blame="harness", retryable=False, detail="handoff_unreadable",
+                                               reason=f"the persisted hand-off of {prior.name} cannot be read: {type(e).__name__}: {e}"[:500])) from e
+                prev = _read_json_dict(source / "record.json")
+                ro = _read_json_dict(source / "rollout.json")
+                res.flags = [f for f in ro.get("flags") or [] if isinstance(f, dict) and f.get("rule") != "reconcile_fatal"]  # the Runner adds that one again
+                if spec.content_hash() != final.world:
+                    raise StageFailure(Failure(kind="agent_run_error", stage="verification", blame="harness", retryable=False, detail="handoff_spec_mismatch",
+                                               reason=f"the persisted spec of {prior.name} hashes to {spec.content_hash()[:12]}, not the snapshot's world "
+                                                      f"{final.world[:12]}"))
+                src = _HandedOff(spec=spec, store=store, pack_root=Path(doc["pack_root"]) if doc.get("pack_root") else None, log=log,
+                                 episode_start=start, episode_id=str(doc.get("episode_id") or ""))
+                (vdir / HANDOFF_REF).write_text(json.dumps({**doc, "source": source.name}, default=str))
+                if (prior / "verifier" / "handoff.json").exists():
+                    (vdir / "handoff.json").write_text((prior / "verifier" / "handoff.json").read_text())
+                    res.artifacts["handoff:verifier"] = "verifier/handoff.json"
+                res.regradable = attempt.regradable = True
+
+                async def separate(d: Path) -> Any:
+                    wd = vdir / "world" if d == gdir else d.parent / vdir.name / "world"
+                    stack = contextlib.AsyncExitStack()
+                    try:
+                        # M10 lab audit R-3: the verifier World's own start, restore and fingerprint check are infrastructure,
+                        # classified by boundary as in _grade (never this answer's verifier_timeout); review round 2: outside
+                        # the scoring budget (unbudgeted), its close too
+                        with boundary("verification"), unbudgeted():
+                            vworld = await stack.enter_async_context(verifier_world(src, final, workdir=wd, close_source=False))  # type: ignore[arg-type]
+                        return await attempt.task.grade(vworld, d)
+                    finally:
+                        with unbudgeted():
+                            await stack.aclose()
+
+                # review round 2: the answer-sensitive grades the attempt that decided already ran on this snapshot (seen),
+                # so a repeat here is decided by the control; attempt.regradable cleared before it is graded again (on_again)
+                seen = seen_before(attempt.dir.parent, attempt.n)
+                try:
+                    _, f = await grade_in_place(separate, gdir, retries=self.grade_retries, budget_s=budget, again=answer_sensitive,
+                                                out=reps, seen=seen, on_again=self._on_again(attempt), attempt=attempt)
+                except Exception:
+                    _keep_tries(vdir, reps, res)  # the tries that came back before a later one raised (the boundary classifies it)
+                    raise
+                if f is not None and decided(f):
+                    res.regradable = False  # graded twice on this snapshot now (or the budget ran out): decided here
+                attempt.regradable = res.regradable
+                write_reports(vdir, reps)
+                t["verification"] = time.monotonic() - t0
+                res.grade = {**res.grade, **grade_summary(reps, f)}
+                _take_findings(reps, res, seen={_flag_key(x) for x in res.flags})
+                if f is not None:
+                    # M10 lab audit R-3 item 2: a failure another attempt can still answer waits for it (res.regradable);
+                    # an answer-sensitive one graded twice on this snapshot is decided by the task's control (no live
+                    # World of the policy's is left to probe)
+                    raise StageFailure(f if res.regradable else await settle(attempt.task, f, workdir=attempt.dir / "control",
+                                                                             timeout_s=self.control_timeout_s, attempt=attempt))
+                res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()
+                stop = (prev.get("meta") or {}).get("stop")
+                pen = self.limit_policy.penalty(stop) if stop in LIMIT_STOPS else None
+                if pen is not None:  # the agent attempt stopped at a limit: its configured penalty, as run() applies it
+                    res.grade["limit_penalty"] = pen
+                    res.reward = pen
+        except StageFailure as sf:
+            res.failure = sf.failure
+        meta = prev.get("meta") or {}
+        self._inherit_calls(res, source)
+        res.steps, res.truncated = int(prev.get("steps") or 0), bool(meta.get("truncated"))
+        for k in ("progress", "seat_rewards"):
+            if meta.get(k):
+                res.grade[k] = meta[k]
+        res.artifacts["regraded_from"] = source.name
+        res.timings = {k: round(v, 3) for k, v in t.items()}
+        return res
+
     async def run(self, attempt: Attempt) -> HarnessResult:
         from crucible.runtime import checkpoint
 
+        src = self._regrade_source(attempt)
+        if src is not None:
+            # M10 lab audit R-3: a grade-only retry never samples the policy again (the old native a2 after a verification
+            # mask was a full agent re-run, hidden by deterministic oracles): it grades the persisted hand-off
+            return await self.regrade(attempt, src)
         t: dict[str, float] = {}
         world = None
         spend0 = attempt.policy.spend()
@@ -413,7 +891,11 @@ class NativeHarness:
             from crucible.credit.shaping import format_errors_by_call
 
             trace = world.to_trace()
-            res.flags = rule_flags(trace)  # m13 C-4 level 1 (intercepts, tampering rules)
+            # m13 C-4 level 1 (intercepts, tampering rules). M10 lab audit R-2 review round 2: merged, never assigned: a
+            # multi-step task's step grades already put their meta.flags here (_run_steps -> _take_grade_findings:
+            # policy_process_killed, grader_guard suspicions), which an assignment dropped; on the single-step path
+            # res.flags is still empty here and the grade's flags join later
+            res.flags = [*rule_flags(trace), *res.flags]
             res.format_errors = format_errors_by_call(trace, ep.model_calls)  # m13 C-8: charged to the issuing call's tokens
             save_episode(attempt, ep, res, self.id, policies, world=world)
             if getattr(world, "turns", None) is not None and world.turns.rewards:  # per-seat outcomes of a turn-based World (M1 item 7)
@@ -433,13 +915,26 @@ class NativeHarness:
                 t["verification"] = sum(r.get("verification_s", 0.0) for r in res.grade["steps"])
                 res.reward, res.gates, res.gate_kinds = res.grade["reward"], res.grade.get("gates", {}), res.grade.get("gate_kinds", {})
             else:
-                rep = await self._grade(attempt, world, attempt.task.grade, attempt.dir / "verifier", attempt.dir / "grade", attempt.dir / "artifacts", res)
+                reps, f = await self._grade(attempt, world, attempt.task.grade, attempt.dir / "verifier", attempt.dir / "grade", attempt.dir / "artifacts", res,
+                                            persist=True)
                 t["verification"] = time.monotonic() - t0
-                res.grade = {**res.grade, "reward": rep.reward, "gates": rep.gate_bits(), "infra": rep.infra}
-                _take_grade_findings(rep, res)
-                if rep.infra.get("status") == "masked":
-                    raise StageFailure(classify_verifier(rep.infra))
-                res.reward, res.gates, res.gate_kinds = rep.reward, rep.gate_bits(), rep.gate_kinds()
+                res.grade = {**res.grade, **grade_summary(reps, f)}
+                _take_findings(reps, res)  # flags from every grade of this work; a policy verdict ends the attempt
+                if f is not None:
+                    # M10 lab audit R-3: a persisted hand-off (res.regradable) is re-graded by the next attempt; in place, or
+                    # after an answer-sensitive failure was graded again here, the attempt ends here and RetryRule never
+                    # turns it into an agent re-run. Item 2: that last word is grading.settle. The sandbox is probed while
+                    # it still runs (in place; a separate verifier's source World is already closed), then the policy's
+                    # World is closed (nothing of the policy's runs beside the control), then an answer-sensitive failure
+                    # is decided by the task's control
+                    if not res.regradable:
+                        probe = "unprobed" if wants_separate(world) else await liveness(attempt.task, world)
+                        closing, world = world, None
+                        with contextlib.suppress(Exception):  # cleanup never overrides a result
+                            await closing.close()
+                        f = await settle(attempt.task, f, workdir=attempt.dir / "control", timeout_s=self.control_timeout_s, probe=probe, attempt=attempt)
+                    raise StageFailure(f)
+                res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()
             pen = self.limit_policy.penalty(ep.stop_condition) if ep.stop_condition in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty, not its partial grade
                 res.grade["limit_penalty"] = pen
