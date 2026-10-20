@@ -1,0 +1,756 @@
+{
+ "caught": [
+  "sw-cachetools-aadb387d"
+ ],
+ "phase": "A",
+ "spend_usd": 0.0,
+ "task": "3: S4.5 executed oracle-vs-plan check on the stored swarm-built windows",
+ "windows": {
+  "sw-arrow-4993feb6": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 1839,
+   "p2p_before": 1839,
+   "probes": [
+    {
+     "at_a": [
+      "arrow.arrow:Arrow"
+     ],
+     "at_b": [
+      "arrow.arrow:Arrow"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "Arrow.shift",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "option",
+     "milestone": "m1",
+     "name": "check_imaginary",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "arrow.arrow:Arrow"
+     ],
+     "at_b": [
+      "arrow.arrow:Arrow"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "Arrow.humanize",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "f2p_valid",
+   "trainable": false,
+   "world": "crucible-lh-w:arrow-d4f34f2e9596"
+  },
+  "sw-boltons-18727bf6": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 423,
+   "p2p_before": 423,
+   "probes": [
+    {
+     "at_a": [
+      "boltons.iterutils"
+     ],
+     "at_b": [
+      "boltons.iterutils"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "remap",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "option",
+     "milestone": "m1",
+     "name": "cache",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "boltons.iterutils"
+     ],
+     "at_b": [
+      "boltons.iterutils"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "research",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "option",
+     "milestone": "m2",
+     "name": "cache",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "boltons.iterutils",
+      "boltons.pathutils"
+     ],
+     "at_b": [
+      "boltons.iterutils",
+      "boltons.pathutils"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "split",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "option",
+     "milestone": "m3",
+     "name": "maxsplit",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "mutants_valid",
+   "trainable": true,
+   "world": "crucible-lh-w:boltons-8b17e8d54a05"
+  },
+  "sw-cachetools-aadb387d": {
+   "contradicting": 23,
+   "contradicting_pass_on_oracle": 23,
+   "findings": [
+    "m3 (R1) plans the removal of MRUCache, but the oracle still provides it in cachetools, cachetools.func (it now warns: DeprecationWarning): deprecated, not removed; remove it (importing it must fail)",
+    "m3 (R1) plans the removal of mru_cache, but the oracle still provides it in cachetools.func (it now warns: DeprecationWarning): deprecated, not removed; remove it (importing it must fail)",
+    "7 existing test(s) that use mru_cache, which m3 removes, still pass on the oracle (e.g. MRUDecoratorTest::test_decorator): the removal is not done",
+    "16 existing test(s) that use MRUCache, which m3 removes, still pass on the oracle (e.g. MRUCacheTest::test_defaults): the removal is not done"
+   ],
+   "ok": false,
+   "owner": "oracle_builder",
+   "p2p_after_drop": 193,
+   "p2p_before": 216,
+   "probes": [
+    {
+     "at_a": [
+      "cachetools",
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools",
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "cached",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools"
+     ],
+     "at_b": [
+      "cachetools"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "cachedmethod",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "option",
+     "milestone": "m1",
+     "name": "condition",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "fifo_cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "lfu_cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "lru_cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "rr_cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "ttl_cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "cachetools",
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools",
+      "cachetools.func"
+     ],
+     "kind": "removal",
+     "milestone": "m3",
+     "name": "MRUCache",
+     "verdict": "deprecated_not_removed"
+    },
+    {
+     "at_a": [
+      "cachetools.func"
+     ],
+     "at_b": [
+      "cachetools.func"
+     ],
+     "kind": "removal",
+     "milestone": "m3",
+     "name": "mru_cache",
+     "verdict": "deprecated_not_removed"
+    }
+   ],
+   "stage": "mutants_valid",
+   "trainable": true,
+   "world": "crucible-lh-w:cachetools-3692c95c3daa"
+  },
+  "sw-click-4dc8898c": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 575,
+   "p2p_before": 575,
+   "probes": [
+    {
+     "at_a": [
+      "click.shell_completion"
+     ],
+     "at_b": [
+      "click.shell_completion"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "add_completion_class",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "click.shell_completion"
+     ],
+     "at_b": [
+      "click.shell_completion"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "ShellComplete",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "f2p_valid",
+   "trainable": false,
+   "world": "crucible-lh-w:click-1572d39cafaf"
+  },
+  "sw-funcy-e76bf04c": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 195,
+   "p2p_before": 195,
+   "probes": [
+    {
+     "at_a": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "at_b": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "memoize",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "funcy.calc"
+     ],
+     "at_b": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "SkipMemoization",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "at_b": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "cache",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "at_b": [
+      "funcy",
+      "funcy.calc",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "memoize",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "funcy",
+      "funcy.flow",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "at_b": [
+      "funcy",
+      "funcy.flow",
+      "funcy.py2",
+      "funcy.py3"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "reraise",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "mutants_valid",
+   "trainable": true,
+   "world": "crucible-lh-w:funcy-41b538c982aa"
+  },
+  "sw-humanize-49c1dc99": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 684,
+   "p2p_before": 684,
+   "probes": [
+    {
+     "at_a": [
+      "humanize",
+      "humanize.time"
+     ],
+     "at_b": [
+      "humanize",
+      "humanize.time"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "naturalday",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "humanize",
+      "humanize.time"
+     ],
+     "at_b": [
+      "humanize",
+      "humanize.time"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "naturaldate",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "humanize",
+      "humanize.lists"
+     ],
+     "at_b": [
+      "humanize",
+      "humanize.lists"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "natural_list",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "f2p_valid",
+   "trainable": false,
+   "world": "crucible-lh-w:humanize-ea567adbc792"
+  },
+  "sw-markdown-20f781e2": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 969,
+   "p2p_before": 969,
+   "probes": [
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "run_postprocessors",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "render_inner_html",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "striptags",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "markdown.extensions.toc:TocTreeprocessor"
+     ],
+     "at_b": [
+      "markdown.extensions.toc:TocTreeprocessor"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "TocTreeprocessor.run",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "run_postprocessors",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "striptags",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "render_inner_html",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [
+      "markdown.extensions.toc:TocTreeprocessor"
+     ],
+     "at_b": [
+      "markdown.extensions.toc:TocTreeprocessor"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "TocTreeprocessor.run",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "toc_tokens",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "striptags",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "render_inner_html",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "markdown.extensions.toc"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "run_postprocessors",
+     "verdict": "ok"
+    }
+   ],
+   "stage": "f2p_valid",
+   "trainable": false,
+   "world": "crucible-lh-w:markdown-9235d67ed8e6"
+  },
+  "sw-more-itertools-dedc22c6": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 626,
+   "p2p_before": 626,
+   "probes": [
+    {
+     "at_a": [
+      "more_itertools",
+      "more_itertools.recipes"
+     ],
+     "at_b": [
+      "more_itertools",
+      "more_itertools.recipes"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "totient",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "more_itertools",
+      "more_itertools.more",
+      "more_itertools.recipes"
+     ],
+     "at_b": [
+      "more_itertools",
+      "more_itertools.more",
+      "more_itertools.recipes"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "all_equal",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "more_itertools",
+      "more_itertools.more",
+      "more_itertools.recipes"
+     ],
+     "at_b": [
+      "more_itertools",
+      "more_itertools.more",
+      "more_itertools.recipes"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "all_equal",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "mutants_valid",
+   "trainable": true,
+   "world": "crucible-lh-w:more-itertools-708132f41c53"
+  },
+  "sw-python-semver-80b46723": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 336,
+   "p2p_before": 336,
+   "probes": [
+    {
+     "at_a": [
+      "semver.version:Version"
+     ],
+     "at_b": [
+      "semver.version:Version"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "Version.bump_prerelease",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "semver.version:Version"
+     ],
+     "at_b": [
+      "semver.version:Version"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "Version.bump_build",
+     "verdict": "exists_at_start"
+    },
+    {
+     "at_a": [
+      "semver.version:Version"
+     ],
+     "at_b": [
+      "semver.version:Version"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "Version.bump_build",
+     "verdict": "exists_at_start"
+    }
+   ],
+   "stage": "f2p_valid",
+   "trainable": false,
+   "world": "crucible-lh-w:python-semver-8334ed98655a"
+  },
+  "sw-python-semver-a2e121df": {
+   "contradicting": 0,
+   "contradicting_pass_on_oracle": 0,
+   "findings": [],
+   "ok": true,
+   "owner": "",
+   "p2p_after_drop": 175,
+   "p2p_before": 175,
+   "probes": [
+    {
+     "at_a": [],
+     "at_b": [
+      "semver:VersionInfo"
+     ],
+     "kind": "addition",
+     "milestone": "m1",
+     "name": "VersionInfo.to_tuple",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "semver:VersionInfo"
+     ],
+     "kind": "addition",
+     "milestone": "m2",
+     "name": "VersionInfo.to_dict",
+     "verdict": "ok"
+    },
+    {
+     "at_a": [],
+     "at_b": [
+      "semver:VersionInfo"
+     ],
+     "kind": "addition",
+     "milestone": "m3",
+     "name": "VersionInfo.__getitem__",
+     "verdict": "ok"
+    }
+   ],
+   "stage": "mutants_valid",
+   "trainable": true,
+   "world": "crucible-lh-w:python-semver-7f02ca96e263"
+  }
+ }
+}

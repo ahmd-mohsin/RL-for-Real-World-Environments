@@ -869,8 +869,8 @@ $30 cap):
 - **The band fails at the frontier:** deterministic success or failure means no spread. Attributed windows are benchmark
   items for the frontier and training candidates for weaker rungs.
 - **New S7 rule:** every import path the hidden tests use must be importable at A or stated in the prompt.
-- **Open:** an executed oracle-vs-plan check. The cachetools oracle deprecated `MRUCache` instead of removing it; every
-  gate passed it; the auditor and the frontier exposed it.
+- **An oracle that skipped its plan:** the cachetools oracle deprecated `MRUCache` instead of removing it, and every gate
+  passed it; the auditor and the frontier exposed it. Phase A's S4.5 now catches it.
 - `lh_run.py`'s harness masks a lost World container (`InfraWatch`).
 
 Benchmark v2 and the World leak fix (`factory/benchmark.py`, `factory/sealing.py`, `lanes/windows_world.py`; $0):
@@ -885,6 +885,31 @@ Benchmark v2 and the World leak fix (`factory/benchmark.py`, `factory/sealing.py
   - The leak probe `no_installed_project_source` fails every older image.
   - **Every store3 / P5 / P6 World must be refreshed (`benchmark.refresh_world`) before training or targeting.**
   - Earlier "too easy" verdicts may have been inflated by this leak.
+
+Phase A, clean-up (`lanes/windows_world.py`, `lanes/windows_s3.py`, `generators/{stitch,swarm,open}.py`, new
+`factory/oracleplan.py`, `factory/root.py`, `factory/traceaudit.py`, `scripts/lh_phase_a.py`; $1.63):
+- **Every World refreshed, with evidence.** 65 tasks across every store. Each leak goes through the executed `world_bug`
+  acceptance and gets a task version. The old Worlds of 55 tasks held installed source, 10 held another A, and 6 held the
+  solution: training rebreak, arrow-wce69c31 and open toolz, plus 3 held-out tasks. No stored solver trail read it.
+  - 47 Worlds were refreshed and pass S3.
+  - The 8 whose rebuilt World fails S3 keep the old image and must not be trained on. 7 of them fail S3 before the
+    rebuild too.
+- **The fix had gaps, now closed:**
+  - an unstated project name (semver) dropped nothing and the probe passed blind. The probe now also finds the
+    installed copy through A's own modules;
+  - stitched Worlds had no fix at all;
+  - "A reinstalled last" broke python-dotenv. A PEP 517 fallback fixes it.
+- **The too-easy verdicts hold.** On the refreshed Worlds the frontier still solves rebreak 5/5 and swarm semver and
+  more-itertools 4/4. Cachetools and glom were not re-checked: the OpenRouter account ran out of credit.
+- **S4.5, the oracle against its plan** (`oracleplan.py`; the swarm machine's `oracle_plan` state). It executes each
+  planned removal, deprecation, addition and option on A and on the oracle, and tells deprecation apart from removal.
+  A test of A that uses a removed name is a defect, never a regression check. Of 10 stored swarm windows, it catches
+  only cachetools: `MRUCache` and `mru_cache` were deprecated, not removed, and 23 contradicting tests still pass.
+- **Root curator:** per-family task repo, in-flight announcements checked before a lease, free abstention, and the 40%
+  herding guard at the S17 merge.
+- **Auditor forced final-verdict turn:** a harness switch that only `AuditorHarness.refine` can enable. Verdicts on
+  capped sessions rose from 0/16 to 13/17. `evaluate` rejected it twice, both times for exogenous noise, so it stays
+  off.
 
 P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/windows_world.py` recipe 3; `windows.py`
 `simplify('locate')`; $2.05):

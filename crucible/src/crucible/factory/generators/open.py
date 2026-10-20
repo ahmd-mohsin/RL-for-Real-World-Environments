@@ -758,11 +758,12 @@ class OpenTask:
 
 # ---- gates -----------------------------------------------------------------------------------------------------------------------
 async def open_gates(task: OpenTask, *, flake_reruns: int = 30, s3_reruns: int = 60, levels: tuple[int, ...] = (1, 2), stop_on_fail: bool = True,
-                     s3_sandboxes: Any = None) -> dict[str, Any]:
+                     s3_sandboxes: Any = None, gates_run: tuple[str, ...] = ("S5", "S8", "S3", "S10"), s3_prefix: str = f"{WORLD_PREFIX}s3-") -> dict[str, Any]:
     """S6 (n/a: no executed edge by design), S5 (oracle: correct, faster, at the bar; null agent 0), S8 (floors 0 with Phi
     0, mutants fail their milestone, alternative full pass), S3 (``windows_s3.world_s3`` with no milestone), S10 (oracle
     full pass in ``flake_reruns`` grades at each level; timing runs are serialised, so a level is the grading
-    concurrency of everything but the timing)."""
+    concurrency of everything but the timing). ``gates_run``: a subset (Phase A runs S3 inside the World fix's
+    acceptance); ``ok`` covers the gates run."""
     from crucible.factory.flake import FlakeConfig, measure_flake
     from crucible.factory.lanes.windows_s3 import world_s3
     from crucible.factory.longtask import null_agent_score
@@ -817,7 +818,7 @@ async def open_gates(task: OpenTask, *, flake_reruns: int = 30, s3_reruns: int =
 
     async def s3() -> dict[str, Any]:
         rec = {**task.rec, "milestones": [], "tests_b": {}}
-        r = await world_s3(rec, task.base_dir, task.image, reruns=s3_reruns, sandboxes=s3_sandboxes, name_prefix=f"{WORLD_PREFIX}s3-")
+        r = await world_s3(rec, task.base_dir, task.image, reruns=s3_reruns, sandboxes=s3_sandboxes, name_prefix=s3_prefix)
         return {"ok": r["ok"], "findings": [r["why"]] if r.get("why") else [], "evidence": {"checks": r["checks"], "reruns": r.get("reruns")}}
 
     async def s10() -> dict[str, Any]:
@@ -827,8 +828,9 @@ async def open_gates(task: OpenTask, *, flake_reruns: int = 30, s3_reruns: int =
         return {"ok": rep.ok, "findings": d["reasons"], "evidence": {k: d[k] for k in ("levels", "n", "false_negatives", "masked", "upper")}}
 
     for name, fn in (("S5", s5), ("S8", s8), ("S3", s3), ("S10", s10)):
-        await run(name, fn)
-    order = ("S5", "S8", "S3", "S10")
+        if name in gates_run:
+            await run(name, fn)
+    order = tuple(g for g in ("S5", "S8", "S3", "S10") if g in gates_run)
     return {"task": task.task_id, "generator": NAME, "gates": gates, "ok": all(gates[g]["ok"] for g in order), "passed": [g for g in order if gates[g]["ok"]],
             "long_kind": "open_no_ceiling"}
 

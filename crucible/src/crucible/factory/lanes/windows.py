@@ -758,7 +758,8 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     window_files(rec, repo)
     t1 = time.monotonic()
     leak = await leak_probes(card["image"], base, package=card.get("project") or project_name(base), version=win.b_version,
-                             new_test_names=new_test_names(rec, repo, base), **({"name_prefix": leak_prefix} if leak_prefix else {}))
+                             new_test_names=new_test_names(rec, repo, base), installed=card.get("projects"),
+                             **({"name_prefix": leak_prefix} if leak_prefix else {}))
     rec["world"]["leak"] = leak
     rec["timings"]["leak"] = round(time.monotonic() - t1, 1)
     if not leak["ok"]:

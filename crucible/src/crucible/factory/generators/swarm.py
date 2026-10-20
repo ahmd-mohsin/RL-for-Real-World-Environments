@@ -17,6 +17,7 @@ typed hand-offs carrying the full spec, every artifact committed to the family's
 | ``lease`` (S0) | root | no live overlapping announcement |
 | ``plan`` (S2) | planner (author family, a call; ``code_links`` from A's call graph in its input) | ``plan_problems``: 2..N milestones, ids m1..mN in order, each with a requirement, the observable behaviour and its public names (dunders are public); ``requires`` only on earlier milestones; >= 1 edge whose ``why_requires`` names a public name the required milestone adds; every request id real (loops on its own findings with its previous plan) |
 | ``oracle`` (S4) | oracle builder (author family, M16 session in a private clone at A, the World image, offline) | captures its commits; ``oracle_check``: one commit per milestone, subjects ``mK: ...`` in order, each changes library source, A's passing tests still pass on the final tree (regressions go back with their ids; a regression the builder cannot remove twice goes to the planner once: the plan asks for behaviour the existing suite pins) |
+| ``oracle_plan`` (S4.5) | deterministic (``factory/oracleplan.py``) | every planned removal, deprecation, addition and option executed on A and on the oracle in the World (deprecation told apart from removal); A's tests that use a removed name are defects, never regression checks (``regressions`` does not count them); a defect goes back to the builder with its finding |
 | ``verifier`` (S5 writer) | verifier writer (author family, another session, ``isolated_from`` the oracle) | captures ``crucible_hidden/test_<mid>.py`` per milestone from the plan, the spec and A only |
 | ``review`` (S11) | reviewer (reviewer family, a call, ``different_family_from`` the verifier) | blocking findings go back to the verifier once; then they are advisory (V6: no model verdict gates alone) |
 | ``build`` (S3/S4/S5/S6/S8 inputs) | deterministic | ``test_problems``; the hidden tests run on A and on the oracle (a milestone whose tests all fail on the oracle, or pass on A, goes back to the verifier with test ids and outcome kinds only, never values); the synthetic history and ``windows.validate_window`` (World, leak probes, fail-to-pass with reruns, prefix owners, the executed prober, commit-revert mutants of the oracle's own commits); no executed edge goes back to the planner |
@@ -642,7 +643,9 @@ def swarm_machine(*, budget_usd: float = 2.0, oracle_turns: int = 150, verifier_
          "outputs": [{"name": "oracle", "type": "artifact"}]},
         {"id": "oracle_check", "fn": "oracle_check", "max_entries": 5, "inputs": [{"name": "oracle", "type": "artifact", "from": "oracle.oracle"},
                                                                                   {"name": "plan", "type": j, "from": "plan.plan"}], "outputs": v},
-        {"id": "verifier", "role": "verifier_writer", "isolated_from": ["oracle", "oracle_check"], "mutates": True, "recovery": "reset", "retries": 1,
+        {"id": "oracle_plan", "fn": "oracle_plan", "max_entries": 5, "inputs": [{"name": "check", "type": j, "from": "oracle_check.verdict"},
+                                                                                {"name": "plan", "type": j, "from": "plan.plan"}], "outputs": v},
+        {"id": "verifier", "role": "verifier_writer", "isolated_from": ["oracle", "oracle_check", "oracle_plan"], "mutates": True, "recovery": "reset", "retries": 1,
          "max_entries": 6, "inputs": [{"name": "plan", "type": j, "from": "plan.plan"}],
          "session": {"brief": "(set per run)", "captures": [{"output": "tests", "kind": "dir", "path": HIDDEN_DIR}], "max_turns": verifier_turns},
          "outputs": [{"name": "tests", "type": "artifact"}]},
@@ -666,7 +669,11 @@ def swarm_machine(*, budget_usd: float = 2.0, oracle_turns: int = 150, verifier_
         {"from": "plan", "to": "plan", "when": "verdict.ok == false and verdict.retry == true", "carry": "verdict.findings"},
         {"from": "plan", "to": "dropped", "when": "verdict.ok == false"},
         {"from": "oracle", "to": "oracle_check"},
-        {"from": "oracle_check", "to": "verifier", "when": "verdict.ok == true"},
+        {"from": "oracle_check", "to": "oracle_plan", "when": "verdict.ok == true"},
+        {"from": "oracle_plan", "to": "verifier", "when": "verdict.ok == true"},
+        {"from": "oracle_plan", "to": "oracle", "when": "verdict.ok == false and verdict.retry == true", "carry": "verdict.findings"},
+        {"from": "oracle_plan", "to": "plan", "when": 'verdict.ok == false and verdict.owner == "planner"', "carry": "verdict.findings"},
+        {"from": "oracle_plan", "to": "dropped", "when": "verdict.ok == false"},
         {"from": "oracle_check", "to": "oracle", "when": "verdict.ok == false and verdict.retry == true", "carry": "verdict.findings"},
         {"from": "oracle_check", "to": "plan", "when": 'verdict.ok == false and verdict.owner == "planner"', "carry": "verdict.findings"},
         {"from": "oracle_check", "to": "dropped", "when": "verdict.ok == false"},
@@ -722,6 +729,7 @@ class SwarmServices:
     second_fn: Callable[..., Any] | None = None
     hack_fn: Callable[..., Any] | None = None
     oracle_fn: Callable[..., Any] | None = None  # (shas, plan) -> findings: the S4 regression check
+    oracle_plan_fn: Callable[..., Any] | None = None  # (shas, plan) -> ``oracleplan.check`` result: S4.5, the oracle against its plan
     review_fn: Callable[..., Any] | None = None
     pool: Any = None
     results: dict[str, Any] = field(default_factory=dict)
@@ -808,6 +816,26 @@ async def oracle_check_state(ctx: Any) -> Any:
     return verdict(True, shas=shas)
 
 
+async def oracle_plan_state(ctx: Any) -> Any:
+    """S4.5 (``factory/oracleplan.py``): every planned removal, deprecation, addition and option executed on A and on the
+    oracle, and the regression tests that contradict a planned removal. A defect goes back to the oracle builder with its
+    finding (twice), a plan probe that cannot hold on A to the planner; no runner (scripted tests) passes through."""
+    svc: SwarmServices = ctx.services
+    if svc.oracle_plan_fn is None:
+        return verdict(True, skipped="no oracle-plan runner")
+    shas = list((ctx.inputs.get("check") or {}).get("shas") or svc.results.get("oracle_shas") or [])
+    res = await svc.oracle_plan_fn(shas, ctx.inputs["plan"])
+    svc.results["oracle_plan"] = {k: res.get(k) for k in ("ok", "infra", "findings", "defects", "drop_from_regression", "probes")}
+    if res.get("ok"):
+        svc.note("S4_5_oracle_plan", True, probes=len(res.get("probes") or []), contradicting=len(res.get("drop_from_regression") or []))
+        return verdict(True, probes=len(res.get("probes") or []), drop_from_regression=list(res.get("drop_from_regression") or [])[:200])
+    svc.note("S4_5_oracle_plan", False, "; ".join(res.get("findings") or [])[:300], entry=ctx.entry)
+    if res.get("infra"):
+        return verdict(False, list(res.get("findings") or []), owner="")
+    owner = res.get("owner") or "oracle_builder"
+    return verdict(False, list(res.get("findings") or []), owner=owner, retry=owner == "oracle_builder" and ctx.entry < 3)
+
+
 REVIEW_BRIEF = (
     "You review hidden tests a verifier wrote for a coding task before any solution exists. You get the plan (milestones with the "
     "behaviour users must observe and their public names), the users' requests and each milestone's test file. You never see an "
@@ -866,7 +894,8 @@ def handlers(svc: SwarmServices, *, lease: Any, accept: Any) -> dict[str, Any]:
     async def hack(ctx: Any) -> Any:
         return await svc.hack_fn(ctx)  # type: ignore[misc]
 
-    return {"session": svc.pool.handler, "lease": lease, "plan": plan_state, "oracle_check": oracle_check_state, "review": review_state, "build": build,
+    return {"session": svc.pool.handler, "lease": lease, "plan": plan_state, "oracle_check": oracle_check_state, "oracle_plan": oracle_plan_state,
+            "review": review_state, "build": build,
             "prompt": prompt, "gates": gates, "second": second, "hack": hack, "accept": accept}
 
 
@@ -1066,7 +1095,8 @@ class SwarmRunner:
         svc = SwarmServices(cand=cand, clone=clone, work=self.root / "work" / cand.id, funnel=self.funnel, max_milestones=self.max_milestones,
                             clients=self.clients, pool=pool)
         svc.results["base"], svc.results["a_suite"], svc.results["targets"] = str(base), info["a_suite"], info["targets"]
-        svc.oracle_fn = lambda shas, plan: self.regressions(svc, base, shas)
+        svc.oracle_fn = lambda shas, plan: self.regressions(svc, base, shas, plan)
+        svc.oracle_plan_fn = lambda shas, plan: self.oracle_plan(svc, base, shas, plan)
         svc.build_fn, svc.prompt_fn, svc.gates_fn = (lambda ctx: self.build(svc, ctx)), (lambda ctx: self.prompt(svc, ctx)), (lambda ctx: self.gates(svc, ctx))
         svc.second_fn, svc.hack_fn = (lambda ctx: self.second(svc, ctx)), (lambda ctx: self.hack(svc, ctx))
         run = MachineRun(m, run_dir=self.root / "machines" / cand.id, run_id=cand.id, models=ROLE_MODELS, params=pool.params,
@@ -1154,25 +1184,50 @@ class SwarmRunner:
                         continue
         return files
 
-    async def regressions(self, svc: SwarmServices, base: Path, shas: Sequence[str]) -> list[str]:
+    def contradicting(self, base: Path, plan: Mapping[str, Any], ids: Sequence[str]) -> dict[str, list[str]]:
+        """A's tests that use a name the plan removes (``oracleplan.contradicting_tests``): defects, not regression checks."""
+        from crucible.factory.oracleplan import contradicting_tests, plan_probes
+
+        removed = [p.name for p in plan_probes(plan) if p.kind == "removal"]
+        files = sorted({t.split("::", 1)[0] for t in ids})
+        return contradicting_tests(removed, {f: (base / f).read_text(errors="replace") for f in files if (base / f).is_file()}, ids)
+
+    async def regressions(self, svc: SwarmServices, base: Path, shas: Sequence[str], plan: Mapping[str, Any] | None = None) -> list[str]:
         from crucible.factory.lanes.windows import run_tests
 
         a_res = (svc.results.get("a_suite") or {}).get("results") or {}
         passed_a = {t for t, s in a_res.items() if s == "passed"}
         if not passed_a:
             return []
+        # Phase A: a test that uses a name the plan removes is expected to fail once it is removed; it is never a regression
+        contra = self.contradicting(base, plan, sorted(passed_a)) if plan else {}
         files = self.oracle_files(svc.clone, svc.cand.a, shas[-1])
         bad: set[str] | None = None
         for _ in range(2):  # a regression must reproduce (a flaky test is not the oracle's)
             tr = await run_tests(self.sandboxes(svc.cand.image), base, files, {}, svc.results["targets"])
             if tr.infra != "ok":
                 return []
-            now = {t for t in passed_a if tr.results.get(t) != "passed"}
+            svc.results["oracle_suite"] = dict(tr.results)
+            now = {t for t in passed_a if tr.results.get(t) != "passed"} - set(contra)
             bad = now if bad is None else bad & now
         if not bad:
             return []
+        note = (f"; the {len(contra)} test(s) that use what the plan removes are expected to fail and are not counted" if contra else "")
         return [(f"the existing tests that passed before now fail on your final commit ({len(bad)}): {sorted(bad)[:12]}; fix the commit of the "
-                 "milestone that broke them (amend it or rebase), keeping one commit per milestone")]
+                 f"milestone that broke them (amend it or rebase), keeping one commit per milestone{note}")]
+
+    async def oracle_plan(self, svc: SwarmServices, base: Path, shas: Sequence[str], plan: Mapping[str, Any]) -> dict[str, Any]:
+        """S4.5 in the candidate's World (``oracleplan.check`` through ``windows_s3.WindowWorldPort``, offline)."""
+        from crucible.factory.lanes.windows_s3 import WindowWorldPort
+        from crucible.factory.oracleplan import check, world_runner
+
+        if not shas:
+            return {"ok": False, "infra": True, "findings": ["no oracle commits to check"]}
+        a_res = (svc.results.get("a_suite") or {}).get("results") or {}
+        port = WindowWorldPort({"id": svc.cand.id, "repo": svc.cand.repo, "world": {"image": svc.cand.image}}, base, image=svc.cand.image,
+                               name_prefix=self.world_prefix)
+        return await check(plan, base, self.oracle_files(svc.clone, svc.cand.a, shas[-1]), runner=world_runner(port),
+                           regression_ids=sorted(t for t, st in a_res.items() if st == "passed"), regression_on_oracle=svc.results.get("oracle_suite"))
 
     # -- build: tests on A and the oracle, the synthetic window, validate_window ----------------------------------------------
     async def build(self, svc: SwarmServices, ctx: Any) -> Any:
@@ -1203,8 +1258,13 @@ class SwarmRunner:
                                             a_ref=str(svc.cand.window.get("a_ref")), a_date=str(svc.cand.window.get("a_date") or ""), repo=svc.cand.repo)
         rec = await validate_window(win, self.store, self.images, self.sandboxes, reruns=3, min_milestones=2, mutants=True, import_tolerant=True,
                                     leak_prefix=f"{self.world_prefix}leak-", log=None)
+        drop = set((svc.results.get("oracle_plan") or {}).get("drop_from_regression") or [])
+        if drop:  # S4.5: a test of A that uses a name the plan removes is a defect, never a regression check
+            rec["excluded"] = {**(rec.get("excluded") or {}), "contradicts_plan": sorted(drop & (set(rec.get("p2p") or []) | set(rec.get("collateral") or [])))}
+            rec["p2p"] = [t for t in rec.get("p2p") or [] if t not in drop]
+            rec["collateral"] = [t for t in rec.get("collateral") or [] if t not in drop]
         rec[NAME] = {**info, "plan": plan, "requests": ctx.params["spec"]["requests"], "source_window": svc.cand.window["id"], "sources": ctx.params["spec"]["sources"],
-                     "oracle_commits": shas, "hidden_outcomes": per, "verifier_findings_open": findings}
+                     "oracle_commits": shas, "hidden_outcomes": per, "verifier_findings_open": findings, "oracle_plan": svc.results.get("oracle_plan")}
         self.store.save_window(rec)
         stage, reason = rec.get("stage"), str(rec.get("reason") or "")
         b = {"stage": stage, "reason": reason, "milestones": len(rec.get("milestones") or []), "edges": rec.get("dependency_edges"),

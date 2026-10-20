@@ -34,6 +34,7 @@ import time
 import tomllib
 import uuid
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,15 @@ DROP_INSTALLED_SOURCES = ("import importlib.metadata as m, pathlib, re, sys; "
                           "fs = [f for d in m.distributions() if n(d.metadata['Name']) == n(sys.argv[1]) for f in (d.files or [])]; "
                           "[pathlib.Path(f.locate()).unlink(missing_ok=True) for f in fs "
                           "if not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..']")  # one line: a Dockerfile RUN
+# Phase A: A's own distribution name when its packaging does not state it literally (python-semver's ``setup.py`` computes
+# it, so ``project_name`` is None and fix 3 dropped nothing): the name pip reports for A's last install
+DROP_REPORTED_SOURCES = DROP_INSTALLED_SOURCES.replace("n(sys.argv[1])", "n(__import__('json').load(open(sys.argv[1]))['install'][0]['metadata']['name'])")
+# a distribution counts as the project's installed copy when its name is listed, or when it installs one of A's own
+# top-level modules (``mod:<name>`` arguments: ``workspace_modules``), so an unstated name is still found
+_DIST_SEL = ("n = lambda x: re.sub(r'[-_.]+', '-', (x or '').lower()); a = sys.argv[1:]; "
+             "w = {n(x) for x in a if not x.startswith('mod:')}; mods = {x[4:] for x in a if x.startswith('mod:')}; "
+             "own = lambda d: n(d.metadata['Name']) in w or any((len(f.parts) == 2 and f.parts[0] in mods and f.parts[1] == '__init__.py') "
+             "or (len(f.parts) == 1 and f.parts[0][:-3] in mods and f.parts[0].endswith('.py')) for f in (d.files or [])); ")
 REQ_FILE = re.compile(r"(^|/)(requirements[-_/]?)?(test|tests|testing|dev)[^/]*\.(txt|in)$|(^|/)requirements[-_](test|tests|testing|dev)[^/]*\.(txt|in)$"
                       r"|^requirements\.txt$", re.IGNORECASE)  # a root requirements.txt: python-dotenv lists its test deps (click, sh) there
 EXTRAS = ("test", "tests", "testing")
@@ -107,6 +117,31 @@ def ensure_base() -> str:
         if r.returncode != 0:
             raise RuntimeError(f"base image build failed: {r.stderr[-1500:]}")
     return image_id(BASE_IMAGE) or ""
+
+
+NOT_PROJECT_MODULES = {"setup", "conftest", "noxfile", "tasks", "fabfile", "tests", "test", "testing", "docs", "doc", "examples", "example",
+                       "benchmarks", "benchmark", "bench", "scripts", "script", "tools", "ci", "build", "dist", "site", "src", "release", "bootstrap"}
+
+
+def workspace_modules(tree: Path) -> list[str]:
+    """A's own top-level importable names (packages with ``__init__.py`` and modules) at the root, under ``src/``, and in
+    each sub-project of a multi-repository workspace (a stitched World's ``host/`` and ``consumer/``); tests, build
+    scripts and docs left out. The leak probe finds an installed copy through them when the packaging hides its name."""
+    tree = Path(tree)
+    roots = [tree, tree / "src"]
+    roots += [d for d in sorted(tree.iterdir()) if d.is_dir() and any((d / f).exists() for f in PACKAGING)] if tree.is_dir() else []
+    roots += [d / "src" for d in list(roots[2:])]
+    out: set[str] = set()
+    for r in roots:
+        if not r.is_dir():
+            continue
+        for c in r.iterdir():
+            stem = c.name.removesuffix(".py")
+            if stem in NOT_PROJECT_MODULES or stem.startswith(("test_", "_", ".")) or not stem.isidentifier():
+                continue
+            if (c.is_file() and c.name.endswith(".py")) or (c.is_dir() and (c / "__init__.py").is_file()):
+                out.add(stem)
+    return sorted(out)
 
 
 # ---- packaging ---------------------------------------------------------------------------------------------------------
@@ -440,10 +475,18 @@ def world_dockerfile(name: str | None, req_names: list[str], groups: list[str], 
         lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
     for n in (needs or {}).get("import_deps") or []:
         lines.append(f"RUN pip install --no-cache-dir {shlex.quote(n)} || true")
-    if packaged:  # A itself last: nothing above may leave another release of A in site-packages
-        lines.append("RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir --no-deps --force-reinstall .")
+    if packaged:  # A itself last: nothing above may leave another release of A in site-packages. Phase A: when the legacy
+        # ``setup.py`` path fails on what the steps above installed (python-dotenv's setup.py calls ``pypandoc.convert``, gone
+        # from the pypandoc a requirement file installs), the same install in an isolated PEP 517 build. A step that succeeds
+        # is unchanged, so the images it built keep their tags
+        r = "SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip install --no-cache-dir --no-deps --force-reinstall"
+        lines.append(f"RUN {r} . || {r} --use-pep517 .")
         if name:  # and with its metadata only (see EXTRAS_FALLBACK, fix 3)
             lines.append(f"RUN python -c {shlex.quote(DROP_INSTALLED_SOURCES)} {shlex.quote(name)}")
+        else:  # Phase A: the name pip reports (the packaging does not state it)
+            lines[-1] = lines[-1].replace("--force-reinstall .", "--force-reinstall --report /tmp/lh-a.json .").replace(
+                "--force-reinstall --use-pep517 .", "--force-reinstall --use-pep517 --report /tmp/lh-a.json .")
+            lines.append(f"RUN python -c {shlex.quote(DROP_REPORTED_SOURCES)} /tmp/lh-a.json && rm -f /tmp/lh-a.json")
     pins = [needs["pytest"] if (needs or {}).get("pytest") and p.startswith("pytest==") else p for p in BASE_PINS]
     lines.append("RUN pip install --no-cache-dir " + " ".join(shlex.quote(p) for p in pins))
     for k, v in sorted(((needs or {}).get("env") or {}).items()):
@@ -476,6 +519,8 @@ class ImageBook:
             key["tox_deps"] = tox
         if groups:  # installed one by one since v2: only the Worlds with dependency groups change tag
             key["groups_each"] = groups
+        if name is None and any((base_dir / f).exists() for f in PACKAGING):  # Phase A: only Worlds whose name is unstated change tag
+            key["drop_reported"] = True
         h = sha256_hex(IMAGE_RECIPE + EXTRAS_FALLBACK + h + json.dumps(key, sort_keys=True))
         return f"{PREFIX}w:{slug}-{h[:12]}", {"project": name, "requirement_files": files, "requirement_names": names, "groups": groups,
                                                "packaging_hash": h, "recipe": IMAGE_RECIPE, "needs": needs}
@@ -525,13 +570,13 @@ if [ -s /probe/names ]; then
 else
   echo "NAME_HITS="
 fi
-echo "A_SOURCES=$(python3 -c "$LH_ASRC" "$LH_PKG" 2>/dev/null)"
+echo "A_SOURCES=$(python3 -I -c "$LH_ASRC" ${LH_ASRC_PKGS:-"$LH_PKG"} 2>/dev/null)"
 cd /probe/ws && echo "GIT_COMMITS=$(git log --all --format=%H | wc -l)" && echo "GIT_TAGS=$(git tag | tr '\n' ' ')"
 """
 # benchmark v2: the project's installed copy holds no Python source (an image shared by windows with the same packaging
 # carried another window's A: a later A is the solution; ``EXTRAS_FALLBACK`` fix 3 removes it at build)
-LEAK_ASRC = ("import importlib.metadata as m, re, sys; n = lambda x: re.sub(r'[-_.]+', '-', (x or '').lower()); "
-             "print(sum(1 for d in m.distributions() if n(d.metadata['Name']) == n(sys.argv[1]) for f in (d.files or []) "
+# Phase A: every distribution named on the command line (a stitched World installs two projects: host and consumer)
+LEAK_ASRC = ("import importlib.metadata as m, re, sys; " + _DIST_SEL + "print(sum(1 for d in m.distributions() if own(d) for f in (d.files or []) "
              "if str(f).endswith('.py') and not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..'))")
 
 
@@ -550,6 +595,31 @@ for path in open(sys.argv[2]).read().split("\n"):
     if sum(1 for n in names if n in text) >= need:
         print(path)
 """
+
+
+# Phase A (leak evidence): the Python files a World's installed copy of the named distributions holds, with their text, and
+# each distribution's version (an image built before EXTRAS_FALLBACK fix 3 held the A of whichever window built it first)
+INSTALLED_COPY = ("import importlib.metadata as m, json, re, sys; " + _DIST_SEL + "ds = [d for d in m.distributions() if own(d)]; "
+                  "fs = {str(f): f.locate() for d in ds for f in (d.files or []) "
+                  "if str(f).endswith('.py') and not any(p.endswith('.dist-info') for p in f.parts) and f.parts[0] != '..'}; "
+                  "print(json.dumps({'dists': [{'name': d.metadata['Name'], 'version': d.version} for d in ds], "
+                  "'files': {k: open(v, errors='replace').read() for k, v in fs.items() if __import__('os').path.isfile(v)}}))")
+
+
+async def installed_copy(image: str, names: Sequence[str], *, modules: Sequence[str] = (), name_prefix: str = f"{PREFIX}copy-") -> dict[str, Any]:
+    """``{"dists": [{name, version}], "files": {site-packages relative path: text}, "ok"}``: what the World image installed of
+    ``names`` or of the distributions that install one of ``modules`` (``workspace_modules``; Python files only,
+    dist-info left out), read in a ``--network none`` container."""
+    if not name_prefix.startswith(PREFIX):
+        raise ValueError(f"World containers are named {PREFIX}*, got prefix {name_prefix!r}")
+    name = f"{name_prefix}{uuid.uuid4().hex[:10]}"
+    r = await asyncio.to_thread(docker, "run", "--rm", "--name", name, "--network", "none", image, "python", "-I", "-c", INSTALLED_COPY, *[x for x in names if x],
+                                *(f"mod:{x}" for x in modules),
+                                timeout=600)
+    if r.returncode != 0 or not r.stdout.strip():
+        return {"ok": False, "dists": [], "files": {}, "error": (r.stderr or r.stdout)[-400:]}
+    data = json.loads(r.stdout.strip().splitlines()[-1])
+    return {"ok": True, **data}
 
 
 def seed_workspace(base_dir: Path, ws: Path) -> None:
@@ -580,7 +650,9 @@ def judge_leak(fields: dict[str, str], *, version: str | None) -> dict[str, Any]
 
 
 async def leak_probes(image: str, base_dir: Path, *, package: str | None, version: str | None, new_test_names: set[str],
-                      name_prefix: str = f"{PREFIX}leak-") -> dict[str, Any]:
+                      name_prefix: str = f"{PREFIX}leak-", installed: Sequence[str] | None = None) -> dict[str, Any]:
+    """The leak probes (module doc). ``installed``: the distributions whose installed copy must hold no Python source
+    (``no_installed_project_source``); default ``package`` alone (a stitched World names host and consumer)."""
     if not name_prefix.startswith(PREFIX):
         raise ValueError(f"World containers are named {PREFIX}*, got prefix {name_prefix!r}")
     with tempfile.TemporaryDirectory(prefix="lhleak-") as td:
@@ -591,7 +663,9 @@ async def leak_probes(image: str, base_dir: Path, *, package: str | None, versio
         dist = re.sub(r"[-_.]+", "?", (package or "none-such-package"))
         name = f"{name_prefix}{uuid.uuid4().hex[:10]}"
         args = ["run", "--rm", "--name", name, "--network", "none", "-v", f"{probe.resolve()}:/probe:ro", "-e", f"LH_PKG={package or 'none-such-package'}",
-                "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", "-e", f"LH_ASRC={LEAK_ASRC}", image, "bash", "-c", LEAK_SCRIPT]
+                "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", "-e", f"LH_ASRC={LEAK_ASRC}",
+                "-e", "LH_ASRC_PKGS=" + " ".join([*(x for x in (installed or [package]) if x), *(f"mod:{x}" for x in workspace_modules(base_dir))]),
+                image, "bash", "-c", LEAK_SCRIPT]
         r = await asyncio.to_thread(docker, *args, timeout=600)
     if r.returncode not in (0, 1) and "PIP_RC" not in r.stdout:
         return {"probes": {}, "ok": False, "evidence": {"error": (r.stderr or r.stdout)[-500:]}}

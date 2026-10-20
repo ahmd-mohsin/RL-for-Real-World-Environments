@@ -880,3 +880,84 @@ passes.
    - store3's training Worlds (and P6's) predate fix 3. arrow-wce69c31's World holds another A, and S3 now fails every
      old image on the new probe. They need `refresh_world` (or `windows_s3.world_fix`) before training.
 5. Run 8-unit commit runs for held-out (training used 12). DESIGN.md is left to the merge.
+
+## Phase A (built): every World refreshed with evidence, S4.5 oracle-vs-plan, root wiring, the auditor's final turn
+
+Spec: `00` §3.4, §4 S0/S3/S4/S17, §8.3-8.4; the open items of P1, P3, P5b and benchmark v2. Spend **$1.63**: frontier
+$1.16 of the $8 cap, auditor $0.47 of the $1 cap. Reports: `runs/phase_a_{worlds,retarget,oracleplan,auditor}.json`,
+`runs/phase_a_world_versions.jsonl`.
+
+**Files.** New: `factory/oracleplan.py`, `scripts/lh_phase_a.py`, tests `test_m17_pa_{oracleplan,root,auditor}.py` (12, 8, 3).
+Changed: `lanes/windows_{world,s3}.py`, `lanes/windows.py`, `generators/{stitch,swarm,open}.py`, `factory/{root,traceaudit,benchmark}.py`,
+`scripts/lh_swarm.py`, `test_m17_p5b_swarm.py` (S4.5 is in its machine).
+
+**1. Worlds refreshed ($0).** 65 tasks: store3 train 28 and held-out 11; P5a rebreak 1, stitched 5, open 5; P5b swarm 5;
+benchmark v2 10. Per task (`lh_phase_a.py run`, resumable journals):
+- *Evidence*: the World the solvers used (the record's, or P4's head version), its installed copy read, compared with A
+  and B, and matched against every known start tree (`windows_s3.compare_installed`, `identify_copy`).
+- *Fix*: the leak as a `world_bug` through `accept_world_bug`. The repro (installed project source) fails on the oracle in
+  the old World, passes in the rebuilt one, and the rebuilt World passes S3: 60 reruns, today's probes. Each fix becomes a
+  task version chained from P4/P5b's (47 versions; `verify` clean), and the record keeps `world_previous`.
+- *Gates*: S6, S5, S8 and S10 again; `s3_before` is a light S3 on the old World.
+
+| | tasks | result |
+|---|---|---|
+| benchmark v2 | 10 | already current, 0 installed files: no fix needed |
+| old World held installed source (fails today's probe) | 55 | 47 refreshed, S3 passes; 8 keep the old image (below) |
+| held another A / held the solution | 10 / 6 | solution: rb-more-itertools (B's `more.py`), arrow-wce69c31 (the next window's A = its B, 282/282 added lines), op-toolz-2ac03ce8 (15/15), held-out jinja ×2 and mistune-w90b1a73 |
+| later A, no solution | 1 | sw-more-itertools (an open window's A, 17 days later) |
+
+- **Did any solver use it?** 0 of 15 stored rebreak trails read site-packages; the other two have no trails.
+- **The 8 not refreshed.** 7 fail S3 before and after: jinja ×4 (markupsafe `soft_unicode`), mistune-w90b1a73 (timing
+  milestones), arrow-wc856ab9 (no collectable suite), humanize-w3137dac (collection errors). more-itertools-wd23124d has
+  one flaky sampling test at 60 reruns. They must not be trained on.
+- **Verdicts.** None moves because of the World except S3 (every leaky image fails it). 3 differ from the recorded
+  gates for other reasons: an open S10 timing draw, P2's 2-alternative S8 (cachetools-w3e5fe02), marshmallow's volatile ids.
+- **Gaps in the benchmark v2 fix, found and fixed:**
+  1. *Unstated name* (semver's `setup.py` computes it): fix 3 dropped nothing and the probe passed blind. Now: drop by pip's
+     `--report` name; probe and copy reader also match A's own top-level modules (`workspace_modules`).
+  2. *Stitched Worlds had no fix*: recipe `stitch2` reinstalls host and consumer last, metadata only; the probe checks both.
+  3. *Reinstall-last broke python-dotenv* (`setup.py` calls `pypandoc.convert`): isolated PEP 517 fallback (tag unchanged).
+  4. *Rebuild regression*: sqlparse-w93d7718 now pulls pytest-travis-fold (`py.builtin`); a `py==1.11.0` layer (`--carry`).
+
+**2. P5b's "too easy" windows again** (the same gpt-6.1-sol and targeting; staged: pilot, probes, full arm n = 4; the
+simplified arm only below ceiling, since at 4/4 it cannot change the verdict). The pilot ($0.033, reward 1, 13 steps)
+and its extrapolation were written first.
+- **Still too easy, verdict unchanged (S2):** rb-more-itertools 5/5, sw-more-itertools 4/4, sw-python-semver 4/4.
+- **sw-cachetools:** 1 valid episode, target solved, reward 0.5 (the S4.5 defect below).
+- **Not run:** 3 cachetools and all 8 glom episodes came back 402 `in_flight_budget_exhausted` and were masked (V8). The
+  OpenRouter account's credit is spent (1,130 credited, 1,129.90 used). The glom Worlds held their own A only, so the
+  leak cannot explain those verdicts.
+
+**3. S4.5, the oracle against its plan** (`oracleplan.py`; state `oracle_plan` between `oracle_check` and `verifier`).
+- **Plan probes, executed on A and on the oracle in the World.** Removal: the name is gone. Deprecation: it still works
+  and warns, so deprecation is told apart from removal. Addition: a module or a package class gains it. Option: a
+  signature gains it. A runtime attribute falls back to the source and is never a defect.
+- **The contradiction rule.** A test of A that uses a removed name is a defect, not a regression check: `regressions`
+  ignores it, the build drops it (`excluded.contradicts_plan`), and its passing on the oracle shows the removal was skipped.
+- **Real run** (10 stored swarm windows): only sw-cachetools is caught. R1's `MRUCache` and `mru_cache` are
+  `deprecated_not_removed`, and its 23 MRU regression tests still pass on the oracle.
+- **False positives:** the first run had 4 (methods, `Arrow.shift` dotted names, plain parameters, markdown's runtime
+  `toc_tokens`). They are fixed and pinned by tests; after the fix there are 0.
+
+**4. Root curator** (`root.py` + P1's `TaskRepo`, one per family).
+- Another holder's live announcement skips the cell before any lease or attempt; a lease announces its scope (a lost
+  race releases it). Abstention is free: no attempt, no yield-book rejection; the cell closes `abstained`.
+- The 40% herding guard runs at the S17 merge. A held task waits as `herded`, is merged at the end of the run if room
+  opens, and is otherwise retired as rejected with the reason. A machine's own S17 is not counted twice.
+
+**5. The auditor's forced final-verdict turn** (`RLMAuditor.final_verdict`): at the 24-turn cap with no verdict, one more
+turn whose only tool is `verdict`, forced with `tool_choice`, then the same `audit.validate`. It is a harness switch (an
+`fsm` entry); only `AuditorHarness.refine` can enable it.
+- **The A/B** (paired seeds of P3-capped P5b trails + a seeded control). Two pilots ($0.04) fixed the turn: a
+  cause-less output skipped it, and the model called python anyway.
+  - Trail verdict rate: run 3 0.3 → 1.0 (5 of 5 seeds, noise 0); run 4, fresh trails, 0.1 → 0.6. Capped sessions with
+    a validated verdict: 0/16 → 13/17.
+- **Both rejected by `evaluate`.** In run 3 the guard fell to 0.8 because a control was mislabelled in a session that
+  ended normally, where the switch never ran. In run 4 the base re-run died on 402, which `evaluate` read as noise 1.0.
+  The switch stays off. A clean re-run costs about $0.25 once the account has credit (`lh_swarm --auditor-harness` loads it).
+
+**Deviations.** (1) Task 2 is incomplete for cachetools and glom: the account has no credit. (2) The simplified arm was not run
+at ceiling. (3) The forced turn is not enabled: the measured path rejected it. (4) Old images are kept as before-state
+evidence. (5) S9 was not re-run on the refreshed Worlds. Tests: m17 non-Docker 570 plus the new ones; Docker
+`test_m17_{w,p4}_world` 4/4; ruff and lint-imports (4 kept) clean.

@@ -399,7 +399,7 @@ async def refresh_world(rec: Mapping[str, Any], store: Any, images: Any = None, 
         new["world_refresh"] = {"ok": False, "why": "the World image did not build", "tail": str(card.get("build_log", ""))[-600:]}
     else:
         leak = await leak_probes(card["image"], base, package=card.get("project") or project_name(base), version=rec.get("b_version"),
-                                 new_test_names=new_names(rec, base), name_prefix=leak_prefix)
+                                 new_test_names=new_names(rec, base), name_prefix=leak_prefix, installed=card.get("projects"))
         new["world"]["leak"] = leak
         new["world_refresh"] = {"ok": bool(leak.get("ok")), "why": "" if leak.get("ok") else f"leak probe failed: {leak.get('probes')}"}
     store.save_window(new)
