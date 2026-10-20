@@ -17,7 +17,7 @@ Commands (each writes JSON under ``--out``; every paid command takes ``--cap`` U
   (the base model) and the trained adapter at identical settings and seed, the paired trained - control pass@1
   difference with its task-clustered CI, and the protocol check (``factory.tinker.check_protocol``). Use ``eval
   --purpose selection --seed 0`` to choose tasks and ``eval --purpose baseline --seed 1`` for the fresh pre-score.
-- ``smoke-rl``: the toy window (three milestones) in a Docker World, ``--model`` (default Qwen/Qwen3.5-4B), group 4,
+- ``smoke-rl``: the toy window (three milestones) in a Docker World, ``--model`` (default the target Qwen/Qwen3.6-35B-A3B), group 4,
   2 optimizer steps, sampler refresh, then the final adapter downloaded.
 - ``smoke-tools --model M``: one sample-only toy episode (tool calls, $/episode, latency per turn); ``--train-step``
   adds one ``forward_backward`` + ``optim_step`` on a 2-episode group.
@@ -337,7 +337,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    def common(p, *, model="Qwen/Qwen3.5-4B", cap=1.0):
+    def common(p, *, model="Qwen/Qwen3.6-35B-A3B", cap=1.0):
         p.add_argument("--model", default=model)
         p.add_argument("--cap", type=float, default=cap, help="hard USD cap for this command")
         p.add_argument("--out", default=str(ROOT / "data" / "tinker" / time.strftime("%Y%m%d-%H%M%S")))

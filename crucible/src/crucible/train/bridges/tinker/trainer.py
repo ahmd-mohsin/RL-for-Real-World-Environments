@@ -86,7 +86,7 @@ class RunRefused(ValueError):
 
 @dataclass
 class TrainConfig:
-    model: str = "Qwen/Qwen3.5-4B"
+    model: str  # any Tinker id with a price row (models.resolve): the run is model-agnostic
     lora_rank: int = 32
     group_size: int = 4
     groups_per_step: int = 1
@@ -105,7 +105,10 @@ class TrainConfig:
     drop_zero_spread: bool = True
     max_groups_per_step: int | None = None  # default 3 x groups_per_step
     save_every: int = 1
-    ttl_s: int | None = 14 * 86400
+    ttl_s: int | None = 14 * 86400  # save_state checkpoints and the final sampler weights
+    # intermediate sampler weights: needed only while groups sample from them (a Qwen3.6-35B-A3B rank-32 adapter is 2.25 GB,
+    # billed per GB-month), so they expire sooner; the last step keeps ``ttl_s``
+    sampler_ttl_s: int | None = 3 * 86400
     cap_usd: float = 1.0
     seed: int = 0
     require_band: bool = True
@@ -316,7 +319,7 @@ class TinkerTrainer:
             fb = await self.trainer.forward_backward(datums, loss_fn=cfg.loss_fn, config=cfg.loss_fn_config)
             self.meter.book("train", self.model, train=tokens, step=step, datums=len(datums))
         opt = await self.trainer.optim_step(learning_rate=cfg.learning_rate)
-        path = await self.trainer.save_for_sampler(f"{self.name}-s{step:06d}", ttl_s=cfg.ttl_s)
+        path = await self.trainer.save_for_sampler(f"{self.name}-s{step:06d}", ttl_s=cfg.ttl_s if step >= cfg.steps else cfg.sampler_ttl_s)
         self.meter.book("checkpoint", None, op="save_weights_for_sampler", path=path, step=step)
         train_s = time.monotonic() - t0
         await self.sampler.refresh(path, step)

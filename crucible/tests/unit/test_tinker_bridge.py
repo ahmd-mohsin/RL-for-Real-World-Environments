@@ -44,18 +44,17 @@ from crucible.train.bridges.tinker.trainer import Group, RunRefused, TinkerTrain
 from crucible.train.chat import ByteChatCodec
 
 ETA = 0.5
-MODEL = "Qwen/Qwen3.5-4B"
+MODEL = "Qwen/Qwen3.6-35B-A3B"  # the build-and-train target (2026-10-20); the bridge itself is model-agnostic
 
 
 # ---- the price table, the meter ---------------------------------------------------------------------------------------------
 def test_registry_prices_context_and_family() -> None:
     m = tm.resolve(MODEL)
-    assert (m.prices.prefill, m.prices.prefill_cached, m.prices.sample, m.prices.train) == (0.33, 0.066, 1.005, 0.737) and m.context == 65_536
-    assert tm.PRICES_AS_OF == "2026-10-20" and m.tool_format == "qwen_xml" and m.family == "qwen"
+    assert (m.prices.prefill, m.prices.prefill_cached, m.prices.sample, m.prices.train) == (0.45, 0.09, 1.335, 1.177) and m.context == 65_536
+    assert tm.PRICES_AS_OF == "2026-10-20" and m.tool_format == "qwen_xml" and m.family == "qwen" and m.moe
     long = tm.with_context(MODEL, 100_000)
-    assert long.name == "Qwen/Qwen3.5-4B:peft:262144" and long.prices.train == 1.34 and long.prices.sample == 1.005
-    big = tm.resolve("Qwen/Qwen3.6-35B-A3B:peft:262144")
-    assert big.prices.train == 2.14 and big.moe and tm.resolve("Qwen/Qwen3.6-35B-A3B").prices.train == 1.177
+    assert long.name == "Qwen/Qwen3.6-35B-A3B:peft:262144" and long.prices.train == 2.14 and long.prices.sample == 1.335
+    assert "Qwen/Qwen3.5-4B" not in tm.MODELS  # removed from the plan (2026-10-20)
     with pytest.raises(ValueError):
         tm.with_context("Qwen/Qwen3.5-9B", 100_000)  # no 256K variant of the 9B on Tinker
     with pytest.raises(ValueError):
@@ -77,7 +76,7 @@ def test_meter_cap_holds_in_flight_calls_and_reopens(tmp_path: Path) -> None:
         with pytest.raises(TinkerCapReached), meter.hold(0.006, "b"):  # the first call's reservation counts
             pass
         meter.book("sample", m, prefill=1000, prefill_cached=9000, sample=2000, episode="e1")
-    usd = (1000 * 0.33 + 9000 * 0.066 + 2000 * 1.005) / 1e6
+    usd = (1000 * 0.45 + 9000 * 0.09 + 2000 * 1.335) / 1e6
     assert meter.spent == pytest.approx(usd) and meter.exhausted  # a refused call stops the run
     assert issubclass(TinkerCapReached, BudgetExceeded)  # in an episode: crucible:credits_exhausted (masked)
     again = SpendMeter(0.01, path=tmp_path / "spend.jsonl")
@@ -118,7 +117,7 @@ def _qwen_tok():
     try:
         return AutoTokenizer.from_pretrained(MODEL)
     except Exception:  # noqa: BLE001
-        pytest.skip("the Qwen3.5-4B tokenizer is not in the local Hugging Face cache")
+        pytest.skip(f"the {MODEL} tokenizer is not in the local Hugging Face cache")
 
 
 def test_qwen35_template_renders_string_arguments_and_parses_its_own_calls() -> None:
@@ -144,6 +143,36 @@ def test_qwen35_template_renders_string_arguments_and_parses_its_own_calls() -> 
     on = TinkerChatCodec(tok, tm.resolve(MODEL), enable_thinking=True)
     assert tok.decode(on.render(hist[:2], tools)).endswith("<|im_start|>assistant\n<think>\n")
     assert on.parse(tok.encode("plan it\n</think>\n\ndone", add_special_tokens=False) + on.eos_ids) == ("done", [])
+
+
+@pytest.mark.parametrize("name", ["deepseek-ai/DeepSeek-V4.1-Flash:peft:262144", "zai-org/GLM-5.3-Flash:peft:262144",
+                                  "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", "openai/gpt-oss-120b:peft:131072", "moonshotai/Kimi-K2.6:peft:131072"])
+def test_each_family_frames_tito_and_parses_its_templates_own_call(name: str) -> None:
+    """Every family's real template (local HF cache): the TITO suffix is computable (GLM-5.3 and gpt-oss needed their
+    turn-end tokens) and our parser reads back the template's own rendering of a tool call (the text protocol for Kimi
+    and gpt-oss)."""
+    from crucible.train.bridges.tinker.codec import TinkerChatCodec, load_tokenizer
+
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    m = tm.resolve(name)
+    try:
+        tok = load_tokenizer(m)
+    except Exception:  # noqa: BLE001
+        pytest.skip(f"the {m.base} tokenizer is not in the local Hugging Face cache")
+    c = TinkerChatCodec(tok, m, enable_thinking=False)
+    tools = [{"type": "function", "function": {"name": "repo__shell", "description": "run", "parameters": {"type": "object",
+              "properties": {"command": {"type": "string"}}, "required": ["command"]}}}]
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "repo__shell", "arguments": json.dumps({"command": "ls -la"})}}]}]
+    assert c.suffix([{"role": "tool", "tool_call_id": "c1", "content": "out"}], tools)
+    pre, full = tok.decode(c.render(hist[:2], tools)), tok.decode(c._apply(hist, tools, gen=False))
+    seg = full[full.find(pre[-40:]) + 40:] if pre[-40:] in full else full
+    ids = tok.encode(seg, add_special_tokens=False)
+    cut = next((i for i, t in enumerate(ids) if t in c.eos_ids or t in c.turn_end_ids), len(ids))
+    _, calls = c.parse(ids[:cut] + c.eos_ids[:1])
+    assert calls and calls[0]["name"] == "repo__shell" and calls[0]["arguments"] == {"command": "ls -la"}
+    if not m.thinking_kw and m.off_kwargs:
+        assert c.settings()["template_kwargs"] == dict(m.off_kwargs)  # no on/off switch: the lowest effort, recorded
 
 
 def test_errors_split_infra_from_the_request() -> None:
@@ -417,7 +446,7 @@ def test_a_stale_group_is_dropped_not_trained(toy, tmp_path: Path) -> None:
     t._drop(g, "stale")
     assert json.loads((tmp_path / "run-stale" / "drops.jsonl").read_text())["reason"] == "stale" and t.drops == {"stale": 1}
     with pytest.raises(ValueError):
-        TrainConfig(async_groups=1, max_staleness=0)  # off-policy sampling needs a staleness bound
+        TrainConfig(model=MODEL, async_groups=1, max_staleness=0)  # off-policy sampling needs a staleness bound
 
 
 def test_the_cap_stops_the_run_before_a_refused_call_is_sent(toy) -> None:
@@ -437,7 +466,7 @@ def test_band_split_and_objective_are_refused(toy, tmp_path: Path) -> None:
     with pytest.raises(RunRefused, match="no recorded band"):
         TinkerTrainer([env], config=TrainConfig(model=MODEL), run_dir=tmp_path / "a", **kw)
     assert check_band([tid], "Qwen/Qwen3.6-35B-A3B:peft:262144", {tid: {"model": "Qwen/Qwen3.6-35B-A3B", "band": {"in_band": True}}}) == []
-    assert "not Qwen/Qwen3.6-35B-A3B" in check_band([tid], "Qwen/Qwen3.6-35B-A3B", {tid: {"model": MODEL, "band": {"in_band": True}}})[0]
+    assert "not Qwen/Qwen3.6-35B-A3B" in check_band([tid], "Qwen/Qwen3.6-35B-A3B", {tid: {"model": "Qwen/Qwen3.5-9B", "band": {"in_band": True}}})[0]
     assert "out of band" in check_band([tid], MODEL, {tid: {"model": MODEL, "band": {"in_band": False, "rewards": [0, 0]}}})[0]
     TinkerTrainer([env], config=TrainConfig(model=MODEL), run_dir=tmp_path / "b", targeting={tid: {"model": MODEL, "band": {"in_band": True}}}, **kw)
     held = SimpleNamespace(task=SimpleNamespace(task_id="h1", verifier_version="v", split="heldout"), run_spec=None, policy_kwargs=dict)
@@ -567,7 +596,7 @@ def test_factory_backend_make_serves_a_role_with_its_own_spend() -> None:
 @pytest.mark.tinker
 @pytest.mark.skipif(os.environ.get("CRUCIBLE_TINKER_LIVE") != "1" or not os.environ.get("TINKER_API_KEY"),
                     reason="live Tinker: set CRUCIBLE_TINKER_LIVE=1 with TINKER_API_KEY in the environment (paid)")
-def test_live_one_tool_turn_on_qwen35_4b(tmp_path: Path) -> None:
+def test_live_one_tool_turn_on_the_target_model(tmp_path: Path) -> None:
     from crucible.train.bridges.tinker.backend import RealTinker
     from crucible.train.bridges.tinker.sampler import make_sampler
 

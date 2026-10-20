@@ -844,6 +844,30 @@ P6, the sealed benchmark and the slime bridge (`factory/benchmark.py`, `factory/
   masking on the native and slime paths.
 - **Strict sealing leaves 1 of 11 held-out windows.** The causes are a shared org, the time split, and broken or
   timing-dependent Worlds. The benchmark needs a time-cutoff, org-disjoint re-mine.
+
+The Tinker bridge (`train/bridges/tinker/`, `factory/tinker.py`, `scripts/tinker_rl.py`; `docs/research/swarm-pipeline/09`;
+2026-10-20). Tinker (Thinking Machines, hosted LoRA) trains the student `Qwen/Qwen3.6-35B-A3B` and samples every
+non-Claude model (difficulty ladder, cross-family roles):
+- **Models**: a registry of Tinker ids with family, context (64K and `:peft:262144` rows), tool format, thinking switch and
+  the pinned price table (2026-10-20); an unpriced model is refused; `with_context` picks the variant an episode cap needs.
+- **Renderer**: the model's own HF template with exact TITO (`HFChatCodec` + `EngineLLM`), tool-call arguments decoded for
+  templates that iterate them, per-family parsers (Qwen XML, DeepSeek DSML, GLM, Hermes; ported from tinker-cookbook),
+  turn-end tokens for GLM and gpt-oss, a text protocol where the native format is not ported (Kimi, gpt-oss),
+  `enable_thinking` explicit and recorded (off by default).
+- **Spend**: every call booked (cached / uncached prefill from the service's count, sample, train, checkpoints) into
+  `spend.jsonl`; a hard cap that holds each call's worst case first and stops the run.
+- **Training**: groups from `make_env`, the slime bridge's filters (objective, whole-group infra drop and refill,
+  staleness drop, spread), datums under one credit rule (Dr.GRPO outcome advantage, honesty composed, M6 turn credit,
+  one datum per TITO sequence), `importance_sampling` / `ppo` / `cispo`, sampler refresh per step, resume from Tinker state
+  with its optimizer, a per-model task band required.
+- **Benchmark**: lh_metrics plus pass@k, pass^k, task-clustered CIs and USD per passing episode; the protocol (selection
+  run, fresh baseline on a new seed, base control beside the trained adapter at identical settings, paired difference
+  with its CI) checked by `check_protocol`.
+- **Equivalence**: on the P6 scripted solvers the Tinker datums carry, token for token, the slime path's per-token
+  advantages, and the IS loss is equal.
+- **Two TITO defects found by the live smoke, fixed in shared code**: `EngineLLM` read a call's re-render flag after its
+  `gen` await, so concurrent episodes reset it (prefix breaks, masked episodes); `LLMToolPolicy._final_status_turn`
+  ignored the engine's new-segment flag, so every limit-stopped episode on an "interleaved" template was masked.
 P5a, the generators and scouts (`factory/generators/{rebreak,stitch,open}.py`, `factory/sources/`; $0.01):
 - **Each generator builds its own A..B history** in derived clones, so `validate_window` and the P2–P4 handlers run
   unchanged.

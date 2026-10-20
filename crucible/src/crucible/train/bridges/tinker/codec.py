@@ -3,7 +3,7 @@ family (swarm-pipeline/09 §3).
 
 ``TinkerChatCodec`` is ``train.chat.HFChatCodec`` (exact TITO: turn k+1's prompt = prompt_k + completion_k (+ EOS) +
 the template's framing of the new messages, never a re-render of the model's own tokens) with three changes the
-Qwen3.5 family needed on its first contact (probe of 2026-10-20, ``Qwen/Qwen3.5-4B`` tokenizer):
+Qwen3.5 family needed on its first contact (probe of 2026-10-20 on the Qwen3.5 / Qwen3.6 tokenizer, one template):
 
 1. **Tool-call arguments as mappings.** The Qwen3.5 / 3.6 / 3.8 templates iterate ``tool_call.arguments|items``, and the
    policy stores arguments as a JSON string (the OpenAI form): every render of a history with a tool call raised

@@ -261,7 +261,7 @@ async def compare(tasks: Sequence[Any], *, model: str, checkpoint: str, run_dir:
     arms = {"control": control, "trained": trained, **({"baseline": baseline} if baseline else {}), **({"selection": selection} if selection else {})}
     problems = check_protocol(arms)
     diff = paired(control["episodes"], trained["episodes"], metric="pass", n_boot=n_boot, seed=seed)
-    strip = lambda a: {k_: v for k_, v in a.items() if k_ != "episodes"}  # noqa: E731
+    strip = lambda a: {k_: v for k_, v in a.items() if k_ != "episodes"}
     out = {"model": model, "checkpoint": checkpoint, "k": k, "seed": seed, "protocol_problems": problems, "settings": control["settings"],
            "pass@1": {"control": control["metrics"]["pass@1"], "trained": trained["metrics"]["pass@1"],
                       **({"baseline": baseline["metrics"]["pass@1"]} if baseline else {}), **({"selection": selection["metrics"]["pass@1"]} if selection else {})},

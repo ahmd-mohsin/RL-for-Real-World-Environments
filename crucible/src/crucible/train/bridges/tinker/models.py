@@ -115,7 +115,6 @@ def _add(name: str, family: str, ctx: int, prices: Prices, fmt: str, *, long: tu
 
 # Qwen (one family). Qwen3.6 reuses the Qwen3.5 tokenizer and chat template (cookbook model_info: "identical tokenizer,
 # special tokens, preprocessor, and chat template"); Qwen3.8 keeps the tool format and preserves thinking by default.
-_add("Qwen/Qwen3.5-4B", "qwen", K64, _p(0.33, 0.066, 1.005, 0.737), "qwen_xml", long=(K256, 1.34))
 _add("Qwen/Qwen3.5-9B", "qwen", K64, _p(0.30, 0.06, 0.807, 1.463), "qwen_xml")
 _add("Qwen/Qwen3.5-9B-Base", "qwen", K64, _p(0.30, 0.06, 0.807, 1.463), "text", kind="base", thinking_kw=None)
 _add("Qwen/Qwen3.5-35B-A3B-Base", "qwen", K64, _p(0.54, 0.108, 1.335, 1.177), "text", kind="base", moe=True, thinking_kw=None)
@@ -154,7 +153,13 @@ _add("openai/gpt-oss-20b", "openai", K32, _p(0.18, 0.036, 0.45, 0.396), "text", 
 MODELS: dict[str, TinkerModel] = {m.name: m for m in _ROWS}
 
 # what the live smoke of 2026-10-20 exercised (09 §6); filled from its report, so the registry says what is known to work
-TESTED: dict[str, tuple[str, ...]] = {}
+TESTED: dict[str, tuple[str, ...]] = {
+    "Qwen/Qwen3.6-35B-A3B": ("sample", "tools", "train", "refresh", "save_state", "adapter_download", "openai_compatible"),
+    "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144": ("sample", "tools"),
+    "zai-org/GLM-5.3-Flash:peft:262144": ("sample", "tools"),
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:peft:262144": ("sample", "tools"),
+    "Qwen/Qwen3.5-397B-A17B:peft:262144": ("sample", "tools"),
+}
 
 
 def resolve(name: str) -> TinkerModel:
