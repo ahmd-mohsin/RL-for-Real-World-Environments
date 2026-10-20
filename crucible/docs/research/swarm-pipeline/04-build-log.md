@@ -1053,3 +1053,39 @@ at start with `Undeclared`. It now declares the model, sampling, limits, the stu
   passed 3 of 3. No changed file touches its path.
 - `test_m10_lab_audit_r1_harbor.py` fails to collect on main too (`CONNECT_ERROR` is undefined).
 - ruff is clean on the changed files, and lint-imports keeps 4 contracts.
+
+## Tinker bridge (built): Tinker trains the student and samples every non-Claude model
+
+Spec: `09-tinker-bridge.md` (the user's decisions of 2026-10-20: target student `Qwen/Qwen3.6-35B-A3B`; Tinker for
+everything that is not Claude). Spend USD 0.26 of a USD 5 cap (USD 0.12 on Qwen3.5-4B before it was dropped).
+
+**Files.** New: `train/bridges/tinker/` (`models`, `spend`, `backend`, `fake`, `codec`, `sampler`, `datums`, `trainer`),
+`factory/tinker.py` (`train`, `benchmark`, `compare`, `check_protocol`, `download_adapter`), `scripts/tinker_rl.py`;
+tests `tests/unit/test_tinker_bridge.py` (21; one live, skipped unless `CRUCIBLE_TINKER_LIVE=1`). Changed:
+`train/world_env.py` (`EngineLLM` per-call flag race), `actors/policy.py` (`_final_status_turn` new segment),
+`pyproject.toml` (extra `tinker`, marker `tinker`), `THIRD_PARTY.md` (the SDK; the tool parsers ported from
+tinker-cookbook ad3b5c5, Apache-2.0), `DESIGN.md` §7.6. Run data: `runs/tinker_smoke.json`.
+
+**Equivalence with the slime path** (P6's five scripted solvers through `TinkerSampler` on the fake service): identical
+rewards and masking; on every call's tokens the Tinker datum's advantage equals slime's `rewards` + `turn_advantages`;
+the importance-sampling loss is equal. The loop's units: two steps with sampler refresh (step 2 trained on version 1),
+resume with the optimizer from the saved state, a changed configuration refused on resume, a whole group dropped and
+refilled on a World death, zero-spread groups dropped until `too_many_drops`, a stale group dropped, the cap stopping
+the run before a refused call is sent, the band, held-out and objective refusals, the benchmark's metrics and the
+compare protocol.
+
+**Live** (`09` §8): on `Qwen/Qwen3.6-35B-A3B` two optimizer steps with refresh, no drop, USD 0.011 per trained episode,
+2.9 s per turn, the 2.25 GB adapter downloaded, sampler and learner logprobs bit-identical. One sample-only toy episode
+each on Qwen3.5-397B-A17B, DeepSeek-V4.1-Flash, GLM-5.3-Flash and Nemotron-3-Super-120B: every tool call parsed (52
+calls, 0 unparseable); 3 passed, Nemotron hit the tool limit at Φ 1/3. 256 concurrent calls: no error.
+
+**Defects found by the live run** (fixed, each with a test that fails without the fix): the `EngineLLM` per-call
+re-render flag was shared across concurrent episodes; the final STATUS turn ignored the new-segment flag on
+"interleaved" templates (together they masked 3 of 4 episodes per group as `capture_incomplete`); the Runner's breakers
+re-ran a masked group member past `max_attempts` (off inside a group now). Found by the $0 template probe before any
+spend: the Qwen3.5 template rejects JSON-string tool arguments, and `HFChatCodec.parse` read only Hermes JSON (no
+Qwen3.5 tool call would have run); GLM-5.3 and gpt-oss had no computable TITO suffix until their turn-end tokens were
+declared.
+
+**Open.** Live resume and outage backoff; Kimi-K2.6 and gpt-oss live (text protocol); `uv lock` on main; the
+`register_backend("tinker", ...)` line at merge.

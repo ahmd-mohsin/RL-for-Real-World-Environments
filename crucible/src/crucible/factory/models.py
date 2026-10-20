@@ -17,12 +17,12 @@
   | alternatives (``rewriter_deepseek``, ``rewriter_glm``) | DeepSeek-V4.1-Flash, GLM-5.3 | deepseek, glm |
   | tie-break | Nemotron | nemotron (a third family) |
   | fairness / frontier solvers (``frontier``) | ``tinker:Qwen/Qwen3.5-397B-A17B:peft:262144``, DeepSeek-V4.1-Flash | qwen, deepseek |
-  | difficulty ladder (``solvers``) | ``tinker:Qwen/Qwen3.5-4B``, ``-9B``, ``tinker:Qwen/Qwen3.8-27B`` (not Qwen3.6-27B: retiring Oct 23) | qwen |
   | target student | ``tinker:Qwen/Qwen3.6-35B-A3B`` | qwen |
 
-  ``tinker`` is a registered sampler backend (``register_backend``; the client class comes from ``train/bridges/tinker``,
-  owned elsewhere): every ``tinker:<model>`` role or rung is built through it, and until it is registered ``client``
-  raises a ``KeyError`` naming the bridge. Nothing here calls Tinker.
+  There is no difficulty ladder: the target is the only student rung (user, 2026-10-20); difficulty is the target's
+  band plus the frontier solvers' fairness check. ``tinker`` is a registered sampler backend (``register_backend``;
+  ``train/bridges/tinker.sampler.make``, registered on first use by ``backend``); without the optional ``tinker``
+  extra ``client`` raises a ``KeyError`` naming the bridge. Nothing here calls Tinker at import.
 - **The family rule, enforced at construction** (``family_problems``, ``SameFamilyError``): no independent role (reviewer,
   realism, second verifier, auditor, hackers, tie-break, judge) is on Claude Code, on a builder's family (it would grade a
   task its own family built), or on a student's family (it would audit its own family's traces: the Qwen student is never
@@ -72,7 +72,7 @@ GLM_FLASH = f"{TINKER}:zai-org/GLM-5.3-Flash:peft:262144"
 NEMOTRON = f"{TINKER}:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:peft:262144"
 QWEN_FRONTIER = f"{TINKER}:Qwen/Qwen3.5-397B-A17B:peft:262144"
 TARGET_STUDENT = f"{TINKER}:Qwen/Qwen3.6-35B-A3B"  # the student tasks are built for and post-trained (factory.student)
-LADDER = (f"{TINKER}:Qwen/Qwen3.5-4B", f"{TINKER}:Qwen/Qwen3.5-9B", f"{TINKER}:Qwen/Qwen3.8-27B")  # not Qwen3.6-27B (retiring Oct 23)
+LADDER: tuple[str, ...] = ()  # no smaller rungs (user, 2026-10-20): the 35B target is the only student
 FRONTIER_SOLVERS = (QWEN_FRONTIER, DEEPSEEK)  # fairness / frontier solvers (alternatives, the ten-competent-people test)
 SOLVER_RUNGS = (*LADDER, TARGET_STUDENT)
 
@@ -153,7 +153,19 @@ def register_backend(name: str, make: Any, *, final: bool = False, doc: str = ""
     return b
 
 
+def _autoregister(name: str) -> None:
+    """The ``tinker`` backend registers itself on first use (factory sits above train, so the import is legal here); the
+    SDK is an optional extra, so a missing install leaves it unregistered and ``backend`` names the gap."""
+    if name == TINKER and name not in _BACKENDS:
+        try:
+            from crucible.train.bridges.tinker.sampler import make
+        except ImportError:
+            return
+        register_backend(TINKER, make, final=True, doc="Tinker sampling client (train/bridges/tinker)")
+
+
 def backend(name: str) -> SamplerBackend:
+    _autoregister(name)
     if name not in _BACKENDS:
         raise KeyError(f"no sampler backend {name!r} registered (have {sorted(_BACKENDS)}): the Tinker bridge registers 'tinker' "
                        "(train/bridges/tinker); local servers go through [llm_providers]")
@@ -329,6 +341,7 @@ class ModelBook:
                 kw = {"budget_usd": self.budget_usd_per_client, **self.builder_kwargs}
                 self._clients[key] = ClaudeCodeClient(spec.ref, role=key.removeprefix("role:"), **kw)
                 return self._clients[key]
+            _autoregister(spec.provider)
             if spec.provider in _BACKENDS and spec.provider not in self.config.llm_providers:  # the Tinker bridge's sampler
                 from crucible.factory.student import THINKING_DEFAULT
 

@@ -1,0 +1,628 @@
+{
+ "date": "2026-10-20",
+ "openai_compatible": [
+  {
+   "checkpoint": "tinker://976c0d95-9c9e-5ba3-b6e2-871b7a9a5335:train:0/sampler_weights/run-s000002",
+   "content": "",
+   "finish": "tool_calls",
+   "latency_s": 6.17,
+   "ok": true,
+   "tool_calls": [
+    {
+     "arguments": "{\"command\": \"ls\"}",
+     "name": "shell"
+    }
+   ],
+   "usage": {
+    "completion_tokens": 59,
+    "completion_tokens_details": null,
+    "prompt_tokens": 274,
+    "prompt_tokens_details": {
+     "audio_tokens": null,
+     "cache_write_tokens": null,
+     "cached_tokens": 0
+    },
+    "total_tokens": 333
+   }
+  }
+ ],
+ "prices_as_of": "2026-10-20",
+ "probes": {
+  "Qwen/Qwen3.5-4B n=4": {
+   "errors": [],
+   "latency_s": {
+    "max": 1.777,
+    "min": 1.659,
+    "p50": 1.664
+   },
+   "n": 4,
+   "ok": 4,
+   "retry_stats": {},
+   "usd": 3.7e-05,
+   "wall_s": 1.78
+  },
+  "Qwen/Qwen3.5-4B n=64": {
+   "errors": [],
+   "latency_s": {
+    "max": 1.683,
+    "min": 1.482,
+    "p50": 1.539
+   },
+   "n": 64,
+   "ok": 64,
+   "retry_stats": {},
+   "usd": 0.000665,
+   "wall_s": 1.7
+  },
+  "Qwen/Qwen3.6-35B-A3B n=256": {
+   "errors": [],
+   "latency_s": {
+    "max": 2.339,
+    "min": 1.825,
+    "p50": 2.174
+   },
+   "n": 256,
+   "ok": 256,
+   "retry_stats": {},
+   "usd": 0.003935,
+   "wall_s": 2.38
+  },
+  "Qwen/Qwen3.6-35B-A3B n=48": {
+   "errors": [],
+   "latency_s": {
+    "max": 1.686,
+    "min": 1.5,
+    "p50": 1.618
+   },
+   "n": 48,
+   "ok": 48,
+   "retry_stats": {},
+   "usd": 0.000671,
+   "wall_s": 1.69
+  }
+ },
+ "rl": {
+  "smoke-rl-4b": {
+   "adapter": null,
+   "cached_prefill_share": 0.843,
+   "calls": 50,
+   "complete": false,
+   "drops": [],
+   "groups_seen": null,
+   "latency_per_turn_s": {
+    "max": 2.626,
+    "mean": 1.921,
+    "p50": 2.096
+   },
+   "model": null,
+   "prefill_tokens": 87719,
+   "sample_tokens_per_s_per_call": 35.3,
+   "sampled_tokens": 3387,
+   "state_path": null,
+   "steps": [],
+   "steps_done": null,
+   "stop": null,
+   "turns": null,
+   "usd": 0.012819,
+   "usd_per_episode": null,
+   "versions": null,
+   "wall_s": null
+  },
+  "smoke-rl-4b-2": {
+   "adapter": null,
+   "cached_prefill_share": 0.797,
+   "calls": 167,
+   "complete": true,
+   "drops": [
+    {
+     "detail": "2a8dfdcf7f86343e-a1: crucible:capture_incomplete",
+     "reason": "infra_in_group",
+     "rewards": [
+      0.166666
+     ]
+    },
+    {
+     "detail": "318d45c0ffb57262-a1: crucible:capture_incomplete",
+     "reason": "infra_in_group",
+     "rewards": [
+      0.166666
+     ]
+    },
+    {
+     "detail": "529de54342b74d07-a1: crucible:capture_incomplete",
+     "reason": "infra_in_group",
+     "rewards": [
+      0.0
+     ]
+    }
+   ],
+   "groups_seen": 3,
+   "latency_per_turn_s": {
+    "max": 4.098,
+    "mean": 2.201,
+    "p50": 2.197
+   },
+   "model": "Qwen/Qwen3.5-4B",
+   "prefill_tokens": 337733,
+   "sample_tokens_per_s_per_call": 42.3,
+   "sampled_tokens": 15546,
+   "state_path": null,
+   "steps": [],
+   "steps_done": 0,
+   "stop": "too_many_drops",
+   "turns": {
+    "failed_calls": 39,
+    "model_turns": 167,
+    "tool_calls": 184,
+    "tools": {
+     "": 2,
+     "repo.edit_file": 7,
+     "repo.git_commit": 1,
+     "repo.git_diff": 1,
+     "repo.git_status": 11,
+     "repo.grep": 1,
+     "repo.list_dir": 19,
+     "repo.read_file": 42,
+     "repo.shell": 21,
+     "repo.write_file": 79
+    },
+    "unparseable_calls": 2
+   },
+   "usd": 0.056011,
+   "usd_per_episode": 0.0046675870000000026,
+   "versions": {
+    "0": null
+   },
+   "wall_s": 184.6
+  },
+  "smoke-rl-4b-3": {
+   "adapter": null,
+   "cached_prefill_share": 0.787,
+   "calls": 57,
+   "complete": false,
+   "drops": [],
+   "groups_seen": null,
+   "latency_per_turn_s": {
+    "max": 3.209,
+    "mean": 2.053,
+    "p50": 2.135
+   },
+   "model": null,
+   "prefill_tokens": 114858,
+   "sample_tokens_per_s_per_call": 47.0,
+   "sampled_tokens": 5497,
+   "state_path": null,
+   "steps": [],
+   "steps_done": null,
+   "stop": null,
+   "turns": null,
+   "usd": 0.042471,
+   "usd_per_episode": null,
+   "versions": null,
+   "wall_s": null
+  },
+  "smoke-rl-q36": {
+   "adapter": {
+    "archive_bytes": 2245980160,
+    "files": {
+     "adapter_config.json": 934,
+     "adapter_model.safetensors": 2245975768,
+     "checkpoint_complete": 0
+    },
+    "path": "tinker://976c0d95-9c9e-5ba3-b6e2-871b7a9a5335:train:0/sampler_weights/run-s000002"
+   },
+   "cached_prefill_share": 0.768,
+   "calls": 78,
+   "complete": true,
+   "drops": [],
+   "groups_seen": 2,
+   "latency_per_turn_s": {
+    "max": 7.691,
+    "mean": 2.916,
+    "p50": 2.029
+   },
+   "model": "Qwen/Qwen3.6-35B-A3B",
+   "prefill_tokens": 138695,
+   "sample_tokens_per_s_per_call": 34.1,
+   "sampled_tokens": 7758,
+   "state_path": "tinker://976c0d95-9c9e-5ba3-b6e2-871b7a9a5335:train:0/weights/run-state-s000002",
+   "steps": [
+    {
+     "datums": 10,
+     "episodes": 4,
+     "fb_metrics": {
+      "clock_cycle:unique": 8554298.0,
+      "e_frac_oversubscribed:mean": 0.3340820372104645,
+      "e_frac_with_tokens:mean": 0.996777355670929,
+      "e_max_violation:max": 13.759390830993652,
+      "e_max_violation:mean": 7.961997985839844,
+      "e_min_violation:mean": -0.9906246066093445,
+      "loss:sum": 38.59657859802246
+     },
+     "kl_sample_vs_train": 0.0,
+     "loss": 38.59657859802246,
+     "min_versions": [
+      0
+     ],
+     "optim": {},
+     "reward_mean": 0.2916665,
+     "rewards": [
+      [
+       1.0,
+       0.0,
+       0.166666,
+       0.0
+      ]
+     ],
+     "step": 1,
+     "train_s": 11.438,
+     "train_tokens": 22015,
+     "trained_tokens": 3755,
+     "usd_cum": 0.042673
+    },
+    {
+     "datums": 11,
+     "episodes": 4,
+     "fb_metrics": {
+      "clock_cycle:unique": 8554335.0,
+      "e_frac_oversubscribed:mean": 0.3343749940395355,
+      "e_frac_with_tokens:mean": 0.996874988079071,
+      "e_max_violation:max": 14.315836906433105,
+      "e_max_violation:mean": 7.946447849273682,
+      "e_min_violation:mean": -0.9903850555419922,
+      "loss:sum": 157.7408332824707
+     },
+     "kl_sample_vs_train": 0.0,
+     "loss": 157.7408332824707,
+     "min_versions": [
+      1
+     ],
+     "optim": {},
+     "reward_mean": 0.333333,
+     "rewards": [
+      [
+       0.166666,
+       0.166666,
+       0.0,
+       1.0
+      ]
+     ],
+     "step": 2,
+     "train_s": 19.21,
+     "train_tokens": 24462,
+     "trained_tokens": 4003,
+     "usd_cum": 0.089135
+    }
+   ],
+   "steps_done": 2,
+   "stop": "done",
+   "turns": {
+    "failed_calls": 1,
+    "model_turns": 78,
+    "tool_calls": 121,
+    "tools": {
+     "repo.edit_file": 5,
+     "repo.git_diff": 4,
+     "repo.git_status": 2,
+     "repo.list_dir": 13,
+     "repo.read_file": 33,
+     "repo.shell": 28,
+     "repo.write_file": 36
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.089135,
+   "usd_per_episode": 0.011141818625000003,
+   "versions": {
+    "0": null,
+    "1": "tinker://976c0d95-9c9e-5ba3-b6e2-871b7a9a5335:train:0/sampler_weights/run-s000001",
+    "2": "tinker://976c0d95-9c9e-5ba3-b6e2-871b7a9a5335:train:0/sampler_weights/run-s000002"
+   },
+   "wall_s": 281.5
+  }
+ },
+ "sampler_vs_trainer_logprobs": {
+  "identical": 633,
+  "keys": [
+   "logprobs"
+  ],
+  "max_abs_diff": 0.0,
+  "mean_diff": 0.0,
+  "model": "Qwen/Qwen3.6-35B-A3B",
+  "note": "forward pass of a fresh LoRA client (zero adapter) on a base-model rollout, the sampling logprobs sent as zeros",
+  "tokens": 633,
+  "usd": 0.00476685
+ },
+ "tools": {
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": {
+   "cached_prefill_share": 0.811,
+   "calls": 12,
+   "codec": {
+    "enable_thinking": false,
+    "eos_ids": [
+     248046
+    ],
+    "model": "Qwen/Qwen3.5-397B-A17B:peft:262144",
+    "template_kwargs": {
+     "enable_thinking": false
+    },
+    "text_protocol": false,
+    "tool_format": "qwen_xml"
+   },
+   "episode": [
+    {
+     "failure": null,
+     "final_phi": 1.0,
+     "masked": false,
+     "passed": true,
+     "reward": 1.0,
+     "rollout": "93c8d749efbf38cb-a1",
+     "stop": "agent_done",
+     "task": "toyrepo-w90d5079-1258bd0~41ed4a",
+     "turns": 12,
+     "usd": 0.021243
+    }
+   ],
+   "latency_per_turn_s": {
+    "max": 2.635,
+    "mean": 1.655,
+    "p50": 1.377
+   },
+   "mean_final_phi": 1.0,
+   "pass@1": 1.0,
+   "prefill_tokens": 22720,
+   "sample_tokens_per_s_per_call": 54.3,
+   "sampled_tokens": 1078,
+   "turns": {
+    "failed_calls": 0,
+    "model_turns": 12,
+    "tool_calls": 15,
+    "tools": {
+     "repo.edit_file": 1,
+     "repo.git_status": 2,
+     "repo.list_dir": 2,
+     "repo.read_file": 5,
+     "repo.shell": 3,
+     "repo.write_file": 2
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.021243,
+   "usd_per_episode": 0.021242760000000003,
+   "wall_s": 53.5
+  },
+  "Qwen/Qwen3.5-4B": {
+   "cached_prefill_share": 0.737,
+   "calls": 15,
+   "codec": {
+    "enable_thinking": false,
+    "eos_ids": [
+     248046
+    ],
+    "model": "Qwen/Qwen3.5-4B",
+    "template_kwargs": {
+     "enable_thinking": false
+    },
+    "text_protocol": false,
+    "tool_format": "qwen_xml"
+   },
+   "episode": [
+    {
+     "failure": null,
+     "final_phi": 1.0,
+     "masked": false,
+     "passed": true,
+     "reward": 1.0,
+     "rollout": "02f656f868d4c7c2-a1",
+     "stop": "max_steps",
+     "task": "toyrepo-w90d5079-1258bd0~41ed4a",
+     "turns": 15,
+     "usd": 0.006414
+    }
+   ],
+   "latency_per_turn_s": {
+    "max": 2.504,
+    "mean": 1.914,
+    "p50": 2.332
+   },
+   "mean_final_phi": 1.0,
+   "pass@1": 1.0,
+   "prefill_tokens": 35243,
+   "sample_tokens_per_s_per_call": 57.0,
+   "sampled_tokens": 1635,
+   "turns": {
+    "failed_calls": 4,
+    "model_turns": 15,
+    "tool_calls": 16,
+    "tools": {
+     "repo.edit_file": 1,
+     "repo.git_diff": 1,
+     "repo.git_status": 1,
+     "repo.list_dir": 1,
+     "repo.read_file": 3,
+     "repo.shell": 2,
+     "repo.write_file": 7
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.006414,
+   "usd_per_episode": 0.006413588999999999,
+   "wall_s": 40.3
+  },
+  "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144": {
+   "cached_prefill_share": 0.738,
+   "calls": 6,
+   "codec": {
+    "enable_thinking": false,
+    "eos_ids": [
+     1
+    ],
+    "model": "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144",
+    "template_kwargs": {
+     "enable_thinking": false
+    },
+    "text_protocol": false,
+    "tool_format": "dsml"
+   },
+   "episode": [
+    {
+     "failure": null,
+     "final_phi": 1.0,
+     "masked": false,
+     "passed": true,
+     "reward": 1.0,
+     "rollout": "6749630dbaf6e4c3-a1",
+     "stop": "agent_done",
+     "task": "toyrepo-w90d5079-1258bd0~41ed4a",
+     "turns": 6,
+     "usd": 0.006722
+    }
+   ],
+   "latency_per_turn_s": {
+    "max": 2.542,
+    "mean": 2.413,
+    "p50": 2.395
+   },
+   "mean_final_phi": 1.0,
+   "pass@1": 1.0,
+   "prefill_tokens": 9719,
+   "sample_tokens_per_s_per_call": 83.1,
+   "sampled_tokens": 1203,
+   "turns": {
+    "failed_calls": 0,
+    "model_turns": 6,
+    "tool_calls": 13,
+    "tools": {
+     "repo.git_status": 1,
+     "repo.list_dir": 1,
+     "repo.read_file": 5,
+     "repo.shell": 2,
+     "repo.write_file": 4
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.006722,
+   "usd_per_episode": 0.0067215600000000006,
+   "wall_s": 139.5
+  },
+  "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:peft:262144": {
+   "cached_prefill_share": 0.835,
+   "calls": 17,
+   "codec": {
+    "enable_thinking": false,
+    "eos_ids": [
+     11
+    ],
+    "model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:peft:262144",
+    "template_kwargs": {
+     "enable_thinking": false
+    },
+    "text_protocol": false,
+    "tool_format": "qwen_xml"
+   },
+   "episode": [
+    {
+     "failure": null,
+     "final_phi": 0.333333333,
+     "masked": false,
+     "passed": false,
+     "reward": 0.166666,
+     "rollout": "b3c2462d1e763724-a1",
+     "stop": "max_steps",
+     "task": "toyrepo-w90d5079-1258bd0~41ed4a",
+     "turns": 17,
+     "usd": 0.008274
+    }
+   ],
+   "latency_per_turn_s": {
+    "max": 3.407,
+    "mean": 2.375,
+    "p50": 2.413
+   },
+   "mean_final_phi": 0.333333333,
+   "pass@1": 0.0,
+   "prefill_tokens": 34632,
+   "sample_tokens_per_s_per_call": 29.7,
+   "sampled_tokens": 1198,
+   "turns": {
+    "failed_calls": 2,
+    "model_turns": 17,
+    "tool_calls": 16,
+    "tools": {
+     "repo.edit_file": 1,
+     "repo.git_diff": 1,
+     "repo.git_stat": 1,
+     "repo.git_status": 2,
+     "repo.list_dir": 2,
+     "repo.read_file": 1,
+     "repo.shell": 4,
+     "repo.write_file": 4
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.008274,
+   "usd_per_episode": 0.008274192000000001,
+   "wall_s": 95.6
+  },
+  "zai-org/GLM-5.3-Flash:peft:262144": {
+   "cached_prefill_share": 0.797,
+   "calls": 7,
+   "codec": {
+    "enable_thinking": false,
+    "eos_ids": [
+     154827,
+     154829,
+     154820
+    ],
+    "model": "zai-org/GLM-5.3-Flash:peft:262144",
+    "template_kwargs": {
+     "reasoning_effort": "low"
+    },
+    "text_protocol": false,
+    "tool_format": "glm"
+   },
+   "episode": [
+    {
+     "failure": null,
+     "final_phi": 1.0,
+     "masked": false,
+     "passed": true,
+     "reward": 1.0,
+     "rollout": "ba72450a1cad539b-a1",
+     "stop": "agent_done",
+     "task": "toyrepo-w90d5079-1258bd0~41ed4a",
+     "turns": 7,
+     "usd": 0.003583
+    }
+   ],
+   "latency_per_turn_s": {
+    "max": 3.405,
+    "mean": 2.443,
+    "p50": 2.408
+   },
+   "mean_final_phi": 1.0,
+   "pass@1": 1.0,
+   "prefill_tokens": 8349,
+   "sample_tokens_per_s_per_call": 28.9,
+   "sampled_tokens": 494,
+   "turns": {
+    "failed_calls": 0,
+    "model_turns": 7,
+    "tool_calls": 8,
+    "tools": {
+     "repo.edit_file": 1,
+     "repo.git_status": 1,
+     "repo.list_dir": 1,
+     "repo.read_file": 1,
+     "repo.search": 1,
+     "repo.shell": 1,
+     "repo.write_file": 2
+    },
+    "unparseable_calls": 0
+   },
+   "usd": 0.003583,
+   "usd_per_episode": 0.003582668,
+   "wall_s": 71.4
+  }
+ }
+}

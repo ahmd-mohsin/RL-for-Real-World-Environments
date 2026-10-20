@@ -40,6 +40,8 @@ remote = ["websockets>=12"]
 answers = ["math-verify>=0.7"]
 # Multi-node placement on Ray (M12-infra C, train.cluster.RayLauncher): per-node placement groups; optional.
 ray = ["ray>=2.40"]
+# Tinker (Thinking Machines) as trainer and sampler (train/bridges/tinker; Apache-2.0 SDK, imported lazily).
+tinker = ["tinker>=0.34", "transformers>=4.56"]
 # verifiers v1 (prime-rl path). Pins mcp==2.0.0, so it cannot share an env with agentenv / mcp.
 verifiers = ["verifiers"]
 dev = [
@@ -135,6 +137,7 @@ markers = [
   "gpu: needs the lab RTX 5090 (CRUCIBLE_GPU_HOST)",
   "llm: calls a paid LLM endpoint (OPENROUTER_API_KEY)",
   "slow: takes more than ~30 s",
+  "tinker: calls the paid Tinker service (TINKER_API_KEY); runs only with CRUCIBLE_TINKER_LIVE=1, never in CI",
 ]
 
 [tool.importlinter]

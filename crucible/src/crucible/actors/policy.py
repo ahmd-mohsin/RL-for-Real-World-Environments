@@ -427,6 +427,10 @@ class LLMToolPolicy(Policy):
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         except (LLMError, BudgetExceeded, ContextOverflow) as e:
             return Done(reason=f"the tool-call limit was reached; the final turn failed: {e}")
+        if (r.tokens or {}).get("new_segment") and self.model_calls:  # as in ``_act``: the harness note is a user turn, so a template
+            # that drops earlier reasoning there (Qwen3.5, "interleaved") re-rendered the history: a new segment, not a prefix break
+            # (Tinker smoke 2026-10-20: the final STATUS turn of every limit-stopped episode was masked capture_incomplete)
+            self._new_segment("rerender", approx_tokens(self.messages), len(self.messages))
         call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "turn", "segment": self.segment, "context_tokens": approx_tokens(self.messages),
                 "step": obs.step, "model": r.model, "finish": r.raw_finish, "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
                 "cached": r.cached, "response_id": r.response_id, "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),

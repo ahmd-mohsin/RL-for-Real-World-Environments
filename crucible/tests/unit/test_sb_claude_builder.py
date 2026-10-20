@@ -262,7 +262,7 @@ def test_the_default_map_is_claude_plus_tinker_and_holds_the_family_rule() -> No
     assert (fam["second_verifier"], fam["reviewer"], fam["auditor"], fam["judge"]) == ("deepseek", "glm", "glm", "glm")
     assert {fam["hacker"], fam["hacker_2"]} == {"deepseek", "nemotron"} and {fam["rewriter_deepseek"], fam["rewriter_glm"]} == {"deepseek", "glm"}
     assert b.spec("reviewer").ref == "tinker:zai-org/GLM-5.3:peft:262144" and b.spec("judge").model == "zai-org/GLM-5.3-Flash:peft:262144"
-    assert [s.ref for s in b.solvers] == ["tinker:Qwen/Qwen3.5-4B", "tinker:Qwen/Qwen3.5-9B", "tinker:Qwen/Qwen3.8-27B", "tinker:Qwen/Qwen3.6-35B-A3B"]
+    assert [s.ref for s in b.solvers] == ["tinker:Qwen/Qwen3.6-35B-A3B"]  # no ladder: the target is the only student
     assert [s.ref for s in b.frontier] == ["tinker:Qwen/Qwen3.5-397B-A17B:peft:262144", "tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"]
     assert all(s.provider in ("claude-code", "tinker") for s in [*b.roles.values(), *b.solvers, *b.frontier])  # OpenRouter unused
     assert b.family_problems() == []
@@ -275,6 +275,7 @@ def test_the_default_map_is_claude_plus_tinker_and_holds_the_family_rule() -> No
 
 def test_tinker_roles_build_through_the_registered_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(models, "_BACKENDS", {})
+    monkeypatch.setattr(models, "_autoregister", lambda name: None)  # as without the optional tinker extra
     b = ModelBook()
     with pytest.raises(KeyError, match="train/bridges/tinker"):
         b.client("reviewer")  # nothing registered: a clear error, and no call
@@ -289,8 +290,7 @@ def test_tinker_roles_build_through_the_registered_backend(monkeypatch: pytest.M
     c = b.client("reviewer")
     assert isinstance(c, Fake) and made[-1] == ("zai-org/GLM-5.3:peft:262144", {"role": "reviewer"})
     (spec, _sc), *_ = b.solver_clients()
-    assert spec.ref == "tinker:Qwen/Qwen3.5-4B" and made[1] == ("Qwen/Qwen3.5-4B", {"role": "solver", "thinking": False})
-    assert made[-1][0] == "Qwen/Qwen3.6-35B-A3B"
+    assert spec.ref == "tinker:Qwen/Qwen3.6-35B-A3B" and made[1] == ("Qwen/Qwen3.6-35B-A3B", {"role": "solver", "thinking": False})
     assert len(b.frontier_clients()) == 2 and b.observed() == 0.0
 
 
@@ -343,3 +343,12 @@ def test_run_receipt_keeps_plan_usage_beside_dollars(tmp_path: Path) -> None:
 
     rec = run_receipt(Run(), scope="s", not_verified=["x"], plan_usage={"total": {"calls": 2}})  # type: ignore[arg-type]
     assert rec["spend"]["plan"] == {"total": {"calls": 2}} and rec["spend"]["usd"] == 0.0
+
+
+def test_the_tinker_backend_registers_itself_on_first_use(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("tinker")
+    from crucible.train.bridges.tinker import sampler
+
+    monkeypatch.setattr(models, "_BACKENDS", {})
+    b = models.backend("tinker")
+    assert b.final and b.make is sampler.make
