@@ -52,6 +52,10 @@ def cp_upper(fails: int, n: int, alpha: float = 0.05) -> float:
 
 def new_names(rec: Mapping[str, Any], base_dir: Path) -> set[str]:
     """Test functions B's test files define that A's tree never mentions (the leak probe's names)."""
+    from crucible.factory.langs.base import active
+
+    if (lang := active()) is not None:
+        return lang.new_test_names(rec.get("tests_b") or {}, {}, Path(base_dir))
     a_text = "\n".join(f.read_text(errors="replace") for f in Path(base_dir).rglob("*.py") if f.is_file())
     names = {q.rsplit("::", 1)[-1] for txt in (rec.get("tests_b") or {}).values() for q in _defs(txt)}
     return {n for n in names if n.startswith("test") and n not in a_text}
@@ -80,7 +84,9 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
                              "tail": first.tail[-600:] if not ran else ""}
     out["checks"]["existing_tests_run"] = ran
     w = rec.get("world") or {}
-    leak = await leak_probes(image, base_dir, package=w.get("project") or rec.get("repo"), version=rec.get("b_version"),
+    from crucible.factory.langs.base import active
+
+    leak = await (lang.leak_probes if (lang := active()) is not None else leak_probes)(image, base_dir, package=w.get("project") or rec.get("repo"), version=rec.get("b_version"),
                              new_test_names=new_names(rec, base_dir), name_prefix=f"{name_prefix}leak-", installed=w.get("projects"))
     out["leak"] = leak
     out["checks"]["leak_probes_hold"] = bool(leak.get("ok"))

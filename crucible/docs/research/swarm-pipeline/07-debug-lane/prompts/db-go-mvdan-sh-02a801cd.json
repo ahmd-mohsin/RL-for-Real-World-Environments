@@ -1,0 +1,11 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "Our editor tooling uses this shell parser and formatter (the syntax package) for highlighting, positions and formatting, and several things come out wrong.",
+ "requirements": {
+  "m01": "Several syntax nodes report the wrong end position (End). An array element written with an index and an equals sign but no value ends at its index instead of after the \"]=\"; a file whose last statement carries several comments ends at the first of them instead of the last; a naked indexed assignment without \"=\" (such as declare a[1]) is reported as ending one byte too far; and the mksh brace forms of for and case clauses end four bytes after the closing \"}\" instead of right after it.",
+  "m02": "In zsh mode the \";|\" case clause terminator is rejected as a syntax error, although zsh accepts it with the same meaning mksh gives it (and mksh mode already supports it). It should parse and print in zsh mode as in mksh mode, and used outside a case clause it should fail with \"`;|` can only be used in a case clause\" in both modes.",
+  "m03": "The formatter separates nested opening parentheses but not nested closing ones: \"( (foo) )\" is printed as \"( (foo))\" and \"$( (foo) )\" as \"$( (foo))\", also inside double quotes. When a subshell or a command substitution holds a single statement that itself ends with a closing parenthesis on the same line, the two closing parentheses should be separated by a space, mirroring the opening side; process substitutions such as <((foo)) stay as they are.",
+  "m04": "Inside an indented block, a <<- heredoc whose first line carries an inline comment, as in an if block containing cat <<-EOF # comment, gets that comment printed twice by the formatter. Such scripts should format unchanged."
+ },
+ "closing": ""
+}

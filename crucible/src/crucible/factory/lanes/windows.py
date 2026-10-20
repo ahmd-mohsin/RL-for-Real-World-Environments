@@ -87,6 +87,7 @@ from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, min
 from crucible.factory.lanes.windows_imports import project_roots, tolerant_tests
 from crucible.factory.lanes.windows_timing import timing_tests
 from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
+from crucible.factory.langs.base import active as _lang
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
 from crucible.factory.pathcheck import PathRules, RequiredAction, ToolCall, check_paths, find_trail
 
@@ -121,6 +122,38 @@ REPO_URLS = {
     "cattrs": "python-attrs/cattrs", "loguru": "Delgan/loguru", "nox": "wntrblm/nox", "litestar": "litestar-org/litestar",
     "tablib": "jazzband/tablib", "jsonpath-ng": "h2non/jsonpath-ng",
 }
+# the multi-language debugging lane (swarm-pipeline/07, 2026-10-20): its sources, and its held-out repositories, chosen after
+# the S1 fix count and before any executed mining (one or more per language, every repository of an org held out together).
+# alecthomas/kong is left out: alecthomas owns the held-out voluptuous (an org shared with a held-out source never trains)
+DEBUG_REPO_URLS = {
+    "esbuild": "evanw/esbuild", "go-yaml": "goccy/go-yaml", "expr": "expr-lang/expr", "mvdan-sh": "mvdan/sh", "goldmark": "yuin/goldmark",
+    "gojq": "itchyny/gojq", "burntsushi-toml": "BurntSushi/toml", "go-toml": "pelletier/go-toml", "cobra": "spf13/cobra", "urfave-cli": "urfave/cli",
+    "minify": "tdewolff/minify", "lo": "samber/lo", "validator": "go-playground/validator",
+    "quick-xml": "tafia/quick-xml", "ron": "ron-rs/ron", "pulldown-cmark": "pulldown-cmark/pulldown-cmark", "toml-rs": "toml-rs/toml",
+    "chrono": "chronotope/chrono", "jiff": "BurntSushi/jiff", "saphyr": "saphyr-rs/saphyr", "kdl-rs": "kdl-org/kdl-rs", "pest": "pest-parser/pest",
+    "clap": "clap-rs/clap", "minijinja": "mitsuhiko/minijinja", "rust-url": "servo/rust-url", "config-rs": "rust-cli/config-rs", "fd": "sharkdp/fd",
+    "serde-json": "serde-rs/json",
+    "eemeli-yaml": "eemeli/yaml", "sql-formatter": "sql-formatter-org/sql-formatter", "es-toolkit": "toss/es-toolkit", "ufo": "unjs/ufo",
+    "hono": "honojs/hono", "svgo": "svg/svgo", "dayjs": "iamkun/dayjs", "luxon": "moment/luxon", "immer": "immerjs/immer", "zustand": "pmndrs/zustand",
+    "jotai": "pmndrs/jotai", "react-hook-form": "react-hook-form/react-hook-form", "yup": "jquense/yup", "cheerio": "cheeriojs/cheerio",
+    "fuse": "krisk/Fuse", "htmlparser2": "fb55/htmlparser2", "h3": "unjs/h3", "unimport": "unjs/unimport",
+    "jsoup": "jhy/jsoup", "jackson-core": "FasterXML/jackson-core", "jackson-databind": "FasterXML/jackson-databind", "commons-lang": "apache/commons-lang",
+    "fzf": "junegunn/fzf", "go-task": "go-task/task", "fiber": "gofiber/fiber", "yq": "mikefarah/yq", "testify": "stretchr/testify", "gin": "gin-gonic/gin",
+    "echo": "labstack/echo", "lipgloss": "charmbracelet/lipgloss", "koanf": "knadh/koanf", "go-github": "google/go-github", "bat": "sharkdp/bat",
+    "ripgrep": "BurntSushi/ripgrep", "ratatui": "ratatui/ratatui", "syn": "dtolnay/syn", "serde": "serde-rs/serde", "eza": "eza-community/eza",
+    "regex": "rust-lang/regex", "axios": "axios/axios", "prettier": "prettier/prettier",
+    "msw": "mswjs/msw", "tailwind-merge": "dcastil/tailwind-merge", "valtio": "pmndrs/valtio", "user-event": "testing-library/user-event",
+    "dom-testing-library": "testing-library/dom-testing-library", "zod": "colinhacks/zod", "pydantic": "pydantic/pydantic", "fastapi": "fastapi/fastapi",
+    "flask": "pallets/flask", "attrs": "python-attrs/attrs",
+    "black": "psf/black", "rich": "Textualize/rich", "pygments": "pygments/pygments", "beartype": "beartype/beartype", "werkzeug": "pallets/werkzeug",
+}
+REPO_URLS.update(DEBUG_REPO_URLS)
+HELD_OUT_REPOS.update({"urfave-cli": "D", "h3": "D", "unimport": "D", "ufo": "D", "minijinja": "D", "beartype": "D"})
+# a second held-out draw (2026-10-20, after the first draw's mining and before any mining of these): more of the held-out
+# unjs org, and one Go repository whose org has nothing in training
+DEBUG_REPO_URLS.update({"go-zero": "zeromicro/go-zero", "unstorage": "unjs/unstorage", "ofetch": "unjs/ofetch", "crossws": "unjs/crossws", "c12": "unjs/c12"})
+REPO_URLS.update(DEBUG_REPO_URLS)
+HELD_OUT_REPOS.update({"go-zero": "D", "unstorage": "D", "ofetch": "D", "crossws": "D", "c12": "D"})
 # one module that fails to import must not stop the others from running: a milestone's tests are judged on their own
 COLLECT_ALL = ("--continue-on-collection-errors",)
 STAGES = ("windows", "world_built", "leak_ok", "f2p_valid", "dependent", "mutants_valid")
@@ -263,6 +296,8 @@ def solution_files(base_dir: Path, solution: Any) -> tuple[dict[str, str | None]
 
 
 def suite_targets(tree: Path, tests: Mapping[str, str], deleted: Sequence[str] = ()) -> list[str]:
+    if (lang := _lang()) is not None:  # a non-Python profile (factory.langs): its own suite files
+        return sorted((set(lang.suite_targets(Path(tree))) - set(deleted)) | {p for p in tests if lang.is_test_file(p)})
     files = {f.relative_to(tree).as_posix() for f in Path(tree).rglob("*.py")} - set(deleted)
     files |= set(tests)
     return sorted(p for p in files if is_test_path(p) and SUITE_FILE.search(p) and not p.startswith((".", "docs/", "doc/")))
@@ -619,7 +654,8 @@ def observation(rec: Mapping[str, Any]) -> dict[str, Any]:
 
 def mined_of(rec: Mapping[str, Any], base_dir: Path) -> MinedTask:
     """The window as the executable lane's record (``ExecTask`` grades, floors and attacks it unchanged)."""
-    src = sorted(p for p in rec["oracle_files"] if p.endswith(".py"))
+    lang = _lang()
+    src = sorted(p for p in rec["oracle_files"] if (lang.is_source(p) if lang is not None else p.endswith(".py")))
     base_src = {p: (base_dir / p).read_text(errors="replace") for p in src if (base_dir / p).is_file()}
     fix_src = {p: rec["oracle_files"][p] for p in src}
     ms = rec["milestones"]
@@ -635,7 +671,9 @@ def window_files(rec: dict[str, Any], repo: RepoGit) -> None:
     """``tests_b`` (every test file the window adds or changes, at B), ``tests_deleted`` and ``oracle_files`` (every
     agent-writable path that differs between A and B, at B; None = deleted)."""
     changed = repo.changed(rec["a"], rec["b"])
-    rec["tests_b"] = {p: txt for s, p in changed if s != "D" and is_test_path(p) and p.endswith(".py") and (txt := repo.show(rec["b"], p)) is not None}
+    lang = _lang()  # a non-Python profile: every test-side file the window changes (data and snapshots too) is the grader's
+    rec["tests_b"] = {p: txt for s, p in changed if s != "D" and is_test_path(p) and (lang is not None or p.endswith(".py"))
+                      and (txt := repo.show(rec["b"], p)) is not None}
     rec["tests_deleted"] = sorted(p for s, p in changed if s == "D" and is_test_path(p))
     oracle_files: dict[str, str | None] = {}
     for s, p in changed:
@@ -650,6 +688,8 @@ def window_files(rec: dict[str, Any], repo: RepoGit) -> None:
 
 def new_test_names(rec: Mapping[str, Any], repo: RepoGit, base: Path) -> set[str]:
     """Test functions B defines that A's tree never mentions (what the leak probe looks for in the image)."""
+    if (lang := _lang()) is not None:
+        return lang.new_test_names(rec["tests_b"], {p: repo.show(rec["a"], p) for p in rec["tests_b"]}, Path(base))
     names: set[str] = set()
     for p, txt in rec["tests_b"].items():
         before = set(_defs(repo.show(rec["a"], p)))
@@ -757,7 +797,7 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     rec["stage"] = "world_built"
     window_files(rec, repo)
     t1 = time.monotonic()
-    leak = await leak_probes(card["image"], base, package=card.get("project") or project_name(base), version=win.b_version,
+    leak = await (lang.leak_probes if (lang := _lang()) is not None else leak_probes)(card["image"], base, package=card.get("project") or project_name(base), version=win.b_version,
                              new_test_names=new_test_names(rec, repo, base), installed=card.get("projects"),
                              **({"name_prefix": leak_prefix} if leak_prefix else {}))
     rec["world"]["leak"] = leak
@@ -955,7 +995,10 @@ LINT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
                            re.IGNORECASE)),
     ("process", re.compile(r"\b(by hand|manually|from scratch|from memory)\b", re.IGNORECASE)),
     ("process", re.compile(r"\b(git (log|history|blame)|commit history|version history)\b", re.IGNORECASE)),
-    ("file_path", re.compile(r"\b[\w./-]+\.(py|cfg|toml|ini|txt|rst|md|json|ya?ml)\b|\btests?/", re.IGNORECASE)),
+    # (a capitalised name with .js and no slash is a product, not a file: Node.js, Vue.js)
+    ("file_path", re.compile(r"\b(?![A-Z][A-Za-z]*\.js\b)[\w./-]+\.(py|cfg|toml|ini|txt|rst|md|json|ya?ml|go|rs|[cm]?[jt]sx?|java|kts?|gradle|lock|mod|sum)\b"
+                             r"|\btests?/",
+                             re.IGNORECASE)),
     ("test_name", re.compile(r"\btest_\w+")),
     ("commit_id", re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")),
     ("link", re.compile(r"https?://|\bgh-\d+|(?<![\w&])#\d+\b|\b(PR|pull request|issue) ?#?\d+", re.IGNORECASE)),
@@ -1412,6 +1455,11 @@ def changed_defs(before: str | None, after: str | None) -> list[str]:
     return [q for q in b if a.get(q) != b[q] and not (q.rsplit(".", 1)[-1].startswith("test"))]
 
 
+def _changed_defs_lang(before: str | None, after: str | None, path: str) -> list[str] | None:
+    lang = _lang()
+    return lang.changed_defs(before, after, path) if lang is not None else None
+
+
 @dataclass
 class MilestoneMutant(Mutant):
     """A commit-revert mutant with the milestone it must fail (``longtask.LongTask.mutants``)."""
@@ -1795,7 +1843,8 @@ class WindowTask(ExecTask):
             files = [p for p in u.src_files if not is_test_path(p)]
             names: list[str] = []
             for p in files if repo is not None else []:
-                names += changed_defs(repo.show(u.parent, p), repo.show(u.sha, p))
+                lang_names = _changed_defs_lang(repo.show(u.parent, p), repo.show(u.sha, p), p)
+                names += lang_names if lang_names is not None else changed_defs(repo.show(u.parent, p), repo.show(u.sha, p))
             req = next((str(r["id"]) for r in self.requirements if r.get("milestone") == mid), None)
             out.append({"milestone": mid, "requirement": req, "unit": u.sha, "files": files, "functions": names[:12]})
         return out

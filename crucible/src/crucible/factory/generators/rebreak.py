@@ -95,7 +95,16 @@ STYLE = AuthorStyle(
 
 
 def allowed_file(path: str) -> bool:
-    """A file a rebreak fix may change: source, tests (no plumbing), prose. Packaging and config change the World."""
+    """A file a rebreak fix may change: source, tests (no plumbing), prose. Packaging and config change the World. Under a
+    non-Python profile (``factory.langs``): its source and test files, prose, and test data (fixtures, snapshots)."""
+    from crucible.factory.langs.base import active
+
+    if (lang := active()) is not None:
+        if PROSE.search(path):
+            return True
+        if lang.is_plumbing(path):
+            return False
+        return lang.is_test_path(path) or lang.is_source(path)
     if PROSE.search(path):
         return True
     if path.endswith(".py") and is_test_path(path):
@@ -176,7 +185,7 @@ def fix_test_names(repo: RepoGit, u: Unit) -> set[str]:
     """``Class::name`` keys of the test functions the fix added or changed."""
     keys: set[str] = set()
     for p in u.test_files:
-        a, b = _defs(repo.show(u.parent, p)), _defs(repo.show(u.sha, p))
+        a, b = _defs(repo.show(u.parent, p), p), _defs(repo.show(u.sha, p), p)
         keys |= {f"{p}::{k}" for k in b if a.get(k) != b[k]}
     return keys
 
