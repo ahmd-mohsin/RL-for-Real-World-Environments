@@ -229,15 +229,17 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
 
     out = Path(a.out) if a.out else ROOT / "gpu_bundle" / "migration"
     lh_kernel.cmd_stage_gpu(ap.Namespace(store=str(MIG / "store"), out=str(out)))
-    images = {kw.BASE_TAG: "Dockerfile.base", kw.LEGACY_TAG: "Dockerfile.legacy", kdm.CUDA13_TAG: "Dockerfile.cuda13"}
+    # on the GPU host every image carries this lane's tag (shared machine: only crucible-lh-k images are created and
+    # removed); the 12.8 image is the main bundle's (same Dockerfile, so whichever bundle runs first builds it once)
+    base, legacy = "crucible-lh-k:base-12.8.1", "crucible-lh-k:legacy-11.8.0"
+    images = {base: "Dockerfile.base", legacy: "Dockerfile.legacy", kdm.CUDA13_TAG: "Dockerfile.cuda13"}
+    (out / "Dockerfile.base").write_text(kw.dockerfile(kw.BASE_FROM, extra=("ccache",)))
     (out / "Dockerfile.cuda13").write_text(kw.dockerfile(kdm.CUDA13_FROM))
     jdump(out / "images.json", images)
     for w in windows():
         d = out / "windows" / w["id"]
         if d.is_dir():
-            g = kdm.GENERATIONS[w["generation"]]
-            jdump(d / "images.json", {"base": g["world"] if w["generation"] == "cuda13" else kw.BASE_TAG,
-                                     "legacy": kw.BASE_TAG if w["generation"] == "cuda13" else kw.LEGACY_TAG})
+            jdump(d / "images.json", {"base": kdm.CUDA13_TAG if w["generation"] == "cuda13" else base, "legacy": base if w["generation"] == "cuda13" else legacy})
     print(f"migration bundle in {out}")
 
 

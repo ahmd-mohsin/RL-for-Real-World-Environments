@@ -118,6 +118,9 @@ def cmd_build(a: argparse.Namespace) -> None:
             continue
         mined = json.loads((ROOT / "mine" / f"{name}.json").read_text())
         changes = kdm.as_changes(mined["changes"])
+        if a.unused_only:  # more supply: only changes no stored record uses, so existing records and their faults stay as they are
+            used = {f["sha"] for rec in kd.records(store) for f in rec["faults"]}
+            changes = [c for c in changes if c.sha not in used]
         clone = ROOT / "clones" / name
         derived = gb.derived_clone(clone, ROOT / "derived" / name)
         layout = kdm.layout_at(clone)
@@ -446,6 +449,30 @@ GPU_PENDING = ["S1_executed real-fix check (B passes, each single revert fails i
                "S10 flake: 60 oracle grades at concurrency 1 and 4", "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"]
 
 
+def alone_probers(rec: dict[str, Any]) -> dict[str, str]:
+    """milestone -> the patch A' -> A' + its fix alone, for each milestone whose single revert does not apply at B (a
+    later fix rewrote its lines): the GPU calibration owns such a milestone's cases by what its fix alone repairs (A'
+    fails, A' + the fix passes, B passes) instead of what its revert breaks."""
+    from crucible.factory.generators import base as gb
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.lanes import kernel_debug_mine as kdm
+    from crucible.factory.lanes import kernel_debug_ops as ko
+
+    have = {mu["milestone"] for mu in rec.get("mutants") or [] if mu["kind"] == "revert"}
+    need = [m for m in rec["milestones"] if m["id"] not in have and (rec.get("fix_alone_applies") or {}).get(m["fault"])]
+    if not need:
+        return {}
+    derived, layout = ROOT / "derived" / rec["source_clone"], ko.Layout(**rec["layout"])
+    by_sha = {f.sha: f for f in kdm.as_changes(rec["faults"])}
+    out = {}
+    for m in need:
+        f = by_sha[m["fault"]]
+        trees, bad = gb.apply_chain(derived, rec["a"], [(gb.full_patch(derived, f.parent, f.sha, kd.backend_paths(f, layout, with_harness=False)), False)])
+        if bad is None:
+            out[m["id"]] = gb.git(derived, "diff", "--full-index", "--binary", gb.tree_of(derived, rec["a"]), trees[-1], "--", *layout.paths()).stdout.decode("utf-8", "replace")
+    return out
+
+
 def cmd_stage_gpu(a: argparse.Namespace) -> None:
     import tarfile
 
@@ -481,13 +508,16 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
             (d / f"floor_{k}.patch").write_text(v)
         for mu in rec.get("mutants") or []:
             (d / f"mutant_{mu['id']}.patch").write_text(mu["patch"])
+        probers = alone_probers(rec)
+        for mid, p in probers.items():
+            (d / f"prober_alone-{mid}.patch").write_text(p)
         jdump(d / "milestones.json", [{k: m.get(k) for k in ("id", "kind", "class", "ops", "checks", "repeat", "cases_added")} for m in rec["milestones"]])
         index.append({"id": rec["id"], "family": rec["family"], "split": rec["split"], "kind": rec["kind"], "milestones": [m["id"] for m in rec["milestones"]],
-                      "cpu_pending_host": gc.get("cpu_pending_host") or [],
+                      "cpu_pending_host": gc.get("cpu_pending_host") or [], "probers": {f"alone-{k}": k for k in probers},
                       "mutants": {mu["id"]: mu["milestone"] for mu in rec.get("mutants") or []}})
     jdump(out / "index.json", index)
     shutil.copy(Path(__file__).with_name("lh_kernel_debug_gpu.py"), out / "run_gpu.py")
-    (out / "Dockerfile").write_text(kw.dockerfile(kw.BASE_FROM))
+    (out / "Dockerfile").write_text(kw.dockerfile(kw.BASE_FROM, extra=("ccache",)))  # ccache: the gate runs only
     (out / "run_gpu.sh").write_text(RUNNER)
     jdump(out / "PENDING.json", {"gates_pending_gpu": GPU_PENDING, "tasks": [i["id"] for i in index], "staged_at": now()})
     print(f"staged {len(index)} tasks in {out}")
@@ -519,9 +549,33 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
     store = ROOT / "store"
     for rec in kd.records(store):
         res_p, cal_p = bundle / "results" / f"{rec['id']}.json", bundle / "tasks" / rec["id"] / "kdspec.calibrated.json"
-        if not res_p.exists() or not cal_p.exists():
+        if not res_p.exists():
             continue
-        res, cal = json.loads(res_p.read_text()), json.loads(cal_p.read_text())
+        res = json.loads(res_p.read_text())
+        if res.get("cpu_host"):  # the CPU gates the GPU host ran (x86 AVX2): the pools, the seeding, the fixes' own cases
+            g, host = rec["gates"]["cpu"], res["cpu_host"]
+            pooled = {m["id"]: m for m in json.loads((bundle / "tasks" / rec["id"] / "kdspec.json").read_text())["milestones"]}
+            added = {m["id"]: m.get("cases_added") or [] for m in json.loads((bundle / "tasks" / rec["id"] / "milestones.json").read_text())}
+            for m in rec["milestones"]:
+                if host.get("ok"):
+                    m["case_pool"], m["cases_added"] = pooled[m["id"]].get("case_pool") or [], added.get(m["id"]) or []
+            g.pop("harness_runs", None)
+            g.pop("cpu_pending_host", None)
+            g.update(host_cpu=host, harness_runs_on="x86 GPU host", seeded=host.get("seeded"), pools=host.get("pools") if host.get("ok") else None,
+                     harness_build_a={"ok": bool((host.get("build_a") or {}).get("ok"))})
+            verdict(rec, g)
+        gpu = res.get("gpu", "unknown")
+        summary = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone", "S10", "flake", "calibration", "at", "arch", "error")}
+        summary["reference_ok"] = (res.get("reference") or {}).get("ok")
+        summary["gradable"] = bool((res.get("calibration") or {}).get("gradable"))
+        summary["pass"] = bool(summary["gradable"] and res.get("S5_oracle") and res.get("S8_floors") and res.get("S10")
+                               and all((res.get("S8_mutants_fail_their_milestone") or {}).values()))
+        rec.setdefault("gates", {}).setdefault("gpu", {})[gpu] = summary
+        if not cal_p.exists() or not summary["gradable"]:
+            kd.save(store, rec)
+            print(rec["id"], "not gradable on", gpu, res.get("error") or (res.get("reference") or {}).get("ok"), flush=True)
+            continue
+        cal = json.loads(cal_p.read_text())
         kept = {m["id"]: m for m in cal["milestones"]}
         ms = []
         for m in rec["milestones"]:
@@ -534,8 +588,6 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         rec["dropped_milestones"] = sorted({m["id"] for m in rec["milestones"]} - {m["id"] for m in ms} | set(rec.get("dropped_milestones") or []))
         rec["milestones"] = ms
         rec["perf_bars"] = {**(rec.get("perf_bars") or {}), **(cal.get("perf_bars") or {})}
-        rec.setdefault("gates", {}).setdefault("gpu", {})[res.get("gpu", "unknown")] = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone",
-                                                                                                                "S10", "flake", "calibration", "at", "arch")}
         kd.save(store, rec)
         print(rec["id"], "milestones", [m["id"] for m in ms], "edges", [(m["id"], m["requires"]) for m in ms if m["requires"]], flush=True)
 
@@ -641,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--repos", nargs="*")
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")
+    s.add_argument("--unused-only", action="store_true", help="group only changes no stored record uses (adding supply)")
     s = sub.add_parser("gates")
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")
