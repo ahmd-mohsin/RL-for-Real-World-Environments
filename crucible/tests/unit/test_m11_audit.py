@@ -90,7 +90,9 @@ def test_nemo_export_reseed_is_idempotent_and_leaks_nothing():
     c.post("/seed_session", json={"resources_session_id": "dup", "task_id": "t"})
     assert app.state.sessions["dup"]["world"] is w1 and app.state.stats["admitted"] == 1
     c.post("/close_session", json={"resources_session_id": "dup"})
+    c.cookies.clear()  # the next rollout's own client (M11 lab audit R-4: a seed carrying dup's cookie is refused)
     assert c.post("/seed_session", json={"resources_session_id": "x1", "task_id": "t"}).status_code == 200
+    c.cookies.clear()  # another rollout's seed carries no session (M11 lab audit R-4: one carrying x1's cookie cannot seed x2)
     assert c.post("/seed_session", json={"resources_session_id": "x2", "task_id": "t"}).status_code == 200
 
 
@@ -99,7 +101,9 @@ def test_nemo_export_legacy_seed_and_unknown_task():
     _, c = _client({"toy/helpdesk": HelpdeskTask()})
     r = c.post("/seed_session", json={"responses_create_params": {"input": [{"role": "user", "content": "x"}]}})
     assert r.status_code == 200 and r.json()["resources_session_id"] and set(r.json()) == {"resources_session_id"}
-    assert c.post("/seed_session", json={"resources_session_id": "z", "task_id": "nope"}).status_code == 404
+    from fastapi.testclient import TestClient
+
+    assert TestClient(c.app).post("/seed_session", json={"resources_session_id": "z", "task_id": "nope"}).status_code == 404  # no cookie
     bad = c.post("/tickets__add_note", content=b"[1,2]", headers={"X-Resources-Session-Id": r.json()["resources_session_id"], "content-type": "application/json"})
     assert bad.status_code == 200 and bad.json()["ok"] is False
 
