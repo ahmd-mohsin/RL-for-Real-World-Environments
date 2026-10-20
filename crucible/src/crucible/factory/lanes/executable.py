@@ -49,6 +49,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.factory.langs.base import active as _lang
+
 IMAGE_MINE = "crucible-m17-exec:py312"  # the mining image (JUnit on a bind mount); grading uses IMAGE (the guard below)
 IMAGE = "crucible-m17-exec:py312-g2"
 # The result guard: after pytest has written its JUnit file (in the container's tmpfs, never a mount), it prints the
@@ -100,10 +102,14 @@ REGRESSION_TEXT = "Everything that already works today must keep working."
 
 
 def is_test_path(path: str) -> bool:
+    if (lang := _lang()) is not None:  # a non-Python profile is active (factory.langs.base)
+        return bool(lang.is_test_path(path))
     return bool(TEST_PATH.search(path))
 
 
 def is_protected(path: str) -> bool:
+    if (lang := _lang()) is not None:
+        return bool(lang.is_protected(path))
     name = path.rsplit("/", 1)[-1]
     return is_test_path(path) or name in PROTECTED_NAMES or path.endswith(".pth")
 

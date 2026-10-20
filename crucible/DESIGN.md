@@ -1058,6 +1058,27 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
   under the same program name (a program that prints its argv[0] failed the oracle).
 
+Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
+`scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):
+- **Language layer:** a `LangProfile` per language (python adapter, go, rust, node for TypeScript/JavaScript under vitest
+  or jest, java for single-module Maven): path rules, test definitions and hiding, suite targets, a pinned World recipe
+  that compiles dependencies only, a copy-in `--network none` sandbox with machine reports (`go test -json`, libtest
+  lines, vitest/jest JSON, surefire XML), per-language leak probes. The window machinery asks the active profile
+  (`langs.base.use`, a `contextvars` scope); no profile or Python keeps the original path, so the Python lanes are
+  unchanged. The protocol is the stable contract other lanes (the CUDA debugging lane) build on.
+- **The lane:** rebreak per language: fixes after 2026-05-01 (the student's release; 2025-09-01 only as a marked
+  fallback), executed at the head; executed interactions; A' with source, test hunks, test data and changelog lines
+  reverted (strip mode when that does not build); pre-checks (the start tree and the hidden tests build); the window
+  validation; no hidden check may fail visibly in the agent's tree; S6/S5/S8/S3/S10 in the profile's scope.
+- **Prompts and intent:** symptom-only bug reports written by the builder (`claude-code:opus-5.5`, recorded), linted for
+  faulty function names, hidden test names, paths and versions, two-way ledger; an intent card per task (skills:
+  multi-fault localization, interacting faults, reproduce from report, regression safety; why long; milestones; expected
+  failures; the trace evidence that attributes a failure to the skill). Held-out debug repositories (disjoint orgs)
+  are fixed before mining.
+- **First run (CPU, about 11 h):** 98 repositories scouted, 56 mined, 1,379 fix units, 571 real fixes, 44 interacting
+  groups, 13 candidates through every CPU gate and S7 in Go, TypeScript, Python and Rust (3 held out); Java built, no
+  candidate. Yield is limited by reverts that no longer apply, rare interactions and coarse table tests (`07` §5).
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

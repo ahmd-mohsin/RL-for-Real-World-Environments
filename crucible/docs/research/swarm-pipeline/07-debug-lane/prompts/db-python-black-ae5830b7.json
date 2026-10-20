@@ -1,0 +1,11 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We run Black (current main branch, stable style) over our code base in CI and it mishandles a few inputs. Unless noted, Black runs with its defaults.",
+ "requirements": {
+  "m01": "Black crashes with an AssertionError about invalid string prefix characters when an f-string (including a triple-quoted one) follows a \"# fmt: off\" comment inside brackets, for example a parenthesized or bracketed block whose content is \"# fmt: off\", then the f-string, then \"# fmt: on\", whether or not that content is indented. Such code should be left exactly as written inside the fmt: off region and formatting should succeed.",
+  "m02": "With a target version of 3.10 or later and a very small line length (10), a match statement whose case pattern is the soft keyword case itself followed by a guard, as in \"case case if True:\", cannot be formatted: Black fails on it instead of producing valid code. It should wrap the pattern in parentheses and keep the guard after them, giving \"case (\", then \"case\" indented on its own line, then \") if True:\".",
+  "m03": "Leading tabs inside docstrings are expanded as eight columns, so tab-indented docstring lines end up much deeper than the surrounding code, which Black indents by four spaces. Each leading tab in a docstring line should count as four columns, so a docstring indented with tabs keeps its relative indentation at Black's four-space width; tabs that are not at the start of a line are left as they are.",
+  "m04": "A module docstring that spans several lines, whose closing quotes are on their own line and whose last text line is close to the line-length limit, gets an extra blank line inserted before the closing quotes. The closing quotes on their own line are not part of that long line, so the docstring should keep its text and end with the closing quotes on the next line, with no blank line added."
+ },
+ "closing": ""
+}

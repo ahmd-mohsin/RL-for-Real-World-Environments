@@ -1,0 +1,78 @@
+[
+ {
+  "id": "intent-debug-multi-fault-localization",
+  "behaviour": "finds several faults from user-visible symptoms alone, across files and modules, without a failing test to start from",
+  "failure_mode": "fixes the first fault found and stops, or edits code near the symptom instead of the faulty module",
+  "evidence": [],
+  "difficulty_axes": [
+   "faults",
+   "modules",
+   "edge depth",
+   "language"
+  ],
+  "coverage": {
+   "behaviour": "multi_fault_localization",
+   "surface": "debugging, any language"
+  },
+  "probe_set": null,
+  "status": "candidate",
+  "approved_by": null
+ },
+ {
+  "id": "intent-debug-interacting-faults",
+  "behaviour": "keeps debugging after a correct fix whose symptom persists because a second fault masks it (an executed requires edge)",
+  "failure_mode": "reverts or abandons a correct fix because its tests still fail, or declares success after the first fix",
+  "evidence": [],
+  "difficulty_axes": [
+   "faults",
+   "modules",
+   "edge depth",
+   "language"
+  ],
+  "coverage": {
+   "behaviour": "interacting_faults",
+   "surface": "debugging, any language"
+  },
+  "probe_set": null,
+  "status": "candidate",
+  "approved_by": null
+ },
+ {
+  "id": "intent-debug-reproduce-from-report",
+  "behaviour": "turns a symptom report into a reproduction and checks each fix against it (the checks are hidden, none fails visibly)",
+  "failure_mode": "edits without ever running a reproduction, or claims a fix it never exercised",
+  "evidence": [],
+  "difficulty_axes": [
+   "faults",
+   "modules",
+   "edge depth",
+   "language"
+  ],
+  "coverage": {
+   "behaviour": "reproduce_from_report",
+   "surface": "debugging, any language"
+  },
+  "probe_set": null,
+  "status": "candidate",
+  "approved_by": null
+ },
+ {
+  "id": "intent-debug-regression-safety",
+  "behaviour": "fixes the faults without breaking behaviour the existing suite covers",
+  "failure_mode": "a fix that passes its milestone but fails pass-to-pass tests",
+  "evidence": [],
+  "difficulty_axes": [
+   "faults",
+   "modules",
+   "edge depth",
+   "language"
+  ],
+  "coverage": {
+   "behaviour": "regression_safety",
+   "surface": "debugging, any language"
+  },
+  "probe_set": null,
+  "status": "candidate",
+  "approved_by": null
+ }
+]
