@@ -80,6 +80,8 @@ class KDGrader:
         self.base = Path(ctx.params.get("base_tree") or "/k/base")
         self.hooks = Path(ctx.params.get("hooks_dir") or "/k/hooks")
         self.mode = str(ctx.params.get("mode") or "grade")
+        self.pool_cap = int(ctx.params.get("pool_cap") or POOL_CAP)  # pool mode: 0 = every case of the pool (the S1 sweep of the start)
+        self.pool_seeds = str(ctx.params.get("pool_seeds") or "all")  # pool mode: "fixed" = the spec's fixed seeds only
         self.work = ctx.work
         self.exe: Path | None = None
         self.lib_dir: Path | None = None
@@ -214,7 +216,8 @@ class KDGrader:
     # -- checks
     def cases_of(self, m: dict) -> list[str]:
         if self.mode == "pool":
-            return pool_sample(list(m.get("case_pool") or []), list(m.get("cases_added") or []))
+            pool = list(m.get("case_pool") or [])
+            return pool_sample(pool, list(m.get("cases_added") or []), cap=self.pool_cap or len(pool) + len(m.get("cases_added") or []))
         cases = list(m.get("cases") or [])
         if not cases:
             raise InfraError(f"milestone {m['id']} has no calibrated cases (run the GPU calibration first)")
@@ -224,6 +227,8 @@ class KDGrader:
         if self.fresh is None:
             self.fresh = draw_seed(self.ctx) & 0x7FFFFFFF
         fixed = list((self.spec.get("seeds") or {}).get("fixed") or [7])
+        if self.mode == "pool" and self.pool_seeds == "fixed":
+            return fixed
         extra = [(self.fresh * 2654435761 + k) & 0x7FFFFFFF for k in range(1, int(m.get("repeat") or 1))]
         return [*fixed, self.fresh, *extra]
 

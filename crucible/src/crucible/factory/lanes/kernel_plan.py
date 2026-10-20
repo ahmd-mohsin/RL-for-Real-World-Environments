@@ -359,6 +359,14 @@ class KernelGrader:
         self.gpu = gpu_name()
 
     # -- runs
+    RUN_NAME = ".crucible_prog"  # both builds run under this name from their run directory: a program that prints argv[0]
+    # (HeCBench's "[./prog] - Starting...") prints the same line for the original and the candidate
+
+    def _staged(self, d: Path, exe: Path, before: set[str]) -> str:
+        shutil.copy2(exe, d / self.RUN_NAME)
+        before.add(self.RUN_NAME)
+        return f"./{self.RUN_NAME}"
+
     def _rundir(self, pid: str, tag: str) -> tuple[Path, set[str]]:
         prog = self.spec["programs"][pid]
         d = self.work / "runs" / pid / tag
@@ -381,7 +389,7 @@ class KernelGrader:
         env = {"CRUCIBLE_SEED": str(seed), "OMP_NUM_THREADS": "1", "CUDA_CACHE_PATH": str(self.work / "ref_jit_cache"), "CUDA_CACHE_MAXSIZE": "4294967296"}
         if obs:
             env["CRUCIBLE_OBS"] = str(o)
-        r = self.t.run([exe, *args], cwd=d, env=env, timeout=float(self.spec["programs"][pid].get("timeout_s", 300)))
+        r = self.t.run([self._staged(d, exe, before), *args], cwd=d, env=env, timeout=float(self.spec["programs"][pid].get("timeout_s", 300)))
         if r.timed_out or r.rc != 0:
             raise InfraError(f"the original {pid} {case} failed (rc {r.rc}): {r.log[-400:]}")
         res = observation(d, o, r.stdout, before)
@@ -395,6 +403,7 @@ class KernelGrader:
                       launches: bool = False, timeout: float | None = None) -> tuple[dict, object]:
         exe = self.bins.get(pid)
         d, before = self._rundir(pid, f"cand-{case}-{seed}-{len(wrap or [])}")
+        run_as = self._staged(d, exe, before) if exe is not None else exe
         self.t.give(d)
         o = self.t.udir(self.work / "obs" / pid / f"cand-{case}-{seed}-{len(wrap or [])}")
         env = {"CRUCIBLE_SEED": str(seed), "OMP_NUM_THREADS": "1", "CUDA_DISABLE_PTX_JIT": "1"}
@@ -403,7 +412,7 @@ class KernelGrader:
         if launches:
             env["CUDA_INJECTION64_PATH"] = str(self.hooks / "libcrucible_launch.so")
             env["CRUCIBLE_LAUNCH_LOG"] = str(o / "launches.tsv")
-        r = self.t.run([*(wrap or []), exe, *args], cwd=d, env=env, timeout=timeout or float(self.spec["programs"][pid].get("timeout_s", 300)) * 3,
+        r = self.t.run([*(wrap or []), run_as, *args], cwd=d, env=env, timeout=timeout or float(self.spec["programs"][pid].get("timeout_s", 300)) * 3,
                        candidate=True)
         self.t.seal(d)
         self.t.seal(o)

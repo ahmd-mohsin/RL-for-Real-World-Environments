@@ -565,7 +565,8 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
                      harness_build_a={"ok": bool((host.get("build_a") or {}).get("ok"))})
             verdict(rec, g)
         gpu = res.get("gpu", "unknown")
-        summary = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone", "S10", "flake", "calibration", "at", "arch", "error")}
+        summary = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone", "S8_mutants_excluded", "S10", "flake", "calibration", "at",
+                                            "arch", "error")}
         summary["reference_ok"] = (res.get("reference") or {}).get("ok")
         summary["gradable"] = bool((res.get("calibration") or {}).get("gradable"))
         summary["pass"] = bool(summary["gradable"] and res.get("S5_oracle") and res.get("S8_floors") and res.get("S10")
@@ -608,7 +609,16 @@ def migration_family(fam: dict[str, Any], rows: list[dict[str, Any]]) -> None:
     f["authored_clean"] = sum(1 for w in ok if w.get("prompt") and not (w.get("lint") or {}).get("prompt") and not (w.get("lint") or {}).get("ledger"))
     for w in ws:
         g = w.get("gates") or {}
-        rows.append({"id": w["id"], "family": "kernel-migration", "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
+        gpu = next(iter((g.get("gpu") or {}).items()), (None, None))
+        failed, why = (gpu[1].get("failed_gate"), gpu[1].get("why")) if gpu[1] else ("pending", "not run on a GPU")
+        if g.get("cpu_pass") and (g.get("kit_compile") or {}).get("ok"):
+            f.setdefault("gpu_drops", collections.Counter())
+            if failed is None:
+                f["gpu_pass"] = f.get("gpu_pass", 0) + 1
+            else:
+                f["gpu_drops"][failed] += 1
+        rows.append({"id": w["id"], "family": "kernel-migration", "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "flake": (gpu[1] or {}).get("flake"), "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
                      "generation": w["generation"], "commits": len((w.get("source") or {}).get("commits") or []), "programs": len(w["programs"]),
                      "milestones": len(w["milestones"]), "kinds": g.get("graded_kinds") or sorted(w.get("kinds") or {}), "rung": w.get("rung"),
                      "executed_cross_edges": len(g.get("executed_cross_edges") or []),
@@ -640,6 +650,31 @@ def sealing_report(recs: list[dict[str, Any]]) -> dict[str, Any]:
             "cutoff_violations": len(d["cutoff_violations"]), "counts": d["counts"]}
 
 
+GPU_GATES = ("gpu_reference", "S1_executed", "calibration", "S5_oracle", "S8_floors", "S8_mutants", "S10_flake")
+
+
+def gpu_verdict(g: dict[str, Any]) -> tuple[str | None, str]:
+    """(the first GPU gate a record failed, or None when it passed all; why) from one GPU model's ingested summary."""
+    cal = g.get("calibration") or {}
+    if not g.get("reference_ok"):
+        return "gpu_reference", g.get("error") or "the reference build failed"
+    if not g.get("gradable"):
+        why = cal.get("error") or ""
+        if why.startswith("not real on this GPU"):
+            return "S1_executed", why
+        kept = cal.get("kept_milestones") or []
+        return "calibration", why or f"{len(kept)} milestone(s) kept after calibration (owned {cal.get('owned')}, unstable {list(cal.get('unstable_cases') or {})})"
+    if not g.get("S5_oracle"):
+        return "S5_oracle", "the oracle does not score 1 on the calibrated spec"
+    if not g.get("S8_floors"):
+        return "S8_floors", "a floor scores above 0"
+    if not all((g.get("S8_mutants_fail_their_milestone") or {}).values()):
+        return "S8_mutants", "a mutant passes its milestone: " + ", ".join(k for k, v in (g.get("S8_mutants_fail_their_milestone") or {}).items() if not v)
+    if not g.get("S10"):
+        return "S10_flake", f"flake {g.get('flake')}"
+    return None, ""
+
+
 def cmd_report(a: argparse.Namespace) -> None:
     from crucible.factory.lanes import kernel_debug as kd
 
@@ -669,7 +704,20 @@ def cmd_report(a: argparse.Namespace) -> None:
         f["cpu_pass"] = f.get("cpu_pass", 0) + int(bool(g.get("cpu_pass")))
         f["cpu_structural_pass"] = f.get("cpu_structural_pass", 0) + int(bool(g.get("cpu_structural_pass")))
         f["authored_clean"] = f.get("authored_clean", 0) + int(bool(r.get("prompt")) and not (r.get("lint") or {}).get("findings"))
+        gpu = next(iter(((r.get("gates") or {}).get("gpu") or {}).items()), (None, None))
+        failed, why = gpu_verdict(gpu[1]) if gpu[1] else ("pending", "not run on a GPU")
+        host = ((g.get("host_cpu") or {}).get("ok"))
+        if g.get("cpu_pass") or host:
+            f.setdefault("gpu_drops", collections.Counter())
+            if failed is None:
+                f["gpu_pass"] = f.get("gpu_pass", 0) + 1
+            else:
+                f["gpu_drops"][failed] += 1
         rows.append({"id": r["id"], "family": r["family"], "split": r["split"], "repo": r["repo"], "faults": len(r["milestones"]),
+                     "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "gpu_kept_milestones": ((gpu[1] or {}).get("calibration") or {}).get("kept_milestones"),
+                     "gpu_executed_edges": {k: v for k, v in (((gpu[1] or {}).get("calibration") or {}).get("executed_edges") or {}).items() if v},
+                     "gpu_mutants_excluded": (gpu[1] or {}).get("S8_mutants_excluded"), "flake": (gpu[1] or {}).get("flake"),
                      "classes": [m["class"] for m in r["milestones"]], "ops": sorted({o for m in r["milestones"] for o in m["ops"]}),
                      "claimed_edges": [(m["id"], q) for m in r["milestones"] for q in m.get("claimed_requires") or []], "cpu_pass": bool(g.get("cpu_pass")),
                      "cpu_structural_pass": bool(g.get("cpu_structural_pass")), "cpu_pending_host": g.get("cpu_pending_host"), "pools": g.get("pools"), "authored": bool(r.get("prompt")), "lint": (r.get("lint") or {}).get("findings"), "contamination": r.get("contamination"),
@@ -677,6 +725,8 @@ def cmd_report(a: argparse.Namespace) -> None:
     migration_family(fam, rows)
     for f in fam.values():
         f["drop_reasons"] = dict(f["drop_reasons"])
+        if "gpu_drops" in f:
+            f["gpu_drops"] = dict(f["gpu_drops"])
     rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING,
            "sealing": sealing_report(recs)}
     jdump(Path(a.out), rep)

@@ -166,11 +166,11 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     return {"ok": ok, "rc": p.returncode, "log": "" if ok else ((ref / "build.log").read_text(errors="replace")[-1500:] if (ref / "build.log").exists() else p.stderr[-800:])}
 
 
-def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str, *, pool: bool = False, only: str = "") -> dict:
+def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str, *, pool: bool = False, only: str = "", params: tuple[str, ...] = ()) -> dict:
     out = d / "grades" / tag
     import hashlib
 
-    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec_path.read_bytes(), tag.encode(), str(pool).encode(), only.encode()])).hexdigest()
+    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec_path.read_bytes(), tag.encode(), str(pool).encode(), only.encode(), *[p.encode() for p in params]])).hexdigest()
     if pool and (out / "inputs.sha256").exists() and (out / "inputs.sha256").read_text() == key and (out / "report.json").exists():
         report = json.loads((out / "report.json").read_text())  # a pool grade of the same patch, spec and grader: reused (calibration restarts)
         doc = json.loads((out / "crucible_reward.json").read_text())
@@ -180,7 +180,7 @@ def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str,
     out.mkdir(parents=True)
     args = ["python3", "-I", "/crucible_verify/crucible/verify/runtime/run.py", "--plan", PLAN, "--out", "/out", "--base", "/k/base", "--patch", "/k/patch",
             "--param", "spec=/k/kdspec.json", "--param", f"arch={arch}", "--param", "base_tree=/k/base", "--param", "ref=/k/ref", "--param", "hooks_dir=/k/hooks",
-            "--require-root"] + (["--param", "mode=pool"] if pool else []) + (["--param", f"only={only}"] if only else [])
+            "--require-root"] + (["--param", "mode=pool"] if pool else []) + (["--param", f"only={only}"] if only else []) + [x for p in params for x in ("--param", p)]
     mounts = [(HERE / "kit", "/crucible_verify", False), (d / "a", "/k/base", False), (d / "ref", "/k/ref", False), (HERE / "hooks", "/k/hooks", False),
               (spec_path, "/k/kdspec.json", False), (patch, "/k/patch", False), (out, "/out", True)]
     if USE_CCACHE:
@@ -371,6 +371,22 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     cal: dict = {"gpu": gpu, "arch": arch, "at": time.strftime("%FT%TZ", time.gmtime())}
     spec = json.loads(json.dumps(spec))
     cal["pools"] = fill_pools(d, spec, mode, arch)
+    # S1 sweep: the start (every fault in) over every case of every pool on the fixed seeds; the calibration then grades the
+    # cases the start fails plus the usual sample (so a fault that breaks a handful of the 10k flash-attention cases is seen)
+    full = d / "kdspec.full.json"
+    full.write_text(json.dumps(spec, indent=1))
+    sweep = grade(d, d / "floor_no_op.patch", full, mode, arch, "cal-start-sweep", pool=True, params=("pool_cap=0", "pool_seeds=fixed"))
+    cal["sweep"] = {m["id"]: {"cases": len(per_case(sweep, m["id"])), "start_fails": sum(1 for ok in per_case(sweep, m["id"]).values() if not ok)}
+                    for m in spec["milestones"]}
+    if check_status(sweep, "build:cuda") != "pass":
+        cal.update(gradable=False, error="the start did not build on this host: " + json.dumps(check_detail(sweep, "build:cuda"))[-600:])
+        return spec, cal
+    from crucible.factory.lanes import kernel_debug_plan as kdp  # the bundled kit (on sys.path): the grader's own sampling
+    for m in spec["milestones"]:
+        failing = [c for c, ok in per_case(sweep, m["id"]).items() if not ok]
+        sample = kdp.pool_sample(list(m.get("case_pool") or []), list(m.get("cases_added") or []))
+        m["case_pool"] = list(dict.fromkeys([*failing, *sample]))
+        m["cases_added"] = list(dict.fromkeys([*failing, *(m.get("cases_added") or [])]))  # first in every later sample
     pooled = d / "kdspec.pooled.json"
     pooled.write_text(json.dumps(spec, indent=1))
     b = grade(d, d / "oracle.patch", pooled, mode, arch, "cal-oracle", pool=True)
