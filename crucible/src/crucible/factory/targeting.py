@@ -487,13 +487,20 @@ class TargetEvidence:
     probe: dict[str, Any] | None = None
     paraphrase: list[dict[str, Any]] | None = None
     notes: dict[str, Any] = field(default_factory=dict)
+    numerics: str = "final"  # "dev": the policy ran on a dev-only backend (factory.student: MLX); no verdict counts
 
 
 def target_verdict(ev: TargetEvidence) -> dict[str, Any]:
-    """The S15 verdict: ``ok`` with ``flags``, or a ``route`` (S2 | drop) with its ``owner`` and findings (module doc)."""
+    """The S15 verdict: ``ok`` with ``flags``, or a ``route`` (S2 | drop) with its ``owner`` and findings (module doc).
+    Evidence from a dev-only backend (``numerics="dev"``) gets ``ok: false``, no route and ``dev_only: true``: it is
+    reported, never a pool decision (swarm-pipeline/08)."""
     findings: list[str] = []
     flags: list[str] = []
     route, owner = None, None
+    if ev.numerics == "dev":
+        return {"ok": False, "route": None, "owner": None, "findings": [], "dev_only": True, "task": ev.task,
+                "flags": ["dev-only numerics (factory.student: an MLX-served student): reported, never a pool decision"],
+                "counterfactual": (ev.counterfactual or {}).get("verdict"), "evidence": json.loads(json.dumps(asdict(ev), default=str))}
 
     def back(r: str, o: str, why: str) -> None:
         nonlocal route, owner

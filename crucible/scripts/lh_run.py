@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import hashlib
 import json
 import re
 import statistics
@@ -313,6 +314,13 @@ def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None,
     route = {"provider": RUNG_ROUTES[model]} if run.a.routes and model in RUNG_ROUTES else (ROUTE if tag == "route" else None)
     client = run.solver_client(model, extra_body=route, tag=tag)
     max_tokens = 3000 if "llama" in model else 8000
+    pid = pid or f"solver:{model}{'@' + tag if tag else ''}"
+    btag = student_backend(run, model)
+    if btag is not None:  # the served student: its backend in the policy id (MLX numerics are dev-only, factory.student)
+        from crucible.factory.student import STUDENT_MAX_TOKENS
+
+        pid = f"{pid}{'-' if '@' in pid else '@'}{btag}"
+        max_tokens = STUDENT_MAX_TOKENS
 
     def make(_attempt: Any) -> dict[str, Any]:
         return {"agent": CappedToolPolicy("agent", client, system=CODER_SYSTEM, max_tokens=max_tokens, max_tool_output=cfg.max_tool_output,
@@ -320,7 +328,39 @@ def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None,
                                           max_trajectory=cfg.max_trajectory, max_billed=cfg.max_billed, max_nudges=max_nudges,
                                           tool_limit=cfg.tool_limit, limit_warning=5)}
 
-    return PolicyRef(id=pid or f"solver:{model}{'@' + tag if tag else ''}", make=make, spend=lambda: (client.spend.usd, client.spend.uncertain_usd))
+    # M10 lab audit R-4: the run identity needs the policy's configuration (``make`` is a closure); without it the Runner refuses
+    # the run (``Undeclared``), so every solvers/probe/arms stage failed at start
+    config = {"model": model, "tag": tag, "system_sha256": hashlib.sha256(CODER_SYSTEM.encode()).hexdigest(), "temperature": cfg.temperature,
+              "max_tokens": max_tokens, "max_tool_output": cfg.max_tool_output, "context_tokens": cfg.context_tokens, "max_trajectory": cfg.max_trajectory,
+              "max_billed": cfg.max_billed, "max_nudges": max_nudges, "tool_limit": cfg.tool_limit, "route": route,
+              "student": {k: ((run.__dict__.get("students") or {}).get(model) or {}).get(k) for k in ("backend", "model", "dtype", "engine_version", "numerics", "thinking",
+                                                                                        "provider_kind")}
+              if btag else None}
+    return PolicyRef(id=pid, make=make, spend=lambda: (client.spend.usd, client.spend.uncertain_usd), config=config,
+                     settings=client.lock_settings() if hasattr(client, "lock_settings") else {})
+
+
+def student_backend(run: Run, model: str) -> str | None:
+    """The backend tag (``mlx`` | ``vllm`` | ``unknown``) when ``model`` is the served student (``student:<model>``), else
+    None. The probe (``factory.student.probe``) runs once per process; its metadata goes to every run's ``student.json``."""
+    from crucible.factory.models import parse_spec
+    from crucible.factory.student import STUDENT_PROVIDER, backend_tag, is_dev_policy, probe, thinking_of
+
+    spec = parse_spec(model)
+    if spec.provider != STUDENT_PROVIDER:
+        return None
+    seen = run.__dict__.setdefault("students", {})
+    if spec.ref not in seen:
+        prov = run.book.config.llm_providers[STUDENT_PROVIDER]
+        thinking = thinking_of(prov)
+        if thinking is None:  # the template's own default would decide unrecorded
+            raise SystemExit("[llm_providers.student] must set request_defaults.extra_body.chat_template_kwargs.enable_thinking")
+        server = probe(prov.base_url)
+        meta = server.meta() if server else {"backend": "unknown", "dev_only": True, "numerics": "dev", "why": "nothing answered the probe"}
+        if is_dev_policy(spec.model):  # a dev stand-in model counts as dev whatever served it
+            meta = {**meta, "numerics": "dev", "dev_only": True, "standin": True}
+        seen[spec.ref] = {"ref": spec.ref, **meta, "thinking": thinking, "provider_kind": "tito" if prov.tito else "openai"}
+    return str(seen[spec.ref].get("backend") or backend_tag(None))
 
 
 def harness(cfg: EpisodeCfg, *, checkpoints: bool = True) -> Any:
@@ -347,6 +387,11 @@ async def run_episodes(run: Run, run_id: str, tasks: list[Any], policies: list[A
 
     spec = RunSpec(run_id=run_id, tasks=tasks, policies=policies, harnesses=[harness(cfg, checkpoints=checkpoints)], k=k, concurrency=concurrency,
                    attempt_timeout_s=cfg.wall_s + 2400, retry=RetryRule(max_attempts=2), max_mask_fraction=0.5)
+    students = getattr(run, "students", None)
+    if students:  # which engine served the student (factory.student): MLX numerics are dev-only
+        d = run.work / "runs" / run_id
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "student.json").write_text(json.dumps({"students": list(students.values()), "at": _now()}, indent=1, default=str))
     async with run.spend(stage, role, run_id, estimate=estimate):
         summ = await Runner(run.work / "runs").run(spec)
     return summ
@@ -851,6 +896,7 @@ async def stage_horizon(run: Run, cfg: EpisodeCfg) -> None:
 def stage_metrics(run: Run) -> None:
     from crucible.bench.lh_metrics import LHEpisode, summarize
     from crucible.factory.horizon import concatenation_test
+    from crucible.factory.student import is_dev_policy
 
     eps = all_solver_episodes(run)
     base_rungs = [m for m in run.a.rungs.split(",") if m] if run.a.rungs else [s.model for s in run.book.solvers]
@@ -899,7 +945,8 @@ def stage_metrics(run: Run) -> None:
                                "tool_calls_mean": _mean([e["tool_calls"] for e in live if e["tool_calls"] is not None]),
                                "tokens_mean": _mean([e["prompt_tokens"] + e["completion_tokens"] for e in live]),
                                "trajectory_tokens_mean": _mean([e["trajectory_tokens"] for e in live if e["trajectory_tokens"]]),
-                               "usd": round(sum(e["usd"] for e in es), 5), "stops": dict(Counter(str(e["stop"]) for e in es)), "causes": dict(causes)}
+                               "usd": round(sum(e["usd"] for e in es), 5), "stops": dict(Counter(str(e["stop"]) for e in es)), "causes": dict(causes),
+                               "dev_only": is_dev_policy(model)}
         fl = j.get("floors") or {}
         flp = run.work / "flake" / f"{wid}.json"
         flk = json.loads(flp.read_text()) if flp.exists() else {}
@@ -923,6 +970,8 @@ def stage_metrics(run: Run) -> None:
         v = verdict(gates_strict, band, mix, reached)
         if rec.get("stage") not in ("dependent", "mutants_valid"):  # run 2: re-mining (F2/F3) can leave a window long, not long-horizon
             v = {"verdict": "not-type-A", "why": [rec.get("reason") or rec.get("stage"), f"would otherwise be: {v['verdict']}"]}
+        if is_dev_policy(target):  # factory.student: an MLX-served target rung is a development signal, never a window verdict
+            v = {"verdict": "dev_only", "why": [f"target rung {target} ran on a dev-only backend", f"would otherwise be: {v['verdict']}"]}
         out["windows"][wid] = {"repo": rec["repo"], "milestones": len(rec["milestones"]), "edges": rec.get("dependency_edges"), "rungs": per_rung,
                                "reached_by_any_rung": reached, "gates": gates, "band": band, "mix": dict(mix), "verdict": v,
                                "audit": {k: (j.get("audit") or {}).get(k) for k in ("fp_candidates", "fn_candidates", "seeded", "auditor_trusted", "reasons")},

@@ -35,6 +35,12 @@ verifiers are process description.
   ``"world_expert:{repo_name}"``) names a specialist that outlives a machine run: one World expert per repo, one verifier
   writer or hacker per family. Its ledger lives under ``specialists/<id>/`` and every session of it opens a new window
   in the same ledger, so its context across runs is its ledger (``history.windows()``, ``history.search()``).
+- **Claude Code builders** (swarm-pipeline/08): when the role's client has ``run_session``
+  (``actors.claude_code.ClaudeCodeClient``), the state runs headless Claude Code instead of the RLM agent: cwd = the same
+  private worktree, the hand-off directory added, file tools confined to those directories (``--restricted``), and every
+  command that runs code allowed only as ``docker exec <the session sandbox> ...`` (still offline). The brief says so and
+  asks for a final reply (or a ``GIVE UP:`` line) instead of ``rlm.finish``. Captures, hand-off commits, the infra/task
+  split and the session record are the same; the record also keeps the plan receipt (turns, duration, cost estimate).
 """
 
 from __future__ import annotations
@@ -64,6 +70,7 @@ RUN git config --system safe.directory "*"
 ENV PYTHONDONTWRITEBYTECODE=1
 """
 HANDOFF_MOUNT = "/handoff"
+GIVE_UP_MARK = "GIVE UP:"  # a Claude Code session's give-up line (its reply; it has no rlm.give_up)
 BRIEF_HANDOFF_CHARS = 24_000  # the hand-off JSON inline in TASK (the full file is always at /handoff/handoff.json)
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
@@ -426,13 +433,24 @@ class SessionPool:
             (shutil.copytree(src, dst, symlinks=True) if src.is_dir() else shutil.copy2(src, dst))
         return d
 
-    def _brief(self, ctx: StateContext, sess: Mapping[str, Any], handoff_json: str, spec: Any) -> str:
+    def _brief(self, ctx: StateContext, sess: Mapping[str, Any], handoff_json: str, spec: Any, *, claude: Mapping[str, Any] | None = None) -> str:
+        """The session's TASK. ``claude`` (``{"handoff_dir", "sandbox"}``): the brief of a Claude Code session (its own file
+        tools in the worktree, commands through ``docker exec`` into the sandbox, a final reply instead of ``rlm.finish``)."""
         role = ctx.role or ctx.state_id
         caps = sess.get("captures", [])
         ws_line = ("[workspace] Your git worktree is the World app `repo` (tools repo.*; repo.shell runs in your offline sandbox). "
                    "It holds only the start commit, tagged `base`.")
+        ho_dir = HANDOFF_MOUNT
+        if claude is not None:
+            ho_dir = str(claude["handoff_dir"])
+            sbx = claude.get("sandbox")
+            run = (f"Run every command that executes code (tests, python, build tools) only as `docker exec {sbx} sh -lc '<command>'`: an "
+                   "offline sandbox with this clone mounted at the same path (its working directory). " if sbx else
+                   "No command that executes code is available. ")
+            ws_line = ("[workspace] Your working directory is your private git clone of the repository; it holds only the start commit, "
+                       f"tagged `base`. Edit files with your file tools. {run}`git status/diff/log/add/commit` run directly.")
         ho_line = (f"[hand-off] The typed hand-off (JSON: every input with its schema, and the full original spec) is the file "
-                   f"{HANDOFF_MOUNT}/handoff.json (read-only); input artifacts are under {HANDOFF_MOUNT}/<input>/. It reads:")
+                   f"{ho_dir}/handoff.json (read-only); input artifacts are under {ho_dir}/<input>/. It reads:")
         body = handoff_json if len(handoff_json) <= BRIEF_HANDOFF_CHARS else handoff_json[:BRIEF_HANDOFF_CHARS] + "\n... (cut: read the file)"
         lines = [f"ROLE: {role}", f"(factory state {ctx.state_id}, entry {ctx.entry}, attempt {ctx.attempt}; run {ctx.run_id})", "",
                  str(sess.get("brief") or f"You are the {role}.").strip(), "", ws_line, "", ho_line, body]
@@ -459,7 +477,10 @@ class SessionPool:
         b = ctx.budget or {}
         if b.get("tokens") is not None or b.get("usd") is not None:
             lines += ["", f"[budget] tokens left: {b.get('tokens')}, USD left: {b.get('usd')}"]
-        lines += ["", "When every output is written, call rlm.finish(\"<one-line summary>\"). If the step cannot be done, call rlm.give_up(reason)."]
+        if claude is not None:
+            lines += ["", f"When every output is written, reply with a one-line summary. If the step cannot be done, reply with one line: {GIVE_UP_MARK} <reason>."]
+        else:
+            lines += ["", "When every output is written, call rlm.finish(\"<one-line summary>\"). If the step cannot be done, call rlm.give_up(reason)."]
         return "\n".join(lines)
 
     def _world(self, ws: GitWorkspace, sb: Sandbox | None, brief: str, attempt_dir: Path) -> Any:
@@ -501,6 +522,10 @@ class SessionPool:
         hcommit = self.repo.commit({f"{rel}/handoff.json": hj + "\n"}, f"hand-off into {sid} #{ctx.entry}.{ctx.attempt}",
                                    informed_by=upstream, trailers={"run": self.run_id, "state": sid, "handoff": h.id, "role": str(ctx.role)})
         handoff_dir = self._stage(ctx, hj, attempt_dir)
+        llm = self._llm(str(ctx.role), ctx)
+        if hasattr(llm, "run_session"):  # a Claude Code builder (actors.claude_code): its own agent loop in the worktree
+            sb = await self._sandbox(sid, ws, handoff_dir) if self.kernel == "sandbox" else None
+            return await self._claude_session(ctx, sess, llm, ws, sb, hj, handoff_dir, attempt_dir, hcommit, rel)
         brief = self._brief(ctx, sess, hj, ctx.params.get("spec"))
         sb = await self._sandbox(sid, ws, handoff_dir) if self.kernel == "sandbox" else None
         spec_id = None
@@ -528,7 +553,7 @@ class SessionPool:
             def launcher() -> Any:
                 return LocalLauncher(allow_host=True)
 
-        policy = _session_policy_class()("agent", self._llm(str(ctx.role), ctx), launcher=launcher(), child_launcher=launcher, config=cfg,
+        policy = _session_policy_class()("agent", llm, launcher=launcher(), child_launcher=launcher, config=cfg,
                                          ledger_dir=attempt_dir / "ledger", stream_dir=attempt_dir, specialist_ledger=spec_ledger,
                                          session_meta={"run": self.run_id, "state": sid, "entry": ctx.entry, "attempt": ctx.attempt})
         world = self._world(ws, sb, brief, attempt_dir)
@@ -580,16 +605,56 @@ class SessionPool:
             raise StateFailed(f"the {ctx.role} gave up: {policy.stop_reason}"[:500])
         if stop != "agent_done":
             raise StateFailed(f"the {ctx.role} session ended without finishing ({stop}: {policy.stop_reason})"[:500])
+        return await self._settle_captures(ctx, sess, ws, rel, hcommit, rec, write_record)
+
+    async def _settle_captures(self, ctx: StateContext, sess: Mapping[str, Any], ws: GitWorkspace, rel: str, hcommit: str, rec: SessionRecord,
+                               write_record: Callable[[], None]) -> Settle:
         outputs, files = await self._capture(ctx, sess, ws, rel)
         if files:
-            ccommit = self.repo.commit(files, f"{sid} #{ctx.entry}.{ctx.attempt} outputs", informed_by=[hcommit],
-                                       trailers={"run": self.run_id, "state": sid, "role": str(ctx.role)})
+            ccommit = self.repo.commit(files, f"{ctx.state_id} #{ctx.entry}.{ctx.attempt} outputs", informed_by=[hcommit],
+                                       trailers={"run": self.run_id, "state": ctx.state_id, "role": str(ctx.role)})
             rec.capture_commit = ccommit
             for v in outputs.values():
                 if isinstance(v, dict) and "sha256" in v and "path" in v:
                     v["commit"] = ccommit
             write_record()
         return Settle(outputs)
+
+    async def _claude_session(self, ctx: StateContext, sess: Mapping[str, Any], llm: Any, ws: GitWorkspace, sb: Sandbox | None, hj: str,
+                              handoff_dir: Path, attempt_dir: Path, hcommit: str, rel: str) -> Settle:
+        """One Claude Code session (``ClaudeCodeClient.run_session``): cwd = the worktree, the hand-off directory added
+        read-only by intent, code runs only through ``docker exec`` into the session's offline sandbox. A plan limit or a
+        CLI that gives no result is infra; an error result, a timeout or a ``GIVE UP:`` reply fails the state."""
+        from crucible.actors.llm import BudgetExceeded, LLMError
+
+        sid = ctx.state_id
+        brief = self._brief(ctx, sess, hj, ctx.params.get("spec"), claude={"handoff_dir": handoff_dir, "sandbox": sb.name if sb else None})
+        (attempt_dir / "brief.txt").write_text(brief)
+        try:
+            res = await llm.run_session(brief, cwd=ws.path, add_dirs=[handoff_dir], sandbox=sb.name if sb else None,
+                                        timeout_s=float(sess.get("wall_s", 3600)))
+        except BudgetExceeded as e:
+            raise InfraError(f"session {sid}: {e}"[:500], "crucible:credits_exhausted") from e
+        except LLMError as e:
+            raise InfraError(f"session {sid}: {e}"[:500], "provider_unavailable") from e
+        book_tokens(res.tokens)
+        rec = SessionRecord(sid, ctx.entry, ctx.attempt, res.stop, res.turns, res.tokens, 0.0, sb.name if sb else None, hcommit, None, None)
+        self.records.append(rec)
+
+        def write_record() -> None:
+            (attempt_dir / "session.json").write_text(json.dumps({**rec.__dict__, "agent": "claude_code", "stop_reason": res.text[-2000:],
+                                                                  "plan": res.receipt, "permission_denials": res.permission_denials[:50]},
+                                                                 default=str, indent=1))
+
+        write_record()
+        if sb is not None and not await sb.alive():
+            raise InfraError(f"session {sid}: the sandbox {sb.name} died during the session", "crucible:env_container_lost")
+        last = (res.text.strip().splitlines() or [""])[-1].strip()
+        if res.stop == "agent_done" and last.upper().startswith(GIVE_UP_MARK):
+            raise StateFailed(f"the {ctx.role} gave up: {last[len(GIVE_UP_MARK):].strip()}"[:500])
+        if res.stop != "agent_done":
+            raise StateFailed(f"the {ctx.role} Claude Code session ended without finishing ({res.stop}: {res.text[-300:]})"[:500])
+        return await self._settle_captures(ctx, sess, ws, rel, hcommit, rec, write_record)
 
     async def _capture(self, ctx: StateContext, sess: Mapping[str, Any], ws: GitWorkspace, rel: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """Each capture's port value and the files it adds to the task repo. A capture that finds nothing binds no value

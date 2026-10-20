@@ -237,6 +237,7 @@ async def stage_target(a: argparse.Namespace) -> dict[str, Any]:
     import lh_run
 
     from crucible.factory.longtask import ground_truth
+    from crucible.factory.student import is_dev_policy
     from crucible.factory.targeting import (
         PROBE_PROMPT,
         TargetEvidence,
@@ -316,9 +317,11 @@ async def stage_target(a: argparse.Namespace) -> dict[str, Any]:
         j["cause"] = {**cause_mix(labels.get(wid, Counter())), "source": "P3 RLM auditor labels on the run-1/2 trails of this window"}
         j["probe"] = prerequisite_probe(j["probe_scripted"], j.get("probe_episode"))
         ev = TargetEvidence(task=task.task_id, band=j["band"], cause=j["cause"], counterfactual=j["counterfactual"], probe=j["probe"],
-                            paraphrase=j.get("paraphrase_stability"))
+                            paraphrase=j.get("paraphrase_stability"), numerics="dev" if is_dev_policy(pol.id) else "final")
+        j["policy"] = pol.id
         j["verdict"] = target_verdict(ev)
-        j["machine"] = await run_s15_machine(out, wid, ev)
+        # factory.student: a dev-only (MLX) student's evidence is reported, never run through S15
+        j["machine"] = None if j["verdict"].get("dev_only") else await run_s15_machine(out, wid, ev)
         jsave(jp, j)
         rows[wid] = j
         cf = j["counterfactual"]
