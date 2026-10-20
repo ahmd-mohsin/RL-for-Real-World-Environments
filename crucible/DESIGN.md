@@ -905,6 +905,20 @@ P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/win
   - python-semver is `underpowered`: 0/4 vs 3/4, Fisher p 0.071, power 0.41;
   - parse's paraphrases are stable.
 
+Kernel-migration family (`docs/research/swarm-pipeline/06-kernel-family.md`; `factory/lanes/kernel*.py`, `scripts/lh_kernel.py`,
+`scripts/lh_kernel_gpu.py`; $0.36):
+- **Ground truth:** real GPU-migration commits (texture/surface references, legacy warp intrinsics, removed cuSPARSE calls)
+  mined by pickaxe from permissive repos; the oracle is the commit. PCL (task04's repo) is sealed from training.
+- **Grader** (`lanes/kernel_plan.py`, a kit plan): the grader owns the nvcc command (`sm_<arch>` SASS only, arch from
+  `CRUCIBLE_CUDA_ARCH`); `compile` milestones (CPU) and `run` milestones (GPU: binary check, CUPTI launch count, the
+  program's observation, i.e. stdout, device-to-host bytes via link wraps and written files, equal to the original built
+  with CUDA 11.8 as compute_60 PTX, fresh `srand` seed; sanitizer and grader-clock perf for L4).
+- **Result:** 40 windows, 21 pass every CPU gate (S3, S4, original, S6 compile edges, S7, S8 through the kit); 20 are L1,
+  1 has an L3 shape; GPU gates are staged, not run (lab unreachable). The 7B student compiled 0/26 L1 episodes before
+  OpenRouter's credits ran out: L1 is above its band.
+- **Fixed while running:** CRLF sources gave unappliable oracle patches; the grader now always links `libcuda`; a masked
+  episode (provider 402) was read as a 0 by the targeting script.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

@@ -1,0 +1,450 @@
+{
+ "model": "qwen/qwen-2.5-7b-instruct",
+ "mode": "CPU World (CUDA 12.8, no GPU), compile milestones only",
+ "kept": [
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_host",
+   "tag": "full-0",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 5,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.002223,
+   "patch_bytes": 563,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 36
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-0",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 18,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.034713,
+   "patch_bytes": 924,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 46
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-3",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 22,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.042559,
+   "patch_bytes": 768,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 57
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-2",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 14,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.045427,
+   "patch_bytes": 539,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 62
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-1",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 18,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.046156,
+   "patch_bytes": 4979133,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 67
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-0",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 6,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.004803,
+   "patch_bytes": 356,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 20
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-5",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 7,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.004889,
+   "patch_bytes": 0,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 25
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch",
+   "tag": "full-4",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 7,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.01159,
+   "patch_bytes": 5679637,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 36
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-4",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 3,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.00126,
+   "patch_bytes": 0,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 12
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-1",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 12,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.005933,
+   "patch_bytes": 762,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 28
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-3",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 8,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.001499,
+   "patch_bytes": 328,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 20
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-2",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 7,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.001499,
+   "patch_bytes": 538,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 20
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-0",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 8,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.001884,
+   "patch_bytes": 1202,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 21
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-1",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 4,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.001702,
+   "patch_bytes": 0,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 14
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch~locate",
+   "tag": "locate-5",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 13,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.002462,
+   "patch_bytes": 486,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 28
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-2",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 10,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.007032,
+   "patch_bytes": 0,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 36
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-4",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 10,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.004856,
+   "patch_bytes": 1443,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 22
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-5",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 14,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.006075,
+   "patch_bytes": 501,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 25
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-0",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 13,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.00337,
+   "patch_bytes": 1221,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 23
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-1",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 9,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.003696,
+   "patch_bytes": 1147,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 26
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-2",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 10,
+   "stop": "agent_done",
+   "collect_ok": true,
+   "usd": 0.003588,
+   "patch_bytes": 1227,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 21
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-5",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 8,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.013346,
+   "patch_bytes": 1466,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 24
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-4",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 11,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.015059,
+   "patch_bytes": 1466,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 28
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big~locate",
+   "tag": "locate-3",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 11,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.017865,
+   "patch_bytes": 1466,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 36
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_big",
+   "tag": "full-3",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 14,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.032092,
+   "patch_bytes": 11553,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 91
+  },
+  {
+   "task": "k-cudahandbook-19a4af6-texturing_tex1dfetch_host",
+   "tag": "full-1",
+   "model": "qwen/qwen-2.5-7b-instruct",
+   "arch": "90",
+   "steps": 8,
+   "stop": "None",
+   "collect_ok": true,
+   "usd": 0.010195,
+   "patch_bytes": 565,
+   "phi_compile": 0.0,
+   "compile_milestones": {
+    "c01": false
+   },
+   "reward_infra": "check_infra",
+   "seconds": 23
+  }
+ ],
+ "discarded_after_openrouter_402": 54,
+ "note": "OpenRouter returned 402 (insufficient credits) from episode ~30 on; those rows were scored 0 by a harness bug (masked flag ignored), fixed, and discarded; rows just before the cut may also have been cut short"
+}
