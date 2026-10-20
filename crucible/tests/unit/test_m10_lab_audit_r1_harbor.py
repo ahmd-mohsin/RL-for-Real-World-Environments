@@ -345,7 +345,9 @@ async def test_upstream_503_then_nonzero_exit_is_masked_provider_unavailable(tmp
         raise NonZeroAgentExitCodeError("mini-swe-agent exited 1")
 
     env.hooks["run"] = run
-    _s, rows = await env.run(task)
+    # the blame is under test, not the outage pause: with M10 lab audit R-5's provider breaker on, this upstream that never recovers
+    # defers the attempt and quarantines the sample after quarantine_s (900 s), so no terminal row is ever written
+    _s, rows = await env.run(task, breaker=None)
     f = _failure(rows[0])
     assert f.kind == "provider_unavailable" and rows[0]["mask_sample"] and f.who != "policy", f
     assert task.graded == []

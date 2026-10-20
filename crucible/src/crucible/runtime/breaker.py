@@ -276,7 +276,7 @@ class Breakers:
                 st.probing = None
                 changed = True
                 self.event("breaker_probe", key=k, sample=sid, result="failed")
-                if now - (st.opened_at or now) >= self.rule.quarantine_s:
+                if now - (st.opened_at if st.opened_at is not None else now) >= self.rule.quarantine_s:  # a clock reading of 0.0 is a time
                     self._quarantine(st, now)
                 else:
                     st.state, st.until = "open", now + self._gap(st.probes_failed, ra)

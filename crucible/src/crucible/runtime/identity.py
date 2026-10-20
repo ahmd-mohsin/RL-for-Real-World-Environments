@@ -370,7 +370,9 @@ def normalize(doc: Any) -> dict[str, Any]:
             for k, v in node.items():
                 p = _child(path, k)
                 key = scrub_secrets(k, _keyed) if isinstance(k, str) else k
-                if isinstance(k, str) and v not in (None, "") and _CRED_KEY.search(k) and not any(m in p for m in _DIGEST_MAPS):
+                # an id under ``tasks``, ``policies`` or ``harnesses`` names an object, never a credential: ``llm:reset_password`` keeps its configuration
+                if (isinstance(k, str) and path not in _ID_MAPS and v not in (None, "") and _CRED_KEY.search(k)
+                        and not any(m in p for m in _DIGEST_MAPS)):
                     out[key] = _REDACTED
                 else:
                     out[key] = walk(v, p)
