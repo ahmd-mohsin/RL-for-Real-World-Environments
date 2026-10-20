@@ -126,7 +126,7 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
         shutil.rmtree(src)
     shutil.copytree(d / "b", src, symlinks=True)
     text = (src / kh.HARNESS).read_text(errors="replace")
-    patched = kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]))
+    patched = kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]), header=kh.ggml_header(src))
     kh.prepare_tree(src, patched)
     ref.mkdir()
     (ref / "harness.cpp").write_text(patched)
@@ -205,20 +205,43 @@ def cp_upper(k: int, n: int, alpha: float = 0.05) -> float:
     return hi
 
 
+def fill_pools(d: Path, spec: dict, mode: str, arch: str) -> dict:
+    """Case pools the CPU gates could not list (a repository whose CPU backend needs AVX2): the reference build lists
+    every case of its test and perf modes (``CRUCIBLE_LIST``, nothing computed), filtered by each milestone's ops."""
+    need = [m for m in spec["milestones"] if not m.get("case_pool") or ("perf" in m["checks"] and not m.get("perf_cases"))]
+    if not need:
+        return {"filled": 0}
+    listed = {}
+    for mmode in ("test", "perf"):
+        p = container(mode, [(d / "ref", "/k/ref", False)], ["bash", "-c", f"CRUCIBLE_LIST=1 /k/ref/bin/{kh.TARGET} {mmode} -b CUDA0"], arch=arch, tag=f"list-{mmode}")
+        listed[mmode] = kh.listed_cases(p.stdout)
+    for m in need:
+        ops = set(m["ops"])
+        if not m.get("case_pool"):
+            m["case_pool"] = [c for c in listed["test"] if c.split("(", 1)[0] in ops]
+        if "perf" in m["checks"] and not m.get("perf_cases"):
+            m["perf_cases"] = [c for c in listed["perf"] if c.split("(", 1)[0] in ops][:8]
+    return {"filled": len(need), "test_cases": len(listed["test"]), "perf_cases": len(listed["perf"])}
+
+
 def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     ms = json.loads((d / "milestones.json").read_text())
     idx = json.loads((HERE / "index.json").read_text())
     entry = next(x for x in idx if x["id"] == spec["task_id"])
     gpu = gpu_name()
     cal: dict = {"gpu": gpu, "arch": arch, "at": time.strftime("%FT%TZ", time.gmtime())}
-    b = grade(d, d / "oracle.patch", d / "kdspec.json", mode, arch, "cal-oracle", pool=True)
+    spec = json.loads(json.dumps(spec))
+    cal["pools"] = fill_pools(d, spec, mode, arch)
+    pooled = d / "kdspec.pooled.json"
+    pooled.write_text(json.dumps(spec, indent=1))
+    b = grade(d, d / "oracle.patch", pooled, mode, arch, "cal-oracle", pool=True)
     cal["oracle_pool_infra"] = b["infra"]
     b_pass = {m["id"]: per_case(b, m["id"]) for m in spec["milestones"]}
     owned, breaks, revert_grades = {}, {}, {}
     for mu_id, mid in entry["mutants"].items():
         if not mu_id.startswith("revert-"):
             continue
-        r = grade(d, d / f"mutant_{mu_id}.patch", d / "kdspec.json", mode, arch, f"cal-{mu_id}", pool=True)
+        r = grade(d, d / f"mutant_{mu_id}.patch", pooled, mode, arch, f"cal-{mu_id}", pool=True)
         revert_grades[mid] = r
         broke = set()
         for m in spec["milestones"]:

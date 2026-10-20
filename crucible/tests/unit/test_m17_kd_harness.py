@@ -161,6 +161,20 @@ def test_the_grader_declares_the_op_test_target_when_a_fork_dropped_it(tmp_path)
     assert (tmp_path / kh.HARNESS).read_text() == "patched" and "add_executable" in (tmp_path / "tests/CMakeLists.txt").read_text()
 
 
+def test_api_drift_repairs_follow_the_trees_own_header():
+    header = ("GGML_API size_t ggml_quantize_chunk(enum ggml_type type, const float * src, void * dst, int64_t start, int64_t nrows, int64_t n_per_row,\n"
+              "    const float * imatrix, const struct quantize_user_data * ud);\n"
+              "GGML_API struct ggml_tensor * ggml_upscale(struct ggml_context * ctx, struct ggml_tensor * a, int scale_factor, enum ggml_scale_mode mode);\n")
+    text = ("struct test_upscale : public test_case {\n  ggml_tensor * out = ggml_upscale(ctx, a, scale_factor);\n};\n"
+            "  ggml_quantize_chunk(tensor->type, data.data(), dataq.data(), 0, size/tensor->ne[0], tensor->ne[0], im);\n"
+            "    test_cases.emplace_back(new test_upscale(GGML_TYPE_F32));\n    test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {1, 1, 1, 1}));\n")
+    out, applied = kh.repair_harness(text, header)
+    assert "ggml_upscale(ctx, a, scale_factor, GGML_SCALE_MODE_NEAREST)" in out and "tensor->ne[0], im, nullptr)" in out
+    assert "test_pad_ext" not in out and "new test_upscale(" in out  # an undefined case class goes, a defined one stays
+    assert applied == ["quantize_chunk_user_data x1", "upscale_mode x1", "undefined_case_class x1"]
+    assert kh.repair_harness(text, None)[0].count("im)") == 1  # no header: no API repair
+
+
 def test_grader_cmake_builds_sass_only():
     flags = kh.cmake_cuda(["90", "120"])
     assert "-DCMAKE_CUDA_ARCHITECTURES=90-real;120-real" in flags and "-DGGML_CUDA=ON" in flags and "-DGGML_NATIVE=OFF" in flags

@@ -59,6 +59,12 @@ def ensure_target(tests_cmake: str) -> str:
     return tests_cmake if TARGET in tests_cmake else tests_cmake.rstrip("\n") + "\n" + TARGET_SHIM
 
 
+def ggml_header(tree: Path) -> str | None:
+    """The tree's ``ggml.h`` (what the API-drift repairs read), or None."""
+    p = Path(tree) / "ggml" / "include" / "ggml.h"
+    return p.read_text(errors="replace") if p.is_file() else None
+
+
 def prepare_tree(tree: Path, harness_text: str) -> None:
     """The grader's tree: the patched harness in place and its target declared."""
     harness_file(tree).write_text(harness_text)
@@ -213,6 +219,67 @@ def _find(text: str, key: str) -> tuple[int, re.Match[str]] | None:
     return None
 
 
+# Grader repairs of a repository's own harness where it no longer compiles against its own library (ik_llama.cpp's
+# flash-attention case generator was synced from upstream while its test class kept the 2024 constructor). Each repair
+# is anchored, recorded on the task (``repairs_applied``) and only ever narrows what is generated to what the file's own
+# class can build; it never changes how a case is judged.
+REPAIRS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("ik-fattn-2024-ctor",
+     re.compile(r"test_cases\.emplace_back\(new test_flash_attn_ext\(\s*hsk, hsv, nh, \{nr2, nr3\}, kv, nb, mask, sinks, max_bias, logit_softcap, prec, type_KV\)\);"
+                r"(?P<rest>\s*// run fewer test cases permuted\s*if \([^\n]*\)\s*\{\s*test_cases\.emplace_back\(new test_flash_attn_ext\(\s*hsk, hsv, nh, \{nr2, nr3\}, kv, nb, mask, "
+                r"sinks, max_bias, logit_softcap, prec, type_KV, \{0, 2, 1, 3\}\)\);\s*\})?"),
+     ("if (!sinks && hsk == hsv && nr2 == 1 && nr3 == 1 && prec == GGML_PREC_F32) { "
+      "test_cases.emplace_back(new test_flash_attn_ext(hsk, nh, kv, nb, mask, max_bias, logit_softcap, type_KV)); }  // crucible repair: the 2024 constructor")),
+)
+OLD_FA_CTOR = re.compile(r"test_flash_attn_ext\(int64_t hs = 128, int64_t nh = 32, int64_t kv = 96, int64_t nb = 8, bool mask = true, float max_bias = 0\.0f, "
+                         r"float softcap = 0\.0f, ggml_type type_KV = GGML_TYPE_F16\)")
+
+
+def _decl(header: str, fn: str) -> str:
+    m = re.search(rf"\b{fn}\s*\((.*?)\)\s*\)?\s*;", header, re.DOTALL)
+    return m.group(1) if m else ""
+
+
+def repair_harness(text: str, header: str | None = None) -> tuple[str, list[str]]:
+    """``text`` with the anchored ``REPAIRS`` that apply (only where the file's own class has the old constructor), and,
+    given the tree's ``ggml.h``, the API-drift repairs: a call missing a trailing parameter the library added since the
+    harness last compiled gets that parameter's neutral value (``ggml_quantize_chunk``'s user data: ``nullptr``;
+    ``ggml_upscale``/``ggml_upscale_ext``'s scale mode: nearest, the old behaviour), and a case line constructing a test
+    class the file no longer defines is dropped. Returns the text and the repairs applied."""
+    applied = []
+    for name, rx, new in REPAIRS:
+        if name == "ik-fattn-2024-ctor" and not OLD_FA_CTOR.search(text):
+            continue
+        text, n = rx.subn(new, text)
+        if n:
+            applied.append(f"{name} x{n}")
+    if header:
+        if "quantize_user_data" in _decl(header, "ggml_quantize_chunk"):
+            text, n = re.subn(r"(ggml_quantize_chunk\((?:[^;()]|\([^;()]*\))*?,\s*im)\)", r"\1, nullptr)", text)
+            if n:
+                applied.append(f"quantize_chunk_user_data x{n}")
+        if "ggml_scale_mode" in _decl(header, "ggml_upscale"):
+            text, n = re.subn(r"ggml_upscale\(ctx, a, scale_factor\)", "ggml_upscale(ctx, a, scale_factor, GGML_SCALE_MODE_NEAREST)", text)
+            if n:
+                applied.append(f"upscale_mode x{n}")
+        if "ggml_scale_mode" in _decl(header, "ggml_upscale_ext"):
+            text, n = re.subn(r"ggml_upscale_ext\(ctx, a, (ne_tgt\[0\], ne_tgt\[1\],\s*ne_tgt\[2\], ne_tgt\[3\])\)", r"ggml_upscale_ext(ctx, a, \1, GGML_SCALE_MODE_NEAREST)", text)
+            if n:
+                applied.append(f"upscale_ext_mode x{n}")
+    defined = set(re.findall(r"\b(?:struct|class)\s+(test_\w+)\b(?:\s*final)?\s*(?::[^;{]*)?\{", text))
+    lines, dropped = [], 0
+    for ln in text.splitlines(keepends=True):
+        m = re.search(r"test_cases\.emplace_back\(new\s+(test_\w+)\s*\(", ln)
+        if m and defined and m.group(1) not in defined:
+            dropped += 1
+            continue
+        lines.append(ln)
+    if dropped:
+        text = "".join(lines)
+        applied.append(f"undefined_case_class x{dropped}")
+    return text, applied
+
+
 def dialect_of(text: str) -> str | None:
     """``ggml-2025`` (per-case filters: ggml-org/llama.cpp since mid 2025) or ``ggml-2024`` (one op filter), when the
     compare callback is recognised; else None."""
@@ -222,11 +289,12 @@ def dialect_of(text: str) -> str | None:
     return "ggml-2024" if f is not None and f[0] == 1 else "ggml-2025"
 
 
-def patch_harness(text: str, *, need_perf: bool = False) -> str:
+def patch_harness(text: str, *, need_perf: bool = False, header: str | None = None) -> str:
     """The grader's version of ``test-backend-ops.cpp`` (module doc). Idempotent; raises ``HarnessPatchError`` on an
     unknown dialect or a missing anchor (the perf-loop anchor only with ``need_perf``: a perf task needs it)."""
     if MARK in text:
         return text
+    text, _repairs = repair_harness(text, header)
     name = dialect_of(text)
     if name is None:
         raise HarnessPatchError("harness dialect unknown (no compare-callback anchor)")

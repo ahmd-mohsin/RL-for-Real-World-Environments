@@ -46,7 +46,7 @@ KINDS13: dict[str, tuple[re.Pattern[str], re.Pattern[str]]] = {
     "memloc_api": (_rx(MEMLOC_LEGACY), _rx(r"\bcudaMemLocation\b", r"\bcudaMemLocationType\w*\b")),
     "devprop_removed": (_rx(DEVPROP_LEGACY), _rx(r"\bcudaDeviceGetAttribute\s*\(", r"\bcudaDevAttr\w+\b")),
 }
-PICKAXE13 = r"cub::Sum|cub::Max|cub::Min|cub::ArgMax|cub::ArgMin|cub::Equality|cub::Inequality|cub::CastOp|cudaMemPrefetchAsync|cudaMemAdvise|clockRate|computeMode|deviceOverlap|kernelExecTimeoutEnabled|maxTexture1DLinear"
+PICKAXE13 = r"cub::Sum|cub::Max|cub::Min|cub::Equality|cub::Inequality|cudaMemPrefetchAsync|cudaMemAdvise|clockRate|computeMode|deviceOverlap|kernelExecTimeoutEnabled|maxTexture1DLinear"
 CUDA13_FROM = "nvidia/cuda:13.0.2-devel-ubuntu24.04"
 CUDA13_TAG = "crucible-lh-k:base-13.0.2"
 GENERATIONS = {

@@ -243,16 +243,23 @@ def cmd_gates(a: argparse.Namespace) -> None:
             ha = kh.harness_file(tree_a).read_text(errors="replace")
             perf_needed = rec["kind"] == "perf"
             try:
-                pb, pa = kh.patch_harness(hb, need_perf=perf_needed), kh.patch_harness(ha)
-                g["harness_patch"] = {"ok": True, "dialect": kh.dialect_of(hb)}
+                pb, pa = kh.patch_harness(hb, need_perf=perf_needed, header=kh.ggml_header(tree_b)), kh.patch_harness(ha, header=kh.ggml_header(tree_a))
+                g["harness_patch"] = {"ok": True, "dialect": kh.dialect_of(hb), "repairs": kh.repair_harness(hb, kh.ggml_header(tree_b))[1]}
             except kh.HarnessPatchError as e:
                 g["harness_patch"] = {"ok": False, "error": str(e)}
                 pb = pa = None
             if pb is not None:
                 hbld = ROOT / "cpu_harness" / rec["id"]
-                hbuild = kdw.cpu_harness_build(tree_b, hbld, pb, extra=kdw.CPU_GATE_EXTRA.get(layout.dispatch_file, ()))
+                rt = kdw.CPU_GATE.get(layout.dispatch_file) or {}
+                if rt.get("platform"):
+                    kdw.ensure_amd64_image()
+                hbuild = kdw.cpu_harness_build(tree_b, hbld, pb, extra=rt.get("extra", ()), image=rt.get("image", kdw.IMAGE), platform=rt.get("platform"),
+                                               ccache=ROOT / "ccache" / (rt.get("platform") or "native").replace("/", "-"))
                 g["harness_build_b"] = hbuild
-                if hbuild["ok"]:
+                if hbuild["ok"] and not rt.get("runnable_here", True):
+                    # built for x86_64 under emulation, which has no AVX: the listing and the seeding run on the x86 GPU host
+                    g["harness_runs"] = "pending_x86_host (the repository's CPU backend needs AVX2; this machine emulates x86_64 without AVX)"
+                elif hbuild["ok"]:
                     pools_b = list_cases(kdw, hbld, rec, kh.dialect_of(hb))
                     for m in rec["milestones"]:
                         m["case_pool"] = sorted({c for op in m["ops"] for c in pools_b.get(op, [])})
@@ -279,12 +286,16 @@ def cmd_gates(a: argparse.Namespace) -> None:
             shutil.rmtree(work / "cfg_a", ignore_errors=True)
         except Exception as e:  # noqa: BLE001 - a crashed gate run is a failed gate with its reason, never a pass
             g["error"] = f"{type(e).__name__}: {e}"[:600]
+        pending_host = bool(g.get("harness_runs"))
         pools_ok = bool(g.get("pools")) and all(v["pool"] > 0 for v in g["pools"].values()) and (rec["kind"] != "perf" or all(v["perf_pool"] > 0 for v in g["pools"].values()))
         mut_ok = all(v.get("builds") for v in (g.get("mutants") or {}).values()) if g.get("mutants") else False
-        g["cpu_pass"] = bool(not g.get("error") and g.get("S4_oracle_builds") and g.get("S3_start_builds") and (g.get("harness_patch") or {}).get("ok")
-                             and (g.get("harness_build_b") or {}).get("ok") and pools_ok and (g.get("seeded") or {}).get("ok") and (g.get("history") or {}).get("ok")
-                             and (g.get("leak") or {}).get("ok") and (g.get("configure_a") or {}).get("ok") and mut_ok
-                             and all(v["applies"] for v in (g.get("floors") or {}).values()))
+        structural = bool(not g.get("error") and g.get("S4_oracle_builds") and g.get("S3_start_builds") and (g.get("harness_patch") or {}).get("ok")
+                          and (g.get("harness_build_b") or {}).get("ok") and (g.get("history") or {}).get("ok") and (g.get("leak") or {}).get("ok")
+                          and (g.get("configure_a") or {}).get("ok") and mut_ok and all(v["applies"] for v in (g.get("floors") or {}).values()))
+        g["cpu_structural_pass"] = structural
+        g["cpu_pass"] = bool(structural and pools_ok and (g.get("seeded") or {}).get("ok"))
+        if structural and pending_host:
+            g["cpu_pending_host"] = ["S5 case pools (listing)", "S5 seeding check"]
         oom = [k for side in ("compile_a", "compile_b") for k, v in (g.get(side) or {}).items() if v.get("rc") in (137, -9)]
         if oom:
             g["infra"] = f"units killed for memory: {oom[:4]} (re-run; not a gate verdict)"
@@ -325,9 +336,7 @@ def apply_check(tree: Path, patch: str, scratch: Path) -> bool:
 
 
 def rebuild(kdw: Any, hbld: Path) -> dict[str, Any]:
-    r = kdw.docker_run("cmake --build /b --target test-backend-ops -j 2 > /b/crucible_rebuild.log 2>&1; rc=$?; tail -5 /b/crucible_rebuild.log; exit $rc",
-                       [(hbld / "src", "/src:ro"), (hbld / "b", "/b")], tag="cpuh")
-    return {"ok": r.rc == 0, "rc": r.rc, "seconds": r.seconds}
+    return kdw.cpu_harness_rebuild(hbld)
 
 
 def list_cases(kdw: Any, hbld: Path, rec: dict[str, Any], dialect: str | None) -> dict[str, list[str]]:
@@ -359,6 +368,8 @@ def seeded_check(kdw: Any, hbld: Path, rec: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "why": "no case to run"}
     runs = [{"name": n, "mode": "test", "seed": s, "cases": cases, "dump": True, "timeout_s": 1200} for n, s in (("s1", 11), ("s1b", 11), ("s2", 12))]
     res = {r["name"]: r for r in kdw.cpu_harness_runs(hbld, runs, timeout=3600)}
+    if any(r.get("rc") != 0 or not r.get("dump") for r in res.values()):  # a run killed by the shared machine: once more before judging
+        res = {r["name"]: r for r in kdw.cpu_harness_runs(hbld, runs, timeout=3600)}
     dumps = {k: kh.read_dump(Path(v["dump"]).read_bytes()) if v.get("dump") else [] for k, v in res.items()}
     same = bool(dumps["s1"]) and [(x["case"], x["out"], x["ref"]) for x in dumps["s1"]] == [(x["case"], x["out"], x["ref"]) for x in dumps["s1b"]]
     differ = bool(dumps["s2"]) and any(x["ref"] != y["ref"] for x, y in zip(dumps["s1"], dumps["s2"], strict=False))

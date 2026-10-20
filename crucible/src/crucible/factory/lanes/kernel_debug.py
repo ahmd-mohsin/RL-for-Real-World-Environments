@@ -106,7 +106,7 @@ def synthesize(derived: Path, faults: Sequence[Any], layout: ko.Layout | None, *
             assert layout is not None
             return backend_paths(f, layout, with_harness=with_harness)
 
-    faults = sorted(faults, key=lambda c: c.date)
+    faults = history_order(derived, faults)
     dropped: list[dict[str, str]] = []
     while len(faults) >= 2:
         b = faults[-1].sha
@@ -136,6 +136,17 @@ def synthesize(derived: Path, faults: Sequence[Any], layout: ko.Layout | None, *
     ok = gb.tree_of(derived, b_prime) == tb
     return Synth(ok, list(faults), dropped, a=a, b=b, b_prime=b_prime, chain=shas, alone=alone, revert_alone=revert_alone,
                  reason="" if ok else "B' differs from B")
+
+
+def history_order(derived: Path, faults: Sequence[Any]) -> list[Any]:
+    """``faults`` in history order (ancestor count, then date): commit dates tie for rebased or batch-pushed commits, and
+    B must be the newest by history, or the chain reverts a change B does not have."""
+    from crucible.factory.generators import base as gb
+
+    def depth(f: Any) -> int:
+        return int(gb.out(gb.git(derived, "rev-list", "--count", f.sha)) or 0)
+
+    return sorted(faults, key=lambda f: (depth(f), f.date))
 
 
 def export(derived: Path, rev: str, dest: Path) -> Path:
@@ -220,10 +231,10 @@ def units_for(tree: Path, files: Sequence[str], layout: ko.Layout, *, per_file: 
 
 # ---- milestones and the record ---------------------------------------------------------------------------------------------------
 def milestones_of(faults: Sequence[KernelChange], pools: Mapping[str, Sequence[str]], added: Mapping[str, Sequence[str]]) -> list[dict[str, Any]]:
-    """One milestone per fault (date order): its ops, the CPU-executed case pool of those ops, the cases the fix added,
+    """One milestone per fault (in the given order: history order from ``synthesize``): its ops, the CPU-executed case pool of those ops, the cases the fix added,
     its checks (golden always; the class's sanitizer tools; the perf bar for a speed-up), claimed interactions."""
     ms = []
-    for i, f in enumerate(sorted(faults, key=lambda c: c.date), 1):
+    for i, f in enumerate(faults, 1):  # the caller's order (``synthesize``: history order)
         dets = list(f.detectors)
         checks = ["golden"] + [d for d in dets if d in ("racecheck", "synccheck", "memcheck")] + (["perf"] if "perf_bar" in dets else [])
         mid = f"m{i}"
@@ -236,7 +247,7 @@ def milestones_of(faults: Sequence[KernelChange], pools: Mapping[str, Sequence[s
         for b in ms[i + 1:]:
             if set(a["ops"]) & set(b["ops"]) or set(a["files"]) & set(b["files"]):
                 b["claimed_requires"].append(a["id"])  # the later fix's cases may need the earlier one (direction measured on the GPU)
-    return [by[f.sha] for f in sorted(faults, key=lambda c: c.date)]
+    return [by[f.sha] for f in faults]
 
 
 def record_id(kind: str, repo: str, faults: Sequence[KernelChange]) -> str:
@@ -256,8 +267,20 @@ def kdspec(rec: Mapping[str, Any]) -> dict[str, Any]:
             "arch_default": "90", "keep_paths": [rec["layout"]["cuda_dir"]] + ([rec["layout"]["dispatch_file"]] if not rec["layout"]["dispatch_file"].startswith(rec["layout"]["cuda_dir"]) else []),
             "milestones": [{"id": m["id"], "kind": m["kind"], "checks": m["checks"], "cases": list(m.get("cases") or m.get("cases_added") or []) ,
                             "case_pool": list(m.get("case_pool") or []), "ops": m["ops"], "repeat": m.get("repeat", 1),
-                            "perf_cases": list(m.get("perf_cases") or [])} for m in rec["milestones"]],
+                            "perf_cases": list(m.get("perf_cases") or perf_candidates(m))} for m in rec["milestones"]],
             "seeds": {"fixed": [7, 123456], "fresh": 1}, "perf_bars": rec.get("perf_bars") or {}, "perf": {"r": 3, "rounds": 3}}
+
+
+def perf_candidates(m: Mapping[str, Any], *, k: int = 8) -> list[str]:
+    """Up to ``k`` perf-mode cases of a perf milestone's ops to calibrate (the GPU keeps those where the regression shows
+    above the noise floor): ranked by how many tokens of the speed-up's changed function names (``iq2_xxs``,
+    ``rms_norm``, ``set_rows``) the case's parameters mention, then shorter first. Only a proposal: S1 on the GPU decides."""
+    if m.get("kind") != "perf":
+        return []
+    toks = {x for f in m.get("functions") or [] for x in re.split(r"_(?=[a-z])|(?<=[a-z0-9])_", f.lower()) if len(x) >= 3}
+    toks |= {"_".join(p) for f in m.get("functions") or [] for p in zip(f.lower().split("_"), f.lower().split("_")[1:], strict=False)}
+    pool = list(m.get("perf_pool") or [])
+    return sorted(pool, key=lambda c: (-sum(1 for x in toks if x in c.lower()), len(c), c))[:k]
 
 
 # ---- the task ------------------------------------------------------------------------------------------------------------------

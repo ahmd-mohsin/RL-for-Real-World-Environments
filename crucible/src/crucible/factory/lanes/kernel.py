@@ -83,12 +83,13 @@ class Program:
     timeout_s: int = 300
     perf: dict[str, Any] | None = None
     openmp: bool = False
+    nvcc_flags: list[str] = field(default_factory=list)  # language flags the build file passes (--expt-relaxed-constexpr, --extended-lambda)
 
     def spec(self) -> dict[str, Any]:
         """The grader's view (``kernel_plan`` spec ``programs[pid]``)."""
         return {"sources": self.sources, "includes": self.includes, "defines": self.defines, "libs": self.libs, "std": self.std,
                 "run_dir": self.run_dir, "cases": self.cases or {"default": []}, "fresh": True, "timeout_s": self.timeout_s,
-                "compare": {}, "perf": self.perf, "openmp": self.openmp}
+                "compare": {}, "perf": self.perf, "openmp": self.openmp, "nvcc_flags": self.nvcc_flags}
 
 
 def read_raw(p: Path) -> str:
@@ -180,6 +181,15 @@ def _make_sources(text: str, d: str, main: str | None = None, files: set[str] | 
         if srcs:
             return srcs
     return None
+
+
+LANGUAGE_FLAGS = ("--expt-relaxed-constexpr", "--extended-lambda", "--expt-extended-lambda", "-expt-relaxed-constexpr", "-extended-lambda")
+
+
+def language_flags(text: str) -> list[str]:
+    """nvcc language-mode flags the build file passes: they change what the source means (constexpr host functions in
+    device code, lambdas), so the grader's command carries them (never arch, optimisation or output flags)."""
+    return sorted({("--" + f.lstrip("-")) for f in re.findall(r"(?<![\w-])(-{1,2}(?:expt-relaxed-constexpr|extended-lambda|expt-extended-lambda))\b", text)})
 
 
 def _make_flags(text: str) -> tuple[list[str], list[str], list[str]]:
@@ -281,7 +291,7 @@ def discover_programs(tree: Path, mains: Sequence[str], *, all_files: set[str] |
             cases = {"default": []}
         pid = pid_of(main)
         out[pid] = Program(id=pid, main=main, sources=sources, includes=includes, defines=list(dict.fromkeys(defs)), libs=list(dict.fromkeys(libs)),
-                           run_dir=d, cases=cases, needs=needs, closure=closure, openmp=openmp)
+                           run_dir=d, cases=cases, needs=needs, closure=closure, openmp=openmp, nvcc_flags=language_flags(mtext) if mtext else [])
         out[pid].__dict__["_tree"] = str(tree)
     return out
 
@@ -578,7 +588,7 @@ def kp_hash(obj: Any) -> str:
 def kspec(window: Mapping[str, Any], *, legacy_dir: str | None = None) -> dict[str, Any]:
     progs = window["programs"]
     used = sorted({p for m in window["milestones"] for p in m["programs"]})
-    keys = ("sources", "includes", "defines", "libs", "std", "run_dir", "cases", "timeout_s", "perf", "openmp")
+    keys = ("sources", "includes", "defines", "libs", "std", "run_dir", "cases", "timeout_s", "perf", "openmp", "nvcc_flags")
     return {"task_id": window["id"], "repo": window["repo"], "kinds": sorted(window.get("graded_kinds") or [k for k in window.get("kinds") or {} if k in kp.LEGACY]),
             "programs": {p: {**{k: progs[p].get(k) for k in keys}, "fresh": True, "compare": (window.get("compare") or {}).get(p) or {}} for p in used},
             "milestones": [{"id": m["id"], "kind": m.get("kind", "run"), "program": m.get("program"), "tu": m.get("tu"), "programs": m["programs"],

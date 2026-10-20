@@ -53,10 +53,11 @@ class Run:
 
 
 def docker_run(script: str, mounts: Sequence[tuple[Path | str, str]], *, tag: str, timeout: float = 7200, cpus: str = "2", memory: str = "3800m",
-               env: Mapping[str, str] | None = None, image: str = IMAGE) -> Run:
+               env: Mapping[str, str] | None = None, image: str = IMAGE, platform: str | None = None) -> Run:
     """One throwaway container (``crucible-lh-k-<tag>-<id>``, no network) running ``bash -c script``."""
     name = f"{PREFIX}{tag}-{uuid.uuid4().hex[:8]}"
-    cmd = ["docker", "run", "--rm", "--name", name, "--network", "none", "--cpus", cpus, "--memory", memory, "--label", "crucible.lane=kernel-debug"]
+    cmd = ["docker", "run", "--rm", "--name", name, "--network", "none", "--cpus", cpus, "--memory", memory, "--label", "crucible.lane=kernel-debug",
+           *(["--platform", platform] if platform else [])]
     for k, v in (env or {}).items():
         cmd += ["-e", f"{k}={v}"]
     for a, b in mounts:
@@ -183,6 +184,8 @@ def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float
             res[cur].errors.append(ln.strip()[:240])
     for i, u in enumerate(known):
         out[u] = res.get(i) or UnitResult(False, 1, 0.0, ["unit did not report (container failed)" + (" (timed out)" if r.timed_out else "")])
+    if not res and retry:  # the whole container died (the shared machine's memory, a daemon hiccup): once more, alone
+        return {**out, **compile_units(tree, bld, known, timeout=timeout, arch=arch, retry=False)}
     killed = [u for u in known if out[u].rc in (137, -9)]
     if killed and retry:  # the shared machine's memory, not the code: once more, alone
         out.update(compile_units(tree, bld, killed, timeout=timeout, arch=arch, retry=False))
@@ -193,12 +196,29 @@ def compile_units(tree: Path, bld: Path, units: Sequence[str], *, timeout: float
 
 
 # ---- the harness on the CPU backend -------------------------------------------------------------------------------------------------
-# the 2024 layout's own CPU kernels (iqk) are x86/ARM-specific and do not build on this machine's aarch64 Linux: the CPU
-# gate builds that layout with its portable kernels; the GPU hosts' reference build keeps the repository's defaults
-CPU_GATE_EXTRA = {"ggml/src/ggml-cuda.cu": ("-DGGML_IQK_MUL_MAT=OFF", "-DGGML_IQK_FLASH_ATTENTION=OFF")}
+# The 2024 layout's own CPU kernels (iqk) target x86 AVX2 and ARM dotprod and do not build on this machine's aarch64
+# Linux toolchain across the fork's history: the CPU gate builds and runs that layout's harness in an x86_64 container
+# (emulated; ``CPU_AMD64_IMAGE``, a content-addressed compiler cache shared across builds). The GPU hosts are x86_64 and
+# build the reference with the repository's defaults.
+CPU_AMD64_IMAGE = "crucible-lh-k:cpu-amd64"
+CPU_AMD64_DOCKERFILE = ("FROM ubuntu:24.04\nENV DEBIAN_FRONTEND=noninteractive\nRUN apt-get update && apt-get install -y --no-install-recommends "
+                        "build-essential cmake ninja-build git python3 ca-certificates ccache && rm -rf /var/lib/apt/lists/*\n")
+CPU_GATE = {"ggml/src/ggml-cuda.cu": {"image": CPU_AMD64_IMAGE, "platform": "linux/amd64", "runnable_here": False,  # Rosetta: no AVX
+                                      "extra": ("-DGGML_NATIVE=OFF", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_FMA=ON", "-DGGML_F16C=ON")}}
+CPU_GATE_EXTRA = {k: v["extra"] for k, v in CPU_GATE.items()}  # older name, kept for callers
 
 
-def cpu_harness_build(tree: Path, bld: Path, harness_text: str, *, timeout: float = 5400, extra: Sequence[str] = ()) -> dict[str, Any]:
+def ensure_amd64_image() -> str:
+    if not kw.image_id(CPU_AMD64_IMAGE):
+        p = subprocess.run(["docker", "build", "--platform", "linux/amd64", "-t", CPU_AMD64_IMAGE, "-"], input=CPU_AMD64_DOCKERFILE, capture_output=True, text=True,
+                           timeout=3600, check=False)
+        if p.returncode != 0:
+            raise RuntimeError(f"build {CPU_AMD64_IMAGE}: {p.stderr[-500:]}")
+    return kw.image_id(CPU_AMD64_IMAGE) or ""
+
+
+def cpu_harness_build(tree: Path, bld: Path, harness_text: str, *, timeout: float = 5400, extra: Sequence[str] = (), image: str = IMAGE,
+                      platform: str | None = None, ccache: Path | None = None) -> dict[str, Any]:
     """Build ``test-backend-ops`` with the CPU backend only from ``tree`` with ``harness_text`` (the grader's patched
     harness) in place of the tree's own file. The tree is copied (the harness file is replaced in the copy)."""
     src = bld / "src"
@@ -209,10 +229,31 @@ def cpu_harness_build(tree: Path, bld: Path, harness_text: str, *, timeout: floa
     b = bld / "b"
     b.mkdir(parents=True, exist_ok=True)
     args = " ".join(shlex.quote(a) for a in (*CMAKE_CPU, *extra))
+    stamp = b / "crucible_cmake_args"
+    key = f"{args} | {image} | {platform}"
+    if not stamp.exists() or stamp.read_text() != key:  # cached options or another platform's objects would survive: start clean
+        shutil.rmtree(b)
+        b.mkdir(parents=True)
+        stamp.write_text(key)
+    (bld / "crucible_runtime.json").write_text(json.dumps({"image": image, "platform": platform}))
+    mounts: list[tuple[Path | str, str]] = [(src, "/src:ro"), (b, "/b")]
+    env = {}
+    if ccache is not None:
+        Path(ccache).mkdir(parents=True, exist_ok=True)
+        mounts.append((ccache, "/ccache"))
+        env = {"CCACHE_DIR": "/ccache", "CCACHE_MAXSIZE": "8G"}
     r = docker_run(f"set -o pipefail; (cmake -S /src -B /b -G Ninja {args} && cmake --build /b --target test-backend-ops -j 2) > /b/crucible_build.log 2>&1; rc=$?; "
-                   "tail -30 /b/crucible_build.log | grep -E 'error|FAILED' ; exit $rc", [(src, "/src:ro"), (b, "/b")], tag="cpuh", timeout=timeout)
+                   "tail -30 /b/crucible_build.log | grep -E 'error|FAILED' ; exit $rc", mounts, tag="cpuh", timeout=timeout, image=image, platform=platform, env=env)
     ok = r.rc == 0 and (b / "bin" / "test-backend-ops").exists()
     return {"ok": ok, "rc": r.rc, "seconds": r.seconds, "errors": r.stdout.splitlines()[-12:] if not ok else []}
+
+
+def cpu_harness_rebuild(bld: Path, *, timeout: float = 5400) -> dict[str, Any]:
+    """Rebuild the harness target in ``bld`` after its source changed (the A' harness swapped in), same runtime as the build."""
+    rt = json.loads((bld / "crucible_runtime.json").read_text()) if (bld / "crucible_runtime.json").exists() else {}
+    r = docker_run("cmake --build /b --target test-backend-ops -j 2 > /b/crucible_rebuild.log 2>&1; rc=$?; tail -5 /b/crucible_rebuild.log; exit $rc",
+                   [(bld / "src", "/src:ro"), (bld / "b", "/b")], tag="cpuh", timeout=timeout, image=rt.get("image") or IMAGE, platform=rt.get("platform"))
+    return {"ok": r.rc == 0, "rc": r.rc, "seconds": r.seconds}
 
 
 def cpu_harness_runs(bld: Path, runs: Sequence[Mapping[str, Any]], *, timeout: float = 3600) -> list[dict[str, Any]]:
@@ -240,7 +281,9 @@ def cpu_harness_runs(bld: Path, runs: Sequence[Mapping[str, Any]], *, timeout: f
             args += ["-o", str(r["ops"])]
         lines.append(f"{' '.join(env)} timeout {int(r.get('timeout_s') or 1200)} /b/bin/test-backend-ops {' '.join(shlex.quote(a) for a in args)} "
                      f"> /o/{n}.log 2>&1; echo $? > /o/{n}.rc")
-    r = docker_run("\n".join(lines), [(bld / "b", "/b:ro"), (out_dir, "/o")], tag="cpur", timeout=timeout)
+    rt = json.loads((bld / "crucible_runtime.json").read_text()) if (bld / "crucible_runtime.json").exists() else {}
+    r = docker_run("\n".join(lines), [(bld / "b", "/b:ro"), (out_dir, "/o")], tag="cpur", timeout=timeout, image=rt.get("image") or IMAGE,
+                   platform=rt.get("platform"))
     res = []
     for spec in runs:
         n = str(spec["name"])

@@ -5,6 +5,7 @@
     python scripts/lh_kernel_debug_migrate.py build      # groups of 2-4 commits -> A'..B -> one merged multi-program window each
     python scripts/lh_kernel_debug_migrate.py gates      # kernel_gates.compile_gates with the generation's toolkits, then the kit grader on CPU
     python scripts/lh_kernel_debug_migrate.py author     # the builder's openings (prompts/<id>.json) -> prompt, ledger, lint, intent
+    python scripts/lh_kernel_debug_migrate.py stage-gpu  # the GPU bundle (data/kernel_debug/gpu_bundle/migration)
 
 State lives under ``data/kernel_debug/migrate`` (windows in ``store/windows``, trees in ``store/trees``). Containers are
 ``crucible-k-*`` (the kernel lane's compile helpers) and ``crucible-lh-k-*``; no model, no GPU.
@@ -57,6 +58,23 @@ def commit_of(row: dict[str, Any]) -> Any:
     return km.MigrationCommit(**{k: v for k, v in row.items() if k in km.MigrationCommit.__dataclass_fields__})
 
 
+def include_dirs(derived: Path, rev: str, files: list[str]) -> set[str]:
+    """Directories the Makefiles of the migrated programs pass with ``-I`` (HeCBench's ``scan3`` includes ``../scan2-cuda``)."""
+    import re
+
+    from crucible.factory.generators import base as gb
+    from crucible.factory.lanes import kernel_debug_migrate as kdm
+    from crucible.factory.lanes import kernel_mine as km
+
+    out = set()
+    for d in {kdm.program_key(f) for f in files}:
+        mk = gb.show(derived, rev, f"{d}/Makefile") or ""
+        for inc in re.findall(r"-I\s*([^\s$]+)", mk):
+            if not inc.startswith("/"):
+                out.add(km._norm(f"{d}/{inc}"))
+    return out
+
+
 def cmd_build(a: argparse.Namespace) -> None:
     from crucible.factory.generators import base as gb
     from crucible.factory.lanes import kernel as K
@@ -92,6 +110,8 @@ def cmd_build(a: argparse.Namespace) -> None:
             grp = syn.faults
             files = sorted({f for c in grp for f in c.migrated_files})
             sub = kw.subtree_paths(derived, syn.b, files)
+            if sub:  # a large tree exported in parts: the include directories the programs' build files name come too
+                sub = sorted(set(sub) | include_dirs(derived, syn.b, files))
             ta, tb = store / "trees" / f"{wid}-a", store / "trees" / f"{wid}-b"
             kw.export_tree(derived, syn.a, ta, paths=sub)
             kw.export_tree(derived, syn.b, tb, paths=sub)
@@ -195,6 +215,32 @@ def cmd_author(a: argparse.Namespace) -> None:
         print(w["id"], "lint", lint or "clean", "ledger", led_problems[:3] or "clean", flush=True)
 
 
+def cmd_stage_gpu(a: argparse.Namespace) -> None:
+    """The migration windows' GPU bundle: the kernel lane's bundle (``lh_kernel.py stage-gpu``: base tree, oracle, floors,
+    fault mutants, kspec, the kit with ``kernel_plan``, ``run_gpu.sh`` + ``stage_gpu.py``) with per-window images
+    (``images.json``: CUDA 13 World with the CUDA 12.8 original for the CUDA 13 generation) and their Dockerfiles."""
+    import argparse as ap
+
+    from crucible.factory.lanes import kernel_debug_migrate as kdm
+    from crucible.factory.lanes import kernel_world as kw
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    import lh_kernel
+
+    out = Path(a.out) if a.out else ROOT / "gpu_bundle" / "migration"
+    lh_kernel.cmd_stage_gpu(ap.Namespace(store=str(MIG / "store"), out=str(out)))
+    images = {kw.BASE_TAG: "Dockerfile.base", kw.LEGACY_TAG: "Dockerfile.legacy", kdm.CUDA13_TAG: "Dockerfile.cuda13"}
+    (out / "Dockerfile.cuda13").write_text(kw.dockerfile(kdm.CUDA13_FROM))
+    jdump(out / "images.json", images)
+    for w in windows():
+        d = out / "windows" / w["id"]
+        if d.is_dir():
+            g = kdm.GENERATIONS[w["generation"]]
+            jdump(d / "images.json", {"base": g["world"] if w["generation"] == "cuda13" else kw.BASE_TAG,
+                                     "legacy": kw.BASE_TAG if w["generation"] == "cuda13" else kw.LEGACY_TAG})
+    print(f"migration bundle in {out}")
+
+
 def migration_intent(w: dict[str, Any]) -> dict[str, Any]:
     from crucible.factory.lanes import kernel as K
     from crucible.factory.lanes import kernel_debug as kd
@@ -226,8 +272,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("author")
     s.add_argument("--ids", nargs="*")
+    s = sub.add_parser("stage-gpu")
+    s.add_argument("--out")
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu}[a.cmd](a)
     return 0
 
 

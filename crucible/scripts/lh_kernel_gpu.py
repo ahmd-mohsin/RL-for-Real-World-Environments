@@ -54,20 +54,44 @@ def idle(max_util: int = 10, max_load: float = 8.0, wait_s: float = 3600) -> dic
         time.sleep(60)
 
 
+def images_of(wdir: Path) -> tuple[str, str]:
+    """(World/verifier image, original's image) of a window: ``images.json`` in its directory (the kernel debugging lane's
+    CUDA 12 -> 13 migrations: CUDA 13 and 12.8), else the CUDA 12.8 / 11.8 pair."""
+    f = wdir / "images.json"
+    if f.exists():
+        d = json.loads(f.read_text())
+        return d.get("base", BASE_TAG), d.get("legacy", LEGACY_TAG)
+    return BASE_TAG, LEGACY_TAG
+
+
 def ensure_images() -> None:
-    for tag, df in ((BASE_TAG, HERE / "Dockerfile.base"), (LEGACY_TAG, HERE / "Dockerfile.legacy")):
+    pairs = [(BASE_TAG, HERE / "Dockerfile.base"), (LEGACY_TAG, HERE / "Dockerfile.legacy")]
+    if (HERE / "images.json").exists():  # every image a window names, with its Dockerfile in the bundle
+        pairs = [(tag, HERE / df) for tag, df in json.loads((HERE / "images.json").read_text()).items()]
+    for tag, df in pairs:
         if sh(["docker", "image", "inspect", tag], timeout=60).returncode != 0:
             p = sh(["docker", "build", "-t", tag, "-"], input=df.read_text(), timeout=7200)
             if p.returncode != 0:
                 raise RuntimeError(f"build {tag}: {p.stderr[-800:]}")
 
 
-def build_launch_lib() -> None:
-    lib = HERE / "hooks" / "libcrucible_launch.so"
+def hooks_of(tag: str) -> Path:
+    """The hooks directory for a World image: the CUPTI injection library links that image's CUPTI (12 vs 13)."""
+    if tag == BASE_TAG:
+        return HERE / "hooks"
+    d = HERE / f"hooks-{tag.split(':', 1)[-1]}"
+    if not d.exists():
+        shutil.copytree(HERE / "hooks", d, ignore=shutil.ignore_patterns("*.so"))
+    return d
+
+
+def build_launch_lib(tag: str = BASE_TAG) -> None:
+    hooks = hooks_of(tag)
+    lib = hooks / "libcrucible_launch.so"
     if lib.exists():
         return
     cmd = " ".join(kp.LAUNCH_BUILD)
-    p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-cupti-{uuid.uuid4().hex[:8]}", "-v", f"{HERE / 'hooks'}:/h", "-w", "/h", BASE_TAG,
+    p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-cupti-{uuid.uuid4().hex[:8]}", "-v", f"{hooks}:/h", "-w", "/h", tag,
             "bash", "-c", cmd])
     if p.returncode != 0:
         raise RuntimeError(f"CUPTI injection build failed: {p.stderr[-600:]}")
@@ -85,7 +109,7 @@ def build_originals(wdir: Path, spec: dict, legacy: dict) -> dict:
         lines.append(f"( cd /t && {' '.join(map(_q, cmd))} ) > /o/{pid}.log 2>&1; echo $? > /o/{pid}.rc")
     (wdir / "legacy_build.sh").write_text("\n".join(lines) + "\n")
     p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-legacy-{uuid.uuid4().hex[:8]}", "--network", "none", "-v", f"{wdir / 'base'}:/t:ro",
-            "-v", f"{HERE / 'hooks'}:/h:ro", "-v", f"{out}:/o", "-v", f"{wdir / 'legacy_build.sh'}:/b.sh:ro", LEGACY_TAG, "bash", "/b.sh"])
+            "-v", f"{HERE / 'hooks'}:/h:ro", "-v", f"{out}:/o", "-v", f"{wdir / 'legacy_build.sh'}:/b.sh:ro", images_of(wdir)[1], "bash", "/b.sh"])
     res = {pid: (out / f"{pid}.rc").read_text().strip() == "0" if (out / f"{pid}.rc").exists() else False for pid in spec["programs"]}
     if p.returncode != 0:
         res["_container"] = p.stderr[-400:]
@@ -106,19 +130,20 @@ def grade(wdir: Path, patch: Path, arch: str, mode: str, tag: str) -> dict:
     args = ["python3", "-I", "/crucible_verify/crucible/verify/runtime/run.py", "--plan", "crucible.factory.lanes.kernel_plan", "--out", "/out",
             "--base", "/k/base", "--patch", "/k/patch", "--param", "spec=/k/kspec.json", "--param", f"arch={arch}", "--param", "base_tree=/k/base",
             "--param", "legacy_dir=/k/legacy", "--param", "hooks_dir=/k/hooks", "--require-root"]
-    mounts = [(HERE / "kit", "/crucible_verify"), (wdir / "base", "/k/base"), (wdir / "legacy", "/k/legacy"), (HERE / "hooks", "/k/hooks"),
+    build_launch_lib(images_of(wdir)[0])
+    mounts = [(HERE / "kit", "/crucible_verify"), (wdir / "base", "/k/base"), (wdir / "legacy", "/k/legacy"), (hooks_of(images_of(wdir)[0]), "/k/hooks"),
               (wdir / "kspec.json", "/k/kspec.json"), (patch, "/k/patch"), (out, "/out")]
     if mode == "apptainer":
         cmd = ["apptainer", "exec", "--nv", "--fakeroot", "--containall", "--net", "--network", "none"]
         for src, dst in mounts:
             cmd += ["-B", f"{src}:{dst}" + ("" if dst == "/out" else ":ro")]
-        cmd += [f"docker-daemon://{BASE_TAG}", *args]
+        cmd += [f"docker-daemon://{images_of(wdir)[0]}", *args]
     else:
         cmd = ["docker", "run", "--rm", "--name", f"crucible-k-gpu-{tag}-{uuid.uuid4().hex[:8]}", "--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all",
                "-e", f"CRUCIBLE_CUDA_ARCH={arch}", "--network", "none", "--init", "--shm-size", "2g"]
         for src, dst in mounts:
             cmd += ["-v", f"{src}:{dst}" + ("" if dst == "/out" else ":ro")]
-        cmd += [BASE_TAG, *args]
+        cmd += [images_of(wdir)[0], *args]
     p = sh(cmd, timeout=7200)
     rj = out / "crucible_reward.json"
     doc = json.loads(rj.read_text()) if rj.exists() else {"infra": {"status": "masked", "failure_kind": "no_reward", "reason": p.stderr[-400:]}}
