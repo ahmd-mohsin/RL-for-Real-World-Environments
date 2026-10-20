@@ -90,6 +90,9 @@ conflicts = [
   [{ extra = "verifiers" }, { extra = "mcp" }],
   [{ extra = "verifiers" }, { extra = "openenv-awm" }],
 ]
+# weave (extra observe) depends on cint, whose wheel installs a top-level `tests` package that shadows this repo's
+# tests/ namespace (every `from tests.unit...` stops collecting); weave imports without it, so it is never installed.
+override-dependencies = ["cint; sys_platform == 'never'"]
 
 [tool.uv.workspace]
 members = ["packs/coding", "packs/_toy"]
