@@ -76,10 +76,12 @@ def _ok(res: Mapping[str, kw.BuildResult], key: str) -> bool:
     return bool(r and r.ok)
 
 
-def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str] = kw.ARCHES, faults: bool = True) -> dict[str, Any]:
+def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str] = kw.ARCHES, faults: bool = True, base_image: str | None = None,
+                  legacy_image: str | None = None, legacy_arches: Sequence[str] = LEGACY_ARCHES) -> dict[str, Any]:
     """Run every CPU gate of one window and record the evidence in ``window['gates']`` (also returned). Updates the
     milestones' ``requires_evidence``, the window's ``graded_kinds``, ``rung``, ``l4_candidate``, ``mutants`` and the
-    legacy PTX arch per program."""
+    legacy PTX arch per program. ``base_image`` / ``legacy_image``: the World's toolkit and the original's (default CUDA
+    12.8 and 11.8; the CUDA 13 migrations of ``kernel_debug_migrate`` pass 13.x and 12.8)."""
     g: dict[str, Any] = {}
     ms = window["milestones"]
     J = jobs(window)
@@ -98,8 +100,8 @@ def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str]
         # S3: the start, S4: the oracle (each arch)
         g["start"], g["oracle"] = {}, {}
         for arch in arches:
-            rs = kw.compile_many(tree_a, J, arch=arch)
-            ro = kw.compile_many(tree_b, J, arch=arch)
+            rs = kw.compile_many(tree_a, J, arch=arch, image=base_image)
+            ro = kw.compile_many(tree_b, J, arch=arch, image=base_image)
             g["start"][arch] = {k: v.to_json() for k, v in rs.items()}
             g["oracle"][arch] = {k: v.to_json() for k, v in ro.items()}
         a0 = arches[0]
@@ -123,10 +125,10 @@ def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str]
         progs = {k: v for k, v in J.items() if k.startswith("p_")}
         legacy: dict[str, str | None] = {}
         todo = dict(progs)
-        for la in LEGACY_ARCHES:
+        for la in legacy_arches:
             if not todo:
                 break
-            rl = kw.compile_many(tree_a, todo, legacy=True, legacy_arch=la)
+            rl = kw.compile_many(tree_a, todo, legacy=True, legacy_arch=la, image=legacy_image)
             retry = {}
             for k, r in rl.items():
                 if r.ok:
@@ -134,14 +136,14 @@ def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str]
                 elif (defs := legacy_repair(r.errors)):  # enum names newer than CUDA 11.8 in error-string tables only
                     retry[k] = {**todo[k], "defines": [*(todo[k].get("defines") or []), *defs]}
             if retry:
-                rr = kw.compile_many(tree_a, retry, legacy=True, legacy_arch=la)
+                rr = kw.compile_many(tree_a, retry, legacy=True, legacy_arch=la, image=legacy_image)
                 for k, r in rr.items():
                     if r.ok:
                         legacy[k[2:]] = la
                         window["programs"][k[2:]]["legacy_defines"] = [d for d in retry[k]["defines"] if d not in (todo[k].get("defines") or [])]
                         rl[k] = r
             todo = {k: v for k, v in todo.items() if not rl[k].ok}
-            if la == "60":
+            if la == legacy_arches[0]:
                 g["legacy_errors_60"] = {k: rl[k].errors[:3] for k in todo}
         for k in todo:
             legacy[k[2:]] = None
@@ -156,7 +158,7 @@ def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str]
         for c in [m for m in ms if m.get("kind") == "compile"]:
             back = {f: (K.read_raw(tree_a / f) if (tree_a / f).is_file() else None) for f in c["files"]}
             t = overlay(tree_b, back, work / f"revert_{c['id']}")
-            rr = kw.compile_many(t, J, arch=a0)
+            rr = kw.compile_many(t, J, arch=a0, image=base_image)
             killed = not _ok(rr, f"c_{c['id']}")
             mutants.append({"id": f"revert-{c['id']}", "kind": "revert", "milestone": c["id"], "files": c["files"], "compile_killed": killed})
             for r in [m for m in ms if m.get("kind") == "run" and c["id"] in (m.get("requires") or [])]:
@@ -171,7 +173,7 @@ def compile_gates(window: dict[str, Any], tree_a: Path, *, arches: Sequence[str]
             owner = {f: m["id"] for m in ms if m.get("kind") == "compile" for f in m["files"]}
             for mu in K.fault_mutants(window["oracle_files"], lambda f: owner.get(f)):
                 t = overlay(tree_b, {mu["file"]: mu["content"]}, work / "fault")
-                rf = kw.compile_many(t, jobs(window, [m for m in ms if mu["milestone"] == m["id"] or mu["milestone"] in (m.get("requires") or [])]), arch=a0)
+                rf = kw.compile_many(t, jobs(window, [m for m in ms if mu["milestone"] == m["id"] or mu["milestone"] in (m.get("requires") or [])]), arch=a0, image=base_image)
                 builds = all(r.ok for r in rf.values())
                 fm.append({**{k: mu[k] for k in ("id", "kind", "file", "milestone", "note")}, "builds": builds, "gpu": "pending" if builds else "compile_killed",
                            "content_sha256": K.kp_hash(mu["content"])})

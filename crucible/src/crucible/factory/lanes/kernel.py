@@ -46,7 +46,10 @@ INTENT_TEXT = ("Migrates GPU code across toolkit and API generations (removed te
 KIND_TEXT = {"texref": "texture references (removed in CUDA 12)", "surfref": "surface references (removed in CUDA 12)",
              "warp_sync": "warp intrinsics without a member mask (`__shfl*`, `__any`, `__all`, `__ballot`)",
              "thread_api": "the deprecated `cudaThread*` runtime calls", "lib_api": "cuSPARSE calls removed in CUDA 12",
-             "volatile_warp": "implicit warp-synchronous shared-memory code"}
+             "volatile_warp": "implicit warp-synchronous shared-memory code",
+             "cccl3_functors": "the CUB operator functors CCCL 3 removed",
+             "memloc_api": "the device-number forms of the unified-memory prefetch and advise calls",
+             "devprop_removed": "device-property fields CUDA 13 removed"}
 ARCH_TOKEN = "{ARCH}"
 LANE_SENTENCES = (
     f"Only CUDA 12.8 is installed; build for this machine's GPU, `sm_{ARCH_TOKEN}`.",
