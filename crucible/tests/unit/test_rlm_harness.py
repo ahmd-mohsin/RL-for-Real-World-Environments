@@ -76,7 +76,7 @@ async def test_rlm_harness_long_horizon_train_rollout(tmp_path):
     h = RLMHarness(_config())
     assert h.id.startswith("rlm:") and h.id != RLMHarness(RLMConfig()).id  # the config is part of the harness id (one per GRPO group)
     try:
-        ref = PolicyRef(id="engine:scripted", make=lambda a: {"agent": EngineLLM(CODEC, gen)})  # the harness wraps the model in the RLM
+        ref = PolicyRef(id="engine:scripted", make=lambda a: {"agent": EngineLLM(CODEC, gen)}, config={})  # the harness wraps the model in the RLM
         await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[ref], harnesses=[h], k=1, rollout_mode="train"))
     finally:
         task.cleanup()
@@ -134,7 +134,7 @@ async def test_step_limit_closes_the_kernel(tmp_path):
         return {"agent": made[-1]}
 
     try:
-        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="rlm", make=make)],
+        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="rlm", make=make, config={})],
                                            harnesses=[RLMHarness(_config(), limits=EpisodeLimits(max_steps=3))], k=1))
     finally:
         task.cleanup()
@@ -182,7 +182,7 @@ async def test_tool_index_and_docker_sandboxed_kernel(tmp_path):
 
     h = RLMHarness(replace(_config(), kernel="docker"), limits=EpisodeLimits(max_steps=20))
     try:
-        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="e", make=lambda a: {"agent": EngineLLM(CODEC, gen)})],
+        await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[task], policies=[PolicyRef(id="e", make=lambda a: {"agent": EngineLLM(CODEC, gen)}, config={})],
                                            harnesses=[h], k=1))
     finally:
         task.cleanup()

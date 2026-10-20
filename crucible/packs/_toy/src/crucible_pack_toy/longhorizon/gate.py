@@ -39,7 +39,9 @@ async def main(n: int = PRESETS["xl"], budget: int = 128_000, crash: int = 3500,
 
     root = Path(tempfile.mkdtemp(prefix="lh-gate-"))
     t0 = time.monotonic()
-    s = await Runner(root).run(RunSpec(run_id="xl", tasks=[task], policies=[PolicyRef(id="replay:diligent", make=make)],
+    # M10 lab audit R-4: the replayed script and the fault it crashes at are what this policy is (PolicyRef.config)
+    s = await Runner(root).run(RunSpec(run_id="xl", tasks=[task], policies=[PolicyRef(id="replay:diligent", make=make,
+                                                                                      config={"script": "diligent replay", "crash_at_call": crash, "budget_tokens": budget})],
                                        harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=1_000_000, max_tool_errors=None), checkpoint_every=every)], k=1))
     secs = round(time.monotonic() - t0, 1)
     adirs = sorted((root / "xl" / "samples").glob("*/a*"))

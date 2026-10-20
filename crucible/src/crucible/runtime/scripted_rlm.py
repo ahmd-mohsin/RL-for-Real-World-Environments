@@ -604,6 +604,7 @@ def crash_then_resume_ref(make_llm: Any, *, crash_at_call: int, policy_id: str =
     (``runtime.checkpoint``). ``make_llm(attempt)`` builds a fresh client per attempt (the model is stateless, so the resumed
     attempt continues from its restored context), the wrappers that fired)."""
     from crucible.runtime.harness.native import PolicyRef
+    from crucible.runtime.identity import code_ref
 
     made: list[FaultLLM] = []
 
@@ -614,7 +615,8 @@ def crash_then_resume_ref(make_llm: Any, *, crash_at_call: int, policy_id: str =
             made.append(llm)
         return {"agent": llm}
 
-    return PolicyRef(id=policy_id, make=make), made
+    # M10 lab audit R-4: the fault schedule and the model's name are what this policy is
+    return PolicyRef(id=policy_id, make=make, config={"crash_at_call": crash_at_call, "on_attempts": list(on_attempts), "model": code_ref(make_llm)}), made
 
 
 async def kill_kernel(kernel: Any) -> bool:

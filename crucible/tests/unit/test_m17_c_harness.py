@@ -77,7 +77,7 @@ def script(final: str = "All done."):
 
 
 def llm(final: str = "All done.") -> PolicyRef:
-    return PolicyRef(id="fake:window", make=lambda a: {"agent": LLMToolPolicy("agent", FakeLLM(script(final)))})
+    return PolicyRef(id="fake:window", make=lambda a: {"agent": LLMToolPolicy("agent", FakeLLM(script(final)))}, config={"fake_llm": final})  # M10 lab audit R-4
 
 
 async def run_one(tmp_path, task, policy, harness, run_id="w", **kw):
@@ -148,7 +148,7 @@ async def test_no_hidden_result_reaches_the_agent(tmp_path):
 
         return {"agent": Thinking("agent", step)}
 
-    adir, rec, _ = await run_one(tmp_path, task, PolicyRef(id="scripted:rec", make=make), WorkspaceHarness(sidecar=checkpoint_sidecar(CheckpointConfig(every=1))))
+    adir, rec, _ = await run_one(tmp_path, task, PolicyRef(id="scripted:rec", make=make, config={"script": "rec"}), WorkspaceHarness(sidecar=checkpoint_sidecar(CheckpointConfig(every=1))))
     assert rec["reward"] == 1.0 and rec["meta"]["progress"]["graded"] == 2  # two distinct patches (fib.py, then + README)
     assert graded_mid == [True] and len(files_mid) == len(acts) + 1 and not any(files_mid)  # graded during the episode; nothing on disk until it ended
     blob = "\n".join(seen)
@@ -205,7 +205,7 @@ async def test_rlm_compaction_boundaries_are_checkpoints(tmp_path):
     gen, seen = scripted_engine(base)
     h = RLMHarness(_config(), sidecar=checkpoint_sidecar(CheckpointConfig(every=4, snapshot=snap)))
     try:
-        ref = PolicyRef(id="engine:scripted", make=lambda a: {"agent": EngineLLM(CODEC, gen)})
+        ref = PolicyRef(id="engine:scripted", make=lambda a: {"agent": EngineLLM(CODEC, gen)}, config={"engine": "scripted"})  # M10 lab audit R-4
         adir, _rec, ro = await run_one(tmp_path, BacklogWindow(), ref, h, run_id="rlm", rollout_mode="train")
     finally:
         base.cleanup()

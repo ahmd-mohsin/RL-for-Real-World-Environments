@@ -23,6 +23,7 @@ from crucible.core.schema.milestone import Expectation
 from crucible.core.schema.world import WorldSpec
 from crucible.core.store import Store
 from crucible.forge.schema import CheckSet, NegativeSpec, TaskSpec
+from crucible.runtime.identity import tree_digest
 from crucible.verify.runtime.patterns.invariants import Invariant
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan
 from crucible.verify.runtime.trusted import Trusted
@@ -390,6 +391,11 @@ class ToyForgedTask:
 
         class _RT:
             id, world_id, instruction = task.task_id, task.world_file, task.instruction
+
+            def identity_config(self) -> dict:
+                """M10 lab audit R-4: what decides a grade (``grade_env``: the world files, the check set and the plan code) and the
+                forged pack's tree (its world spec and data)."""
+                return {"grade_env": task.grade_env(), "pack": tree_digest(task.pack_root), "instruction": task.instruction}
 
             async def open(self, workdir: Path):
                 w = task._world(Path(workdir))

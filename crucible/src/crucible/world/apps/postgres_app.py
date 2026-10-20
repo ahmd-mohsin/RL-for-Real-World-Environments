@@ -21,11 +21,19 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
-from crucible.world.apps.base import App, ToolError
+from crucible.world.apps.base import SQL_DEADLINE_S, App, ToolError
 from crucible.world.exec import DockerExec, _run_subprocess
 from crucible.world.state.postgres import PostgresAdapter, _ident
 
 _S = {"type": "string"}
+
+
+def _pg_error(e: Exception, deadline_s: float) -> str:
+    """The policy-facing text of a failed statement; the server's statement timeout reads like SQLite's (R-12)."""
+    text = str(e).split("psql failed: ")[-1][:1500]
+    if "statement timeout" in text:
+        return f"query_timeout: the statement ran past {deadline_s:g}s and was stopped"
+    return text
 
 
 class PostgresApp(App):
@@ -138,16 +146,18 @@ class PostgresApp(App):
         return r
 
     async def tool_sql_query(self, sql: str, max_rows: int = 200) -> Any:
+        d = self.deadline(self.spec.params.get("sql_deadline_s", SQL_DEADLINE_S))  # the server stops the statement (R-12)
         try:
-            return await self.state.q_sql(sql, max_rows=min(max_rows, 2000))
+            return await self.state.q_sql(sql, max_rows=min(max_rows, 2000), statement_timeout_s=d)
         except Exception as e:
-            raise ToolError(str(e).split("psql failed: ")[-1][:1500]) from e
+            raise ToolError(_pg_error(e, d)) from e
 
     async def tool_sql_execute(self, sql: str) -> Any:
         if not self.spec.params.get("sql_write"):
             raise ToolError("writes are disabled")
+        d = self.deadline(self.spec.params.get("sql_deadline_s", SQL_DEADLINE_S))
         try:
-            out = await self.state.psql(f"SET search_path TO {_ident(self.state.schema)}; {sql}")
+            out = await self.state.psql(f"SET search_path TO {_ident(self.state.schema)}; {sql}", statement_timeout_s=d, timeout_s=d + 30)
         except Exception as e:
-            raise ToolError(str(e).split("psql failed: ")[-1][:1500]) from e
+            raise ToolError(_pg_error(e, d)) from e
         return out.strip() or "ok"

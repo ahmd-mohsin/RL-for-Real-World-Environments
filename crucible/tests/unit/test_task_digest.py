@@ -10,7 +10,7 @@ from crucible_pack_toy.runtime import ORACLE, HelpdeskTask
 
 from crucible.core.ids import tree_digest
 from crucible.runtime.harness.native import NativeHarness
-from crucible.runtime.lock import RunLockMismatch
+from crucible.runtime.identity import IdentityDrift
 from crucible.runtime.run import Runner, RunSpec
 
 
@@ -68,6 +68,9 @@ class DirTask:
     def digest(self):
         return self.digests.pop(0) if self.digests else tree_digest(self.root)
 
+    def identity_config(self):  # M10 lab audit R-4: what a resume compares (as real tasks declare their content digests)
+        return {"inner": self.inner, "files": tree_digest(self.root)}
+
     async def grade(self, world, workdir):
         if self.edit:
             (self.root / "tests" / "test.sh").write_text("exit 2\n")
@@ -115,5 +118,5 @@ async def test_resuming_with_an_edited_task_is_refused_naming_it(tmp_path):
     task = DirTask(_tree(tmp_path / "task"))
     await Runner(tmp_path / "runs").run(_spec(task))
     (task.root / "tests" / "test.sh").write_text("exit 3\n")
-    with pytest.raises(RunLockMismatch, match=r"tasks\.0\.digest"):
+    with pytest.raises(IdentityDrift, match=rf"tasks\.{task.id}\.files"):  # the run identity refuses it (the lock records)
         await Runner(tmp_path / "runs").run(_spec(task))

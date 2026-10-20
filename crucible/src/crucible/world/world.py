@@ -17,6 +17,7 @@ ever calls ``reset`` / ``step``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
 import fnmatch
 import json
@@ -41,14 +42,22 @@ from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutco
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
 from crucible.core.text import safe_json, safe_text, unencodable
+from crucible.world import lifecycle
 from crucible.world.apps.base import App, AppContext
 from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
+from crucible.world.exec import container_lost_cause
 
 MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inbound batch
 
 logger = logging.getLogger(__name__)
 INFRA_ERRORS = frozenset({"transport", "gateway_error", "internal_error", "timeout", "session_lost"})
+# how long past limits.tool_timeout_s the World waits for a tool: its own deadline result (an in-container kill, then the
+# transport backstops of +15 s) arrives first and is scored (NeMo-Gym: outer = tool timeout + cleanup + 30 s)
+TOOL_GRACE_S = 60.0
+# World.close bounds each App's stop (M1 audit R-9; CI's own container removal allows 120 s); the whole close is bounded by
+# ``World.close_timeout_s`` (M10 lab audit R-6)
+APP_STOP_S = 150.0
 
 
 def _argument_problem(args: Any, schema: dict[str, Any] | None) -> str | None:
@@ -122,6 +131,7 @@ class VerifierView:
         return list(self._world.apps)
 
     def adapter(self, app: str):
+        self._world._touched += 1  # a query may run a command (op run): a later restore never trusts the old state (R-5)
         return self._world.apps[app].state
 
     async def query(self, app: str, q: Query | dict[str, Any]) -> QueryResult:
@@ -165,6 +175,10 @@ class VerifierView:
 
 
 class World:
+    # M10 lab audit R-6: what ``close`` may take before it is given up on (recorded in the attempt scope, never raised): a backend
+    # teardown that hangs (a Harbor compose ``down``) must not hold an attempt, or the lease behind it, for ever
+    close_timeout_s: float = lifecycle.WORLD_CLOSE_TIMEOUT_S
+
     def __init__(
         self,
         spec: WorldSpec,
@@ -231,6 +245,14 @@ class World:
         self._acl_changed: set[str] = set()
         self._started = False
         self._closed = False
+        self._closing: asyncio.Future | None = None  # M10 lab audit R-6: the one shielded close every caller shares
+        self._close_exc: BaseException | None = None  # what ``_close`` raised, for the first caller to see
+        self._scope: lifecycle.Scope | None = None  # the lifecycle scope this World was started in: its close is recorded there
+        # restores a WorldRef already in place skips (M1 audit R-5): tool calls and verifier queries so far, and the ref the
+        # state was last set to with that count; ``restored_apps``: the Apps the last restore actually restored
+        self._touched = 0
+        self._settled: tuple[str, int] | None = None
+        self.restored_apps: list[str] = []
         self.health: dict[str, Any] = {}  # app id -> last health check report (M1 item 6)
         self.turns = None  # TurnManager when the spec has turns (M1 item 7)
         if spec.turns is not None:
@@ -244,6 +266,8 @@ class World:
         problems = self.backend.validate()
         if problems:
             raise WorldError("; ".join(problems))
+        self._scope = lifecycle.current()  # M10 lab audit R-6: an attempt scope closes (and records) every World started under it
+        self._scope.track_world(self)
         try:
             if self.spec.serial:  # one episode of this world at a time on this host (shared live services)
                 from crucible.world.health import SerialLock
@@ -255,8 +279,10 @@ class World:
             return await self._start()
         except BaseException:
             # A failed start must not leak containers, gateways or servers (found: a crashed App.provision
-            # left a Harbor sandbox running).
-            await self.close()
+            # left a Harbor sandbox running). M10 lab audit R-6: a failing close never replaces the start's own error (a
+            # HealthcheckError is retryable infra; a teardown error would have masked it)
+            with contextlib.suppress(Exception):
+                await self.close()
             raise
 
     async def _start(self) -> WorldRef:
@@ -273,6 +299,7 @@ class World:
                 pack_root=self.pack_root,
                 extra={"peers": self.apps, "seed": self.spec.seed, "identities": self.identities},  # peers: live dict (a browser reaches a website's URL)
                 seed=derive_seed(self.spec.seed, app_spec.id),
+                tool_timeout_s=self.spec.limits.tool_timeout_s,
             )
             self.apps[app_spec.id] = reg.get("app_template", app_spec.template)(app_spec, ctx)
         for app in self.apps.values():
@@ -292,6 +319,7 @@ class World:
         if self.turns is not None:
             await self.turns.begin()
         self.initial = await self.snapshot()
+        self._settled = (self.initial.fingerprint, self._touched)
         return self.initial
 
     async def _seed_bundles(self) -> None:
@@ -346,25 +374,61 @@ class World:
         self.clock.resume()
 
     async def close(self) -> None:
-        if self._closed:  # idempotent: a separate verifier closes the policy's World before the harness's cleanup does
-            return
-        self._closed = True
+        """Stop the Apps, tear the backend down, release the serial lock. M10 lab audit R-6: shielded (a cancelled caller lets the
+        close run to its end, bounded by ``close_timeout_s``, and is cancelled after it), idempotent (a second or concurrent caller
+        awaits the same close; a separate verifier closes the policy's World before the harness's cleanup does) and bounded. It
+        raises only what ``_close`` raised before R-6 (a backend teardown error), to the first caller; a close that ran past
+        ``close_timeout_s`` is recorded in the attempt scope it started in (``Scope.world_closed``) and logged, never raised: a
+        verifier's grade that was already computed must not become a failure because a teardown was slow."""
+        if self._closing is None:
+            self._closed = True
+            self._closing = lifecycle.hold(self._close_bounded())
+        closing = self._closing
+        if not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                await lifecycle.finish(closing, self.close_timeout_s)
+                raise
+        exc, self._close_exc = self._close_exc, None  # the first caller to look takes it
+        if exc is not None:
+            raise exc
+
+    async def _close_bounded(self) -> None:
+        """The one close, in its own task: it never raises (``close`` re-raises ``_close_exc``) so a shielded task nobody awaits any
+        more cannot log 'exception never retrieved'."""
+        error: str | None = None
+        bound = asyncio.timeout(self.close_timeout_s)
         try:
-            await self._close()
+            async with bound:
+                await self._close()
+        except Exception as e:  # noqa: BLE001 - recorded for the attempt's teardown.json
+            if isinstance(e, TimeoutError) and bound.expired():  # the bound fired (a TimeoutError a teardown raised itself is its own error)
+                error = f"closing world {self.spec.world} ran past {self.close_timeout_s:g}s"
+                logger.warning("%s", error)
+            else:
+                error = f"{type(e).__name__}: {e}"
+                logger.warning("world %s: close failed: %s", self.spec.world, error)
+                self._close_exc = e  # re-raised to the first caller, as before R-6
         finally:
             if self._serial is not None:
                 self._serial.release()
                 self._serial = None
+            if self._scope is not None:
+                self._scope.world_closed(self, error)
 
     async def _close(self) -> None:
-        for app in self.apps.values():
-            try:
-                await app.stop()
-            except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent
-                logger.warning("world %s: stopping app %s failed: %s", self.spec.world, app.id, e)
-        await self.backend.teardown()
-        if self._own_workdir:
-            shutil.rmtree(self.workdir, ignore_errors=True)
+        try:
+            for app in reversed(list(self.apps.values())):  # dependents first: a browser before the sites it opens
+                try:
+                    # bounded each (M1 audit R-9): one hung stop must not use up ``close_timeout_s`` before the backend's teardown
+                    await asyncio.wait_for(app.stop(), APP_STOP_S)
+                except Exception as e:  # noqa: BLE001 - teardown is best effort, but never silent (a timeout included)
+                    logger.warning("world %s: stopping app %s failed: %r", self.spec.world, app.id, e)
+            await self.backend.teardown()
+        finally:
+            if self._own_workdir:  # M10 lab audit R-6: removed even when the teardown raised or ran past its bound
+                shutil.rmtree(self.workdir, ignore_errors=True)
 
     async def __aenter__(self) -> Self:
         await self.start()
@@ -436,6 +500,7 @@ class World:
         """The single choke point for every tool call (policy, simulated people, events): name and ACL checks,
         argument validation against the tool's schema, a deadline, crash containment, output bounding, and the
         fault label that decides whether a failure is the policy's (scored) or the infrastructure's (masked)."""
+        self._touched += 1  # any tool call may change state a fingerprint cannot see (R-5)
 
         def fail(name: str, content: str, error: str, fault: str = "policy") -> ToolResult:
             return ToolResult(tool_call_id=safe_text(call.tool_call_id), function_name=safe_text(name), ok=False, content=safe_text(content), error=error, fault=fault)
@@ -491,11 +556,16 @@ class World:
         try:
             coro = (router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system) if router is not None
                     else self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id))
-            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s)
+            # a tool's own deadline is at most tool_timeout_s (App.deadline); the World waits TOOL_GRACE_S longer, so it ends
+            # only a tool hung past its own deadline (infrastructure), never a policy's slow command (M1 audit R-4)
+            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s + TOOL_GRACE_S)
         except TimeoutError:
-            self._infra("transport_timeout", f"{qualified} exceeded {self.spec.limits.tool_timeout_s}s")
+            self._infra("transport_timeout", f"{qualified} hung past its own deadline ({self.spec.limits.tool_timeout_s}s + {TOOL_GRACE_S:g}s)")
             return fail(qualified, f"{qualified} timed out", "timeout", "infra")
         except Exception as e:  # noqa: BLE001 - an App crashing is an environment bug: contain it, record it, mask the episode
+            if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: an outage, not a tool bug (M1 R-1)
+                self._infra("crucible:env_container_lost", f"{qualified}: {lost}")
+                return fail(qualified, f"{qualified}: the environment's container was lost", "transport", "infra")
             import traceback
 
             self._infra("crucible:tool_crashed", f"{qualified}: {type(e).__name__}: {e}", traceback.format_exc()[-4000:])
@@ -976,8 +1046,10 @@ class World:
         missing = set(self.apps) ^ set(ref.apps)
         if missing:
             raise WorldError(f"WorldRef apps mismatch: {sorted(missing)}")
+        unchanged = await self._unchanged_apps(ref)
         await self.backend.before_restore(self)
-        await asyncio.gather(*(self.apps[n].state.restore(r) for n, r in ref.apps.items()))
+        self.restored_apps = [n for n in ref.apps if n not in unchanged]
+        await asyncio.gather(*(self.apps[n].state.restore(ref.apps[n]) for n in self.restored_apps))
         await self.backend.after_restore(self)
         for app in self.apps.values():
             await app.after_restore()
@@ -997,6 +1069,20 @@ class World:
             self.turns.restore(ref.turns)
         self.step_index = ref.step
         self._acl_changed = set()
+        self._settled = (ref.fingerprint, self._touched)
+
+    async def _unchanged_apps(self, ref: WorldRef) -> set[str]:
+        """The Apps a restore of ``ref`` may skip (M1 audit R-5): the World's state was last set to ``ref`` (by start or a
+        restore), no tool call or verifier query ran since, and the App's live fingerprint still equals ``ref``'s. Before
+        step 1 a World is restored up to three times (start, reset, the harness's reset), tens of seconds each for a large
+        seed. A fingerprint cannot see every bit of state (file times, owners, what an App keeps outside its adapter), so it
+        is trusted only when nothing ran; a command run underneath (a setup hook) still shows in it."""
+        if self._settled != (ref.fingerprint, self._touched):
+            return set()
+        await self.flush()
+        names = list(ref.apps)
+        live = await asyncio.gather(*(self.apps[n].state.fingerprint() for n in names))
+        return {n for n, fp in zip(names, live, strict=True) if fp == ref.apps[n].fingerprint}
 
     def verifier_view(self) -> VerifierView:
         return VerifierView(self)

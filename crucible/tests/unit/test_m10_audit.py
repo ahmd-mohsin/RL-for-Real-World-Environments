@@ -120,7 +120,7 @@ async def test_v6_v7_policy_exceptions_are_classified(tmp_path):
         return {"agent": LLMToolPolicy("agent", llm, context=ContextConfig(mode="action"))}
 
     async def run(name, make):
-        s = await Runner(tmp_path).run(RunSpec(run_id=name, tasks=[HelpdeskTask()], policies=[PolicyRef(id=name, make=make)], harnesses=[NativeHarness()], k=1))
+        s = await Runner(tmp_path).run(RunSpec(run_id=name, tasks=[HelpdeskTask()], policies=[PolicyRef(id=name, make=make, config={})], harnesses=[NativeHarness()], k=1))  # R-4: config declared
         return s, json.loads((tmp_path / name / "results.jsonl").read_text().splitlines()[-1])
 
     _, r = await run("raises", lambda a: {"agent": Raiser("agent", [])})
@@ -154,7 +154,7 @@ async def test_v3_train_regrade_never_reruns_the_agent(tmp_path):
             "path": "fib.py", "content": code}}], usage=u, tokens=toks[0]), LLMResponse(text="done", usage=u, tokens=toks[1])]))}
 
     task = FlakyGradeTask(FibTask(), "perf rounds contaminated: ['candidate/m']", on_attempts=("a1",))
-    s = await Runner(tmp_path).run(RunSpec(run_id="t", tasks=[task], policies=[PolicyRef(id="fake", make=make)], harnesses=[WorkspaceHarness()],
+    s = await Runner(tmp_path).run(RunSpec(run_id="t", tasks=[task], policies=[PolicyRef(id="fake", make=make, config={})], harnesses=[WorkspaceHarness()],
                                            k=1, rollout_mode="train"))
     assert runs["n"] == 1 and s.mean_reward == 1.0
 
@@ -175,6 +175,9 @@ class _H:
 
     def __init__(self, cost=0.0, unc=0.0):
         self.cost, self.unc = cost, unc
+
+    def identity_config(self) -> dict:  # M10 lab audit R-4: a harness holding state declares its configuration
+        return {"cost": self.cost, "unc": self.unc}
 
     async def run(self, a):
         await asyncio.sleep(0.02)
@@ -243,7 +246,7 @@ async def test_v8_v9_resume_chains_and_charges_only_new_calls(tmp_path):
         c = {1: (150, ConnectionError("worker lost")), 2: (90, ConnectionError("worker lost again"))}.get(attempt.n)
         return {"agent": LLMToolPolicy("agent", Costed(acts, crash_at=c), context=ContextConfig(budget_tokens=5_000, keep_recent_turns=2))}
 
-    s = await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[t], policies=[PolicyRef(id="replay", make=make)],
+    s = await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[t], policies=[PolicyRef(id="replay", make=make, config={})],
                                            harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=100_000, max_tool_errors=None), checkpoint_every=50)],
                                            k=1, retry_backoff_s=0.0))
     assert s.mean_reward == 1.0

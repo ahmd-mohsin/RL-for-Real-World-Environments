@@ -5,16 +5,30 @@
 overlay: ``--init``, no network for no-network worlds, a pids limit, ``SYS_RESOURCE`` (so the guard can pin the
 policy's OOM score) and GPUs through the nvidia runtime or ``--gpus``. Cloud sandboxes (Modal and the other
 agentenv providers) live in ``crucible.interop.agentenv.sandbox`` behind the same small interface.
+
+**Lifecycle (M10 lab audit R-6, ``crucible.world.lifecycle``).** The keeper is never ``sleep infinity``: the container names its
+owner and expiry (``crucible.owner``, ``crucible.expires``, and inside a Runner attempt ``crucible.run``, ``crucible.attempt``,
+``crucible.lease``) and ends by itself, as ``sleep <ttl>`` or, where a holder renews it (a Runner attempt, the warm pools), the RLM
+kernel's life loop. ``start`` shields its ``docker run`` from cancellation and removes what it made on a cancel or a failure;
+``close`` is shielded, idempotent and rc-checked, records its outcome in the scope the sandbox started in, and never raises (a
+removal that failed is retried by the attempt's reclaim and reported in ``teardown.json``, never turned into a lost grade).
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 import shlex
+import time
 import uuid
 from typing import Protocol
 
 from crucible.core.schema.world import SandboxSpec, WorldSpec
+from crucible.world import lifecycle
 from crucible.world.exec import DockerExec, Exec, _run_subprocess, deadline_hit, with_deadline
+
+logger = logging.getLogger(__name__)
 
 
 class Sandbox(Protocol):
@@ -24,7 +38,7 @@ class Sandbox(Protocol):
 
     async def start(self) -> None: ...
 
-    async def close(self) -> None: ...
+    async def close(self) -> object: ...  # DockerSandbox returns (removed, why); other sandboxes return None
 
 
 def gpu_request(spec: WorldSpec) -> tuple[int, str | None]:
@@ -64,6 +78,20 @@ async def image_id(ref: str, docker_host: str | None = None, *, container: bool 
     return "layers:" + hashlib.sha256(out.stdout.strip().encode()).hexdigest()
 
 
+class StaleImage(RuntimeError):
+    """The image a World started in is not the one its spec pins (M1 audit R-14): ``crucible:stale_image``, never retried."""
+
+    failure_kind = "crucible:stale_image"
+
+
+def check_pinned(pinned: str | None, current: str | None, what: str) -> None:
+    """Refuse an image other than the pinned ``image_digest`` (``crucible world pin`` prints it): a tag re-pushed or rebuilt
+    under the same name otherwise changes what every task runs, unseen (ARCHITECTURE §7 rule 4). No pin: nothing to check."""
+    if pinned and current != pinned:
+        raise StaleImage(f"{what} is image {current or '(identity unreadable)'}, but the spec pins {pinned}: the tag was re-pushed or "
+                         "rebuilt; check the image, then pin it again with `crucible world pin`")
+
+
 def check_image(state: dict, current: str | None) -> None:
     """A WorldRef restores only into the image it was taken in (DESIGN B.5: stale images silently change behavior)."""
     taken = state.get("image")
@@ -74,17 +102,33 @@ def check_image(state: dict, current: str | None) -> None:
 
 
 class DockerSandbox:
-    def __init__(self, sb: SandboxSpec, spec: WorldSpec, *, pids_limit: int | None = None, memory: str | None = None):
+    """One container. ``scope`` (default: the one the calling task runs in, ``lifecycle.current()``) says who owns it and records
+    what became of it; ``renewable`` (default: the scope's) picks the kernel's life loop over ``sleep <ttl>``; ``lifetime_s``
+    (default: the scope's ``ttl_s``) is its life from ``start`` (a pool keeps containers longer than one attempt needs)."""
+
+    def __init__(self, sb: SandboxSpec, spec: WorldSpec, *, pids_limit: int | None = None, memory: str | None = None,
+                 scope: lifecycle.Scope | None = None, renewable: bool | None = None, lifetime_s: int | None = None):
         self.sb, self.spec = sb, spec
         self.gpus, self.gpu_type = gpu_request(spec)
         self.docker_host = resolve_docker_host(sb)
         self.name = f"crucible-sbx-{spec.world.replace('/', '-')[:40]}-{uuid.uuid4().hex[:8]}"
         self.pids_limit, self.memory = pids_limit, memory
+        self.scope = scope if scope is not None else lifecycle.current()
+        self.renewable = self.scope.renewable if renewable is None else renewable
+        self.lifetime_s = lifetime_s
+        self.deadline: float | None = None  # epoch seconds at which the keeper ends by itself (set by ``argv``, pushed out by ``renew``)
+        self.expires: int | None = None  # the ``crucible.expires`` label
+        self._removed = False
+        self._closing: asyncio.Future | None = None
+        self._renewer: asyncio.Future | None = None  # the keep-alive of a sandbox outside a Runner (``start``)
         self.exec: Exec = DockerExec(self.name, docker_host=self.docker_host)
         self.description = f"docker {sb.image} on {self.docker_host or 'local daemon'}" + (f", {self.gpus} GPU(s)" if self.gpus else "")
 
     def argv(self) -> list[str]:
-        a = ["docker", "run", "-d", "--rm", "--init", "--name", self.name, "--label", f"crucible.world={self.spec.world}", "--label", "crucible.sandbox=1"]
+        run_args, cmd, deadline, expires = self.scope.keeper(renewable=self.renewable, lifetime_s=self.lifetime_s)
+        self.deadline, self.expires = float(deadline), expires
+        a = ["docker", "run", "-d", "--rm", "--init", "--name", self.name, "--label", f"crucible.world={self.spec.world}", "--label", "crucible.sandbox=1",
+             *self.scope.labels(expires=expires, renewable=self.renewable)]
         if self.spec.network == "no-network":
             a += ["--network", "none"]
         if self.pids_limit:
@@ -105,9 +149,9 @@ class DockerSandbox:
         if self.sb.cpus:
             a += ["--cpus", str(self.sb.cpus)]
         mem = self.memory or (f"{self.sb.memory_mb}m" if self.sb.memory_mb else None)
-        if mem:
-            a += ["--memory", mem]
-        return [*a, "--entrypoint", "", self.sb.image, "sleep", "infinity"]
+        if mem:  # swap capped at the memory limit: without it the container may use twice its limit, swapping (M1 audit R-26)
+            a += ["--memory", mem, "--memory-swap", mem]
+        return [*a, *run_args, "--entrypoint", "", self.sb.image, *cmd]
 
     def _env(self) -> dict[str, str] | None:
         return {"DOCKER_HOST": self.docker_host} if self.docker_host else None
@@ -115,13 +159,95 @@ class DockerSandbox:
     image_id: str | None = None
 
     async def start(self) -> None:
-        out = await _run_subprocess(self.argv(), cwd=None, env=self._env(), timeout_s=1800, stdin=None)
+        """M10 lab audit R-6 (the RLM kernel's B4 pattern): the container is recorded in the scope *before* ``docker run`` (every
+        exit path knows its name), the run is shielded, and a cancel or a failure removes whatever it made. A cancelled run is given
+        ``START_GRACE_S`` to finish (an image pull); one that finishes later is removed by a callback."""
+        argv = self.argv()
+        if isinstance(self.exec, DockerExec):  # its end by itself is infrastructure, not the policy's (M1 audit R-1)
+            self.exec.expires_at = self.deadline
+        self.scope.started(self.name, self.docker_host, renewable=self.renewable, deadline=self.deadline or 0.0, renew=self.renew, remove=self._rm)
+        run = asyncio.ensure_future(_run_subprocess(argv, cwd=None, env=self._env(), timeout_s=1800, stdin=None))
+        try:
+            out = await asyncio.shield(run)
+        except asyncio.CancelledError:  # cancelled mid-``docker run``: let it finish, then remove what it made
+            self.scope.raced = True
+            await lifecycle.finish(run, lifecycle.START_GRACE_S)
+            if not run.done():
+                run.add_done_callback(self._remove_late)
+            with contextlib.suppress(Exception):
+                await self.close()
+            raise
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await self.close()
+            raise
         if not out.ok:
+            with contextlib.suppress(Exception):
+                await self.close()  # a failed run may still have left a container behind
             raise RuntimeError(f"sandbox container failed to start ({self.description}): {(out.stderr or out.stdout)[-800:]}")
-        self.image_id = await image_id(self.name, self.docker_host, container=True)
+        try:
+            self.image_id = await image_id(self.name, self.docker_host, container=True)
+            check_pinned(self.sb.image_digest, self.image_id, self.sb.image)  # StaleImage (M1 audit R-14)
+        except BaseException:  # review round 1: the container is up, and a cancel (or an OSError) in the inspect used to leave it so
+            with contextlib.suppress(Exception):
+                await self.close()
+            raise
+        if self.renewable and not self.scope.record:
+            # nobody records or renews this container (the module default scope: a Runner attempt's scope renews its own, and a pool's
+            # containers are renewed by their borrower): the sandbox keeps its own life while it is open (review round 1)
+            self._renewer = lifecycle.hold(self._renew_loop())
+
+    async def _renew_loop(self) -> None:
+        """Outside a Runner (``Scope.record`` False) a renewable sandbox renews itself, as ``Scope._renew_loop`` renews an attempt's:
+        once its remaining life is shorter than the renew window its deadline moves out to ``now + ttl``. Ends with ``close`` (it is
+        cancelled there), or when a renewal fails (the container is gone). A crashed process stops renewing: the keeper then ends at the
+        last renewed deadline, and the sweep reaps it past its label. Never raises."""
+        ttl = float(self.lifetime_s or self.scope.ttl_s)
+        try:
+            while True:
+                await asyncio.sleep(min(lifecycle.RENEW_EVERY_S, ttl / 4))
+                if (self.deadline or 0.0) - time.time() >= min(lifecycle.RENEW_BEFORE_S, ttl / 2):
+                    continue
+                if not await self.renew(ttl):
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 -- a failed renewal ends the keep-alive, never the episode
+            return
+
+    def _remove_late(self, run: asyncio.Future) -> None:
+        """Done-callback of a ``docker run`` that outlived its cancelled start: the container exists now, remove it (by name, whatever
+        ``close`` found earlier). One that finishes after the loop has stopped is left to its TTL and the next sweep."""
+        if not run.cancelled():
+            run.exception()  # retrieved: a failed run left nothing to remove, and is nobody's error any more
+        with contextlib.suppress(RuntimeError):
+            lifecycle.hold(self._rm())
+
+    async def renew(self, lifetime_s: float | None = None) -> bool:
+        """Push the keeper's deadline out to ``now + lifetime_s`` (default: the scope's ttl), through the deadline file only root can write
+        (``docker exec --user 0``); never shortens it. A fixed ``sleep <ttl>`` keeper cannot be renewed: ``True`` (nothing to do).
+        ``False`` when the exec failed (the container is gone)."""
+        if not self.renewable:
+            return True
+        d = int(time.time() + (lifetime_s or self.scope.ttl_s))
+        try:
+            out = await _run_subprocess(["docker", "exec", "--user", "0", self.name, "sh", "-c", f"echo {d} > {lifecycle.CTL_DIR}/deadline"],
+                                        cwd=None, env=self._env(), timeout_s=120, stdin=None)
+        except OSError:
+            return False
+        if not out.ok:
+            return False
+        self.deadline = max(self.deadline or 0.0, float(d))
+        if isinstance(self.exec, DockerExec):
+            self.exec.expires_at = self.deadline
+        return True
 
     async def pause(self) -> None:
-        """Freeze every process in the container (cgroup freezer): no CPU, memory and files kept as they are (m13 S6)."""
+        """Freeze every process in the container (cgroup freezer): no CPU, memory and files kept as they are (m13 S6). A renewable
+        keeper is renewed first (best effort), so a pause shorter than the ttl cannot end the container on thaw."""
+        if self.renewable:
+            with contextlib.suppress(Exception):
+                await self.renew()
         out = await _run_subprocess(["docker", "pause", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)
         if not out.ok:
             raise RuntimeError(f"docker pause {self.name}: {(out.stderr or out.stdout)[-300:]}")
@@ -130,9 +256,38 @@ class DockerSandbox:
         out = await _run_subprocess(["docker", "unpause", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)
         if not out.ok:
             raise RuntimeError(f"docker unpause {self.name}: {(out.stderr or out.stdout)[-300:]}")
+        if self.renewable:
+            with contextlib.suppress(Exception):
+                await self.renew()
 
-    async def close(self) -> None:
-        await _run_subprocess(["docker", "rm", "-f", self.name], cwd=None, env=self._env(), timeout_s=120, stdin=None)
+    async def _rm(self) -> tuple[bool, str]:
+        return await lifecycle.remove(self.name, self.docker_host)
+
+    async def _close_once(self) -> tuple[bool, str]:
+        r, self._renewer = self._renewer, None
+        if r is not None:
+            r.cancel()  # not awaited: a renewal ``docker exec`` that is cancelled is killed with its session, and the removal must not wait on it
+        try:
+            ok, err = await self._rm()
+        except Exception as e:  # noqa: BLE001 -- close never raises
+            ok, err = False, f"{type(e).__name__}: {e}"
+        self.scope.closed(self.name, ok=ok, error=err)
+        if ok:
+            self._removed = True
+        else:
+            logger.warning("sandbox %s: docker rm -f failed (%s); the attempt's reclaim retries it and teardown.json reports it", self.name, err[-300:])
+        return ok, err
+
+    async def close(self) -> tuple[bool, str]:
+        """Remove the container: shielded from cancellation, idempotent (a second caller awaits the first removal), bounded, and
+        rc-checked (``lifecycle.remove``). The outcome is recorded in the scope the sandbox started in. It never raises: a failed
+        removal returns ``(False, why)``, stays recorded (the attempt's reclaim retries it, ``teardown.json`` reports it), and must
+        not turn a grade that was already computed into a lost one (the agentenv backend closes it in a ``finally``)."""
+        if self._removed:
+            return True, ""
+        if self._closing is None or (self._closing.done() and not self._removed):
+            self._closing = lifecycle.hold(self._close_once())
+        return await lifecycle.shielded(self._closing, lifecycle.CLOSE_TIMEOUT_S + 15)
 
 
 GVISOR_VERSION = "20261005.0"
@@ -171,7 +326,7 @@ class GVisorExec(DockerExec):
         out = await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin)
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
-        return out
+        return await self._unless_lost(out)  # the outer container's loss, confirmed by its daemon (DockerExec.lost)
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None):
         u = user or self.default_user
@@ -205,7 +360,12 @@ class GVisorSandbox(DockerSandbox):
     the pinned runsc toolbox mounted read-only (``docker/gvisor``); inside it, one long-lived gVisor sandbox
     (``--platform=systrap``, ``--network=none`` for no-network worlds) uses the outer filesystem as its root, and every
     command runs through ``runsc exec``. The outer container keeps Docker's limits (pids, memory, cpus); the World's
-    processes see gVisor's kernel."""
+    processes see gVisor's kernel.
+
+    Lifecycle (M10 lab audit R-6): the *outer* container is the one that is labelled and bounded (``DockerSandbox.argv``: owner,
+    expiry, ``sleep <ttl>`` or the life loop); the inner sandbox's ``sleep infinity`` lives and dies with it. A failed removal in
+    ``start`` is recorded by ``close`` and never replaces the gVisor error. The toolbox container (``GVISOR_TOOLBOX``) carries no
+    owner label, so no sweep ever touches it."""
 
     CID, STATE, BUNDLE = "crucible", "/run/crucible-runsc", "/run/crucible-gvisor"
 

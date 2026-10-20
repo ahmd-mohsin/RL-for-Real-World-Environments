@@ -32,6 +32,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.world.apps.base import App
@@ -232,6 +233,17 @@ class NemoGymTask:
         self.id, self.world_id, self.url, self.row, self.app, self.tool_timeout_s = id, f"nemo_gym/{id.split('/')[1] if '/' in id else id}", url, row, app, tool_timeout_s
         self.reward_range = reward_range  # the server manifest's ``reward.range``
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the dataset row (the prompt, ``ground_truth``, whatever the server's ``/verify`` reads) and the reward
+        range decide the grade, and so does the server whose ``/verify`` computes the reward: ``url`` is compared, so re-pointing
+        a run at another resource server is refused (M10 lab audit R-4 review), except a loopback address (``127.0.0.1``,
+        ``localhost``, ``::1``), which is the server this process started itself on an ephemeral port (``NemoServer``) and is
+        recorded as None. ``tool_timeout_s`` is an operational timeout (``identity.DENY``: ``*.tool_timeout_s``). The server's own
+        code is what ``code_versions`` cannot see: it runs elsewhere, so a server upgrade is not detected here."""
+        host = (urlparse(self.url).hostname or "").lower()
+        return {"id": self.id, "row": self.row, "app": self.app, "reward_range": self.reward_range,
+                "url": None if host in ("127.0.0.1", "localhost", "::1") else self.url, "tool_timeout_s": self.tool_timeout_s}
+
     @property
     def instruction(self) -> str:
         msgs = (self.row.get("responses_create_params") or {}).get("input") or []
@@ -256,12 +268,13 @@ class NemoGymTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec(workdir), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     def oracle_actions(self) -> list:

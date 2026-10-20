@@ -44,6 +44,7 @@ episode that never terminated (the policy stopped without a final answer) scores
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import fnmatch
 import hashlib
@@ -57,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolResult, ToolSpec
+from crucible.runtime.identity import code_ref
 from crucible.world.apps.base import App
 from crucible.world.state.base import SnapshotMismatch
 
@@ -174,51 +176,80 @@ class ClientEnv:
     """A remote OpenEnv environment (its own server, a Docker image, a Hugging Face Space) behind the in-process
     Environment surface, over Crucible's native WebSocket client (``world/remote.py``, OpenEnv's ``/ws`` protocol; no
     OpenEnv import on this side). ``reset`` / ``step`` return observation views; actions are dicts. ``docker_image``
-    starts the image with its port published on 127.0.0.1 and waits for ``/health``."""
+    starts the image with its port published on 127.0.0.1 and waits for ``/health``: M10 lab audit R-5 item 4, that start
+    is a coroutine (``astart``, awaited before the first ``reset``) on ``world.exec._run_subprocess`` with an awaited health
+    poll; it used to block the event loop for up to 15 minutes in the seed phase of an attempt (``docker run`` with a 600 s
+    bound, a ``time.sleep`` poll of up to 300 s)."""
 
     def __init__(self, base_url: str | None = None, *, docker_image: str | None = None, environment: dict | None = None,
                  session_id: str | None = None, port: int = 8000, message_timeout_s: float = 300.0):
+        self.container: str | None = None
+        self.base_url: str | None = None
+        self.client: Any = None
+        self._session_id, self._message_timeout_s = session_id, message_timeout_s
+        self._pending = (docker_image, environment or {}, port) if docker_image else None  # started by ``astart``
+        if not docker_image:
+            if not base_url:
+                raise ValueError("client mode needs base_url or docker_image")
+            self._connect(base_url)
+
+    def _connect(self, base_url: str) -> None:
         from crucible.world.remote import RemoteEnvClient
 
-        self.container: str | None = None
-        if docker_image:
-            base_url = self._start_container(docker_image, environment or {}, port)
-        if not base_url:
-            raise ValueError("client mode needs base_url or docker_image")
         self.base_url = base_url
-        self.client = RemoteEnvClient(base_url, session_id=session_id, message_timeout_s=message_timeout_s)
+        self.client = RemoteEnvClient(base_url, session_id=self._session_id, message_timeout_s=self._message_timeout_s)
 
-    def _start_container(self, image: str, env: dict, port: int) -> str:
-        import subprocess
-        import time
+    async def astart(self) -> None:
+        """Start the Docker image (if any) and connect to it. A no-op for a ``base_url`` client or once started; a start that
+        fails or is cancelled removes its container."""
+        if self._pending is None:
+            return
+        image, env, port = self._pending
+        self._pending = None
+        try:
+            self._connect(await self._start_container(image, env, port))
+        except BaseException:
+            await self._stop_container()
+            raise
+
+    async def _start_container(self, image: str, env: dict, port: int) -> str:
         import urllib.request
         import uuid
 
+        from crucible.world.exec import _run_subprocess
+
         name = f"crucible-openenv-{uuid.uuid4().hex[:8]}"
         argv = ["docker", "run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1::{port}", *[x for k, v in env.items() for x in ("-e", f"{k}={v}")], image]
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=600, check=False)
-        if r.returncode != 0:
-            raise RuntimeError(f"docker run {image} failed: {r.stderr[-500:]}")
-        self.container = name
-        out = subprocess.run(["docker", "port", name, f"{port}/tcp"], capture_output=True, text=True, timeout=60, check=False).stdout.split()
+        self.container = name  # named before it is asked for: a cancel during the run still removes it
+        r = await _run_subprocess(argv, cwd=None, env=None, timeout_s=600, stdin=None)
+        if not r.ok:
+            raise RuntimeError(f"docker run {image} failed: {'timed out after 600s' if r.timed_out else r.stderr[-500:]}")
+        port_out = await _run_subprocess(["docker", "port", name, f"{port}/tcp"], cwd=None, env=None, timeout_s=60, stdin=None)
+        out = port_out.stdout.split()
         url = f"http://{out[0]}" if out else None
-        deadline = time.monotonic() + 300
-        while url and time.monotonic() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 300
+
+        def healthy() -> bool:
             try:
                 with urllib.request.urlopen(f"{url}/health", timeout=2) as h:
-                    if h.status == 200:
-                        return url
+                    return h.status == 200
             except OSError:
-                time.sleep(1)
-        self._stop_container()
+                return False
+
+        while url and loop.time() < deadline:
+            if await asyncio.to_thread(healthy):
+                return url
+            await asyncio.sleep(1)
         raise RuntimeError(f"{image} did not become healthy on {url}")
 
-    def _stop_container(self) -> None:
-        import subprocess
+    async def _stop_container(self) -> None:
+        from crucible.world.exec import _run_subprocess
 
         if self.container:
-            subprocess.run(["docker", "rm", "-f", self.container], capture_output=True, timeout=120, check=False)
-            self.container = None
+            name, self.container = self.container, None
+            # shielded: the removal finishes even if the task that is closing the environment is cancelled meanwhile
+            await asyncio.shield(_run_subprocess(["docker", "rm", "-f", name], cwd=None, env=None, timeout_s=120, stdin=None))
 
     async def reset_async(self, **kw: Any) -> _ObsView:
         r = await self.client.reset(**kw)
@@ -229,8 +260,11 @@ class ClientEnv:
         return _ObsView(r.get("observation") or {}, r.get("reward"), bool(r.get("done")))
 
     async def aclose(self) -> None:
-        await self.client.close()
-        self._stop_container()
+        try:
+            if self.client is not None:
+                await self.client.close()
+        finally:
+            await self._stop_container()
 
     def close(self) -> None:
         import asyncio as _a
@@ -297,6 +331,7 @@ class OpenEnvApp(App):
             c = dict(p["client"])
             self.env = ClientEnv(c.get("base_url"), docker_image=c.get("docker_image"), environment=c.get("environment"),
                                  session_id=c.get("session_id"), port=int(c.get("port", 8000)), message_timeout_s=float(c.get("message_timeout_s", 300)))
+            await self.env.astart()  # M10 lab audit R-5 item 4: the Docker image starts off the event loop
             self.mcp = bool(c.get("mcp"))  # an MCPEnvironment server: tools come from list_tools, calls are call_tool steps
         else:
             self.env = load(p["factory"])(**(p.get("factory_kwargs") or {}))
@@ -549,6 +584,18 @@ class OpenEnvTask:
         self.tool_timeout_s, self.tool_quota, self.clock, self.seed = tool_timeout_s, dict(tool_quota or {}), clock, seed
         self.events = list(events or [])  # World events over the imported environment (disruptions, deadlines, messages)
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: every constructor parameter this task stores. ``params`` holds the factory and its kwargs, the reset
+        arguments, the action class and schema, the tool allowlist, the client, the players and the turn mapping (plain data by
+        construction); the instruction is its text, or the name of the callable that derives it from the reset observation; each
+        extra progress check is named (its behaviour is its code, which ``code_versions`` records). ``tool_timeout_s`` is
+        operational (``identity.DENY``), the rest is the World spec's own."""
+        instruction = self.instruction if isinstance(self.instruction, str | dict) else code_ref(self.instruction)
+        return {"id": self.id, "params": self.params, "app": self.app, "instruction": instruction, "reward_range": self.reward_range,
+                "reward_mode": self.reward_mode, "progress": {k: code_ref(f) for k, f in self.progress.items()}, "players": self.players,
+                "zero_sum": self.zero_sum, "tool_timeout_s": self.tool_timeout_s, "tool_quota": self.tool_quota, "clock": self.clock, "seed": self.seed,
+                "events": self.events}
+
     def spec(self, workdir: Path):
         from crucible.core.schema.world import WorldSpec
 
@@ -579,14 +626,15 @@ class OpenEnvTask:
 
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec(workdir), store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        app = w.apps[self.app]
-        text = self.instruction(app.reset_observation) if callable(self.instruction) else self.instruction
-        await w.reset(instructions={a: (text if isinstance(text, str) else text[a]) for a in (self.players or ["agent"])})
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            app = w.apps[self.app]
+            text = self.instruction(app.reset_observation) if callable(self.instruction) else self.instruction
+            await w.reset(instructions={a: (text if isinstance(text, str) else text[a]) for a in (self.players or ["agent"])})
         return w
 
     # ---- grading ----------------------------------------------------------------------------------------------

@@ -53,13 +53,50 @@ class AuditReport:
         return {"world": self.world, "spec_hash": self.spec_hash, "ok": self.ok, "seconds": round(self.seconds, 1), "checks": [asdict(c) for c in self.checks]}
 
 
-async def _run(world: World, actor: str, actions: list[Action]) -> None:
-    for i, a in enumerate(actions):
+async def _run(world: World, actor: str, actions: list[Action], *, start: int = 0) -> list[str]:
+    """Play ``actions`` as ``actor``; returns the tool results' contents in order."""
+    out: list[str] = []
+    for i, a in enumerate(actions, start):
         if isinstance(a, ToolCall):
             a = a.model_copy(update={"tool_call_id": f"audit-{i}"})
         if isinstance(a, Done):
             break
-        await world.step(actor, a)
+        out += [r.content for r in (await world.step(actor, a)).observation.tool_results]
+    return out
+
+
+async def _restore_roundtrip(world: World, actor: str, gold: list[Action]) -> CheckResult:
+    """``runtime.restore_roundtrip`` (M1 audit R-16, agentenv ``verify_universe_roundtrip.py:97-176``): snapshot halfway
+    through the gold run, restore the snapshot into a fresh World of the same spec, finish the run in both; the end
+    states must be identical. A resume restores into a fresh World, so state an adapter does not capture (an App's
+    in-memory counter, a cache rebuilt wrongly on restore) only shows here: every check from reset passes. Tool results
+    are compared as evidence only (a test run's timings differ between runs)."""
+    steps = [a for a in gold if not isinstance(a, Done)]
+    if len(steps) < 2:
+        return CheckResult("runtime.restore_roundtrip", "skip", "major", {"reason": "the gold trajectory has fewer than 2 steps"})
+    if world.responders:
+        return CheckResult("runtime.restore_roundtrip", "skip", "major", {"reason": "simulated actors are attached: a fresh World needs its own"})
+    half = len(steps) // 2
+    await world.reset()
+    await _run(world, actor, steps[:half])
+    mid = await world.snapshot(quiesce=True)
+    r1 = await _run(world, actor, steps[half:], start=half)
+    f1 = await world.snapshot(quiesce=True)
+    await world.reset()
+    fresh = World(world.spec, instructions=world.instructions, store=world.store, pack_root=world.pack_root, backend=world.backend.name,
+                  backend_params=world.backend.params, interceptors=world.interceptors, instruction_media=world.instruction_media)
+    try:
+        await fresh.start()
+        await fresh.restore(mid)
+        r2 = await _run(fresh, actor, steps[half:], start=half)
+        f2 = await fresh.snapshot(quiesce=True)
+    finally:
+        await fresh.close()
+    differing = sorted(a for a in f1.apps if a not in f2.apps or f1.apps[a].fingerprint != f2.apps[a].fingerprint)
+    first = next(((i, x, y) for i, (x, y) in enumerate(zip(r1, r2)) if x != y), None)
+    return CheckResult("runtime.restore_roundtrip", "fail" if f1.fingerprint != f2.fingerprint else "pass", "major",
+                       {"restored_at_step": half, "apps_differing": differing,
+                        **({"first_result_differing": {"step": half + first[0], "original": first[1][:200], "restored": first[2][:200]}} if first else {})})
 
 
 async def audit_world(world: World, *, gold: list[Action] | None = None, verifier: Verifier | None = None,
@@ -126,6 +163,11 @@ async def audit_world(world: World, *, gold: list[Action] | None = None, verifie
         add(CheckResult("network.answer_sources", "fail", "major", {"reason": "public network: published fixes, wheels and mirrors are reachable"}))
     else:
         add(CheckResult("network.answer_sources", "pass", "critical", {"network": world.spec.network}))
+    # --- network.enforced: a backend without isolation (local, ssh) cannot hold a world to no-network or an allowlist;
+    # reported as a named SKIP, never an implied pass (M1 audit R-13)
+    if world.spec.network != "public" and world.backend.capabilities.isolation == "none":
+        add(CheckResult("network.enforced", "skip", "major",
+                        {"reason": f"the {world.backend.name} backend does not enforce network {world.spec.network!r}: its tools reach any host"}))
 
     # --- no_solution_leakage (static): fix pointers in what the policy reads before acting
     texts = {"instruction": world.instructions.get(actor, "")} | {f"tool:{t.qualified}": t.description or "" for t in world.tools_for(actor)}
@@ -152,6 +194,7 @@ async def audit_world(world: World, *, gold: list[Action] | None = None, verifie
                         {"gold_changed_state": g1.fingerprint != initial, "reset_restored_initial": back == initial}))
         add(CheckResult("episode_determinism", "pass" if g1.fingerprint == g2.fingerprint else "fail", "major",
                         {"apps_differing": sorted(a for a in g1.apps if g1.apps[a].fingerprint != g2.apps[a].fingerprint)}))
+        add(await _restore_roundtrip(world, actor, gold))
         leaked = [s for s in forbidden or [] if s and s in observed]
         add(CheckResult("no_solution_leakage.dynamic", "fail" if leaked else "pass", "critical", {"forbidden_seen": leaked}))
         if verifier:
@@ -161,7 +204,8 @@ async def audit_world(world: World, *, gold: list[Action] | None = None, verifie
             for cid in ("oracle_passes", "floor_gap.nop_fails"):
                 add(CheckResult(cid, "skip", "critical", {"reason": "no verifier predicate given"}))
     else:
-        for cid in ("runtime.episode_isolation", "episode_determinism", "no_solution_leakage.dynamic", "oracle_passes", "floor_gap.nop_fails"):
+        for cid in ("runtime.episode_isolation", "episode_determinism", "runtime.restore_roundtrip", "no_solution_leakage.dynamic", "oracle_passes",
+                    "floor_gap.nop_fails"):
             add(CheckResult(cid, "skip", "major", {"reason": "no gold trajectory given"}))
 
     # --- containment (isolated container worlds): egress, planted anomalies, root-only paths

@@ -246,9 +246,13 @@ def codec_capture(codec: Any) -> Any:
 
 def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps: int = 30, max_tokens: int = 512, context: Any = None,
                   workroot: Path | None = None, limit_policy: Any = None, make_policy: Callable[[Any, float], Any] | None = None,
-                  harness_id: str = "native:world@1", seats: Any = None) -> Callable:
+                  harness_id: str = "native:world@1", seats: Any = None, track_progress: bool = True) -> Callable:
     """``task_for(prompt) -> RunTask`` (M10 contract: ``open(workdir)``, ``grade(world, workdir)``). ``make_policy(llm,
     temperature)`` replaces the default ``LLMToolPolicy`` (``rlm_world_rollout``: the RLM harness).
+
+    ``track_progress``: a task that declares ``subgoals`` records per-call ΔΦ (``Turn.advantage``) and a progress summary
+    (``RolloutRecord.progress``), as the M10 native harness does; the trainer's turn credit needs it (M6 R3: without it
+    ``turn_weight > 0`` trained outcome-only). False skips the per-step subgoal checks for an outcome-only run.
 
     ``seats`` (``train.seats.SeatConfig``): a multi-agent game. Every seat of the World's turn order plays (engine seats
     each through their own ``EngineLLM``: two seats with the same opening messages must never extend each other's
@@ -293,6 +297,12 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
         world = await task.open(d / "work")
         try:
             pols, observers, trained = policies(world, gen, temperature)
+            tracker, prog = None, d / "progress.jsonl"
+            if track_progress and getattr(task, "subgoals", None) is not None:  # per-turn progress (ΔΦ), as the M10 native harness records it (M6 R3)
+                from crucible.verify.progress import ProgressTracker
+
+                tracker = ProgressTracker(task.subgoals, out=prog)
+                observers = [*observers, tracker]
             try:
                 ep = await run_episode(world, pols, limits=EpisodeLimits(max_steps=max_steps), reset=True, observers=observers)
             finally:
@@ -321,9 +331,12 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             truncated = ep.truncated or any(truncating_stop(getattr(p, "stop", None)) for p in pols.values())
             rec = RunRecord(run_id=rid, task=getattr(task, "id", prompt), world=getattr(task, "world_id", ""), policy="engine", started_at=started_at, steps=ep.steps,
                             outcome="completed", reward=reward, attempt=f"{rid}-a1",
-                            meta={"harness": harness, "stop": ep.stop_condition, "truncated": truncated, "gates": rep.gate_bits()})
+                            meta={"harness": harness, "stop": ep.stop_condition, "truncated": truncated, "gates": rep.gate_bits(),
+                                  "gate_kinds": rep.gate_kinds(),
+                                  **({"progress": ep.observed[observers.index(tracker)]} if tracker is not None else {})})
             segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
-            ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature})
+            ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature},
+                       progress=prog if tracker is not None and prog.exists() else None)
             ro.group = None
             ro.capture = capture
             attach_call_fields(ro, ep.model_calls)

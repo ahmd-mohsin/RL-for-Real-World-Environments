@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from crucible.runtime.identity import config_digest
+
 RUNNER = Path(__file__).resolve().parents[2] / "_vendor" / "openenv_awm" / "verifier_runner.py"
 
 
@@ -82,16 +84,29 @@ class AwmTask:
         self.id = f"openenv-awm/{self.scenario}/t{self.task_idx}"
         self.world_id = self.spec_doc.world
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the scenario and task, the instruction, AWM's own verifier (its code is a text: digested by
+        ``describe`` when long) and the service the policy works against: its generated code, DB schema and sample rows, which the
+        App reads from the cache at start and the World spec only names (``cache_dir`` is a path: operational, ``*_dir``)."""
+        from crucible.interop.openenv.awm import loader
+
+        ld = loader(self.cache_dir)
+        service = {"env_code": config_digest(ld.get_env_code(self.scenario)), "db_schema": config_digest(ld.get_db_schema(self.scenario)),
+                   "sample_data": config_digest(ld.get_sample_data(self.scenario))}
+        return {"scenario": self.scenario, "task_idx": self.task_idx, "instruction": self.instruction, "verifier": self.verifier, "service": service,
+                "spec": self.spec_doc}
+
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec_doc, instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        await w.reset()
-        db = Path(w.apps["api"].state_params["path"])
-        shutil.copyfile(db, workdir / "initial.db")
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
+            db = Path(w.apps["api"].state_params["path"])
+            shutil.copyfile(db, workdir / "initial.db")
         w._awm_initial = workdir / "initial.db"  # the verifier's reference state, taken before any policy action
         return w
 

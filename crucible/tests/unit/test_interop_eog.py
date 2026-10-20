@@ -146,7 +146,7 @@ async def test_real_task_through_the_runner(imported, tmp_path):
 
     t = imported[0][ITSM]
     for name, acts in (("oracle", t.oracle_actions()), ("noop", [Done(reason="no")])):
-        ref = PolicyRef(id=f"scripted:{name}", make=lambda attempt, a=acts: {"agent": ScriptedPolicy("agent", list(a))})
+        ref = PolicyRef(id=f"scripted:{name}", make=lambda attempt, a=acts: {"agent": ScriptedPolicy("agent", list(a))}, config={"script": name})  # M10 lab audit R-4
         await Runner(tmp_path / "runs").run(RunSpec(run_id=name, tasks=[t], policies=[ref], harnesses=[NativeHarness("native:scripted", limits=EpisodeLimits(max_steps=20))], k=1))
         rec = json.loads(next((tmp_path / "runs" / name / "samples").glob("*/a1/record.json")).read_text())
         assert rec["failure"] is None and rec["reward"] == (1.0 if name == "oracle" else 0.0), rec

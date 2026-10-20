@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.world import WorldSpec
+from crucible.runtime.identity import file_digest
 from crucible.verify.sql_checks import SqlAssertion, from_enterpriseops
 
 SEED_ROOT = "Domain Wise DBs and Task-DB Mappings"
@@ -255,14 +256,30 @@ class EogTask:
     pk: dict[str, dict[str, str]]  # app -> table -> primary-key column
     meta: dict[str, Any] = field(default_factory=dict)
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: what decides this task's grade, as the run's identity document. ``spec`` is the World spec with
+        the schema and seed files (cache paths, which move with ``cache_dir``) replaced by their content digests, so an edited
+        seed or a re-inferred schema is refused by name and a moved cache is not; the prompts and the assertions (a long text
+        is digested by ``describe``), the refusal mapping and the primary keys are the rest. ``meta`` is plain data."""
+        spec = self.spec_doc.model_dump(mode="json", exclude_none=True)
+        for app in spec.get("apps") or []:
+            p = app.get("params") or {}
+            if "schema_sql" in p:
+                p["schema_sql"] = file_digest(p["schema_sql"])
+            if "seed_sql" in p:
+                p["seed_sql"] = [file_digest(f) for f in p["seed_sql"]]
+        return {"spec": spec, "instruction": self.instruction, "system_prompt": self.system_prompt, "user_prompt": self.user_prompt,
+                "assertions": self.assertions, "refusal": self.refusal, "pk": self.pk, "meta": self.meta}
+
     async def open(self, workdir: Path):
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
         workdir = Path(workdir)
         w = World(self.spec_doc, instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w")
-        await w.start()
-        await w.reset()
+        async with lifecycle.opening(w):  # M10 lab audit R-6: a failure after start closes the World
+            await w.reset()
         return w
 
     def plan(self):

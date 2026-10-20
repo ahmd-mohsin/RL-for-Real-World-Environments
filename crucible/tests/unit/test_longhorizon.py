@@ -27,7 +27,8 @@ def replay_ref(task: BacklogTask, *, budget: int = 6_000, crash: tuple[int, int]
         crash_at = (crash[1], ConnectionError("worker lost")) if crash and attempt.n == crash[0] else None
         return {"agent": LLMToolPolicy("agent", ReplayLLM(acts, crash_at=crash_at), context=ContextConfig(budget_tokens=budget, keep_recent_turns=2))}
 
-    return PolicyRef(id=f"replay:{name}", make=make)
+    # M10 lab audit R-4: declared configuration (the replayed script and the context budget; the crash is the injection's schedule)
+    return PolicyRef(id=f"replay:{name}", make=make, config={"script": "diligent replay", "budget_tokens": budget})
 
 
 def one(tmp_path, task, pol, harness, rid="lh"):
@@ -50,7 +51,7 @@ async def test_oracle_and_dense_progress_telescope(tmp_path):
 
 async def test_noop_and_premature_action_score_zero_per_ticket(tmp_path):
     t = BacklogTask(2, 12)
-    s = await one(tmp_path, t, PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}), NativeHarness("native:scripted", limits=LIMITS))
+    s = await one(tmp_path, t, PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"}), NativeHarness("native:scripted", limits=LIMITS))
     assert s.mean_reward == 0.0
 
 

@@ -16,7 +16,7 @@ from crucible.core.registry import get_registry
 from crucible.core.schema.actions import ToolResult, ToolSpec
 from crucible.core.schema.world import AppSpec
 from crucible.core.store import Store
-from crucible.world.exec import Exec
+from crucible.world.exec import EnvContainerLost, Exec, container_lost_cause
 
 if TYPE_CHECKING:
     from crucible.world.clock import VirtualClock
@@ -33,6 +33,7 @@ class AppContext:
     pack_root: Path | None = None  # seeds referenced by the spec resolve against this (host side)
     extra: dict[str, Any] = field(default_factory=dict)
     seed: int = 0  # this App's own seed: derive_seed(WorldSpec.seed, app id); reproducible from the spec hash in every trace
+    tool_timeout_s: float | None = None  # the World's limits.tool_timeout_s: no tool's own deadline exceeds it (App.deadline)
 
     def resolve(self, p: str) -> str:
         return p if p.startswith("/") else posixpath.normpath(posixpath.join(self.base_path, p))
@@ -44,6 +45,10 @@ class AppContext:
         if self.pack_root is None:
             raise ValueError(f"relative seed path {p!r} but no pack_root to resolve it against")
         return (self.pack_root / path).resolve()
+
+
+# how long one statement of a policy's SQL may run (an App's ``sql_deadline_s`` param; M1 audit R-12)
+SQL_DEADLINE_S = 30.0
 
 
 class ToolError(Exception):
@@ -144,6 +149,12 @@ class App(ABC):
         """The calling actor's ``IdentitySpec`` (None for actors without one, and for system calls)."""
         return self.ctx.extra.get("identities", {}).get(actor)
 
+    def deadline(self, requested: float, cap: float | None = None) -> float:
+        """A tool's own time limit: what the caller asked for (at least 1 s), at most ``cap`` and the World's
+        ``tool_timeout_s``. The tool's deadline then fires before the World's, so a policy's hung command comes back as its
+        own scored ``[TIMEOUT]``, never a masked ``transport_timeout`` (NeMo-Gym's deadline layering; M1 audit R-4)."""
+        return max(1.0, min([float(requested), *(float(c) for c in (cap, self.ctx.tool_timeout_s) if c is not None)]))
+
     @property
     def policy_exec(self):
         """Exec for tools that touch policy-owned files: the guard's demoted Exec in isolated worlds, else ctx.exec.
@@ -160,6 +171,8 @@ class App(ABC):
         except ArgumentError as e:  # the caller's arguments: the policy's error (M14 campaign B13)
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="invalid_arguments", fault="policy")
         except ToolError as e:
+            if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: the World's, not the policy's (M1 R-1)
+                raise EnvContainerLost(str(lost)) from e
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="tool_error")
         except TypeError as e:
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=f"bad arguments: {e}", error="bad_arguments")

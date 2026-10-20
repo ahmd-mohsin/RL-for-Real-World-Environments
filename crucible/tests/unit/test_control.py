@@ -181,7 +181,7 @@ async def test_llm_tool_policy_drives_a_simulator_through_the_harness(tmp_path):
     acts = [{"function_name": "sim.step", "arguments": {"action": [1.0]}}, {"function_name": "sim.wait", "arguments": {"ticks": 30}},
             {"function_name": "sim.step", "arguments": {"action": [-1.0]}}]
     llm = ReplayLLM(acts)
-    pol = PolicyRef(id="llm:replay", make=lambda a: {"agent": LLMToolPolicy("agent", llm)})
+    pol = PolicyRef(id="llm:replay", make=lambda a: {"agent": LLMToolPolicy("agent", llm)}, config={"script": "replayed tool calls"})  # M10 lab audit R-4
     await Runner(tmp_path / "runs").run(RunSpec(run_id="c", tasks=[task], policies=[pol], harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=10))], k=1))
     rec = json.loads(next((tmp_path / "runs" / "c" / "samples").glob("*/a1/record.json")).read_text())
     assert rec["failure"] is None and 0.0 < rec["reward"] < 1.0, rec

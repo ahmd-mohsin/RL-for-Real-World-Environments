@@ -22,34 +22,84 @@ no-op get the same (pristine-image) grade: a silent wrong reward.
 - **reward**: Harbor's ``reward.json`` is a flat dict of named numbers (``reward.txt`` one number). The scalar is
   ``reward`` when present, else the single key, else ``reward_key``; with several keys and no rule the grade masks
   (``ambiguous_reward``) rather than invent a scalar. Every key is kept in ``components`` (``harbor/<key>``).
-- **the agent shares the grader's container** (M11 audit): ``/logs/verifier`` and ``/tests`` are emptied before the grade
-  (Harbor's multi-step reset), the agent's own network phase is applied after ``open``, and tasks whose verifier runs
-  in a separate environment are refused. After the agent ran, a container in which the verifier user can no longer
-  write its reward (``agent_broke_env``) or a verifier that writes no valid reward is the agent's outcome, scored 0;
-  a timeout, an upload failure or a lost container masks.
+- **the agent shares the grader's container** (M11 audit): the policy's processes are killed first (M10 lab audit R-2,
+  below), then ``/logs/verifier`` and ``/tests`` are emptied before the grade (Harbor's multi-step reset); the agent's
+  own network phase is applied after ``open``, and tasks whose verifier runs in a separate environment are refused.
+  After the agent ran, a container in which the verifier user can no longer write its reward (``agent_broke_env``) or a
+  verifier that writes no valid reward is the agent's outcome, scored 0; a timeout, an upload failure or a lost
+  container masks.
 - **the grader's own toolchain** (M13 audit B1, ``grader_guard``): captured from the pristine container at ``open`` and
   checked host-side (``docker diff`` / ``docker cp``) before and after the verifier. A policy that shadowed, replaced or
   hooked a tool the verifier runs is ``crucible:grader_tampered`` (scored 0, flagged ``grader_tampered``, never 1.0);
   the verifier runs with the pristine ``PATH`` and a fresh ``PYTHONPYCACHEPREFIX``. Environments the host cannot inspect
-  (non-Docker providers) are refused in place unless ``grader_integrity="off"``.
+  (non-Docker providers) are refused in place outright (M10 lab audit R-2: ``grader_integrity="off"`` no longer admits
+  them; grade them in patch mode).
+- **no grade while a policy process can run** (M10 lab audit R-2, ``quiesce``; P23): ``open`` records a process baseline
+  after start, reset and healthcheck and before ``before_agent``, the grader capture or the policy (PID 1's host pid, a
+  start mark, the host's ``docker top``); every grade (``grade``, each ``HarborMultiStepTask`` step, and so R-1's
+  shared-verifier seam, which calls ``grade``) first kills every process started after it from the host, confirms with
+  the host's frozen listings (``docker pause``, ``docker top``, ``docker unpause``: a fork-and-die chain is listed too),
+  and writes ``<workdir>/../verifier/quiesce.json`` (next to the grade dir: ``<attempt or step>/verifier``). Only a clean
+  receipt reaches ``_reset_shared_dirs``, the toolchain check and Harbor's ``Verifier``. A process still listed after
+  the bounded rounds is ``crucible:policy_misbehavior`` (scored 0, flag ``policy_process_survived``) once the host shows
+  the container alive; one killed and confirmed gone is not blamed but flagged ``policy_process_killed`` (non-scoring:
+  the reward is kept, but a passing attempt counts in bench's hack ``rate`` as a ``flagged_passes`` and studio skips it;
+  the R-2 Acceptance 1 reading in the ``quiesce`` docstring, chosen by the user on 2026-10-17); a host that cannot list or
+  drive the container, or a helper exec the daemon never started, masks ``crucible:backend_error`` (``_liveness``
+  first); only children a pristine service respawned, or only processes in uninterruptible sleep (never paused for: a
+  task in state D cannot be frozen, review round 2), end the attempt as a non-retryable ``crucible:backend_error`` of
+  unknown blame (a policy can induce a respawn; the 5% unknown-blame stop bounds it; before M10 lab audit R-3 a masked
+  grade was retried by re-running the agent: P16; since R-3 no in-place grade mask is, as an in-place World is never
+  regradable, but these verdicts stay as they were); a later multi-step step's ``setup.sh`` that left a process running ends it as a
+  non-retryable ``crucible:harness_unsupported`` of unknown blame (review round 2: a root policy can make that setup
+  start one; review round 3: a task whose later setup leaves a process running in a pristine preflight, before any
+  policy, is refused at ``HarborMultiStepTask.open`` with harness blame instead). A World without a
+  baseline is ``crucible:harness_unsupported``; so is an environment the host cannot list (``environment_type`` other
+  than ``docker``), refused at ``open`` before any container starts, whatever ``grader_integrity`` is. M10 lab audit
+  R-3: a failed grade is graded again inside the attempt (``runtime.grading.grade_in_place``, into
+  ``<attempt>/regrade<i>/grade``, so each try writes its own receipt); after a clean quiesce, a later grade of the same
+  World first lists what that grade left running and passes it as ``leftovers`` (killed, never flagged). A failure that
+  repeats and that the answer can cause (a hung ``test.sh``) is decided by ``grade_control``: ``solution/solve.sh`` by
+  Harbor's ``OracleAgent`` in a fresh World of the task, then the same guarded grade (``runtime.grading.settle``). Review
+  round 2: the liveness probe, the quiesce, the leftovers listing and the grader guard's host-side checks run outside
+  the scoring budget (``runtime.grading.unbudgeted``: R-2's verdicts are never pre-empted as the answer's
+  ``verifier_timeout``), and a Verifier that timed out or raised leaves its grade window to be judged, and the guard's
+  baseline moved past it, by the next grade of the World (``_guard_window``), so the first grade's own installs are never
+  the policy's tampering. Accepted
+  trade-off: a task whose tests need a process the agent left running fails. Residual: a process the policy's code
+  under test starts during the Verifier itself (the receipt covers what runs when the grade starts).
 - **infrastructure is told apart from the policy by host-side evidence** (M13 audit B2): a container that is gone,
   stopped through the daemon API, or whose daemon cannot be reached masks ``crucible:env_container_lost`` (mid-episode
   too: the terminal raises instead of returning compose's "service is not running" as the policy's failed command); a
   container that exited from inside, or one alive whose verifier user cannot work, is ``agent_broke_env``. A grade whose
   test script needs the network fails while the host shows the container detached or the network unreachable: masked
   ``crucible:grader_network_error``.
+- **installed agents** (M10 lab audit R-1, ``interop/harbor/agent_harness.py``): the capture proxy's host reaches the
+  agent phase only through Harbor's ``TrialAgentConfig.extra_allowed_hosts`` (``agent_allowed_hosts=``); the plan was
+  built from a bare ``TrialAgentConfig()``, so no proxy host could pass a restricted agent phase (inplace.py:148-155).
+  ``open(before_agent=...)`` runs the harness's agent setup (the install) under the World's baseline network, before the
+  grader surface is captured and before the agent phase is applied; on a ``[[steps]]`` task.toml (``multi_step``, whose
+  agent phases ``open`` never applies) it is refused before any container starts. ``admits_agent_host``, ``multi_step``,
+  ``agent_user``, ``agent_timeout_s`` and ``agent_logs`` are the harness's view of the task. Separate-verifier tasks stay refused here;
+  ``patch_task.HarborPatchTask`` grades them from a collected patch in a fresh container.
+- **the run identity** (M10 lab audit R-4, ``identity_config``): the task's content as one digest per top-level entry of its directory
+  (``files.tests``, ``files.environment``, ``files.task.toml``...), the Docker image it declares, the reward rule, the grader guard and the
+  environment; a resume with an edited test or image is refused naming the part (``runtime.identity``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
+from crucible.runtime.identity import tree_digests
 from crucible.world.apps.base import App, ToolError
 
 
@@ -74,7 +124,7 @@ class TerminalApp(App):
         return self.spec.params.get("workdir")
 
     async def tool_exec(self, command: str, timeout_s: float = 600.0):
-        r = await self.ctx.exec.run(command, cwd=self._cwd, timeout_s=min(float(timeout_s), float(self.spec.params.get("max_timeout_s", 3600))))
+        r = await self.ctx.exec.run(command, cwd=self._cwd, timeout_s=self.deadline(timeout_s, self.spec.params.get("max_timeout_s", 3600)))
         return {"exit_code": r.rc, "output": (r.stdout + r.stderr)[-20000:], "timed_out": r.timed_out}
 
     async def tool_read_file(self, path: str):
@@ -97,30 +147,43 @@ class TerminalApp(App):
 
 from crucible.interop.harbor.rewards import scalar_reward
 
-# reward-file errors after the agent ran in the same container: its outcome (the dirs were emptied first, so the grader
-# alone wrote there), never a mask (M11 audit H1 V4)
+# reward-file errors after the agent ran in the same container: its outcome, never a mask (M11 audit H1 V4). The grader
+# alone wrote there: the policy's processes were killed and confirmed gone and the dirs emptied first (M10 lab audit R-2;
+# before it a detached writer of the policy re-created reward.json after the reset)
 REWARD_FILE_ERRORS = ("RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError")
 
 
 class HarborInPlaceTask:
+    SEPARATE_OK = False  # a separate-verifier task is refused in place (``patch_task.HarborPatchTask`` sets True)
+    # M10 lab audit R-2: every grade in the agent's container is preceded by a host-side quiesce against the baseline
+    # ``open`` records, and an environment the host cannot list is refused at ``open``. ``HarborPatchTask`` sets False:
+    # it never grades in the agent's container (its ``grade`` is refused), and a non-Docker provider may host its agent
+    QUIESCE = True
+
     def __init__(self, task_dir: Path, *, docker_host: str | None = None, gpu_host: str | None = None, reward_key: str | None = None,
                  environment_type: str = "docker", environment_kwargs: dict | None = None, user: str | None = None, keep_containers: bool = False,
-                 grader_integrity: str = "verify"):
+                 grader_integrity: str = "verify", agent_allowed_hosts: Sequence[str] = ()):
         from harbor.models.task.task import Task
         from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_task_verifier_mode
 
+        # hosts the agent phase must admit besides the task's own (the capture proxy of an installed agent); read by
+        # ``_network_plan``, so assigned before it runs
+        self.agent_allowed_hosts = tuple(str(h) for h in agent_allowed_hosts)
         if grader_integrity not in ("verify", "off"):
             raise ValueError("grader_integrity: 'verify' | 'off'")
         if grader_integrity == "verify" and environment_type != "docker":
             # the grader runs in the agent's container; only a host-side Docker CLI can tell whether the policy changed the
-            # grader's toolchain (M13 audit B1). Without it a stubbed pytest would grade 1.0 unseen
-            raise ValueError(f"{task_dir}: in-place grading on {environment_type!r} cannot verify the grader's toolchain (needs a host-side "
-                             "Docker CLI); grade it in patch mode (verify_dir), or pass grader_integrity='off' to accept unverified grades")
+            # grader's toolchain (M13 audit B1). Without it a stubbed pytest would grade 1.0 unseen. M10 lab audit R-2: nor
+            # can the host kill the policy's processes there, so ``open`` refuses such an environment in place whatever
+            # grader_integrity is; patch mode is the only way to grade it
+            raise ValueError(f"{task_dir}: in-place grading on {environment_type!r} cannot verify the grader's toolchain nor quiesce the "
+                             "policy's processes (needs a host-side Docker CLI), so it is refused in place outright (M10 lab audit R-2); "
+                             "grade it in patch mode (verify_dir / HarborPatchTask)")
         self.grader_integrity = grader_integrity
         self.dir = Path(task_dir).resolve()
         self.task = Task(self.dir)
         cfg = self.task.config
-        if not cfg.steps and resolve_task_verifier_mode(cfg) == VerifierEnvironmentMode.SEPARATE:
+        if not cfg.steps and not self.SEPARATE_OK and resolve_task_verifier_mode(cfg) == VerifierEnvironmentMode.SEPARATE:
             # Harbor grades it in a fresh container after the collect hooks, with only the declared artifacts; grading it in
             # the agent's container lets a plant score and a real solve fail (M11 audit H1 V2, G1 D4, G5)
             raise ValueError(f"{self.dir}: the verifier runs in a separate environment ([verifier].environment_mode = \"separate\"), "
@@ -141,9 +204,53 @@ class HarborInPlaceTask:
         if user:
             self.backend_params["user"] = user
         self.plan = self._network_plan()
-        phases = [x for x in (self.plan.agent_phase, self.plan.verifier_phase) if x != self.plan.agent_env_baseline]
+        phases = [x for x in self._declared_phases() if x != self.plan.agent_env_baseline]
         if phases:  # the environment must be able to switch policy per phase (Harbor egress control)
             self.backend_params["phase_network_policies"] = [x.model_dump(mode="json") for x in phases]
+
+    def docker_hosts(self) -> set[str]:
+        """The docker daemon this task's World runs on (its ``docker_host``, or its ``gpu_host`` resolved through ``crucible.toml``), for
+        the Runner's start sweep (``Runner._plan_hosts``; M10 lab audit R-6 review round 1). The containers Harbor creates there carry no
+        ``crucible.*`` label (the recorded gap), so what the sweep finds on that host is Crucible's own: grade containers and sandboxes
+        of runs that ended. Empty for the local daemon (always swept), an unconfigured ``gpu_host`` or a non-Docker environment."""
+        bp = self.backend_params
+        if bp.get("environment_type", "docker") != "docker" or not (bp.get("docker_host") or bp.get("gpu_host")):
+            return set()
+        from crucible.core.schema.world import SandboxSpec
+        from crucible.world.sandbox import resolve_docker_host
+
+        try:
+            host = resolve_docker_host(SandboxSpec(image="-", docker_host=bp.get("docker_host"), gpu_host=bp.get("gpu_host")))
+        except Exception:  # noqa: BLE001 -- a host that cannot be resolved here is one the sweep cannot reach either
+            return set()
+        return {host} if host else set()
+
+    @property
+    def breaker_host(self) -> str | None:
+        """M10 lab audit R-5 review round 1: the machine this task's sandbox runs on, for the host breaker (``runtime.breaker.host_name``):
+        its configured GPU host name, else the Docker daemon it is pointed at, else None (the local daemon: ``host:local``). Placement
+        only (``identity.DENY``), read by name, never part of the identity: without it every Harbor task keyed ``host:local`` and an
+        outage of one lab host paused (and a local verdict closed the key of) the samples of every other."""
+        bp = self.backend_params
+        return str(bp.get("gpu_host") or bp.get("docker_host") or "") or None
+
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: task content digests and declared image refs; a change refuses the resume. ``files`` is one digest
+        per top-level entry of the task directory (``task.toml``, ``instruction.md``, ``tests``, ``environment``, ``solution``), so a
+        refusal names the part that changed (``tasks.harbor/x.files.tests``); it covers the same files as Harbor's own task-tree
+        hash (``task_io``), hidden ones included (``environment/.dockerignore``, ``tests/.expected_output.json``: ``tree_digests``
+        leaves out only version control and junk), and names what that hash would not. The Docker image the task declares, the reward rule, the grader
+        guard, the environment and its kwargs and the user are what runs it. Hosts and ``keep_containers`` are placement
+        (``identity.DENY``: ``*.docker_host``, ``*.gpu_host``, ``*.keep_containers``); ``task_dir`` is a path."""
+        bp = self.backend_params
+        return {"files": tree_digests(self.dir), "docker_image": self.task.config.environment.docker_image, "reward_key": self.reward_key,
+                "grader_integrity": self.grader_integrity, "environment_type": bp.get("environment_type"), "environment_kwargs": bp.get("environment_kwargs"),
+                "user": bp.get("user"), "agent_allowed_hosts": list(self.agent_allowed_hosts), "prebuilt_image": bp.get("docker_image"),
+                "docker_host": bp.get("docker_host"), "gpu_host": bp.get("gpu_host")}
+
+    def _declared_phases(self) -> tuple[Any, ...]:
+        """The network phases this container must be able to switch to (the agent's, and the verifier's in place)."""
+        return (self.plan.agent_phase, self.plan.verifier_phase)
 
     def _network_plan(self):
         from harbor.models.task.verifier_mode import resolve_task_verifier_mode
@@ -151,8 +258,81 @@ class HarborInPlaceTask:
         from harbor.models.trial.config import EnvironmentConfig as TrialEnvironmentConfig
         from harbor.trial.network_policy import resolve_trial_network_plan
 
-        return resolve_trial_network_plan(self.task.config, TrialAgentConfig(), TrialEnvironmentConfig(), None,
+        # no extra hosts: a bare TrialAgentConfig(), exactly as before. Extra hosts are the 0.24 API (trial/network_policy.py:
+        # 105-118); an older Harbor that refuses the field, or silently drops it, fails here rather than run the agent phase
+        # without the proxy host (M10 lab audit R-1)
+        try:
+            agent_cfg = TrialAgentConfig(**({"extra_allowed_hosts": list(self.agent_allowed_hosts)} if self.agent_allowed_hosts else {}))
+            if self.agent_allowed_hosts and getattr(agent_cfg, "extra_allowed_hosts", None) is None:
+                raise TypeError("TrialAgentConfig has no extra_allowed_hosts")
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{self.dir}: this Harbor ({_harbor_version()}) cannot admit agent-phase hosts {list(self.agent_allowed_hosts)}: "
+                             f"extra_allowed_hosts is the 0.24 API (trial/network_policy.py:105-118): {e}") from e
+        return resolve_trial_network_plan(self.task.config, agent_cfg, TrialEnvironmentConfig(), None,
                                           verifier_mode=resolve_task_verifier_mode(self.task.config))
+
+    # ---- the installed-agent harness's view of the task (M10 lab audit R-1) ---------------------------------------
+    def admits_agent_host(self, host: str | None) -> bool:
+        """Whether the agent phase lets the container reach ``host``: a public phase, or an allowlist naming it exactly
+        (a wildcard or CIDR entry is not matched here: the harness refuses rather than guess)."""
+        if not host:
+            return False
+        phase = self.plan.agent_phase
+        mode = getattr(phase.network_mode, "value", str(phase.network_mode))
+        if mode == "public":
+            return True
+        if mode != "allowlist":
+            return False
+        return host.strip().casefold() in {str(h).strip().casefold() for h in (phase.allowed_hosts or [])}
+
+    @property
+    def multi_step(self) -> bool:
+        """Whether task.toml declares ``[[steps]]``, whichever adapter loaded it. ``open`` then leaves every agent phase to
+        the per-step setup (``HarborMultiStepTask``), so a plain adapter on such a dir applies none; the harness refuses
+        it rather than run an installed agent under the baseline network (M10 lab audit R-1)."""
+        return bool(self.task.config.steps)
+
+    @property
+    def agent_user(self) -> str | int | None:
+        return self.task.config.agent.user
+
+    @property
+    def agent_timeout_s(self) -> float | None:
+        t = self.task.config.agent.timeout_sec
+        return float(t) if t else None
+
+    @property
+    def control_timeout_s(self) -> float:
+        """M10 lab audit R-3: what one control grade (``grade_control``) may take, so ``grading.control_budget`` never cuts
+        a healthy one: a fresh ``open`` and the R-2 quiesce, ``solve.sh`` (no timeout of its own; the agent's timeout, else
+        an hour), then the guarded grade (the Verifier's timeout + 60 s, as ``_verify`` allows it)."""
+        return (self.agent_timeout_s or 3600.0) + self.verifier_timeout + 60 + 600.0
+
+    @staticmethod
+    def _logs_bound(world) -> bool:
+        """``/logs/{agent,verifier,artifacts}`` are bind-mounted to the trial dir only for a local Docker daemon
+        (``world_backend.provision``: not on a remote ``DOCKER_HOST`` or a non-Docker provider). Decided from Crucible's
+        own backend params, never from ``env.capabilities.mounted``: Harbor's Docker environment always declares True, so
+        on the lab nothing would ever be downloaded (M10 lab audit R-1). The backend copies a ``gpu_host``'s daemon into
+        ``params["docker_host"]`` at provision."""
+        params = getattr(world.backend, "params", None) or {}
+        return not (params.get("docker_host") or params.get("environment_type", "docker") != "docker")
+
+    async def agent_logs(self, world, *, fetch: bool = False) -> Path:
+        """The host directory of the agent's ``/logs/agent`` (an installed agent's ``logs_dir``). ``fetch``: bring it up to
+        date after the agent ran: downloaded when the dirs are not bound (the lab), as Harbor's trial does for non-mounted
+        environments (trial.py:669-690); when bound, Harbor's ``prepare_logs_for_host`` (chown) is run, best effort."""
+        tp = self._trial_paths(world)
+        env = world.backend.env
+        if fetch:
+            if self._logs_bound(world):
+                prep = getattr(env, "prepare_logs_for_host", None)
+                if prep is not None:
+                    with contextlib.suppress(Exception):
+                        await prep()
+            else:
+                await env.download_dir(str(self._env_paths().agent_dir), tp.agent_dir)
+        return tp.agent_dir
 
     def _world_network(self) -> tuple[str, list[str]]:
         base = self.plan.agent_env_baseline
@@ -181,20 +361,56 @@ class HarborInPlaceTask:
             doc["allowed_hosts"] = hosts
         return WorldSpec.model_validate(doc)
 
-    async def open(self, workdir: Path):
+    async def open(self, workdir: Path, *, before_agent: Callable[[Any], Awaitable[None]] | None = None):
+        """A started, reset, healthy World in the agent's network phase. ``before_agent(world)``: the installed-agent
+        harness's setup (M10 lab audit R-1). It runs under the World's baseline network (installs need it), before the
+        grader surface is captured (an install must not read as grader tampering) and before the restricted agent phase;
+        if it raises, the World is closed and the error propagates. Refused on a ``[[steps]]`` task before any container
+        starts: its agent phases are applied per step, never here, so the install would be followed by an agent run under
+        the baseline network (M10 lab audit R-1). M10 lab audit R-2: an environment the host cannot list is refused
+        (``crucible:harness_unsupported``) before any container starts, and the process baseline every grade quiesces
+        against is recorded after the healthcheck and before ``before_agent``, so nothing an installed agent or the policy
+        starts is ever spared."""
         from crucible.core.store import Store
+        from crucible.world import lifecycle
         from crucible.world.world import World
 
+        if self.QUIESCE and self.backend_params.get("environment_type", "docker") != "docker":
+            from crucible.core.schema.run import Failure
+            from crucible.runtime.infra import StageFailure
+
+            # M10 lab audit R-2 (P23): only a host-side Docker CLI can list and kill the processes in the agent's container,
+            # and Harbor's verifier runs there; on any other provider a detached writer of the policy would grade itself.
+            # Refused whatever grader_integrity is (it was admitted with grader_integrity="off")
+            raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="seed", retryable=False, detail="quiesce_unsupported",
+                                       reason=f"{self.dir}: in-place grading on {self.backend_params.get('environment_type')!r} cannot kill the "
+                                              "policy's processes before the grade (M10 lab audit R-2, P23: needs a host-side Docker CLI); "
+                                              "grade it in patch mode (verify_dir / HarborPatchTask)"))
+        if before_agent is not None and self.multi_step:
+            raise ValueError(f"{self.dir}: task.toml declares [[steps]], whose agent phases are applied per step "
+                             "(HarborMultiStepTask), which no installed-agent harness drives")
         workdir = Path(workdir)
         w = World(self.spec(workdir), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", backend="harbor",
                   backend_params=self.backend_params)
-        await w.start()
-        await w.reset()
-        await self._healthcheck(w)
-        if self.grader_integrity == "verify":
-            await self._capture_grader(w, workdir)
-        if not self.task.config.steps:
-            await self._apply_agent_phase(w)
+        # M10 lab audit R-6: a failure anywhere after start (the reset, the healthcheck, the baseline, the install, the grader capture, the
+        # agent phase) closes the World (an unhealthy or unresettable container was one leaked Harbor environment per retry). The inner
+        # closes stay: ``World.close`` is idempotent
+        async with lifecycle.opening(w):
+            await w.reset()
+            await self._healthcheck(w)
+            if self.QUIESCE:  # M10 lab audit R-2: before an install, the grader capture or the policy; the container is trusted now
+                await self._record_baseline(w)
+            if before_agent is not None:
+                try:
+                    await before_agent(w)
+                except BaseException:
+                    with contextlib.suppress(Exception):
+                        await w.close()
+                    raise
+            if self.grader_integrity == "verify":
+                await self._capture_grader(w, workdir)
+            if not self.task.config.steps:
+                await self._apply_agent_phase(w)
         return w
 
     def grader_scripts(self) -> list[Path]:
@@ -219,6 +435,151 @@ class HarborInPlaceTask:
             raise
         world.__dict__["_grader_surface"] = surf
         grader_guard.save(surf, Path(workdir))
+
+    # ---- the host-side quiesce (M10 lab audit R-2) -------------------------------------------------------------------
+    async def _record_baseline(self, world, *, stage: str = "seed", close: bool = True) -> None:
+        """The process baseline every grade quiesces against (``quiesce.record_baseline``), kept on the World. Taken only
+        while the container is trusted: in ``open`` before the policy, an installed agent or the grader capture runs
+        (``HarborMultiStepTask`` takes it again after its first step's setup). A host that cannot find, inspect, exec into
+        or list the container raises ``StageFailure``: ``crucible:harness_unsupported`` (not retried) when runc cannot
+        start ``sh`` in the image, else ``crucible:backend_error``; ``close``: the World is closed first (``open``'s
+        pattern for ``_capture_grader``), as is on any other exception, which propagates."""
+        from crucible.core.schema.run import Failure
+        from crucible.interop.harbor import quiesce
+        from crucible.runtime.infra import StageFailure
+
+        try:
+            base = await quiesce.record_baseline(world.backend)
+        except quiesce.QuiesceError as e:
+            if close:
+                with contextlib.suppress(Exception):
+                    await world.close()
+            if e.unsupported:
+                raise StageFailure(Failure(kind="crucible:harness_unsupported", stage=stage, retryable=False, detail="quiesce_baseline",
+                                           reason=f"{self.id}: the image has no shell the host can run to quiesce the policy's processes "
+                                                  f"before an in-place grade (M10 lab audit R-2): {e}")) from e
+            raise StageFailure(Failure(kind="crucible:backend_error", stage=stage, detail="quiesce_baseline",
+                                       reason=f"{self.id}: the process baseline could not be recorded from the host (M10 lab audit R-2): {e}")) from e
+        except BaseException:
+            if close:
+                with contextlib.suppress(Exception):
+                    await world.close()
+            raise
+        world.__dict__["_quiesce_baseline"] = base
+
+    async def _quiesce(self, world, *, tid: str, t0: float, receipt_dir: Path | None, setup=None, leftovers=None):
+        """M10 lab audit R-2 (P23): kill every process started after the baseline, confirmed by the host, before anything
+        of the grade runs. Returns ``(None, summary, flags)`` for a clean receipt (``flags``: ``policy_process_killed``
+        when the quiesce killed processes the policy left running: non-scoring, the grade runs), else ``(GradeReport,
+        summary, [])``: the grade ends there and nothing was reset or verified. The receipt goes to
+        ``receipt_dir/quiesce.json`` (``<attempt or step>/verifier``; a failed write never changes the verdict). ``setup``:
+        what a later multi-step step's ``setup.sh`` started (``quiesce.started_since``); ``leftovers`` (review round 2):
+        what the previous step's clean grade left running, listed before this step's setup (killed, never flagged).
+        Verdicts (``quiesce`` module docstring; only the host's listing decides, the in-container helper's output is
+        recorded only):
+
+        - ``survivors``: ``crucible:policy_misbehavior``, scored 0, flag ``policy_process_survived``, once ``_liveness``
+          shows the container alive (paused, stopped from outside or removed while the rounds ran masks instead; review
+          round 3: a report ``_liveness`` put in its place keeps the flag);
+        - ``error`` (the host could not list or drive the container, or no helper exec reached it): ``_liveness``, else
+          masked ``crucible:backend_error``;
+        - ``setup_service`` (a later step's ``setup.sh`` left a process running, killed now): ``_liveness``, else
+          ``StageFailure`` of ``crucible:harness_unsupported`` with unknown blame (review round 2: a root policy can make
+          that setup start one, so the 5% unknown-blame stop bounds it; review round 3: reached only where the task's
+          pristine setup preflight left nothing running or was inconclusive, ``HarborMultiStepTask.open`` refusing the
+          rest with harness blame), not retried, decided before the Verifier so it never depends on the outcome (masking
+          only failed grades would inflate pass rates);
+        - ``respawned`` / ``uninterruptible`` (blame undecidable from the host: a pristine service or the policy can start
+          the chain; review round 3: a pause refused while a target read D, ``Receipt.pause_refused``, is named in the
+          reason): ``_liveness``, else ``StageFailure`` of ``crucible:backend_error`` with unknown blame, not retried:
+          before M10 lab audit R-3 a masked grade went through ``classify_verifier``, which keeps it retryable, and a
+          retry re-ran the agent, so a policy that set a pristine service crash-looping would turn its 0 into a fresh
+          sample (P16; R-1's precedent, agent_harness.py:898-904). Since R-3 no in-place grade mask is retried by an
+          agent re-run (``RetryRule`` refuses a verification retry of work that was not persisted, and an in-place World
+          never is), and it propagates out of ``grading.grade_in_place`` unretried; the verdict is unchanged (unknown
+          blame, counted by the 5% stop);
+        - no baseline on the World (``open`` did not run): masked ``crucible:harness_unsupported``, never unguarded."""
+        from crucible.core.schema.run import Failure
+        from crucible.interop.harbor import quiesce
+        from crucible.runtime.infra import StageFailure
+
+        base = world.__dict__.get("_quiesce_baseline")
+        if base is None:
+            return self._masked(tid, t0, "crucible:harness_unsupported", "no process baseline was recorded (open() did not run on this World): "
+                                "an in-place grade without the quiesce is never run (M10 lab audit R-2)"), None, []
+        receipt = await quiesce.quiesce(world.backend, base, setup=setup, leftovers=leftovers)
+        path = None
+        if receipt_dir is not None:
+            try:
+                path = quiesce.save(receipt, Path(receipt_dir))
+            except OSError:  # the receipt is evidence; failing to write it never changes the verdict
+                path = None
+        summary = receipt.summary(path)
+        if receipt.verdict == "clean":
+            # M10 lab audit R-2 review round 1: a process the policy left running, killed and confirmed gone, is never
+            # dropped: the non-scoring flag ``policy_process_killed`` (quiesce module docstring, "Acceptance 1")
+            return None, summary, [f] if (f := quiesce.killed_flag(receipt)) else []
+
+        async def alive_or(rep):
+            dead = await self._liveness(world, tid, t0)
+            rep = dead or rep
+            if rep is not None:
+                rep.meta.setdefault("quiesce", summary)
+            return rep
+
+        if receipt.verdict == "survivors":
+            left = receipt.left
+            what = "; ".join(f"{s['pid']} {s['args'][:120]}" for s in left[:8])
+            sflags = [quiesce.flag(receipt)]
+            rep = await alive_or(self._zero(tid, t0, "crucible:policy_misbehavior",
+                                            f"{len(left)} process(es) the policy started still ran after {receipt.rounds} host-side kill "
+                                            f"rounds, so the grade did not start (M10 lab audit R-2, P23): {what}",
+                                            flags=sflags, quiesce=summary))
+            # M10 lab audit R-2 review round 3: a report _liveness put in its place (the container exited from inside, or
+            # was lost, after the rounds) keeps the host-listed survivor's flag, as grade / _grade_step keep the clean
+            # path's policy_process_killed (review round 2)
+            rep.meta.setdefault("flags", sflags)
+            return rep, summary, []
+        if receipt.verdict == "error":
+            return await alive_or(self._masked(tid, t0, "crucible:backend_error",
+                                               f"{tid}: the container could not be quiesced from the host (M10 lab audit R-2): {receipt.error}",
+                                               quiesce=summary)), summary, []
+        dead = await alive_or(None)
+        if dead is not None:
+            return dead, summary, []
+        if receipt.verdict == "setup_service":
+            # M10 lab audit R-2 review round 1 (P16): the step's own setup.sh is task code; its processes cannot be spared
+            # (a root policy controlled the container before that setup ran), so the grade would not be the policy's.
+            # M10 lab audit R-2 review round 2: unknown blame, never the task's, as ``respawned`` below: a root policy can
+            # make that setup start a process (a tool it runs that the policy replaced, or a process of the policy forking
+            # during it), so the run's 5% unknown-blame stop (runtime/infra.py:196-205) bounds it like any mask a policy
+            # can choose to cause. M10 lab audit R-2 review round 3: reached only where the task's pristine setup preflight
+            # (``HarborMultiStepTask.open``: every setup once before any policy) left nothing running or was inconclusive;
+            # a task whose later setup leaves a service there is refused at open with harness blame, so an honest task
+            # never counts toward that stop
+            entries = "; ".join(f"{s['pid']} {s['args'][:80]}" for s in receipt.setup[:6])
+            pre = self.__dict__.get("_setup_preflight")
+            preflight = ("not run" if pre is None else ", ".join(f"{n}: {'clean' if v == [] else 'inconclusive'}" for n, v in pre.items())
+                         or "no later setup")
+            raise StageFailure(Failure(kind="crucible:harness_unsupported", stage="verification", retryable=False, blame="unknown", detail="quiesce_setup_service",
+                                       reason=f"{tid}: step setup.sh left {len(receipt.setup)} process(es) running that the in-place quiesce must "
+                                              "kill before the grade (they cannot be spared: a root policy controlled the container before that "
+                                              "setup ran), so the grade would not be the policy's; what a later step's setup.sh started cannot be "
+                                              "told from the host from what a root policy made it start (a tool it runs that the policy replaced: "
+                                              "only the test scripts' tools are guarded; or a process of the policy forking during the setup), so "
+                                              f"the blame is unknown (M10 lab audit R-2, P16; the task's pristine setup preflight: {preflight}; "
+                                              f"receipt {path}): " + entries))
+        if receipt.pause_refused:
+            # M10 lab audit R-2 review round 3: the quiesce ended at a refused pause (quiesce.Receipt.pause_refused)
+            what = ("a docker pause the freezer refused while a target was in state D may have left the container's cgroup "
+                    f"freezing: {receipt.pause_refused}")
+        elif receipt.verdict == "respawned":
+            what = "only children a pristine service started again after each kill remain"
+        else:
+            what = "only processes in uninterruptible sleep (state D) remain after the extra wait"
+        raise StageFailure(Failure(kind="crucible:backend_error", stage="verification", retryable=False, blame="unknown", detail=f"quiesce_{receipt.verdict}",
+                                   reason=f"{tid}: the container could not be quiesced before the grade: {what} (M10 lab audit R-2; receipt "
+                                          f"{path}): " + "; ".join(f"{s['pid']} {s['args'][:80]}" for s in receipt.survivors[:6])))
 
     async def infra_cause(self, world):
         """Host-side: why an episode the World masked was the infrastructure's (the container is gone, was stopped from
@@ -248,7 +609,9 @@ class HarborInPlaceTask:
 
     async def _reset_shared_dirs(self, env) -> None:
         """Harbor ``_reset_shared_step_verifier_dirs``: empty ``/logs/verifier`` and ``/tests`` in the agent container, so
-        the grader reads only what it writes (H1 V1: a planted ``reward.json`` or ``/tests/conftest.py`` scored 1)."""
+        the grader reads only what it writes (H1 V1: a planted ``reward.json`` or ``/tests/conftest.py`` scored 1). In a
+        grade it runs only after a clean quiesce receipt (M10 lab audit R-2): a detached writer of the policy still
+        running re-created ``reward.json`` after it, and Harbor reads that before ``reward.txt``."""
         paths = self._env_paths()
         await env.empty_dirs([paths.verifier_dir], chmod=True)
         await env.empty_dirs([paths.tests_dir], chmod=False)
@@ -347,66 +710,123 @@ class HarborInPlaceTask:
             return f"the host cannot reach {', '.join(hosts[:4])}: no network for the grader's own setup"
         return None
 
-    async def _verify(self, world, *, tid: str, user, timeout: float, t0: float, phase, phase_in, phase_out, verifier_kw: dict | None = None):
-        """Harbor's ``Verifier`` in the agent's container, guarded (M11 audit H1, M13 audit B1, B2): returns
-        ``(VerifierResult, None, flags)`` or ``(None, GradeReport, flags)`` when the grade ends without a verifier result."""
-        from harbor.verifier.verifier import Verifier
-
+    async def _verify(self, world, *, tid: str, user, timeout: float, t0: float, phase, phase_in, phase_out, verifier_kw: dict | None = None,
+                      receipt_dir: Path | None = None, setup=None, leftovers=None):
+        """Harbor's ``Verifier`` in the agent's container, guarded (M11 audit H1, M13 audit B1, B2, M10 lab audit R-2):
+        returns ``(VerifierResult, None, flags, quiesce)`` or ``(None, GradeReport, flags, quiesce)`` when the grade ends
+        without a verifier result. ``quiesce``: the receipt's summary (``Receipt.summary``) once the host-side quiesce ran
+        (``receipt_dir``: where ``quiesce.json`` goes), else None; the callers put it in the report's ``meta.quiesce``.
+        ``flags`` start with the quiesce's own (``policy_process_killed``) and keep them through the toolchain check; a
+        report ``_liveness`` replaced carries none of its own, so the callers attach them (review round 2). ``setup``: a
+        later multi-step step's setup processes, ``leftovers``: the previous step's grade leftovers (``_quiesce``). Order:
+        the host's liveness, the quiesce, and
+        only after a clean receipt the reset, the toolchain check and Harbor's ``Verifier`` (R-2: nothing of the grade runs
+        while a process of the policy can)."""
         from crucible.interop.harbor import grader_guard
+        from crucible.runtime.grading import unbudgeted
 
         env = world.backend.env
         surf = world.__dict__.get("_grader_surface")
         if surf is None and self.grader_integrity == "verify":
-            return None, self._masked(tid, t0, "crucible:harness_unsupported", "the grader's toolchain was never captured (open() did not run on this World)"), []
+            return None, self._masked(tid, t0, "crucible:harness_unsupported", "the grader's toolchain was never captured (open() did not run on this World)"), [], None
         tag = uuid.uuid4().hex[:12]
         moved: list[tuple[str, str]] = []
         flags: list[dict] = []
-        dead = await self._liveness(world, tid, t0)
-        if dead is not None:
-            return None, dead, flags
+        # M10 lab audit R-3 review round 2: this grade's Verifier started (its test.sh may have changed the container), and the
+        # guard's diff just before it (``_guard_window``)
+        started, before = False, None
+        # M10 lab audit R-3 review round 2: the host's liveness and the R-2 quiesce are infrastructure, not the answer's grade,
+        # so they run outside the scoring budget (runtime.grading.unbudgeted): a budget that ran out in the quiesce's D_WAIT
+        # rounds pre-empted R-2's uninterruptible verdict (unknown blame) as the answer's verifier_timeout, and a control in a
+        # fresh, quickly quiesced container scored the policy 0
+        with unbudgeted():
+            dead = await self._liveness(world, tid, t0)
+            if dead is not None:
+                return None, dead, flags, None
+            # M10 lab audit R-2 (P23): before the reset, so a detached writer of the policy cannot re-create reward.json after
+            # it; a StageFailure (respawned / uninterruptible) propagates to the caller's boundary, never into the except below
+            ended, q, qflags = await self._quiesce(world, tid=tid, t0=t0, receipt_dir=receipt_dir, setup=setup, leftovers=leftovers)
+        if ended is not None:
+            return None, ended, flags, q
+        flags = [*qflags]  # M10 lab audit R-2 review round 1: the quiesce's own flag rides every report of this grade
+        from harbor.verifier.verifier import Verifier  # after the quiesce: an ended grade needs no Harbor
+
         try:
             tp = self._trial_paths(world)
             await self._reset_shared_dirs(env)
             broken = await self._probe(env, user)
             if broken:
-                return None, (await self._liveness(world, tid, t0)) or self._zero(tid, t0, "crucible:agent_broke_env", broken), flags
+                return None, (await self._liveness(world, tid, t0)) or self._zero(tid, t0, "crucible:agent_broke_env", broken, flags=flags), flags, q
             if surf is not None:
-                findings, before = await grader_guard.check(world.backend, surf)
-                flags = findings.flags()
+                # M10 lab audit R-3 review round 2: an earlier grade of this World whose Verifier ran but timed out or raised
+                # left its window unjudged and the baseline where it was (only the normal path advances it), so its own
+                # installs (~/.local/bin/uv) read as the policy's tampering here. Its window is judged now, as the normal
+                # path does after the Verifier (after_grade), and the baseline moved past it; deferred to here because
+                # this grade's clean quiesce has killed that grade's hung test.sh, which could still write until then
+                pending = world.__dict__.get("_guard_pending")
+                if pending is not None:
+                    # host-side evidence, outside the scoring budget, but its length is the answer's (review round 3: capped,
+                    # runtime.grading.HOLD_CAP_S, as the pre-check below)
+                    with unbudgeted(answer=True):
+                        post, after = await grader_guard.check(world.backend, surf, after_grade=True, since=pending[0])
+                    del world.__dict__["_guard_pending"]  # judged (a GuardError above leaves it for the next grade)
+                    if post.verdicts:
+                        flags = [*flags, *post.flags()]
+                        return None, self._zero(tid, t0, "crucible:grader_tampered", "the grader's toolchain changed during an earlier grade of this work: " + "; ".join(
+                            f"{v['path']} ({v['why']})" for v in post.verdicts[:8]), flags=flags, integrity={"verdicts": post.verdicts}), flags, q
+                    surf.advance(after, rejudge=pending[1])
+                # M10 lab audit R-3 review round 2: the host's docker diff is infrastructure, not the grade. Review round 3: the
+                # scan then fetches every changed file the policy left on the grader's surface (one docker cp each, no limit
+                # on their number), so its length is the answer's: held at most runtime.grading.HOLD_CAP_S (answer=True),
+                # then on the scoring budget. Uncapped, enough planted files ran the attempt clock out inside the hold, and
+                # a 0 became a terminal attempt_timeout mask that was never controlled
+                with unbudgeted(answer=True):
+                    findings, before = await grader_guard.check(world.backend, surf)
+                flags = [*flags, *findings.flags()]
                 if findings.verdicts:
                     return None, self._zero(tid, t0, "crucible:grader_tampered", "the policy changed the grader's toolchain: " + "; ".join(
                         f"{v['path']} ({v['why']})" for v in findings.verdicts[:8]), flags=flags, integrity={"verdicts": findings.verdicts,
-                                                                                                            "suspicions": findings.suspicions}), flags
+                                                                                                            "suspicions": findings.suspicions}), flags, q
                 moved = await grader_guard.hide(env, findings.hide, tag)
             net = await self._network_lost(world, surf, phase, host=False)  # cheap host-side fact before a long install
             if net:
-                return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
+                return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags, q
             await phase_in()
             pins = grader_guard.pinned_env(surf, tag) if surf is not None else {}
+            started = True
             with env.with_default_user(user):
                 verifier = Verifier(task=self.task, trial_paths=tp, environment=env, override_env=pins, **(verifier_kw or {}))
                 result = await asyncio.wait_for(verifier.verify(), timeout=timeout + 60)
             if surf is not None:  # a tool swapped while the verifier ran (a background process of the policy)
-                post, after = await grader_guard.check(world.backend, surf, after_grade=True, since=before)
+                # M10 lab audit R-3 review round 2: host-side evidence; a finished Verifier is never cut by the budget (review
+                # round 3: within the answer-dependent allowance, as the pre-check above)
+                with unbudgeted(answer=True):
+                    post, after = await grader_guard.check(world.backend, surf, after_grade=True, since=before)
                 if post.verdicts:
                     flags = [*flags, *post.flags()]
                     return None, self._zero(tid, t0, "crucible:grader_tampered", "the grader's toolchain changed during the grade: " + "; ".join(
-                        f"{v['path']} ({v['why']})" for v in post.verdicts[:8]), flags=flags, integrity={"verdicts": post.verdicts}), flags
+                        f"{v['path']} ({v['why']})" for v in post.verdicts[:8]), flags=flags, integrity={"verdicts": post.verdicts}), flags, q
                 surf.advance(after, rejudge=[p for p, _ in moved])
         except TimeoutError:
-            return None, (await self._liveness(world, tid, t0)) or self._masked(tid, t0, "verifier_timeout", f"{tid}: verifier exceeded {timeout:.0f}s", flags=flags), flags
+            self._guard_window(world, surf, started, before, moved)
+            with unbudgeted():
+                dead = await self._liveness(world, tid, t0)
+            return None, dead or self._masked(tid, t0, "verifier_timeout", f"{tid}: verifier exceeded {timeout:.0f}s", flags=flags), flags, q
         except Exception as e:  # noqa: BLE001 -- typed infra errors mask; reward-file errors after a reset are the agent's (H1 V4)
-            dead = await self._liveness(world, tid, t0)
+            self._guard_window(world, surf, started, before, moved)
+            with unbudgeted():
+                dead = await self._liveness(world, tid, t0)
             if dead is not None:
-                return None, dead, flags
+                return None, dead, flags, q
             if type(e).__name__ in REWARD_FILE_ERRORS:
-                net = await self._network_lost(world, surf, phase)
+                with unbudgeted():
+                    net = await self._network_lost(world, surf, phase)
                 if net:
-                    return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
-                return None, self._zero(tid, t0, f"crucible:{type(e).__name__}", f"{tid}: the verifier wrote no valid reward after the agent ran: {e}", flags=flags), flags
+                    return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags, q
+                return None, self._zero(tid, t0, f"crucible:{type(e).__name__}", f"{tid}: the verifier wrote no valid reward after the agent ran: {e}", flags=flags), flags, q
             if isinstance(e, grader_guard.GuardError):  # the host could not inspect the container: never an unverified grade
-                return None, self._masked(tid, t0, "crucible:backend_error", f"{tid}: the grader's toolchain could not be verified: {e}", flags=flags), flags
-            return None, self._masked(tid, t0, type(e).__name__, f"{tid}: {e}", flags=flags), flags
+                return None, self._masked(tid, t0, "crucible:backend_error", f"{tid}: the grader's toolchain could not be verified: {e}", flags=flags), flags, q
+            return None, self._masked(tid, t0, type(e).__name__, f"{tid}: {e}", flags=flags), flags, q
         finally:
             try:
                 await phase_out()
@@ -414,15 +834,50 @@ class HarborInPlaceTask:
                 pass
             if moved:
                 await grader_guard.unhide(env, moved)
-        dead = await self._liveness(world, tid, t0)
-        if dead is not None:
-            return None, dead, flags
-        reward, _ = scalar_reward(dict(result.rewards or {}), self.reward_key)
-        if reward is None or reward < 1.0:  # a failed grade: was the grader's own network gone?
-            net = await self._network_lost(world, surf, phase)
-            if net:
-                return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags
-        return result, None, flags
+        # M10 lab audit R-3 review round 2: host-side evidence after the Verifier finished, outside the scoring budget (a
+        # budget that ran out here discarded a finished result as the answer's verifier_timeout)
+        with unbudgeted():
+            dead = await self._liveness(world, tid, t0)
+            if dead is not None:
+                return None, dead, flags, q
+            reward, _ = scalar_reward(dict(result.rewards or {}), self.reward_key)
+            if reward is None or reward < 1.0:  # a failed grade: was the grader's own network gone?
+                net = await self._network_lost(world, surf, phase)
+                if net:
+                    return None, self._masked(tid, t0, "crucible:grader_network_error", net, flags=flags), flags, q
+        return result, None, flags, q
+
+    @staticmethod
+    def _guard_window(world, surf, started: bool, before, moved: list[tuple[str, str]]) -> None:
+        """M10 lab audit R-3 review round 2: a Verifier that started but timed out or raised (the post-check's own
+        ``GuardError`` included) leaves its grade window unjudged and the guard's baseline where it was (only the normal
+        path judges it and calls ``surf.advance``). Its pre-Verifier diff and the paths moved aside for it are kept on the
+        World, and the next grade of this World (``runtime.grading.grade_in_place`` grades it again in place) judges that
+        window first, ``after_grade`` as the normal path does, and moves the baseline past it (``_verify``). On a multi-step
+        task the next step's setup closes it instead (``HarborMultiStepTask._setup_step``, whose advance absorbs it; M10 lab
+        audit R-3 review round 3): the window is judged only on a re-grade of the same work, never across an agent phase,
+        whose own changes its after-grade relaxations would let through. Before, the
+        re-grade's pre-check held the first grade's own installs (the uv installer's ``~/.local/bin/uv``) against the
+        pristine baseline: an honest answer scored 0 as ``crucible:grader_tampered``, or ``grader_tool_preinstalled``
+        flags blamed on the policy. Nothing when no surface is guarded or the Verifier never started."""
+        if surf is not None and started and before is not None:
+            world.__dict__["_guard_pending"] = (before, [p for p, _ in moved])
+
+    async def _regrade_leftovers(self, world):
+        """M10 lab audit R-3: a grade of a World an earlier grade already quiesced clean (``runtime.grading.grade_in_place``
+        grades the same work again inside the attempt) lists what is beyond the baseline first (``quiesce.started_since``,
+        host-only): every process of the policy's was killed before that grade's Verifier ran, so these came from the
+        grade (its ``test.sh`` left a server running) and are passed as ``leftovers``: killed, never flagged
+        ``policy_process_killed``, as ``HarborMultiStepTask._setup_step`` does between steps (R-2 review round 2). None
+        otherwise, and when the host cannot list the container (this grade's own quiesce then lists it and decides)."""
+        if not world.__dict__.get("_inplace_swept") or "_quiesce_baseline" not in world.__dict__:
+            return None
+        from crucible.interop.harbor import quiesce
+
+        try:
+            return await quiesce.started_since(world.backend, world.__dict__["_quiesce_baseline"])
+        except quiesce.QuiesceError:
+            return None
 
     async def grade(self, world, workdir: Path):
         from crucible.verify.runtime.plan import GradeReport
@@ -443,18 +898,62 @@ class HarborInPlaceTask:
             if phase != current:
                 await env.set_network_policy(current)
 
-        result, ended, flags = await self._verify(world, tid=self.id, user=self.task.config.verifier.user, timeout=self.verifier_timeout, t0=t0,
-                                                  phase=phase, phase_in=phase_in, phase_out=phase_out)
+        # M10 lab audit R-2: the quiesce receipt goes next to the grade dir, ``<workdir>/../verifier/quiesce.json`` (every
+        # harness grades into ``<attempt>/grade`` and reports into ``<attempt>/verifier``: native.py:361,
+        # agent_harness.py:948-951; M10 lab audit R-3: a re-grade inside the attempt grades into
+        # ``<attempt>/regrade<i>/grade``, so each try's receipt is its own)
+        from crucible.runtime.grading import unbudgeted
+
+        with unbudgeted():  # M10 lab audit R-3 review round 2: a host listing, outside the scoring budget
+            leftovers = await self._regrade_leftovers(world)
+        result, ended, flags, q = await self._verify(world, tid=self.id, user=self.task.config.verifier.user, timeout=self.verifier_timeout, t0=t0,
+                                                     phase=phase, phase_in=phase_in, phase_out=phase_out, receipt_dir=Path(workdir).parent / "verifier",
+                                                     leftovers=leftovers)
+        # M10 lab audit R-3: a clean quiesce here killed every process of the policy's before the Verifier ran, so whatever
+        # is beyond the baseline at a later grade of this World came from this grade (``_regrade_leftovers``)
+        world.__dict__["_inplace_swept"] = (q or {}).get("verdict") == "clean"
         if ended is not None:
+            if q is not None:
+                ended.meta.setdefault("quiesce", q)
+            if flags:  # M10 lab audit R-2 review round 2: a _liveness report replacing the grade carries no flags; the quiesce's policy_process_killed rides it too
+                ended.meta.setdefault("flags", flags)
             return ended
         rewards = dict(result.rewards or {})
         reward, problem = scalar_reward(rewards, self.reward_key)
         if reward is None:
-            return self._masked(self.id, t0, problem.split(":")[0], problem, flags=flags)
+            return self._masked(self.id, t0, problem.split(":")[0], problem, flags=flags, quiesce=q)
         comps: dict[str, Any] = {f"harbor/{k}": float(v) for k, v in rewards.items()}
         return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=round(time.monotonic() - t0, 2), meta={"rewards": rewards, "components": comps, "flags": flags,
-                                                                            "verifier": json.loads(result.model_dump_json())})
+                                                                            "verifier": json.loads(result.model_dump_json()), "quiesce": q})
+
+    async def grade_control(self, workdir: Path):
+        """M10 lab audit R-3: the task's control (``runtime.grading.settle``): a fresh World of the task (``open`` into
+        ``workdir/work``), Harbor's ``OracleAgent`` running ``solution/solve.sh`` in it (``oracle``), then the same guarded
+        grade the policy's work got (``grade`` into ``workdir/grade``: the R-2 quiesce, the toolchain check, Harbor's
+        Verifier; the receipt goes to ``workdir/verifier``). The World is closed whatever happens. None without a
+        ``solution/solve*`` script; anything that raises fails the control (``grading.control_grade``), never the policy."""
+        sol = self.dir / "solution"
+        if not sol.is_dir() or not any(p.is_file() for p in sol.glob("solve*")):
+            return None
+        workdir = Path(workdir)
+        w = await self.open(workdir / "work")
+        try:
+            await self.oracle(w, workdir)
+            return await self.grade(w, workdir / "grade")
+        finally:
+            with contextlib.suppress(Exception):
+                await w.close()
+
+
+def _harbor_version() -> str:
+    """The installed Harbor's version, named in errors about API differences (Crucible codes against 0.24)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("harbor")
+    except PackageNotFoundError:
+        return "absent"
 
 
 async def _host_reaches(hosts: list[str], timeout: float = 5.0) -> bool:

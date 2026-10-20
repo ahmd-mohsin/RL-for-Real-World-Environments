@@ -28,9 +28,11 @@ from typing import Any
 
 from crucible.core.schema.state import Query
 from crucible.core.store import Store
+from crucible.runtime.identity import seed_digest, tree_digest
 from crucible.verify.progress import Subgoal
 from crucible.verify.runtime.plan import GradeReport
 from crucible.world.world import World
+from crucible_pack_finance_ap import PACK_ROOT
 from crucible_pack_finance_ap.world import CONTROLS_SENTENCE, DECIDE_SENTENCE, GENERATOR_VERSION, APWorld, cents, decide, decision_call, draw, instruction, neighbour_tolerance, oracle, write_pack
 
 TASK_VERSION = GENERATOR_VERSION  # task ids end in @3: generator v3 worlds are not v2's (M14 audit D8, campaign B7)
@@ -81,6 +83,12 @@ class APTask:
         self.oracle = oracle(self.w)
         _MADE[self.id] = self
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the pack's content (the generator, the grader and the policy text: ``tree_digest(PACK_ROOT)``, so an
+        edited grader refuses the resume), the seed and the number of invoices the world is drawn from, the task version and the
+        instruction. ``root`` is the temporary directory the world is written to (a path, operational)."""
+        return {"pack": tree_digest(PACK_ROOT), "seed": seed_digest(self.seed), "n": len(self.w.cases), "version": self.version, "instruction": self.instruction}
+
     async def open(self, workdir: Path) -> World:
         from crucible.core.schema.world import WorldSpec
 
@@ -98,7 +106,8 @@ class APTask:
         gates = {"controls": "fail" if bad else "pass", "outcome": "pass" if frac == 1.0 else "fail"}
         return GradeReport(task=self.id, tier="full", checks=[], gates=gates, reward=1.0 if all(v == "pass" for v in gates.values()) else 0.0,
                            outcome=0.0 if bad else round(frac, 6), infra={"status": "ok"}, trusted=True, elapsed_s=0.0,
-                           meta={"correct": sum(correct.values()), "invoices": len(correct), "control_breaches": bad,
+                           meta={"kinds": {"controls": "gate", "outcome": "outcome"},  # a breached control is a broken rule; a wrong invoice is not
+                                 "correct": sum(correct.values()), "invoices": len(correct), "control_breaches": bad,
                                  "wrong": sorted(k for k, v in correct.items() if not v), "tolerance": self.w.tolerance, "hold_order": self.w.hold_order,
                                  "generator": GENERATOR_VERSION})
 
@@ -373,9 +382,11 @@ def policies() -> list:
     from crucible.runtime.harness.native import PolicyRef
 
     approve_all = ADVERSARIES["approve_all"][0]
-    return [PolicyRef(id="scripted:oracle", make=lambda a: {"agent": ScriptedPolicy("agent", _acts(a.task.oracle))}),
-            PolicyRef(id="scripted:approve_all", make=lambda a: {"agent": ScriptedPolicy("agent", _acts(_decisions(a.task, approve_all, "a")))}),
-            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])})]
+    # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config); these scripts derive from the task
+    return [PolicyRef(id="scripted:oracle", make=lambda a: {"agent": ScriptedPolicy("agent", _acts(a.task.oracle))}, config={"script": "task oracle"}),
+            PolicyRef(id="scripted:approve_all", make=lambda a: {"agent": ScriptedPolicy("agent", _acts(_decisions(a.task, approve_all, "a")))},
+                      config={"script": "approve every invoice"}),
+            PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"})]
 
 
 # ------------------------------------------------------------------------------------------------ fixtures

@@ -26,6 +26,7 @@ from typing import Any
 
 from crucible.core.schema.state import Query
 from crucible.verify.runtime.plan import Check, Verdict
+from crucible.verify.state import _policy_broke
 
 COMPARISONS = ("equals", "not_equals", "gt", "gte", "lt", "lte", "contains", "in", "rows_equal")
 
@@ -121,7 +122,11 @@ class SqlAssertion:
     async def evaluate(self, view) -> Verdict:
         r = await view.query(self.app, Query(op="sql", args={"sql": self.query, "max_rows": 10_000}))
         if not r.ok:
-            return Verdict(False, {"query": self.query, "error": (r.error or "query failed")[:500]})
+            detail = {"query": self.query, "error": (r.error or "query failed")[:500]}
+            if _policy_broke(r):  # the policy changed the schema this assertion reads: its failure
+                return Verdict(False, detail)
+            # transport or adapter: never the policy's (the rule state_predicates applies; M1 audit R-11)
+            return Verdict(False, detail, infra=f"{self.id}: the query could not be run: {(r.error or 'query failed')[:300]}")
         actual = reduce_result(r.value or {})
         ok = compare(actual, self.expected, self.compare, self.semantics)
         return Verdict(ok, {"query": self.query, "expected": self.expected, "actual": actual if _small(actual) else f"{len(actual)} rows",

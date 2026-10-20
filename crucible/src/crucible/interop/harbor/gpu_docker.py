@@ -84,8 +84,8 @@ class GpuDockerEnvironment(DockerEnvironment):
                 svc["pids_limit"] = self._pids_limit  # fork bombs stop at the container (Karotte: pids.max)
             if self._cap_add:
                 svc["cap_add"] = self._cap_add  # SYS_RESOURCE: the policy's oom_score_adj=1000 cannot be lowered back
-            if self._mem_limit:
-                svc["mem_limit"] = self._mem_limit
+            if self._mem_limit:  # swap capped at the limit: Docker's default lets a container swap as much again (M1 audit R-26)
+                svc["mem_limit"] = svc["memswap_limit"] = self._mem_limit
             if self._security_opt:
                 svc["security_opt"] = self._security_opt  # no-new-privileges: setuid binaries and sudo cannot raise the policy's privileges
             path = Path(self._overlay_dir.name) / "docker-compose-crucible-gpu.json"

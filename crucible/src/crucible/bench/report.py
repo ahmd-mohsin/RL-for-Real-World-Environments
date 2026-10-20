@@ -80,6 +80,9 @@ def warnings(summary: dict[str, Any]) -> list[str]:
         out.append(f"the runner stopped before the plan was done: {run['stopped']}")
     if run.get("owed"):
         out.append(f"{run['owed']} of {run.get('planned')} planned samples have no result: every number covers the measured samples only")
+    if len(run.get("epochs") or []) > 1:  # run_info lists only the epochs that hold results, and only past the first (metrics._epochs_info)
+        out.append(f"results span {len(run['epochs'])} identity epochs (M10 lab audit R-4: accepted configuration drift or new code): the headline "
+                   "metrics mix them; per-epoch counts and means are in run.epochs")
     v = summary.get("validity") or {}
     if v.get("status") == "unknown":
         out.append(f"validity unknown: no oracle or no-op evidence for these {len(v.get('unknown_tasks') or [])} tasks, so vacuous tasks (a no-op passes) "

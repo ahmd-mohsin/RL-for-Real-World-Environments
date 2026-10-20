@@ -7,7 +7,8 @@ Each injector produces an attempt that *would* be scored 0 if mishandled. Infras
 - ``FakeLLM``: a scripted tool-calling client; raises a chosen provider failure (blank usage, credits, overflow) at a chosen
   call on chosen attempts.
 - ``FlakyGradeTask``: wraps a task so its grade comes back masked with a chosen infra reason (contaminated perf rounds,
-  stale build, stale image, grader exception) on chosen attempts.
+  stale build, stale image, grader exception) on chosen attempts; its control grade (M10 lab audit R-3) is injected the
+  same way.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMResponse, UsageBlank
+from crucible.runtime.identity import describe
 from crucible.verify.runtime.plan import Check, Context, Gate, Plan
 from crucible.verify.runtime.trusted import InfraError, Trusted
 
@@ -70,6 +72,12 @@ class FlakyGradeTask:
     def __getattr__(self, k):
         return getattr(self.task, k)
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the wrapped task's document and the injected fault. The schedule (``on``) is left out: it simulates
+        the state of the infrastructure, which is what a re-grade waits out, not the task's configuration (a test that quiets the
+        node between a run and its regrade changes ``on`` and must still resume)."""
+        return {"task": describe(self.task, "task"), "reason": self.reason, "crash_setup": self.crash_setup}
+
     def _hit(self, d: Path) -> bool:
         return any(f"/{a}/" in str(d) for a in self.on)
 
@@ -88,6 +96,15 @@ class FlakyGradeTask:
 
     async def grade_patch(self, patch: str, d: Path):
         return await self._flaky(d) if self._hit(Path(d)) else await self.task.grade_patch(patch, d)
+
+    async def grade_control(self, d: Path):
+        """M10 lab audit R-3: the inner task's control, on the same, injected grader (a control graded under ``/a1/``
+        masks like the attempt's own grades, so an injected outage fails its control: a task-blamed mask, never the
+        policy's 0). None when the inner task has no control."""
+        hook = getattr(self.task, "grade_control", None)
+        if hook is None:
+            return None
+        return await self._flaky(d) if self._hit(Path(d)) else await hook(d)
 
 
 class ReplayLLM:

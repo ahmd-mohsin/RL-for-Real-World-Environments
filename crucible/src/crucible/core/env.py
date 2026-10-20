@@ -63,6 +63,18 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_SPMD_JOIN_S", "float", 3600.0, "SPMD: how long to wait for every rank to join, in seconds"),
     Knob("CRUCIBLE_VERL_ROLLOUT", "str", None, "verl agent loop: the rollout factory, pkg.mod:factory"),
     Knob("CRUCIBLE_VERL_TURN_WEIGHT", "float", 0.0, "verl agent loop: per-turn reward weight"),
+    # slime bridge (train/bridges/slime): each is the fallback after slime's own args.crucible_* option
+    Knob("CRUCIBLE_SLIME_ENV", "str", "crucible.factory.envs:slime_provider", "slime bridge: the environment provider, pkg.mod:attr"),
+    Knob("CRUCIBLE_SLIME_WORKDIR", "path", None, "slime bridge: where episode workspaces are made (default the system temp dir)"),
+    Knob("CRUCIBLE_SLIME_ROLLOUT_TIMEOUT_S", "float", 7200.0, "slime bridge: one rollout's time limit, in seconds"),
+    Knob("CRUCIBLE_SLIME_AGENT_TIMEOUT_S", "float", 3600.0, "slime bridge: the agent's time limit in one rollout, in seconds"),
+    Knob("CRUCIBLE_SLIME_TURN_ETA", "float", 0.1, "slime bridge: the turn-credit weight added to the outcome advantage"),
+    Knob("CRUCIBLE_SLIME_MAX_STALENESS", "int", 2, "slime bridge: a group more weight updates behind than this is dropped"),
+    Knob("CRUCIBLE_SLIME_WEIGHT_VERSION", "int", None, "slime bridge: the current weight version when slime passes none (unset: no staleness cap)"),
+    Knob("CRUCIBLE_R3_PROXY_HOST", "str", None, "coding pack R3 gate: this machine as the lab container reaches it (the capture proxy's host)"),
+    Knob("CRUCIBLE_R3_PROXY_PORT", "int", 8788, "coding pack R3 gate: the capture proxy's port"),
+    Knob("CRUCIBLE_R3_UPSTREAM", "str", "https://openrouter.ai/api/v1", "coding pack R3 gate: the model API the proxy forwards to"),
+    Knob("CRUCIBLE_R3_BUDGET_USD", "float", 15.0, "coding pack R3 gate: the run's budget, in USD"),
     Knob("CRUCIBLE_ENGINE_NCCL_CUMEM_ENABLE", "choice", None, "toy M12 gate: NCCL_CUMEM_ENABLE passed to the engines", choices=("0", "1")),
     Knob("CRUCIBLE_VLLM_LOG", "path", Path("/work/out/vllm.log"), "toy M12 gate: where the vLLM server log is written"),
     # ---- internal: set by Crucible for a process it starts

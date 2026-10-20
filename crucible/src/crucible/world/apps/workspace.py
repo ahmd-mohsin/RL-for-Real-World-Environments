@@ -128,7 +128,7 @@ class WorkspaceApp(App):
             raise ToolError("shell is disabled for this workspace")
         if self.policy_exec.is_local and not self.spec.params.get("allow_unsafe_local_shell"):
             raise ToolError("shell refused: the local backend has no sandbox (set allow_unsafe_local_shell for trusted policies only)")
-        out = await self.policy_exec.run(command, cwd=self.root, timeout_s=min(timeout_s, int(self.spec.params.get("max_timeout_s", 3600))))
+        out = await self.policy_exec.run(command, cwd=self.root, timeout_s=self.deadline(timeout_s, self.spec.params.get("max_timeout_s", 3600)))
         text = (out.stdout + (("\n[stderr]\n" + out.stderr) if out.stderr.strip() else ""))
         if len(text) > self.max_output:
             text = text[: self.max_output // 2] + f"\n... [{len(text) - self.max_output} chars elided] ...\n" + text[-self.max_output // 2 :]

@@ -232,7 +232,7 @@ def test_by_name_correction_of_a_kernel_function_points_at_the_kernel():
     import tempfile
 
     try:
-        asyncio.run(Runner(Path(tempfile.mkdtemp())).run(RunSpec(run_id="d4", tasks=[task], policies=[PolicyRef(id="m", make=lambda a: {"agent": llm})],
+        asyncio.run(Runner(Path(tempfile.mkdtemp())).run(RunSpec(run_id="d4", tasks=[task], policies=[PolicyRef(id="m", make=lambda a: {"agent": llm}, config={})],
                                                                  harnesses=[RLMHarness(RLMConfig(kernel="local", allow_host=True, temperature=0.0),
                                                                                        limits=EpisodeLimits(max_steps=50))], k=1)))
     finally:

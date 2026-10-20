@@ -30,7 +30,12 @@ def test_docker_sandbox_flags_for_the_lab_gpu_host():
     assert sb.docker_host == "ssh://ahmed@100.100.101.36"
     assert "--runtime=nvidia" in a and "NVIDIA_VISIBLE_DEVICES=all" in a and "--gpus" not in a  # --gpus fails on that host
     assert a[a.index("--network") + 1] == "none" and a[a.index("--pids-limit") + 1] == "512" and "SYS_RESOURCE" in a
-    assert a[-3:] == ["task04-pcl-gpu-cuda12:v1", "sleep", "infinity"] and "--init" in a and a[a.index("--memory") + 1] == "16384m"
+    # M10 lab audit R-6: a bounded life (outside a Runner the sandbox renews itself: the life loop; inside an attempt the same, renewed by
+    # its scope), an owner and an expiry; never ``sleep infinity``
+    assert a[-5:-2] == ["sh", "-c", a[-3]] and a[-2] == "crucible-life" and a[-1].isdigit() and "infinity" not in a and "sleep" not in a[-5:]
+    assert a[a.index("--entrypoint") + 2] == "task04-pcl-gpu-cuda12:v1"
+    assert any(x.startswith("crucible.owner=") for x in a) and any(x.startswith("crucible.expires=") for x in a)
+    assert "--init" in a and a[a.index("--memory") + 1] == "16384m" and a[a.index("--memory-swap") + 1] == "16384m"  # no swap past it (M1 R-26)
     b = DockerSandbox(SandboxSpec(image="x", gpu_mode="devices"), world(gpus=2, network="public", policy_user=None)).argv()
     assert b[b.index("--gpus") + 1] == "2" and "--network" not in b and "SYS_RESOURCE" not in b
 

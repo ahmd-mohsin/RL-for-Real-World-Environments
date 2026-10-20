@@ -34,7 +34,7 @@ def test_keys_seeds_and_identity(tmp_path):
     a = SampleKey(task="t", policy="p", harness="h", sample_idx=0, seed=derive_seed(7, "t", "p", "h", 0))
     b = a.model_copy(update={"sample_idx": 1, "seed": derive_seed(7, "t", "p", "h", 1)})
     assert a.id() != b.id() and a.seed != b.seed and a.id() == SampleKey(**a.model_dump()).id()
-    RunJournal(tmp_path, "run", "id-1", {})
+    RunJournal(tmp_path, "run", "id-1", {}).close()  # M10 lab audit R-4: a journal holds its run's lease until it is closed
     with pytest.raises(ValueError):
         RunJournal(tmp_path, "run", "id-2", {})  # a different run never resumes into this directory
 
@@ -79,7 +79,9 @@ def llm_ref(name: str, script_fn, *, fail: str | None = None, on: tuple[int, ...
         clients.append(llm)
         return {"agent": LLMToolPolicy("agent", llm)}
 
-    return PolicyRef(id=f"fake:{name}", make=make, spend=lambda: (sum(c.spend.usd for c in clients), 0.0), estimate_usd=0.001)
+    # M10 lab audit R-4: a PolicyRef declares its configuration (the fake's knobs, never the clients it made)
+    return PolicyRef(id=f"fake:{name}", make=make, spend=lambda: (sum(c.spend.usd for c in clients), 0.0), estimate_usd=0.001,
+                     config={"name": name, "fail": fail, "on": list(on), "at": at})
 
 
 def helpdesk_script():
@@ -129,12 +131,21 @@ async def test_inject_tool_crash_masked_and_retried(tmp_path):
                                               ("stale build: consumers compiled against old headers", "crucible:stale_build"),
                                               ("stale image: verifier digest differs from the pinned one", "crucible:stale_image")])
 async def test_inject_verifier_infra_classes(tmp_path, reason, kind):
-    _s, fails, res = await _one(tmp_path, FlakyGradeTask(HelpdeskTask(), reason), ORACLE, NativeHarness("native:scripted"))
+    import json
+
+    s, fails, res = await _one(tmp_path, FlakyGradeTask(HelpdeskTask(), reason), ORACLE, NativeHarness("native:scripted"))
     assert fails[0]["failure"]["kind"] == kind and fails[0]["reward"] is None
+    # masked and never retried by re-running the agent. HelpdeskTask grades in place: the World is gone after the attempt,
+    # so a contaminated grade is graded again inside it (regrade1/grade is under /a1/ too, so the injection masks it
+    # again) and the attempt ends terminal-masked (M10 lab audit R-3; the old a2 "regrade in a fresh attempt" was a full
+    # agent re-run, hidden by the deterministic ORACLE). A stale image or build is never graded again (a retry cannot
+    # rebuild it; sweep G2 D3)
+    assert res[0]["reward"] is None and res[0]["mask_sample"] and res[0]["attempt"].endswith("-a1") and s.attempts == 1
+    adir = next((tmp_path / "g" / "samples").glob("*/a1"))
     if kind == "crucible:node_contention":
-        assert res[0]["reward"] == 1.0 and res[0]["attempt"].endswith("-a2")  # the regrade in a fresh attempt scores the oracle
-    else:  # a stale image or build: masked and never retried (a retry cannot rebuild it; sweep G2 D3)
-        assert res[0]["reward"] is None and res[0]["mask_sample"] and res[0]["attempt"].endswith("-a1")
+        assert len(json.loads((adir / "verifier" / "grades.json").read_text())) == 2
+    else:
+        assert not (adir / "verifier" / "grades.json").exists()
 
 
 async def test_inject_grader_exception(tmp_path):
@@ -202,7 +213,7 @@ def counting(ref: PolicyRef) -> tuple[PolicyRef, list]:
         made.append(a.id)
         return ref.make(a)
 
-    return PolicyRef(id=ref.id, make=make), made
+    return PolicyRef(id=ref.id, make=make, config=ref.config), made  # M10 lab audit R-4: the wrapped policy's own declaration
 
 
 async def test_masked_grade_retried_as_regrade_of_stored_patch(tmp_path):

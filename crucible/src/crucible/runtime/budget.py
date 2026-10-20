@@ -7,7 +7,10 @@ reservation that would cross a scope's cap is denied with ``accounted_exhaustion
 run stop rule (dispatch halts, in-flight attempts finish masked, ``resume`` continues after the cap is raised).
 
 SQLite, so a crashed run's reservations survive: on reopen, ``reserved`` operations without a settle become
-``uncertain`` (nothing is re-dispatched blindly).
+``uncertain`` (nothing is re-dispatched blindly). M10 lab audit R-4: that is safe only because the run's one writer holds
+its lease (``RunJournal``'s ``run.lock``) before the ledger opens: a second process opening the ledger would turn the
+first's in-flight reservations uncertain. Op ids are unique: ``reserve`` is a plain INSERT, and an op reserved twice raises
+``OpReused`` instead of overwriting the first reservation (an attempt id is never reused, so a duplicate is a bug).
 """
 
 from __future__ import annotations
@@ -21,6 +24,10 @@ class Exhausted(RuntimeError):
     def __init__(self, scope: str, msg: str):
         super().__init__(msg)
         self.scope = scope
+
+
+class OpReused(RuntimeError):
+    """An op id was reserved twice (M10 lab audit R-4). The first row is left as it was."""
 
 
 class BudgetLedger:
@@ -50,7 +57,11 @@ class BudgetLedger:
             cap = self.caps.get(sc if sc in self.caps else sc.split("/", 1)[0])
             if cap is not None and self._spent(sc) + usd > cap + 1e-12:
                 raise Exhausted(sc, f"accounted_exhaustion: {sc} would reach {self._spent(sc) + usd:.4f} > cap {cap:.4f}")
-        self.db.execute("INSERT OR REPLACE INTO ops VALUES (?, ?, ?, NULL, 'reserved', ?)", (op, "|".join(scopes), usd, time.time()))
+        try:
+            self.db.execute("INSERT INTO ops VALUES (?, ?, ?, NULL, 'reserved', ?)", (op, "|".join(scopes), usd, time.time()))
+        except sqlite3.IntegrityError:
+            self.db.rollback()
+            raise OpReused(f"ledger op {op} already exists: attempt ids are never reused (M10 lab audit R-4)") from None
         self.db.commit()
 
     def settle(self, op: str, actual: float, *, uncertain: float = 0.0) -> None:

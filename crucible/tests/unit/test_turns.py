@@ -223,6 +223,9 @@ async def test_seat_rewards_reach_the_run_record(tmp_path):
     class NimTask:
         id, world_id = "t/nim/5@1", "t/nim"
 
+        def identity_config(self) -> dict:  # M10 lab audit R-4: it holds state once opened (``first``), so it declares its (empty) configuration
+            return {}
+
         async def open(self, workdir):
             w = World(WorldSpec.model_validate(NIM), store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
             await w.start()
@@ -241,7 +244,7 @@ async def test_seat_rewards_reach_the_run_record(tmp_path):
         return {task.first: ScriptedPolicy(task.first, [_tc(1, "nim.take", n=1), _tc(3, "nim.take", n=1)]),
                 other: ScriptedPolicy(other, [_tc(2, "nim.take", n=3)])}
 
-    await Runner(tmp_path / "runs").run(RunSpec(run_id="nim", tasks=[task], policies=[PolicyRef("scripted:nim", make)],
+    await Runner(tmp_path / "runs").run(RunSpec(run_id="nim", tasks=[task], policies=[PolicyRef("scripted:nim", make, config={})],
                                                 harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=10))], k=1))
     rec = json.loads(next((tmp_path / "runs" / "nim" / "samples").glob("*/a1/record.json")).read_text())
     other = "bob" if task.first == "alice" else "alice"

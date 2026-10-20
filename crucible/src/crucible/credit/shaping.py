@@ -22,6 +22,9 @@ from collections.abc import Callable
 from typing import Any
 
 FORMAT_ERRORS = frozenset({"invalid_arguments", "unknown_tool", "bad_tool_name", "unknown_app"})
+# the scored outcome before any group stage rewrote the reward: kept by the first stage that rewrites it, read for pass /
+# fail by later stages (GAR) and by the pass-rate monitor (train.group_ops, train.runtime)
+RAW = "raw/reward"
 
 
 def format_errors_by_call(trace: Any, calls: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
@@ -97,6 +100,7 @@ def verbosity_group_fn(sigma: float, *, l0_of: Callable[[str], float | None] | N
                 pen = max_penalty * min(excess, 1.0) ** exponent
                 m.reward_components["verbosity/over_budget"] = float(_length(m) / max(l0, 1))
                 m.reward_components["verbosity/penalty"] = pen
+                m.reward_components.setdefault(RAW, float(m.reward))  # M6 D3: the success stays a success for GAR and the pass rate
                 m.reward = float(m.reward) - pen
         return members
 

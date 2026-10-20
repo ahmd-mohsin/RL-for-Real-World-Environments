@@ -585,5 +585,8 @@ def scripted_policy(steps: Sequence[tuple], *, app: str = "repo", pid: str = "sc
     """A ``PolicyRef`` whose agent replays ``steps`` (a fresh cursor per attempt)."""
     from crucible.actors.policy import LLMToolPolicy
     from crucible.runtime.harness.native import PolicyRef
+    from crucible.runtime.lock import definition_digest, jsonable
 
-    return PolicyRef(id=f"{pid}", make=lambda _a: {"agent": LLMToolPolicy("agent", ScriptedLLM(steps, app=app, delay_s=delay_s), **policy_kw)})
+    # config: what the run identity compares (M10 lab audit R-4; ``make`` is a closure): the replayed steps by digest
+    return PolicyRef(id=f"{pid}", make=lambda _a: {"agent": LLMToolPolicy("agent", ScriptedLLM(steps, app=app, delay_s=delay_s), **policy_kw)},
+                     config={"script": pid, "app": app, "steps": definition_digest(list(steps)), "policy": jsonable(policy_kw)})

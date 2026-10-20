@@ -8,11 +8,13 @@ journaling, re-grading and rollout records are then exactly those of a live run 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected
 from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.harness.workspace import WorkspaceHarness
+from crucible.runtime.identity import file_digest
 from crucible.runtime.infra import StageFailure
 
 
@@ -20,6 +22,12 @@ class ImportedHarness(WorkspaceHarness):
     def __init__(self, patches: dict[str, Path], name: str = "import:patch", version: str = "1", **kw):
         super().__init__(name, version, **kw)
         self.patches = {k: Path(v) for k, v in patches.items()}
+        # M10 lab audit R-4: the recorded runs ARE the harness (they are what is graded), so their content is in its id and its
+        # identity document, not their paths: an edited patch is a different run under the same policy id. Taken once, here
+        self._patch_digests = {k: file_digest(v) for k, v in self.patches.items()}
+
+    def _id_config(self) -> dict[str, Any]:
+        return {**super()._id_config(), "patches": self._patch_digests}
 
     async def run(self, attempt: Attempt) -> HarnessResult:
         prior = self._prior(attempt)

@@ -34,19 +34,9 @@ from harbor.models.trial.paths import TrialPaths
 
 from crucible.core.schema.world import AppSpec
 from crucible.world.backends.base import Backend, BackendCapabilities
-from crucible.world.exec import Exec, ExecOut, deadline_hit, with_deadline
+from crucible.world.exec import CONTAINER_GONE, EnvContainerLost, Exec, ExecOut, _run_subprocess_raw, capped_output, deadline_hit, with_deadline
 
 GPU_IMPORT_PATH = "crucible.interop.harbor.gpu_docker:GpuDockerEnvironment"
-
-# what ``docker compose exec`` / ``docker exec`` print for a container that is no longer there or no longer running
-CONTAINER_GONE = re.compile(r"service \"?main\"? is not running|No such container|is not running|container [0-9a-f]+ is (?:not running|paused)"
-                            r"|Cannot connect to the Docker daemon|error during connect", re.IGNORECASE)
-
-
-class EnvContainerLost(RuntimeError):
-    """The task container was removed or stopped from outside the episode (or its daemon is unreachable): infrastructure,
-    masked as ``crucible:env_container_lost`` (M13 audit B2)."""
-
 
 # image pulls and Dockerfile builds that fail (M13 audit B12): the deterministic causes are never retried
 _PULL = re.compile(r"pull access denied|manifest unknown|manifest for \S+ not found|repository does not exist|failed to resolve (?:source metadata|reference)"
@@ -121,9 +111,10 @@ class HarborExec(Exec):
             await self._put_bytes(stdin, tmp)
             cmd = f"{{ {cmd} ; }} < {tmp}; __rc=$?; rm -f {tmp}; exit $__rc"
         t0 = time.monotonic()
-        try:  # the in-container deadline is the real one; Harbor's client-side timeout is only a backstop
-            r = await self.env.exec(with_deadline(cmd, timeout_s), cwd=cwd, env=env, timeout_sec=int(timeout_s) + 15 if timeout_s else None,
-                                    user=user or self.default_user)
+        try:  # the in-container deadline is the real one; Harbor's client-side timeout is only a backstop. Harbor keeps every byte
+            # its exec receives, so the output is cut to a head and a tail inside the container (M1 audit R-2)
+            r = await self.env.exec(capped_output(with_deadline(cmd, timeout_s)), cwd=cwd, env=env,
+                                    timeout_sec=int(timeout_s) + 15 if timeout_s else None, user=user or self.default_user)
         except RuntimeError as e:
             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
                 return ExecOut(rc=-9, stdout="", stderr=str(e), duration_s=time.monotonic() - t0, timed_out=True)
@@ -290,6 +281,10 @@ class HarborBackend(Backend):
                                "(nftables fib inet)")
         await self._start_env()
         self._exec = HarborExec(self.env, default_user=self.params.get("user"), lost=self.container_lost)
+        if self.params.get("image_digest"):  # the task image's pin (M1 audit R-14): a re-pushed tag never runs
+            from crucible.world.sandbox import check_pinned
+
+            check_pinned(self.params["image_digest"], await self._image_id(), f"task container {self.session_id}-main-1")
         if remote:  # no host bind mounts on a remote daemon: the dirs live in the container and Harbor downloads them
             await self._exec.run("mkdir -p /logs/verifier /logs/agent /logs/artifacts", timeout_s=60, user="root")
         if self.params.get("require_state_tools", True):  # in-place Harbor tasks (process adapter) run on any image
@@ -332,14 +327,15 @@ class HarborBackend(Backend):
         return self.params.get("environment_type", "docker") == "docker" and self.env is not None
 
     async def docker(self, *args: str, timeout: float = 120.0) -> tuple[int, bytes, str]:
-        proc = await asyncio.create_subprocess_exec("docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                                                    stdin=asyncio.subprocess.DEVNULL)
-        try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout)
-        except TimeoutError:
-            proc.kill()
-            return -9, b"", f"docker {args[0]} timed out after {timeout:.0f}s"
-        return proc.returncode or 0, out, err.decode("utf-8", "replace")
+        """One docker CLI call on the host: ``(rc, stdout bytes, stderr text)``. M10 lab audit R-5 item 4: through
+        ``world.exec._run_subprocess_raw`` (a thread-pool ``Popen`` in its own session, never ``asyncio.create_subprocess_exec``:
+        asyncio's child watcher is forbidden, see ``world/exec.py`` above ``_WAITERS``); a timeout or a cancel kills the CLI's
+        whole session, where this used to kill only the client. stdout stays the bytes the command wrote (the grader guard
+        reads ``docker cp <cid>:<path> -`` tar streams from it). A timeout is ``(-9, b"", "docker <cmd> timed out ...")``."""
+        rc, out, err, timed_out, _ = await _run_subprocess_raw(["docker", *args], cwd=None, env=None, timeout_s=timeout, stdin=None)
+        if timed_out:
+            return -9, b"", f"docker {args[0] if args else ''} timed out after {timeout:.0f}s"
+        return rc, out, err.decode("utf-8", "replace")
 
     async def main_container(self) -> str | None:
         """The main service's container id, found once (while it exists) and remembered: a removed container keeps its id."""
@@ -377,7 +373,10 @@ class HarborBackend(Backend):
                  "exit_code": st.get("ExitCode"), "oom": bool(st.get("OOMKilled")), "events": []}
         if not state["running"]:
             state["events"] = await self._events(cid)
-            state["outside"] = bool(set(state["events"]) & {"kill", "stop", "destroy", "pause"}) or bool(st.get("Paused"))
+            # M10 lab audit R-2 review round 1: a ``pause`` event no longer reads as "stopped from outside": the in-place
+            # quiesce pauses and unpauses the container itself for its frozen listings, which would turn a container that
+            # later exits from inside into env_container_lost. A container still paused is still caught by State.Paused
+            state["outside"] = bool(set(state["events"]) & {"kill", "stop", "destroy"}) or bool(st.get("Paused"))
         return state
 
     async def _events(self, cid: str) -> list[str]:

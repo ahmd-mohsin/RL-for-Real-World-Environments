@@ -309,7 +309,7 @@ def test_v11_audit_image_scans_every_top_level_dir(tmp_path, monkeypatch):
     assert not rep.ok and {f["file"] for f in rep.findings} == {"tests/test_hidden.py", "usr/lib/ref/oracle.py"}
 
 
-def test_v20_collect_keeps_committed_work_and_nested_build_sources(tmp_path):
+async def test_v20_collect_keeps_committed_work_and_nested_build_sources(tmp_path):
     from crucible.runtime.collect import tree_changed
     from crucible.verify.collect import collect, is_derived
 
@@ -321,7 +321,7 @@ def test_v20_collect_keeps_committed_work_and_nested_build_sources(tmp_path):
     (ws / "a.c").write_text("int a = 1;\n")
     git(ws, "commit", "-qam", "fix")  # the agent committed its work
     tree(ws, {"tools/build/gen.py": "print(1)\n", "build/out.o": b"\x7fELF", "pkg/__pycache__/m.cpython-312.pyc": b"\0"})
-    c = collect(ws, base=base)
+    c = await collect(ws, base=base)  # M10 lab audit R-5 item 4: a coroutine (git runs off the event loop)
     assert "a.c" in c["patch"] and "tools/build/gen.py" in c["patch"] and "build/out.o" not in c["patch"]
     assert not is_derived("tools/build/gen.py") and is_derived("build/out.o") and is_derived("pkg/__pycache__/m.pyc")
     clean = tree(tmp_path / "clean", {"a.py": "x = 1\n"})
@@ -329,10 +329,10 @@ def test_v20_collect_keeps_committed_work_and_nested_build_sources(tmp_path):
     git(clean, "add", "-A")
     git(clean, "commit", "-q", "-m", "base")
     tree(clean, {"__pycache__/a.cpython-312.pyc": b"\0"})
-    assert not tree_changed(clean)  # a do-nothing agent that ran Python changed nothing the hook collects
+    assert not await tree_changed(clean)  # a do-nothing agent that ran Python changed nothing the hook collects
 
 
-def test_pick_workspace_harness_records_base_sha(tmp_path):
+async def test_pick_workspace_harness_records_base_sha(tmp_path):
     from crucible.runtime.harness.workspace import _base_sha
 
     ws = tree(tmp_path / "ws", {"a": "1\n"})
@@ -340,7 +340,7 @@ def test_pick_workspace_harness_records_base_sha(tmp_path):
     git(ws, "add", "-A")
     git(ws, "commit", "-q", "-m", "b")
     git(ws, "tag", "base")
-    assert _base_sha(ws) == git(ws, "rev-parse", "HEAD")
+    assert await _base_sha(ws) == git(ws, "rev-parse", "HEAD")
 
 
 def test_pick_submission_custody(tmp_path):

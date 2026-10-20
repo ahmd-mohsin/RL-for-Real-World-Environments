@@ -113,7 +113,7 @@ async def test_b1_a_models_json_escaped_surrogate_is_scored(tmp_path):
 
         return {"agent": LLMToolPolicy("agent", EngineLLM(codec, gen, model="byte"), max_tokens=4000, temperature=1.0)}
 
-    await Runner(tmp_path).run(RunSpec(run_id="b1llm", tasks=[HelpdeskTask()], policies=[PolicyRef(id="llm", make=make)],
+    await Runner(tmp_path).run(RunSpec(run_id="b1llm", tasks=[HelpdeskTask()], policies=[PolicyRef(id="llm", make=make, config={})],
                                        harnesses=[NativeHarness(limits=EpisodeLimits(max_steps=60))], k=1))
     (r,) = [json.loads(x) for x in (tmp_path / "b1llm" / "results.jsonl").read_text().splitlines()]
     assert r["reward"] == 1.0 and not r["mask_sample"], r.get("failure")
@@ -245,17 +245,16 @@ async def test_b4_a_rollout_cancelled_mid_docker_run_leaves_no_container(monkeyp
 
     spawned = asyncio.Event()
     names: list[str] = []
-    orig = asyncio.create_subprocess_exec
+    orig = K._run_subprocess_raw  # M10 lab audit R-5 item 4: the launcher's docker calls go through world.exec, not asyncio's child watcher
 
-    async def spy(*argv, **kw):
+    async def spy(argv, **kw):
         if len(argv) > 2 and argv[1] == "run" and "--name" in argv:  # a slow daemon: the container appears a second later
             names.append(argv[argv.index("--name") + 1])
-            p = await orig("sh", "-c", 'sleep 1; exec "$@"', "sh", *argv, **kw)
             spawned.set()
-            return p
-        return await orig(*argv, **kw)
+            return await orig(["sh", "-c", 'sleep 1; exec "$@"', "sh", *argv], **kw)
+        return await orig(argv, **kw)
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
+    monkeypatch.setattr(K, "_run_subprocess_raw", spy)
     launcher = K.DockerLauncher(IMAGE)
     t = asyncio.ensure_future(launcher.start(0))
     try:

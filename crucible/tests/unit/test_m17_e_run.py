@@ -193,7 +193,7 @@ async def test_workspace_attempt_cost_is_its_own_calls_under_concurrency(tmp_pat
         inner.complete = complete
         return pols
 
-    ref = PolicyRef(id="fake:shared", make=make, spend=lambda: (shared["usd"], 0.0))
+    ref = PolicyRef(id="fake:shared", make=make, spend=lambda: (shared["usd"], 0.0), config={"fake_llm": "shared spend"})  # M10 lab audit R-4
     _adir, rec, _ = await run_one(tmp_path, FibWindow(), ref, WorkspaceHarness())
     assert rec["reward"] == 1.0 and rec["cost_usd"] == pytest.approx(0.07)  # 7 calls x 0.01, not the shared delta (3.5)
 

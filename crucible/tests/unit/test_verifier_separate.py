@@ -52,6 +52,13 @@ class CustodyTask:
         self.opened: list[World] = []
         self.graded: list[World] = []
 
+    def identity_config(self) -> dict:
+        """M10 lab audit R-4: the task's configuration and the content of its seed tree (the hidden tests); never ``opened`` / ``graded``
+        (what happened) or any counter a subclass adds."""
+        from crucible.runtime.identity import tree_digest
+
+        return {"instruction": self.instruction, "seed": tree_digest(self.seed), "grade_delay": self.grade_delay, "spec": self.spec_kw}
+
     async def open(self, workdir: Path) -> World:
         w = World(_spec(self.seed, **self.spec_kw), instructions={"agent": self.instruction}, store=Store(Path(workdir) / "s"), workdir=Path(workdir) / "w")
         await w.start()
@@ -94,7 +101,7 @@ def seed(tmp_path):
 
 
 def _ref(actions):
-    return PolicyRef(id="scripted:p", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))})
+    return PolicyRef(id="scripted:p", make=lambda a: {"agent": ScriptedPolicy("agent", list(actions))}, config={})  # M10 lab audit R-4: declared configuration
 
 
 async def _record(tmp_path, task, actions, rid="r"):

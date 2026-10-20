@@ -162,7 +162,8 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
             llm = FakeLLM(_oracle_script(t.oracle), fail_at=(0, PROVIDER_FAILURES[fail]) if fail and a.n == 1 else None)
             return {"agent": LLMToolPolicy("agent", llm)}
 
-        return PolicyRef(id=f"a11:{name}", make=make, estimate_usd=0.0)
+        # M10 lab audit R-4: a policy's configuration is its run identity (PolicyRef.config): the oracle's script and the injected failure
+        return PolicyRef(id=f"a11:{name}", make=make, estimate_usd=0.0, config={"fake_llm": "oracle script", "fail": fail})
 
     def scripted(name: str, actions: list) -> PolicyRef:
         from crucible.actors.policy import ScriptedPolicy
@@ -170,7 +171,7 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
 
         acts = [ToolCall(tool_call_id=a.get("tool_call_id") or f"o{i}", function_name=a["function_name"], arguments=a.get("arguments") or {})
                 if a.get("function_name") else Message(to=a["to"], text=a.get("text", "")) for i, a in enumerate(actions) if a.get("function_name") or a.get("to")]
-        return PolicyRef(id=f"a11:{name}", make=lambda a: {"agent": ScriptedPolicy("agent", list(acts))})
+        return PolicyRef(id=f"a11:{name}", make=lambda a: {"agent": ScriptedPolicy("agent", list(acts))}, config={"script": name})  # M10 lab audit R-4
 
     # the oracle must fit the episode: a step cap below its length would score the control 0 (M14 audit: finance_ap
     # oracles take 37–85 steps against the default 30, so A11's "oracle is scored 1" control failed)
@@ -185,19 +186,39 @@ async def a11_harness(t: Any, ctx: AcceptContext) -> Out:
 
         f = root / name / "failures.jsonl"
         fails = [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
+        j = root / name / "journal.jsonl"
+        ev = [json.loads(x) for x in j.read_text().splitlines() if x.strip()] if j.exists() else []
         runs[name] = {"stopped": s.stopped, "scored": s.scored, "mean": s.mean_reward, "attempts": s.attempts,
-                      "failure_kinds": [x["failure"]["kind"] for x in fails]}
+                      "failure_kinds": [x["failure"]["kind"] for x in fails],
+                      # M10 lab audit R-3: how often the policy was sampled (a grade-only retry is dispatched too, runs no agent)
+                      "agent_dispatches": sum(1 for e in ev if e.get("event") == "dispatched" and not e.get("grade_only"))}
         return s, fails
+
+    def graded_again(name: str, s: Any) -> bool:
+        """M10 lab audit R-3: a failed grade was graded again on the same work and the policy was sampled once. A separate
+        verifier persists its hand-off and a grade-only retry re-grades it (the oracle's 1.0); graded in place, the World is
+        gone after the attempt, so the grade is retried inside it (``verifier/grades.json``; the injection under ``/a1/``
+        masks that try too) and the attempt ends terminal-masked. Before R-3 the case passed only through an a2 that re-ran
+        the agent, which R-3 removes (every in-place task failed A11)."""
+        if runs[name]["agent_dispatches"] != 1:
+            return False
+        if s.mean_reward == 1.0:
+            return True
+        adir = next((root / name / "samples").glob("*/a1"), None)
+        return s.scored == 0 and s.masked_terminal == 1 and s.attempts == 1 and adir is not None and (adir / "verifier" / "grades.json").exists()
 
     expect = []
     s, f = await one("blank_usage", rt, llm_ref("blank", "usage_blank"))
     expect.append(("blank usage masked then retried", bool(f) and f[0]["failure"]["kind"] == "crucible:usage_blank" and s.scored == 1))
     s, f = await one("credits", rt, llm_ref("credits", "credits"))
     expect.append(("credit exhaustion stops the run, resumable, nothing scored", bool(s.stopped) and "credits" in s.stopped and s.scored == 0))
+    # M10 lab audit R-3: a masked grade is graded again on the same work, never by sampling the policy again (graded_again)
     s, f = await one("verifier_contention", FlakyGradeTask(rt, "perf rounds contaminated (spread 0.9)"), scripted("oracle", t.oracle))
-    expect.append(("contaminated grade masked as node_contention, re-graded", bool(f) and f[0]["failure"]["kind"] == "crucible:node_contention" and s.mean_reward == 1.0))
+    expect.append(("contaminated grade masked as node_contention, re-graded on the same work, policy not re-sampled",
+                   bool(f) and f[0]["failure"]["kind"] == "crucible:node_contention" and graded_again("verifier_contention", s)))
     s, f = await one("grader_crash", FlakyGradeTask(rt, "grader setup crashed", crash_setup=True), scripted("oracle2", t.oracle))
-    expect.append(("grader crash masked as verifier_error", bool(f) and f[0]["failure"]["kind"] == "verifier_error" and s.mean_reward == 1.0))
+    expect.append(("grader crash masked as verifier_error, re-graded on the same work, policy not re-sampled",
+                   bool(f) and f[0]["failure"]["kind"] == "verifier_error" and graded_again("grader_crash", s)))
     s, f = await one("control_noop", rt, scripted("noop", []))
     expect.append(("control: no-op is scored 0, not masked", s.scored == 1 and s.mean_reward == 0.0 and not f))
     s, f = await one("control_oracle", rt, scripted("oracle3", t.oracle))

@@ -21,18 +21,10 @@ from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 from crucible import __version__
-from crucible.core.schema.base import CrucibleModel
+from crucible.core.schema.build import BuildInfo  # re-exported: the model lives in the schema package (import cycle)
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]  # .../crucible (the package)
 _GIT_TIMEOUT_S = 5
-
-
-class BuildInfo(CrucibleModel):
-    crucible_version: str
-    source_sha256: str
-    git_commit: str | None = None  # None: not a git install and not a checkout that tracks this package
-    git_dirty: bool | None = None  # uncommitted changes inside the package directory; None when git_commit is unknown
-    lock_sha256: str | None = None  # uv.lock of a source checkout
 
 
 @functools.cache

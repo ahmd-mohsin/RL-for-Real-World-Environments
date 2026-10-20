@@ -585,6 +585,25 @@ def test_source_digest_follows_content_not_bytecode(tmp_path):
     assert len(build_info().source_sha256) == 64
 
 
+def test_every_core_module_imports_first_in_a_fresh_interpreter():
+    """``core.build`` defined ``BuildInfo`` and imported the schema package, whose ``run`` module imported ``BuildInfo``
+    back: a process whose first Crucible import was ``core.build`` (``crucible label`` through ``studio.runs``) died with
+    ``ImportError``. This module imports the schema package first, so only a fresh interpreter sees such a cycle."""
+    import subprocess
+    import sys
+
+    import crucible.core
+
+    mods = [m.name for m in pkgutil.walk_packages(crucible.core.__path__, "crucible.core.")]
+    mods += ["crucible.studio.runs", "crucible.runtime.lock", "crucible.cli.main"]
+    bad = {}
+    for m in mods:
+        r = subprocess.run([sys.executable, "-c", f"import {m}"], capture_output=True, text=True, check=False)
+        if r.returncode:
+            bad[m] = (r.stderr.strip().splitlines() or ["?"])[-1]
+    assert not bad, bad
+
+
 # ------------------------------------------------------------------------------------------------ R-12: index versions
 _LEGACY_INDEX = """
 CREATE TABLE docs (kind TEXT NOT NULL, key TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL, provenance TEXT, size INTEGER, PRIMARY KEY (kind, key));

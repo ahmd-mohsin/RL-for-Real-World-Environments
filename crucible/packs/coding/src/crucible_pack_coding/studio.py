@@ -354,6 +354,15 @@ class DenseReplayTask:
         self.id = f"coding/dense_replay/{task}@cpu2"  # cpu2: the code view of M14 campaign B2
         self.instruction = (TASKS_DIR() / task / "instruction.md").read_text(errors="replace")
 
+    def identity_config(self) -> dict[str, Any]:
+        """M10 lab audit R-4: the pack's content (the dense grader, the milestone miner, ``codeonly``: ``tree_digest(PACK_ROOT)``) and
+        the seed's task directory, one digest per top-level entry (``instruction.md``, ``solution``, ``tests``...), whose oracle patch
+        the milestones are mined from, so an edited oracle or test refuses the resume naming the part."""
+        from crucible.runtime.identity import tree_digest, tree_digests
+        from crucible_pack_coding import PACK_ROOT
+
+        return {"pack": tree_digest(PACK_ROOT), "task": self.seed, "files": tree_digests(TASKS_DIR() / self.seed)}
+
     async def open(self, workdir):
         from pathlib import Path
 
@@ -388,7 +397,8 @@ class DenseReplayTask:
                 fs.files[p] = None  # gone from the workspace
         phi = round(await phi_of_state(self.seed, fs), 6)
         return GradeReport(task=self.id, tier="full", checks=[], gates={"dense": "pass" if phi >= 1.0 else "fail"}, reward=phi, outcome=phi,
-                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": phi, "milestones": len(await _mine_cached(self.seed))})
+                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": phi, "milestones": len(await _mine_cached(self.seed)),
+                                                                         "kinds": {"dense": "outcome"}})  # Φ reaching 1: an outcome, not a rule
 
 
 def TASKS_DIR():

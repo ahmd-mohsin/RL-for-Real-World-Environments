@@ -38,6 +38,9 @@ class SandboxSpec(CrucibleModel):
 
     provider: str = "docker"  # or agentenv providers, a comma-separated fallback chain ("modal,e2b")
     image: str
+    # the image's identity (``layers:<sha256>``, from ``crucible world pin``): a start in any other image is refused as
+    # crucible:stale_image, so a tag re-pushed under the same name cannot silently change the task (M1 audit R-14)
+    image_digest: str | None = None
     gpu_host: str | None = None  # crucible.toml [gpu_hosts.<name>]
     docker_host: str | None = None
     gpu: str | None = None
@@ -316,7 +319,9 @@ class PolicyDoc(CrucibleModel):
 class LimitsSpec(CrucibleModel):
     """Bounds the World enforces at its single tool-call choke point (``World._call_tool``)."""
 
-    tool_timeout_s: float = 3600  # a hung tool becomes an infra-fault result, never a hung episode
+    # a tool's own deadline (a shell's timeout_s) is capped at this, and a tool still running TOOL_GRACE_S (60 s) later is
+    # hung: an infra-fault result, never a hung episode
+    tool_timeout_s: float = 3600
     max_tool_output_chars: int = 30000  # one head+tail cut with a banner; the full text goes to the store
     # per-episode call budgets: fnmatch pattern over qualified tool names -> max calls (all policy actors together),
     # e.g. {"env.check_plan": 10}; an exhausted budget is a policy-fault result ("quota_exhausted"), never a crash.

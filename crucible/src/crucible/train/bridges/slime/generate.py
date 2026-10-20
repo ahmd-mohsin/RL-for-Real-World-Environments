@@ -229,7 +229,8 @@ async def _episode(args: Any, env: Any, sample: Any, md: dict[str, Any], samplin
     sample.metadata = {**md, "raw_reward": reward, "crucible": {
         "task_id": env.task_id, "objective_id": env.objective_id, "verifier_version": env.verifier_version, "reward": reward, "reward_rule": rule,
         "report_reward": rep.reward, "phi": m.get("phi"), "phi_final": progress.get("phi_final"), "full_pass": m.get("full_pass"),
-        "milestones": m.get("milestones"), "gates": rep.gate_bits() if hasattr(rep, "gate_bits") else {}, "hack_suspect": bool(m.get("hack_suspect")),
+        "milestones": m.get("milestones"), "gates": rep.gate_bits() if hasattr(rep, "gate_bits") else {},
+        "gate_kinds": rep.gate_kinds() if hasattr(rep, "gate_kinds") else {}, "hack_suspect": bool(m.get("hack_suspect")),
         "hack_confirmed": 0.0, "path_violations": (m.get("path") or {}).get("violations", []), "turn_credit": turn_credit, "credit_drift": round(drift, 9),
         "status_claims": {k: v[0] for k, v in (hon.get("scored") or {}).items()}, "honesty": hon, "honesty_term": float(hon.get("term") or 0.0),
         "give_up": progress.get("give_up"), "exit_code": exit_code, "truncated": truncated, "stop": "timeout" if truncated else "agent_done",

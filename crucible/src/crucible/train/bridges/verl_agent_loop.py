@@ -19,7 +19,11 @@ passes ``uid`` and ``session_id`` to ``run``):
 - with ``turn_weight`` > 0 the sessions of one ``uid`` meet once (an in-process rendezvous; ``group_timeout_s``, default
   600 s, after which a session falls back to outcome-only credit; the group size is ``rollout.n``: a per-prompt
   ``__rollout_n__`` is popped before ``run`` sees it, ``agent_loop_tq.py:120``) and M6's group rule (``train.credit.turn_credit_map``)
-  gives each call its credit, which ``CrucibleAgentLoopOutput.as_dict`` writes into ``rm_scores`` (``verl_bridge``);
+  gives each call its credit, which ``CrucibleAgentLoopOutput.as_dict`` writes into ``rm_scores`` (``verl_bridge``). A
+  group none of whose live rollouts recorded per-turn progress trains outcome-only and says so: every output's
+  ``extra_fields["crucible_credit_fallback"]`` is ``"no_turn_credit"`` (``"timeout"`` after the rendezvous timed out;
+  ``"legacy_worker"`` on ``use_v1: false``, which trains the scalar reward only), with one warning per process (M6 R3; a
+  raise here would mask every sample of the step instead);
 - the record becomes one ``AgentLoopOutput`` per (actor, segment) sequence (``bridges.common.flatten``); a masked or
   token-incomplete rollout becomes one placeholder row with no trainable token (``response_mask=[0]``): verl keeps the
   session (no failure status, so the uid group is not evicted, ``agent_loop_tq.py:131-150``) and ``crucible_delta`` leaves
@@ -73,30 +77,46 @@ class _Group:
         self.records: dict[int, list[RolloutRecord]] = {}
         self.done = asyncio.Event()
         self.credit: dict[tuple[str, str], float] = {}
+        self.reason: str | None = None  # why the group trains outcome-only (M6 R3), None when it carries turn credit
 
 
 _GROUPS: dict[str, _Group] = {}
+_WARNED: set[str] = set()
+
+
+def _warn_once(key: str, msg: str, *args: Any) -> None:
+    if key not in _WARNED:
+        _WARNED.add(key)
+        logger.warning(msg, *args)
 _ROLLOUTS: dict[Any, Callable] = {}
 
 
 async def group_credit(uid: str, session: int, n: int, records: list[RolloutRecord], *, eta: float, frozen_actors=(),
-                       timeout_s: float = 600.0) -> dict[tuple[str, str], float] | None:
-    """Rendezvous of a uid's ``n`` sessions; returns (rollout id, call id) -> credit, or None on timeout (fallback)."""
-    from crucible.train.credit import turn_credit_map
+                       timeout_s: float = 600.0) -> tuple[dict[tuple[str, str], float] | None, str | None]:
+    """Rendezvous of a uid's ``n`` sessions; returns ((rollout id, call id) -> credit, None), or (None, why) when the group
+    trains outcome-only: ``"timeout"`` (not every session arrived) or ``"no_turn_credit"`` (no live rollout of the group
+    recorded per-turn progress, M6 R3)."""
+    from crucible.train.credit import has_turn_credit, turn_credit_map
 
     g = _GROUPS.setdefault(uid, _Group(n))
     g.records[session] = records
     if len(g.records) >= g.n and not g.done.is_set():
         recs = [r for rs in g.records.values() for r in rs]
-        if recs:
+        live = [r for r in recs if not r.mask_sample and r.reward is not None]
+        if live and not has_turn_credit(live, frozen_actors):
+            g.reason = "no_turn_credit"
+            _warn_once("no_turn_credit", "crucible_agent: turn_weight=%s but no rollout of uid %s recorded per-turn progress (Turn.advantage is "
+                       "None): outcome-only credit, marked crucible_credit_fallback='no_turn_credit'. Train on tasks with subgoals, or set "
+                       "turn_weight=0.", eta, uid)
+        elif recs:
             g.credit = turn_credit_map(recs, [f"{uid}#{r.actor or ''}" for r in recs], eta=eta, frozen_actors=frozen_actors)
         g.done.set()
     try:
         await asyncio.wait_for(g.done.wait(), timeout_s)
-        return g.credit
+        return (None, g.reason) if g.reason else (g.credit, None)
     except TimeoutError:
         logger.warning("crucible_agent: uid %s: %d/%d sessions after %.0f s; outcome-only credit", uid, len(g.records), g.n, timeout_s)
-        return None
+        return None, "timeout"
     finally:
         g.left -= 1
         if g.left <= 0 and _GROUPS.get(uid) is g:
@@ -189,9 +209,14 @@ class CrucibleAgentLoop(AgentLoopBase):
             got, why = None, f"rollout error: {type(e).__name__}: {e}"
         records = [r for r in (got if isinstance(got, list) else [got]) if r is not None]
         credit: dict[tuple[str, str], float] | None = {}
+        fallback: str | None = None
         if self.turn_weight and v1:
-            credit = await group_credit(uid, session, int(_get(self.rollout_config, "n", 1) or 1), records, eta=self.turn_weight,
-                                        frozen_actors=self.frozen_actors, timeout_s=self.group_timeout_s)
+            credit, fallback = await group_credit(uid, session, int(_get(self.rollout_config, "n", 1) or 1), records, eta=self.turn_weight,
+                                                  frozen_actors=self.frozen_actors, timeout_s=self.group_timeout_s)
+        elif self.turn_weight:  # the legacy worker pads from the scalar reward: no per-token channel, so no turn credit (M6 R3)
+            fallback = "legacy_worker"
+            _warn_once("legacy_worker", "crucible_agent: turn_weight=%s on verl's legacy agent-loop worker (trainer.use_v1: false): it trains the "
+                       "scalar reward only, so turn credit is dropped; marked crucible_credit_fallback='legacy_worker'", self.turn_weight)
         L = int(_get(self.rollout_config, "response_length", 0) or 0) or None
         outs: list[AgentLoopOutput] = []
         for r in records:
@@ -202,8 +227,8 @@ class CrucibleAgentLoop(AgentLoopBase):
             per_call = {cid: c for (rr, cid), c in (credit or {}).items() if rr == r.rollout_id}
             for s in flatten(r, frozen_actors=self.frozen_actors):
                 d = verl_agent_loop_output(s, response_length=L)
-                if credit is None:
-                    d["extra_fields"]["crucible_credit_fallback"] = True
+                if fallback is not None:
+                    d["extra_fields"]["crucible_credit_fallback"] = fallback
                 outs.append(CrucibleAgentLoopOutput(**d, crucible_token_rewards=token_rewards(s, turn_credit=per_call, length=L)))
         if not v1 and outs:
             plen = int(_get(self.rollout_config, "prompt_length", 0) or 0)

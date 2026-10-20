@@ -511,6 +511,10 @@ Per-turn advantage for multi-turn GRPO. Let A^GRPO be the usual group-normalized
 - c centres ΔΦ to zero net mass across the group, weighted by the turns' tokens. A net negative shift flattens the policy and lengthens outputs (verl fork).
 - σ_R / σ_ΔΦ scales the term in outcome units (Dr.GRPO: no std normalization).
 - Masked episodes are excluded from every group statistic.
+- "Gate-failed" here means a **hard rule** failed (a gate of kind `gate` in the grade report), not an unmet outcome check;
+  a gate-failed or hacked episode gets no local term at all, so every turn trains at its outcome advantage. Every
+  trainer path applies this one rule (`train.credit.credited_records`), and `turn_weight > 0` without recorded per-turn
+  progress is refused, never silently outcome-only (M6 R1–R3, 2026-10-19).
 - This term is a process reward (biased, P13 type 2), so η stays small. The gated scalar R must still carry κ(1−O)Φ, or dynamic-sampling filters evict all-fail groups.
 - `credit/compose.py` implements both the baseline and the delta mode.
 
@@ -1111,14 +1115,14 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
   | `export harbor` | identity | any Harbor runner, with `[[steps]]` for staged tasks |
 
 **As built (M10, 2026-10-09; `docs/modules/M10-runtime.md`).** `crucible.runtime` runs k samples per (task, policy, harness) with derived seeds (`SampleKey`), through a phase machine (seed → agent → collect → verification → cleanup), and records every attempt in a journal that a re-run resumes. Rules:
-- **Every failure has a blame** (`infra`, `harness`, `task`, `policy`, `unknown`). Only `policy` failures are scored (reward 0). All others are masked: reward `None`, excluded from mean, pass@k and coverage, never read as 0. A masked sample is retried (never a policy failure) up to `RetryRule`'s limit.
-- **Stop rules:** budget (SQLite reserve/settle ledger; a crashed reservation becomes *uncertain* spend), wall clock, masked share > 20%, unknown-blame share > 5%. Running out of credits stops the run as resumable, not as failed samples.
+- **Every failure has a blame** (`infra`, `harness`, `task`, `policy`, `unknown`). Only `policy` failures are scored (reward 0). All others are masked: reward `None`, excluded from mean, pass@k and coverage, never read as 0. A masked sample is retried (never a policy failure) up to `RetryRule`'s limit; a verification-stage mask only as a re-grade of the same work (M10 lab audit R-3).
+- **Stop rules:** budget (SQLite reserve/settle ledger; a crashed reservation becomes *uncertain* spend), wall clock, masked share > 20%, unknown-blame share > 5%. Running out of credits stops the run as resumable, not as failed samples. An outage of a dependency (a provider endpoint, a host, or a (task, harness) pair) opens its breaker (M10 lab audit R-5): its samples are deferred, one probe runs after a cool-down, and a key still failing after T is quarantined (journaled, its samples left owed) while the run continues; an infra-masked attempt on an open key is never terminal. On a resume the samples an outage left masked-terminal before the verification phase (a retryable infra failure at the admission, seed or agent stage) are dispatched again with a fresh retry budget, and the stop rules count only the samples that end in the current run window (M10 lab audit R-5).
 - **Boundaries normalize foreign errors** (Harbor exception names, MiMo categories, provider failures) into the taxonomy. A verifier `infra` dict is classified into `node_contention`, `stale_image`, `stale_build` or `verifier_error`.
 - **Workspace harness:** the patch is collected with the tolerant hook. An empty patch from a changed tree is `crucible:empty_collection`; the workspace is preserved and the retry *re-collects only*, without re-running the agent.
 - **Docker grading** (`verify/stage.py`) pins the verifier image digest (mismatch → masked `stale image`, before anything runs), names and labels the container, and turns a timeout into `docker rm -f` plus masked `verifier_timeout`. `runtime/gpu.py` preflights PID 1 (no init → `crucible:zombie_wait`) and the GPU arch.
 - **Control channels** run with a sentinel; a signal death without it is `crucible:harness_self_kill`, and a lint rejects self-matching full-command-line `pkill`/`pgrep` patterns.
 - **Every B.5 class has an injector** and a test showing it is masked, plus policy controls (agent broke the environment, step limit, context overflow, no change) showing they are scored.
-- **Retries reuse what is still valid.** A grade masked for infrastructure is retried as a re-grade of the stored patch, and an empty collection as a re-collect of the preserved tree; neither re-runs the agent, which would replace the measured solution with a new sample. `Runner.regrade` re-grades exhausted samples later from their artifacts. `PerfGuard` runs one perf grade per host and only on a quiet host (no foreign GPU memory, low utilization and load); a host that never quiets yields `node_contention` before anything runs.
+- **Retries reuse what is still valid.** A grade masked for infrastructure is retried as a re-grade of the stored patch, and an empty collection as a re-collect of the preserved tree; neither re-runs the agent, which would replace the measured solution with a new sample. `Runner.regrade` re-grades exhausted samples later from their artifacts. Correction (M10 lab audit R-3, 2026-10-17): until then only the workspace harness honoured this; the native harness's retry of a masked grade was a full agent re-run (hidden by deterministic oracles), so a policy whose answer hung the tests escaped its 0. Now `RetryRule` retries a verification mask only for persisted work: a native separate-verifier grade is re-graded from its persisted, quiesced hand-off (`verifier/handoff_ref.json`), an in-place grade is re-graded inside the attempt before its World closes and the attempt then ends masked, and a failure the answer can cause (a verifier timeout, a checker outage, a non-finite reward) is graded again at once on the same work. One that repeats (or whose first grade ran out the scoring budget: flagged `not_repeated`, and its control must grade within that budget) is decided in the attempt, whatever `RetryRule` allows, by the task's control (`grade_control`: the oracle, a reference answer, graded by the same grader under its own budget): control passes → `crucible:policy_error` / `grader_failed_on_answer`, scored 0 (the hang or the checker failure is the answer's); control fails → a task-blamed mask; no control → a mask with flag `no_control`. Every masked failure carries `evidence = {probe, control, status}`. `PerfGuard` runs one perf grade per host and only on a quiet host (no foreign GPU memory, low utilization and load); a host that never quiets yields `node_contention` before anything runs.
 - **Trajectories join.** Every model call has a `call_id` and the ordered list of actions it produced. The ATIF trajectory (Harbor's models) carries `call_id`, `crucible_seq` (the trace event) and per-call `Metrics` with token ids and logprobs; a call that produced no action (a blank reply the policy nudged past) gets its own step. `steps.jsonl` rows get `atif_step_id` and `call_id` from the M5 steps' seqs. A proxy capture log can be cross-checked against the trajectory (`crucible:capture_incomplete` on mismatch).
 - **Harbor task directories: two modes (corrected 2026-10-10, m13 audit G1).**
   - **Patch mode** (`verify_dir.HarborDirTask`) is valid only for Crucible-authored tasks, whose verifier kit applies
@@ -1908,16 +1912,23 @@ background, and `open_sandbox` returns a `PooledSandbox` when `pool > 0`.
 - **Fresh mode (default):** a released container is destroyed and replaced, so no rollout inherits another's
   processes, files or the guard's policy user.
 - **Reuse mode (`pool_reuse`):** hygiene runs in Python inside the container. It kills every process except PID 1,
-  the `sleep infinity` keeper and its own exec session's tree; empties `/tmp`, `/var/tmp`, `/dev/shm` and the
+  the keeper (the earliest-started child of PID 1: `sleep <ttl>` or the renewable life loop, and its children; M10 lab audit
+  R-6) and its own exec session's tree; empties `/tmp`, `/var/tmp`, `/dev/shm` and the
   workdir; removes added users and homes; and clears System V IPC. A verify step must then report
   `procs=0 files=0 users=0`; otherwise the container is destroyed.
 - **Shell-hygiene finding:** a first shell version killed its own `docker exec` wrapper (exit 137), and its verify
   step counted its own processes. The session-tree rule fixes both.
+- **Pool lifecycle (M10 lab audit R-6):** pooled containers belong to the run, never to an attempt. They carry run-scoped
+  labels (`crucible.run`, `crucible.lease`, owner, expiry; no `crucible.attempt`), run the renewable life loop and are
+  renewed on hand-out (and by the borrowing attempt while it lives); one whose renewal fails is dead and replaced. Pools
+  are keyed by (the run's lease, signature) (a run id is unique only within a root), and every `Runner.run` and `regrade`
+  closes its run's pools, warm and handed out, before the run's lease is released (`close_pools(owner=lease)`), in bounded
+  time: a refill still in `docker run` is not waited for past `POOL_CLOSE_WAIT_S` and removes its own container later.
 - **Measured on the Mac:** cold `docker run` p50 0.16 s vs warm acquire p50 about 20 µs.
 - **Tests:**
   - the warm acquire is under 10% of cold, fresh mode never repeats a container, and the refill keeps up;
-  - in reuse mode, a planted process, file and user are all gone, and a container that cannot be verified clean is
-    destroyed;
+  - in reuse mode, a planted process, file and user are all gone, the keeper survives the hygiene, and a container that
+    cannot be verified clean is destroyed;
   - `open_sandbox` shares one pool per signature.
 
 **G-13 / G-14 (2026-10-10): the Judge and family specialists.**
@@ -3194,7 +3205,7 @@ are atomic and keyed by content; backfill quarantines anything but a pass. Detai
 `crucible:policy_error` (scored 0), and its background jobs die with its World, which closes before any grade. Socket
 and connection errors are transport (masked), and only the episode deadline is a scored `timeout`. Every attempt is
 contained (a harness, record or rollout exception is a masked harness failure), with an optional per-attempt deadline
-and backoff outside the concurrency slot. Retries re-grade or re-collect the work of the attempt that ran the agent,
+and backoff outside the concurrency slot (jittered, capped and never below a provider's Retry-After; M10 lab audit R-5). Retries re-grade or re-collect the work of the attempt that ran the agent,
 with its recorded base and its model calls; nothing re-runs the agent. Reservations hold real money (a share of the
 cap, at least the dearest settled attempt); uncertain spend above tolerance stops the run. Resume chains across
 crashes and process deaths and charges only new calls. Credentials are scrubbed at the source (`LLMError`) and at the
@@ -3285,9 +3296,32 @@ rollout flag `grader_tampered` with the paths). A change a package manager expla
 package the policy installed) is a suspicion flag (`grader_tool_repackaged`), and a grader-only tool the image lacks
 that the policy pre-placed is moved aside for the grade, whose own install provides it (`grader_tool_preinstalled`). The
 verifier runs with the pristine `PATH` and a fresh `PYTHONPYCACHEPREFIX` (planted bytecode is never read), and the check
-runs again after it. Non-Docker providers are refused in place unless `grader_integrity="off"`. Residual: shared
+runs again after it. That covered the toolchain only. Since M10 lab audit R-2 (2026-10-15) no in-place grade starts
+until a host-side quiesce receipt is clean (`interop/harbor/quiesce.py`, `<workdir>/../verifier/quiesce.json`): a
+process baseline taken at `open` before the policy acts (PID 1's host pid, a start mark, `docker top`), then at each
+grade (single-step, every multi-step step, R-1's shared-verifier seam) every later process killed by a builtin-only root
+`sh` and confirmed gone by the host's `docker top -eo ...` taken with the container paused (a fork-and-die chain is
+listed too; a multi-threaded zombie leader is a target), before the reset of `/logs/verifier`. Only the host listing
+decides. A process still listed after the bounded rounds is `crucible:policy_misbehavior` (scored 0, flag
+`policy_process_survived`); one killed and confirmed gone is not blamed but flagged `policy_process_killed`
+(non-scoring: the reward is kept, but a passing attempt counts in bench's hack `rate` as a flagged pass and studio
+skips it; this reading of R-2's Acceptance 1 was chosen on 2026-10-17); a host that cannot list the container,
+or a helper exec the daemon never started, masks `crucible:backend_error`; a later multi-step step's `setup.sh` that
+left a process running masks `crucible:harness_unsupported` (unknown blame, never retried: a root policy can make that
+setup start one, so the 5% unknown-blame stop bounds it), and a task whose later setup leaves one running in a pristine
+preflight container, before any policy, is refused at `open` with harness blame (review round 3); what a clean step
+grade left running (its `test.sh`) and its descendants are listed as `leftovers`, killed at the next step's grade and
+never flagged; a target in state D (its leader or, from a per-thread `docker top -eLo`, any thread) is never paused
+for (the freezer cannot take it), so the state-D wait stays reachable, and a pause refused while a target turned D
+ends the quiesce `uninterruptible` (the cgroup may still be freezing: never the policy's). Non-Docker providers
+are refused in place outright (`crucible:harness_unsupported`; `grader_integrity="off"` no longer admits them).
+Accepted trade-off: a task whose tests need a process the agent left running fails in place. Residual: shared
 libraries, a forged package database, project config in the agent's workdir, `.pth` files of a system Python the
-grader shares with the policy by design, and a process racing a check. Infrastructure is told apart by host-side
+grader shares with the policy by design, a pristine (pre-baseline) service the policy took over that forks after the
+final listing, a pristine process's host pid reused within the clock slack, a pristine service the policy sets
+respawning, which masks the attempt with unknown blame instead of scoring it (bounded by the 5% unknown-blame stop),
+and a process the policy's code under test
+starts during the verifier (the receipt covers processes alive when the grade starts). Infrastructure is told apart by host-side
 evidence: a container that is gone, stopped through the daemon API, or whose daemon is unreachable masks
 `crucible:env_container_lost` (mid-episode too: `HarborExec` raises and the task's `infra_cause` names it); one that
 exited from inside is `agent_broke_env`; a failed grade whose test script needs the network, with the container

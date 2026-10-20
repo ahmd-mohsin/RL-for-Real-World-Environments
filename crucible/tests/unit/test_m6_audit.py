@@ -26,6 +26,8 @@ def test_K1_gate_failed_turns_get_no_positive_credit_and_flat_groups_none():
     g = [Episode(reward=1.0, phis=[0.5, 1.0]), Episode(reward=0.0, phis=[0.0, 0.143, 0.143, 0.286], gated=True)]
     adv = turn_advantages(g)
     assert all(x <= -0.5 + 1e-9 for x in adv[1])  # two turns got positive local credit
+    # and no redistribution at all (2026-10-19, R2): the clamp left the Φ-raising turns least punished in their episode
+    assert adv[1] == pytest.approx([-0.5] * 4)
     flat = turn_advantages([Episode(reward=0.0, phis=[0.5, 1.0]), Episode(reward=0.0, phis=[0.0, 0.0])])
     assert flat == [[0.0, 0.0], [0.0, 0.0]]  # ±0.1 of pure process reward
 

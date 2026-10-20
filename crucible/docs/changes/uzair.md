@@ -1061,3 +1061,415 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Formats.** `crucible.toml`: `backends` is a valid key again.
 - **Tests.** `test_config_backends.py` removed; M17's `test_m17_q_models` and `test_m17_q_root` cover the table.
 - **Merge notes.** none: this restores main's line.
+
+## 50. The slime bridge's `CRUCIBLE_SLIME_*` variables are declared
+
+- **Item.** none (R-15 follow-up). Main's slime bridge (`c7a98da`, M17 factory v2 P6) reads seven `CRUCIBLE_SLIME_*`
+  variables that `KNOBS` did not declare, so `test_every_crucible_variable_in_the_code_is_declared` failed on main's CI.
+- **Files.** `src/crucible/core/env.py` (7 knobs).
+- **Public names.** `KNOBS` gains `CRUCIBLE_SLIME_ENV`, `_WORKDIR`, `_ROLLOUT_TIMEOUT_S`, `_AGENT_TIMEOUT_S`, `_TURN_ETA`,
+  `_MAX_STALENESS`, `_WEIGHT_VERSION` (53 declared: 26 user, 8 internal, 19 test/script). The two timeouts are read
+  through an f-string in `slime/generate.py:_knob`, which the scan test cannot see, so they were added by hand.
+- **Behaviour.** none: the bridge still reads `os.environ` itself; the declarations carry its defaults (provider
+  `crucible.factory.envs:slime_provider`, 7200 s / 3600 s, eta 0.1, tau 2) for `crucible env` and `knobs.get`.
+- **Formats.** none.
+- **Tests.** The scan test passes again; core, config and slime suites: 140 passed, 4 skipped (slime not installed).
+- **Merge notes.** A changed slime default must be changed in both `slime/` and `KNOBS`.
+
+## 51. M1 R-1: a lost task container is infrastructure on every exec path
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-14/M01-world.md` (must; carry-over of M13 audit B2, which fixed
+  only Harbor's exec). Pattern from verifiers `v1/harness.py:183` (after a nonzero exit, `runtime.alive()` before
+  blaming the harness; MIT) and our Harbor backend's `container_lost`; no code copied, no THIRD_PARTY.md row.
+- **Files.** `src/crucible/world/exec.py` (`CONTAINER_GONE`, `EnvContainerLost` moved here from
+  `interop/harbor/world_backend.py`; `container_lost_cause`; `DockerExec.lost`, `DockerExec._unless_lost` on `run`,
+  `push_file`, `pull_file`), `world/sandbox.py` (`GVisorExec._raw`), `world/apps/base.py` (`App.call`),
+  `world/world.py` (`_call_tool`), `interop/harbor/world_backend.py` (imports the moved names),
+  `docs/modules/M01-world.md` (finding 17), `tests/unit/test_container_lost.py` (new).
+- **Public names.** `crucible.world.exec`: `CONTAINER_GONE`, `EnvContainerLost` (now with
+  `failure_kind = "crucible:env_container_lost"`), `container_lost_cause`, `DockerExec.lost`. Both names stay
+  importable from `crucible.interop.harbor.world_backend`.
+- **Behaviour.** A failed `docker exec` / `docker cp` whose output reads as a lost container (`No such container`,
+  `is not running`, `is paused`, `error during connect`, ...) makes `DockerExec` ask the daemon on the same
+  `DOCKER_HOST`: removed, paused, stopped by a `kill`/`stop`/`destroy`/`pause` event, or an unreachable daemon raise
+  `EnvContainerLost`; a running container, or one whose own main process exited (the policy, or out of memory), keeps
+  the plain `ExecOut`. An ordinary failure asks nothing. `App.call` re-raises a loss wrapped in a `ToolError` (the
+  workspace file tools wrap every exec error), and `World._call_tool` records `crucible:env_container_lost`
+  (blame infra, the sample is masked) instead of `crucible:tool_crashed` (blame task); the policy sees
+  `<tool>: the environment's container was lost` (`error="transport"`, `fault="infra"`).
+- **Formats.** none (the failure kind already existed).
+- **Tests.** `test_container_lost.py` (7: fake-daemon cases for removed / forged message / ordinary failure /
+  stopped from outside vs exited by itself / paused / unreachable / `docker cp`, the World for wrapped and direct
+  losses, and a Docker-marked run that kills and removes a real container).
+- **Merge notes.** M17 lanes calling `DockerExec.run` directly (`factory/lanes/windows.py`, `factory/sessions.py`) now get
+  `EnvContainerLost` instead of a failed `ExecOut` when the container is gone; its `failure_kind` makes
+  `factory.machine.is_infra_error` and `train.runtime` count it as infrastructure. With `factory.envs.InfraWatch` on, a
+  lost container can be recorded more than once (the World per call that hits it, InfraWatch after the step); every
+  record is the same masked kind.
+
+## 52. M1 R-2: a command's output is bounded while it is read
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from agentenv
+  `providers/sandbox_providers/local_sandbox.py:349-438` (a bounded tail per stream, dropped bytes counted, return at
+  exit plus 1 s; Apache-2.0) and our guard's `run` loop; no code copied, no THIRD_PARTY.md row.
+- **Files.** `src/crucible/world/exec.py` (`OUT_HEAD`, `OUT_TAIL`, `EXIT_GRACE_S`, `capped_output`, `_Kept`,
+  `_blocking_run` rewritten with `_drain` / `_feed`), `src/crucible/interop/harbor/world_backend.py` (`HarborExec.run`),
+  `docs/modules/M01-world.md` (finding 18), `tests/unit/test_exec_output.py` (new).
+- **Public names.** `crucible.world.exec`: `OUT_HEAD` (1 MiB), `OUT_TAIL` (16 MiB), `EXIT_GRACE_S` (1 s),
+  `capped_output(cmd)`.
+- **Behaviour.** Every command run through `_run_subprocess` (local, Docker, gVisor, SSH, and every `docker` CLI call)
+  keeps at most the first 1 MiB and the last 16 MiB of stdout and of stderr; between them stands
+  `...[N bytes dropped]...`. The call returns 1 s after the command exits even when a background job still holds its
+  pipes (before: until they closed or the timeout); the job keeps running in the command's session, as before, until
+  `kill_sessions` or the World ends. Stdin is fed from its own thread. On Harbor, every command runs as
+  `{ cmd ; } 2>&1 | { head -c OUT_HEAD; tail -c OUT_TAIL; }` with the command's exit status (`PIPESTATUS[0]`), inside the
+  container; no marker there, so an output that fits is byte for byte (Harbor already merged stderr into stdout). An
+  image without `head`/`tail` runs the command unchanged.
+- **Formats.** none.
+- **Tests.** `test_exec_output.py` (7: head + tail and the exact dropped count per stream, byte-exact output that fits,
+  a `run_python` result longer than the head, 300 MB through `LocalExec` adding under 100 MB of peak RSS, `sleep 30 &`
+  returning in about 1 s (30 s before), large stdin and timeouts, Harbor's in-container cut with its exit status and
+  staged stdin, and a Docker-marked 50 MB flood through `DockerExec`).
+- **Merge notes.** Internal commands whose stdout is data (a `run_python` result, the desktop App's base64 screenshot)
+  are exact up to 17 MiB per stream; past that the middle is lost. Harbor's background jobs still hold a call until
+  the command's deadline (the in-container cut cannot see the command's exit).
+
+## 53. M1 R-4: a policy's hung command is scored, not masked
+
+- **Item.** R-4 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from NeMo-Gym
+  `agent_utils/process_supervisor.py:38-44` (outer budget = tool timeout + cleanup + 30 s; Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/apps/base.py` (`AppContext.tool_timeout_s`, `App.deadline`), `world/world.py`
+  (`TOOL_GRACE_S`, `_call_tool`, the context gets the limit), `world/apps/workspace.py` and `world/apps/toolchain.py`
+  (`tool_shell`), `interop/harbor/inplace.py` (`TerminalApp.tool_exec`), `core/schema/world.py` (comment),
+  `docs/modules/M01-world.md` (finding 19), `tests/unit/test_tool_deadlines.py` (new).
+- **Public names.** `AppContext.tool_timeout_s`, `App.deadline(requested, cap=None)`, `crucible.world.world.TOOL_GRACE_S`.
+- **Behaviour.** The workspace shell, the toolchain shell and Harbor's in-place `exec` run with
+  `max(1, min(asked, max_timeout_s, limits.tool_timeout_s))` seconds (the toolchain shell had no cap; a requested 0
+  meant no deadline). The World waits `tool_timeout_s + 60 s` for any tool, so a shell's own deadline (and the
+  transports' +15 s backstops) always come first: a policy's hung command is a scored `[TIMEOUT]`. A tool still
+  running after the grace is masked as `transport_timeout`, as before, with the reason
+  `<tool> hung past its own deadline (<limit>s + 60s)`. A pack whose `tool_timeout_s` is below a shell's
+  `max_timeout_s` now gets shorter shell deadlines.
+- **Formats.** none.
+- **Tests.** `test_tool_deadlines.py` (4: both shells score a 2 s World limit's `[TIMEOUT]` for `sleep 30` asked at
+  99 s (both masked before), a tool hung past its deadline masks, and `App.deadline`'s caps and floor). Shell,
+  toolchain, in-place and timeout suites: 436 passed, 5 skipped.
+- **Merge notes.** An episode's worst case per hung tool call grows by 60 s. Apps with long calls of their own should
+  take their deadline from `App.deadline` too.
+
+## 54. M1 R-6: sandbox containers end on their own; R-1's removed-container rule corrected
+
+- **Item.** R-6 of `docs/research/improvements/2026-10-14/M01-world.md` (must, narrowed in triage: no lease renewal, no
+  reaper, no run label). Pattern from our RLM kernel containers (`actors/rlm/kernel.py:477-596`: owner label,
+  `sleep <lifetime>`); no outside code.
+- **Files.** `src/crucible/world/sandbox.py` (`OWNER_LABEL`, `LIFETIME_MARGIN_S`, `owner_id`, `owner_dead`,
+  `DockerSandbox.lifetime_s`, `argv`, `start`), `world/pool.py` (hygiene keeps the container's own `sleep <n>`),
+  `world/exec.py` (`OUTSIDE_ACTIONS`, `DockerExec.since` / `expires_at`, `lost`, `_actions`), `runtime/perf_guard.py`
+  (`sample`), `docs/modules/M01-world.md` (finding 20), `tests/unit/test_sandbox_lifetime.py` (new),
+  `tests/unit/test_container_lost.py`, `tests/unit/test_sandboxes.py`.
+- **Public names.** `crucible.world.sandbox`: `OWNER_LABEL` (`crucible.owner`), `LIFETIME_MARGIN_S` (900),
+  `owner_id()`, `owner_dead(owner)`, `DockerSandbox.lifetime_s`; `crucible.world.exec.OUTSIDE_ACTIONS`,
+  `DockerExec.since`, `DockerExec.expires_at`.
+- **Behaviour.** A `DockerSandbox` (and `GVisorSandbox`) runs `sleep <SandboxSpec.timeout_s + 900>` (default 8100 s)
+  instead of `sleep infinity` and is labelled `crucible.owner=<host>:<pid>`; one left by a crashed process ends and is
+  removed (`--rm`) within that time. The perf guard counts a `crucible*` container unless its `crucible.owner` or
+  `crucible.rlm.owner` names a dead process on this host (unlabelled and other hosts' containers count as before; a
+  leftover still doing work shows in the GPU and load checks). Correction to entry 51: `--rm` deletes a container the
+  moment its main process dies, so a policy that killed its own `sleep` read as "removed" and was masked. `lost()` now
+  reads a removed container's events since its exec was made: died with no `kill`/`stop`/`pause` and before its
+  lifetime (`expires_at`, set by the sandbox) is the episode's doing (scored); a kill or stop, a passed lifetime, or no
+  evidence is lost. A stopped container past its lifetime is lost too.
+- **Formats.** none (a new container label).
+- **Tests.** `test_sandbox_lifetime.py` (5: the command and label, `owner_dead`, the perf guard over a fake and a real
+  daemon, and a real `--rm` container whose `sleep` the policy kills: scored, not masked); `test_container_lost.py`
+  (+1: removed with die / with kill / with no events / past its lifetime, stopped past its lifetime);
+  `test_sandboxes.py` (`sleep 8100`). Sandbox, pool, gVisor, agentenv, perf guard, World and core suites: 231 passed,
+  3 skipped, 1 known failure (`test_agentenv_mcp_env::test_card_tools_only_hides_uncarded`).
+- **Merge notes.** A sandbox that must live past `timeout_s` + 15 min needs a larger `timeout_s` (up to 24 h). The pool
+  hands out a warm sandbox as it is, so one that waited in the pool has less than its full lifetime left (no pack
+  uses the pool). Docker keeps a bounded event log: on a very busy host a removed container's `die` may have rolled
+  off, which counts as lost (masked), never as the policy's.
+
+## 55. M1 R-9: `World.close` finishes its teardown, bounded
+
+- **Item.** R-9 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Ported from verifiers v1
+  `utils/aio.py:10-31` (`run_shielded`, MIT, e22533430): THIRD_PARTY.md row, `LICENSES/MIT-verifiers.txt` (already shipped).
+- **Files.** `src/crucible/world/world.py` (`APP_STOP_S`, `TEARDOWN_S`, `_to_the_end`, `World._closing`, `close`,
+  `_close`), `THIRD_PARTY.md` (row), `docs/modules/M01-world.md` (finding 21), `tests/unit/test_world_close.py` (new).
+- **Public names.** `crucible.world.world.APP_STOP_S` (150 s), `TEARDOWN_S` (600 s).
+- **Behaviour.** `close()` starts the teardown once, as a task, and awaits it to its end even when the caller is
+  cancelled (repeated cancels absorbed), then re-raises the first cancel; a later or concurrent `close()` awaits the
+  same task. The teardown stops the Apps in reverse start order (a browser before the sites it opens; was start
+  order), each within `APP_STOP_S`, then, in a `finally`, the backend's teardown within `TEARDOWN_S`, removes an owned
+  workdir and releases the serial slot; a timeout or error is logged and the teardown goes on. `closed` turns true
+  when it finished (it was set before anything ran, so a cancelled close was never retried).
+- **Formats.** none.
+- **Tests.** `test_world_close.py` (3: a close cancelled during an App's stop still stops every App and tears down once,
+  and the caller gets its cancel; a hung stop is cut off and a failing teardown never raises; concurrent closes tear
+  down once, in reverse order). All 3 fail on the previous code.
+- **Merge notes.** A close can now take up to `APP_STOP_S` per App plus `TEARDOWN_S` and cannot be cut short by a cancel;
+  it never hangs past those bounds. An App whose stop needs more than 150 s is cut off: raise `APP_STOP_S` for it.
+
+## 56. M1 R-11: a grade never blames the policy for an outage
+
+- **Item.** R-11 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from NeMo-Gym (sandbox
+  failures are error types, never rewards; Apache-2.0); no code copied. The report's `QueryResult.fault` field is not
+  added: engine errors arrive as text inside an `ExecError`, so the existing schema-error rule (`_policy_broke`) is
+  what tells a policy's damage from an outage, and every consumer would have needed changing.
+- **Files.** `src/crucible/verify/runtime/plan.py` (`_run_check`, the masked grade's `failure_kind`),
+  `src/crucible/verify/sql_checks.py` (`SqlAssertion.evaluate`), `docs/modules/M01-world.md` (finding 22),
+  `tests/unit/test_grade_container_lost.py` (new).
+- **Public names.** none.
+- **Behaviour.** A check that raises `EnvContainerLost`, or an exception caused by one, is `infra` with
+  `failure_kind = crucible:env_container_lost` (was `fail`, the candidate's crash); a grade masked by an infra check
+  takes that check's `failure_kind` when it has one (else `check_infra`, as before). `SqlAssertion` with a failed
+  query: a schema error (`SCHEMA_ERROR`: no such table / column, syntax error) is a fail, anything else is `infra`
+  (was a fail).
+- **Formats.** none.
+- **Tests.** `test_grade_container_lost.py` (3: a check dying on a lost container, directly or wrapped, is infra and any
+  other crash still fails; `SqlAssertion` passes, fails on a dropped table and is infra on a transport error; a whole
+  grade on a lost container is masked as `crucible:env_container_lost`). All 3 fail on the previous code. Verify,
+  SQL-check, EnterpriseOps and pack-audit suites: 312 passed, 26 skipped.
+- **Merge notes.** A SQL assertion whose own query is wrong in a way the schema-error pattern does not name now masks
+  instead of failing; `pack check`'s gold run still catches it.
+
+## 57. M1 R-12: a policy's SQL statement stops at its own deadline
+
+- **Item.** R-12 of `docs/research/improvements/2026-10-14/M01-world.md` (must). Pattern from SkyRL (interrupt the
+  connection past a deadline); no code copied. Not taken: relabelling policy SQL errors from fault `tool` to `policy`
+  (every consumer treats the two alike) and a general timeout for `LocalExec.run_python` (the progress handler ends the
+  SQL thread; other snippets do not run policy code).
+- **Files.** `src/crucible/world/state/snippets/sql.py` (`_deadline`, `_timeout`, `query`, `execute`),
+  `world/apps/base.py` (`SQL_DEADLINE_S`), `world/apps/sqlite_app.py` (`tool_sql_query`, `tool_sql_execute`),
+  `world/state/postgres.py` (`_statement_timeout`, `psql_json`, `psql`, `q_sql`), `world/apps/postgres_app.py`
+  (`_pg_error`, `tool_sql_query`, `tool_sql_execute`), `docs/modules/M01-world.md` (finding 23),
+  `tests/unit/test_sql_deadline.py` (new), `tests/unit/test_postgres_app.py` (+1).
+- **Public names.** `crucible.world.apps.base.SQL_DEADLINE_S` (30 s); App param `sql_deadline_s` (SQLite and Postgres
+  Apps); snippet arg `deadline_s` (`query`, `execute`); `statement_timeout_s` on `PostgresAdapter.psql_json` / `psql` /
+  `q_sql`.
+- **Behaviour.** A policy's SQL statement through the SQLite or Postgres App's `sql_query` / `sql_execute` runs at most
+  `App.deadline(sql_deadline_s)` seconds (default 30): SQLite's progress handler interrupts it (a write is rolled back),
+  Postgres's server stops it (`statement_timeout`); either way the tool fails with
+  `query_timeout: the statement ran past Ns and was stopped` (a scored tool error, never a masked hang). The snippet's
+  and `psql`'s process limits are the deadline plus 30 s (were 600 s and 300 s). Verifier-side queries (state adapters)
+  have no deadline, as before; other SQL errors are unchanged.
+- **Formats.** none.
+- **Tests.** `test_sql_deadline.py` (2: a recursive CTE stops at 1 s with `query_timeout`, scored, and the next query
+  runs; a runaway `INSERT` is rolled back); `test_postgres_app.py` (+1, Docker: `pg_sleep(5)` against a 1 s deadline
+  is stopped by the server for both tools and the stopped `UPDATE` is not kept). SQL App, state adapter, EnterpriseOps
+  and M11 suites: 202 passed, 4 skipped.
+- **Merge notes.** A pack whose policy legitimately runs SQL longer than 30 s sets `sql_deadline_s` on the App.
+
+## 58. M1 R-16: audit check `runtime.restore_roundtrip`
+
+- **Item.** R-16 of `docs/research/improvements/2026-10-14/M01-world.md` (should; R-5 depends on it). Pattern from
+  agentenv `task_step/task_steps/multienv_validator/verify_universe_roundtrip.py:97-176` (reload an export and compare;
+  Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/audit.py` (`_run` returns tool results, `_restore_roundtrip`, `audit_world`),
+  `docs/modules/M01-world.md` (finding 24), `tests/unit/test_restore_roundtrip.py` (new).
+- **Public names.** audit check id `runtime.restore_roundtrip` (major).
+- **Behaviour.** With a gold trajectory of at least 2 steps, `audit_world` resets, plays the first half, snapshots,
+  plays the rest, then starts a fresh World of the same spec, backend, params and store, restores the halfway snapshot
+  and plays the rest there; it fails when the end fingerprints differ (`apps_differing`, and the first differing tool
+  result as evidence; results alone never fail it: a test run's timings differ). Skipped with a reason for a 1-step
+  gold or when simulated actors are attached (a fresh World needs its own). Without gold it is skipped like the other
+  gold checks. A container World's audit starts one more container.
+- **Formats.** none (a new check id in audit reports).
+- **Tests.** `test_restore_roundtrip.py` (3: the audit's probe App, which resets an in-memory counter on restore, passes
+  every check from reset and fails this one with `{"id": 2}` vs `{"id": 1}`; the same App re-deriving its counter
+  passes; a 1-step gold is skipped). `audit_world` callers (audit, studio, packs, red team, toy end-to-end): pass, but
+  for the known coding-pack failure.
+- **Merge notes.** A World whose App keeps state outside its adapter now fails its audit; fix the App, not the check.
+
+## 59. M1 R-5: a restore of a WorldRef already in place is skipped
+
+- **Item.** R-5 of `docs/research/improvements/2026-10-14/M01-world.md` (should, after R-16), narrowed: the no-op
+  restores only. Pattern from agentenv (restore work only where it pays); no code copied. Not taken: dropping the
+  unused snapshot of a separate verifier's World (no pack uses separate-verifier mode) and baked bases.
+- **Files.** `src/crucible/world/world.py` (`World._touched`, `_settled`, `restored_apps`, `_unchanged_apps`, `restore`,
+  `_start`, `_call_tool`, `VerifierView.adapter`), `docs/modules/M01-world.md` (finding 25),
+  `tests/unit/test_restore_skip.py` (new).
+- **Public names.** `World.restored_apps` (the Apps the last restore restored).
+- **Behaviour.** `restore(ref)` skips an App's state restore when all three hold: the World's state was last set to
+  `ref` (by `start` or a restore), no tool call (`_call_tool`, policy or system) and no verifier query
+  (`VerifierView.adapter`, which `query` and `changes` use) ran since, and the App's live fingerprint (after `flush`)
+  equals `ref`'s. Everything else in a restore (backend hooks, `after_restore`, clock, events, inboxes, responders)
+  runs as before. So `start(); reset()` and a harness's second reset restore nothing; a file changed underneath with
+  no tool call (a setup hook) is caught by the fingerprint and restored; after any tool call every App is restored.
+- **Formats.** none.
+- **Tests.** `test_restore_skip.py` (5: two resets after start restore nothing; after a tool call, after a verifier
+  query, and after a read-only call with unchanged fingerprints every App is restored; a file planted with no tool
+  call is restored). World, runtime, harness, audit, Harbor, state adapter, Postgres, studio and toy end-to-end
+  suites: 90 passed, 1 skipped.
+- **Merge notes.** Code that changes App state between a reset and the next restore without a tool call or a verifier
+  query, in a way the App's fingerprint does not see, must bump `World._touched`.
+
+## 60. M1 R-13: the local backend refuses an allowlist; the audit names unenforced networks
+
+- **Item.** R-13 of `docs/research/improvements/2026-10-14/M01-world.md` (should), narrowed further than the triage:
+  the triage would also refuse `no-network`, but `no-network` is every spec's default, so that would refuse almost
+  every local World (toy packs, CI, most tests). Pattern from agentenv (refuse before provisioning; Apache-2.0); no
+  code copied.
+- **Files.** `src/crucible/world/backends/local.py` (`validate`), `src/crucible/world/audit.py` (`network.enforced`),
+  `docs/modules/M01-world.md` (finding 26), `tests/unit/test_local_network.py` (new), `tests/unit/test_audit.py`
+  (the allowlist test opts in).
+- **Public names.** local backend param `accept_unenforced`; audit check id `network.enforced`.
+- **Behaviour.** `World.start` on the local backend fails for `network: allowlist` unless `backend_params.accept_unenforced`
+  is set. `audit_world` adds `network.enforced` (status `skip`, major) for a world whose network is not `public` on a
+  backend whose isolation is `none` (local, ssh), naming the backend and the rule it cannot enforce; a skip does not
+  fail the audit. Container backends are unchanged (their egress checks run under isolation).
+- **Formats.** none.
+- **Tests.** `test_local_network.py` (3: an allowlist is refused; accepted unenforced it runs and the audit reports it;
+  the default `no-network` runs and is reported, a public world is not). Audit suites: 105 passed.
+- **Merge notes.** A local world with an allowlist must add `backend_params: {accept_unenforced: true}`.
+
+## 61. M1 R-14: pinned image identities
+
+- **Item.** R-14 of `docs/research/improvements/2026-10-14/M01-world.md` (should). Pattern from agentenv `pin_digest`
+  (resolve a tag to a digest; Apache-2.0); not ported: the pin is our own layer digest (`world.sandbox.image_id`),
+  which local builds have too and registry digests do not, so no THIRD_PARTY.md row. Not taken: recording identity in
+  every provider's records (Docker and Harbor already record it in WorldRefs).
+- **Files.** `src/crucible/core/schema/world.py` (`SandboxSpec.image_digest`), `src/crucible/world/sandbox.py`
+  (`StaleImage`, `check_pinned`, `DockerSandbox.start`), `src/crucible/interop/harbor/world_backend.py` (`provision`,
+  Docker path), `src/crucible/runtime/infra.py` (`NORMALIZE["StaleImage"]`), `src/crucible/cli/main.py`
+  (`crucible world pin`), `docs/modules/M01-world.md` (finding 27), `tests/unit/test_image_pin.py` (new).
+- **Public names.** `SandboxSpec.image_digest`; Harbor backend param `image_digest`; `crucible.world.sandbox.StaleImage`,
+  `check_pinned`; CLI `crucible world pin IMAGE [--docker-host]`.
+- **Behaviour.** With `image_digest` set, a `DockerSandbox` (and `GVisorSandbox`) compares its container's image
+  identity after `docker run` and, on a mismatch or an unreadable identity, removes the container and raises
+  `StaleImage`; Harbor's Docker path does the same after its environment starts. `boundary` records it as
+  `crucible:stale_image` (infra blame, never retried). Without a pin nothing changes. `crucible world pin` prints the
+  identity, or fails (exit 4) when the image is not on the daemon.
+- **Formats.** `SandboxSpec` (read from `backend_params.sandbox`, not part of a frozen format) gains an optional field.
+- **Tests.** `test_image_pin.py` (4: the check, including an unreadable identity; the failure's kind, blame and
+  retry rule; Docker: an image pinned with `crucible world pin` starts, the same tag pointed at another image is
+  refused and its container removed; pinning an absent image is a user error). Harbor, agentenv, pool, runtime,
+  formats and core suites: 191 passed. Harbor's pin check is covered through `check_pinned` only (no Harbor test
+  environment here).
+- **Merge notes.** Pinning the coding seeds is a data change for their owners: run `crucible world pin` on the lab
+  daemon and add `image_digest` to each seed's backend params.
+
+## 62. M1 R-26: swap capped at the memory limit
+
+- **Item.** R-26 of `docs/research/improvements/2026-10-14/M01-world.md` (should), step 1 only per triage (no
+  per-backend limit contracts, no refusal of unenforceable limits, no `HostConfig` read-back). Pattern from Harbor and
+  Karotte (memory limits that hold); no code copied.
+- **Files.** `src/crucible/world/sandbox.py` (`DockerSandbox.argv`), `src/crucible/world/apps/ci.py` (runner),
+  `src/crucible/interop/harbor/gpu_docker.py` (`_ensure_overlay`), `src/crucible/interop/harbor/verify_dir.py`,
+  `src/crucible/actors/rlm/kernel.py` (container argv), `docs/modules/M01-world.md` (finding 28),
+  `tests/unit/test_memory_swap.py` (new).
+- **Public names.** none.
+- **Behaviour.** Wherever these set a memory limit they now set swap to the same value (`--memory-swap m`, compose
+  `memswap_limit`), so the container gets no swap beyond its limit. Without a memory limit nothing changes.
+- **Formats.** none.
+- **Tests.** `test_memory_swap.py` (3: the sandbox argv, Harbor's overlay, and Docker: a real sandbox's `HostConfig`
+  has `MemorySwap == Memory`). Sandbox, CI App and RLM suites pass but for the known local `test_ci_hidden_checks`.
+- **Merge notes.** Not changed, for M17's owner: the factory's own `docker run` calls set `--memory` without
+  `--memory-swap` (`factory/sessions.py:200`, `factory/traceaudit.py:717,1745`, `factory/generators/open.py:387,472`,
+  `factory/generators/swarm.py:612`, `factory/lanes/windows_world.py:539`, `factory/lanes/executable.py:259`,
+  `factory/lanes/windows_s3.py:292`).
+
+## 63. M1 R-42: the unused `Sidecar` supervisor is deleted
+
+- **Item.** R-42 of `docs/research/improvements/2026-10-14/M01-world.md` (should). Reference: MiMo's restart loop
+  (`xiaomimimo-verl/recipes/general/mcp_proxy.py:132-133`) hides outages; a crashed tool server must fail its calls as
+  infrastructure, not come back silently mid-episode.
+- **Files.** `src/crucible/world/packaging/sidecar.py` (`Sidecar` and `McpServerProcess.restarts` removed, module
+  docstring), `src/crucible/_vendor/mimo_sidecar/ORIGIN.md`, `docs/modules/M01-world.md` (the packaging row).
+- **Public names.** removed: `crucible.world.packaging.sidecar.Sidecar`, `McpServerProcess.restarts`. Nothing in src,
+  packs or tests used either (M17's `EpisodeSidecar` is unrelated).
+- **Behaviour.** none (the class never ran).
+- **Formats.** none.
+- **Tests.** none added (a deletion). Suites over the module (MCP servers, MiMo, AWM, agentenv, A2A, SQLite and
+  Postgres Apps): 68 passed, 9 skipped.
+- **Merge notes.** Code that imported `Sidecar` must supervise its servers itself, and should mask, not restart.
+
+## 64. M1 R-11 fix: the shipped verifier runtime imports only itself
+
+- **Item.** Fix of entry 56 (R-11), found by the full run's red-team graders: `crucible/verify/runtime` is copied alone
+  into verifier images (`/crucible_verify`), and R-11 made `plan.py` import `crucible.world.exec`, so every grade there
+  crashed (`ModuleNotFoundError: crucible.world`; 17 grader-attack and 2 runtime red-team tests failed).
+- **Files.** `src/crucible/verify/runtime/plan.py` (`_container_lost` replaces the import), `tests/unit/test_grade_container_lost.py` (+1).
+- **Public names.** none.
+- **Behaviour.** as entry 56: a check dying on a lost container is `infra` as `crucible:env_container_lost`; the
+  runtime now finds it by the exception's `failure_kind` along the cause chain instead of by class.
+- **Formats.** none.
+- **Tests.** `test_the_shipped_verifier_runtime_imports_only_itself` (every `crucible` import under
+  `verify/runtime` is `crucible.verify.runtime.*`). Red-team grader and runtime suites: 25 passed.
+- **Merge notes.** Code added under `verify/runtime` may import only the standard library and `crucible.verify.runtime`.
+
+## 65. Merge of uzair, haseeb and Azaan into dev (2026-10-20)
+
+- **Item.** Integration on `dev`: `uzair` (M1 audit, entries 51-64) fast-forwarded, `haseeb` (M6 R1-R3 per-turn credit,
+  the `core.build` import-cycle fix) merged clean, `Azaan` (M10 lab audit R-1..R-6, branched from c27f5ca, 77 commits
+  behind) merged with 18 conflicted files. Where two branches solved the same problem the merge keeps one design and says
+  which below; nothing of either branch was dropped silently.
+- **Overlaps and how they were resolved.**
+  - *Run identity* (M0 R-1/R-2 run lock vs M10 R-4 identity v2; decided by the user): identity v2 is the one gate. A
+    changed resume is refused by `IdentityDrift` and accepted by `RunSpec.accept_drift` (epochs in `run.json`). The lock
+    still writes `lock.json` and `launches/`, stamps every record (`lock`, `launch`, `task_digest`) and gives R-2 its task
+    digests (a task edited before or during an attempt is masked `crucible:task_changed`), but `lock.ensure` records a
+    change instead of raising. Removed: `RunLockMismatch`, `RunSpec.allow_change`. Kept both component hooks
+    (`lock_settings()` / `PolicyRef.settings`, `identity_config()` / `PolicyRef.config`). M10's `breaker`, `accept_drift`
+    and `hygiene` RunSpec fields are operational in the lock; a harness's grading timeouts are out of `lock_settings`, as
+    identity v2 leaves them out.
+  - *Container lifecycle* (M1 R-6 vs M10 R-6): M10's `world/lifecycle.py` (owner `host:pid:start` and expiry labels, the
+    renewable life loop, attempt scopes, the start sweep, the SIGTERM/atexit reaper, PerfGuard's expired-orphan rule)
+    replaces M1 R-6's `sleep <timeout_s + 900>` keeper, `sandbox.OWNER_LABEL` / `owner_id` / `owner_dead` /
+    `LIFETIME_MARGIN_S` and the pid-based PerfGuard skip (`perf_guard.py` and `pool.py` are Azaan's as written). Kept from
+    M1: `--memory-swap` (R-26) on the sandbox and the Harbor grade container, `check_pinned` (R-14) inside M10's guarded
+    `image_id` block (a `StaleImage` closes the container like any other error there), and R-1's `DockerExec.expires_at`,
+    now the keeper's deadline, moved out by every `renew`.
+  - *World.close* (M1 R-9 vs M10 R-6): M10's shielded, bounded close (`close_timeout_s`, recorded in the attempt scope)
+    wraps M1's teardown body (Apps in reverse start order, each within `APP_STOP_S`, so one hung stop cannot use up the
+    whole close budget before the backend teardown). Behaviour change for R-9: a backend teardown error is raised to the
+    first caller again (M10's rule, as before both changes); a timeout is still recorded, never raised. `_to_the_end` and
+    `TEARDOWN_S` are gone (unused), with `_to_the_end`'s THIRD_PARTY row.
+  - *Grading* (M10 R-3 re-grades vs M6 R2 gate kinds): wherever M10's `grade_in_place` path sets `res.gates`, it now also
+    sets `res.gate_kinds` (native, workspace, agentenv A2A, the regrade path).
+  - *Smaller*: `scrub_secrets` keeps registered values (M0) and takes M10's `replace` (a registered value gets the keyed
+    digest too); `Failure.detail` stays `SafeText` beside M10's `evidence` / `retry_after`; `HarnessResult` has `usage`,
+    `model_s` and `regradable`; `settle_usage` (R-19) runs on M10's capture path; agentenv capture calls keep the R-19
+    usage/finish shape plus M10's `status` / `error` / `complete` / `latency_s`; `RunJournal` keeps `child_path`; tasks keep
+    both `digest()` and `identity_config()`.
+  - *M0 rules over M10 code*: `CRUCIBLE_R3_PROXY_HOST`, `_PROXY_PORT`, `_UPSTREAM`, `_BUDGET_USD` (coding pack R3 gate)
+    declared in `core/env.py`; `agent_harness._TREE_KILL`'s `pgrep -f {pattern}` marked for the self-match lint (every
+    pattern it is formatted with is bracketed); `Failure.evidence` / `retry_after` get `exclude_if` and the run record is
+    `crucible.run/v2.1` (frozen; a v1 record still upcasts to v2); a media prompt enters `run.json` as its digest
+    (`SingleTurnTask.identity_config`: no media bytes in run files); the two M10 MIT rows of THIRD_PARTY name their notices.
+  - *M10 R-4 over M17 code* (decided by the user; for Ahmed to review): identity v2 refuses what it cannot inspect, so
+    `factory.envs.scripted_policy` declares `PolicyRef(config=...)` (the steps by digest), `ExecTask.identity_config()`
+    (mined repo, sha, parent, `task_hash`, requirements) and `WindowTask.identity_config()` (plus the window, spans,
+    weights, Phi share, `verifier_version`, the agent's world image and workspace mode); five M17 test policies declare a
+    `config`. `WindowTask.checkpoint` is left out (the sidecar writes progress, not the grade).
+- **Files.** the 18 conflicted files (`THIRD_PARTY.md`, `core/schema/run.py`, `core/secrets.py`, `interop/agentenv/harness.py`,
+  `interop/harbor/verify_dir.py`, `interop/harbor/world_backend.py`, `runtime/control_task.py`,
+  `runtime/harness/{base,native,workspace}.py`, `runtime/journal.py`, `runtime/perf_guard.py`, `runtime/run.py`,
+  `runtime/single_turn.py`, `world/{pool,sandbox,world}.py`, `tests/unit/test_sandboxes.py`), plus `runtime/lock.py`,
+  `core/env.py`, `interop/harbor/agent_harness.py` (one comment), `factory/envs.py`, `factory/lanes/{executable,windows}.py`,
+  `schemas/crucible.run/v2.1.*`, `tests/unit/_formats.py`, `tests/unit/test_m17_{c_harness,e_run,w_world}.py` (policy configs),
+  `docs/modules/M01-world.md` (findings 20, 21), `tests/unit/test_sandbox_lifetime.py` (rewritten for the
+  removed M1 R-6 names: the exec learns the keeper's deadline and each renewal), `tests/unit/test_world_close.py` (a
+  teardown error reaches the first caller), `tests/unit/test_run_lock.py` and `tests/unit/test_task_digest.py` (the
+  refusal is `IdentityDrift`, the allowance `accept_drift`).
+- **Public names.** removed: `crucible.runtime.lock.RunLockMismatch`, `RunSpec.allow_change`,
+  `crucible.world.sandbox.OWNER_LABEL`, `owner_id`, `owner_dead`, `LIFETIME_MARGIN_S`, `DockerSandbox.lifetime_s` as a
+  property (M10's constructor argument now), `crucible.world.world.TEARDOWN_S`, `_to_the_end`. Added: the four
+  `CRUCIBLE_R3_*` knobs, `ExecTask.identity_config`, `WindowTask.identity_config`. Format: `crucible.run/v2.1`.
+- **Tests.** ruff: no new finding (64 left, all on Azaan's tip); lint-imports: 4 kept. Full unit + toy_e2e run before the
+  M17, format and media fixes: 3163 passed; after them, the suites they touch (core audits, run lock, task digest,
+  formats, media, third party, M1 World, M6, M10, M17): all pass but the failures below. Full run on the final tree
+  (with origin/dev b83aedd merged, 1ae5e64; the 15-min A2A test deselected): 3231 passed, 61 skipped, 15 failed, 1 error,
+  every one listed below; `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under
+  full-suite load only, and `test_native_two_timeouts` passes under it only (both timing). Main's own run at b83aedd
+  also fails `test_core_audit::test_every_crucible_variable_in_the_code_is_declared` (six `CRUCIBLE_*` names in the
+  kernel lane, Ahmed's).
+- **Merge notes.** Left for the authors (they fail on Azaan's own tip too): on Azaan's tip: `test_m10_lab_audit_r1_harbor.py` does not collect (`CONNECT_ERROR` undefined),
+  `r1_a2a::test_a2a_agent_error_after_upstream_5xx_is_masked` waits 15 min for the R-5 breaker's quarantine and fails,
+  `r2_quiesce::test_counted_by_bench_and_studio_hack_kinds`, `r3_control` / `r3_regrade` Harbor in place, two `r4_identity`
+  tests, `r5_breaker::test_a_key_still_failing_after_quarantine_s_is_quarantined_once`, and the 64 ruff findings; on Haseeb's
+  tip: `test_sampling` expects `crucible.rollout/v1.1` (now v1.2); on main: `card_tools_only`, CI hidden checks, Ray
+  placement, two studio tests, the coding pack fixture. Between M10 and M17: `test_m17_p6_envs::test_native_two_timeouts`
+  expects a rollout past `rollout_s` to be masked, but M10 R-3's grading window lets its grade finish (scored 0.0): which
+  rule wins is Azaan's and Ahmed's call. Open: RLM kernel orphans
+  (`crucible.rlm.expires`) count as PerfGuard contention until they end, which M1 R-6's pid rule used to skip.

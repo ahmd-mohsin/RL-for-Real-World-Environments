@@ -1,13 +1,17 @@
-"""The run lock (M0 audit 2026-10-14 R-1): a resume refuses a run whose settings changed.
+"""The run lock (M0 audit 2026-10-14 R-1): what a run's settings were at each launch, recorded.
 
 ``RunSpec.identity_doc`` was an allowlist of 7 entries with tasks, policies and harnesses as display ids, so a resume at
 another temperature, step limit or endpoint was accepted and pass@k pooled two experiments. The lock projects every
 ``RunSpec`` field (a field added later counts without anyone listing it) and every component's declared settings
 (``lock_settings()``: a policy's model, endpoint, request defaults and sampling, a harness's limits), minus the
 operational fields below, which change how a run executes, not what it measures. ``<run>/lock.json`` is written before
-the first dispatch; on resume a different fingerprint raises ``RunLockMismatch`` naming up to 20 changed settings,
-unless every one matches a glob in ``RunSpec.allow_change``, which records the change in the lock. A run directory from
-before the lock is checked by its old identity once and then gets a lock. Task content enters with R-2 (digests).
+the first dispatch; on resume a different fingerprint is recorded in the lock's ``changes`` and journaled
+(``run_lock``). A run directory from before the lock gets one. Task content enters with R-2 (digests).
+
+Refusing a changed resume is the run identity's (``runtime.identity``, M10 lab audit R-4: ``IdentityDrift``, accepted
+with ``RunSpec.accept_drift``): the 2026-10-20 merge into dev kept one gate, since the two refused what the other
+allowed. The lock stays the record: its fingerprint and launch number are stamped on every record, and the task
+digests it takes are what R-2 checks before and during each attempt (``run._task_changed``).
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from crucible.core.fingerprint import SCHEME, describe, diff, excluded, fingerprint, project
+from crucible.core.fingerprint import SCHEME, diff, excluded, fingerprint, project
 from crucible.core.prov import utc_now
 from crucible.core.schema.run import LockChange, RunLaunch, RunLock
 
@@ -30,12 +34,9 @@ LAUNCH_DIR = "launches"
 # Fields of RunSpec that a resume may change freely: parallelism, money and time budgets, retry pacing, the health
 # stop rules' thresholds, and the allowance itself. Everything else counts.
 OPERATIONAL = ("concurrency", "budget_usd", "wall_clock_s", "retry_backoff_s", "max_mask_fraction", "max_unknown_fraction",
-               "min_terminal_for_health", "allow_change")
+               "min_terminal_for_health",
+               "breaker", "accept_drift", "hygiene")  # M10 lab audit R-4..R-6: when a run pauses, its drift allowance, container TTLs
 COMPONENTS = ("tasks", "policies", "harnesses")
-
-
-class RunLockMismatch(ValueError):
-    """A resume whose settings differ from the run's lock."""
 
 
 def lock_doc(spec: Any) -> dict[str, Any]:
@@ -107,7 +108,7 @@ def build(spec: Any) -> RunLock:
 
 def ensure(run_dir: Path, spec: Any) -> tuple[RunLock, str]:
     """The run's lock and what happened: ``created`` (new run), ``adopted`` (a run from before the lock), ``same``, or
-    ``changed`` (every change allowed by ``spec.allow_change``, recorded). Raises RunLockMismatch otherwise."""
+    ``changed`` (recorded in ``changes``). Never refuses: the run identity already did (module docstring)."""
     from crucible.runtime.journal import atomic_write
 
     path = Path(run_dir) / LOCK_FILE
@@ -121,13 +122,6 @@ def ensure(run_dir: Path, spec: Any) -> tuple[RunLock, str]:
     changes = diff(before, new.settings)
     if not changes:
         return old, "same"
-    allow = tuple(getattr(spec, "allow_change", ()) or ())
-    refused = {k: c for k, c in changes.items() if not excluded(tuple(k.split(".")), allow)}
-    if refused:
-        raise RunLockMismatch(
-            f"run {spec.run_id} was started with other settings; refusing to resume it as the same run. Changed:\n{describe(refused)}\n"
-            f"Start a new run_id, or resume with RunSpec(allow_change=[...]) naming these settings (globs such as "
-            f"'policies.*.settings.temperature') to record the change in {path}.")
     lock = old.model_copy(update={"settings": new.settings, "fingerprint": new.fingerprint, "opaque": new.opaque, "excluded": new.excluded,
                                   "changes": [*old.changes, LockChange(at=utc_now(), changed=sorted(changes), before=old.fingerprint, after=new.fingerprint)]})
     atomic_write(path, lock.model_dump_json(indent=1))

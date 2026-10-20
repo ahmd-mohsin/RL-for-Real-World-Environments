@@ -40,7 +40,9 @@ def failed_ids(report: dict) -> list[str]:
 def spec() -> RunSpec:
     task = HarborDirTask(export_ref(REPO, TASK, REF, CRUCIBLE / "data" / "runtime" / "tasks"), image=IMAGE, expected_image=DIGEST, host=LAB, ref=REF, perf=True)
     harness = ImportedHarness({"import:gpt-5.6-sol-run1": RUN / "model.patch"}, perf_guard=PerfGuard(probe=LAB.exec, wait_s=12 * 3600, poll_s=120), host=LAB.name)
-    return RunSpec(run_id="m10-r1-task02-sol", tasks=[task], policies=[PolicyRef(id="import:gpt-5.6-sol-run1", make=lambda a: {})], harnesses=[harness], k=1)
+    # M10 lab audit R-4: the imported run is the policy (its patch content is in the harness's identity); the ref names which recording
+    return RunSpec(run_id="m10-r1-task02-sol", tasks=[task], policies=[PolicyRef(id="import:gpt-5.6-sol-run1", make=lambda a: {}, config={"recorded": "gpt-5.6-sol-run1"})],
+                   harnesses=[harness], k=1)
 
 
 async def main() -> dict:

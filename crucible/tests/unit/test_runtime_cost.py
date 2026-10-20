@@ -24,7 +24,8 @@ async def test_concurrent_attempts_are_charged_their_own_calls(tmp_path):
     from crucible.actors.policy import LLMToolPolicy
 
     llm = SlowFake([], cost_per_call=0.01)
-    ref = PolicyRef(id="llm:shared", make=lambda a: {"agent": LLMToolPolicy("agent", llm)}, spend=lambda: (llm.spend.usd, 0.0))
+    ref = PolicyRef(id="llm:shared", make=lambda a: {"agent": LLMToolPolicy("agent", llm)}, spend=lambda: (llm.spend.usd, 0.0),
+                    config={"model": "fake", "cost_per_call": 0.01})  # M10 lab audit R-4: declared configuration
     await Runner(tmp_path).run(RunSpec(run_id="r", tasks=[HelpdeskTask()], policies=[ref], harnesses=[NativeHarness()], k=4, concurrency=4))
     rows = [json.loads(x) for x in (tmp_path / "r" / "results.jsonl").read_text().splitlines()]
     assert len(rows) == 4 and llm.spend.usd > 0.03

@@ -43,11 +43,12 @@ async def run_rung(family: str, tokens: int, *, seed: int = 0, kernel: str = "do
         solver = LongCtxSolver(family)
         rlm = RLMHarness(RLMConfig(kernel=kernel, allow_host=kernel == "local", temperature=0.0, cell_timeout_s=600.0), limits=limits)
         out = {"family": family, "tokens": tokens, "seed": seed, "chars": len(task.item.context), "generate_s": gen_s, "meta": task.item.meta,
-               "solver": await _run(task, PolicyRef(id="scripted:longctx-solver", make=lambda a: {"agent": solver}), rlm)}
+               # M10 lab audit R-4: each scripted policy declares what it is (PolicyRef.config); the family names the solver's script
+               "solver": await _run(task, PolicyRef(id="scripted:longctx-solver", make=lambda a: {"agent": solver}, config={"script": "longctx solver", "family": family}), rlm)}
         gold = [ToolCall(tool_call_id=a["tool_call_id"], function_name=a["function_name"], arguments=a["arguments"]) for a in task.oracle_actions()]
         native = NativeHarness("native:scripted", limits=limits)
-        out["gold"] = await _run(task, PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", list(gold))}), native)
-        out["noop"] = await _run(task, PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}), native)
+        out["gold"] = await _run(task, PolicyRef(id="scripted:gold", make=lambda a: {"agent": ScriptedPolicy("agent", list(gold))}, config={"script": "gold answer"}), native)
+        out["noop"] = await _run(task, PolicyRef(id="scripted:noop", make=lambda a: {"agent": ScriptedPolicy("agent", [])}, config={"script": "noop"}), native)
         out["controls_ok"] = out["solver"]["reward"] == 1.0 and out["gold"]["reward"] == 1.0 and out["noop"]["reward"] == 0.0
         return out
     finally:

@@ -98,6 +98,13 @@ class GradeReport:
     def gate_bits(self) -> dict[str, int]:
         return {g: int(s == "pass") for g, s in self.gates.items()}
 
+    def gate_kinds(self) -> dict[str, str]:
+        """Per gate: ``"gate"`` (a hard rule) or the declared kind of an outcome or score check (``meta["kinds"]``). An
+        undeclared gate is a hard rule, as in ``reward_json``. Records carry this beside ``gate_bits()`` so per-turn credit
+        can tell a broken rule from an unmet outcome (M6 R2)."""
+        kinds = self.meta.get("kinds") or {}
+        return {g: str(kinds.get(g, "gate")) for g in self.gates}
+
     def failing_gates(self) -> list[str]:
         return [g for g, s in self.gates.items() if s != "pass"]
 
@@ -224,7 +231,8 @@ class Plan:
             infra_checks = [r for r in results if r.status == "infra"]
             definite_fail = [g.id for g in self.gates if g.kind == "gate" and status.get(g.id) == "fail"]
             if infra_checks and not definite_fail:
-                infra = {"status": "masked", "failure_kind": "check_infra", "reason": f"{infra_checks[0].id}: {infra_checks[0].detail.get('infra', '')}"[:500]}
+                infra = {"status": "masked", "failure_kind": infra_checks[0].detail.get("failure_kind") or "check_infra",
+                         "reason": f"{infra_checks[0].id}: {infra_checks[0].detail.get('infra', '')}"[:500]}
             elif infra_checks:
                 # a hard gate failed for certain: the conjunction is 0 whatever went unmeasured (M7 audit V3: one infra
                 # check turned a certain 0 into a mask, and the candidate can trigger some infra outcomes)
@@ -296,6 +304,18 @@ def _gate_status(states: list[str]) -> str:
     return "pass"
 
 
+def _container_lost(e: BaseException | None) -> BaseException | None:
+    """The exception in ``e``'s cause chain that a lost container raised (``crucible.world.exec.EnvContainerLost``), matched
+    by its failure kind: this runtime ships into verifier images without the rest of Crucible, so it imports nothing else."""
+    seen: set[int] = set()
+    while e is not None and id(e) not in seen:
+        if getattr(e, "failure_kind", None) == "crucible:env_container_lost":
+            return e
+        seen.add(id(e))
+        e = e.__cause__ or e.__context__
+    return None
+
+
 async def _run_check(c: Check, ctx: Context) -> CheckResult:
     t0 = time.monotonic()
     try:
@@ -314,7 +334,10 @@ async def _run_check(c: Check, ctx: Context) -> CheckResult:
     except InfraError as ex:
         st, detail = "infra", {"infra": str(ex)[:2000]}
     except Exception as ex:  # noqa: BLE001 -- judging candidate output: a crash is the candidate's failure
-        st, detail = "fail", {"error": f"{type(ex).__name__}: {ex}"[:2000], "traceback": traceback.format_exc()[-1500:]}
+        if (lost := _container_lost(ex)) is not None:  # unless the host confirmed the container is gone (M1 audit R-11)
+            st, detail = "infra", {"infra": str(lost)[:2000], "failure_kind": lost.failure_kind}
+        else:
+            st, detail = "fail", {"error": f"{type(ex).__name__}: {ex}"[:2000], "traceback": traceback.format_exc()[-1500:]}
     return CheckResult(c.id, c.gate, st, detail, round(time.monotonic() - t0, 3), c.provenance, c.tier)
 
 
