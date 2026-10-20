@@ -1,23 +1,28 @@
-"""The student: the small open model the factory targets (docs/research/swarm-pipeline/08-student-and-builder.md).
+"""The student: the open model the factory builds tasks for and post-trains (docs/research/swarm-pipeline/08).
 
-The student is ``Qwen/Qwen3.5-4B`` (Apache-2.0; hybrid linear + full attention, a vision tower, hybrid thinking), the
-model trained on Tinker, so the tasks are calibrated against exactly the model that is trained. ``Qwen3-4B-Instruct-2507``
-(retired on Tinker) is only a dev stand-in (``DEV_STANDINS``): its episodes never count. The local server is
-``scripts/student_serve.sh`` at bf16, text only: **vLLM** on a CUDA box (``--enable-auto-tool-choice``, the tool parser
-matching the model's template) or **mlx-lm** on Apple silicon (its parser inferred from the template; the vision tower's
-weights are dropped on load). Both answer the harness's native OpenAI ``tools`` / ``tool_calls``
-(``actors.policy.LLMToolPolicy``), so no text tool protocol is needed.
+- **The target student** is ``Qwen/Qwen3.6-35B-A3B`` (MoE, about 3B active, 262K context), sampled and trained on Tinker:
+  ``student_spec()`` is ``ModelSpec(provider="tinker", model=TARGET_MODEL, family="qwen")``, rung id
+  ``tinker:Qwen/Qwen3.6-35B-A3B``. Tasks are calibrated per student model: only a model in ``TARGET_STUDENTS`` sampled by
+  a final backend produces numbers that count, and failure findings and builder intents are keyed by the student model id
+  (``factory.failures``).
+- **The local dev model** is ``Qwen/Qwen3.5-4B`` (``DEV_MODEL``; Apache-2.0, hybrid linear + full attention, a vision
+  tower, hybrid thinking), for harness development and the pipeline smoke only. A 35B MoE does not fit a 24 GB Mac at
+  bf16, so the local path never serves the target. ``Qwen3-4B-Instruct-2507`` (retired on Tinker) is also a dev model.
+  ``DEV_STANDINS`` lists both: their episodes never count, whatever served them. The local server is
+  ``scripts/student_serve.sh`` at bf16, text only: **vLLM** on a CUDA box (``--enable-auto-tool-choice``, the tool parser
+  matching the model's template) or **mlx-lm** on Apple silicon (its parser inferred from the template; the vision tower's
+  weights are dropped on load). Both answer the harness's native OpenAI ``tools`` / ``tool_calls``
+  (``actors.policy.LLMToolPolicy``), so no text tool protocol is needed.
 
-- **Registry and the provider seam.** The student is a ``ModelSpec(provider="student", model=STUDENT_MODEL,
-  family="qwen")``; the provider is ``[llm_providers.student]`` in ``crucible.toml`` (``http://127.0.0.1:8100/v1``,
-  ``api_key = "EMPTY"``), so ``scripts/lh_run.py --models student:Qwen/Qwen3.5-4B`` and ``scripts/lh_target.py --model
-  ...`` use it as any rung, and its calls book 0 USD on localhost (``LLMClient._self_hosted``). The harness only sees an
-  ``LLMClient``, so a Tinker sampler replaces the local server without touching it, in one of two ways: (1) **a provider
-  entry** (``student_provider``): Tinker's OpenAI-compatible endpoint (``base_url`` + ``api_key = "env:TINKER_API_KEY"``)
-  or token-in/token-out (``tito = true``, the engine stack behind ``train.world_env``'s pointer); (2) **a registered
-  backend** (``register_backend("tinker", make, final=True)``): the Tinker bridge (``train/bridges/tinker``, owned
-  elsewhere) registers a factory for its ``TinkerSampler`` client; ``backend(name).make(model, thinking=...)`` builds it.
-  This module never calls Tinker.
+- **Registry and the provider seam.** The local dev student is ``ModelSpec(provider="student", model=DEV_MODEL,
+  family="qwen")`` (``dev_spec()``) on ``[llm_providers.student]`` in ``crucible.toml`` (``http://127.0.0.1:8100/v1``,
+  ``api_key = "EMPTY"``), so ``scripts/lh_run.py --models student:Qwen/Qwen3.5-4B`` uses it as any rung, booking 0 USD on
+  localhost. The harness only sees an ``LLMClient``, so the Tinker sampler replaces the local server without touching
+  it, in one of two ways: (1) **a registered backend** (``register_backend("tinker", make, final=True)``): the Tinker
+  bridge (``train/bridges/tinker``, owned elsewhere) registers a factory for its ``TinkerSampler`` client, and
+  ``ModelBook`` builds every ``tinker:<model>`` rung through it (``backend("tinker").make(model, thinking=...)``);
+  (2) **a provider entry** (``student_provider``): Tinker's OpenAI-compatible endpoint (``base_url`` + ``api_key =
+  "env:TINKER_API_KEY"``) or token-in/token-out (``tito = true``). This module never calls Tinker.
 - **Thinking** is an explicit run setting (``THINKING_DEFAULT``: off for the debugging agent). It rides in the provider's
   ``request_defaults`` as ``extra_body.chat_template_kwargs.enable_thinking`` (mlx-lm and vLLM read it per request),
   ``thinking_of`` reads it back, and ``scripts/lh_run.py`` records it in the policy config and the run's ``student.json``.
@@ -45,17 +50,22 @@ from typing import Any
 
 from crucible.factory.models import ModelSpec
 
-STUDENT_PROVIDER = "student"
-STUDENT_MODEL = "Qwen/Qwen3.5-4B"  # the model trained on Tinker: tasks are calibrated against exactly it
-# a dev stand-in only (retired on Tinker in June 2026): its episodes are dev-only whatever engine served them
-DEV_STANDINS: frozenset[str] = frozenset({"Qwen/Qwen3-4B-Instruct-2507"})
+TARGET_MODEL = "Qwen/Qwen3.6-35B-A3B"  # the student tasks are built for and post-trained (Tinker)
+TARGET_BACKEND = "tinker"
+TARGET_STUDENTS: frozenset[str] = frozenset({TARGET_MODEL})  # models whose (final-backend) numbers count; one calibration each
+STUDENT_MODEL = TARGET_MODEL
+STUDENT_PROVIDER = "student"  # the local dev server's provider entry
+DEV_MODEL = "Qwen/Qwen3.5-4B"  # harness development and the pipeline smoke on the local server
+# dev models: their episodes are dev-only whatever engine served them (Qwen3-4B-2507 was retired on Tinker in June 2026)
+DEV_STANDINS: frozenset[str] = frozenset({DEV_MODEL, "Qwen/Qwen3-4B-Instruct-2507"})
+STUDENT_PROVIDERS: frozenset[str] = frozenset({STUDENT_PROVIDER, TARGET_BACKEND})  # provider prefixes that name a student rung
 STUDENT_PORT = 8100
 STUDENT_BASE_URL = f"http://127.0.0.1:{STUDENT_PORT}/v1"
 # The numbers that count come from the sampler of the trained model (Tinker). Local serving (MLX on the Mac, vLLM on a
 # CUDA box) is dev and calibration only: its kernels, sampler and accumulation are not Tinker's.
 DEV_BACKENDS: frozenset[str] = frozenset({"mlx", "vllm", "sglang", "unknown"})
 FINAL_BACKENDS: frozenset[str] = frozenset({"tinker"})
-THINKING_DEFAULT = False  # Qwen3.5's hybrid thinking: off for the debugging agent; recorded per run (``thinking_of``)
+THINKING_DEFAULT = False  # Qwen3.5/3.6 hybrid thinking: off for the debugging agent; recorded per run (``thinking_of``)
 STUDENT_MAX_TOKENS = 4096  # per reply: a 4B model that loops on a tool call should not fill the context in one turn
 
 
@@ -63,47 +73,51 @@ class DevOnlyNumerics(RuntimeError):
     """A dev-only (MLX or unrecorded) backend's episodes reached a place where a number counts."""
 
 
-def student_spec(model: str = STUDENT_MODEL, *, provider: str = STUDENT_PROVIDER) -> ModelSpec:
+def student_spec(model: str = TARGET_MODEL, *, provider: str = TARGET_BACKEND) -> ModelSpec:
+    """The target student's registry entry (``tinker:Qwen/Qwen3.6-35B-A3B``); the Tinker bridge supplies its client."""
     return ModelSpec(provider, model, "qwen")
 
 
-# ---- student backends: where a non-HTTP sampler (Tinker) registers ------------------------------------------------------------
-@dataclass(frozen=True)
-class StudentBackend:
-    """A registered student sampler. ``make(model, thinking=..., **kw)`` returns an ``LLMClient``-shaped object (``complete``
-    with ``tools``, ``spend``, ``model``, ``lock_settings``); ``final``: its episodes count for targeting and benchmarks."""
-
-    name: str
-    make: Callable[..., Any]
-    final: bool = False
-    doc: str = ""
+def dev_spec(model: str = DEV_MODEL) -> ModelSpec:
+    """The local dev student (``student:Qwen/Qwen3.5-4B`` on scripts/student_serve.sh): dev-only numerics."""
+    return ModelSpec(STUDENT_PROVIDER, model, "qwen")
 
 
-_BACKENDS: dict[str, StudentBackend] = {}
+def student_model_of(policy: str) -> str | None:
+    """The student model id inside a policy id (``solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker`` -> the model), None when the
+    policy is not a student rung (a hosted OpenRouter rung)."""
+    p = str(policy or "").partition("@")[0]
+    p = p.removeprefix("solver:")
+    prov, sep, model = p.partition(":")
+    return model if sep and prov in STUDENT_PROVIDERS and "/" in model else None
 
 
-def register_backend(name: str, make: Callable[..., Any], *, final: bool = False, doc: str = "") -> StudentBackend:
-    """Register a student sampler under ``name`` (the Tinker bridge registers ``tinker``, ``final=True``). The name is the
-    backend recorded in run metadata and stamped into policy ids; a final backend's episodes count."""
-    if not name or "@" in name or "-" in name:
-        raise ValueError(f"a backend name is one word (it is a policy-id tag): {name!r}")
-    b = StudentBackend(name, make, final, doc)
-    _BACKENDS[name] = b
-    return b
+# ---- sampler backends: the registry lives in factory.models (where the Tinker bridge registers ``tinker``) -------------------
+def _registry() -> dict[str, Any]:
+    from crucible.factory import models
+
+    return models._BACKENDS
 
 
-def backend(name: str) -> StudentBackend:
-    if name not in _BACKENDS:
-        raise KeyError(f"no student backend {name!r} registered (have {sorted(_BACKENDS)}); local servers go through [llm_providers.student]")
-    return _BACKENDS[name]
+def register_backend(name: str, make: Callable[..., Any], *, final: bool = False, doc: str = "") -> Any:
+    """``models.register_backend`` (the Tinker bridge registers ``tinker`` with ``final=True``)."""
+    from crucible.factory.models import register_backend as reg
+
+    return reg(name, make, final=final, doc=doc)
 
 
-def backends() -> dict[str, StudentBackend]:
-    return dict(_BACKENDS)
+def backend(name: str) -> Any:
+    from crucible.factory.models import backend as get
+
+    return get(name)
+
+
+def backends() -> dict[str, Any]:
+    return dict(_registry())
 
 
 def is_final_backend(name: str) -> bool:
-    b = _BACKENDS.get(name)
+    b = _registry().get(name)
     return b.final if b is not None else name in FINAL_BACKENDS
 
 
@@ -153,7 +167,8 @@ class StudentServer:
 
     @property
     def standin(self) -> bool:
-        return self.model in DEV_STANDINS
+        """A dev model (not a target student) served here."""
+        return self.model in DEV_STANDINS or self.model not in TARGET_STUDENTS
 
     @property
     def dev_only(self) -> bool:
@@ -218,7 +233,10 @@ def is_dev_policy(policy: str) -> bool:
     head, _, tag = p.rpartition("@") if "@" in p else (p, "", "")
     if any(head.endswith(s) for s in DEV_STANDINS):
         return True
-    dev = DEV_BACKENDS | {n for n, b in _BACKENDS.items() if not b.final}
+    m = student_model_of(p)
+    if m is not None and m not in TARGET_STUDENTS:  # a student rung on a model no task is calibrated for
+        return True
+    dev = DEV_BACKENDS | {n for n, b in _registry().items() if not b.final}
     return any(part in dev for part in tag.replace("+", "-").split("-"))
 
 
@@ -232,7 +250,7 @@ def numerics_of(x: Any) -> str:
             return str(x["numerics"])
         return "final" if is_final_backend(str(x.get("backend") or "unknown")) else "dev"
     s = str(x or "")
-    if s in DEV_BACKENDS or (s in _BACKENDS and not _BACKENDS[s].final):
+    if s in DEV_BACKENDS or (s in _registry() and not _registry()[s].final):
         return "dev"
     if is_final_backend(s):
         return "final"
@@ -242,6 +260,6 @@ def numerics_of(x: Any) -> str:
 def assert_countable(x: Any, purpose: str) -> None:
     """Raise ``DevOnlyNumerics`` when ``x`` (see ``numerics_of``) is dev-only and ``purpose`` would count it."""
     if numerics_of(x) == "dev":
-        finals = sorted(FINAL_BACKENDS | {n for n, b in _BACKENDS.items() if b.final})
+        finals = sorted(FINAL_BACKENDS | {n for n, b in _registry().items() if b.final})
         raise DevOnlyNumerics(f"{purpose}: dev-only numerics ({x if isinstance(x, str) else 'a local or unknown backend'}); numbers that count "
-                              f"come from a final backend ({finals}) sampling {STUDENT_MODEL}")
+                              f"come from a final backend ({finals}) sampling a target student ({sorted(TARGET_STUDENTS)})")

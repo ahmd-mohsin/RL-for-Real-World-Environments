@@ -16,8 +16,11 @@ schema: a finding is the trace audit's own pieces (``traceaudit.EpisodeBundle``,
   ``stalled`` (Phi stopped rising), ``never_progressed`` (edits, no milestone), ``harness_misuse``, ``world_fault``,
   ``budget``, ``env_flake``. The last four are not the student's skill: they are **routed** to their owner (harness,
   World, limits, infrastructure), never turned into a task intent (00 §7: hard for the wrong reason).
-- **Builder-intent request** (``BuilderIntent``, ``builder_intents``): findings of one skill mode clustered (>=
-  ``min_traces`` traces); it carries the behaviour a new task should test, the failure mode in the student's words (the
+- **Keyed by student model.** Every finding names its ``student`` (the model id inside the policy:
+  ``Qwen/Qwen3.6-35B-A3B`` for the target, ``Qwen/Qwen3.5-4B`` for the local dev smoke), and requests cluster per
+  student: a task built from one model's failures is calibrated for that model only.
+- **Builder-intent request** (``BuilderIntent``, ``builder_intents``): findings of one student and one skill mode clustered
+  (>= ``min_traces`` traces); it carries the behaviour a new task should test, the failure mode in the student's words (the
   quotes), the evidence (finding ids), the milestones and files where it happened, and the numerics. It is an
   ``IntentCard`` candidate (``intent_card``: ``status="candidate"``; 00 §8.3: a human approves every intent). Consumers:
   ``planner_intent()`` is the swarm generator's ``intent`` (``SwarmRunner(intent=...)``), ``cell(approved_by=...)`` is a
@@ -27,6 +30,7 @@ schema: a finding is the trace audit's own pieces (``traceaudit.EpisodeBundle``,
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -62,6 +66,7 @@ class FailureFinding:
     window: str
     policy: str
     family: str
+    student: str  # the student model id (``Qwen/Qwen3.6-35B-A3B``): tasks are calibrated per model
     mode: str
     cause: str | None
     cause_source: str  # auditor | facts | unlabelled
@@ -132,6 +137,15 @@ def quote_at(b: EpisodeBundle, fws: FirstWrongStep, *, rendered: str | None = No
     return ""
 
 
+def student_of(b: EpisodeBundle) -> str:
+    """The student model id of a bundle's policy (``solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker`` -> ``Qwen/Qwen3.6-35B-A3B``),
+    else the policy's model id (a hosted rung)."""
+    from crucible.factory.audit import policy_model
+    from crucible.factory.student import student_model_of
+
+    return student_model_of(b.policy) or policy_model(b.policy).partition("@")[0] or b.model
+
+
 def finding(b: EpisodeBundle, *, passing: Sequence[EpisodeBundle] = (), oracle_files: Sequence[str] = (), label: AuditLabel | None = None,
             numerics: str = "final") -> FailureFinding | None:
     """The finding of one episode; None when it passed (passes go to ``traceaudit.pass_audit``)."""
@@ -151,7 +165,7 @@ def finding(b: EpisodeBundle, *, passing: Sequence[EpisodeBundle] = (), oracle_f
     quote = (label.evidence.strip() if label is not None and label.evidence and label.evidence.strip() in rendered else "") or quote_at(b, fws, rendered=rendered)
     missed = sorted(m for m, ok in b.milestones.items() if not ok)
     return FailureFinding(id="ff-" + sha({"trace": b.id, "task": b.task})[:12], trace=b.id, task=b.task, window=b.window, policy=b.policy,
-                          family=b.family, mode=mode, cause=cause, cause_source=src, quote=quote, milestones_missed=missed,
+                          family=b.family, student=student_of(b), mode=mode, cause=cause, cause_source=src, quote=quote, milestones_missed=missed,
                           milestones_lost=list(fws.lost), first_wrong_step=asdict(fws), facts=[asdict(f) for f in fs],
                           signature=signature(b, fs, fws, cause), numerics=numerics, phi_final=b.phi_final, stop=b.stop)
 
@@ -180,6 +194,7 @@ def mine(bundles: Sequence[EpisodeBundle], *, labels: Mapping[str, AuditLabel] |
 @dataclass
 class BuilderIntent:
     id: str
+    student: str  # the student model these failures are from: a task built for it is calibrated for it
     mode: str
     behaviour: str
     failure_mode: str
@@ -206,9 +221,9 @@ class BuilderIntent:
     def planner_intent(self) -> dict[str, Any]:
         """The swarm planner's ``intent`` (``SwarmRunner(intent=...)``): the behaviour, how the student failed it, and the
         quoted evidence, so the plan's milestones exercise exactly that."""
-        return {"id": self.id, "behaviour": self.behaviour, "failure_mode": self.failure_mode, "difficulty_axes": self.difficulty_axes,
-                "observed": [{"quote": q} for q in self.quotes[:5]], "numerics": self.numerics,
-                "ask": (f"Plan milestones whose dependent steps exercise this: {self.behaviour}. The student failed it this way: "
+        return {"id": self.id, "student": self.student, "behaviour": self.behaviour, "failure_mode": self.failure_mode,
+                "difficulty_axes": self.difficulty_axes, "observed": [{"quote": q} for q in self.quotes[:5]], "numerics": self.numerics,
+                "ask": (f"Plan milestones whose dependent steps exercise this: {self.behaviour}. The student ({self.student}) failed it this way: "
                         f"{self.failure_mode}. Make the difficulty real work in the repository (dependent edits across files), never a "
                         "vaguer request or a stricter check.")}
 
@@ -218,7 +233,8 @@ class BuilderIntent:
         from crucible.factory.root import Cell
 
         card = IntentCard.model_validate({**self.intent_card(surface=surface), "status": "approved", "approved_by": approved_by})
-        obs = [{"kind": "student_failure", "finding": fid, "trace": t, "quote": q} for fid, t, q in zip(self.evidence, self.traces, self.quotes, strict=False)]
+        obs = [{"kind": "student_failure", "student": self.student, "finding": fid, "trace": t, "quote": q}
+               for fid, t, q in zip(self.evidence, self.traces, self.quotes, strict=False)]
         return Cell(behaviour=self.behaviour, surface=surface, intent=card.model_dump(mode="json"), quota=quota, observations=obs)
 
     def to_json(self) -> dict[str, Any]:
@@ -226,15 +242,17 @@ class BuilderIntent:
 
 
 def builder_intents(findings: Sequence[FailureFinding], *, min_traces: int = 2, prefix: str = "bi") -> tuple[list[BuilderIntent], list[dict[str, Any]]]:
-    """(builder-intent requests, routed findings). A skill mode with >= ``min_traces`` findings becomes one request;
-    a routed finding (``FailureFinding.routed``) goes to its owner instead, never into an intent."""
-    routed = [{"finding": f.id, "trace": f.trace, "owner": f.routed, "mode": f.mode, "cause": f.cause, "quote": f.quote} for f in findings if f.routed]
-    by_mode: dict[str, list[FailureFinding]] = {}
+    """(builder-intent requests, routed findings). Per student model, a skill mode with >= ``min_traces`` findings becomes
+    one request (findings of two students never share one); a routed finding (``FailureFinding.routed``) goes to its owner
+    instead, never into an intent."""
+    routed = [{"finding": f.id, "trace": f.trace, "student": f.student, "owner": f.routed, "mode": f.mode, "cause": f.cause, "quote": f.quote}
+              for f in findings if f.routed]
+    by_mode: dict[tuple[str, str], list[FailureFinding]] = {}
     for f in findings:
         if not f.routed and MODES.get(f.mode):
-            by_mode.setdefault(f.mode, []).append(f)
+            by_mode.setdefault((f.student, f.mode), []).append(f)
     out = []
-    for mode, fs in sorted(by_mode.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+    for (student, mode), fs in sorted(by_mode.items(), key=lambda kv: (kv[0][0], -len(kv[1]), kv[0][1])):
         if len(fs) < min_traces:
             continue
         behaviour, axes = MODES[mode]  # type: ignore[misc]
@@ -245,7 +263,9 @@ def builder_intents(findings: Sequence[FailureFinding], *, min_traces: int = 2, 
         at = f" (first wrong step at {min(steps):.0%}-{max(steps):.0%} of the episode)" if steps else ""
         fm = (f"{len(fs)} failing episode(s) over {len({f.task for f in fs})} task(s): {mode.replace('_', ' ')}{at}; "
               f"milestones missed or lost: {', '.join(where[:8]) or 'none recorded'}")
-        out.append(BuilderIntent(id=f"{prefix}-{mode.replace('_', '-')}-{sha([f.id for f in fs])[:8]}", mode=mode, behaviour=behaviour, failure_mode=fm,
+        slug = re.sub(r"[^a-z0-9]+", "-", student.rsplit("/", 1)[-1].lower()).strip("-") or "student"
+        out.append(BuilderIntent(id=f"{prefix}-{slug}-{mode.replace('_', '-')}-{sha([f.id for f in fs])[:8]}", student=student, mode=mode,
+                                 behaviour=behaviour, failure_mode=fm,
                                  difficulty_axes=list(axes), evidence=[f.id for f in fs], traces=[f.trace for f in fs], tasks=sorted({f.task for f in fs}),
                                  quotes=quotes[:10], milestones=where, files=files[:20], families=sorted({f.family for f in fs if f.family}),
                                  numerics="dev" if any(f.numerics == "dev" for f in fs) else "final", n=len(fs)))

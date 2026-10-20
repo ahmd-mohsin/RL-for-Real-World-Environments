@@ -1,6 +1,7 @@
-"""The student (factory/student.py; docs/research/swarm-pipeline/08): the registry entry, the provider seam a Tinker sampler
-plugs into, the explicit thinking setting, backend metadata from the serve script's descriptor, and the dev-only rule
-(MLX numerics and the retired Qwen3-4B stand-in never reach an S15 verdict or a benchmark report). No network, no GPU."""
+"""The student (factory/student.py; docs/research/swarm-pipeline/08): the target's registry slot (Qwen3.6-35B-A3B on
+Tinker), the local dev model (Qwen3.5-4B), the provider seam a Tinker sampler plugs into, the explicit thinking setting,
+backend metadata from the serve script's descriptor, and the dev-only rule (local serving and non-target models never
+reach an S15 verdict or a benchmark report). No network, no GPU, no Tinker."""
 
 from __future__ import annotations
 
@@ -14,25 +15,34 @@ import pytest
 
 from crucible.factory.models import parse_spec
 from crucible.factory.student import (
-    STUDENT_MODEL,
+    DEV_MODEL,
+    TARGET_MODEL,
     DevOnlyNumerics,
     StudentServer,
     assert_countable,
+    dev_spec,
     is_dev_policy,
     numerics_of,
     probe,
+    student_model_of,
     student_provider,
     student_spec,
     thinking_of,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+STUDENT_MODEL = DEV_MODEL  # what the local server runs
 
 
-def test_the_student_is_qwen35_4b_with_a_local_provider_and_thinking_off() -> None:
-    assert STUDENT_MODEL == "Qwen/Qwen3.5-4B"
-    assert student_spec().family == "qwen" == parse_spec("student:Qwen/Qwen3.5-4B").family
-    assert parse_spec("student:Qwen/Qwen3.5-4B").provider == "student"
+def test_the_target_is_qwen36_35b_on_tinker_and_the_dev_model_is_local_with_thinking_off() -> None:
+    from crucible.factory import models
+
+    assert TARGET_MODEL == "Qwen/Qwen3.6-35B-A3B" and DEV_MODEL == "Qwen/Qwen3.5-4B"
+    assert student_spec() == parse_spec("tinker:Qwen/Qwen3.6-35B-A3B") and student_spec().family == "qwen"
+    assert student_spec().ref == models.TARGET_STUDENT and student_spec().ref in models.SOLVER_RUNGS
+    assert dev_spec() == parse_spec("student:Qwen/Qwen3.5-4B") and dev_spec().provider == "student"
+    assert student_model_of("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker") == TARGET_MODEL
+    assert student_model_of("solver:student:Qwen/Qwen3.5-4B@mlx") == DEV_MODEL and student_model_of("solver:qwen/qwen3.7-flash") is None
     prov = tomllib.loads((ROOT / "crucible.toml").read_text())["llm_providers"]["student"]
     assert prov["base_url"] == "http://127.0.0.1:8100/v1" and prov["api_key"] == "EMPTY"
     assert thinking_of(prov["request_defaults"]) is False  # an explicit, recorded setting
@@ -61,16 +71,18 @@ def test_probe_reads_the_descriptor(tmp_path: Path) -> None:
     assert s.meta()["numerics"] == "dev" and s.meta()["tool_parser"] == "qwen3_coder"
     none = probe("http://127.0.0.1:8199/v1", root=tmp_path, check=False)
     assert none is not None and none.backend == "unknown" and none.dev_only  # unrecorded numerics never count
-    assert StudentServer("vllm", STUDENT_MODEL, "u").numerics == "dev"  # local serving is calibration, not Tinker's sampler
-    assert StudentServer("tinker", STUDENT_MODEL, "u").numerics == "final"
-    assert StudentServer("tinker", "Qwen/Qwen3-4B-Instruct-2507", "u").dev_only  # the stand-in is dev whatever served it
+    assert StudentServer("vllm", TARGET_MODEL, "u").numerics == "dev"  # local serving is calibration, not Tinker's sampler
+    assert StudentServer("tinker", TARGET_MODEL, "u").numerics == "final"
+    assert StudentServer("tinker", DEV_MODEL, "u").dev_only  # a dev model is dev whatever served it
+    assert StudentServer("tinker", "Qwen/Qwen3-4B-Instruct-2507", "u").dev_only
 
 
 @pytest.mark.parametrize(("policy", "dev"), [
     ("solver:student:Qwen/Qwen3.5-4B@mlx", True), ("solver:student:Qwen/Qwen3.5-4B@nudges6-mlx", True),
-    ("solver:student:Qwen/Qwen3.5-4B@vllm", True), ("solver:student:Qwen/Qwen3.5-4B@tinker", False),
+    ("solver:student:Qwen/Qwen3.5-4B@vllm", True), ("solver:tinker:Qwen/Qwen3.5-4B@tinker", True),
+    ("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker", False), ("solver:tinker:Qwen/Qwen3.6-35B-A3B@vllm", True),
     ("solver:student:Qwen/Qwen3-4B-Instruct-2507@tinker", True), ("solver:qwen/qwen3.7-flash@route", False),
-    ("solver:student:Qwen/Qwen3.5-4B@unknown", True), ("", False)])
+    ("solver:tinker:Qwen/Qwen3.6-35B-A3B@unknown", True), ("", False)])
 def test_dev_policy_stamps(policy: str, dev: bool) -> None:
     assert is_dev_policy(policy) is dev and numerics_of(policy) == ("dev" if dev else "final")
 
@@ -83,26 +95,29 @@ def test_dev_numerics_never_count() -> None:
         assert_countable("solver:student:Qwen/Qwen3.5-4B@mlx", "S15")
     with pytest.raises(DevOnlyNumerics):
         assert_countable("solver:student:Qwen/Qwen3.5-4B@vllm", "S15")
-    assert_countable("solver:student:Qwen/Qwen3.5-4B@tinker", "S15")
+    with pytest.raises(DevOnlyNumerics):
+        assert_countable("solver:tinker:Qwen/Qwen3.5-4B@tinker", "S15")  # the smoke model never calibrates a task
+    assert_countable("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker", "S15")
     v = target_verdict(TargetEvidence(task="t", band={"in_band": True}, numerics="dev"))
     assert v["ok"] is False and v["dev_only"] is True and v["route"] is None and "dev-only" in v["flags"][0]
     assert target_verdict(TargetEvidence(task="t")).get("dev_only") is None
     with pytest.raises(DevOnlyNumerics):
         report([], category_of=str, policy="solver:student:Qwen/Qwen3.5-4B@mlx")
-    assert "overall" in report([], category_of=str, policy="solver:student:Qwen/Qwen3.5-4B@tinker")
+    assert "overall" in report([], category_of=str, policy="solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker")
 
 
 def test_a_sampler_registers_as_a_student_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     """The Tinker bridge's seam: a registered backend builds an LLMClient-shaped client and decides whether it counts."""
     import crucible.factory.student as st
+    from crucible.factory import models
 
-    monkeypatch.setattr(st, "_BACKENDS", {})
+    monkeypatch.setattr(models, "_BACKENDS", {})
     made = []
     st.register_backend("tinker", lambda model, **kw: made.append((model, kw)) or "client", final=True, doc="TinkerSampler")
     st.register_backend("cpu", lambda model, **kw: "cpu-client")
-    assert st.backend("tinker").make(STUDENT_MODEL, thinking=False) == "client" and made == [(STUDENT_MODEL, {"thinking": False})]
+    assert st.backend("tinker").make(TARGET_MODEL, thinking=False) == "client" and made == [(TARGET_MODEL, {"thinking": False})]
     assert st.is_final_backend("tinker") and not st.is_final_backend("cpu") and not st.is_final_backend("vllm")
-    assert is_dev_policy("solver:student:Qwen/Qwen3.5-4B@cpu") and not is_dev_policy("solver:student:Qwen/Qwen3.5-4B@tinker")
+    assert is_dev_policy("solver:tinker:Qwen/Qwen3.6-35B-A3B@cpu") and not is_dev_policy("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker")
     assert sorted(st.backends()) == ["cpu", "tinker"]
     with pytest.raises(KeyError):
         st.backend("nope")
@@ -112,8 +127,8 @@ def test_a_sampler_registers_as_a_student_backend(monkeypatch: pytest.MonkeyPatc
 
 def test_serve_script_parses_and_documents_both_backends() -> None:
     sh = ROOT / "scripts" / "student_serve.sh"
-    assert subprocess.run(["bash", "-n", str(sh)], capture_output=True).returncode == 0
-    out = subprocess.run(["bash", str(sh), "--help"], capture_output=True, text=True).stdout
+    assert subprocess.run(["bash", "-n", str(sh)], capture_output=True, check=False).returncode == 0
+    out = subprocess.run(["bash", str(sh), "--help"], capture_output=True, text=True, check=False).stdout
     assert "Qwen/Qwen3.5-4B" in out and "--thinking" in out and "DEV ONLY" in out and "--tool-call-parser" in out
     text = sh.read_text()
     assert "VLLM_USE_FLASHINFER_SAMPLER" in text and "--enable-auto-tool-choice" in text and "mlx_lm.server" in text

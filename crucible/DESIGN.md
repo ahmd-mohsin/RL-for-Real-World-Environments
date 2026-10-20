@@ -948,6 +948,44 @@ Kernel-migration family (`docs/research/swarm-pipeline/06-kernel-family.md`; `fa
 - **Fixed while running:** CRLF sources gave unappliable oracle patches; the grader now always links `libcuda`; a masked
   episode (provider 402) was read as a 0 by the targeting script.
 
+Student and builder (`docs/research/swarm-pipeline/08-student-and-builder.md`; `actors/claude_code.py`,
+`factory/student.py`, `factory/failures.py`, `scripts/student_serve.sh`; the MVP loop: run the student, mine its traces,
+build tasks that target its failures):
+- **Role map** (`models.DEFAULT_ROLES`, preset `tinker`): Claude Code builds, and Tinker samples every other role.
+  - S9: DeepSeek-V4.1-Flash.
+  - Reviewer and the student's trace auditor: GLM-5.3.
+  - Judges and cause labels: GLM-5.3-Flash.
+  - Hackers: DeepSeek and Nemotron.
+  - Rewriters: DeepSeek and GLM.
+  - Frontier: Qwen3.5-397B and DeepSeek.
+  - Ladder: Qwen3.5-4B, Qwen3.5-9B and Qwen3.8-27B.
+  - Target student: Qwen3.6-35B-A3B.
+
+  `tinker` is a registry slot (`register_backend`) that the Tinker bridge fills, and OpenRouter is a fallback preset
+  only. The registry refuses a judge, reviewer, hacker or auditor on a builder's family or on a student's family, and
+  requires the hackers to span two families.
+- **Builder:** the builder roles (planner, oracle builder, verifier writer, prompt author, author, World expert) run on
+  headless Claude Code on the user's plan (`ClaudeCodeClient`, `claude-code:opus-5.5`, family `anthropic`). JSON roles
+  are `claude -p --output-format json` with no tools and a validated `--json-schema`. Agentic roles run Claude Code in
+  the session's private clone, with file tools confined to it and code run only through `docker exec` into the offline
+  sandbox (`SessionPool`). Plan usage (turns, duration, API-equivalent cost) goes to receipts, never to `spend.usd`.
+  `ModelBook` raises `SameFamilyError` for any independent role (reviewer, realism, second verifier, auditor, hacker,
+  tie-break, judge) on Claude Code or on the builder's family.
+- **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated
+  against exactly it. The local dev model is `student:Qwen/Qwen3.5-4B`, for harness work and the pipeline smoke only.
+  - The local path uses native OpenAI tool calls (the `qwen3_coder` parser on mlx-lm) with thinking off. Thinking is
+    sent with every request and recorded with every run.
+  - Local serving (mlx-lm on the Mac, vLLM on CUDA) is dev and calibration only.
+  - The backend is stamped into the policy id (`@mlx`). Only a target model on a final backend (`tinker`) can produce an
+    S15 verdict or a benchmark report (`assert_countable`).
+- **Failure mining:** a finding per failing episode, keyed by the student model id. It holds the milestones missed and
+  lost, the first wrong step, the cause and a verbatim quote, and is built from the trace audit's own pieces. Skill modes
+  cluster per student into builder-intent requests: an
+  `IntentCard` candidate, the swarm planner's intent, or a root `Cell` after a human approves it. Harness, World, budget
+  and infrastructure failures are routed to their owners.
+- **Fixed:** `lh_run.policy_ref` declared no `config`, so the Runner refused every solvers, probe and arms stage at
+  start (M10 R-4 `Undeclared`).
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

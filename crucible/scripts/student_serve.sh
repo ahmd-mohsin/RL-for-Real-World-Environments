@@ -1,5 +1,7 @@
 #!/bin/bash
-# The student (Qwen/Qwen3.5-4B, bf16, text only) behind an OpenAI-compatible API on 127.0.0.1, with native tool calls.
+# The local dev student (Qwen/Qwen3.5-4B, bf16, text only) behind an OpenAI-compatible API on 127.0.0.1, with native
+# tool calls, for harness development and the pipeline smoke. The target student (Qwen/Qwen3.6-35B-A3B) is sampled on
+# Tinker only: a 35B MoE does not fit a 24 GB Mac at bf16.
 #
 #   crucible/scripts/student_serve.sh [--backend auto|mlx|vllm] [--port 8100] [--model ID] [--thinking off|on]
 #                                     [--max-model-len N] [--wait-s S]

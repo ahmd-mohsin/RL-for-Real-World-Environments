@@ -358,12 +358,12 @@ async def test_wall_clock_and_transition_caps(tmp_path: Path) -> None:
 
 # ---- cross-family ---------------------------------------------------------------------------------------------------------
 async def test_cross_family_assignment_is_refused_at_validation(tmp_path: Path) -> None:
-    book = ModelBook({"second_verifier": "openrouter:qwen/qwen3.7-flash"})
+    book = ModelBook({"second_verifier": "openrouter:qwen/qwen3.7-flash"}, preset="openrouter", check_families=False)  # the second line
     with pytest.raises(MachineError, match="cross-family rule: state second_verifier"):
         run_of(tmp_path, FakeLLM(), FakeStages(), models=book.roles)
     assert not (tmp_path / "task-1" / "journal.jsonl").exists()  # refused before anything ran
     # a family published under two prefixes is still one family
-    book = ModelBook({"realism": "thudm/glm-4-9b", "author": "z-ai/glm-4.7-flash"})
+    book = ModelBook({"realism": "thudm/glm-4-9b", "author": "z-ai/glm-4.7-flash"}, preset="openrouter", check_families=False)
     assert any("realism" in e and "glm" in e for e in book.check(driver.driver_machine()))
     assert ModelBook().check(driver.driver_machine()) == []
 

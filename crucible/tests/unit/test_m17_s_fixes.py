@@ -111,7 +111,7 @@ async def test_a_state_retry_asks_for_a_new_sample() -> None:
 async def test_models_with_a_broken_json_mode_get_prompt_only_json() -> None:
     from crucible.factory.models import ModelBook, PromptJsonClient
 
-    book = ModelBook()
+    book = ModelBook(preset="openrouter")  # the v1 map: deepseek realism, qwen author
     seen: list[dict] = []
 
     class Raw:

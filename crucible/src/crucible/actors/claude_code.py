@@ -230,7 +230,7 @@ class ClaudeCodeClient:
             raise LLMError(f"claude-code: cannot start the CLI: {e}") from e
         try:
             out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout=timeout_s)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             with contextlib.suppress(Exception):

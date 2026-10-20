@@ -176,7 +176,11 @@ async def test_run_session_flags_cwd_and_result(fake: Path, tmp_path: Path, monk
     assert "Bash(docker exec crucible-p1-abc *)" in allowed and "Bash(git commit *)" in allowed
     assert not [x for x in allowed if x.startswith("Bash(") and not x.startswith(("Bash(git ", "Bash(docker exec crucible-p1-abc "))]
     assert res.stop == "agent_done" and res.turns == 7 and res.tokens == 180 and c.plan.sessions == 1
-    assert subprocess.run(["git", "log", "--format=%s", "-1"], cwd=ws, capture_output=True, text=True).stdout.strip() == "m1: mul"
+    assert git_out(ws, "log", "--format=%s", "-1").strip() == "m1: mul"
+
+
+def git_out(ws: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=ws, capture_output=True, text=True, check=True).stdout
 
 
 async def test_a_session_pool_state_runs_the_claude_builder_and_captures_its_commits(fake: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +231,7 @@ async def test_a_give_up_reply_fails_the_state(fake: Path, tmp_path: Path, monke
 
 # ---- the registry ---------------------------------------------------------------------------------------------------------
 def test_builder_roles_go_to_claude_code_and_reviewers_stay_cross_family() -> None:
-    b = ModelBook(builder=CLAUDE_BUILDER)
+    b = ModelBook(builder=CLAUDE_BUILDER, preset="openrouter")  # builder= reassigns the builder roles of any preset
     for r in ("planner", "author", "oracle_author", "verifier_writer"):
         assert b.spec(r).ref == "claude-code:opus-5.5" and b.spec(r).family == "anthropic"
     assert b.spec("reviewer").family == "deepseek" and b.spec("tie_break").family == "glm"
@@ -244,8 +248,50 @@ def test_claude_code_on_an_independent_role_raises(role: str) -> None:
     with pytest.raises(SameFamilyError, match=role):
         ModelBook({role: CLAUDE_BUILDER})
     with pytest.raises(SameFamilyError, match="shares family 'anthropic'"):
-        ModelBook({role: "openrouter:anthropic/claude-sonnet-5.5"}, builder=CLAUDE_BUILDER)
-    assert ModelBook({role: "openrouter:anthropic/claude-sonnet-5.5"}).spec(role).family == "anthropic"  # no Claude builder: allowed
+        ModelBook({role: "openrouter:anthropic/claude-sonnet-5.5"})  # the default builders are Claude
+    with pytest.raises(SameFamilyError, match="shares family 'qwen' with the student"):
+        ModelBook({role: "tinker:Qwen/Qwen3.5-397B-A17B:peft:262144"})  # never a Qwen model on the Qwen student's work
+    # the v1 preset (Qwen authors, no Claude builder): a Claude reviewer is allowed
+    assert ModelBook({role: "openrouter:anthropic/claude-sonnet-5.5"}, preset="openrouter").spec(role).family == "anthropic"
+
+
+def test_the_default_map_is_claude_plus_tinker_and_holds_the_family_rule() -> None:
+    b = ModelBook()
+    fam = b.families()
+    assert {fam[r] for r in ("planner", "oracle_builder", "verifier_writer", "prompt_author", "author")} == {"anthropic"}
+    assert (fam["second_verifier"], fam["reviewer"], fam["auditor"], fam["judge"]) == ("deepseek", "glm", "glm", "glm")
+    assert {fam["hacker"], fam["hacker_2"]} == {"deepseek", "nemotron"} and {fam["rewriter_deepseek"], fam["rewriter_glm"]} == {"deepseek", "glm"}
+    assert b.spec("reviewer").ref == "tinker:zai-org/GLM-5.3:peft:262144" and b.spec("judge").model == "zai-org/GLM-5.3-Flash:peft:262144"
+    assert [s.ref for s in b.solvers] == ["tinker:Qwen/Qwen3.5-4B", "tinker:Qwen/Qwen3.5-9B", "tinker:Qwen/Qwen3.8-27B", "tinker:Qwen/Qwen3.6-35B-A3B"]
+    assert [s.ref for s in b.frontier] == ["tinker:Qwen/Qwen3.5-397B-A17B:peft:262144", "tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"]
+    assert all(s.provider in ("claude-code", "tinker") for s in [*b.roles.values(), *b.solvers, *b.frontier])  # OpenRouter unused
+    assert b.family_problems() == []
+    from crucible.factory import driver
+
+    assert b.check(driver.driver_machine()) == []
+    with pytest.raises(SameFamilyError, match="span >= 2 families"):
+        ModelBook({"hacker_2": models.DEEPSEEK})
+
+
+def test_tinker_roles_build_through_the_registered_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(models, "_BACKENDS", {})
+    b = ModelBook()
+    with pytest.raises(KeyError, match="train/bridges/tinker"):
+        b.client("reviewer")  # nothing registered: a clear error, and no call
+    made = []
+
+    class Fake:
+        def __init__(self, model: str, **kw):
+            made.append((model, kw))
+            self.model, self.spend = model, type("S", (), {"usd": 0.0})()
+
+    models.register_backend("tinker", Fake, final=True, doc="fake TinkerSampler")
+    c = b.client("reviewer")
+    assert isinstance(c, Fake) and made[-1] == ("zai-org/GLM-5.3:peft:262144", {"role": "reviewer"})
+    (spec, _sc), *_ = b.solver_clients()
+    assert spec.ref == "tinker:Qwen/Qwen3.5-4B" and made[1] == ("Qwen/Qwen3.5-4B", {"role": "solver", "thinking": False})
+    assert made[-1][0] == "Qwen/Qwen3.6-35B-A3B"
+    assert len(b.frontier_clients()) == 2 and b.observed() == 0.0
 
 
 def test_client_refuses_a_later_misassignment_and_claude_is_never_a_solver() -> None:

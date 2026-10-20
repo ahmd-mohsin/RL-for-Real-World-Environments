@@ -344,12 +344,20 @@ def student_backend(run: Run, model: str) -> str | None:
     """The backend tag (``mlx`` | ``vllm`` | ``unknown``) when ``model`` is the served student (``student:<model>``), else
     None. The probe (``factory.student.probe``) runs once per process; its metadata goes to every run's ``student.json``."""
     from crucible.factory.models import parse_spec
+    from crucible.factory import student as st
     from crucible.factory.student import STUDENT_PROVIDER, backend_tag, is_dev_policy, probe, thinking_of
 
     spec = parse_spec(model)
+    seen = run.__dict__.setdefault("students", {})
+    if spec.provider in st.backends() and spec.provider not in run.book.config.llm_providers:  # a registered sampler (Tinker)
+        if spec.ref not in seen:
+            final = st.is_final_backend(spec.provider) and spec.model in st.TARGET_STUDENTS
+            seen[spec.ref] = {"ref": spec.ref, "backend": spec.provider, "model": spec.model, "numerics": "final" if final else "dev",
+                              "dev_only": not final, "thinking": st.THINKING_DEFAULT, "provider_kind": "backend",
+                              "doc": st.backend(spec.provider).doc}
+        return spec.provider
     if spec.provider != STUDENT_PROVIDER:
         return None
-    seen = run.__dict__.setdefault("students", {})
     if spec.ref not in seen:
         prov = run.book.config.llm_providers[STUDENT_PROVIDER]
         thinking = thinking_of(prov)
