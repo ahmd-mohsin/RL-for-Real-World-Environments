@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.factory.lanes.executable import NOT_SOURCE, is_protected, is_test_path, prepare_tree
+from crucible.factory.langs.base import active as _lang
 
 VERSION_TAG = re.compile(r"^(?:[A-Za-z][\w.]*?[-_])?v?(\d+(?:\.\d+){1,3})$")  # 1.2, v1.2.3, click-8.1.0; no pre-releases
 
@@ -50,10 +51,14 @@ def _git(repo: Path, *args: str, check: bool = True, env: Mapping[str, str] | No
 
 
 def is_source(path: str) -> bool:
+    if (lang := _lang()) is not None:
+        return bool(lang.is_source(path))
     return path.endswith(".py") and not is_test_path(path) and not NOT_SOURCE.search(path) and not is_protected(path)
 
 
 def is_test_file(path: str) -> bool:
+    if (lang := _lang()) is not None:
+        return bool(lang.is_test_file(path))
     return path.endswith(".py") and is_test_path(path) and not path.endswith("conftest.py")
 
 
@@ -279,8 +284,11 @@ class RepoGit:
 
 
 # ---- owners of tests ---------------------------------------------------------------------------------------------------
-def _defs(text: str | None) -> dict[str, str]:
-    """``Class::name`` / ``name`` -> the AST dump of every test function (positions ignored)."""
+def _defs(text: str | None, path: str = "") -> dict[str, str]:
+    """``Class::name`` / ``name`` -> the AST dump of every test function (positions ignored); under a non-Python
+    profile, its ``test_defs`` (``path`` names the file: a Rust key carries the file's module path)."""
+    if (lang := _lang()) is not None:
+        return lang.test_defs(text, path)
     if not text:
         return {}
     try:
@@ -304,6 +312,8 @@ def _defs(text: str | None) -> dict[str, str]:
 
 def key_of_test(test_id: str) -> tuple[str, str]:
     """``file::Class::name[param]`` -> (file, ``Class::name``)."""
+    if (lang := _lang()) is not None:
+        return lang.key_of_test(test_id)
     parts = test_id.split("::")
     return parts[0], "::".join(re.sub(r"\[.*$", "", p) for p in parts[1:])
 
@@ -314,7 +324,7 @@ def owners_of_tests(repo: RepoGit, units: Sequence[Unit], test_ids: Iterable[str
 
     def defs(rev: str, path: str) -> dict[str, str]:
         if (rev, path) not in cache:
-            cache[(rev, path)] = _defs(repo.show(rev, path))
+            cache[(rev, path)] = _defs(repo.show(rev, path), path)
         return cache[(rev, path)]
 
     out: dict[str, str | None] = {}

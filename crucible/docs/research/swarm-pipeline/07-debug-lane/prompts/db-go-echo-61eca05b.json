@@ -1,0 +1,9 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "Our API is built on Echo (the current main branch) and request binding gives our clients confusing results. Everything below goes through c.Bind with the default binder and JSON serializer.",
+ "requirements": {
+  "m01": "When a query, form or path value cannot be converted to the target field's type, the bind error does not say which field failed: binding number=10a into an int field gives only the bare conversion error (strconv.ParseInt: parsing \"10a\": invalid syntax). The error should be prefixed with the input field name and a colon, as in \"number: strconv.ParseInt: parsing \\\"10a\\\": invalid syntax\" (inside the HTTP error: code=400, message=Bad Request, err=number: ...), on the first bind of a type and on every later bind of the same type, for slices and for values bound through UnmarshalParam too (for example err=t: 'xxxx' is not an integer). errors.Is and errors.As must still find the original error.",
+  "m02": "JSON request bodies are decoded leniently: a body with extra data after the JSON value (another value, or garbage) is accepted and the rest is silently ignored, and a truncated body such as { is reported as \"unexpected EOF\". A body must contain exactly one JSON value: trailing data is a 400 Bad Request, and a truncated body is reported as code=400, message=Bad Request, err=unexpected end of JSON input."
+ },
+ "closing": ""
+}

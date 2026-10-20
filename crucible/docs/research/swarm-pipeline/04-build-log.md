@@ -961,3 +961,67 @@ turn whose only tool is `verdict`, forced with `tool_choice`, then the same `aud
 at ceiling. (3) The forced turn is not enabled: the measured path rejected it. (4) Old images are kept as before-state
 evidence. (5) S9 was not re-run on the refreshed Worlds. Tests: m17 non-Docker 570 plus the new ones; Docker
 `test_m17_{w,p4}_world` 4/4; ruff and lint-imports (4 kept) clean.
+
+## Debug lane (built): multi-language debugging tasks from interacting real fixes
+
+Spec: `07-debug-lane.md` (the lane), `00` §2 (rebreak), §4 (S1-S10), §5, §10. Student: Qwen/Qwen3.6-35B-A3B. Spend $0 (no model
+call: the builder, claude-code:opus-5.5, wrote every prompt; recorded on each). CPU and Docker only.
+
+**Files.** New: `factory/langs/{__init__,base,clike,runtime,python,golang,rust,node,java}.py`, `factory/generators/debug.py`,
+`scripts/lh_debug.py`; tests `tests/unit/test_m17_debug_{langs,lane}.py`. Changed (each change a no-op without an active
+non-Python profile): `lanes/executable.py` (`is_test_path`, `is_protected`), `lanes/windows_git.py` (`is_source`,
+`is_test_file`, `_defs(text, path)`, `key_of_test`), `lanes/windows.py` (`suite_targets`, `window_files`, `new_test_names`,
+`mined_of`, the leak probe call, locate hints, the file-path lint covers other languages' extensions; the debug lane's
+sources and held-out repositories), `lanes/windows_s3.py` (new names, leak probe), `generators/rebreak.py`
+(`allowed_file`, `fix_test_names` per path), `pathcheck.py` (per-language plumbing, other package managers).
+
+**What running it found and fixed** (each pinned by a test where it is not a World recipe):
+1. *Hidden checks were visible.* Function-level hiding (rebreak's `strip_tests`) leaves table-driven checks in the agent's
+   tree: Go's `fileTests`, data-case files. Revert mode now reverts the fixes' test hunks, strip mode is the fallback,
+   and a gate refuses any window where a milestone test fails in the agent's own tree (after one more strip round).
+2. *A reverted test hunk can take a helper later tests use* (mvdan/sh `printsAs`): the agent's tree did not build; the
+   pre-check catches it and strip mode retries.
+3. *Fixes that add API*: B's tests do not build against A' (quick-xml's `resolver`, go-zero): refused at the pre-check,
+   and the real-fix check counts only behavioural failures in compiled languages.
+4. *World image key blanked lockfile versions*: two lockfiles shared one image whose caches lacked half the crates
+   (fd: "failed to download aho-corasick"). Lockfiles now hash byte for byte.
+5. *The installed-copy leak, per language*: h3's dependency tree held a release of h3 (probe `no_installed_project_source`
+   failed); the node World deletes the project's own copies at build, the probe passes.
+6. *Runner configuration*: react-hook-form's jest config lives under `scripts/` (every file failed to load); the run uses
+   the test script's own `--config`. Yarn Berry installs with the node-modules linker; pnpm without corepack when the
+   `packageManager` field names an unknown manager (zod); Rust falls back to per-package builds (minijinja's Python and
+   wasm members); Java's World runs the suite once at build (surefire resolves its provider only then).
+7. *Rust ids*: helper modules (`tests/helpers/mod.rs`) are no test binaries, and a module file's tests are stripped
+   from the file that defines them (`tests/suite/spec.rs` behind `tests/lib.rs`).
+8. *Load-dependent tests at S3/S8* (echo's `GracefulShutdown`, axios's HTTP2 session test under a load of ~18 on 14
+   CPUs): benchmark v2's empirical rule, extended to the existing suite and to regression tests that change verdict
+   between grades of one oracle end state; excluded with the reason, gates re-run once. S5's fairness lint refusing a
+   regression test that parses source (Black parses its own output) removes that test from the regression check.
+9. *Earlier B points*: about 40% of fixes no longer revert at the head; B is also the first-parent commit 20, 45, 75,
+   110 and 150 days back for the fixes not yet grouped.
+
+**Builder refusals (S7).** Two windows passed every CPU gate but no symptom-only report can state their checks: minify
+(an internal shortener's output contract changed) and lo (exact panic strings embed the faulty functions' names). They
+are recorded in `prompt_refusals.json` and count as S7 drops.
+
+**Run** (2026-10-20, about 11 hours of CPU mining and gating, load 15-20 on 14 CPUs; 98 clones scouted, 56 mined; ledger
+`07` §5 and `07-debug-lane/funnel_table.md`):
+
+| language | fix units | real fixes | interacting groups | validated windows | dependent + valid mutants | all CPU gates | with a passing prompt |
+|---|---|---|---|---|---|---|---|
+| go | 503 | 237 | 23 | 17 | 10 | 9 | 7 (1 held out) |
+| node | 497 | 194 | 9 | 9 | 5 | 2 | 2 (both held out; axios-61cd331d not gated yet) |
+| python | 132 | 39 | 3 | 3 | 3 | 3 | 3 |
+| rust | 154 | 63 | 9 | 8 | 1 | 1 | 1 |
+| java | 93 | 38 | 0 | 0 | 0 | 0 | 0 |
+
+**13 candidates** pass every CPU gate and S7 across 4 languages (10 hard: 3-4 interacting faults over 2+ files; 3 easy),
+11 of them distinct (two share three fixes with another candidate), 10 training and 3 held out (urfave-cli, h3,
+unstorage). 11 are post-release (fixes after 2026-05-01), 2 use the marked fallback cutoff. Below the 30-candidate target;
+`07` §5 lists what limits yield and the levers.
+
+**Deviations.** (1) Java is built and tested but yielded no candidate. (2) Gating was the bottleneck: S3's 60 reruns
+of the full existing suite take 20-60 minutes per candidate on a loaded host. (3) The run stopped with axios-61cd331d
+and axios-56014db8 still in S3/S10. (4) Held-out prompts stay in `data/debug/prompts` (sealed), never in the
+committed docs. (5) Known pre-existing flake in this worktree under load: `test_m17_p6_envs::test_native_two_timeouts`
+(a wall-clock test; passes on an idle host and on main).

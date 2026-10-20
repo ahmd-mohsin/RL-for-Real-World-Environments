@@ -1,0 +1,81 @@
+{
+ "go": {
+  "fixes": 503,
+  "real": 237,
+  "groups": 23,
+  "windows": 17,
+  "valid": 10,
+  "gates": 9,
+  "s7": 7,
+  "why": {
+   "its source revert does not apply at B": 175,
+   "its revert only stops tests from building": 51,
+   "no own test fails after the revert": 25,
+   "the suite does not run at B": 13,
+   "1 milestone(s) with fail-to-pass tests (need 2)": 5
+  }
+ },
+ "java": {
+  "fixes": 93,
+  "real": 38,
+  "groups": 0,
+  "windows": 0,
+  "valid": 0,
+  "gates": 0,
+  "s7": 0,
+  "why": {
+   "its source revert does not apply at B": 31,
+   "no own test fails after the revert": 13,
+   "its revert only stops tests from building": 10,
+   "masked: sandbox did not start": 1
+  }
+ },
+ "node": {
+  "fixes": 497,
+  "real": 194,
+  "groups": 9,
+  "windows": 9,
+  "valid": 5,
+  "gates": 2,
+  "s7": 4,
+  "why": {
+   "its source revert does not apply at B": 96,
+   "no own test fails after the revert": 79,
+   "the suite does not run at B": 46,
+   "the World image of B does not build": 40,
+   "independent": 4
+  }
+ },
+ "python": {
+  "fixes": 132,
+  "real": 39,
+  "groups": 3,
+  "windows": 3,
+  "valid": 3,
+  "gates": 3,
+  "s7": 3,
+  "why": {
+   "its source revert does not apply at B": 52,
+   "the suite does not run at B": 16,
+   "no own test fails after the revert": 12,
+   "the World image of B does not build": 8,
+   "its test files are gone at B": 5
+  }
+ },
+ "rust": {
+  "fixes": 154,
+  "real": 63,
+  "groups": 9,
+  "windows": 8,
+  "valid": 1,
+  "gates": 1,
+  "s7": 1,
+  "why": {
+   "no own test fails after the revert": 41,
+   "its source revert does not apply at B": 35,
+   "the suite does not run at B": 14,
+   "independent": 6,
+   "the agent's start tree does not build": 1
+  }
+ }
+}
