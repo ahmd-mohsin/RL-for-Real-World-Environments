@@ -868,6 +868,23 @@ non-Claude model (difficulty ladder, cross-family roles):
 - **Two TITO defects found by the live smoke, fixed in shared code**: `EngineLLM` read a call's re-render flag after its
   `gen` await, so concurrent episodes reset it (prefix breaks, masked episodes); `LLMToolPolicy._final_status_turn`
   ignored the engine's new-segment flag, so every limit-stopped episode on an "interleaved" template was masked.
+
+Observability (`src/crucible/observe/`, `scripts/observe.py`; `docs/research/swarm-pipeline/11`; 2026-10-20). Every result,
+graph and agent trace goes to Weights & Biases through one module (an import-linter contract forbids `wandb` / `weave`
+anywhere else; the layer sits below `workflow`, above `connectors | signals`, so every producer reaches it):
+- **Offline first**: W&B runs are written offline (`wandb sync` later) with a redacted mirror (`ops.jsonl`); Weave has no
+  offline mode (its init logs in and calls the server), so episodes are written as Weave-shaped spans and replayed with
+  their own call ids (`create_call(_call_id_override=, started_at=)`) once a key exists; links written today stay valid.
+- **Projects**: `crucible-factory` (funnels, targeting, intent and verifier cards, the trace audit, findings, spend),
+  `crucible-train` (per-step reward, Φ, gates, pass rate, advantages, loss, KL and ratio, staleness, drops, tokens, USD vs
+  cap, sampler version; through `TinkerTrainer(sinks=)`), `crucible-bench` (per arm and per comparison: the headline
+  pass@1 per arm with task-clustered CIs as an HTML chart, the paired trained − control difference, `check_protocol`,
+  pass@k / pass^k, cost per passing episode, per-language / family / skill); a W&B Report template.
+- **Traces**: episode → one call per model turn (prompt summary, output, tool calls, Φ after, milestones gained / lost,
+  ΔΦ credit) → one call per tool (arguments, result); the trace audit's verdict (first wrong step, cause, quote) attaches
+  under the same root, since the bundle id is the episode key; full text as an artifact.
+- **Redaction**: the M3 redactor, the process's credential values by value, `scrub_secrets`; W&B's console, code, git and
+  metadata capture off; a planted key is checked absent from everything written or handed to W&B.
 P5a, the generators and scouts (`factory/generators/{rebreak,stitch,open}.py`, `factory/sources/`; $0.01):
 - **Each generator builds its own A..B history** in derived clones, so `validate_window` and the P2–P4 handlers run
   unchanged.

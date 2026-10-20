@@ -1,0 +1,87 @@
+"""The W&B Report that shows the headline pre/post chart (swarm-pipeline/11 §4.3).
+
+``LAYOUT`` is the panel layout, as data: it is written beside every comparison (``report_template.json``) and is the
+documented layout when the report is built by hand. ``build(entity, ...)`` turns it into a ``wandb_workspaces`` Report
+(the reports API; optional, in the ``observe`` extra) and ``push`` saves it: building is offline, saving needs
+``WANDB_API_KEY`` and runs that are already synced (``scripts/observe.py report --push``).
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from crucible.observe.naming import project
+from crucible.observe.run import has_key
+
+LAYOUT: list[dict[str, Any]] = [
+    {"block": "h1", "text": "Student before and after RL post-training"},
+    {"block": "p", "text": "Held-out, sealed tasks. pass@1 over k = 8 attempts per task, task-clustered 95% CIs. Arms: selection (tasks chosen because "
+                           "the base model failed them), baseline (a fresh re-test with new seeds: the honest pre-score), control (the base model "
+                           "re-run beside the adapter), trained (the adapter). The claim is the paired trained - control difference."},
+    {"block": "grid", "project": "bench", "filter": "group", "panels": [
+        {"panel": "media", "title": "Headline: pass@1 per arm with CIs", "keys": ["compare/headline"]},
+        {"panel": "table", "title": "Arms", "key": "compare/arms"},
+        {"panel": "scalar", "title": "trained - control (points)", "metric": "compare/paired/mean_diff"},
+        {"panel": "scalar", "title": "Protocol ok", "metric": "compare/protocol_ok"},
+        {"panel": "media", "title": "pass@1 per task", "keys": ["compare/per_task_chart"]},
+        {"panel": "media", "title": "pass@k and pass^k", "keys": ["compare/pass_at_k_chart", "compare/pass_hat_k_chart"]},
+        {"panel": "media", "title": "By language / family / skill", "keys": ["compare/by_language_chart", "compare/by_family_chart", "compare/by_skill_chart"]},
+        {"panel": "table", "title": "Protocol check", "key": "compare/protocol"},
+        {"panel": "table", "title": "Paired difference per task", "key": "compare/paired_per_task"},
+    ]},
+    {"block": "h2", "text": "Episodes (each row links to its Weave trace and the auditor's verdict)"},
+    {"block": "grid", "project": "bench", "filter": "group", "panels": [{"panel": "table", "title": "Episodes", "key": "bench/episodes"}]},
+    {"block": "h2", "text": "Training"},
+    {"block": "grid", "project": "train", "filter": None, "panels": [
+        {"panel": "line", "title": "Reward", "metrics": ["reward/mean", "pass_rate", "phi/final_mean"]},
+        {"panel": "line", "title": "Spend vs cap", "metrics": ["usd/cum", "usd/cap"]},
+        {"panel": "line", "title": "Drops", "metrics": ["drops/total", "drops/infra_in_group", "drops/stale", "drops/zero_spread"]},
+        {"panel": "line", "title": "Loss and KL", "metrics": ["train/loss", "kl/sample_vs_train", "ratio/mean"]},
+    ]},
+]
+
+
+def write_template(path: Path | str, *, group: str | None = None, model: str | None = None) -> Path:
+    p = Path(path)
+    p.write_text(json.dumps({"layout": LAYOUT, "group": group, "model": model, "projects": {k: project(k) for k in ("bench", "train")}}, indent=1))
+    return p
+
+
+def build(entity: str, *, group: str | None = None, model: str | None = None, title: str | None = None) -> Any:
+    """``LAYOUT`` as a ``wandb_workspaces.reports.v2.Report`` (no network)."""
+    import wandb_workspaces.reports.v2 as wr  # optional: ``wandb-workspaces``
+
+    blocks: list[Any] = []
+    for b in LAYOUT:
+        if b["block"] == "h1":
+            blocks.append(wr.H1(text=b["text"]))
+        elif b["block"] == "h2":
+            blocks.append(wr.H2(text=b["text"]))
+        elif b["block"] == "p":
+            blocks.append(wr.P(text=b["text"]))
+        else:
+            filt = f"Group = '{group}'" if group and b.get("filter") == "group" else ""
+            panels: list[Any] = []
+            for pn in b["panels"]:
+                if pn["panel"] == "media":
+                    panels.append(wr.MediaBrowser(title=pn["title"], media_keys=pn["keys"], num_columns=1))
+                elif pn["panel"] == "table":
+                    panels.append(wr.WeavePanelSummaryTable(table_name=pn["key"]))
+                elif pn["panel"] == "scalar":
+                    panels.append(wr.ScalarChart(title=pn["title"], metric=pn["metric"]))
+                elif pn["panel"] == "line":
+                    panels.append(wr.LinePlot(title=pn["title"], y=pn["metrics"]))
+            blocks.append(wr.PanelGrid(runsets=[wr.Runset(entity=entity, project=project(b["project"]), filters=filt)], panels=panels))
+    return wr.Report(project=project("bench"), entity=entity, title=title or f"Crucible: {model or 'student'} before and after RL", blocks=blocks,
+                     description="Generated by crucible.observe.report")
+
+
+def push(entity: str, **kw: Any) -> str:
+    """Build and save the report (network); returns its URL."""
+    if not has_key():
+        raise RuntimeError("WANDB_API_KEY is not set: the report can be built offline but saving it needs the key")
+    r = build(entity, **kw)
+    r.save()
+    return str(r.url)

@@ -14,7 +14,9 @@ Sinks (``from_spec``: ``"jsonl:DIR,tensorboard:DIR,wandb:PROJECT,console"``):
 - ``JsonlSink(dir)``: ``metrics.jsonl`` (one line per step), ``records.jsonl`` (``{"kind", "step", "data"}``),
   ``summary.json`` (rewritten atomically); line-buffered, so a killed run keeps everything up to its last step;
 - ``TensorBoardSink(dir)``: numeric scalars through ``torch.utils.tensorboard`` (optional dependency);
-- ``WandbSink(project, name, mode)``: ``mode="offline"`` by default (no network unless asked); optional dependency;
+- ``WandbSink(project, name, mode)``: ``crucible.observe.WandbSink``, an ``ObsRun`` (redacted, mirrored to ``ops.jsonl``,
+  ``mode="offline"`` by default, no network unless asked; every W&B call goes through ``crucible.observe``); optional
+  dependency (extra ``observe``);
 - ``ConsoleSink``: one compact line per step.
 """
 
@@ -29,7 +31,10 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from crucible.observe.run import WandbSink
+
 log = logging.getLogger(__name__)
+__all__ = ["ConsoleSink", "JsonlSink", "Sink", "TensorBoardSink", "Tracking", "WandbSink", "from_spec"]
 
 
 class Sink(Protocol):
@@ -100,27 +105,6 @@ class TensorBoardSink:
     def finish(self, status: str) -> None:
         self.w.flush()
         self.w.close()
-
-
-class WandbSink:
-    def __init__(self, project: str, name: str | None = None, *, mode: str = "offline", config: Mapping[str, Any] | None = None):
-        import wandb  # optional dependency
-
-        self.wandb = wandb
-        self.run = wandb.init(project=project, name=name, mode=mode, config=dict(config or {}))
-
-    def log(self, metrics: Mapping[str, float], step: int) -> None:
-        self.run.log(_scalars(metrics), step=step)
-
-    def record(self, kind: str, data: Any, step: int) -> None:
-        if kind == "failure":  # rollout bodies are too large for W&B rows; failures are the actionable part
-            self.run.log({"failures/last": json.dumps(_jsonable(data), default=str)[:2000]}, step=step)
-
-    def summary(self, data: Mapping[str, Any]) -> None:
-        self.run.summary.update({k: v for k, v in data.items() if isinstance(v, int | float | str | bool)})
-
-    def finish(self, status: str) -> None:
-        self.run.finish(exit_code=0 if status in ("steps", "ok") else 1)
 
 
 class ConsoleSink:

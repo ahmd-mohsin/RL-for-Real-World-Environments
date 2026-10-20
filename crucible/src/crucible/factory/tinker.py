@@ -22,6 +22,10 @@ The factory joins the two sides the layering keeps apart: ``factory.envs.make_en
   recorded in every report).
 - ``download_adapter(path, out)``: the LoRA adapter of a sampler checkpoint (Tinker's signed archive URL), extracted
   with every member checked to stay inside ``out``.
+- **Observability** (``observe=``, an ``observe.ObserveConfig``; None: off, or on when ``CRUCIBLE_OBSERVE=1``;
+  swarm-pipeline/11): ``train`` logs every step to a ``crucible-train`` W&B run (the trainer's sink) and its episodes as
+  Weave traces; ``benchmark`` logs the arm (``observe.bench.log_benchmark``) and ``compare`` the comparison
+  (``log_compare``: the headline pre/post chart, the paired difference, the protocol check). Offline by default.
 """
 
 from __future__ import annotations
@@ -62,20 +66,67 @@ def _backend(backend: Any) -> Any:
     return RealTinker()
 
 
+def task_meta(tasks: Sequence[Any]) -> dict[str, dict[str, Any]]:
+    """task id -> language, family, skill (the benchmark breakdowns): a task's own ``language`` / ``family`` / ``intent``
+    when it has them, else the lane's (a kernel-lane task is CUDA, a window task Python; the family is the repository)."""
+    out = {}
+    for t in tasks:
+        w = getattr(t, "window", None) or {}
+        lane = type(t).__module__.rsplit(".", 1)[-1]
+        out[str(t.task_id)] = {"language": getattr(t, "language", None) or ("cuda" if "kernel" in lane else "python"),
+                               "family": getattr(t, "family", None) or (w.get("repo") if isinstance(w, Mapping) else None) or lane,
+                               "skill": getattr(t, "intent", None) or "unassigned", "split": str(getattr(t, "split", "") or "") or None}
+    return out
+
+
+def _observe_cfg(observe: Any) -> Any:
+    """``observe``: an ``ObserveConfig``, True, False or None (None: on only when ``CRUCIBLE_OBSERVE=1``)."""
+    import os
+
+    if observe is None:
+        observe = os.environ.get("CRUCIBLE_OBSERVE") == "1"
+    if observe is False:
+        return None
+    from crucible.observe import ObserveConfig
+
+    return observe if isinstance(observe, ObserveConfig) else ObserveConfig.from_env()
+
+
 async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: Mapping[str, Mapping[str, Any]] | None = None, backend: Any = None,
                 codec: Any = None, phi_checkpoint: Any = None, tool_limit: int | None = None, timeouts: Timeouts | None = None,
-                mode: str = "workspace") -> dict[str, Any]:
+                mode: str = "workspace", observe: Any = None) -> dict[str, Any]:
+    from dataclasses import asdict
+
     from crucible.factory.receipts import make_receipt, write_receipt
     from crucible.train.bridges.tinker.trainer import TinkerTrainer
 
     envs = [make_env(t, checkpoint=phi_checkpoint, tool_limit=tool_limit, timeouts=timeouts, mode=mode) for t in tasks]
+    ocfg = _observe_cfg(observe)
+    obs = None
+    if ocfg is not None:
+        from crucible.observe.train_views import train_run
+
+        t = timeouts or Timeouts()
+        obs = train_run(asdict(config), run_dir=Path(run_dir), objective_id=objective_of(tasks), tasks=[str(x.task_id) for x in tasks],
+                        harness=getattr(envs[0].harness, "id", None) if envs else None, task_meta=task_meta(tasks), cfg=ocfg,
+                        extra={"tool_limit": tool_limit, "agent_s": t.agent_s, "rollout_s": t.rollout_s, "mode": mode,
+                               "phi_checkpoint": asdict(phi_checkpoint) if phi_checkpoint is not None and hasattr(phi_checkpoint, "__dataclass_fields__") else None})
     tr = TinkerTrainer(envs, config=config, backend=_backend(backend), run_dir=Path(run_dir), codec=_codec(config.model, config.enable_thinking, codec),
-                       objective_id=objective_of(tasks), targeting=targeting)
-    out = await tr.run()
+                       objective_id=objective_of(tasks), targeting=targeting, sinks=[obs] if obs is not None else [])
+    try:
+        out = await tr.run()
+    except BaseException:
+        if obs is not None:
+            obs.finish("error")
+        raise
     rec = make_receipt(scope="tinker-train", runs={out["run"]: {k: out[k] for k in ("model", "steps_done", "stop", "objective_id", "sampler_path", "state_path",
                                                                                       "drops", "groups_seen", "versions")}},
                        not_verified=NOT_VERIFIED_TRAIN, seeds={"seed": config.seed}, spend=out["spend"])
     write_receipt(Path(run_dir) / "receipt.json", rec)
+    if obs is not None:
+        from crucible.observe.train_views import finish_train
+
+        out["observe"] = finish_train(obs, out, Path(run_dir))
     return out
 
 
@@ -166,7 +217,7 @@ def arm_settings(*, model: str, k: int, temperature: float, max_tokens: int, ena
 async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Path, cap_usd: float, checkpoint: str | None = None, backend: Any = None,
                     codec: Any = None, temperature: float = 1.0, max_tokens: int = 1024, enable_thinking: bool = False, phi_checkpoint: Any = None,
                     tool_limit: int | None = None, timeouts: Timeouts | None = None, concurrency: int = 4, system: str | None = None,
-                    seed: int = 0, purpose: str = "baseline") -> dict[str, Any]:
+                    seed: int = 0, purpose: str = "baseline", observe: Any = None, meta: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """``k`` attempts per task of ``model`` (``checkpoint``: sampler weights, None = the base model). ``seed`` is the run's
     seed (attempt seeds derive from it; a fresh baseline uses a seed the selection run did not); ``purpose`` labels the
     arm in the benchmark protocol (``check_protocol``). The report records the arm's settings (``arm_settings``)."""
@@ -217,6 +268,10 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
            "metrics": metrics(episodes, k=k, usd_total=meter.spent), "spend": meter.summary(), "codec": sampler.settings()}
     (run_dir / "episodes.jsonl").write_text("".join(json.dumps(r, sort_keys=True, default=str) + "\n" for r in rows))
     (run_dir / "metrics.json").write_text(json.dumps(out, indent=1, sort_keys=True, default=str))
+    if (ocfg := _observe_cfg(observe)) is not None:
+        from crucible.observe.bench import log_benchmark
+
+        out["observe"] = log_benchmark(out, run_dir, task_meta=meta or task_meta(tasks), cfg=ocfg)
     out["episodes"] = episodes  # LHEpisode objects for ``compare`` (not in metrics.json; episodes.jsonl has the rows)
     return out
 
@@ -248,7 +303,8 @@ def check_protocol(arms: Mapping[str, Mapping[str, Any]]) -> list[str]:
 
 
 async def compare(tasks: Sequence[Any], *, model: str, checkpoint: str, run_dir: Path, cap_usd: float, k: int = 8, seed: int = 1000,
-                  baseline: Mapping[str, Any] | None = None, selection: Mapping[str, Any] | None = None, n_boot: int = 4000, **kw: Any) -> dict[str, Any]:
+                  baseline: Mapping[str, Any] | None = None, selection: Mapping[str, Any] | None = None, n_boot: int = 4000, observe: Any = None,
+                  arm_dirs: Mapping[str, Path | str] | None = None, **kw: Any) -> dict[str, Any]:
     """The control (base model) and the trained adapter at the same settings and seed on the same tasks, the paired
     trained − base difference of per-task pass@1 (k attempts each) with its task-clustered bootstrap CI and MDE
     (``bench.lh_metrics.paired``), and ``check_protocol`` over every arm given (pass the fresh ``baseline`` and the
@@ -256,6 +312,8 @@ async def compare(tasks: Sequence[Any], *, model: str, checkpoint: str, run_dir:
     from crucible.bench.lh_metrics import paired
 
     run_dir = Path(run_dir)
+    ocfg = _observe_cfg(observe)
+    kw["observe"] = ocfg if ocfg is not None else False
     control = await benchmark(tasks, model=model, checkpoint=None, k=k, run_dir=run_dir / "control", cap_usd=cap_usd / 2, seed=seed, purpose="control", **kw)
     trained = await benchmark(tasks, model=model, checkpoint=checkpoint, k=k, run_dir=run_dir / "trained", cap_usd=cap_usd / 2, seed=seed, purpose="trained", **kw)
     arms = {"control": control, "trained": trained, **({"baseline": baseline} if baseline else {}), **({"selection": selection} if selection else {})}
@@ -268,6 +326,10 @@ async def compare(tasks: Sequence[Any], *, model: str, checkpoint: str, run_dir:
            "ci": {"control": control["metrics"]["ci"]["pass@1"], "trained": trained["metrics"]["ci"]["pass@1"]},
            "paired_trained_minus_control": diff, "arms": {n: strip(a) for n, a in arms.items()}}
     (run_dir / "compare.json").write_text(json.dumps(out, indent=1, sort_keys=True, default=str))
+    if ocfg is not None:
+        from crucible.observe.bench import log_compare
+
+        out["observe"] = log_compare(out, run_dir, task_meta=kw.get("meta") or task_meta(tasks), cfg=ocfg, arm_dirs=arm_dirs)
     return out
 
 

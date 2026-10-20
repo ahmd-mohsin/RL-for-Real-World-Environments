@@ -136,6 +136,15 @@ def _envs_kw(args):
             "timeouts": Timeouts(agent_s=args.agent_s, rollout_s=args.rollout_s)}
 
 
+def _observe(args):
+    """The observability config (``crucible.observe``): offline W&B runs and local Weave spans, or False."""
+    if getattr(args, "no_observe", False):
+        return False
+    from crucible.observe import ObserveConfig
+
+    return ObserveConfig.from_env()
+
+
 def _tasks_from_rows(args):
     from crucible.factory.envs import read_task_rows, resolve_ref
 
@@ -154,7 +163,7 @@ def cmd_train(args) -> None:
                       max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
                       drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale)
     try:
-        out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, **_envs_kw(args)))
+        out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), **_envs_kw(args)))
     finally:
         cleanup_containers()
     write(_out(args) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})
@@ -168,7 +177,7 @@ def cmd_eval(args) -> None:
     try:
         out = asyncio.run(benchmark(tasks, model=args.model, k=args.k, run_dir=_out(args), cap_usd=args.cap, checkpoint=args.checkpoint,
                                     max_tokens=args.max_tokens, enable_thinking=args.thinking, concurrency=args.concurrency, seed=args.seed,
-                                    purpose=args.purpose, **_envs_kw(args)))
+                                    purpose=args.purpose, observe=_observe(args), **_envs_kw(args)))
         out.pop("episodes", None)
     finally:
         cleanup_containers()
@@ -187,7 +196,9 @@ def cmd_compare(args) -> None:
     try:
         out = asyncio.run(compare(tasks, model=args.model, checkpoint=args.checkpoint, run_dir=_out(args), cap_usd=args.cap, k=args.k, seed=args.seed,
                                   baseline=load(args.baseline), selection=load(args.selection), max_tokens=args.max_tokens, enable_thinking=args.thinking,
-                                  concurrency=args.concurrency, **_envs_kw(args)))
+                                  concurrency=args.concurrency, observe=_observe(args),
+                                  arm_dirs={a: Path(p).parent for a, p in (("baseline", args.baseline), ("selection", args.selection)) if p},
+                                  **_envs_kw(args)))
     finally:
         cleanup_containers()
     write(_out(args) / "compare_report.json", out)
@@ -351,6 +362,8 @@ def main() -> None:
         p.add_argument("--rows")
         p.add_argument("--prompts")
         p.add_argument("--env-file", default=str(ROOT.parent / ".env"), help="dotenv file holding TINKER_API_KEY (read for that key only)")
+        p.add_argument("--no-observe", action="store_true", help="do not log to W&B / Weave (default: offline runs under data/observe; "
+                                                                 "scripts/observe.py sync uploads them)")
 
     for name, fn in (("train", cmd_train), ("smoke-rl", cmd_smoke_rl)):
         p = sub.add_parser(name)

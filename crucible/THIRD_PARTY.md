@@ -11,6 +11,9 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | verifiers v1 | `RL-Environments/06-frameworks-and-env-code/primeintellect-ai-verifiers` | ae819de (2026-10-04) | MIT | training path (M11/M12, later) | extra `verifiers`, **conflicts** with `agentenv`/`mcp` (it pins `mcp==2.0.0`; agentenv needs `mcp<2`), so it lives in a separate environment |
 | MCP Python SDK 1.30 | PyPI | — | MIT | App tool serving/clients (M1) | extra `mcp` |
 | tinker SDK 0.34.0 (Thinking Machines) | PyPI | — | Apache-2.0 | hosted LoRA trainer and sampler: `ServiceClient`, `TrainingClient` (`forward_backward` with `importance_sampling` / `ppo` / `cispo`, `optim_step`, `save_weights_for_sampler`, `save_state`), `SamplingClient` (token-in/token-out with logprobs) behind `train/bridges/tinker/backend.py` (imported lazily) | extra `tinker` |
+| wandb 0.31.0 (Weights & Biases SDK) | PyPI | — | MIT | runs, tables, native charts, HTML panels and artifacts, offline (`wandb sync` later), behind `observe/run.py` only (imported lazily; an import-linter contract forbids it elsewhere) | extra `observe` |
+| weave 0.53.12 (W&B Weave) | PyPI | — | Apache-2.0 | agent traces: `WeaveClient.create_call` / `finish_call` (with `_call_id_override`, `started_at`, `ended_at`) replay our local spans in `observe/weave_sync.py`; no offline mode, so nothing is sent before a key exists | extra `observe` |
+| wandb-workspaces 0.4.13 | PyPI | — | Apache-2.0 | the W&B Report template (`observe/report.py`: `Report`, `PanelGrid`, `Runset`, `MediaBrowser`, `WeavePanelSummaryTable`, `ScalarChart`, `LinePlot`); built offline, saved only with a key | extra `observe` |
 | fastapi-mcp 0.4, SQLAlchemy 2.1, huggingface-hub 2.2 | PyPI | — | MIT | running OpenEnv AWM services (M1 generality) | extra `openenv-awm` |
 
 ## Code ported into `src/crucible/_vendor/` (each folder has `ORIGIN.md`; changed lines are tagged `# [crucible]`)
