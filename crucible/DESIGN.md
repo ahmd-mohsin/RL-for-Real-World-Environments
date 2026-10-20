@@ -1027,6 +1027,26 @@ build tasks that target its failures):
 - **Fixed:** `lh_run.policy_ref` declared no `config`, so the Runner refused every solvers, probe and arms stage at
   start (M10 R-4 `Undeclared`).
 
+Kernel debugging lane (`docs/research/swarm-pipeline/10-kernel-debug-lane.md`; `factory/langs/cuda.py`,
+`factory/lanes/kernel_harness.py`, `kernel_debug{,_mine,_ops,_world,_plan,_migrate}.py`, `scripts/lh_kernel_debug{,_migrate,_gpu}.py`;
+$0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:opus-5.5`):
+- **Families:** `kernel-bug` (2-4 real CUDA kernel bug fixes reverted together at B, connected through shared ops),
+  `kernel-perf` (real kernel speed-ups reverted: results still correct, a per-GPU perf bar fails), `kernel-migration`
+  (2-4 real toolkit-migration commits reverted at B: CUDA 12 -> 13 / CCCL 3 removals, CUDA 11 -> 12 texture/warp changes,
+  merged into multi-program windows on the kernel-migration machinery). Training: ggml-org/llama.cpp and the two
+  migration repos; held out: ikawrakow/ik_llama.cpp (disjoint repository and commits, same harness type), sealed by the lease.
+- **Harness and grader:** the repository's own op test (`test-backend-ops`) as of B, owned by the grader and patched in
+  two layouts (seeded inputs, case selection and listing, dumps, exact repetitions; anchored repairs where a fork's file
+  no longer compiles); the grader builds the candidate's CUDA backend only (everything else from the start tree) with
+  SASS-only flags, compares each case with the reference build's CPU output on fixed and fresh seeds outside the
+  candidate's process, requires kernel launches, runs compute-sanitizer for race/barrier/bounds faults and grader-clock
+  perf bars with a measured noise floor; no GPU or no calibration -> masked, never a 0.
+- **CPU now, GPU bundled:** synthesis (history-ordered chain, B' == B), compile of every touched unit at A' and B for
+  sm_90 and sm_120, the harness built and its case pools listed and seeding executed on the CPU backend, World probes,
+  floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
+  (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
+  and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
+
 ## 8. Layer 4: verification and isolation
 
 ### 8.1 Patterns of hidden checks (coding)

@@ -59,6 +59,11 @@ LEGACY = {  # comment-stripped scan of the window's files (kept in step with ``k
     "warp_sync": r"\b__shfl(?:_up|_down|_xor)?\s*\(|\b__any\s*\(|\b__all\s*\(|\b__ballot\s*\(",
     "thread_api": r"\bcudaThread(?:Synchronize|Exit|SetLimit|GetLimit|SetCacheConfig|GetCacheConfig)\s*\(",
     "lib_api": r"\bcusparse[SDCZ](?:csrmv|csrmm2?|csr2csc|gemmi|csrsv_analysis|csrsv_solve|hybmv)\s*\(",
+    # CUDA 13 / CCCL 3 removals (``kernel_debug_migrate.KINDS13``; a unit test keeps the two in step)
+    "cccl3_functors": r"\bcub::(?:Sum|Max|Min|Equality|Inequality)\b(?!::)",  # ArgMax/ArgMin survive in CCCL 3 (deprecated, still built at B)
+    "memloc_api": (r"\bcudaMem(?:PrefetchAsync|Advise)\s*\(\s*[^,;]+,\s*[^,;]+,\s*(?![^,;)]*(?:[Ll]oc|location))"
+                   r"(?:cudaCpuDeviceId|\d+|[A-Za-z_]\w*)\s*(?:,\s*[^,;()]+)?\)"),
+    "devprop_removed": r"\.\s*(?:clockRate|memoryClockRate|computeMode|deviceOverlap|kernelExecTimeoutEnabled|maxTexture1DLinear|cooperativeMultiDeviceLaunch)\b",
 }
 JIT_ESCAPE = r"\bcuModuleLoad\w*\s*\(|\bcuLinkCreate\w*\s*\(|\bnvrtcCompileProgram\s*\(|\bnvPTXCompilerCompile\s*\(|\bcudaLibraryLoad\w*\s*\("
 
@@ -190,6 +195,7 @@ def nvcc_flags(prog: dict, *, root: Path, arch: str, legacy: bool = False, legac
     cmd += [f"-D{d}" for d in prog.get("defines") or []]
     if prog.get("openmp"):
         cmd += ["-Xcompiler", "-fopenmp"]
+    cmd += [f for f in prog.get("nvcc_flags") or [] if f in ("--expt-relaxed-constexpr", "--extended-lambda", "--expt-extended-lambda")]
     return cmd
 
 

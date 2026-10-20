@@ -156,11 +156,12 @@ class FileChange:
     added: list[str] = field(default_factory=list)
     status: str = "M"
 
-    def kinds(self) -> dict[str, dict[str, int]]:
-        """kind -> {legacy removed, modern added, legacy still added} for this file's change."""
+    def kinds(self, kinds: Mapping[str, tuple[re.Pattern[str], re.Pattern[str]]] | None = None) -> dict[str, dict[str, int]]:
+        """kind -> {legacy removed, modern added, legacy still added} for this file's change (``kinds``: another kind
+        table with the same shape, e.g. the CUDA 13 kinds of ``kernel_debug_migrate``)."""
         out: dict[str, dict[str, int]] = {}
         src, bld = is_source(self.path), is_build(self.path)
-        for k, (old, new) in KINDS.items():
+        for k, (old, new) in (kinds or KINDS).items():
             if (k == "arch") != bld or not (src or bld):
                 continue
             rem = sum(1 for ln in self.removed if old.search(_strip_comment(ln)))
@@ -213,50 +214,52 @@ def parse_patch(text: str) -> list[FileChange]:
     return files
 
 
-def legacy_count(text: str | None, kind: str) -> int:
+def legacy_count(text: str | None, kind: str, kinds: Mapping[str, tuple[re.Pattern[str], re.Pattern[str]]] | None = None) -> int:
     if not text:
         return 0
-    return sum(1 for ln in text.splitlines() if KINDS[kind][0].search(_strip_comment(ln)))
+    return sum(1 for ln in text.splitlines() if (kinds or KINDS)[kind][0].search(_strip_comment(ln)))
 
 
-def classify(files: Sequence[FileChange], texts: Callable[[str], tuple[str | None, str | None]] | None = None
+def classify(files: Sequence[FileChange], texts: Callable[[str], tuple[str | None, str | None]] | None = None, *,
+             kinds: Mapping[str, tuple[re.Pattern[str], re.Pattern[str]]] | None = None, complete: Sequence[str] = COMPLETE_KINDS
              ) -> tuple[dict[str, dict[str, int]], list[str]]:
     """Kinds of a commit and the files it *migrates*: legacy removed and the modern form added in the same file, the file
     kept (not deleted) and no new legacy use of that kind added. A file that only loses legacy lines (dead code removal) or
     only gains modern ones (new code) is not a migration. With ``texts(path) -> (before, after)``, a *complete* removal
     (the file had the construct before and has none after, e.g. a texture reference replaced by plain loads) also counts
     for the source kinds."""
-    kinds: dict[str, dict[str, int]] = {}
+    found: dict[str, dict[str, int]] = {}
     migrated: list[str] = []
     for f in files:
         if f.status == "D":
             continue
-        for k, c in f.kinds().items():
+        for k, c in f.kinds(kinds).items():
             real = c["modern_added"] > 0 and c["legacy_added"] == 0
-            if not real and k in COMPLETE_KINDS and texts is not None and c["legacy_added"] == 0:
+            if not real and k in complete and texts is not None and c["legacy_added"] == 0:
                 before, after = texts(f.path)
-                real = legacy_count(before, k) > 0 and legacy_count(after, k) == 0
+                real = legacy_count(before, k, kinds) > 0 and legacy_count(after, k, kinds) == 0
             if k == "arch":
                 real = c["modern_added"] > 0
             if not real:
                 continue
-            agg = kinds.setdefault(k, {"legacy_removed": 0, "modern_added": 0, "files": 0})
+            agg = found.setdefault(k, {"legacy_removed": 0, "modern_added": 0, "files": 0})
             agg["legacy_removed"] += c["legacy_removed"]
             agg["modern_added"] += c["modern_added"]
             agg["files"] += 1
             if f.path not in migrated:
                 migrated.append(f.path)
-    return kinds, migrated
+    return found, migrated
 
 
 # a coarse POSIX-ERE prefilter for ``git log -G`` (no ``\\b``, no non-capturing groups); ``classify`` decides
 PICKAXE = r"texture *<|cudaBindTexture|cudaUnbindTexture|textureReference|surface *<|cudaBindSurface|__shfl|__any *[(]|__all *[(]|__ballot *[(]|volatile|cudaThread|cusparse[SDCZ]"
 
 
-def scan_repo(repo: Path, name: str, *, max_files: int = 60, since: str | None = None) -> list[MigrationCommit]:
+def scan_repo(repo: Path, name: str, *, max_files: int = 60, since: str | None = None, kinds: Mapping[str, Any] | None = None,
+              pickaxe: str = PICKAXE, source_kinds: Sequence[str] = SOURCE_KINDS, complete: Sequence[str] = COMPLETE_KINDS) -> list[MigrationCommit]:
     """Every non-merge commit of ``repo`` that migrates at least one CUDA source (``classify``); commits touching more than
     ``max_files`` source files are kept but marked by their size (the window builder splits or drops them)."""
-    args = ["log", "--no-merges", "--format=%H", f"-G{PICKAXE}"]
+    args = ["log", "--no-merges", "--format=%H", f"-G{pickaxe}"]
     if since:
         args.append(f"--since={since}")
     args += ["--", *[f"*{s}" for s in CUDA_SRC + CXX_SRC]]
@@ -273,14 +276,14 @@ def scan_repo(repo: Path, name: str, *, max_files: int = 60, since: str | None =
         def texts(path: str, sha: str = sha, parent: str = parents[0]) -> tuple[str | None, str | None]:
             return _show(repo, parent, path), _show(repo, sha, path)
 
-        kinds, migrated = classify(files, texts)
-        if not any(k in kinds for k in SOURCE_KINDS):
+        found, migrated = classify(files, texts, kinds=kinds, complete=complete)
+        if not any(k in found for k in source_kinds):
             continue
         changed = [f.path for f in files]
         if sum(1 for p in changed if is_source(p)) > max_files:
-            kinds["_oversized"] = {"files": len(changed)}
+            found["_oversized"] = {"files": len(changed)}
         lic, lic_src = licence_for(repo, sha, migrated)
-        out.append(MigrationCommit(repo=name, sha=sha, parent=parents[0], date=meta[1], subject=meta[2][:200], kinds=kinds, migrated_files=migrated,
+        out.append(MigrationCommit(repo=name, sha=sha, parent=parents[0], date=meta[1], subject=meta[2][:200], kinds=found, migrated_files=migrated,
                                    changed_files=changed, lines_added=sum(len(f.added) for f in files),
                                    lines_removed=sum(len(f.removed) for f in files), licence=lic, licence_source=lic_src))
     return out
