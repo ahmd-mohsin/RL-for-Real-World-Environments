@@ -810,11 +810,14 @@ def _boot_ci(per_task: Mapping[str, float], *, n_boot: int = 2000, alpha: float 
     return mean, boots[int(alpha / 2 * n_boot)], boots[min(n_boot - 1, int((1 - alpha / 2) * n_boot))]
 
 
-def report(episodes: Iterable[Any], *, category_of: Callable[[str], str], ks: Sequence[int] = (1, 2, 3, 4, 5), n_boot: int = 2000, seed: int = 0
-           ) -> dict[str, Any]:
-    """``METRICS_PLAN`` over ``bench.lh_metrics.LHEpisode``s, per category and overall."""
+def report(episodes: Iterable[Any], *, category_of: Callable[[str], str], ks: Sequence[int] = (1, 2, 3, 4, 5), n_boot: int = 2000, seed: int = 0,
+           policy: str = "") -> dict[str, Any]:
+    """``METRICS_PLAN`` over ``bench.lh_metrics.LHEpisode``s, per category and overall. ``policy``: the policy id the
+    episodes came from; a dev-only student backend (``factory.student``: ``...@mlx``) raises ``DevOnlyNumerics``."""
     from crucible.bench.lh_metrics import pass_hat_k, summarize
+    from crucible.factory.student import assert_countable
 
+    assert_countable(policy, "benchmark report")
     eps = list(episodes)
     cats: dict[str, list[Any]] = {}
     for e in eps:
@@ -841,10 +844,15 @@ def report(episodes: Iterable[Any], *, category_of: Callable[[str], str], ks: Se
     return out
 
 
-def paired_report(base: Iterable[Any], trained: Iterable[Any], *, group_of: Callable[[str], Hashable] | None = None, **kw: Any) -> dict[str, Any]:
-    """Base vs trained per task on pass rate and final Φ (``bench.lh_metrics.paired``: repo-clustered when ``group_of``)."""
+def paired_report(base: Iterable[Any], trained: Iterable[Any], *, group_of: Callable[[str], Hashable] | None = None, policies: Sequence[str] = (),
+                  **kw: Any) -> dict[str, Any]:
+    """Base vs trained per task on pass rate and final Φ (``bench.lh_metrics.paired``: repo-clustered when ``group_of``).
+    ``policies``: the two arms' policy ids; a dev-only student backend raises ``DevOnlyNumerics`` (``factory.student``)."""
     from crucible.bench.lh_metrics import paired
+    from crucible.factory.student import assert_countable
 
+    for p in policies:
+        assert_countable(p, "paired benchmark report")
     b, t = list(base), list(trained)
     return {"pass": paired(b, t, metric="pass", group_of=group_of, **kw), "phi": paired(b, t, metric="phi", group_of=group_of, **kw)}
 

@@ -952,6 +952,30 @@ class ReasoningCap:
         return await self._client.complete_json(messages, extra_body=body, **kw)
 
 
+def _family_of_client(c: Any) -> str:
+    from crucible.factory.audit import policy_model
+    from crucible.factory.models import family_of
+
+    fam = getattr(c, "family", None) or getattr(getattr(c, "_client", None), "family", None)
+    return str(fam) if fam else family_of(policy_model(str(getattr(c, "model", "") or "")))
+
+
+def checked_overrides(current: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
+    """``overrides`` after the builder/independent family rule (``models.BUILDER_ROLES`` vs ``models.INDEPENDENT_ROLES``,
+    with the swarm's own role names): a ``SameFamilyError`` names every independent role whose client would share a
+    builder's family."""
+    from crucible.factory.models import BUILDER_ROLES, INDEPENDENT_ROLES, SameFamilyError
+
+    merged = {**dict(current), **dict(overrides)}
+    builders = {_family_of_client(c): r for r, c in merged.items() if r in BUILDER_ROLES}
+    bad = [f"role {r!r} shares family {_family_of_client(c)!r} with builder role {builders[_family_of_client(c)]!r}"
+           for r, c in merged.items() if (r in INDEPENDENT_ROLES or r.startswith("rewriter_deepseek")) and _family_of_client(c) in builders
+           and (r in overrides or builders[_family_of_client(c)] in overrides)]
+    if bad:
+        raise SameFamilyError("; ".join(bad))
+    return dict(overrides)
+
+
 class SwarmRunner:
     """Candidates -> one machine each (``run_all``). ``run`` is the phase's guarded run (``scripts/lh_run.Run``: one USD ledger,
     ``solver_client``, ``spend``); ``hack_episode(task) -> {reward, ...}`` runs the hacker in the solver's World (the script owns
@@ -959,7 +983,12 @@ class SwarmRunner:
 
     def __init__(self, run: Any, *, root: Path, clones: Path, store3: Any, world_prefix: str, grade_prefix: str, lease: Any,
                  hack_episode: Callable[[Any], Any] | None = None, gh: Any = None, max_milestones: int = 4, parallel: int = 2, grade_parallel: int = 6,
-                 paid_gates: bool = True, budget_usd: float = 2.0, log: Callable[[dict], None] | None = None, redo: bool = False):
+                 paid_gates: bool = True, budget_usd: float = 2.0, log: Callable[[dict], None] | None = None, redo: bool = False,
+                 intent: Mapping[str, Any] | None = None, clients: Mapping[str, Any] | None = None):
+        """``intent``: the planner's intent (default the generic P5 one; ``factory.failures.BuilderIntent.planner_intent()`` turns
+        mined student failures into one). ``clients``: role -> client overrides (e.g. the Claude Code builder on the planner,
+        oracle builder, verifier writer and author); a Claude Code client on a reviewer, hacker or second verifier raises
+        ``models.SameFamilyError``, as does any override that shares the family of a builder override."""
         from crucible.factory.generators.base import GateConfig
         from crucible.factory.handoff import TaskRepo
         from crucible.factory.lanes.windows import ImageBook, WindowStore, sandbox_factory
@@ -979,6 +1008,8 @@ class SwarmRunner:
         self.clients["rewriter_deepseek"] = run.solver_client(ROLE_MODELS["second_verifier"], tag="rewriter_deepseek")
         for r in ("planner", "reviewer", "second_verifier", "rewriter_deepseek"):  # call roles (sessions keep their own settings)
             self.clients[r] = ReasoningCap(self.clients[r])
+        self.intent = dict(intent) if intent else None
+        self.clients.update(checked_overrides(self.clients, clients or {}))
         self._booked = {r: 0.0 for r in self.clients}
         self._lane: Any = None
         self._lock = asyncio.Lock()
@@ -1059,7 +1090,7 @@ class SwarmRunner:
         reqs = [{"id": r["evidence"]["rid"], "text": r["text"]} for r in cand.requests if (r.get("lease") or {}).get("ok", True)]
         names = mentioned_names(" ".join(r["text"] for r in reqs))
         return {"repo_name": cand.repo, "start": {"ref": cand.window.get("a_ref"), "sha": cand.a}, "requests": reqs, "code_links": call_links(base, names),
-                "intent": {"id": "intent-p5-generic-change", "behaviour": "carry out a dependent multi-step change in a real Python library"},
+                "intent": self.intent or {"id": "intent-p5-generic-change", "behaviour": "carry out a dependent multi-step change in a real Python library"},
                 "repository": repo_context(base, " ".join(r["text"] for r in reqs), budget=24_000),
                 "sources": [r["id"] for r in cand.requests]}
 

@@ -12,7 +12,7 @@ from crucible.forge.budget import BudgetExhausted, Ledger
 
 
 def test_v1_defaults_and_families() -> None:
-    b = ModelBook()
+    b = ModelBook(preset="openrouter")  # the v1 map, kept as a fallback preset (the default is Claude + Tinker)
     assert b.spec("author") == ModelSpec("openrouter", "qwen/qwen3.7-flash", "qwen")
     for r in ("reviewer", "realism", "second_verifier", "auditor"):
         assert b.spec(r).model == "deepseek/deepseek-v4-flash" and b.spec(r).family == "deepseek"
@@ -54,4 +54,4 @@ async def test_spend_books_into_the_forge_ledger() -> None:
         async with booked(ledger, "librarian", estimate_usd=0.05):
             pass
     b = ModelBook()
-    assert b.ledger(1.0).observe() == 0.0 and models.DEFAULT_ROLES["verifier_writer"] == "qwen/qwen3.7-flash"
+    assert b.ledger(1.0).observe() == 0.0 and models.OPENROUTER_ROLES["verifier_writer"] == "qwen/qwen3.7-flash"

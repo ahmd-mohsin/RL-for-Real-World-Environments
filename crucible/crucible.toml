@@ -5,6 +5,15 @@ data_dir = "data"
 base_url = "https://openrouter.ai/api/v1"
 api_key = "env:OPENROUTER_API_KEY"
 
+# The local dev student (factory/student.py): Qwen/Qwen3.5-4B at bf16, text only, served by scripts/student_serve.sh on
+# this host (mlx-lm on Apple silicon, vLLM on a CUDA box), for harness work and the pipeline smoke: dev-only numerics.
+# Rung id "student:Qwen/Qwen3.5-4B". The target student is "tinker:Qwen/Qwen3.6-35B-A3B" through the registered tinker
+# backend (factory/models.py), never this entry. Thinking is an explicit setting (off), sent with every request.
+[llm_providers.student]
+base_url = "http://127.0.0.1:8100/v1"
+api_key = "EMPTY"
+request_defaults = { extra_body = { chat_template_kwargs = { enable_thinking = false } } }
+
 [models]
 sim-default = "openrouter:openai/gpt-6-luna"
 judge-default = "openrouter:anthropic/claude-haiku-5.5"   # different family than the simulator

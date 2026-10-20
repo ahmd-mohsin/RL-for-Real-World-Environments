@@ -961,3 +961,95 @@ turn whose only tool is `verdict`, forced with `tool_choice`, then the same `aud
 at ceiling. (3) The forced turn is not enabled: the measured path rejected it. (4) Old images are kept as before-state
 evidence. (5) S9 was not re-run on the refreshed Worlds. Tests: m17 non-Docker 570 plus the new ones; Docker
 `test_m17_{w,p4}_world` 4/4; ruff and lint-imports (4 kept) clean.
+
+## Student and builder (built): Claude builds, Tinker samples, the student's traces become builder intents
+
+Spec: `00` §3.2, §7, §8, §11; design `08-student-and-builder.md`. Spend: $0 in dollars. There was one `claude -p` call
+on the plan (API-equivalent $0.011). There were no OpenRouter, Tinker or GPU calls.
+
+**Files.**
+- New: `actors/claude_code.py`, `factory/student.py`, `factory/failures.py`, `scripts/student_serve.sh`.
+- Changed: `factory/models.py` (the default map, the family rule, the sampler registry), `factory/sessions.py` (Claude
+  Code sessions), `factory/receipts.py` (`spend.plan`), `factory/targeting.py` and `factory/benchmark.py` (dev-only
+  refusal), `generators/swarm.py` (`intent=`, `clients=`), `scripts/lh_run.py`, `scripts/lh_target.py` and `crucible.toml`
+  (`[llm_providers.student]`).
+- Tests: `tests/unit/test_sb_{claude_builder,student,failures}.py`, plus updated m17 model and driver tests.
+
+**1. The role map.**
+- **Builders:** Claude builds (`claude-code:opus-5.5`).
+- **Every other role** is sampled on Tinker, through the `tinker` registry slot that the Tinker bridge fills:
+  - S9: DeepSeek-V4.1-Flash;
+  - review and the trace audit: GLM-5.3;
+  - judges and cause labels: GLM-5.3-Flash;
+  - hackers: DeepSeek and Nemotron;
+  - rewriters: DeepSeek and GLM;
+  - frontier: Qwen3.5-397B and DeepSeek;
+  - ladder: Qwen3.5-4B / 9B and Qwen3.8-27B;
+  - target: Qwen3.6-35B-A3B.
+- **OpenRouter** is the fallback preset only.
+- **The family rule is enforced at `ModelBook` construction.** No judge, reviewer, hacker or auditor is on Claude Code,
+  on a builder's family or on a student's family, and the hackers span two families.
+
+**2. The builder client.**
+- JSON roles: `claude -p --output-format json`, no tools, a `--json-schema` validated with feedback retries.
+- Agentic roles: `run_session` in the private clone, with `--restricted`, no prompts, and an allowed list of file tools,
+  read/commit git and `docker exec <sandbox>`. A `SessionPool` state on this client captures its commits.
+- Every call runs with `--safe-mode` and without `ANTHROPIC_API_KEY`.
+- Plan receipts (turns, duration, API-equivalent cost) go to `spend.plan`.
+- The one real call: a 3-field JSON reply in 3.0 s, 2 turns, API-equivalent $0.011, model `claude-opus-5-5`.
+
+**3. The student.**
+- The target is `tinker:Qwen/Qwen3.6-35B-A3B`. The local dev model is `student:Qwen/Qwen3.5-4B`.
+- The local server is mlx-lm 0.32.2 (separate venv) on the Mac, or vLLM on a CUDA box. vLLM was not run here.
+- Qwen3.5-4B loads text-only on mlx, and its native tool calls parse with `qwen3_coder`.
+- Thinking is off and recorded. The backend is stamped into the policy id.
+- Only a target model on a final backend counts.
+
+**4. Failure mining.** A finding per failing episode, keyed by the student model. Builder-intent requests are made per
+student and per skill mode. Budget, harness, World and infrastructure failures are routed to their owners.
+
+**Fixed.** `lh_run.policy_ref` declared no `config`, so the Runner (M10 R-4) refused every solvers, probe and arms stage
+at start with `Undeclared`. It now declares the model, sampling, limits, the student backend and thinking.
+
+**The smoke** (2 windows × 1 attempt, `--tool-limit 30 --context-tokens 20000`, concurrency 1, mlx bf16, dev-only):
+
+| episode | tool calls | model calls | prompt / completion tokens | model time | completion tok/s | wall | stop | Φ |
+|---|---|---|---|---|---|---|---|---|
+| more-itertools-w15407c7 (4 ms) | 31 | 32 (1 compaction) | 237,301 / 6,716 | 551 s | 12.2 | about 9.5 min | max_steps | 0 |
+| python-semver-w41775dd (7 ms) | 30 | 34 (3 compactions) | 343,389 / 3,708 | 611 s | 6.1 | about 10.5 min | max_steps | 0 |
+
+- Completion tok/s is completion tokens over call latency, prefill included. Prompt and completion together ran at
+  about 440 to 570 tok/s.
+- Memory: the server's peak RSS was 8.2 GB. Free host pages fell to 33 MB, with Docker's 8 GB VM running, but there was
+  no out-of-memory error.
+- The first attempt, before the reboot, did die in a Metal out-of-memory during a long prefill. It ran on
+  Qwen3-4B-Instruct-2507 with a 4 GB prompt cache and a 24k context. Hence the 2-entry / 1.5 GB cache and 512-token
+  prefill steps.
+- Every one of the 61 tool calls parsed natively. One `edit_file` was refused (`old_string not found`).
+
+**What the traces show** (facts pass, no judge):
+- Both episodes hit the 30-call cap with Φ flat at 0, so the deterministic cause is `budget`. Both findings are routed to
+  `limits`, and no builder intent was made. This is right: a cap this small is not evidence of a skill gap.
+- **more-itertools.** The student spent calls 1 to 18 reading and searching, and made its first edit at call 19: it
+  added `maxsplit` / `keep_separator` to `split_at`.
+  - At call 27 its own check printed `Result: []` against `Expected: [['a'], ['c', 'd', 'c', 'a']]`. Its edit had broken
+    `split_at`. This is the first wrong step that a longer cap would surface as `lost_progress` or `never_progressed`.
+  - Its last call wrote STATUS.json claiming the work completed while no milestone had moved (`reply_before_action`).
+- **python-semver.** The student read files and ran the suite for 27 calls, and made its first edit at call 28.
+  - It first ran `cd /testbed && python -m pytest`, a SWE-bench path prior that does not exist in this World.
+
+**Deviations.**
+1. The host rebooted, which cleared `/private/tmp`. The scratch stores, clones, authored prompts and run-1/2 trails were
+   lost. The two windows were mined again (the same ids, both `mutants_valid`). Their prompts were rebuilt from commit
+   text with no model call, which is weaker than authored prompts.
+2. vLLM's load of Qwen3.5-4B / Qwen3.6-35B was not checked: there was no CUDA box.
+3. The target 35B student was not run: it is Tinker-only, and the bridge belongs to another agent.
+4. The smoke ran on the dev model on MLX, so none of its numbers count.
+
+**Tests.**
+- New: `test_sb_*` 48, all passing.
+- m17 + sb non-Docker: 639 passed, 1 skipped. The one failure is `test_m17_p6_envs::test_native_two_timeouts`, a timing
+  race: the 0.8 s rollout timeout loses to a fast grade. It flakes under load: here it passed 1 of 3, and on main it
+  passed 3 of 3. No changed file touches its path.
+- `test_m10_lab_audit_r1_harbor.py` fails to collect on main too (`CONNECT_ERROR` is undefined).
+- ruff is clean on the changed files, and lint-imports keeps 4 contracts.

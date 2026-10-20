@@ -143,12 +143,17 @@ def make_receipt(*, scope: str, runs: Mapping[str, Mapping[str, Any]], not_verif
 
 
 def run_receipt(run: MachineRun, *, scope: str, not_verified: Sequence[str], seeds: Mapping[str, Any] | None = None,
-                images: Sequence[str] = ()) -> dict[str, Any]:
-    """The receipt of one machine run (00 §13: versions, image digests, seeds, spend, state outcomes, not_verified)."""
+                images: Sequence[str] = (), plan_usage: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The receipt of one machine run (00 §13: versions, image digests, seeds, spend, state outcomes, not_verified).
+    ``plan_usage``: the Claude plan accounting of the run's builder clients (``ModelBook.plan_usage()``; swarm-pipeline/08),
+    kept under ``spend.plan``: the plan bills no per-call dollars, so it is reported beside ``spend.usd``, never in it."""
     out = journal_outcomes(run.journal.path)
     r = run.result()
+    spend: dict[str, Any] = {"usd": r.usd, "tokens": r.tokens, "seconds": r.seconds}
+    if plan_usage:
+        spend["plan"] = dict(plan_usage)
     return make_receipt(scope=scope, runs={run.run_id: out}, not_verified=not_verified, seeds=seeds, images=image_digests(images) if images else {},
-                        spend={"usd": r.usd, "tokens": r.tokens, "seconds": r.seconds}, machine_hash=run.hash)
+                        spend=spend, machine_hash=run.hash)
 
 
 def write_receipt(path: Path, receipt: Mapping[str, Any]) -> Path:
