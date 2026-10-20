@@ -31,6 +31,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from crucible.core.schema.reward import InfraStatus, RewardJson
 
@@ -98,9 +99,17 @@ class Episode:
     phi0: float = 0.0
     turn_weights: Sequence[float] | None = None  # e.g. completion tokens per turn (zero-mass centring); default 1
     advantages: list[float] = field(default_factory=list)
-    gated: bool = False  # a hard gate failed: no positive local credit (M6 audit V3: gate-failed turns earned +0.143)
-    hack: bool = False  # a confirmed hack (level-2 judge): same
+    gated: bool = False  # a hard gate (a rule, not an outcome check) failed: no local credit (M6 audit V3; 2026-10-19 R2)
+    hack: bool = False  # a confirmed or zeroed hack: same
     vetoed: Sequence[bool] | None = None  # per turn: evidence of wrongdoing at that turn (violations, probes, regressions)
+
+
+def hard_gate_failed(gates: Mapping[str, Any], kinds: Mapping[str, str] | None = None) -> bool:
+    """Whether a hard rule of the grade failed: a gate whose kind is ``"gate"`` (or undeclared: every record before kinds
+    were recorded meant a hard rule) with a false bit. An outcome or score check that failed is an unmet outcome, not a
+    broken rule (M6 R2: records carried every check as a gate, so every failure was treated as rule-breaking)."""
+    kinds = kinds or {}
+    return any(not bool(v) for g, v in gates.items() if str(kinds.get(g, "gate")) == "gate")
 
 
 def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "delta", normalize_outcome: bool = False,
@@ -113,8 +122,11 @@ def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "
       episode out-earned a monotone one (0.495 vs 0.254);
     - it is bounded by the turn's outcome advantage and never flips its sign (the docstring promised this; at 800
       turns one turn of a failure out-ranked every turn of the success);
-    - a gate-failed or hacked episode gets no positive local term, and a group whose live episodes all have one
-      reward gets none at all (it learned from pure process reward);
+    - a gate-failed or hacked episode gets no local term at all: every turn trains at the episode's outcome advantage
+      (M6 audit V3: gate-failed turns earned +0.143; 2026-10-19: the clamp that replaced it, applied after centring,
+      pushed the other turns down by the progress the violation bought, so the violating turn ranked best in its
+      episode, −0.5 against −0.75), and a group whose live episodes all have one reward gets none at all (it learned
+      from pure process reward);
     - a vetoed turn (AReaL GVPO's veto, fed by Crucible's own step evidence) cannot be positive, and in a flat group
       it gets ``-zeta``."""
     zeta = eta if zeta is None else zeta
@@ -150,8 +162,8 @@ def turn_advantages(group: Sequence[Episode], *, eta: float = 0.1, mode: str = "
         peak = max((abs(x) for x in local), default=0.0)
         if peak > abs(a_out):  # bounded by the outcome advantage (sign never flips), scaled as a whole: zero mass kept
             local = [x * abs(a_out) / peak for x in local] if peak else local
-        if e.gated or e.hack:
-            local = [min(0.0, x) for x in local]
+        if e.gated or e.hack:  # no redistribution: the progress a violation bought must not rank any turn above another
+            local = [0.0] * len(local)
         row = []
         for i, x in enumerate(local):
             total = a_out + x

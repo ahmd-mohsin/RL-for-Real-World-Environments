@@ -171,7 +171,7 @@ def build(rec: RunRecord, *, calls: dict[str, Sequence[dict[str, Any]]], traject
     sid = (rec.attempt or rec.run_id).rsplit("-a", 1)[0]
     out = RolloutRecord(rollout_id=rec.attempt or rec.run_id, sample=sid, task=rec.task or "", harness=m.get("harness") or "", policy=rec.policy,
                         group=group, turns=turns, reward=rec.scored_reward(), reward_components=dict(m.get("components") or {}),
-                        gates=dict(m.get("gates") or {}), truncated=bool(m.get("truncated")), stop=m.get("stop"),
+                        gates=dict(m.get("gates") or {}), gate_kinds=dict(m.get("gate_kinds") or {}), truncated=bool(m.get("truncated")), stop=m.get("stop"),
                         failure_kind=failure.kind if failure else None, blame=failure.who if failure else None, mask_sample=rec.mask_sample,
                         timings=dict(timings or (rec.timing.stages() if rec.timing is not None else {})),
                         trace_id=trace_id, segments=segs,

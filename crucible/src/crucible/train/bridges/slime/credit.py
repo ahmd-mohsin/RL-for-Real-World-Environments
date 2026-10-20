@@ -31,7 +31,7 @@ import os
 from collections.abc import Sequence
 from typing import Any
 
-from crucible.credit.compose import Episode, turn_credit
+from crucible.credit.compose import Episode, hard_gate_failed, turn_credit
 from crucible.train.bridges.slime.types import flat, is_masked, rollout_key
 
 PATCH_FILE = "batch_builder_turn_advantages.patch"
@@ -79,8 +79,8 @@ def group_credit(samples: Sequence[Any], *, eta: float) -> dict[Any, dict[str, A
             c = _crucible(s)
             masked = is_masked(s)
             deltas = [float(t.get("delta_phi") or 0.0) for t in c.get("turn_credit") or []]
-            gates = c.get("gates") or {}
-            eps.append(Episode(reward=None if masked else float(s.reward), phis=list(itertools.accumulate(deltas)), gated=bool(gates) and not all(gates.values()),
+            eps.append(Episode(reward=None if masked else float(s.reward), phis=list(itertools.accumulate(deltas)),
+                               gated=hard_gate_failed(c.get("gates") or {}, c.get("gate_kinds") or {}),  # hard rules only (M6 R2), as train.credit
                                hack=float(c.get("hack_confirmed") or 0.0) > 0))
         rows = turn_credit(eps, eta=eta)
         for k, row in zip(keys, rows, strict=True):

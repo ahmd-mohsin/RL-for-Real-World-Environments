@@ -19,10 +19,19 @@ the oldest policy version that produced the call (rLLM's async staleness reads i
   ``Step.advantage`` None and sets ``Trajectory.reward``: a per-token list there raises ``TypeError``, and rLLM's
   precomputed path turns even a scalar into a list (``advantage.py:153-154``), so Crucible's dense turn credit cannot
   reach the verl backend: its advantage is rLLM's own GRPO/RLOO over the outcome.
-- **tinker backend** takes per-token advantages, one per completion token (``trainer/tinker/transform.py:100-108``) under
-  ``use_precomputed_advantage`` (``advantage.py:139-170``): ``backend="tinker"`` writes Crucible's per-token advantage
-  (sequence advantage + turn credit, ``common.flatten``) on each step. Keep ``filter_uniform_groups`` off there: rLLM's
+- **tinker backend** takes per-token advantages, one per completion token (``trainer/tinker/transform.py:100-108``), and
+  trains them **as final**: on rLLM's default (sync) path ``transform_trajectory_groups_to_datums`` skips its own
+  estimator whenever any step carries an advantage (``transform.py:151-156``), whatever ``use_precomputed_advantage``
+  says; only the async buffer path (``trainer/buffer.py:228-231``) reads that flag, and with it off replaces the lists by
+  rLLM's outcome GRPO with a warning (``advantage.py:203-207``). A list of the wrong length fails an assertion and the
+  whole trajectory is dropped (``transform.py:105,109,192``). So ``backend="tinker"`` writes the finished advantage on
+  each step: the group's outcome advantage (R − mean over its live rollouts, ``train.credit.outcome_advantages``,
+  unless ``seq_adv`` is given) plus, with ``turn_weight > 0``, M6's turn credit through the same group rule the torch
+  trainer applies (``train.credit.credited_records``; M6 R1: raw ΔΦ reached rLLM, +0.1 on a gate-failed call where the
+  rule gives −0.5). On the async path set ``use_precomputed_advantage=true``. Keep ``filter_uniform_groups`` off: rLLM's
   buffer applies ``abs()`` to each step's advantage (``trainer/buffer.py:236-238``), which fails on a list.
+- ``turn_weight > 0`` with ``backend="verl"`` is refused: that backend reads one float per trajectory
+  (``trainer/verl/transform.py:598``), so turn credit cannot travel and would be dropped silently.
 
 ``Step.reward`` carries the outcome on the rollout's final call only and ``done`` marks it; earlier calls carry 0.0 (a
 multi-segment rollout used to repeat the outcome on every segment's last call). Masked, failed and token-incomplete
@@ -77,7 +86,16 @@ def steps(s: TrainSeq, *, backend: str = "verl", finishes: dict[str, str | None]
 
 def trajectories(ro: RolloutRecord, *, backend: str = "verl", seq_adv: float = 0.0, turn_weight: float = 0.0,
                  frozen_actors: Sequence[str] = ()) -> list[Any]:
-    """One ``Trajectory`` per trained actor of the rollout (none when it is masked or token-incomplete)."""
+    """One ``Trajectory`` per trained actor of the rollout (none when it is masked or token-incomplete). Turn credit is a
+    group rule (centred, bounded, gate-aware: ``train.credit.turn_credit_map``), so one rollout cannot carry it:
+    ``turn_weight > 0`` is refused here; ``trajectory_groups`` applies it."""
+    if turn_weight:
+        raise ValueError("turn credit is computed over a GRPO group: use trajectory_groups(records, turn_weight=...), not trajectories()")
+    return _trajectories(ro, backend=backend, seq_adv=seq_adv, turn_weight=0.0, frozen_actors=frozen_actors)
+
+
+def _trajectories(ro: RolloutRecord, *, backend: str, seq_adv: float, turn_weight: float, frozen_actors: Sequence[str]) -> list[Any]:
+    """``trajectories`` for a record whose ``Turn.advantage`` is already the rule's credit / ``turn_weight``."""
     _, _, Trajectory, _ = _rllm()
     finishes = {t.call_id: t.finish for t in ro.turns}
     by_actor: dict[str, list[Any]] = defaultdict(list)
@@ -97,14 +115,29 @@ def trajectories(ro: RolloutRecord, *, backend: str = "verl", seq_adv: float = 0
 def trajectory_groups(records: Sequence[RolloutRecord | None], *, backend: str = "verl", group_of: Callable[[RolloutRecord], str] | None = None,
                       seq_adv: Callable[[RolloutRecord], float] | None = None, turn_weight: float = 0.0,
                       frozen_actors: Sequence[str] = ()) -> list[Any]:
-    """``TrajectoryGroup`` per (group, role) over live rollouts; masked ones (and None) are left out of every group."""
+    """``TrajectoryGroup`` per (group, role) over live rollouts; masked ones (and None) are left out of every group.
+
+    ``backend="tinker"``: each step's advantage is final (module docstring): ``seq_adv(record)`` if given, else the
+    group's outcome advantage, plus M6's turn credit when ``turn_weight > 0``. ``backend="verl"`` carries no per-token
+    advantage, so ``turn_weight > 0`` is refused."""
+    if backend not in BACKENDS:
+        raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
+    if turn_weight and backend == "verl":
+        raise ValueError("turn_weight > 0 with backend='verl': rLLM's verl backend reads one advantage per trajectory "
+                         "(rllm/trainer/verl/transform.py:598), so turn credit would be dropped. Use backend='tinker' or turn_weight=0.")
+    from crucible.train.credit import credited_records, outcome_advantages, require_turn_credit
+
+    live = [ro for ro in records if ro is not None]
+    keys = [group_of(ro) if group_of else (ro.group or ro.task) for ro in live]
+    outcome = outcome_advantages(live, keys) if backend == "tinker" else {}
+    if turn_weight:
+        require_turn_credit(live, frozen_actors, where="rllm_bridge.trajectory_groups")  # never silently outcome-only (M6 R3)
+        live = credited_records(live, keys, turn_weight=turn_weight, frozen_actors=frozen_actors)
     _, _, _, TrajectoryGroup = _rllm()
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
-    for ro in records:
-        if ro is None:
-            continue
-        g = group_of(ro) if group_of else (ro.group or ro.task)
-        for tr in trajectories(ro, backend=backend, seq_adv=seq_adv(ro) if seq_adv else 0.0, turn_weight=turn_weight, frozen_actors=frozen_actors):
+    for ro, g in zip(live, keys, strict=True):
+        sa = seq_adv(ro) if seq_adv else outcome.get(ro.rollout_id, 0.0)
+        for tr in _trajectories(ro, backend=backend, seq_adv=sa, turn_weight=turn_weight, frozen_actors=frozen_actors):
             groups[(g, tr.name)].append(tr)
     out = []
     for (g, role), trs in groups.items():

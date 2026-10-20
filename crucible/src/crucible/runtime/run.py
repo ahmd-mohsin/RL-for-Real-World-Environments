@@ -332,6 +332,7 @@ class Runner:
                         cost_uncertain_usd=hr.cost_uncertain_usd, usage=hr.usage, timing=Timing.from_stages(hr.timings, model=hr.model_s),
                         sample=sk.model_dump(mode="json"), attempt=aid, lock=lock, launch=launch,
                         meta={"harness": harness.id, "stop": hr.stop, "truncated": hr.truncated, "gates": hr.gates,
+                              **({"gate_kinds": hr.gate_kinds} if hr.gate_kinds else {}),
                               "tree_changed": hr.tree_changed, "artifacts": hr.artifacts,
                               **({"progress": hr.grade["progress"]} if hr.grade.get("progress") else {}),
                               **({"task_steps": hr.grade["steps"], "step_reward": hr.grade.get("step_reward")} if hr.grade.get("steps") is not None else {}),

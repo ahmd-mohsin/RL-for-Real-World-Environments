@@ -488,11 +488,10 @@ class TorchTrainer:
 
     def _items(self, records: Sequence[RolloutRecord], groups: Sequence[str]) -> list[_Item]:
         if self.cfg.turn_weight:  # raw ΔΦ per call -> M6's group rule, before any path adds it to tokens (M6 audit)
-            from crucible.train.credit import turn_credit_map
+            from crucible.train.credit import credited_records, require_turn_credit
 
-            tc = turn_credit_map(records, groups, eta=self.cfg.turn_weight, frozen_actors=self.cfg.frozen_actors)
-            records = [r.model_copy(update={"turns": [t.model_copy(update={"advantage": tc.get((r.rollout_id, t.call_id), 0.0) / self.cfg.turn_weight})
-                                                      for t in r.turns]}) for r in records]
+            require_turn_credit(records, self.cfg.frozen_actors, where="TorchTrainer")  # never silently outcome-only (M6 R3)
+            records = credited_records(records, groups, turn_weight=self.cfg.turn_weight, frozen_actors=self.cfg.frozen_actors)
         shaped = self._shaped_rewards(records, groups)
         staged = any(r.advantage is not None and not r.mask_sample and r.reward is not None for r in records)
         if self.critic is not None:

@@ -1,0 +1,70 @@
+{
+ "capture": {
+  "engine": "vllm",
+  "logprobs": "processed",
+  "template_kwargs": {
+   "enable_thinking": false
+  },
+  "tokenizer": {
+   "render": "sha256:01",
+   "token_map": "sha256:00",
+   "vocab_size": 32
+  }
+ },
+ "credit_fallback": false,
+ "flags": [],
+ "gate_kinds": {
+  "controls": "gate",
+  "tests": "outcome"
+ },
+ "gates": {
+  "controls": true,
+  "tests": false
+ },
+ "group_credit_fallback": false,
+ "harness": "native:llm-tool@1",
+ "mask_sample": false,
+ "opd_fallback": false,
+ "policy": "p",
+ "progress": {},
+ "reward_components": {},
+ "rollout_id": "s1-a1",
+ "sample": "s1",
+ "schema": "crucible.rollout/v1.2",
+ "segments": [],
+ "task": "t",
+ "tier": "fast",
+ "timings": {},
+ "truncated": false,
+ "turns": [
+  {
+   "actor": "agent",
+   "agent": "",
+   "atif_step_ids": [],
+   "call_id": "c1",
+   "completion_token_ids": [
+    3
+   ],
+   "finish": "stop",
+   "format_errors": 0,
+   "kind": "turn",
+   "logprobs": [
+    -0.1
+   ],
+   "policy_version": 0,
+   "prefix_break": false,
+   "prompt_is_delta": false,
+   "prompt_token_ids": [
+    1,
+    2
+   ],
+   "sampling": {
+    "max_tokens": 800,
+    "seed": 0,
+    "temperature": 0.7
+   },
+   "segment": 0,
+   "trainable": true
+  }
+ ]
+}

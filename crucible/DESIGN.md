@@ -511,6 +511,10 @@ Per-turn advantage for multi-turn GRPO. Let A^GRPO be the usual group-normalized
 - c centres ΔΦ to zero net mass across the group, weighted by the turns' tokens. A net negative shift flattens the policy and lengthens outputs (verl fork).
 - σ_R / σ_ΔΦ scales the term in outcome units (Dr.GRPO: no std normalization).
 - Masked episodes are excluded from every group statistic.
+- "Gate-failed" here means a **hard rule** failed (a gate of kind `gate` in the grade report), not an unmet outcome check;
+  a gate-failed or hacked episode gets no local term at all, so every turn trains at its outcome advantage. Every
+  trainer path applies this one rule (`train.credit.credited_records`), and `turn_weight > 0` without recorded per-turn
+  progress is refused, never silently outcome-only (M6 R1–R3, 2026-10-19).
 - This term is a process reward (biased, P13 type 2), so η stays small. The gated scalar R must still carry κ(1−O)Φ, or dynamic-sampling filters evict all-fail groups.
 - `credit/compose.py` implements both the baseline and the delta mode.
 

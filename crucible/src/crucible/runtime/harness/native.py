@@ -333,7 +333,8 @@ class NativeHarness:
                 raise StageFailure(classify_verifier(rep.infra))
             flat = flat_reward(rep.reward_json()) or {"reward": rep.reward}
             why = _below(flat, st.min_reward)
-            results.append({"name": st.name, "reward": rep.reward, "outcome": rep.outcome, "gates": rep.gate_bits(), "stop": ep.stop_condition,
+            results.append({"name": st.name, "reward": rep.reward, "outcome": rep.outcome, "gates": rep.gate_bits(), "gate_kinds": rep.gate_kinds(),
+                            "stop": ep.stop_condition,
                             "steps": ep.steps, "passed_gate": why is None, "verification_s": round(time.monotonic() - t0, 3), **({"abort": why} if why else {})})
             if why is not None:
                 break
@@ -344,8 +345,11 @@ class NativeHarness:
             reward = sum(rewards) / len(rewards)
         else:
             reward = sum(rewards) / len(steps)
+        # a step's gate is its min_reward threshold: an outcome check, unless one of the step's own hard rules failed (M6 R2)
+        kinds = {f"step/{r['name']}": "outcome" if all(v for g, v in r["gates"].items() if r["gate_kinds"].get(g, "gate") == "gate") else "gate"
+                 for r in results}
         res.grade.update({"steps": results, "step_reward": strategy, "reward": round(reward, 6), "completed_steps": len(results),
-                          "gates": {f"step/{r['name']}": int(r["passed_gate"]) for r in results}})
+                          "gates": {f"step/{r['name']}": int(r["passed_gate"]) for r in results}, "gate_kinds": kinds})
         assert ep is not None
         merged: dict[str, list] = {}
         for pols in used:
@@ -427,7 +431,7 @@ class NativeHarness:
             t0 = time.monotonic()
             if res.grade.get("steps") is not None:  # graded step by step inside _run_steps
                 t["verification"] = sum(r.get("verification_s", 0.0) for r in res.grade["steps"])
-                res.reward, res.gates = res.grade["reward"], res.grade.get("gates", {})
+                res.reward, res.gates, res.gate_kinds = res.grade["reward"], res.grade.get("gates", {}), res.grade.get("gate_kinds", {})
             else:
                 rep = await self._grade(attempt, world, attempt.task.grade, attempt.dir / "verifier", attempt.dir / "grade", attempt.dir / "artifacts", res)
                 t["verification"] = time.monotonic() - t0
@@ -435,7 +439,7 @@ class NativeHarness:
                 _take_grade_findings(rep, res)
                 if rep.infra.get("status") == "masked":
                     raise StageFailure(classify_verifier(rep.infra))
-                res.reward, res.gates = rep.reward, rep.gate_bits()
+                res.reward, res.gates, res.gate_kinds = rep.reward, rep.gate_bits(), rep.gate_kinds()
             pen = self.limit_policy.penalty(ep.stop_condition) if ep.stop_condition in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty, not its partial grade
                 res.grade["limit_penalty"] = pen

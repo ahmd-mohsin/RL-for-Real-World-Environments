@@ -286,6 +286,31 @@ def test_V21_agent_loop_sessions_meet_for_m6_group_credit(verl):
         assert adv[k].tolist() == pytest.approx([a_out + c1, a_out + c1, 0.0, 0.0, a_out + c2, a_out], abs=1e-6)
 
 
+def test_V21_agent_loop_marks_a_group_without_progress_outcome_only(verl):
+    """M6 R3: ``turn_weight`` with rollouts that recorded no per-turn progress trained outcome-only and said nothing. Every
+    output of the group is now marked ``crucible_credit_fallback="no_turn_credit"`` (a raise inside verl's worker would mask
+    every sample), and the advantages are the outcome's alone."""
+    import asyncio
+
+    recs = {0: _record("a", 1.0, phis=(None, None)), 1: _record("b", 0.0, phis=(None, None))}
+
+    async def rollout(rid, prompt, seed, gen, *, temperature=1.0):
+        return recs[seed]
+
+    loop = _agent_loop(verl, None, lambda _l: rollout, turn_weight=0.5)
+    loop.rollout_config["n"] = 2
+
+    async def sessions():
+        return await asyncio.gather(*[loop.run({"temperature": 1.0}, uid="u-none", session_id=i, raw_prompt=[]) for i in range(2)])
+
+    outs = [o[0] for o in asyncio.run(sessions())]
+    assert all(o.extra_fields.get("crucible_credit_fallback") == "no_turn_credit" for o in outs)
+    adv = _verl_advantages(verl, [o.as_dict() for o in outs], ["u-none", "u-none"])
+    for k, r in recs.items():
+        a_out = r.reward - 0.5
+        assert adv[k].tolist() == pytest.approx([a_out, a_out, 0.0, 0.0, a_out, a_out], abs=1e-6)
+
+
 # ----------------------------------------------------------------------------------------------------------------- TRL
 
 GRPO = FRAMEWORKS / ROOTS["trl"] / "trl" / "trainer" / "grpo_trainer.py"
@@ -749,12 +774,27 @@ def test_V26_rllm_verl_backend_trains_every_live_trajectory():
 
 
 def test_V26_rllm_tinker_backend_gets_per_token_advantages():
+    """rLLM trains a tinker step's list as final (sync path: ``tinker/transform.py:151-156`` skips its estimator; async:
+    ``use_precomputed_advantage``), so the list is the outcome advantage + M6's turn credit through the same group rule
+    as the torch trainer. M6 R1: the raw sum seq_adv + ΔΦ ([[0.75, 0.75], [0.5]] here) reached rLLM."""
+    from crucible.train.credit import turn_credit_map
+
+    recs = [rec("a", 1.0, advantage=0.25), rec("b", 0.0)]
+    tc = turn_credit_map(recs, ["p0", "p0"], eta=1.0)
     with upstream("rllm", RLLM) as ns:
-        groups = _groups(ns, [rec("a", 1.0, advantage=0.25), rec("b", 0.0)], "tinker", seq_adv=lambda r: 0.5 if r.reward else -0.5, turn_weight=1.0)
+        groups = _groups(ns, recs, "tinker", seq_adv=lambda r: 0.5 if r.reward else -0.5, turn_weight=1.0)
         ns.advantage.collect_reward_and_advantage_from_trajectory_groups(groups, ns.config.AlgorithmConfig(use_precomputed_advantage=True))
-        st = groups[0].trajectories[0].steps
-        assert [s.advantage for s in st] == [[0.75, 0.75], [0.5]]
+        by = {t.uid: t.steps for t in groups[0].trajectories}
+        for r, a_out in (("a", 0.5), ("b", -0.5)):
+            want = [[a_out + tc[(r, f"{r}:c1")]] * 2, [a_out + tc[(r, f"{r}:c2")]]]
+            assert [s.advantage for s in by[f"{r}:agent"]] == [pytest.approx(w) for w in want]
+        assert [s.advantage for s in by["a:agent"]] != [[0.75, 0.75], [0.5]]
         assert all(len(s.advantage) == len(s.response_ids) for t in groups[0].trajectories for s in t.steps)
+        # without seq_adv the bridge carries the group's outcome advantage itself (it sent zeros: no outcome signal at all)
+        plain = {t.uid: t.steps for t in _groups(ns, recs, "tinker")[0].trajectories}
+        assert [s.advantage for s in plain["a:agent"]] == [[0.5, 0.5], [0.5]] and [s.advantage for s in plain["b:agent"]] == [[-0.5, -0.5], [-0.5]]
+        with pytest.raises(ValueError, match="verl"):  # one float per trajectory there: turn credit would be dropped
+            _groups(ns, recs, "verl", turn_weight=1.0)
 
 
 def test_H5_rllm_outcome_once_versions_and_model_output():

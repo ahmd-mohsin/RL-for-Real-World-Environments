@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from crucible.core.schema.rollout import RolloutRecord, Segment, Turn  # noqa: F401
+from crucible.credit.shaping import RAW
 from crucible.train.engine import EnginePool, GenRequest, GenResult
 from crucible.train.envs import EnvInfraError
 from crucible.train.monitors import StepMonitor
@@ -904,7 +905,9 @@ class Runtime:
             gm = {**gm, "teacher/scored": float(self._teach_stats["scored"]), "teacher/fallback": float(self._teach_stats["fallback"]),
                   "teacher/seconds": self._teach_stats["seconds"]}
             self._teach_stats = {"scored": 0, "fallback": 0, "seconds": 0.0}
-        return {**m, **gm, "_rewards": [r.reward for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
+        # the pass rate reads the scored outcome (``raw/reward``) when a group stage rewrote the reward (M6 D3: a verbosity
+        # penalty of 0.005 on a success made it a failure; GRS / BT scores do the same)
+        return {**m, **gm, "_rewards": [r.reward if r.reward is None else float((r.reward_components or {}).get(RAW, r.reward)) for r in recs], "_lengths": [sum(len(t.completion_token_ids or []) for t in r.turns) for r in recs],
                 "_truncated": [bool(r.truncated or any(t.finish == "length" for t in r.turns[-1:])) for r in recs],
                 "_group_rewards": list(by_group.values()),
                 "_entropy": (-sum(lps) / len(lps)) if lps else None,  # behaviour-policy estimate: E[−log π(a)] over sampled tokens
