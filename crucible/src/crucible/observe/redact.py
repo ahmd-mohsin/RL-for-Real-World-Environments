@@ -25,7 +25,7 @@ from crucible.core.secrets import MIN_SECRET_LEN, scrub_obj, scrub_secrets
 
 # the variable names whose values are credentials (the M14 rule of ``RedactionPolicy.with_env_file``)
 SECRET_ENV = re.compile(r"TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|AUTH(?!OR)|DSN|DATABASE_URL|\bPAT\b|_PAT$|_PASS$|_PWD$")
-NOT_SECRET_ENV = {"CRUCIBLE_REDACTION_SALT_FILE", "WANDB_KEY_PROMPT", "KEYCHAIN", "SSH_AUTH_SOCK"}
+NOT_SECRET_ENV = {"WANDB_KEY_PROMPT", "KEYCHAIN", "SSH_AUTH_SOCK"}
 
 
 def env_secret_values(env: dict[str, str] | None = None) -> list[str]:
