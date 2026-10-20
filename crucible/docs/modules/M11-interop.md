@@ -30,6 +30,28 @@
    env and user; NeMo-Gym's pydantic models; verifiers' `ok` and branches; EnterpriseOps-Gym's `_compare_values`;
    MiMo's `detail.passed` and range mask.
 
+## Masks per target
+
+What a masked episode becomes in each target's vocabulary (rule 2). A mask is never a number in an optimizer baseline, and
+no row reaches a trainer with a `None` where the trainer does arithmetic.
+
+| Target | A masked episode becomes | Where |
+|---|---|---|
+| NeMo-Gym export | `mask_sample: true` at the top level and in `instance_config` (NeMo-RL reads the latter) | `nemo_gym/server.py` |
+| verifiers (`crucible-vf`) | `TaskError("crucible:masked:<kind>")`: an errored trace, dropped by prime-rl | `verifiers/vf_taskset.py` |
+| OpenEnv export | a raised `CrucibleMaskedEpisode`, never a reward | `openenv/export.py` |
+| agentenv | a failed run; the verification row has `skipped: true` | `agentenv/plugin/steps.py` |
+| Harbor | no `reward.json`, a `mask.json`; Harbor's own Mean scores a missing reward 0, so read `metrics.MASKED_MEAN_PY` (no production caller yet) | `verify/runtime/plan.py`, `harbor/metrics.py` |
+| verl v1, `crucible_delta` | one placeholder row with no trainable token (`response_mask=[0]`, reward 0.0), out of the optimizer's group mean (verl's reported score mean still counts its 0.0); `min/max_global_steps` = the trainer's current step | `train/bridges/verl_agent_loop.py` |
+| verl v1, any other estimator | `[]`: v1 skips the session and the uid group stays finished, so the 0.0 never joins a stock group mean. A uid whose every session is masked has no row, so `algorithm.filter_groups` (which raises for such a uid) is refused with these estimators; a batch whose every uid is fully masked was not checked downstream | same |
+| verl legacy worker (`use_v1: false`, or an entrypoint that runs it under `use_v1: true`) | refused unless the estimator is `crucible_delta` (no skip channel; deprecated upstream): when verl builds the loop for the first sample, or at the first legacy call | same |
+| TRL | a placeholder row with `crucible_reward=None`: NaN, out of the baseline, advantage 0 | `train/bridges/adapters.py` (`trl_rollout`) |
+| SkyRL | `step_wise`: no row; one row per input: a loss-masked row whose reward is the group's live mean (exact for Dr.GRPO, approximate for GRPO std and RLOO) | `train/bridges/skyrl_bridge.py` |
+| rLLM | left out of every `TrajectoryGroup` | `train/bridges/rllm_bridge.py` |
+
+verl rows of frozen actors only (no sampled token, so no policy version) take the min and max steps of their session's
+other rows, else the current step: v1 converts every tag with `dtype=int` after the actor update (M11 lab audit R-1).
+
 ## Pieces
 
 | Path | Direction | What |
