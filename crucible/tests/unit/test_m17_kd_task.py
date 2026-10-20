@@ -133,6 +133,16 @@ def test_prompt_lint_refuses_the_answer(tmp_path: Path, repo):
     assert kd.instruction("sm_{ARCH} within {PERF_BAR}", "120", "1.08x") == "sm_120 within 1.08x"
 
 
+def test_calibration_pool_keeps_added_cases_and_strides_the_rest():
+    from crucible.factory.lanes import kernel_debug_plan as kdp
+
+    pool = [f"FA(x={i})" for i in range(10_000)]
+    got = kdp.pool_sample(pool, ["FA(x=9999)", "NEW(x)"], cap=100)
+    assert got[:2] == ["FA(x=9999)", "NEW(x)"] and len(got) == 100 and len(set(got)) == 100
+    assert got[2] == "FA(x=0)" and got[-1].startswith("FA(x=98")  # spread over the whole pool
+    assert kdp.pool_sample(pool[:5], []) == pool[:5]
+
+
 def load_gpu_runner():
     p = Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug_gpu.py"
     spec = importlib.util.spec_from_file_location("lh_kernel_debug_gpu", p)

@@ -192,7 +192,6 @@ def cmd_gates(a: argparse.Namespace) -> None:
     from crucible.factory.lanes import kernel_debug_ops as ko
     from crucible.factory.lanes import kernel_debug_world as kdw
     from crucible.factory.lanes import kernel_gates as kg
-    from crucible.factory.lanes import kernel_harness as kh
     from crucible.factory.lanes import kernel_world as kw
 
     kdw.ensure_image()
@@ -238,42 +237,7 @@ def cmd_gates(a: argparse.Namespace) -> None:
             g["mutants"] = mres
             # S8 floors apply to the start tree
             g["floors"] = {f["id"]: {"applies": apply_check(tree_a, f["patch"], work / "floor")} for f in rec.get("floor_patches") or []}
-            # S5 (CPU half): the grader's harness, patched at B, builds on the CPU backend and pools each milestone's cases
-            hb = kh.harness_file(tree_b).read_text(errors="replace")
-            ha = kh.harness_file(tree_a).read_text(errors="replace")
-            perf_needed = rec["kind"] == "perf"
-            try:
-                pb, pa = kh.patch_harness(hb, need_perf=perf_needed, header=kh.ggml_header(tree_b)), kh.patch_harness(ha, header=kh.ggml_header(tree_a))
-                g["harness_patch"] = {"ok": True, "dialect": kh.dialect_of(hb), "repairs": kh.repair_harness(hb, kh.ggml_header(tree_b))[1]}
-            except kh.HarnessPatchError as e:
-                g["harness_patch"] = {"ok": False, "error": str(e)}
-                pb = pa = None
-            if pb is not None:
-                hbld = ROOT / "cpu_harness" / rec["id"]
-                rt = kdw.CPU_GATE.get(layout.dispatch_file) or {}
-                if rt.get("platform"):
-                    kdw.ensure_amd64_image()
-                hbuild = kdw.cpu_harness_build(tree_b, hbld, pb, extra=rt.get("extra", ()), image=rt.get("image", kdw.IMAGE), platform=rt.get("platform"),
-                                               ccache=ROOT / "ccache" / (rt.get("platform") or "native").replace("/", "-"))
-                g["harness_build_b"] = hbuild
-                if hbuild["ok"] and not rt.get("runnable_here", True):
-                    # built for x86_64 under emulation, which has no AVX: the listing and the seeding run on the x86 GPU host
-                    g["harness_runs"] = "pending_x86_host (the repository's CPU backend needs AVX2; this machine emulates x86_64 without AVX)"
-                elif hbuild["ok"]:
-                    pools_b = list_cases(kdw, hbld, rec, kh.dialect_of(hb))
-                    for m in rec["milestones"]:
-                        m["case_pool"] = sorted({c for op in m["ops"] for c in pools_b.get(op, [])})
-                        if rec["kind"] == "perf":
-                            m["perf_pool"] = sorted({c for op in m["ops"] for c in pools_b.get(f"perf:{op}", [])})
-                    g["seeded"] = seeded_check(kdw, hbld, rec)  # on B's harness, the grader's
-                    (hbld / "src" / kh.HARNESS).write_text(pa)  # then A''s harness: the agent's own cases
-                    habuild = rebuild(kdw, hbld)
-                    g["harness_build_a"] = habuild
-                    pools_a = list_cases(kdw, hbld, rec, kh.dialect_of(hb)) if habuild["ok"] else {}
-                    for m in rec["milestones"]:
-                        m["cases_added"] = sorted(set(m["case_pool"]) - {c for op in m["ops"] for c in pools_a.get(op, [])}) if pools_a else []
-                    g["pools"] = {m["id"]: {"pool": len(m["case_pool"]), "added": len(m["cases_added"]), "perf_pool": len(m.get("perf_pool") or [])}
-                                  for m in rec["milestones"]}
+            harness_gates(rec, g, layout, tree_a, tree_b)
             # S3 World: one-commit workspace, history probe, leak probe (no B-only line in the image), the start configures
             ws = work / "ws" / rec["repo"].split("/")[-1]
             kw.workspace(tree_a, ws)
@@ -286,28 +250,103 @@ def cmd_gates(a: argparse.Namespace) -> None:
             shutil.rmtree(work / "cfg_a", ignore_errors=True)
         except Exception as e:  # noqa: BLE001 - a crashed gate run is a failed gate with its reason, never a pass
             g["error"] = f"{type(e).__name__}: {e}"[:600]
-        pending_host = bool(g.get("harness_runs"))
-        pools_ok = bool(g.get("pools")) and all(v["pool"] > 0 for v in g["pools"].values()) and (rec["kind"] != "perf" or all(v["perf_pool"] > 0 for v in g["pools"].values()))
-        mut_ok = all(v.get("builds") for v in (g.get("mutants") or {}).values()) if g.get("mutants") else False
-        structural = bool(not g.get("error") and g.get("S4_oracle_builds") and g.get("S3_start_builds") and (g.get("harness_patch") or {}).get("ok")
-                          and (g.get("harness_build_b") or {}).get("ok") and (g.get("history") or {}).get("ok") and (g.get("leak") or {}).get("ok")
-                          and (g.get("configure_a") or {}).get("ok") and mut_ok and all(v["applies"] for v in (g.get("floors") or {}).values()))
-        g["cpu_structural_pass"] = structural
-        g["cpu_pass"] = bool(structural and pools_ok and (g.get("seeded") or {}).get("ok"))
-        if structural and pending_host:
-            g["cpu_pending_host"] = ["S5 case pools (listing)", "S5 seeding check"]
+        verdict(rec, g)
         oom = [k for side in ("compile_a", "compile_b") for k, v in (g.get(side) or {}).items() if v.get("rc") in (137, -9)]
         if oom:
             g["infra"] = f"units killed for memory: {oom[:4]} (re-run; not a gate verdict)"
         g["seconds"] = round(time.time() - t0)
         rec.setdefault("gates", {})["cpu"] = g
         kd.save(store, rec)
-        for st, ok in (("S4_compile", g.get("S4_oracle_builds")), ("S3_compile", g.get("S3_start_builds")), ("S5_harness_cpu", bool(pools_ok and (g.get("seeded") or {}).get("ok"))),
+        for st, ok in (("S4_compile", g.get("S4_oracle_builds")), ("S3_compile", g.get("S3_start_builds")), ("S5_harness_cpu", g.get("S5_harness_cpu")),
                        ("S3_world", bool((g.get("history") or {}).get("ok") and (g.get("leak") or {}).get("ok") and (g.get("configure_a") or {}).get("ok"))),
-                       ("S8_cpu", bool(mut_ok))):
+                       ("S8_cpu", all(v.get("builds") for v in (g.get("mutants") or {}).values()) and bool(g.get("mutants")))):
             fn.note("kernel_debug", rec["id"], st, bool(ok), g.get("error", "") if not ok else "", family=rec["family"], split=rec["split"])
         print(rec["id"], "cpu_pass", g["cpu_pass"], {k: g.get(k) for k in ("S4_oracle_builds", "S3_start_builds", "pools")}, g.get("error", ""), f"{g['seconds']}s", flush=True)
     kdw.cleanup()
+
+
+def harness_gates(rec: dict[str, Any], g: dict[str, Any], layout: Any, tree_a: Path, tree_b: Path) -> None:
+    """S5 (CPU half): the grader's harness, patched at B, builds on the CPU backend; each milestone's case pool is listed
+    from it, the seeding is executed, and the fixes' own cases are B's list minus A''s list (A''s harness rebuilt in the
+    same directory). A listing that returns nothing is a failed gate, never an empty pool."""
+    from crucible.factory.lanes import kernel_debug_world as kdw
+    from crucible.factory.lanes import kernel_harness as kh
+
+    hb = kh.harness_file(tree_b).read_text(errors="replace")
+    ha = kh.harness_file(tree_a).read_text(errors="replace")
+    try:
+        pb, pa = kh.patch_harness(hb, need_perf=rec["kind"] == "perf", header=kh.ggml_header(tree_b)), kh.patch_harness(ha, header=kh.ggml_header(tree_a))
+        g["harness_patch"] = {"ok": True, "dialect": kh.dialect_of(hb), "repairs": kh.repair_harness(hb, kh.ggml_header(tree_b))[1]}
+    except kh.HarnessPatchError as e:
+        g["harness_patch"] = {"ok": False, "error": str(e)}
+        return
+    for k in ("harness_runs", "harness_list", "seeded", "pools", "harness_build_a"):
+        g.pop(k, None)
+    hbld = ROOT / "cpu_harness" / rec["id"]
+    rt = kdw.CPU_GATE.get(layout.dispatch_file) or {}
+    if rt.get("platform"):
+        kdw.ensure_amd64_image()
+    hbuild = kdw.cpu_harness_build(tree_b, hbld, pb, extra=rt.get("extra", ()), image=rt.get("image", kdw.IMAGE), platform=rt.get("platform"),
+                                   ccache=ROOT / "ccache" / (rt.get("platform") or "native").replace("/", "-"))
+    g["harness_build_b"] = hbuild
+    if not hbuild["ok"]:
+        return
+    if not rt.get("runnable_here", True):
+        # built for x86_64 under emulation, which has no AVX: the listing and the seeding run on the x86 GPU host
+        g["harness_runs"] = "pending_x86_host (the repository's CPU backend needs AVX2; this machine emulates x86_64 without AVX)"
+        return
+    pools_b = list_cases(kdw, hbld, rec, kh.dialect_of(hb))
+    if not pools_b:
+        g["harness_list"] = "the B harness listed no case for these ops"
+        return
+    for m in rec["milestones"]:
+        m["case_pool"] = sorted({c for op in m["ops"] for c in pools_b.get(op, [])})
+        if rec["kind"] == "perf":
+            m["perf_pool"] = sorted({c for op in m["ops"] for c in pools_b.get(f"perf:{op}", [])})
+    g["seeded"] = seeded_check(kdw, hbld, rec)  # on B's harness, the grader's
+    (hbld / "src" / kh.HARNESS).write_text(pa)  # then A''s harness: the agent's own cases
+    habuild = rebuild(kdw, hbld)
+    g["harness_build_a"] = habuild
+    pools_a = list_cases(kdw, hbld, rec, kh.dialect_of(hb)) if habuild["ok"] else {}
+    if not pools_a:
+        g["harness_list"] = "the start's harness listed no case (its build or listing failed)"
+        return
+    for m in rec["milestones"]:
+        m["cases_added"] = sorted(set(m["case_pool"]) - {c for op in m["ops"] for c in pools_a.get(op, [])})
+    g["pools"] = {m["id"]: {"pool": len(m["case_pool"]), "added": len(m["cases_added"]), "perf_pool": len(m.get("perf_pool") or [])} for m in rec["milestones"]}
+
+
+def verdict(rec: dict[str, Any], g: dict[str, Any]) -> None:
+    """``cpu_structural_pass`` (everything but the harness runs) and ``cpu_pass`` (every CPU gate) from the gate evidence."""
+    mut_ok = all(v.get("builds") for v in (g.get("mutants") or {}).values()) if g.get("mutants") else False
+    pending_host = bool(g.get("harness_runs"))
+    pools_ok = bool(g.get("pools")) and all(v["pool"] > 0 for v in g["pools"].values()) and (rec["kind"] != "perf" or all(v["perf_pool"] > 0 for v in g["pools"].values()))
+    g["S5_harness_cpu"] = bool(pools_ok and (g.get("seeded") or {}).get("ok"))
+    structural = bool(not g.get("error") and g.get("S4_oracle_builds") and g.get("S3_start_builds") and (g.get("harness_patch") or {}).get("ok")
+                      and (g.get("harness_build_b") or {}).get("ok") and (g.get("history") or {}).get("ok") and (g.get("leak") or {}).get("ok")
+                      and (g.get("configure_a") or {}).get("ok") and mut_ok and all(v["applies"] for v in (g.get("floors") or {}).values()))
+    g["cpu_structural_pass"] = structural
+    g["cpu_pass"] = bool(structural and pools_ok and (g.get("seeded") or {}).get("ok"))
+    if structural and pending_host:
+        g["cpu_pending_host"] = ["S5 case pools (listing)", "S5 seeding check"]
+
+
+def cmd_repool(a: argparse.Namespace) -> None:
+    """Re-run only the harness gates of gated records (the case listing, the seeding, the fixes' own cases) and the
+    verdict, keeping the compile, World, floor and mutant evidence."""
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.lanes import kernel_debug_ops as ko
+
+    store = ROOT / "store"
+    for rec in kd.records(store):
+        if a.ids and rec["id"] not in a.ids or "cpu" not in (rec.get("gates") or {}):
+            continue
+        g = rec["gates"]["cpu"]
+        harness_gates(rec, g, ko.Layout(**rec["layout"]), store / rec["tree_a"], store / rec["tree_b"])
+        verdict(rec, g)
+        g["repooled_at"] = now()
+        kd.save(store, rec)
+        print(rec["id"], "cpu_pass", g["cpu_pass"], "structural", g.get("cpu_structural_pass"), g.get("pools"), g.get("harness_list", ""), flush=True)
 
 
 def patch_files(patch: str) -> set[str]:
@@ -423,7 +462,8 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
     kw.write_hooks(out / "hooks")
     index = []
     for rec in kd.records(ROOT / "store"):
-        if not (rec.get("gates") or {}).get("cpu", {}).get("cpu_pass"):
+        gc = (rec.get("gates") or {}).get("cpu", {})
+        if not (gc.get("cpu_pass") or (gc.get("cpu_structural_pass") and gc.get("cpu_pending_host"))):  # pending-host: the GPU host lists the pools
             continue
         d = out / "tasks" / rec["id"]
         d.mkdir(parents=True, exist_ok=True)
@@ -443,6 +483,7 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
             (d / f"mutant_{mu['id']}.patch").write_text(mu["patch"])
         jdump(d / "milestones.json", [{k: m.get(k) for k in ("id", "kind", "class", "ops", "checks", "repeat", "cases_added")} for m in rec["milestones"]])
         index.append({"id": rec["id"], "family": rec["family"], "split": rec["split"], "kind": rec["kind"], "milestones": [m["id"] for m in rec["milestones"]],
+                      "cpu_pending_host": gc.get("cpu_pending_host") or [],
                       "mutants": {mu["id"]: mu["milestone"] for mu in rec.get("mutants") or []}})
     jdump(out / "index.json", index)
     shutil.copy(Path(__file__).with_name("lh_kernel_debug_gpu.py"), out / "run_gpu.py")
@@ -500,10 +541,38 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
 
 
 # ---- report ------------------------------------------------------------------------------------------------------------------------------
+def migration_family(fam: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    """The migration family's funnel and rows (``lh_kernel_debug_migrate.py``'s store)."""
+    mig = ROOT / "migrate"
+    mined = [json.loads(p.read_text()) for p in sorted((mig / "mine").glob("*.json"))] if (mig / "mine").is_dir() else []
+    ws = [json.loads(p.read_text()) for p in sorted((mig / "store" / "windows").glob("*.json"))] if (mig / "store" / "windows").is_dir() else []
+    f = fam.setdefault("kernel-migration:train", {"mined_commits": 0, "real_changes": 0, "drop_reasons": collections.Counter()})
+    f["mined_commits"] = sum(len(m["commits"]) for m in mined)
+    f["real_changes"] = f["mined_commits"]
+    f["by_generation"] = {m["generation"]: len(m["commits"]) for m in mined}
+    f["grouped"] = len(ws)
+    ok = [w for w in ws if (w.get("gates") or {}).get("cpu_pass") and ((w.get("gates") or {}).get("kit_compile") or {}).get("ok")]
+    f["cpu_pass"] = len(ok)
+    f["authored_clean"] = sum(1 for w in ok if w.get("prompt") and not (w.get("lint") or {}).get("prompt") and not (w.get("lint") or {}).get("ledger"))
+    for w in ws:
+        g = w.get("gates") or {}
+        rows.append({"id": w["id"], "family": "kernel-migration", "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
+                     "generation": w["generation"], "commits": len((w.get("source") or {}).get("commits") or []), "programs": len(w["programs"]),
+                     "milestones": len(w["milestones"]), "kinds": g.get("graded_kinds") or sorted(w.get("kinds") or {}), "rung": w.get("rung"),
+                     "executed_cross_edges": len(g.get("executed_cross_edges") or []),
+                     "executed_edges": sum(1 for m in w["milestones"] for v in (m.get("requires_evidence") or {}).values() if v == "executed"),
+                     "cpu_pass": bool(g.get("cpu_pass") and (g.get("kit_compile") or {}).get("ok")), "authored": bool(w.get("prompt")),
+                     "contamination": w.get("contamination"), "commit_dates": sorted(v[:10] for v in (w.get("commit_dates") or {}).values()),
+                     "fault_mutants_pending_gpu": sum(1 for x in g.get("fault_mutants") or [] if x.get("builds")),
+                     "gpu_pending": ["run milestones: golden vs the original on fresh seeds, launches, binary check", "fault-class mutants", "S10 flake",
+                                     "S12-S15"]})
+
+
 def sealing_report(recs: list[dict[str, Any]]) -> dict[str, Any]:
     """``factory.sealing.seal`` on the training vs held-out records: repositories must be disjoint; the time split and the
     prompt/diff contamination scan are reported (the held-out kernels share the training period: a time split is not
     possible for this source, so ``time_violations`` is expected and stated, not hidden)."""
+    from crucible.factory.lanes import kernel_debug as kd
     from crucible.factory.sealing import seal
 
     tr = [r for r in recs if r["split"] == "train"]
@@ -511,10 +580,12 @@ def sealing_report(recs: list[dict[str, Any]]) -> dict[str, Any]:
     if not tr or not ho:
         return {"skipped": "one split is empty"}
     rep = seal(tr, ho, repo=lambda r: r["repo"], date=lambda r: r.get("b_date"), prompt=lambda r: r.get("prompt") or "", diff=lambda r: r.get("oracle_patch") or "",
-               wid=lambda r: r["id"], model_cutoff="2026-04-15")
+               wid=lambda r: r["id"], model_cutoff="2026-04-15", template=[kd.EPILOGUE, " ".join(kd.LANE_SENTENCES), kd.HEADING])
     d = rep.to_dict()
+    parts = collections.Counter(str(h.get("source") or h.get("corpus") or h).split(":")[-1][:12] for h in d["contamination"])
     return {"repos_disjoint": not d["shared_repos"], "shared_repos": d["shared_repos"], "time_violations": len(d["time_violations"]),
-            "contamination_hits": len(d["contamination"]), "cutoff_violations": len(d["cutoff_violations"]), "counts": d["counts"]}
+            "contamination_hits": len(d["contamination"]), "contamination_by_part": dict(parts), "contamination_examples": d["contamination"][:3],
+            "cutoff_violations": len(d["cutoff_violations"]), "counts": d["counts"]}
 
 
 def cmd_report(a: argparse.Namespace) -> None:
@@ -544,12 +615,14 @@ def cmd_report(a: argparse.Namespace) -> None:
         f = fam.setdefault(key, {"mined_commits": 0, "real_changes": 0, "drop_reasons": collections.Counter()})
         f["grouped"] = f.get("grouped", 0) + 1
         f["cpu_pass"] = f.get("cpu_pass", 0) + int(bool(g.get("cpu_pass")))
+        f["cpu_structural_pass"] = f.get("cpu_structural_pass", 0) + int(bool(g.get("cpu_structural_pass")))
         f["authored_clean"] = f.get("authored_clean", 0) + int(bool(r.get("prompt")) and not (r.get("lint") or {}).get("findings"))
         rows.append({"id": r["id"], "family": r["family"], "split": r["split"], "repo": r["repo"], "faults": len(r["milestones"]),
                      "classes": [m["class"] for m in r["milestones"]], "ops": sorted({o for m in r["milestones"] for o in m["ops"]}),
                      "claimed_edges": [(m["id"], q) for m in r["milestones"] for q in m.get("claimed_requires") or []], "cpu_pass": bool(g.get("cpu_pass")),
-                     "pools": g.get("pools"), "authored": bool(r.get("prompt")), "lint": (r.get("lint") or {}).get("findings"), "contamination": r.get("contamination"),
+                     "cpu_structural_pass": bool(g.get("cpu_structural_pass")), "cpu_pending_host": g.get("cpu_pending_host"), "pools": g.get("pools"), "authored": bool(r.get("prompt")), "lint": (r.get("lint") or {}).get("findings"), "contamination": r.get("contamination"),
                      "cutoff": r.get("cutoff"), "fault_dates": sorted(v[:10] for v in (r.get("fault_dates") or {}).values()), "gpu_pending": GPU_PENDING})
+    migration_family(fam, rows)
     for f in fam.values():
         f["drop_reasons"] = dict(f["drop_reasons"])
     rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING,
@@ -573,6 +646,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("author")
     s.add_argument("--ids", nargs="*")
+    s = sub.add_parser("repool")
+    s.add_argument("--ids", nargs="*")
     s = sub.add_parser("stage-gpu")
     s.add_argument("--out")
     s.add_argument("--redo", action="store_true")
@@ -581,7 +656,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report}[a.cmd](a)
     return 0
 
 

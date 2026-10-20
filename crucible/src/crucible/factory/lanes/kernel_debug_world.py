@@ -261,10 +261,15 @@ def cpu_harness_runs(bld: Path, runs: Sequence[Mapping[str, Any]], *, timeout: f
     "cases": [...] | None, "dump": bool, "list": bool, "mode": "test" | "perf" | "support"}`` in one container; returns
     per run its exit code, case statuses (``kernel_harness.case_status``), the listed cases (``list``: every case of the
     mode's list, none run) and the dump path (host side) when asked."""
-    out_dir = bld / "runs"
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    # a fresh directory per call: Docker Desktop's file sharing can keep serving a bind-mount source that was deleted and
+    # recreated under the same path (the container then sees no /o), so runs never reuse a path
+    if (bld / "runs").exists():
+        shutil.rmtree(bld / "runs", ignore_errors=True)
+    out_dir = bld / "runs_out" / uuid.uuid4().hex[:10]
     out_dir.mkdir(parents=True)
+    for old in sorted((bld / "runs_out").iterdir())[:-8] if (bld / "runs_out").is_dir() else []:
+        if old != out_dir:
+            shutil.rmtree(old, ignore_errors=True)
     lines = ["set +e"]
     for r in runs:
         n = str(r["name"])
@@ -291,7 +296,7 @@ def cpu_harness_runs(bld: Path, runs: Sequence[Mapping[str, Any]], *, timeout: f
         rc_txt = (out_dir / f"{n}.rc").read_text().strip() if (out_dir / f"{n}.rc").exists() else ""
         res.append({"name": n, "rc": int(rc_txt) if rc_txt.lstrip("-").isdigit() else None, "cases": kh.case_status(log), "listed": kh.listed_cases(log),
                     "dump": str(out_dir / f"{n}.dump") if spec.get("dump") and (out_dir / f"{n}.dump").exists() else None, "log_tail": log[-800:],
-                    "container_rc": r.rc})
+                    "container_rc": r.rc, "container_out": r.stdout[-600:] if r.rc else ""})
     return res
 
 

@@ -38,6 +38,8 @@ def test_units_for_picks_the_cheapest_includer(tmp_path: Path):
     (d / "template-instances/fattn-vec-q4.cu").write_text('#include "../fattn-vec.cuh"\n')
     got = kd.units_for(tmp_path, ["ggml/src/ggml-cuda/fattn-vec.cuh", "ggml/src/ggml-cuda/common.cuh", "ggml/src/ggml-cuda/fill.cu"], ko.GGML_ORG)
     assert got == ["ggml/src/ggml-cuda/fattn.cu", "ggml/src/ggml-cuda/fill.cu"]  # instances only when nothing else includes it
+    # a file the tree does not have (the fault added it, so A' lacks it) has nothing to compile
+    assert kd.units_for(tmp_path, ["ggml/src/ggml-cuda/gone.cu", "ggml/src/ggml-cuda/fill.cu"], ko.GGML_ORG) == ["ggml/src/ggml-cuda/fill.cu"]
 
 
 def test_banner_is_stripped():

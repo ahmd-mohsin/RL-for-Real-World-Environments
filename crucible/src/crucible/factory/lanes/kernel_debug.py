@@ -221,6 +221,8 @@ def units_for(tree: Path, files: Sequence[str], layout: ko.Layout, *, per_file: 
     inc = includers(tree, layout)
     out: list[str] = []
     for f in files:
+        if not (Path(tree) / f).is_file():
+            continue  # a file this tree does not have (a fault deleted or added it): nothing to compile
         if f.endswith(".cu"):
             out.append(f)
             continue

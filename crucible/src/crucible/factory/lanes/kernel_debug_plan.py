@@ -52,7 +52,18 @@ from crucible.verify.runtime.trusted import CandidateError, InfraError
 
 CUDA = os.environ.get("CRUCIBLE_CUDA_HOME", "/usr/local/cuda")
 SANITIZER = f"{CUDA}/bin/compute-sanitizer"
-POOL_CAP = 400
+POOL_CAP = 3000
+
+
+def pool_sample(pool: list[str], first: list[str], cap: int = POOL_CAP) -> list[str]:
+    """The calibration's cases: the fixes' own added cases first, then the pool, evenly strided down to ``cap`` (a
+    flash-attention pool holds ~10k cases; a stride keeps every shape family represented)."""
+    rest = [c for c in pool if c not in set(first)]
+    room = max(0, cap - len(first))
+    if len(rest) > room:
+        step = len(rest) / room if room else len(rest) + 1
+        rest = [rest[int(i * step)] for i in range(room)]
+    return [*first, *rest][:cap]
 
 
 class KDGrader:
@@ -176,7 +187,7 @@ class KDGrader:
     # -- checks
     def cases_of(self, m: dict) -> list[str]:
         if self.mode == "pool":
-            return list(m.get("case_pool") or [])[:POOL_CAP]
+            return pool_sample(list(m.get("case_pool") or []), list(m.get("cases_added") or []))
         cases = list(m.get("cases") or [])
         if not cases:
             raise InfraError(f"milestone {m['id']} has no calibrated cases (run the GPU calibration first)")

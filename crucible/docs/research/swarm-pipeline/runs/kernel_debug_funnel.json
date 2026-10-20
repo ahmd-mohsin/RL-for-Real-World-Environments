@@ -1,0 +1,1647 @@
+{
+ "at": "2026-10-20T17:50:13Z",
+ "families": {
+  "kernel-bug:heldout": {
+   "authored_clean": 5,
+   "cpu_pass": 0,
+   "cpu_structural_pass": 5,
+   "drop_reasons": {
+    "reaches no op the harness tests": 1,
+    "touches code outside the CUDA backend": 5
+   },
+   "grouped": 5,
+   "mined_commits": 23,
+   "real_changes": 17
+  },
+  "kernel-bug:train": {
+   "authored_clean": 11,
+   "cpu_pass": 11,
+   "cpu_structural_pass": 11,
+   "drop_reasons": {
+    "multi-GPU code only": 1,
+    "no CUDA source changed": 2,
+    "reaches 100 ops": 1,
+    "reaches 101 ops": 1,
+    "reaches 102 ops": 2,
+    "reaches 103 ops": 1,
+    "reaches 11 ops": 1,
+    "reaches 59 ops": 1,
+    "reaches 89 ops": 1,
+    "reaches 95 ops": 2,
+    "reaches no op the harness tests": 5,
+    "touches code outside the CUDA backend": 14
+   },
+   "grouped": 12,
+   "mined_commits": 78,
+   "real_changes": 46
+  },
+  "kernel-migration:train": {
+   "authored_clean": 5,
+   "by_generation": {
+    "cuda12": 12,
+    "cuda13": 12
+   },
+   "cpu_pass": 5,
+   "drop_reasons": {},
+   "grouped": 5,
+   "mined_commits": 24,
+   "real_changes": 24
+  },
+  "kernel-perf:heldout": {
+   "authored_clean": 1,
+   "cpu_pass": 0,
+   "cpu_structural_pass": 0,
+   "drop_reasons": {
+    "reaches 79 ops": 1,
+    "touches code outside the CUDA backend": 3
+   },
+   "grouped": 1,
+   "mined_commits": 8,
+   "real_changes": 4
+  },
+  "kernel-perf:train": {
+   "authored_clean": 3,
+   "cpu_pass": 3,
+   "cpu_structural_pass": 4,
+   "drop_reasons": {
+    "reaches 102 ops": 1,
+    "reaches 59 ops": 1,
+    "reaches no op the harness tests": 1,
+    "touches code outside the CUDA backend": 5
+   },
+   "grouped": 4,
+   "mined_commits": 26,
+   "real_changes": 18
+  }
+ },
+ "gpu_pending": [
+  "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+  "case calibration (milestone cases = cases each revert breaks)",
+  "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+  "S5 oracle reward 1 on the GPU",
+  "S8 floors 0 and mutants fail (GPU)",
+  "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+  "kernel-launch evidence",
+  "perf bars + noise floor (perf family)",
+  "S10 flake: 60 oracle grades at concurrency 1 and 4",
+  "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+ ],
+ "sealing": {
+  "contamination_by_part": {
+   "diff": 27,
+   "prompt": 4
+  },
+  "contamination_examples": [
+   {
+    "kind": "code-substring",
+    "source": "kd-bug-llamacpp-1b8b8fb1:diff",
+    "task": "kd-bug-ikllamacpp-000b1a1e"
+   },
+   {
+    "kind": "code-substring",
+    "source": "kd-bug-llamacpp-1b8b8fb1:diff",
+    "task": "kd-perf-ikllamacpp-e898e200"
+   },
+   {
+    "kind": "code-substring",
+    "source": "kd-bug-llamacpp-3b87408f:diff",
+    "task": "kd-bug-ikllamacpp-5b8c07ff"
+   }
+  ],
+  "contamination_hits": 31,
+  "counts": {
+   "heldout": 6,
+   "train": 16
+  },
+  "cutoff_violations": 0,
+  "repos_disjoint": true,
+  "shared_repos": [],
+  "time_violations": 5
+ },
+ "tasks": [
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ],
+    [
+     "m4",
+     "m1"
+    ],
+    [
+     "m4",
+     "m2"
+    ],
+    [
+     "m4",
+     "m3"
+    ]
+   ],
+   "classes": [
+    "precision",
+    "indexing",
+    "indexing",
+    "logic"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": [
+    "S5 case pools (listing)",
+    "S5 seeding check"
+   ],
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-06-25",
+    "2026-07-06",
+    "2026-08-31",
+    "2026-10-19"
+   ],
+   "faults": 4,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-ikllamacpp-000b1a1e",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ],
+    [
+     "m4",
+     "m2"
+    ],
+    [
+     "m4",
+     "m3"
+    ]
+   ],
+   "classes": [
+    "race",
+    "indexing",
+    "indexing",
+    "indexing"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": [
+    "S5 case pools (listing)",
+    "S5 seeding check"
+   ],
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-07-17",
+    "2026-08-07",
+    "2026-08-10",
+    "2026-10-20"
+   ],
+   "faults": 4,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-ikllamacpp-5b19ab0c",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT",
+    "FUSED_UP_GATE",
+    "INDEXER_TOPK",
+    "LATENT_ATTN",
+    "MASK_TOPK",
+    "MOE_FUSED_UP_GATE",
+    "MUL_MAT_ID"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ]
+   ],
+   "classes": [
+    "stream_async",
+    "stream_async",
+    "indexing"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": [
+    "S5 case pools (listing)",
+    "S5 seeding check"
+   ],
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-06-08",
+    "2026-06-14",
+    "2026-07-03"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-ikllamacpp-5b1dc162",
+   "lint": [],
+   "ops": [
+    "ADD",
+    "MUL"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ]
+   ],
+   "classes": [
+    "logic",
+    "race",
+    "bounds"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": [
+    "S5 case pools (listing)",
+    "S5 seeding check"
+   ],
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-08-25",
+    "2026-09-23",
+    "2026-10-16"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-ikllamacpp-5b8c07ff",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT",
+    "FUSED_UP_GATE",
+    "INDEXER_TOPK",
+    "MOE_FUSED_UP_GATE",
+    "MUL_MAT_ID",
+    "UPSCALE"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "logic",
+    "grid_limit"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": [
+    "S5 case pools (listing)",
+    "S5 seeding check"
+   ],
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-08-05",
+    "2026-08-27"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-ikllamacpp-89213aa6",
+   "lint": [],
+   "ops": [
+    "GET_ROWS"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "perf",
+    "perf"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": false,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": false,
+   "cutoff": "2026-05-01",
+   "family": "kernel-perf",
+   "fault_dates": [
+    "2026-06-15",
+    "2026-07-12"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-perf-ikllamacpp-e898e200",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT"
+   ],
+   "pools": null,
+   "repo": "ikawrakow/ik_llama.cpp",
+   "split": "heldout"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ]
+   ],
+   "classes": [
+    "race",
+    "logic",
+    "indexing"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2025-12-29",
+    "2026-01-22",
+    "2026-01-26"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-1b8b8fb1",
+   "lint": [],
+   "ops": [
+    "CUMSUM",
+    "FLASH_ATTN_EXT",
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 15
+    },
+    "m2": {
+     "added": 560,
+     "perf_pool": 0,
+     "pool": 8800
+    },
+    "m3": {
+     "added": 560,
+     "perf_pool": 0,
+     "pool": 10657
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "bounds",
+    "bounds"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-10-04",
+    "2026-10-08"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-3b87408f",
+   "lint": [],
+   "ops": [
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 3761
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 3761
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "launch_config",
+    "indexing"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-08-08",
+    "2026-10-02"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-4b8c156e",
+   "lint": [],
+   "ops": [
+    "CONT",
+    "CPY",
+    "DUP",
+    "SET"
+   ],
+   "pools": {
+    "m1": {
+     "added": 4,
+     "perf_pool": 0,
+     "pool": 694
+    },
+    "m2": {
+     "added": 4,
+     "perf_pool": 0,
+     "pool": 694
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ]
+   ],
+   "classes": [
+    "overflow",
+    "indexing",
+    "overflow"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2025-12-05",
+    "2025-12-10",
+    "2025-12-12"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-60ed515c",
+   "lint": [],
+   "ops": [
+    "CUMSUM",
+    "FLASH_ATTN_EXT",
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 10632
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 10632
+    },
+    "m3": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 10632
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "overflow",
+    "launch_config",
+    "logic"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-02-03",
+    "2026-04-01",
+    "2026-04-01"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-7ac249cc",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT",
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 1986
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 686
+    },
+    "m3": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 3616
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ],
+    [
+     "m4",
+     "m1"
+    ],
+    [
+     "m4",
+     "m2"
+    ],
+    [
+     "m4",
+     "m3"
+    ]
+   ],
+   "classes": [
+    "grid_limit",
+    "launch_config",
+    "logic",
+    "stream_async"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2025-09-09",
+    "2025-10-26",
+    "2025-11-07",
+    "2025-11-08"
+   ],
+   "faults": 4,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-a45699aa",
+   "lint": [],
+   "ops": [
+    "GET_ROWS",
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 718
+    },
+    "m2": {
+     "added": 16,
+     "perf_pool": 0,
+     "pool": 1818
+    },
+    "m3": {
+     "added": 16,
+     "perf_pool": 0,
+     "pool": 1818
+    },
+    "m4": {
+     "added": 16,
+     "perf_pool": 0,
+     "pool": 1818
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "overflow",
+    "race"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-01-02",
+    "2026-03-14"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-b2519561",
+   "lint": [],
+   "ops": [
+    "CONT",
+    "CPY",
+    "DUP",
+    "SET"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 461
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 461
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "race",
+    "race"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-10-10",
+    "2026-10-19"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-c434b3a5",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 5342
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 5342
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "race",
+    "grid_limit"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-08-03",
+    "2026-10-08"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-ca21f3a1",
+   "lint": [],
+   "ops": [
+    "CROSS_ENTROPY_LOSS",
+    "GROUP_NORM",
+    "L2_NORM",
+    "NORM",
+    "RMS_NORM",
+    "SOFT_MAX",
+    "SUM",
+    "SUM_ROWS"
+   ],
+   "pools": {
+    "m1": {
+     "added": 4,
+     "perf_pool": 0,
+     "pool": 381
+    },
+    "m2": {
+     "added": 4,
+     "perf_pool": 0,
+     "pool": 145
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": false,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "indexing",
+    "indexing"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": false,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": false,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-01-21",
+    "2026-03-30"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-dd366156",
+   "lint": null,
+   "ops": [
+    "ARGSORT",
+    "TOP_K"
+   ],
+   "pools": {
+    "m1": {
+     "added": 2,
+     "perf_pool": 0,
+     "pool": 498
+    },
+    "m2": {
+     "added": 2,
+     "perf_pool": 0,
+     "pool": 498
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "overflow",
+    "logic"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-01-05",
+    "2026-01-15"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-eab11c90",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 8800
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 8800
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "logic",
+    "divergent_barrier"
+   ],
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-bug",
+   "fault_dates": [
+    "2026-06-30",
+    "2026-09-07"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-bug-llamacpp-efe7d4b1",
+   "lint": [],
+   "ops": [
+    "FLASH_ATTN_EXT"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 5180
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 5180
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": false,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ],
+    [
+     "m3",
+     "m1"
+    ],
+    [
+     "m3",
+     "m2"
+    ]
+   ],
+   "classes": [
+    "perf",
+    "perf",
+    "perf"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": false,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-perf",
+   "fault_dates": [
+    "2025-09-03",
+    "2025-09-05",
+    "2025-09-18"
+   ],
+   "faults": 3,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-perf-llamacpp-3ad8a68c",
+   "lint": null,
+   "ops": [
+    "MUL_MAT",
+    "MUL_MAT_ID",
+    "PAD_REFLECT_1D",
+    "RMS_NORM"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 0,
+     "pool": 8
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 195,
+     "pool": 1704
+    },
+    "m3": {
+     "added": 1,
+     "perf_pool": 5,
+     "pool": 2
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "perf",
+    "perf"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-perf",
+   "fault_dates": [
+    "2025-12-25",
+    "2025-12-25"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-perf-llamacpp-4bc24fdb",
+   "lint": [],
+   "ops": [
+    "CUMSUM"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 3,
+     "pool": 14
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 3,
+     "pool": 14
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "perf",
+    "perf"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-perf",
+   "fault_dates": [
+    "2026-02-15",
+    "2026-03-29"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-perf-llamacpp-9d89aaa0",
+   "lint": [],
+   "ops": [
+    "MUL_MAT",
+    "MUL_MAT_ID"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 286,
+     "pool": 1986
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 286,
+     "pool": 1986
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "claimed_edges": [
+    [
+     "m2",
+     "m1"
+    ]
+   ],
+   "classes": [
+    "perf",
+    "perf"
+   ],
+   "contamination": "fallback",
+   "cpu_pass": true,
+   "cpu_pending_host": null,
+   "cpu_structural_pass": true,
+   "cutoff": "2026-05-01",
+   "family": "kernel-perf",
+   "fault_dates": [
+    "2025-10-29",
+    "2026-01-25"
+   ],
+   "faults": 2,
+   "gpu_pending": [
+    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
+    "case calibration (milestone cases = cases each revert breaks)",
+    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
+    "S5 oracle reward 1 on the GPU",
+    "S8 floors 0 and mutants fail (GPU)",
+    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
+    "kernel-launch evidence",
+    "perf bars + noise floor (perf family)",
+    "S10 flake: 60 oracle grades at concurrency 1 and 4",
+    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
+   ],
+   "id": "kd-perf-llamacpp-d2084ba6",
+   "lint": [],
+   "ops": [
+    "CUMSUM",
+    "FLASH_ATTN_EXT",
+    "MUL_MAT",
+    "MUL_MAT_ID",
+    "PAD_REFLECT_1D",
+    "SET_ROWS"
+   ],
+   "pools": {
+    "m1": {
+     "added": 0,
+     "perf_pool": 284,
+     "pool": 2147
+    },
+    "m2": {
+     "added": 0,
+     "perf_pool": 337,
+     "pool": 10657
+    }
+   },
+   "repo": "ggml-org/llama.cpp",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "commit_dates": [
+    "2026-07-20",
+    "2026-07-20"
+   ],
+   "commits": 2,
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "executed_cross_edges": 0,
+   "executed_edges": 6,
+   "family": "kernel-migration",
+   "fault_mutants_pending_gpu": 9,
+   "generation": "cuda12",
+   "gpu_pending": [
+    "run milestones: golden vs the original on fresh seeds, launches, binary check",
+    "fault-class mutants",
+    "S10 flake",
+    "S12-S15"
+   ],
+   "id": "km-cuda12-cudahandbook-19a4af6-3",
+   "kinds": [
+    "texref"
+   ],
+   "milestones": 12,
+   "programs": 6,
+   "repo": "ArchaeaSoftware/cudahandbook",
+   "rung": "L2-short",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "commit_dates": [
+    "2026-07-20",
+    "2026-07-20",
+    "2026-07-20"
+   ],
+   "commits": 3,
+   "contamination": "post-release",
+   "cpu_pass": true,
+   "executed_cross_edges": 0,
+   "executed_edges": 4,
+   "family": "kernel-migration",
+   "fault_mutants_pending_gpu": 3,
+   "generation": "cuda12",
+   "gpu_pending": [
+    "run milestones: golden vs the original on fresh seeds, launches, binary check",
+    "fault-class mutants",
+    "S10 flake",
+    "S12-S15"
+   ],
+   "id": "km-cuda12-cudahandbook-b62f9ad-4",
+   "kinds": [
+    "surfref",
+    "texref"
+   ],
+   "milestones": 8,
+   "programs": 4,
+   "repo": "ArchaeaSoftware/cudahandbook",
+   "rung": "L2-short",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "commit_dates": [
+    "2026-04-02",
+    "2026-04-02",
+    "2026-04-02",
+    "2026-04-02"
+   ],
+   "commits": 4,
+   "contamination": "pre-release",
+   "cpu_pass": true,
+   "executed_cross_edges": 1,
+   "executed_edges": 4,
+   "family": "kernel-migration",
+   "fault_mutants_pending_gpu": 0,
+   "generation": "cuda13",
+   "gpu_pending": [
+    "run milestones: golden vs the original on fresh seeds, launches, binary check",
+    "fault-class mutants",
+    "S10 flake",
+    "S12-S15"
+   ],
+   "id": "km-cuda13-hecbench-591f311-4",
+   "kinds": [
+    "cccl3_functors",
+    "devprop_removed",
+    "memloc_api"
+   ],
+   "milestones": 8,
+   "programs": 4,
+   "repo": "zjin-lcf/HeCBench",
+   "rung": "L2",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "commit_dates": [
+    "2026-04-02",
+    "2026-04-02",
+    "2026-04-02",
+    "2026-04-02"
+   ],
+   "commits": 4,
+   "contamination": "pre-release",
+   "cpu_pass": true,
+   "executed_cross_edges": 1,
+   "executed_edges": 3,
+   "family": "kernel-migration",
+   "fault_mutants_pending_gpu": 3,
+   "generation": "cuda13",
+   "gpu_pending": [
+    "run milestones: golden vs the original on fresh seeds, launches, binary check",
+    "fault-class mutants",
+    "S10 flake",
+    "S12-S15"
+   ],
+   "id": "km-cuda13-hecbench-8fcc759-4",
+   "kinds": [
+    "cccl3_functors",
+    "devprop_removed"
+   ],
+   "milestones": 6,
+   "programs": 3,
+   "repo": "zjin-lcf/HeCBench",
+   "rung": "L2",
+   "split": "train"
+  },
+  {
+   "authored": true,
+   "commit_dates": [
+    "2026-04-02",
+    "2026-04-02",
+    "2026-04-02"
+   ],
+   "commits": 3,
+   "contamination": "pre-release",
+   "cpu_pass": true,
+   "executed_cross_edges": 0,
+   "executed_edges": 2,
+   "family": "kernel-migration",
+   "fault_mutants_pending_gpu": 0,
+   "generation": "cuda13",
+   "gpu_pending": [
+    "run milestones: golden vs the original on fresh seeds, launches, binary check",
+    "fault-class mutants",
+    "S10 flake",
+    "S12-S15"
+   ],
+   "id": "km-cuda13-hecbench-ba3a30a-3",
+   "kinds": [
+    "cccl3_functors",
+    "devprop_removed"
+   ],
+   "milestones": 4,
+   "programs": 2,
+   "repo": "zjin-lcf/HeCBench",
+   "rung": "L2-short",
+   "split": "train"
+  }
+ ],
+ "unclassified_drops": {
+  "heldout": {
+   "not a behavioural fix or speed-up": 79,
+   "platform-specific": 14,
+   "revert": 1
+  },
+  "train": {
+   "not a behavioural fix or speed-up": 314,
+   "platform-specific": 74,
+   "revert": 6
+  }
+ }
+}

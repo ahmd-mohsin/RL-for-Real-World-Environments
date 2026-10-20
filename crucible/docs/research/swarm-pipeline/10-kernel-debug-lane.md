@@ -158,8 +158,91 @@ grades oracle, floors, mutants and the flake run; results in `results/<id>.json`
 
 ## 8. Results
 
-(filled at the end of the run: per family, mined -> real -> grouped -> candidates per CPU gate, with drop reasons.)
+Run 2026-10-20 on this Mac (Docker, 2 CPUs and 3.8 GB per container, at most 2 at once; no GPU, no model call, $0).
+Funnel: `docs/research/swarm-pipeline/runs/kernel_debug_funnel.json` (`lh_kernel_debug.py report`).
+
+| family : split | mined commits | real changes | groups built | CPU structural pass | every CPU gate | authored lint-clean |
+|---|---|---|---|---|---|---|
+| kernel-bug : train (llama.cpp) | 78 | 46 | 12 | 11 | 11 | 11 |
+| kernel-perf : train (llama.cpp) | 26 | 18 | 4 | 4 | 3 | 3 |
+| kernel-migration : train (HeCBench, cudahandbook) | 24 | 24 | 5 | 5 | 5 | 5 |
+| kernel-bug : held out (ik_llama.cpp) | 23 | 17 | 5 | 5 | pending x86 host | 5 |
+| kernel-perf : held out (ik_llama.cpp) | 8 | 4 | 1 | 0 | 0 | 1 |
+
+"Mined commits" are the commits that pass the message and diff filters into the per-change check; the commits refused
+before it (llama.cpp since 2025-09-01: 314 not a behavioural fix or speed-up, 74 platform-specific, 6 reverts; ik since
+2026-05-01: 79, 14, 1) are not counted there. Per-change drops: touches code outside the CUDA backend (19 + 8), reaches
+no op the harness tests (7), reaches too many ops (>= 11; 13), no CUDA source changed (2), multi-GPU code only (1).
+
+**19 candidates pass every CPU gate** (11 bug, 3 perf, 5 migration; all training), and **5 held-out bug candidates** pass
+every structural CPU gate with their harness runs pending the x86 GPU host (the ik CPU backend needs AVX2; this Mac
+emulates x86_64 without AVX, so the listing and the seeding run there, in `run_gpu.py`'s `fill_pools`).
+
+| id | family | faults / milestones | interacting edges (claimed) | classes |
+|---|---|---|---|---|
+| kd-bug-llamacpp-1b8b8fb1 | bug | 3 | m3-m1, m3-m2 | race, logic, indexing |
+| kd-bug-llamacpp-3b87408f | bug | 2 | m2-m1 | bounds, bounds |
+| kd-bug-llamacpp-4b8c156e | bug | 2 | m2-m1 | launch_config, indexing |
+| kd-bug-llamacpp-60ed515c | bug | 3 | all 3 pairs | overflow, indexing, overflow |
+| kd-bug-llamacpp-7ac249cc | bug | 3 | m2-m1 | overflow, launch_config, logic |
+| kd-bug-llamacpp-a45699aa | bug | 4 | all 6 pairs | grid_limit, launch_config, logic, stream_async |
+| kd-bug-llamacpp-b2519561 | bug | 2 | m2-m1 | overflow, race |
+| kd-bug-llamacpp-c434b3a5 | bug | 2 | m2-m1 | race, race |
+| kd-bug-llamacpp-ca21f3a1 | bug | 2 | m2-m1 | race, grid_limit |
+| kd-bug-llamacpp-eab11c90 | bug | 2 | m2-m1 | overflow, logic |
+| kd-bug-llamacpp-efe7d4b1 | bug | 2 | m2-m1 | logic, divergent_barrier |
+| kd-perf-llamacpp-4bc24fdb | perf | 2 | m2-m1 | perf |
+| kd-perf-llamacpp-9d89aaa0 | perf | 2 | m2-m1 | perf |
+| kd-perf-llamacpp-d2084ba6 | perf | 2 | m2-m1 | perf |
+| km-cuda12-cudahandbook-19a4af6-3 | migration | 6 programs | L2-short | texref |
+| km-cuda12-cudahandbook-b62f9ad-4 | migration | 4 programs | L2-short | surfref, texref |
+| km-cuda13-hecbench-591f311-4 | migration | 4 programs | L2 (1 executed cross edge) | cccl3_functors, devprop_removed, memloc_api |
+| km-cuda13-hecbench-8fcc759-4 | migration | 3 programs | L2 (1 executed cross edge) | cccl3_functors, devprop_removed |
+| km-cuda13-hecbench-ba3a30a-3 | migration | 2 programs | L2-short | cccl3_functors, devprop_removed |
+| kd-bug-ikllamacpp-000b1a1e (held out) | bug | 4 | all 6 pairs | precision, indexing, indexing, logic |
+| kd-bug-ikllamacpp-5b19ab0c (held out) | bug | 4 | 5 pairs | race, indexing x3 |
+| kd-bug-ikllamacpp-5b1dc162 (held out) | bug | 3 | all 3 pairs | stream_async x2, indexing |
+| kd-bug-ikllamacpp-5b8c07ff (held out) | bug | 3 | all 3 pairs | logic, race, bounds |
+| kd-bug-ikllamacpp-89213aa6 (held out) | bug | 2 | m2-m1 | logic, grid_limit |
+
+Claimed edges are shared ops (static); executed edges are the GPU calibration's job (cases broken by two single reverts)
+and every bug/perf candidate is pending it, with every gate in `PENDING.json`. Dropped at the CPU gates:
+kd-bug-llamacpp-dd366156 (A' does not compile: one fault is a build-compatibility fix), kd-perf-llamacpp-3ad8a68c
+(milestone m1 has no perf case in the harness), kd-perf-ikllamacpp-e898e200 (m1's revert mutant does not build; the
+leak probe hit a CUDA toolkit sample that holds a generic B-only line). Case pools range from 8 to 10,657 cases per
+milestone; the grader samples at most 3,000 per milestone (the fixes' own added cases first, then a stride).
+
+Sealing (`report`): repositories disjoint (train llama.cpp, HeCBench, cudahandbook; held out ik_llama.cpp), 0 cutoff
+violations, 5 time overlaps (the held-out and training periods overlap: the split is by repository, not time), 31
+contamination hits (27 diff code-substrings, 4 prompt), all from ik being a fork of ggml (shared code, not shared fixes).
+
+Fixed while running: Docker Desktop kept serving a deleted and recreated bind-mount source, so the seeding run after
+the case listing saw no output directory and every seeding check failed; the runs now write into a fresh directory per
+call (`kernel_debug_world.cpu_harness_runs`) and `lh_kernel_debug.py repool` re-ran the harness gates alone. Unit
+selection skips a file the start tree does not have. A' compiles only the units that exist at A'.
+
+Verified GPU-less: the staged GPU plan run in the verifier image without a GPU returns `masked`
+(`no GPU visible (nvidia-smi)`, reward `None`), never a 0. Tests: `test_m17_kd_*` 28 functions, kernel lane total 53; m17
+non-Docker 623 passed, 1 skipped; ruff on the lane files and lint-imports (4 kept) clean.
 
 ## 9. Open issues
 
-(filled at the end of the run.)
+1. **Every GPU gate is pending** (`PENDING.json`): S1 executed (B passes, each single revert fails its milestone),
+   case calibration, S6 executed edges, the oracle's reward 1, floors 0 and mutants failing on the GPU, sanitizer
+   clean on B and dirty on the revert, launch evidence, perf bars, S10 flake (60 grades), then S12-S15. A candidate
+   whose revert breaks no case on the GPU (a fix for hardware this host lacks) is dropped then, not now.
+2. **Perf-bar noise is unmeasured.** Bars are `1 + max(3 x noise, 0.05)` with 10% headroom, from the GPU host's own
+   repetitions; the 5090 and the H100 calibrate separately and a bar never moves between them.
+3. **Held-out harness runs need the x86 host**: the ik CPU backend does not build on aarch64 and SIGILLs under
+   emulation. The bundle lists the pools there; held-out ik harness repairs (the 2024 layout's stale cases and API
+   drift) are anchored and recorded per record.
+4. **Contamination.** Training uses the post-2026-05-01 llama.cpp fixes first but falls back to 2025-09-01 for supply
+   (records say `fallback`); every held-out fix is post-release. HeCBench migration commits are 2026-04-02
+   (pre-release); cudahandbook's are post-release. The student may have seen pre-cut fixes; the S13 baseline measures it.
+5. **Op-map over-approximation.** Ops come from a static reference graph from the changed functions to the dispatch;
+   it may name ops the fix never affects. Calibration keeps only the cases each revert breaks.
+6. **Prompts are re-authored after calibration** drops a milestone (`author` drops calibration-dropped milestones).
+7. **Alternatives** (a second correct fix) are not built yet; the golden-output check accepts any fix that matches
+   the reference within tolerance, so they are expected to pass, but S8 has no explicit alternative.
+8. **cudahandbook windows are L2-short** (programs share no executed edge); they test the migration skill breadth-first.
+9. **Licences**: llama.cpp and ik_llama.cpp MIT, HeCBench BSD-3, cudahandbook BSD-2 (recorded per record).
