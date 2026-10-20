@@ -276,7 +276,7 @@ from verifiers.v1.errors import TaskError
 from verifiers.v1.utils.loaders import import_taskset, _plugin_class
 m = import_taskset("crucible-vf")
 TS = _plugin_class(m, vf.Taskset, "taskset")
-print("LOADED", TS.__name__, "HarborEnv" in m.__all__)
+print("LOADED", TS.__name__, m.__all__ == ["CrucibleTaskset"])  # M11 lab audit R-3: HarborEnv is gone upstream
 from crucible.interop.verifiers.vf_taskset import CrucibleConfig, CrucibleTask
 c = CrucibleConfig.model_fields
 print("CONFIG", c["ignore_timeouts"].default, "path" in c)

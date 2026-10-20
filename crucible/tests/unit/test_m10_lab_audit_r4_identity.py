@@ -337,7 +337,7 @@ def test_task_trees_count_hidden_files_and_pack_trees_do_not(tmp_path):
 
 def test_code_versions_has_the_recorded_fields():
     v = ident.code_versions()
-    assert set(v) == {"crucible", "git_sha", "git_dirty", "harbor", "verifiers"}
+    assert set(v) == {"crucible", "git_sha", "git_dirty", "harbor", "verifiers", "verifiers_commit"}  # the commit: M11 lab audit R-3
     assert v is ident.code_versions()  # cached for the process
 
 

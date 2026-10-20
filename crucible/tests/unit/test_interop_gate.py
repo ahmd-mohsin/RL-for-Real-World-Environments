@@ -133,18 +133,27 @@ def _run_env(env: str, code: str) -> str:
 
 def test_verifiers_export_reward_and_mask(tmp_path):
     """verifiers' own HarborTask machinery with Crucible's reward files: a grade returns the plan reward (+ crucible/
-    metrics); a masked grade raises TaskError with the failure kind (an errored trace prime-rl drops)."""
+    metrics); a masked grade raises TaskError with the failure kind (an errored trace prime-rl drops). The task comes from
+    verifiers' own loader over a Harbor task directory (M11 lab audit R-3: it was built with ``object.__new__``)."""
     from crucible.verify.runtime.plan import write_reward_files
 
+    task_dir = tmp_path / "tasks" / "t0"
+    (task_dir / "tests").mkdir(parents=True)
+    (task_dir / "instruction.md").write_text("do it\n")
+    (task_dir / "task.toml").write_text('version = "1.0"\n\n[agent]\ntimeout_sec = 60\n\n[verifier]\ntimeout_sec = 60\n\n'
+                                        '[environment]\ndocker_image = "python:3.12-slim"\n')
+    (task_dir / "tests" / "test.sh").write_text("#!/bin/bash\n")
     ok, masked = tmp_path / "ok", tmp_path / "masked"
     write_reward_files(ok, {"reward": 1.0, "outcome": 1.0, "gates": {"policy": 1}, "infra": {"status": "ok"}})
     write_reward_files(masked, {"reward": 0.0, "gates": {}, "infra": {"status": "masked", "failure_kind": "node_contention", "reason": "spread"}})
     code = f'''
 import asyncio, json
 from pathlib import Path
-from crucible.interop.verifiers.taskset import build
+import verifiers.v1 as vf
 from verifiers.v1.errors import TaskError
-T, _ = build()
+from verifiers.v1.utils.loaders import import_taskset, _plugin_class
+from crucible.interop.verifiers.vf_taskset import CrucibleConfig
+TS = _plugin_class(import_taskset("crucible-vf"), vf.Taskset, "taskset")
 class R:
     def __init__(self, d): self.d = Path(d)
     async def run(self, cmd, env=None): return type("X", (), {{"exit_code": 0, "stdout": "", "stderr": ""}})()
@@ -155,7 +164,7 @@ class R:
 class Tr:
     def __init__(self): self.metrics, self.info = {{}}, {{}}
     def record_metrics(self, m): self.metrics.update(m)
-t = object.__new__(T); t.data = type("D", (), {{"verifier_env": {{}}}})()
+t = next(iter(TS(CrucibleConfig(path="{tmp_path / 'tasks'}")).load()))
 tr = Tr(); out = asyncio.run(t.run_verifier(R("{ok}"), tr))
 print("OK", out, sorted(tr.metrics))
 try:
