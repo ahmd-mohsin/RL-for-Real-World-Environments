@@ -190,7 +190,10 @@ class EngineLLM:
             prompt = self._prompt(messages, tools, sample_key)
         except Exception as e:
             raise EngineCallError(f"chat codec: {type(e).__name__}: {e}", failure_kind="crucible:harness_unsupported") from e
-        media_new, media_all = self._media_new, self._media_all
+        # read the per-call results of ``_prompt`` before the first await: one engine serves concurrent episodes, and another
+        # episode's ``_prompt`` resets them while this call waits on ``gen`` (Tinker smoke 2026-10-20: a re-render lost its
+        # new_segment flag, so the record saw a prefix break and train mode masked the episode)
+        media_new, media_all, rerendered = self._media_new, self._media_all, self._rerendered
         t0 = time.monotonic()
         kw: dict[str, Any] = {}
         if media_all:
@@ -222,7 +225,7 @@ class EngineLLM:
                            raw_finish=finish, latency_s=time.monotonic() - t0, raw_message={REPLY_KEY: nonce},
                            tokens={"prompt_token_ids": prompt, "completion_token_ids": comp, "logprobs": list(res.logprobs),
                                    "policy_version": res.version, "version_spans": res.version_spans,
-                                   **({"media": media_new} if media_new else {}), **({"new_segment": True} if self._rerendered else {})})
+                                   **({"media": media_new} if media_new else {}), **({"new_segment": True} if rerendered else {})})
 
 
 def attach_call_fields(ro: Any, model_calls: dict[str, list[dict[str, Any]]]) -> None:
