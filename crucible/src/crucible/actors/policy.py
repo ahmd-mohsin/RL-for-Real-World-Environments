@@ -103,6 +103,8 @@ class ContextConfig:
 
 
 DEFAULT_BUDGET_TOKENS = 128_000  # the compaction budget when neither ContextConfig nor the model's client gives one
+# of the window, left free when a reply is fitted to it (M2 R-1): the context past the last provider-counted prompt is an estimate
+WINDOW_MARGIN = 0.02
 
 
 IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
@@ -264,6 +266,21 @@ class LLMToolPolicy(Policy):
         engine's /models card), else None."""
         get = getattr(self.llm, "context_window", None)
         return await get() if get is not None else None
+
+    async def _reply_tokens(self) -> int:
+        """``max_tokens`` for the next turn (M2 R-1; PATTERN: AReaL, slime, rLLM and ROLL send min(requested, window - prompt),
+        Apache-2.0): ``max_tokens`` cut to the room the model's window leaves after this context and ``WINDOW_MARGIN``.
+        Engines refuse a prompt plus ``max_tokens`` over the window, which ended the episode with room left (a 26,172-token
+        prompt in a 32,768 window asking for 8,000). No room at all is a ``ContextOverflow`` before the call is paid for;
+        an unknown window sends ``max_tokens`` as before."""
+        window = await self._window()
+        if not window:
+            return self.max_tokens
+        used = self.context_tokens()
+        room = window - used - int(window * WINDOW_MARGIN)
+        if room <= 0:
+            raise ContextOverflow(f"the context ({used} tokens) leaves no room for a reply in the {window}-token window")
+        return min(self.max_tokens, room)
 
     def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
         self.segments.append({"index": self.segment + 1, "strategy": strategy, "summary_call": summary_call, "context_before": before,
@@ -434,7 +451,7 @@ class LLMToolPolicy(Policy):
         self.messages.append({"role": "user", "content": note})
         self.limit_events.append({"kind": "final_turn", "at": self.tool_calls_issued, "text": note})
         try:
-            r = await self.llm.complete(self.messages, tools=tools, max_tokens=self.max_tokens, temperature=self.temperature,
+            r = await self.llm.complete(self.messages, tools=tools, max_tokens=await self._reply_tokens(), temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         except (LLMError, BudgetExceeded, ContextOverflow) as e:
             return Done(reason=f"the tool-call limit was reached; the final turn failed: {e}")
@@ -470,7 +487,8 @@ class LLMToolPolicy(Policy):
             return self._queue.pop(0)
         try:
             await self._maybe_compact()  # inside: a failed summary call ends the turn like a failed turn (it crashed run_episode)
-            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
+            max_tokens = await self._reply_tokens()
+            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=max_tokens, temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
         except ContextOverflow as e:
             self.stop = "context_overflow"  # truncated, scored: a long-horizon failure is data, not an outage
@@ -486,7 +504,8 @@ class LLMToolPolicy(Policy):
                 "step": obs.step, "model": r.model, **r.finish_fields(), "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
                 "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),
-                "sampling": getattr(r, "sampling", None) or {}}  # what the call sent (R-3): the rollout's Turn.sampling
+                "sampling": getattr(r, "sampling", None) or {},  # what the call sent (R-3): the rollout's Turn.sampling
+                **({"max_tokens_requested": self.max_tokens} if max_tokens < self.max_tokens else {})}  # fitted to the window (M2 R-1)
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
         self._measure(r.usage)

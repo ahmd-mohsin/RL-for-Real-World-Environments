@@ -1527,3 +1527,30 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   core, long-horizon and LLM suites: 589 passed.
 - **Merge notes.** Code that reads `ContextConfig.budget_tokens` directly must treat `None` as "the model's window, else
   `DEFAULT_BUDGET_TOKENS`".
+
+## 68. M2 R-1: one window rule at every model-call boundary
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), as the triage's smallest version: the
+  zero-token rule on the engine path, and the reply fitted to the window R-14 resolves. The fit lives in
+  `LLMToolPolicy` (the one caller whose episode ends on it), not in each client: it covers the hosted, chat and
+  token-in-token-out paths of `LLMClient` at once. Not taken: a fit inside `EngineLLM` for the training loop (no caller
+  there knows the engine's window yet; its refusals are now overflows). Pattern from AReaL's window clamp, slime, rLLM
+  and ROLL (Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/policy.py` (`LLMToolPolicy._reply_tokens`, `_act`, `_final_status_turn`,
+  `WINDOW_MARGIN`), `src/crucible/train/world_env.py` (`EngineLLM.complete`), `src/crucible/train/vllm_http.py` (the
+  comment on its 400 handling, which said the episode ended truncated), `tests/unit/test_window_fit.py` (new).
+- **Public names.** `crucible.actors.policy.WINDOW_MARGIN` (0.02 of the window).
+- **Behaviour.** `EngineLLM.complete` raises `ContextOverflow` for a `length` finish with no completion tokens (vLLM's
+  refusal, as `VLLMServerEngine` returns it, or a full window), so the policy ends `context_overflow`, truncated and
+  scored, after one call instead of two nudges and `agent_done`. `LLMToolPolicy` sends `min(max_tokens, window - context
+  - 2% of window)` when its client knows the window (`context_window`, R-14), and raises `ContextOverflow` before the
+  call when nothing is left; with an unknown window it sends `max_tokens` as before. A fitted call's record carries
+  `max_tokens_requested` (the sent value is its `sampling.max_tokens`). The hosted chat path already had the zero-token
+  rule.
+- **Formats.** none (a key in `calls.json` call records, which `runtime.record.build` does not carry).
+- **Tests.** `test_window_fit.py` (3: an engine refusal ends `context_overflow`, truncated, after one call and no nudge;
+  a reply fitted to the room with both values recorded, unchanged in a roomy or unknown window; no room ends the
+  episode with no call). Engine, training rollout, Tinker bridge, RLM, actor and M2 audit suites: 306 passed, 12
+  skipped.
+- **Merge notes.** Code that calls `EngineLLM.complete` outside a policy now gets `ContextOverflow` where it got an
+  empty `length` reply.
