@@ -707,6 +707,9 @@ def cmd_report(a: argparse.Namespace) -> None:
         gpu = next(iter(((r.get("gates") or {}).get("gpu") or {}).items()), (None, None))
         failed, why = gpu_verdict(gpu[1]) if gpu[1] else ("pending", "not run on a GPU")
         host = ((g.get("host_cpu") or {}).get("ok"))
+        if g.get("host_cpu") and not host:  # the x86 host's CPU gates (listing, seeding) failed before any GPU gate
+            failed, why = "host_cpu_gates", f"pools {g['host_cpu'].get('pools')}, seeding {(g['host_cpu'].get('seeded') or {}).get('ok')}"
+            f.setdefault("gpu_drops", collections.Counter())["host_cpu_gates"] += 1
         if g.get("cpu_pass") or host:
             f.setdefault("gpu_drops", collections.Counter())
             if failed is None:

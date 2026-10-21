@@ -240,6 +240,8 @@ class KDGrader:
             ref = self.run_ref(tag, cases, seed, cache=False)
         except _DumpTooBig:
             if len(cases) == 1:
+                if self.mode == "pool":  # calibration: a case too large to compare leaves the pool
+                    return {"cmp": {cases[0]: {"pass": False, "infra": "reference output too large"}}, "launches": 0, "rc": [], "timed_out": False}
                 raise InfraError(f"one case's reference output is over {MAX_DUMP} bytes: {cases[0]}") from None
             h = len(cases) // 2
             a, b = self._pair(f"{tag}a", cases[:h], seed), self._pair(f"{tag}b", cases[h:], seed)
@@ -254,7 +256,9 @@ class KDGrader:
             cmp[ref["crashed"]] = {"pass": False, "infra": "the reference crashed on this case"}
             return {"cmp": cmp, "launches": None if any(p["launches"] is None for p in parts) else sum(p["launches"] for p in parts),
                     "rc": [rc for p in parts for rc in p["rc"]], "timed_out": any(p["timed_out"] for p in parts)}
-        cand, r = self.run_cand(tag, cases, seed)
+        # a candidate that takes ten times the reference's wall time plus a minute on a correctness chunk is hung (a faulty
+        # kernel that never returns): the chunk fails instead of holding the GPU for the default hour
+        cand, r = self.run_cand(tag, cases, seed, timeout=max(120.0, 10 * float(ref.get("wall_s") or 0) + 60))
         return {"cmp": kh.compare_dumps(cand["recs"], ref["recs"], cases=cases), "launches": cand["launches"], "rc": [r.rc], "timed_out": r.timed_out}
 
     def golden(self, m: dict) -> Verdict:
@@ -279,7 +283,8 @@ class KDGrader:
             fails = {k: v for k, v in cmp.items() if not v["pass"]}
             for k, v in cmp.items():
                 per_case.setdefault(k, []).append(bool(v["pass"]))
-            launch_ok = launches is None or launches >= max(1, len(cases) - len(fails))
+            # pool mode reruns no case another milestone ran: the launch evidence belongs to the grade, not the calibration
+            launch_ok = self.mode == "pool" or launches is None or launches >= max(1, len(cases) - len(fails))
             detail[f"seed{'_fresh' if seed == self.fresh else ''}_{seed}"] = {"failed": len(fails), "cases": len(cases), "launches": launches,
                                                                                "rc": sorted(set(rcs)), "examples": dict(list(fails.items())[:4])}
             ok &= not fails and launch_ok and not timed_out
