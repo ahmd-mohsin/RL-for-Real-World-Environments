@@ -1473,3 +1473,219 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   expects a rollout past `rollout_s` to be masked, but M10 R-3's grading window lets its grade finish (scored 0.0): which
   rule wins is Azaan's and Ahmed's call. Open: RLM kernel orphans
   (`crucible.rlm.expires`) count as PerfGuard contention until they end, which M1 R-6's pid rule used to skip.
+
+## 66. M2 R-3: `World.finished` and `World.failures` follow a restore
+
+- **Item.** R-3 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), narrowed: `WorldRef` is a frozen
+  unversioned format (R-18), so no field is added to it. `finished` is read back from the responders' saved state, as
+  the audit asks; `failures` is not carried in the ref but starts empty, because a retry resumes from its masked
+  attempt's checkpoint, which can hold the fault that masked it. Pattern from NeMo-Gym's conversational tool-use server
+  (terminal state derived from the replayed log; Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/world.py` (`World.restore`, `_run_responder`), `src/crucible/actors/base.py`
+  (`ActorBase.finished_reason`, `state_dict`, `load_state_dict`), `docs/modules/M02-actors.md` (finding 6),
+  `tests/unit/test_restore_episode_state.py` (new).
+- **Public names.** `ActorBase.finished_reason` (the reason of the responder's `Done`, set by the World).
+- **Behaviour.** When a responder returns `Done`, the World also sets its `finished_reason` (when it has one).
+  `World.restore(ref)` sets `World.finished` to the responders in `ref` whose saved state has a `finished_reason`, and
+  `World.failures` to `[]`. So each M6 `branch_value` continuation starts from the branch point (a user's DONE or a
+  responder fault in one no longer cuts short or masks the others), a restore to before a DONE lets the user talk
+  again, and a World restored from a ref taken after a DONE (a checkpoint resume) ends `user_stop` instead of running
+  to `max_steps`. `reset` is unchanged.
+- **Formats.** none. A responder's saved state gains `finished_reason` only once it has ended, so the state, and every
+  `WorldRef` fingerprint, of a conversation still running is unchanged; a ref saved before this reads as not ended.
+- **Tests.** `test_restore_episode_state.py` (4: branch_value continuations with a stopping user and with a responder
+  that fails once; a restore before and after the DONE; the saved state). Actor, World, credit, core and format
+  suites: 318 passed.
+- **Merge notes.** A responder that is not an `ActorBase` keeps its end only until a restore unless it has a
+  `finished_reason` attribute and saves it in `state_dict`.
+
+## 67. M2 R-14: the compaction budget is the model's declared or discovered window
+
+- **Item.** R-14 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: an undeclared window is not
+  an error for a self-hosted engine (the local mlx-lm student and every fake endpoint would stop working); it stays
+  unknown, with today's 128,000 default. Hosted models are read from config only, so a run served from the LLM cache
+  never goes online for a window. Pattern from verifiers `discover_threshold` (the /models fields; MIT) and Harbor's
+  declared model limits (Apache-2.0); no code copied, so no THIRD_PARTY row.
+- **Files.** `src/crucible/core/config.py` (`Config.context_windows`), `src/crucible/actors/llm.py`
+  (`LLMClient.context_window`, `window_tokens`, `window_source`, `WINDOW_FIELDS`, `WINDOW_DISCOVERY_S`),
+  `src/crucible/actors/policy.py` (`ContextConfig.budget_tokens`, `DEFAULT_BUDGET_TOKENS`, `LLMToolPolicy._window`),
+  `src/crucible/actors/rlm/policy.py` (`_config`), `crucible.toml` (a commented `[context_windows]` example),
+  `tests/unit/test_context_window.py` (new).
+- **Public names.** `Config.context_windows` (`crucible.toml` table `[context_windows]`: model id -> tokens, positive);
+  `LLMClient.context_window()` (async, resolved once); `LLMClient.window_tokens`, `window_source` ("config", "models",
+  "unknown"); `crucible.actors.policy.DEFAULT_BUDGET_TOKENS` (128,000).
+- **Behaviour.** `ContextConfig.budget_tokens` defaults to `None`: the compaction budget is the model's window when the
+  policy's client knows it, else 128,000 as before; an explicit value is used as given. `LLMClient.context_window()`
+  reads `context_windows[model id]`, else, for a self-hosted endpoint (`_self_hosted`: localhost, `tito`, a
+  `policy_version`) outside replay mode, one `GET /models` (15 s cap) and the first of `max_model_len`,
+  `context_length`, `context_window`, `max_context_length` on the model's entry; anything else leaves it unknown, and it
+  never raises. `RLMPolicy(context=ContextConfig())` still gets 128,000 (an unset budget is not "compaction off").
+- **Formats.** none (`crucible.toml` gains an optional table).
+- **Tests.** `test_context_window.py` (5: hb01 compacts on a 32,768-token stub that reports its window and overflows as
+  before when it does not; discovery once per client, config first, hosted from config only; hosted, replayed, refused
+  and windowless engines stay unknown without error; the RLM budget; config validation). Actor, M2 audit, RLM, config,
+  core, long-horizon and LLM suites: 589 passed.
+- **Merge notes.** Code that reads `ContextConfig.budget_tokens` directly must treat `None` as "the model's window, else
+  `DEFAULT_BUDGET_TOKENS`".
+
+## 68. M2 R-1: one window rule at every model-call boundary
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), as the triage's smallest version: the
+  zero-token rule on the engine path, and the reply fitted to the window R-14 resolves. The fit lives in
+  `LLMToolPolicy` (the one caller whose episode ends on it), not in each client: it covers the hosted, chat and
+  token-in-token-out paths of `LLMClient` at once. Not taken: a fit inside `EngineLLM` for the training loop (no caller
+  there knows the engine's window yet; its refusals are now overflows). Pattern from AReaL's window clamp, slime, rLLM
+  and ROLL (Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/policy.py` (`LLMToolPolicy._reply_tokens`, `_act`, `_final_status_turn`,
+  `WINDOW_MARGIN`), `src/crucible/train/world_env.py` (`EngineLLM.complete`), `src/crucible/train/vllm_http.py` (the
+  comment on its 400 handling, which said the episode ended truncated), `tests/unit/test_window_fit.py` (new).
+- **Public names.** `crucible.actors.policy.WINDOW_MARGIN` (0.02 of the window).
+- **Behaviour.** `EngineLLM.complete` raises `ContextOverflow` for a `length` finish with no completion tokens (vLLM's
+  refusal, as `VLLMServerEngine` returns it, or a full window), so the policy ends `context_overflow`, truncated and
+  scored, after one call instead of two nudges and `agent_done`. `LLMToolPolicy` sends `min(max_tokens, window - context
+  - 2% of window)` when its client knows the window (`context_window`, R-14), and raises `ContextOverflow` before the
+  call when nothing is left; with an unknown window it sends `max_tokens` as before. A fitted call's record carries
+  `max_tokens_requested` (the sent value is its `sampling.max_tokens`). The hosted chat path already had the zero-token
+  rule.
+- **Formats.** none (a key in `calls.json` call records, which `runtime.record.build` does not carry).
+- **Tests.** `test_window_fit.py` (3: an engine refusal ends `context_overflow`, truncated, after one call and no nudge;
+  a reply fitted to the room with both values recorded, unchanged in a roomy or unknown window; no room ends the
+  episode with no call). Engine, training rollout, Tinker bridge, RLM, actor and M2 audit suites: 306 passed, 12
+  skipped.
+- **Merge notes.** Code that calls `EngineLLM.complete` outside a policy now gets `ContextOverflow` where it got an
+  empty `length` reply.
+
+## 69. M2 R-5: a spent nudge allowance never runs a cut-off call and never ends `agent_done`
+
+- **Item.** R-5 of `docs/research/improvements/2026-10-15/M02-actors.md` (must). Pattern from verifiers (a last
+  `length` finish truncates) and mini-swe-agent (repeated format errors end the run; MIT); no code copied. Not taken:
+  carrying the nudge label onto the rollout `Turn` (a frozen format; the label stays in the call record), and new
+  `LIMIT_STOPS` / `LimitPolicy` rules (the new label is truncating through `TRUNCATING_STOPS` and is scored, which is
+  what a rule would default to).
+- **Files.** `src/crucible/actors/policy.py` (`LLMToolPolicy._act`, `POLICY_STOP_ORDER`, `TRUNCATING_STOPS`),
+  `docs/modules/M02-actors.md` (finding 7), `tests/unit/test_nudge_limits.py` (new).
+- **Public names.** Stop label `max_output_tokens`.
+- **Behaviour.** When a blank or cut-off (`finish=length`) reply comes after the nudge allowance is spent (or with none,
+  as in single-turn), `LLMToolPolicy` ends the episode instead of falling through: `max_output_tokens` (truncated) when
+  the reply was cut off, `format_error` (terminal) when it was blank with a clean finish. A cut-off reply's tool calls are
+  never run (the third one's ran and reset the allowance), and the reply's text stays the `Done` reason, so a cut-off
+  single-turn answer is graded as before under the new label. Each nudged call's record carries `nudged`: `blank`,
+  `cut_off` or `turn`.
+- **Formats.** none (a key in `calls.json` call records).
+- **Tests.** `test_nudge_limits.py` (5: three cut-off replies with a write call run nothing and end `max_output_tokens`;
+  blank cut-off, text cut-off and blank clean replies; a cut-off single-turn answer stays the answer). Actor, M2 audit,
+  RLM, M16 context, M17 auditor, single-turn and harness suites: 385 passed, 10 skipped; the 8 failures in
+  `test_sb_claude_builder.py` fail on main too (its fake `claude` script's shebang breaks on this checkout's path, which
+  has a space).
+- **Merge notes.** Training data: episodes that stalled at the output limit are now `truncated`, so `overlong_filter`
+  drops them, single-turn samples cut at `max_tokens` included (M12).
+
+## 70. M2 R-2: a budget hold prices its own call; pressure waits instead of failing
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), narrowed: no new
+  `crucible:budget_pressure` kind and no wait timeout. A call waits only while calls in flight hold money, and each of
+  them settles (its hold is released in a `finally`), so the wait is bounded by their own timeouts. Not taken: naming
+  the cap's source (local or provider) in the run's stop reason (`runtime/run.py`, M10's). Pattern from repo2rlenv's
+  campaign budget (waits only on pressure from holds that can settle; Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/llm.py` (`LLMClient._reserve`, `complete`, `_overrun`, `_holds`, `_settled`,
+  `Spend.budget_waits`), `tests/unit/test_budget_holds.py` (new).
+- **Public names.** `Spend.budget_waits` (calls that waited for money held by calls in flight).
+- **Behaviour.** A priced call holds its own worst case (prompt estimate plus `max_tokens` at the configured price)
+  times the largest cost/estimate ratio seen so far (a stale price or a prompt the chars/4 estimate undercounts), no
+  longer floored at the dearest call so far; an unpriced one still holds the dearest call seen. `BudgetExceeded`
+  (`credits_exhausted`, which stops the run) is raised only when the money already spent plus this call's own hold
+  exceeds the budget; when it fits but for what calls in flight hold, the call waits until one settles and checks again.
+  So after one 0.20 USD call, 16 cheap concurrent calls all run (5 stopped the run before), 30 calls on a 0.004 USD
+  budget all run (21 were refused by holds alone), and AUD-D12's cap still holds under concurrency.
+- **Formats.** none.
+- **Tests.** `test_budget_holds.py` (4: one dear call no longer inflates later holds; pressure waits; true exhaustion
+  raises at once with a call in flight; a provider dearer than its price scales later holds). Every unit file that
+  builds an `LLMClient` or books spend: 319 passed, 2 skipped; the failures are the 8 known
+  `test_sb_claude_builder.py` ones and `test_sampling`'s rollout version (entry 65).
+- **Merge notes.** `_reserve` is now a coroutine returning `(hold, priced estimate)`.
+
+## 71. M2 R-15: one overflow wording table for every model-calling path
+
+- **Item.** R-15 of `docs/research/improvements/2026-10-15/M02-actors.md` (should). PORT of Prime Agent's overflow
+  table (`crates/pa-ai/src/utils_inner/overflow.rs:8-55`, 3e0893260, MIT; notice already in
+  `LICENSES/MIT-prime-agent.txt`; THIRD_PARTY row added). Not changed: the engine's own refusal check in
+  `train/vllm_http.py` (M12's, a 400 from our own engine) and the importers of `CONTEXT_OVERFLOW_MARKERS`
+  (`runtime/agent_evidence.py`, `train/bridges/tinker/backend.py`), which keep the nine markers they had.
+- **Files.** `src/crucible/actors/llm.py` (`OVERFLOW_PATTERNS`, `NON_OVERFLOW_PATTERNS`, `is_overflow_text`,
+  `is_context_overflow`, `_complete_paid`, `_tito_complete`), `src/crucible/actors/rlm/context.py` (`is_overflow`;
+  `_NOT_OVERFLOW` removed), `THIRD_PARTY.md`, `tests/unit/test_overflow_wordings.py` (new).
+- **Public names.** `crucible.actors.llm.OVERFLOW_PATTERNS`, `NON_OVERFLOW_PATTERNS`, `is_overflow_text(text)`.
+  `CONTEXT_OVERFLOW_MARKERS` stays (every one of them is covered by the table).
+- **Behaviour.** The hosted chat path (a 400/413, or a 200 without choices), the token-in-token-out path (a 400 or
+  now 413 from the engine; it checked one wording) and the RLM's `is_overflow` decide with one table: Prime Agent's 24
+  provider patterns, the nine verifiers markers, NeMo-Gym's and SGLang's "longer than the model's context length" and
+  vLLM's "longer than the maximum model length" / "is too long and exceeds limit of N", minus rate-limit and throttle
+  wordings. So SGLang, llama.cpp, LM Studio, Ollama, Bedrock and Cerebras overflows end the episode
+  `context_overflow` (scored) instead of `agent_request_failed` or `provider_unavailable` (masked, the latter retried
+  into the same overflow).
+- **Formats.** none.
+- **Tests.** `test_overflow_wordings.py` (44: one sample per pattern, the old markers covered, four non-overflows, and
+  the probe's nine wordings on the hosted, RLM and engine paths). RLM, M16, M14, Tinker bridge, agent-evidence and actor
+  suites: 394 passed, 2 skipped, 3 xfailed.
+- **Merge notes.** A new provider wording goes into `OVERFLOW_PATTERNS` (with its sample in the test), not into a
+  caller.
+
+## 72. M2 R-24: a paid call lost after it was sent is booked as uncertain, and sent again once
+
+- **Item.** R-24 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: no `Idempotency-Key` on
+  the re-send (no provider or proxy we use deduplicates on it) and no failed-call entry in `model_calls`
+  (`runtime.record.build` turns call entries into rollout turns). Pattern from repo2rlenv's campaign LLM client (a
+  dispatched call that fails keeps its reservation as uncertain; Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/llm.py` (`_maybe_billed`, `RESENDS_AFTER_SEND`, `LLMClient._complete_paid`,
+  `complete`, `Spend.failed_calls`), `tests/unit/test_failed_calls_booked.py` (new).
+- **Public names.** `crucible.actors.llm.RESENDS_AFTER_SEND` (1); `Spend.failed_calls`.
+- **Behaviour.** In `_complete_paid`, a failed attempt that may have reached the model (a 5xx, a 200 without choices, or
+  a transport failure after the request went out: a read timeout or a reset, as the OpenAI SDK's `APITimeoutError` /
+  `APIConnectionError` over httpx) books the call's budget hold as spend and as uncertain spend (as an unpriced
+  model's calls are booked), adds it to the task's spend scope, and allows only one more send. A refused connection
+  or a connect timeout (never sent) and any 4xx book nothing and retry as before. Calls with no hold (self-hosted
+  engines, cost 0) are unchanged. So the hard budget and the run's uncertain-spend rule now see the dearest failures
+  (long reasoning calls that time out), and a lost call is billed at most twice.
+- **Formats.** none.
+- **Tests.** `test_failed_calls_booked.py` (4: a read timeout is sent twice and books two holds; a 5xx then a success
+  books both; a refused connection and a 400 book nothing). Every unit file that builds an `LLMClient` or books spend,
+  except `r1_a2a` (it waits 15 minutes on main: entry 65): 498 passed, 1 skipped; the failure is `test_sampling`'s
+  rollout version (entry 65).
+- **Merge notes.** The run ledger settles `cost_usd + cost_uncertain_usd`, so a lost call counts twice there, as
+  fallback-priced calls already did (ledger item IDX-FIX-1); conservative, and it may reach the 10% uncertain-spend stop
+  sooner on a flaky provider (the audit's stated risk).
+
+## 73. M2 R-6: unique, provider-safe, deterministic tool-call ids
+
+- **Item.** R-6 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: the repair is in the two
+  policies; the engine codecs (`train/chat.py`, `train/bridges/tinker/codec.py`, M12's) keep minting `call_<8 hex>`
+  ids, which are valid and unique, so the policy keeps them and the token path renders exactly as before. Not taken: a
+  strict mode that charges a duplicate id to the policy (NeMo-Gym's rule; a serving stack's parser makes these).
+  Pattern from NeMo-Gym's nemo_user_sim id checks (Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/policy.py` (`CALL_ID`, `LLMToolPolicy._call_ids`, `_ids_seen`, `_act`,
+  `_final_status_turn`, `load_state_dict`), `src/crucible/actors/harness.py` (`BashLoopPolicy.act`),
+  `tests/unit/test_tool_call_ids.py` (new).
+- **Public names.** `crucible.actors.policy.CALL_ID` (`[A-Za-z0-9_-]{1,64}`).
+- **Behaviour.** `LLMToolPolicy` keeps a provider's tool-call id when it matches `CALL_ID` and is new in the episode;
+  otherwise (empty, reused from an earlier reply, repeated in the reply, or with characters such as `:` or `.` that
+  Bedrock and Anthropic refuse) the call gets `c` + 8 hex of sha256(actor:call index:position), a 9-character id that
+  is the same on every replay. The id is used in the stored assistant turn, the `ToolCall` and the call's `actions`;
+  a call record whose ids were replaced carries `provider_ids`. So a provider that numbers ids per reply no longer has
+  turn 2's malformed call charged to turn 1 (`format_errors_by_call`), two calls sharing an id no longer let a message
+  in between their results, and an id-less reply no longer gets a random id that made every later prompt, and so the
+  replay cache key, differ. The ids already used are rebuilt from the history and call records on `load_state_dict`.
+  `BashLoopPolicy` numbers its calls `bash-<model call index>` (was random).
+- **Formats.** none (ids in traces and records are now deterministic; a key in `calls.json` call records).
+- **Tests.** `test_tool_call_ids.py` (5: an id reused across turns charges only its own call; two calls sharing an id
+  keep their batch together; id-less and unsafe ids are derived alike on two replays; a restored policy knows its ids;
+  the bash loop numbers its calls). Every unit file that drives `LLMToolPolicy` or `BashLoopPolicy` or reads tool-call
+  ids (training, `r1_a2a`, `r1_harbor` and `sb_claude_builder` left out): 921 passed, 38 skipped, 3 xfailed; the failure is the known `test_agentenv_mcp_env` card_tools_only (the agentenv clone's extra `items_whoami` tool).
+- **Merge notes.** A fake LLM that returns the same id on every turn now sees the second and later ones replaced; a
+  test that asserts a fixed id on a later turn must take it from the returned `ToolCall`.
+- **Full run after all M2 items (2026-10-21, 49 min).** Unit (no training or M12 files, no `r1_a2a`), toy end-to-end
+  and red-team tests: 3285 passed, 56 skipped, 3 xfailed, 23 failed, none from M2. On main's source (7176582) the same
+  fail: the 8 `test_sb_claude_builder.py` tests (the fake `claude` shebang breaks on a path with a space), 4
+  `r2_quiesce_docker` and 1 `r6_docker` red-team tests, 2 `r4_identity`, `r5_breaker` quarantine. Known from entry 65 and
+  earlier: `card_tools_only`, `r1_harbor` 503, two studio tests, the coding pack fixture, `test_sampling`'s rollout
+  version. `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under full-suite load
+  only (it passes alone and with its neighbours). Ruff on the changed files and lint-imports (5 contracts) are clean.

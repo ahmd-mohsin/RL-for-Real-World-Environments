@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from crucible.actors.llm import LLMError, LLMResponse
+from crucible.actors.llm import ContextOverflow, LLMError, LLMResponse
 from crucible.train.chat import ChatCodec
 from crucible.train.engine import GenResult
 
@@ -214,6 +214,10 @@ class EngineLLM:
             raise EngineCallError(f"engine aborted the call after {len(res.completion_ids)} tokens", failure_kind="provider_unavailable")
         res = cut_at_stop(res, self.codec.eos_ids)
         self.spend.calls += 1
+        if res.finish == "length" and not res.completion_ids:
+            # the prompt left no room: an engine refusal (``VLLMServerEngine`` turns vLLM's 400 into this) or a full window.
+            # It was an empty reply, nudged twice and then labelled agent_done, untruncated (M2 R-1, probe tb02)
+            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({len(prompt)} prompt tokens, max_tokens {max_tokens})")
         comp = list(res.completion_ids)
         tail = comp if (comp and comp[-1] in self.codec.eos_ids) else comp + list(self.codec.eos_ids[:1])
         text, calls = self.codec.parse(comp)

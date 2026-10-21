@@ -158,6 +158,9 @@ class Config(CrucibleModel):
     # model id -> USD per 1M tokens: [input, output] or [input, output, cache read] or [input, output, cache read, cache
     # write]; a cache price left out is the input price (R-19)
     prices: dict[str, list[float]] = Field(default_factory=dict)
+    # model id -> context window in tokens (prompt plus reply), for a model whose server does not say (M2 R-14):
+    # ``LLMClient.context_window`` reads it first, then a self-hosted engine's /models card
+    context_windows: dict[str, int] = Field(default_factory=dict)
     llm_budget_usd: float = 1.0  # default hard cap per LLMClient instance
     backends: dict[str, dict[str, Any]] = Field(default_factory=dict)
     root: str | None = None  # directory the config was loaded from (set by loader)
@@ -169,6 +172,14 @@ class Config(CrucibleModel):
         bad = sorted(k for k, p in v.items() if not 2 <= len(p) <= 4 or any(x < 0 for x in p))
         if bad:
             raise ValueError(f"prices {bad}: give USD per 1M tokens as [input, output], optionally then cache read and cache write")
+        return v
+
+    @field_validator("context_windows")
+    @classmethod
+    def _positive_windows(cls, v: dict[str, int]) -> dict[str, int]:
+        bad = sorted(k for k, n in v.items() if n <= 0)
+        if bad:
+            raise ValueError(f"context_windows {bad}: give each model's window as a positive number of tokens")
         return v
 
     def data_path(self) -> Path:

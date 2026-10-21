@@ -10,8 +10,8 @@ ledger, and the only model call it makes is the summary request inside ``Compact
 - ``ContextMeter``: usage-anchored accounting (PA ``session_engine/compaction.rs:39-47,199-295``; nano-rlm
   ``engine.py:1133-1146``). The stress test (03-crucible-stress.md B1) measured 1.42 real tokens per chars/4 token on
   RLM cells; a chars/4 trigger let every segment reach 145-148k real tokens under a 128k budget.
-- ``is_overflow`` / ``is_silent_overflow``: the nine provider markers on a 400/413 (shared with ``actors.llm``) plus PA's
-  silent rules (``pa-ai/src/utils_inner/overflow.rs:8-98``).
+- ``is_overflow`` / ``is_silent_overflow``: the provider wordings on a 400/413 (``actors.llm.is_overflow_text``, the
+  table every path shares) plus PA's silent rules (``pa-ai/src/utils_inner/overflow.rs:8-98``).
 - ``summary_view`` / ``hollow_middle`` / ``Compactor``: nano-rlm's summary loop (``engine.py:1195-1365``,
   ``compaction.py:175-223``, MIT): bounded attempts, an overflowing request hollowed and retried, empty / tool-calling /
   reasoning-only replies resampled, ``compaction_failed`` as a clean typed stop. Unlike PA (``compact_session.rs:63-68``)
@@ -36,7 +36,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from crucible.actors.llm import CONTEXT_OVERFLOW_MARKERS, ContextOverflow
+from crucible.actors.llm import ContextOverflow, is_overflow_text
 from crucible.actors.policy import approx_tokens
 
 __all__ = [
@@ -238,9 +238,6 @@ class ContextMeter:
 
 # ---- overflow detection -----------------------------------------------------------------------------------------------
 # PA pa-ai/src/utils_inner/overflow.rs:41-53: rate limits and outages that can quote a size are never overflows
-_NOT_OVERFLOW = re.compile(r"rate limit|too many requests|^(throttling error|service unavailable):", re.IGNORECASE | re.MULTILINE)
-
-
 def _status(e: BaseException) -> int | None:
     s = getattr(e, "status_code", None)
     if s is None:
@@ -250,9 +247,10 @@ def _status(e: BaseException) -> int | None:
 
 def is_overflow(exc: BaseException | None = None, *, status: int | None = None, text: str = "") -> bool:
     """True when a failed request was refused because the prompt does not fit: Crucible's ``ContextOverflow`` (the client
-    already classifies 400/413 bodies, 200 error bodies and ``length`` with 0 output), or a 400/413 whose text carries one
-    of the nine provider markers (``actors.llm.CONTEXT_OVERFLOW_MARKERS``, ported from nano-rlm ``compaction.py:53-87``).
-    Walks ``__cause__``, so a wrapped transport error is still seen. Rate-limit wordings never count (PA overflow.rs:41-53)."""
+    already classifies 400/413 bodies, 200 error bodies and ``length`` with 0 output), or a 400/413 whose text says so by
+    ``actors.llm.is_overflow_text`` (the one table every path shares: Prime Agent's patterns and exclusions, PA
+    overflow.rs:8-55, plus the nine markers ported from nano-rlm ``compaction.py:53-87``). Walks ``__cause__``, so a
+    wrapped transport error is still seen. Rate-limit wordings never count."""
     details = [text or ""]
     st = status
     seen: set[int] = set()
@@ -272,10 +270,7 @@ def is_overflow(exc: BaseException | None = None, *, status: int | None = None, 
             with contextlib.suppress(Exception):  # an unread streaming body: the status and the message still decide
                 details.append(str(getattr(resp, "text", "") or ""))
         e = e.__cause__
-    d = " ".join(details).casefold()
-    if _NOT_OVERFLOW.search(d):
-        return False
-    return st in (400, 413) and any(m in d for m in CONTEXT_OVERFLOW_MARKERS)
+    return st in (400, 413) and is_overflow_text(" ".join(d for d in details if d))  # the one table every path shares (M2 R-15)
 
 
 def is_silent_overflow(usage: dict[str, Any] | None, finish: str | None, window: int, text: str, tool_calls: list) -> bool:

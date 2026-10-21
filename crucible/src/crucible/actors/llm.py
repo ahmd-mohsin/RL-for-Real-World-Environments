@@ -18,6 +18,7 @@ import asyncio
 import contextvars
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,17 +109,63 @@ class ContextOverflow(LLMError):
     failure_kind = None
 
 
-# Ported from verifiers v1 (MIT) harnesses/utils/compaction.py: provider wordings of a context overflow.
+# Ported from verifiers v1 (MIT) harnesses/utils/compaction.py: provider wordings of a context overflow. Kept for its
+# importers; Crucible's own paths decide with ``is_overflow_text``, which covers every one of them.
 CONTEXT_OVERFLOW_MARKERS = (
     "context_length_exceeded", "exceeds the context window", "reduce the length of the messages", "maximum context length",
     "prompt is too long", "request_too_large", "request entity too large", "exceeds the maximum number of tokens", "maximum prompt length is",
 )
 
+# M2 R-15: one table for every model-calling path (the hosted chat API, the token-in-token-out engine, the RLM). The nine
+# markers caught 2 of 8 provider wordings, the engine path one, and a missed overflow is masked as an outage (or retried
+# to the same overflow) instead of scored. PORT of Prime Agent ``crates/pa-ai/src/utils_inner/overflow.rs:8-55``
+# (3e0893260, MIT, LICENSES/MIT-prime-agent.txt): its 24 provider patterns and its 3 exclusions, verbatim, then the
+# wordings Crucible already matched (verifiers, above) and those of NeMo-Gym's finance_agent and vLLM / SGLang.
+OVERFLOW_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"prompt is too long",  # Anthropic token overflow
+    r"request_too_large",  # Anthropic request byte-size overflow (HTTP 413)
+    r"input is too long for requested model",  # Amazon Bedrock
+    r"exceeds the context window",  # OpenAI (Completions & Responses API)
+    r"input token count.*exceeds the maximum",  # Google (Gemini)
+    r"maximum prompt length is \d+",  # xAI (Grok)
+    r"reduce the length of the messages",  # Groq
+    r"maximum context length is \d+ tokens",  # OpenRouter (all backends)
+    r"exceeds the model's maximum context length",  # LiteLLM
+    r"exceeds the limit of \d+",  # GitHub Copilot
+    r"exceeds the available context size",  # llama.cpp server
+    r"greater than the context length",  # LM Studio
+    r"context window exceeds limit",  # MiniMax
+    r"exceeded model token limit",  # Kimi For Coding
+    r"too large for model with \d+ maximum context length",  # Mistral
+    r"model_context_window_exceeded",  # z.ai non-standard finish_reason surfaced as error text
+    r"combined input and output tokens",  # Prime Inference-style combined ceilings
+    r"accepts at most \d+ combined",  # "accepts at most 1048576 combined tokens"
+    r"reduce the input length or requested output length",  # combined-limit remedy text
+    r"prompt too long; exceeded (?:max )?context length",  # Ollama explicit overflow error
+    r"context[_ ]length[_ ]exceeded",  # Generic fallback
+    r"too many tokens",  # Generic fallback
+    r"token limit exceeded",  # Generic fallback
+    r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)",  # Cerebras: 400/413 with no body
+    # Crucible's own: the verifiers markers not above, NeMo-Gym finance_agent (app.py:71-93), vLLM and SGLang
+    r"maximum context length", r"request entity too large", r"exceeds the maximum number of tokens", r"maximum prompt length is",
+    r"longer than the (?:model's )?(?:maximum )?(?:context|model) length", r"is too long and exceeds limit of \d+",
+))
+NON_OVERFLOW_PATTERNS = tuple(re.compile(p, re.IGNORECASE | re.MULTILINE) for p in (
+    r"^(Throttling error|Service unavailable):",  # AWS Bedrock non-overflow errors
+    r"rate limit",  # Generic rate limiting
+    r"too many requests",  # Generic HTTP 429 style
+))
+
+
+def is_overflow_text(text: str) -> bool:
+    """Whether an error's text says the prompt does not fit the model's context (``OVERFLOW_PATTERNS``), and is not a rate
+    limit or throttle worded like one (``NON_OVERFLOW_PATTERNS``). Callers check the status (a 400 or 413) themselves."""
+    return not any(p.search(text) for p in NON_OVERFLOW_PATTERNS) and any(p.search(text) for p in OVERFLOW_PATTERNS)
+
 
 def is_context_overflow(e: Exception) -> bool:
     status = getattr(e, "status_code", None)
-    details = f"{e} {getattr(e, 'body', '') or ''}".casefold()
-    return status in (400, 413) and any(m in details for m in CONTEXT_OVERFLOW_MARKERS)
+    return status in (400, 413) and is_overflow_text(f"{e} {getattr(e, 'body', '') or ''}")
 
 
 def _parse_arguments(raw: str | None) -> dict[str, Any]:
@@ -173,10 +220,16 @@ class Spend:
     uncertain_usd: float = 0.0  # calls whose cost could not be read (blank usage in tolerant mode): an upper-bound estimate
     blank_usage_calls: int = 0
     unpriced_calls: int = 0  # calls booked at the fallback price (no provider cost, no configured price)
+    budget_waits: int = 0  # calls that waited for money held by calls in flight before they could start (M2 R-2)
+    failed_calls: int = 0  # attempts that failed after they may have reached the model, booked at their hold (M2 R-24)
 
 
 UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a hosted model with no price anywhere
+# fields of a /models entry that give the context window: vLLM and SGLang, OpenRouter, others (verifiers' discover_threshold)
+WINDOW_FIELDS = ("max_model_len", "context_length", "context_window", "max_context_length")
+WINDOW_DISCOVERY_S = 15.0  # one /models read per client; past this the window stays unknown
 RATE_LIMIT_ATTEMPTS = 6  # a 429 gets at least this many attempts, on a slower curve: 3 tries over 4.5 s gave up mid-burst
+RESENDS_AFTER_SEND = 1  # a priced call that may have been billed (sent, then lost) is sent again at most this many times (M2 R-24)
 
 
 def _retry_after(e: Exception) -> float | None:
@@ -202,6 +255,23 @@ def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
         return min(ra, cap)
     base = 5.0 if getattr(e, "status_code", None) == 429 else 1.5
     return min(min(base * 2**attempt, cap) * (0.5 + random.random()), cap)
+
+
+def _maybe_billed(e: BaseException, status: int | None) -> bool:
+    """Whether a failed attempt may have reached the model, and so be billed: a 5xx, a 200 without choices, or a transport
+    failure after the request went out (a read timeout, a reset). A refused connection or a connect timeout never sent
+    it, and any other status was answered without running it."""
+    if isinstance(e, _NoChoices) or (status is not None and status >= 500):
+        return True
+    if status is not None:
+        return False
+    chain, c = [], e
+    while c is not None and len(chain) < 8:
+        chain.append(c)
+        c = c.__cause__ or c.__context__
+    if any(isinstance(c, (httpx.ConnectError, httpx.ConnectTimeout)) for c in chain):
+        return False
+    return any(isinstance(c, (httpx.TransportError, TimeoutError)) or type(c).__name__ in ("APITimeoutError", "APIConnectionError") for c in chain)
 
 
 def _approx_tokens(messages: list[dict[str, Any]]) -> int:
@@ -259,8 +329,13 @@ class LLMClient:
         self.policy_version: int | str | None = self.provider.policy_version
         self.spend = Spend()
         self._reserved = 0.0  # USD held by calls in flight (the hard budget counts them: see ``_reserve``)
+        self._holds = 0  # calls in flight holding money: a call waits on them only while there are some
         self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
+        self._overrun = 1.0  # the largest cost / priced worst case seen: holds scale by it (a stale price, a long prompt)
+        self._settled = asyncio.Event()  # set (and replaced) whenever a call releases its hold: calls waiting on money wake
         self._client = None
+        self.window_tokens: int | None = None  # the model's context window once resolved (``context_window``)
+        self.window_source: str | None = None  # where it came from: "config", "models" or "unknown"; None = not resolved yet
 
     def lock_settings(self) -> dict[str, Any]:
         """What this client is for a run lock (runtime.lock, R-1): the resolved model, the endpoint and every provider
@@ -314,6 +389,30 @@ class LLMClient:
         host = (urlparse(self.provider.base_url).hostname or "").casefold()
         return self.provider.tito or self.provider.policy_version is not None or host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".local")
 
+    async def context_window(self) -> int | None:
+        """The model's context window in tokens (prompt plus reply), resolved once (M2 R-14; PATTERN: verifiers
+        ``discover_threshold`` reads the /models card, MIT): ``crucible.toml``'s ``context_windows`` for this model id, else
+        a self-hosted engine's /models entry (vLLM and SGLang give ``max_model_len``), else None (unknown: callers keep
+        their defaults). Compaction budgets defaulted to 128,000 tokens whatever the served window, so a 32,768-token
+        engine overflowed before compacting once. Hosted APIs are read from config only: a cached run stays offline."""
+        if self.window_source is None:
+            n, src = self.config.context_windows.get(self.model), "config"
+            if n is None and self._self_hosted() and self.cache_mode != "replay":
+                n, src = await self._discover_window(), "models"
+            self.window_tokens, self.window_source = (n, src) if n else (None, "unknown")
+        return self.window_tokens
+
+    async def _discover_window(self) -> int | None:
+        try:
+            page = await asyncio.wait_for(self._openai().models.list(), timeout=WINDOW_DISCOVERY_S)
+            for m in getattr(page, "data", None) or []:
+                card = m.model_dump() if hasattr(m, "model_dump") else dict(vars(m))
+                if card.get("id") == self.model:
+                    return next((int(v) for f in WINDOW_FIELDS if isinstance(v := card.get(f), int) and v > 0), None)
+        except Exception:  # noqa: BLE001 -- an engine without /models, or one down: the window stays unknown, never an error here
+            return None
+        return None
+
     def _prices(self) -> tuple[list[float] | tuple[float, float] | None, bool]:
         """(USD per 1M [input, output], is_fallback). No price for a self-hosted engine; a hosted model with none
         configured gets ``prices["*"]`` or ``UNPRICED_USD_PER_M``."""
@@ -352,12 +451,18 @@ class LLMClient:
                                sampling=d.get("sampling") or self._sent(temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
-        hold = self._reserve(messages, max_tokens)
+        hold, priced = await self._reserve(messages, max_tokens)
         try:
-            return await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
-                                             seed=seed, extra=extra, sample_key=sample_key)
+            r = await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
+                                          seed=seed, extra=extra, sample_key=sample_key, hold=hold)
+            if priced > 0 and r.cost_usd > priced:
+                self._overrun = max(self._overrun, r.cost_usd / priced)
+            return r
         finally:
             self._reserved -= hold
+            self._holds -= 1
+            settled, self._settled = self._settled, asyncio.Event()
+            settled.set()
 
     @staticmethod
     def _cached(path: Path) -> dict[str, Any] | None:
@@ -371,18 +476,34 @@ class LLMClient:
             return None
         return d if isinstance(d, dict) and isinstance(d.get("text"), str) else None
 
-    def _reserve(self, messages: list[dict[str, Any]], max_tokens: int) -> float:
-        """Check the budget and hold this call's worst-case cost until it settles. A check of money already spent let
-        40 concurrent calls through a 0.05 USD budget and spend 0.40 (M2 audit): calls in flight now count. The hold is
-        the configured price of the prompt plus ``max_tokens``, else the largest single call seen so far."""
-        p, _ = self._prices()
-        est = max((_approx_tokens(messages) / 1e6 * p[0] + max_tokens / 1e6 * p[1]) if p else 0.0, self._max_seen)
-        if self.spend.usd >= self.budget_usd or self.spend.usd + self._reserved + est > self.budget_usd + 1e-12:
-            raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent, {self._reserved:.4f} held by calls in flight)")
-        self._reserved += est
-        return est
+    async def _reserve(self, messages: list[dict[str, Any]], max_tokens: int) -> tuple[float, float]:
+        """Check the budget and hold this call's worst-case cost until it settles; returns (hold, priced worst case). A
+        check of money already spent let 40 concurrent calls through a 0.05 USD budget and spend 0.40 (M2 audit): calls in
+        flight count. The hold is the configured price of the prompt plus ``max_tokens``, times the largest overrun seen
+        (``_overrun``), else, unpriced, the largest single call seen so far.
 
-    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
+        M2 R-2 (PATTERN: repo2rlenv's budget waits only on pressure from holds that can still settle, Apache-2.0): only a
+        call whose own estimate does not fit beside the money already spent is refused (``credits_exhausted`` stops the
+        run). One that fits but for what calls in flight hold waits for them to settle: the dearest call's cost floored
+        every hold, so after one 0.20 USD call 5 of 16 cheap calls stopped the run with 91% of the budget unused."""
+        p, _ = self._prices()
+        priced = (_approx_tokens(messages) / 1e6 * p[0] + max_tokens / 1e6 * p[1]) if p else 0.0
+        est = priced * self._overrun if p else self._max_seen
+        waited = False
+        while True:
+            if self.spend.usd >= self.budget_usd or self.spend.usd + est > self.budget_usd + 1e-12:
+                raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent, {est:.4f} needed by this call)")
+            if not self._holds or self.spend.usd + self._reserved + est <= self.budget_usd + 1e-12:
+                self._reserved += est
+                self._holds += 1
+                return est, priced
+            if not waited:  # pressure: calls in flight hold the rest (so one of them will settle and wake this one)
+                waited = True
+                self.spend.budget_waits += 1
+            await self._settled.wait()
+
+    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None,
+                             hold: float = 0.0) -> LLMResponse:
         if self.provider.tito:
             return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
         kwargs = self._request(messages, tools, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra)
@@ -392,7 +513,7 @@ class LLMClient:
             client = self._openai()
         except Exception as e:  # a missing key or bad base URL: retrying cannot help (it was retried 3x with backoff)
             raise LLMError(f"{self.model}: cannot build the client: {e}") from e
-        attempt, limit = 0, self.max_retries
+        attempt, limit, resends = 0, self.max_retries, 0
         while True:
             try:
                 resp = await client.chat.completions.create(**kwargs)
@@ -406,13 +527,24 @@ class LLMClient:
                 if status == 402 or (status == 429 and "insufficient_quota" in text):
                     raise BudgetExceeded(f"provider refused for credits ({status}): {e}") from e
                 # an overflow in a 200 error body was retried and masked as an outage (M2 audit): it is the policy's overflow
-                if is_context_overflow(e) or (isinstance(e, _NoChoices) and any(m in text for m in CONTEXT_OVERFLOW_MARKERS)):
+                if is_context_overflow(e) or (isinstance(e, _NoChoices) and is_overflow_text(text)):
                     raise ContextOverflow(f"{self.model}: {e}") from e
                 if status is not None and 400 <= status < 500 and status not in (408, 409, 425, 429):  # retrying cannot help
                     raise RequestRejected(f"{self.model} rejected the request ({status}): {e}") from e
                 if status == 429:
                     limit = max(limit, RATE_LIMIT_ATTEMPTS)
                 attempt += 1
+                if hold > 0 and _maybe_billed(e, status):
+                    # M2 R-24 (PATTERN: repo2rlenv books a dispatched call that failed as uncertain and keeps its
+                    # reservation, Apache-2.0): a call that may have been billed is booked at its hold, as spend (the hard
+                    # budget counts it) and as uncertain (the run's tolerance rule sees it), and is sent again only
+                    # RESENDS_AFTER_SEND times. It was re-sent up to max_retries times and booked nothing.
+                    self.spend.usd += hold
+                    self.spend.uncertain_usd += hold
+                    self.spend.failed_calls += 1
+                    book_scoped(hold)
+                    resends += 1
+                    limit = min(limit, attempt + 1) if resends >= RESENDS_AFTER_SEND else limit
                 if attempt >= limit:
                     err = LLMError(f"{self.model} failed after {attempt} attempts: {last}")
                     err.retry_after = _retry_after(e)  # M10 lab audit R-5 item 3: the last answer's Retry-After rides to the Failure
@@ -482,7 +614,7 @@ class LLMClient:
                     raise e.__cause__ from None
                 raise
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 400 and "maximum context length" in e.response.text.lower():
+            if e.response.status_code in (400, 413) and is_overflow_text(e.response.text):  # one table for every path (R-15)
                 raise ContextOverflow(f"{self.model}: {e.response.text[:300]}") from e
             raise LLMError(f"{self.model} (tito) failed: {e}") from e
         except httpx.HTTPError as e:

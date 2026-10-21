@@ -241,7 +241,7 @@ class World:
         self._tools: dict[str, list[ToolSpec]] = {}
         self._step_lock = asyncio.Lock()
         self.finished: dict[str, str] = {}  # non-policy actors that ended their part (user_stop, out_of_scope, ...)
-        self.failures: list[Failure] = []  # infrastructure faults this episode (cleared by reset)
+        self.failures: list[Failure] = []  # infrastructure faults this episode (cleared by reset and restore)
         self._acl_changed: set[str] = set()
         self._started = False
         self._closed = False
@@ -874,6 +874,8 @@ class World:
                     self.inboxes.setdefault(a.to, []).append(Inbound(**{"from": actor_id, "text": text, "at": self._now(), "citations": a.citations}))
                 elif isinstance(a, Done):
                     self.finished[actor_id] = a.reason or "done"
+                    if hasattr(responder, "finished_reason"):  # kept in the responder's saved state: a restore reads it (M2 R-3)
+                        responder.finished_reason = self.finished[actor_id]
                     self._log("action", actor_id, "done", text=a.reason)
             if not calls:
                 return
@@ -1064,6 +1066,12 @@ class World:
         for a, st in ref.actors.items():
             if a in self.responders:
                 self.responders[a].load_state_dict(st)
+        # M2 R-3: who had ended, and the faults seen, are the restored branch's. Both were kept from before the restore, so
+        # in M6 branch_value a user's DONE in one continuation cut the next ones short and one responder fault masked all
+        # of them, and a resumed checkpoint forgot that the user had ended. ``finished`` follows the responders' saved
+        # state; ``failures`` starts empty (never carried in a ref: a retry resumes from its masked attempt's checkpoint).
+        self.finished = {a: str(st["finished_reason"]) for a, st in ref.actors.items() if a in self.responders and st.get("finished_reason")}
+        self.failures = []
         await self.backend.restore_state(ref.backend)
         if self.turns is not None:
             self.turns.restore(ref.turns)
