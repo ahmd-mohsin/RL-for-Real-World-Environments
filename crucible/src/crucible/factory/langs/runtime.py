@@ -66,6 +66,32 @@ def packaging_key(tree: Path, files: Sequence[str]) -> str:
     return h.hexdigest()
 
 
+def policy_world_dockerfile(image: str, profile: Any) -> str | None:
+    """A derived image of a pinned World for the **policy** only (the grader keeps ``image``): ``FROM image`` plus the
+    profile's ``policy_world_steps()`` (S15, 2026-10-20: the node World had no ``python3``, which the World's file tools
+    run, and corepack's pnpm cache under the build's ``HOME`` that the policy's ``HOME=/tmp`` never finds). None when the
+    profile has no step."""
+    steps = list(getattr(profile, "policy_world_steps", list)())
+    return "\n".join([f"FROM {image}", *steps]) + "\n" if steps else None
+
+
+def policy_world(image: str, profile: Any) -> dict[str, Any]:
+    """Build (once) the policy World of ``image`` (``policy_world_dockerfile``), tagged ``<image>-pw<hash>``. Returns
+    ``{ok, image, from, dockerfile, log}``; ``image`` is ``image`` itself when the profile has no step."""
+    import hashlib
+
+    df = policy_world_dockerfile(image, profile)
+    if df is None:
+        return {"ok": True, "image": image, "from": image, "dockerfile": None, "log": ""}
+    tag = f"{image}-pw{hashlib.sha256(df.encode()).hexdigest()[:8]}"
+    if image_id(tag) is not None:
+        return {"ok": True, "image": tag, "from": image, "dockerfile": df, "log": "cached"}
+    with tempfile.TemporaryDirectory(prefix="lhd-pw-") as td:
+        (Path(td) / "Dockerfile").write_text(df)
+        r = docker("build", "--progress=plain", "-t", tag, td, timeout=1800)
+    return {"ok": r.returncode == 0 and image_id(tag) is not None, "image": tag, "from": image, "dockerfile": df, "log": (r.stdout + r.stderr)[-2000:]}
+
+
 class LangImageBook:
     """World images of one profile per (repo, packaging), built once (see the module doc)."""
 

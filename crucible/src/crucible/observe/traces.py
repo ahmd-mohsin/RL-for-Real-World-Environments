@@ -141,6 +141,17 @@ def attempt_dirs(root: Path | str) -> list[Path]:
     return out
 
 
+def trail_dir(adir: Path, rec: Mapping[str, Any] | None = None) -> Path:
+    """The attempt that holds the agent's trail: ``adir``, or for a re-graded attempt (``Runner.regrade``: stop
+    ``regraded``, ``meta.artifacts.regraded_from``) its source attempt (``factory.traceaudit.regrade_source``, the same
+    rule: this module imports no factory code)."""
+    meta = (rec if rec is not None else (_read(adir / "record.json", {}) or {})).get("meta") or {}
+    name = (meta.get("artifacts") or {}).get("regraded_from")
+    if meta.get("stop") == "regraded" and name and str(name) != adir.name and (adir.parent / str(name)).is_dir():
+        return adir.parent / str(name)
+    return adir
+
+
 def episode_key(adir: Path, rec: Mapping[str, Any] | None = None) -> str:
     """``<run id>/<sample>/<attempt>``: the trace audit's bundle id for the same attempt (``traceaudit.discover``)."""
     run = (rec or {}).get("run_id") or adir.parents[2].name
@@ -163,15 +174,16 @@ def episode_spans(adir: Path | str, *, project: str, arm: str = "", run: str = "
     d = Path(adir)
     rec = _read(d / "record.json", {}) or {}
     meta = rec.get("meta") or {}
-    prog = meta.get("progress") or {}
+    src = trail_dir(d, rec)  # a re-graded attempt: the grade is here, the agent's trail in its source attempt
+    prog = meta.get("progress") or (((_read(src / "record.json", {}) or {}).get("meta") or {}).get("progress") if src != d else None) or {}
     key = episode_key(d, rec)
-    calls_doc = _read(d / "calls.json", {}) or {}
+    calls_doc = _read(src / "calls.json", {}) or {}
     calls = [c for v in (calls_doc.values() if isinstance(calls_doc, dict) else []) for c in (v if isinstance(v, list) else []) if isinstance(c, dict)]
-    traj = _read(d / "trajectory.agent.json", {}) or {}
+    traj = _read(src / "trajectory.agent.json", {}) or {}
     tsteps = traj.get("steps") or []
-    trace = _read(d / "trace.json", {}) or {}
-    rows = _jsonl(d / "progress.jsonl")
-    rollout = _read(d / "rollout.json", {}) or {}
+    trace = _read(src / "trace.json", {}) or {}
+    rows = _jsonl(src / "progress.jsonl")
+    rollout = _read(src / "rollout.json", {}) or {}
     patch_p = d / "artifacts" / "model.patch"
     patch = patch_p.read_text(errors="replace") if patch_p.exists() else ""
     model = model or traj.get("agent", {}).get("model_name") or (calls[0].get("model") if calls else None) or rec.get("policy")
