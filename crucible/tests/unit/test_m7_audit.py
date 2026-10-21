@@ -167,7 +167,7 @@ def test_v14_missing_grader_cwd_is_infra(tmp_path):
 def test_v17_fast_tier_cannot_pay_what_full_rejects(tmp_path):
     from crucible.verify.tiers import agreement
 
-    p = Plan("t", [Gate("build"), Gate("tests")], [Check("b", "build", lambda c: False), Check("t", "tests", lambda c: True, tier="fast")])
+    p = Plan("t", [Gate("build", "gate"), Gate("tests", "gate")], [Check("b", "build", lambda c: False), Check("t", "tests", lambda c: True, tier="fast")])
     assert p.fast_unmeasured_hard == ["build"]
     assert p.run(ctx(tmp_path), tier="fast").meta["fast_unmeasured_hard_gates"] == ["build"]
     a = agreement([0.1, 0.5, 0.9, 1.0], [0.0, 0.5, 0.9, 1.0])
@@ -187,12 +187,12 @@ def test_v3_certain_hard_fail_is_scored_not_masked(tmp_path):
     def infra(_):
         raise InfraError("perf node busy")
 
-    p = Plan("t", [Gate("static"), Gate("perf")], [Check("s", "static", lambda c: False), Check("p", "perf", infra)])
+    p = Plan("t", [Gate("static", "gate"), Gate("perf", "gate")], [Check("s", "static", lambda c: False), Check("p", "perf", infra)])
     r = p.run(ctx(tmp_path))
     assert r.reward == 0.0 and r.infra["status"] == "ok" and r.infra["unmeasured_checks"] == ["p"]
-    one = Plan("t", [Gate("g")], [Check("a", "g", lambda c: False), Check("b", "g", infra)]).run(ctx(tmp_path))
+    one = Plan("t", [Gate("g", "gate")], [Check("a", "g", lambda c: False), Check("b", "g", infra)]).run(ctx(tmp_path))
     assert one.gates["g"] == "fail" and one.infra["status"] == "ok"
-    only_infra = Plan("t", [Gate("g"), Gate("h")], [Check("a", "g", lambda c: True), Check("b", "h", infra)]).run(ctx(tmp_path))
+    only_infra = Plan("t", [Gate("g", "gate"), Gate("h", "gate")], [Check("a", "g", lambda c: True), Check("b", "h", infra)]).run(ctx(tmp_path))
     assert only_infra.infra["status"] == "masked"  # nothing failed for certain: still masked
 
 
@@ -210,7 +210,7 @@ def test_v10_missing_row_and_dropped_table_fail(tmp_path):
             return QueryResult(ok=False, error="no such table: refunds", exit_code=1) if self.dropped else QueryResult(ok=True, value=None)
 
     pred = Predicate.sql("t1/refund", "tickets", "SELECT amount_usd FROM refunds WHERE ticket_id = 1", Expectation(kind="between", lo=129.98, hi=130.0))
-    plan = Plan("t", [Gate("pol"), Gate("t1", "outcome")],
+    plan = Plan("t", [Gate("pol", "gate"), Gate("t1", "outcome")],
                 [invariant_check("pol", lambda c: c.params["view"], "tickets", [Invariant("x", "SELECT id FROM refunds WHERE amount_usd > 50")]),
                  predicate_check("t1", lambda c: c.params["view"], [pred])])
     for dropped in (False, True):
@@ -228,11 +228,11 @@ def test_v16_candidate_content_outside_checks_is_a_fail(tmp_path):
     def raising(_):
         raise IsADirectoryError("ABSTAIN is a directory")
 
-    r = Plan("t", [Gate("g")], [Check("a", "g", lambda c: False)], abstain=AbstainPolicy(), abstained=raising).run(ctx(tmp_path))
+    r = Plan("t", [Gate("g", "gate")], [Check("a", "g", lambda c: False)], abstain=AbstainPolicy(), abstained=raising).run(ctx(tmp_path))
     assert r.infra["status"] == "ok" and r.reward == 0.0
     cand = tree(tmp_path / "cand", {"mylib.py": "x = 1\n"})
     os.mkfifo(cand / "pipe")
-    p = Plan("t", [Gate("tests")], [Check("t", "tests", lambda c: True)],
+    p = Plan("t", [Gate("tests", "gate")], [Check("t", "tests", lambda c: True)],
              setup=lambda c: shutil.copytree(c.candidate, c.work / "cand_site", symlinks=True))
     r2 = p.run(ctx(tmp_path, candidate=cand))
     assert r2.infra["status"] == "ok" and r2.reward == 0.0 and r2.gates["tests"] == "fail"
@@ -240,7 +240,7 @@ def test_v16_candidate_content_outside_checks_is_a_fail(tmp_path):
     def grader_broke(_):
         raise RuntimeError("no GPU")
 
-    r3 = Plan("t", [Gate("g")], [Check("a", "g", lambda c: True)], setup=grader_broke).run(ctx(tmp_path, candidate=cand))
+    r3 = Plan("t", [Gate("g", "gate")], [Check("a", "g", lambda c: True)], setup=grader_broke).run(ctx(tmp_path, candidate=cand))
     assert r3.infra["failure_kind"] == "grader_exception"  # the grader's own setup failure still masks
 
 

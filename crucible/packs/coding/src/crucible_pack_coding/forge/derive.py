@@ -183,6 +183,15 @@ def properties_for(sentences: list[str]) -> list[StatedProperty]:
     return [StatedProperty(id=f"p{i}", text=s, kind="coding") for i, s in enumerate(sentences)]
 
 
+def seed_gate_kind(task: str, gate: str) -> str:
+    """The kind the seed grader declares for ``gate`` (M7 R6: the A1 gold check fails a check list that disagrees with the
+    grade). A gate no kit grader declares is one of the seed's own tests (``test.sh``), an outcome."""
+    import importlib
+
+    mod = {"task02_pcops_triton": "task02", "task03_mdlite_pallas": "task03", "task04_pcl_gpu_cuda12": "task04"}.get(task, "task01")
+    return importlib.import_module(f"crucible_pack_coding.verify.{mod}").KINDS.get(gate, "outcome")
+
+
 def suite_checks(scope: str, props: list[StatedProperty], provenance: dict[str, str]) -> list[CheckSpec]:
     from crucible_pack_coding.verify import task04
 
@@ -198,7 +207,7 @@ def suite_checks(scope: str, props: list[StatedProperty], provenance: dict[str, 
         states = [p.id for p in props if any(g in gates for key, gates in GATE_OF.items() if key in p.text)]
         if g == "fresh":
             states = [p.id for p in props if "bit-identical" in p.text or "labels must match" in p.text or "track and reconstruct" in p.text]
-        out.append(CheckSpec(id=f"suite/{g}", gate=g, gate_kind="gate", kind="suite" if g != "static" else "static", states=states,
+        out.append(CheckSpec(id=f"suite/{g}", gate=g, gate_kind=task04.KINDS[g], kind="suite" if g != "static" else "static", states=states,
                              provenance=provenance.get(g, "reference_differential:original build"), spec={"scope": scope}))
     return out
 
@@ -518,7 +527,7 @@ async def main_async() -> dict[str, Any]:
         # the seed grader's behavioural gate the frontier failed; the C2 milestones are dense credit only
         instruction = (TASKS / task / "instruction.md").read_text()
         prop = trap_property(instruction, r["gate"])
-        gate_check = CheckSpec(id=f"trap/{r['gate']}", gate=r["gate"], gate_kind="gate", kind="suite", states=[prop.id], provenance=r["signal"]["id"],
+        gate_check = CheckSpec(id=f"trap/{r['gate']}", gate=r["gate"], gate_kind=seed_gate_kind(task, r["gate"]), kind="suite", states=[prop.id], provenance=r["signal"]["id"],
                                spec={"seed_gate": r["gate"], "grader": task})
         traps[task]["instruction_states_gate"] = " ".join(prop.text.split()) in " ".join(instruction.split())
         d = {"scope": "trap", "title": f"{task}: the {r['gate']} trap", "horizon": "H2", "instruction": instruction, "properties": [prop],

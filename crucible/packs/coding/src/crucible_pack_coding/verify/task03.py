@@ -41,6 +41,8 @@ from crucible.verify.runtime.trusted import InfraError
 
 TASK = "task03_mdlite_pallas"
 GATES = ["static", "install", "api", "forces", "dynamics", "physics", "app", "fresh", "perf"]
+# M7 R6: the instruction's rules (pure JAX + Pallas, no native build) are hard gates; the rest are outcomes
+KINDS = {x: "gate" if x in ("static", "install") else "outcome" for x in GATES}
 SUITES = (("api", "test_hidden_api.py", 2400), ("forces", "test_hidden_forces.py", 3600), ("dynamics", "test_hidden_dynamics.py", 5400),
           ("physics", "test_hidden_physics.py", 5400))
 FORBIDDEN_FILES = {".cu", ".cuh", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".so", ".ptx", ".cubin", ".fatbin", ".a", ".o", "CMakeLists.txt", "Makefile"}
@@ -249,5 +251,5 @@ def plan(ctx: Context) -> Plan:
     checks += [Check("app", "app", g.app_gate, requires=("install",), provenance="consumers:pristine mdbuild/mdkit"),
                Check("fresh", "fresh", g.fresh, requires=("install",), provenance="incident:B.2 fresh draws"),
                Check("perf", "perf", g.perf, requires=tuple(x for x in GATES if x != "perf"), provenance="calibration:perf bars", cost="expensive")]
-    return Plan(TASK, [Gate(x) for x in GATES], checks, setup=g.setup)
+    return Plan(TASK, [Gate(x, KINDS[x]) for x in GATES], checks, setup=g.setup)
 

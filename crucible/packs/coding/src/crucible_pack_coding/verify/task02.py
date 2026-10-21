@@ -32,6 +32,8 @@ from crucible.verify.runtime.trusted import InfraError
 
 TASK = "task02_pcops_triton"
 GATES = ["static", "install", "ops", "hard", "app", "perf"]
+# M7 R6: the instruction's rules (pure Triton, no native build) are hard gates; correctness, consumers and perf are outcomes
+KINDS = {"static": "gate", "install": "gate", "ops": "outcome", "hard": "outcome", "app": "outcome", "perf": "outcome"}
 TEXT = {".py", ".toml", ".cfg", ".txt"}
 FOREIGN = "ctypes|cffi|cupy|numba|pycuda|torch_scatter|torch_cluster|torch_sparse|pointnet2_ops"
 RULES = RuleSet(
@@ -165,4 +167,4 @@ def plan(ctx: Context) -> Plan:
               Check("hard", "hard", g.suite("hard", ["test_hidden_hard.py"]), requires=("install",), provenance="reference_differential;construction incidents"),
               Check("app", "app", g.suite("app", lambda: g.app_args), requires=("install",), provenance="consumers:pristine pcnet/pcdata + goldens"),
               Check("perf", "perf", g.perf, requires=("static", "install", "ops", "hard", "app"), provenance="calibration:perf bars", cost="expensive")]
-    return Plan(TASK, [Gate(x) for x in GATES], checks, setup=g.setup)
+    return Plan(TASK, [Gate(x, KINDS[x]) for x in GATES], checks, setup=g.setup)

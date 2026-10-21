@@ -239,7 +239,7 @@ def test_reduce_and_compare():
 
 
 def _plan(*checks):
-    return Plan("t/itsm", [Gate("state", kind="outcome"), Gate("no_collateral")], list(checks))
+    return Plan("t/itsm", [Gate("state", kind="outcome"), Gate("no_collateral", "gate")], list(checks))
 
 
 async def test_sql_assertions_and_collateral(pack, tmp_path):
