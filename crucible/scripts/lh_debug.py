@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
@@ -22,10 +23,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1] / "data" / "debug"
+# the durable store: CRUCIBLE_DEBUG_ROOT (the main checkout's crucible/data/debug when run from a worktree), else this tree's
+ROOT = Path(os.environ.get("CRUCIBLE_DEBUG_ROOT") or Path(__file__).resolve().parents[1] / "data" / "debug")
 LICENCE_RX = (("MIT", r"\bMIT License\b|Permission is hereby granted, free of charge"), ("Apache-2.0", r"Apache License,?\s+Version 2\.0"),
               ("BSD", r"Redistribution and use in source and binary forms"), ("ISC", r"\bISC License\b|Permission to use, copy, modify, and/or distribute"),
               ("Unlicense", r"This is free and unencumbered software"))
+
+
 def local_name(full: str) -> str:
     from crucible.factory.lanes.windows import DEBUG_REPO_URLS
 
@@ -58,8 +62,13 @@ def cmd_scout(args: argparse.Namespace) -> None:
     from crucible.factory.generators.debug import SINCE, scope
     from crucible.factory.generators.rebreak import fix_units
 
-    rows = {}
+    out = ROOT / "scout.json"
+    rows = json.loads(out.read_text()) if out.exists() else {}  # a --repos scout adds to the earlier rows
+    spec = Path(args.repos[1:]).read_text().replace("\n", ",") if args.repos.startswith("@") else args.repos
+    only = {r.strip() for r in spec.split(",") if r.strip()}
     for name, (full, d) in clones().items():
+        if only and name not in only and full not in only:
+            continue
         lang = langs.detect(d)
         row = {"full": full, "lang": lang, "licence": licence_of(d)}
         if lang is None:
@@ -76,7 +85,7 @@ def cmd_scout(args: argparse.Namespace) -> None:
                    size_mb=round(sum(f.stat().st_size for f in d.rglob("*") if f.is_file() and ".git" not in f.parts) / 1e6, 1))
         rows[name] = row
         print(f"{lang:6} {name:22} {row['licence']:12} fixes={row['fixes']:3} {row['size_mb']}MB", flush=True)
-    (ROOT / "scout.json").write_text(json.dumps(rows, indent=1))
+    out.write_text(json.dumps(rows, indent=1))
 
 
 def generator(repos: list[str], split: str, *, max_pool: int = 40) -> object:
@@ -225,8 +234,9 @@ def cmd_intent(args: argparse.Namespace) -> None:
     """Every stored window with milestones gets its intent card (``generators.debug.task_intent``); the family-level
     skill cards go to ``intent_cards.json``; ``candidates.json`` lists every window with its language, skills, level,
     split, cutoff and stage (the matched train / benchmark split is built from it)."""
-    from crucible.factory.generators.debug import NAME, intent_cards, task_intent
+    from crucible.factory.generators.debug import NAME, faulty_names, intent_cards, task_intent, visible_test_changes
     from crucible.factory.lanes.windows import WindowStore
+    from crucible.factory.lanes.windows_git import RepoGit
 
     rows = []
     for split in ("train", "heldout"):
@@ -238,7 +248,12 @@ def cmd_intent(args: argparse.Namespace) -> None:
             rec = store.window(w)
             if not rec.get("milestones"):
                 continue
-            rec.setdefault(NAME, {})["intent"] = task_intent(rec)
+            clone = ROOT / "gen" / "clones" / rec["repo"]
+            repo = RepoGit(clone) if clone.exists() else None
+            hidden = rec.setdefault(NAME, {}).setdefault("hidden", {})
+            if repo is not None and hidden.get("mode") == "strip" and "visible_test_changes" not in hidden:
+                hidden["visible_test_changes"] = visible_test_changes(rec, repo)  # windows built before the field existed
+            rec[NAME]["intent"] = task_intent(rec, faulty_names(rec, repo) if repo is not None else ())
             store.save_window(rec)
             g = ROOT / "gates" / f"{w}.json"
             gate = json.loads(g.read_text()) if g.exists() else {}
@@ -257,7 +272,8 @@ def cmd_intent(args: argparse.Namespace) -> None:
                          "level": it["level"], "faults": it["faults"], "modules": len(it["modules"]), "edges": int(rec.get("dependency_edges") or 0), "oracle_lines": size,
                          "milestone_tests": sum(len(m["tests"]) for m in rec.get("milestones") or []),
                          "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"), "gates_ok": gate.get("ok"),
-                         "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists()})
+                         "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
+                         "fairness_flags": it.get("fairness_flags") or []})
     fixes_of = {}
     for split in ("train", "heldout"):
         sd = ROOT / "gen" / "store" / split
@@ -369,6 +385,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scout")
     s.add_argument("--since", default="")
+    s.add_argument("--repos", default="", help="scout only these (local names or owner/repo, or @file with one per line); the rows merge into scout.json")
     m = sub.add_parser("mine")
     m.add_argument("--repos", required=True)
     m.add_argument("--parallel", type=int, default=2)

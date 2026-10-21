@@ -281,3 +281,32 @@ def test_java_defs_and_report(tmp_path: Path) -> None:
     assert res == {"src/test/java/a/b/FooTest.java::parsesEmpty": "passed", "src/test/java/a/b/FooTest.java::Inner::handlesInts[1]": "failed"}
     assert java.key_of_test("src/test/java/a/b/FooTest.java::Inner::handlesInts[1]")[1] == "Inner::handlesInts" and notes == []
     assert "-Dtest=a.b.FooTest" in java.run_script(tmp_path, ["src/test/java/a/b/FooTest.java"])
+
+
+def test_node_runner_flags(tmp_path: Path) -> None:
+    """Node flags the repository's own runner script passes (jest's ESM support) reach NODE_OPTIONS; nothing else does."""
+    from crucible.factory.langs.node import runner_node_flags
+
+    pkg = {"scripts": {"test": "run-s test-jest", "test-jest": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+                       "lint": "node --inspect eslint"}, "devDependencies": {"jest": "1"}}
+    (tmp_path / "package.json").write_text(json.dumps(pkg))
+    assert runner_node_flags(tmp_path) == ["--experimental-vm-modules"]
+    assert "NODE_OPTIONS='--max-old-space-size=1536 --experimental-vm-modules'" in NODE.run_script(tmp_path, ["a.test.mjs"])
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "vitest run"}, "devDependencies": {"vitest": "1"}}))
+    assert runner_node_flags(tmp_path) == [] and "NODE_OPTIONS=--max-old-space-size=1536;" in NODE.run_script(tmp_path, ["a.test.ts"])
+
+
+def test_fairness_flags() -> None:
+    """A hidden milestone test named after a changed non-API function, and strip mode's visible test data, are flagged
+    for review (never a gate); an exported Go name is the package's API and is not flagged."""
+    from crucible.factory.generators.debug import NAME, fairness_flags, task_intent
+
+    rec = {"lang": "python", "milestones": [{"id": "m01", "unit": "u", "requires": [], "tests": [
+        "tests/test_black.py::BlackTestCase::test_lines_with_leading_tabs_expanded", "tests/test_format.py::test_simple_format[docstring]"]}],
+           NAME: {"hidden": {"mode": "strip", "visible_test_changes": ["tests/data/case.py"]}}}
+    flags = fairness_flags(rec, {"lines_with_leading_tabs_expanded", "format_str"})
+    assert any(f.startswith("internal_function_check: m01 test test_lines_with_leading_tabs_expanded") for f in flags)
+    assert any(f.startswith("visible_test_data:") for f in flags) and len(flags) == 2
+    go = {"lang": "go", "milestones": [{"id": "m01", "unit": "u", "requires": [], "tests": ["a_test.go::TestEllipsis/cjk", "a_test.go::TestparseInt64"]}]}
+    assert fairness_flags(go, {"Ellipsis", "parseInt64"}) == ["internal_function_check: m01 test TestparseInt64 is named after the changed function parseInt64"]
+    assert task_intent(go, {"Ellipsis"})["fairness_flags"] == []

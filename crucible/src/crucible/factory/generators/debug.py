@@ -46,7 +46,7 @@ import json
 import re
 import shutil
 import tempfile
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -283,6 +283,24 @@ def lang_changed_functions(repo: RepoGit, u: Unit, prof: Any) -> set[str]:
     return {f"{p}::{q}" for p in u.src_files for q in prof.changed_defs(repo.show(u.parent, p), repo.show(u.sha, p), p)}
 
 
+def visible_test_changes(rec: Mapping[str, Any], repo: RepoGit) -> list[str]:
+    """Strip mode's residue, re-derived from a stored window: test files the group's fixes changed that the start tree
+    does not hide (not among the grader's files, not stripped as visible tests)."""
+    info = rec.get(NAME) or {}
+    hidden = info.get("hidden") or {}
+    if hidden.get("mode") != "strip":
+        return []
+    from crucible.factory.generators.base import changed_paths, commit_meta
+
+    shown = set(rec.get("tests_b") or {}) | set(hidden.get("visible_stripped") or {})
+    out: set[str] = set()
+    with scope(str(rec.get("lang") or "python")) as prof:
+        for f in info.get("fixes") or []:
+            meta = commit_meta(repo.dir, f["sha"])
+            out |= {p for p in changed_paths(repo.dir, meta["parent"], f["sha"]) if prof.is_test_file(p) and p not in shown}
+    return sorted(out)
+
+
 def faulty_names(rec: Mapping[str, Any], repo: RepoGit) -> set[str]:
     """Names of the functions the group's fixes changed (the lint refuses them in a prompt)."""
     names: set[str] = set()
@@ -375,10 +393,33 @@ SKILLS: dict[str, dict[str, str]] = {
 }
 
 
-def task_intent(rec: Mapping[str, Any]) -> dict[str, Any]:
+def fairness_flags(rec: Mapping[str, Any], faulty: Iterable[str] = ()) -> list[str]:
+    """What a reviewer must look at before the task trains or benchmarks (``00`` §5.8; never a gate by itself): a hidden
+    milestone test named after a function a fix changed (it likely calls that internal function directly, so a correct
+    fix made elsewhere fails it), and the fixes' test-file changes left visible in the agent's tree (strip mode)."""
+    out = []
+    lang = str(rec.get("lang") or "python")
+    # exported Go names are the package's public API; a test of one checks behaviour a correct fix must keep
+    norm = {re.sub(r"[^a-z0-9]", "", n.lower()): n for n in faulty
+            if len(n) >= 6 and not (lang == "go" and n[:1].isupper())}
+    for m in rec.get("milestones") or []:
+        for t in m["tests"]:
+            name = t.split("::")[-1].split("[")[0].split("/")[0]
+            leaf = re.sub(r"^(test|example|benchmark)", "", re.sub(r"[^a-z0-9]", "", name.lower()))
+            hit = next((n for k, n in norm.items() if k and leaf.startswith(k)), None)
+            if hit:
+                out.append(f"internal_function_check: {m['id']} test {name} is named after the changed function {hit}")
+    vis = ((rec.get(NAME) or {}).get("hidden") or {}).get("visible_test_changes") or []
+    if vis:
+        out.append(f"visible_test_data: the fixes' changes to {', '.join(vis)} stay in the agent's tree (strip mode)")
+    return sorted(set(out))
+
+
+def task_intent(rec: Mapping[str, Any], faulty: Iterable[str] = ()) -> dict[str, Any]:
     """The task's intent card (``00`` §7): skills (``SKILLS``), language, why it is long-horizon, its milestones, the
     expected failure modes and the trace evidence that attributes a failure to the skill. Derived from the executed
-    window (faults, files, edges), never from the prompt; stored with the record and on the TaskCard lineage."""
+    window (faults, files, edges), never from the prompt; stored with the record and on the TaskCard lineage.
+    ``fairness_flags`` lists what a reviewer must check (``faulty``: the names of the functions the fixes changed)."""
     lang = str(rec.get("lang") or "python")
     ms = list(rec.get("milestones") or [])
     units = {u["sha"]: u for u in rec.get("units") or []}
@@ -408,7 +449,8 @@ def task_intent(rec: Mapping[str, Any]) -> dict[str, Any]:
             "milestones": [{"id": m["id"], "requires": list(m.get("requires") or []), "tests": len(m["tests"]), "files": files[m["id"]]} for m in ms],
             "expected_failures": {k: SKILLS[k]["failure_mode"] for k in skills},
             "trace_evidence": {k: SKILLS[k]["evidence"] for k in skills},
-            "attribution_rule": "a failure counts toward a skill gap only when its trace evidence is present; S15 needs >= 70% of failures so attributed"}
+            "attribution_rule": "a failure counts toward a skill gap only when its trace evidence is present; S15 needs >= 70% of failures so attributed",
+            "fairness_flags": fairness_flags(rec, faulty)}
 
 
 def failure_skill(finding: Mapping[str, Any], intent: Mapping[str, Any], *, ran_before_edit: bool | None = None,
@@ -780,7 +822,7 @@ class Debug(Rebreak):
                          **{k: cand.params.get(k) for k in ("cutoff", "contamination", "fix_dates")},
                          "fix_milestones": {f["sha"]: by_unit.get(f["unit"]) for f in info["fixes"]}, "sources": [s["id"] for s in cand.sources]}
             if rec.get("milestones"):
-                rec[NAME]["intent"] = task_intent(rec)
+                rec[NAME]["intent"] = task_intent(rec, faulty_names(rec, RepoGit(Path(win.repo_dir))))
             rec["rebreak"] = rec[NAME]  # GeneratedTask.oracle_steps reads ``window[generator]``; rebreak tooling reads this
             self.store.save_window(rec)
             stage = rec.get("stage")

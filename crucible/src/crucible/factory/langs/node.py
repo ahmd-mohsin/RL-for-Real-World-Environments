@@ -100,6 +100,15 @@ def runner_config(tree: Path) -> str | None:
     return None
 
 
+def runner_node_flags(tree: Path) -> list[str]:
+    """Node flags the repository's own runner scripts need (``node --experimental-vm-modules node_modules/jest/bin/jest.js``:
+    jest's ESM support), carried into ``NODE_OPTIONS``; only flags from this allow-list."""
+    runner = runner_of(tree)
+    scripts = package_json(tree).get("scripts") or {}
+    cmds = [str(c) for c in scripts.values() if runner and re.search(rf"\b{runner}\b", str(c))]
+    return [f for f in ("--experimental-vm-modules",) if any(f in c for c in cmds)]
+
+
 def manager_of(tree: Path) -> str:
     t = Path(tree)
     if (t / "pnpm-lock.yaml").is_file():
@@ -259,7 +268,8 @@ class NodeProfile(CLikeProfile):
         files = " ".join(_q(t) for t in targets)
         cfg = runner_config(tree)
         conf = f"--config {_q(cfg)} " if cfg else ""
-        link = "[ -e node_modules ] || ln -s /opt/deps/node_modules node_modules; export NODE_OPTIONS=--max-old-space-size=1536; "
+        flags = " ".join(["--max-old-space-size=1536", *runner_node_flags(tree)])
+        link = f"[ -e node_modules ] || ln -s /opt/deps/node_modules node_modules; export NODE_OPTIONS={_q(flags)}; "
         if runner_of(tree) == "jest":
             return (link + f'node_modules/.bin/jest --ci --json --outputFile="$O/report" --coverage=false --watchman=false --passWithNoTests {conf}'
                     f'--runTestsByPath {files}; echo "jest exit $?"')

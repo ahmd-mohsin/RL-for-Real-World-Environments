@@ -1220,6 +1220,26 @@ and axios-56014db8 still in S3/S10. (4) Held-out prompts stay in `data/debug/pro
 committed docs. (5) Known pre-existing flake in this worktree under load: `test_m17_p6_envs::test_native_two_timeouts`
 (a wall-clock test; passes on an idle host and on main).
 
+### Debug lane, second run (2026-10-20): held-out draw 3, fairness flags
+
+**Changes.** `generators/debug.py`: `fairness_flags` (hidden milestone tests named after a changed non-API function;
+strip mode's visible test-file changes) on every intent card, `visible_test_changes` re-derivable from a stored window
+(`lh_debug.py intent` fills it in for windows built before the field existed), `task_intent(rec, faulty)`.
+`langs/node.py`: one helper, `runner_node_flags(tree)`, and one line in `run_script`: `NODE_OPTIONS` is
+`--max-old-space-size=1536` plus the node flags (allow-list: `--experimental-vm-modules`) that the repository's own runner
+script passes; the run of every repository without such a flag is unchanged byte for byte, no World recipe changes.
+`lanes/windows.py`: the third held-out draw and 40 training sources (registered before their executed mining).
+`scripts/lh_debug.py`: `CRUCIBLE_DEBUG_ROOT` (the durable store when run from a worktree), `scout --repos @file` merging
+into `scout.json`, fairness flags in `candidates.json`. `tests/unit/test_m17_p5_sources.py`: its sealed-org example moves
+from alecthomas/kong (now a held-out repository itself) to another alecthomas repository.
+
+**Run.** 80 new clones scouted; 16 held-out repositories mined; 4 windows (excelize 2, carbon 2), all through S6, S5, S8,
+S3, S10 and S7, all post-release, written by the builder in symptom terms (the spreadsheet functions are described, not
+named: their Go names are the faulty functions). axios-61cd331d failed S10 (1 false negative in 60 oracle grades at
+load level 4, upper bound 0.077 > 0.05; not re-run). Totals: 17 candidates through every CPU gate and S7, 10 training
+and 7 held out (`07` §5). The held-out prompts stay in `data/debug/prompts`; the committed `candidates.json` keeps only
+the kinds of the held-out windows' fairness flags (the flag text names hidden tests).
+
 ## S15 targeting of the debug lane (built and run): the 35B student, the frontier solvers, audits, the keep rule
 
 Spec: `07` §6 (results), `08` (roles, failure mining), `09` (Tinker), `11` (W&B). Spend $201 of a $250 cap (student $92,

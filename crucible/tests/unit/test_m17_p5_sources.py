@@ -42,7 +42,7 @@ def test_records_are_typed_and_become_observations() -> None:
 def test_eval_lease_refuses_sealed_repos_orgs_and_time() -> None:
     lease = EvalLease.default()
     assert not lease.check({"repo": "sqlparse"})["ok"] and not lease.check({"repo": "andialbrecht/sqlparse"})["ok"]
-    assert lease.check({"repo": "alecthomas/kong"})["rule"] == "sealed_org"  # owns a held-out repository and no training one
+    assert lease.check({"repo": "alecthomas/repr"})["rule"] == "sealed_org"  # owns a held-out repository and no training one
     assert lease.check({"repo": "pallets/click"})["ok"] and not lease.check({"repo": "pallets/jinja"})["ok"]  # pallets owns both: per repo
     assert not lease.check({"repo": "lepture__mistune"})["ok"]  # a scouted clone name
     assert not lease.check({"repo": "me/consumer", "evidence": {"host": "tomlkit"}})["ok"]  # a pair with a sealed host
