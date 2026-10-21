@@ -1296,3 +1296,45 @@ interpreter's test output.
 urfave-cli and h3 (not run) are excluded. (2) urfave and h3 were started early, alongside the last training arms, once
 spend was clearly under the cap, then cancelled. (3) The disclosure verdict is a reviewed record, not a gate: a builder
 may have described a silent fix in a requirement (urfave-cli R3 does).
+
+## Four ideas from rl-env-use (2026-10-21, $0): power gate, quarantine, calibration, S7r
+
+Source: browser-use/rl-env-use (92fe423, MIT), read only; every adaptation is a PATTERN rewritten in Crucible's
+modules (THIRD_PARTY "Patterns re-implemented"). No model call, no GPU.
+
+1. **Power / MDE gate** (`climb.py` 168-199, `audit.py` 46-69 → `bench/power.py`). A/A noise from each task's attempt
+   halves (even/odd, and 200 seeded random halvings averaged), the paired MDE 2.80 · SE for N tasks × k (their 1.43 ·
+   noise is the same constant), the gate (`powered` / `underpowered` against +0.20, at least 10 tasks) and the planner.
+   Deviation: the trained arm's variance is bounded by μ_t(1 − μ_t) instead of assumed equal to the control's (A/A alone
+   calls our mostly 0-of-8 control tasks noiseless), and no 1/N noise floor. Wired: every `benchmark` arm carries
+   `power`; `compare` pre-registers the stamp from the fresh baseline's `episodes.jsonl` (`power.json` before the paid
+   arms), stamps the report and its `headline` (UNDERPOWERED first), and W&B shows `compare/power`, `bench/power`, the
+   tag and the subtitle. `lh_metrics.paired` reports `p_better` (P(trained > control), task-clustered). S15:
+   `keep_verdict` reports `power` (`targeting.band_power`: whether the Wilson interval still crosses a band edge, and
+   the attempts that would settle it; a flag). Offline study: `scripts/tinker_rl.py power` →
+   `runs/benchmark_power.json`, `09` §6.1. On the student's S15 arms (24 task-runs × 8): pass@1 σ̄² 0.042, μ_c 0.11;
+   10 × 8 MDE 0.091 (A/A only), 0.159 bounded; N for MDE ≤ 0.20: 10 (15 with τ = 0.2); ≤ 0.15: 11-13 (25-27).
+2. **Quarantine** (`climb.py` 267-276 → `train/quarantine.py`, `train/bridges/tinker/trainer.py`). Flat groups (one
+   reward, no Φ spread) on 2 consecutive steps quarantine a task for 3 steps, then one retry; Φ spread is never
+   quarantined; held-out tasks refused; events in `quarantine.jsonl`, `records/quarantine`, `quarantine/active`; state
+   in `state.json`; `quarantine_q` / `quarantine_r` may change on a resume. Deviation: theirs is permanent and needs a
+   proposer's "task fault" label; ours is measured, temporary and retried.
+3. **Calibration exemplars** (`tasks.py` 185-208 → `factory/calibration.py`, `generators.debug.builder_calibration`,
+   `lh_debug.py brief`). Training tasks by keep-rule level with pass rate, mean Φ, per-milestone rates, budget stops,
+   frontier passes and failure modes, this task's own numbers, K1-K6. Held-out records refused by split, `split_of` and
+   the lease; the text is checked against every held-out id; a held-out window gets no block.
+4. **Report reproduction, gate S7r** (`scout.py` 102-193 → `factory/generators/debug_repro.py`, `author_debug`,
+   `lh_debug.py repro`). An optional `repro` per requirement, linted with the leak rules (paths only under `/tmp/`, no
+   hidden test path, no copied hidden-test line), shown to the agent, and run in the World at A' (must show the bug) and
+   at B (must pass); missing is `unverified`. Prompts without `repro` are byte-identical to before.
+
+**Files.** New: `bench/power.py`, `train/quarantine.py`, `factory/calibration.py`, `factory/generators/debug_repro.py`,
+`runs/benchmark_power.json`; tests `test_benchmark_power.py`, `test_train_quarantine.py`, `test_builder_calibration.py`,
+`test_debug_repro.py` (one Docker test, marked). Changed: `bench/lh_metrics.py`, `factory/tinker.py`,
+`factory/targeting.py`, `factory/generators/debug.py`, `observe/bench.py`, `observe/train_views.py`,
+`train/bridges/tinker/trainer.py`, `scripts/{tinker_rl,lh_debug}.py`, `test_tinker_bridge.py`; docs `07` §3, §6.2, `09`
+§5, §6, §6.1, §7b, `11` §2, §3, DESIGN, THIRD_PARTY.
+
+**Deviations.** (1) The handoff docs (`data/handoff/`, gitignored) could not be edited in the main checkout from this
+isolated worktree; the edited copies are in the worktree's `crucible/data/handoff/` for the lead to copy over. (2) τ
+(the spread of the effect across tasks) is unknown until a trained arm exists; the study reports τ = 0 and 0.1-0.2.

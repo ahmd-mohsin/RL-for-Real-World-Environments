@@ -15,6 +15,11 @@ selection arms when given) adds the headline: pass@1 per arm with its task-clust
 a native bar chart), the per-task chart, the paired trained − control difference with its CI and MDE, pass@k and pass^k
 curves per arm, cost per passing episode, the per-language / family / skill breakdowns per arm, and ``check_protocol``'s
 result (``protocol/ok`` and the problems). Every arm of one task list shares the W&B group ``tasks-<manifest hash>``.
+
+**Power** (``bench.power``, swarm-pipeline/11 §3): an arm's ``power`` block becomes ``bench/power/<metric>/*`` scalars
+(MDE, target, N, k, powered) and the tag ``power:<verdict>``; a comparison's ``power`` stamp becomes ``compare/power/*``,
+the ``compare/power`` table, the tag ``power:<verdict>`` and the summary's ``headline``, and an ``underpowered`` stamp
+leads the headline chart's subtitle.
 """
 
 from __future__ import annotations
@@ -145,9 +150,13 @@ def log_benchmark(report: Mapping[str, Any], run_dir: Path | str, *, task_meta: 
                     if traces else (None, []))
     with ObsRun(proj, name, group=f"tasks-{mh}", job_type=purpose, cfg=cfg, config=config,
                 tags=tags(model=model, purpose=purpose, k=report.get("k"), thinking=settings.get("enable_thinking"), harness=settings.get("harness"),
-                          lang=langs, checkpoint="adapter" if report.get("checkpoint") else "base")) as run:
+                          lang=langs, checkpoint="adapter" if report.get("checkpoint") else "base",
+                          power=power_verdict(report.get("power")))) as run:
         m = report.get("metrics") or {}
-        run.log(scalars({"bench": {k: v for k, v in m.items() if k not in ("pass@k", "pass^k")}}), step=0)
+        run.log(scalars({"bench": {**{k: v for k, v in m.items() if k not in ("pass@k", "pass^k")}, "power": power_scalars(report.get("power"))}}), step=0)
+        if report.get("power"):
+            run.table("bench/power", ["metric", "verdict", "mde", "mde_aa", "target", "n_tasks", "k", "n_needed", "source", "headline"],
+                      [_gate_row(m_, b) for m_, b in sorted(report["power"].items())])
         xs, pak = _ks(m.get("pass@k"))
         _, phk = _ks(m.get("pass^k"))
         if xs:
@@ -169,8 +178,31 @@ def log_benchmark(report: Mapping[str, Any], run_dir: Path | str, *, task_meta: 
                      paths={p.name: p for p in (run_dir / "metrics.json", run_dir / "episodes.jsonl", run_dir / "spend.jsonl") if p.exists()},
                      metadata={"checkpoint": report.get("checkpoint"), "model": model, "purpose": purpose})
         run.summary({"pass@1": m.get("pass@1"), "usd_per_passing_episode": m.get("usd_per_passing_episode"), "episodes": m.get("episodes"),
-                     "masked": m.get("masked"), "tasks_manifest_hash": mh, "checkpoint": report.get("checkpoint")})
+                     "masked": m.get("masked"), "tasks_manifest_hash": mh, "checkpoint": report.get("checkpoint"),
+                     "power": (((report.get("power") or {}).get("pass") or {}).get("gate") or {}).get("headline")})
     return {"run": str(run.dir), "sync": [str(p) for p in run.sync_dirs], "traces": len(trows), "project": proj, "name": name}
+
+
+def power_scalars(power: Mapping[str, Any] | None) -> dict[str, Any]:
+    """An arm's ``power`` block (``bench.power.power_report``) as flat numbers per metric."""
+    out: dict[str, Any] = {}
+    for m, blk in (power or {}).items():
+        g = (blk or {}).get("gate") or {}
+        nz = (blk or {}).get("noise") or {}
+        aa = nz.get("aa") or {}
+        out[m] = {"mde": g.get("mde"), "mde_aa": g.get("mde_aa"), "target": g.get("target"), "n_tasks": g.get("n_tasks"), "k": g.get("k"),
+                  "n_needed": g.get("n_needed"), "powered": g.get("verdict") == "powered", "sigma2": nz.get("sigma2"), "aa_diff": aa.get("diff"),
+                  "aa_se": aa.get("se")}
+    return out
+
+
+def power_verdict(power: Mapping[str, Any] | None, metric: str = "pass") -> str | None:
+    return (((power or {}).get(metric) or {}).get("gate") or {}).get("verdict")
+
+
+def _gate_row(metric: str, blk: Mapping[str, Any]) -> list[Any]:
+    g = blk.get("gate") or {}
+    return [metric, *(g.get(c) for c in ("verdict", "mde", "mde_aa", "target", "n_tasks", "k", "n_needed", "source", "headline"))]
 
 
 def _arm_ci(arm: Mapping[str, Any]) -> tuple[float | None, float | None, float | None]:
@@ -197,11 +229,12 @@ def log_compare(cmp: Mapping[str, Any], run_dir: Path | str, *, task_meta: Mappi
     ident = digest([mh, cmp.get("checkpoint"), cmp.get("seed"), str(run_dir.resolve())])
     name = run_name("bench", "compare", model.rsplit("/", 1)[-1], f"s{cmp.get('seed')}", ident[:8])
     problems = list(cmp.get("protocol_problems") or [])
+    pw = cmp.get("power") or {}
     config = {"kind": "compare", "model": model, "checkpoint": cmp.get("checkpoint"), "k": cmp.get("k"), "seed": cmp.get("seed"), "settings": cmp.get("settings"),
               "tasks_manifest_hash": mh, "n_tasks": len(tasks), "arms": list(arms), "arm_seeds": {a: v.get("seed") for a, v in arms.items()},
               "run_dir": str(run_dir)}
     with ObsRun(proj, name, group=f"tasks-{mh}", job_type="compare", cfg=cfg, config=config,
-                tags=tags(model=model, purpose="compare", k=cmp.get("k"), protocol="ok" if not problems else "problems")) as run:
+                tags=tags(model=model, purpose="compare", k=cmp.get("k"), protocol="ok" if not problems else "problems", power=pw.get("verdict"))) as run:
         vals = {("pass@1", a): _arm_ci(v) for a, v in arms.items()}
         run.table("compare/arms", ["arm", "pass@1", "ci_lo", "ci_hi", "seed", "checkpoint", "episodes", "scored", "usd_per_passing_episode", "usd_total"],
                   [[a, *_arm_ci(v), v.get("seed"), v.get("checkpoint"), (v.get("metrics") or {}).get("episodes"), (v.get("metrics") or {}).get("scored"),
@@ -213,12 +246,19 @@ def log_compare(cmp: Mapping[str, Any], run_dir: Path | str, *, task_meta: Mappi
                f"{d.get('mean_diff') if d.get('mean_diff') is None else round(100 * d['mean_diff'], 1)} points "
                f"(CI {None if ci[0] is None else round(100 * ci[0], 1)} to {None if ci[1] is None else round(100 * ci[1], 1)}; MDE "
                f"{None if d.get('mde') is None else round(100 * d['mde'], 1)})" + ("" if not problems else f"; PROTOCOL: {'; '.join(problems)}"))
+        if pw and pw.get("verdict") != "powered":
+            sub = f"{pw.get('headline')} | {sub}"
         run.html("compare/headline", charts.grouped_bars_ci(["pass@1"], list(arms), vals, title=f"{model}: pass@1 before and after RL", subtitle=sub))
-        run.log(scalars({"compare": {"paired": {k: d.get(k) for k in ("mean_diff", "sd", "mde", "mde_assumed", "significant", "n_tasks")},
+        run.log(scalars({"compare": {"paired": {k: d.get(k) for k in ("mean_diff", "sd", "mde", "mde_assumed", "significant", "n_tasks", "p_better")},
+                                     "power": {"mde": pw.get("mde"), "target": pw.get("target"), "n_tasks": pw.get("n_tasks"), "k": pw.get("k"),
+                                               "powered": pw.get("verdict") == "powered", "preregistered": pw.get("preregistered"),
+                                               "by_metric": power_scalars(pw.get("metrics"))},
                                      "paired_ci_lo": ci[0], "paired_ci_hi": ci[1], "protocol_ok": not problems,
                                      "pass@1": {a: vals[("pass@1", a)][0] for a in arms}}}), step=0)
         run.table("compare/paired_per_task", ["task", "trained_minus_control"], [[t, v] for t, v in sorted((d.get("per_task") or {}).items())])
         run.table("compare/protocol", ["problem"], [[p] for p in problems] or [["none"]])
+        run.table("compare/power", ["metric", "verdict", "mde", "mde_aa", "target", "n_tasks", "k", "n_needed", "source", "headline"],
+                  [_gate_row(m_, b) for m_, b in sorted((pw.get("metrics") or {}).items())] or [["pass", "unmeasured", *([None] * 8)]])
         pts = {a: per_task(rs) for a, rs in arm_rows.items()}
         for a, pt in pts.items():
             _per_task_table(run, f"compare/per_task_{a}", pt, task_meta, arm=a)
@@ -249,5 +289,6 @@ def log_compare(cmp: Mapping[str, Any], run_dir: Path | str, *, task_meta: Mappi
         run.artifact(run_name("compare-report", name), "benchmark-compare", files={"compare.json": dict(cmp)}, paths={"report_template.json": tpl},
                      metadata={"checkpoint": cmp.get("checkpoint"), "protocol_problems": problems})
         run.summary({"protocol_ok": not problems, "protocol_problems": "; ".join(problems) or "none", "paired_note": d.get("note"),
+                     "headline": cmp.get("headline"), "power_verdict": pw.get("verdict"), "power_headline": pw.get("headline"),
                      "paired_mean_diff": d.get("mean_diff"), "checkpoint": cmp.get("checkpoint"), "tasks_manifest_hash": mh})
     return {"run": str(run.dir), "sync": [str(p) for p in run.sync_dirs], "project": proj, "name": name, "group": f"tasks-{mh}"}

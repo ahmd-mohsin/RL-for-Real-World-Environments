@@ -20,6 +20,11 @@ The factory joins the two sides the layering keeps apart: ``factory.envs.make_en
   ``check_protocol`` refuses (lists) a fresh baseline that reused the selection seed, a base arm with a checkpoint, and
   arms whose harness, tool cap, context, thinking setting, sampling parameters or task list differ (``arm_settings``,
   recorded in every report).
+- **Power** (``bench.power``; rl-env-use's A/A gate, MIT): every arm's report carries ``power``, the A/A noise of its own
+  attempts (pass@1 and mean reward) and the MDE of a paired comparison of its N tasks × k attempts; ``compare`` stamps
+  ``power`` (pre-registered from the fresh baseline arm's attempts when its directory is given, else from the control
+  arm, marked post hoc) with N, k, MDE and ``powered`` / ``underpowered`` against ``target_effect`` (default +0.20, the
+  protocol's goal), and the ``headline`` starts with UNDERPOWERED when it is. It never blocks a run.
 - ``download_adapter(path, out)``: the LoRA adapter of a sampler checkpoint (Tinker's signed archive URL), extracted
   with every member checked to stay inside ``out``.
 - **Observability** (``observe=``, an ``observe.ObserveConfig``; None: off, or on when ``CRUCIBLE_OBSERVE=1``;
@@ -225,7 +230,7 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
                     codec: Any = None, temperature: float = 1.0, max_tokens: int = 1024, enable_thinking: bool = False, phi_checkpoint: Any = None,
                     tool_limit: int | None = None, timeouts: Timeouts | None = None, concurrency: int = 4, system: str | None = None,
                     seed: int = 0, purpose: str = "baseline", observe: Any = None, meta: Mapping[str, Mapping[str, Any]] | None = None,
-                    meter: Any = None) -> dict[str, Any]:
+                    meter: Any = None, target_effect: float = 0.20) -> dict[str, Any]:
     """``k`` attempts per task of ``model`` (``checkpoint``: sampler weights, None = the base model). ``seed`` is the run's
     seed (attempt seeds derive from it; a fresh baseline uses a seed the selection run did not); ``purpose`` labels the
     arm in the benchmark protocol (``check_protocol``). The report records the arm's settings (``arm_settings``).
@@ -289,7 +294,8 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
                             codec=(sampler.settings().get("codec") if isinstance(sampler.settings().get("codec"), dict) else None))
     out = {"model": sampler.model.name, "checkpoint": checkpoint, "purpose": purpose, "seed": seed, "k": k, "temperature": temperature,
            "enable_thinking": enable_thinking, "tasks": [str(t.task_id) for t in tasks], "settings": settings,
-           "metrics": metrics(episodes, k=k, usd_total=sampler.usd if shared else meter.spent), "spend": meter.summary(), "codec": sampler.settings()}
+           "metrics": metrics(episodes, k=k, usd_total=sampler.usd if shared else meter.spent), "spend": meter.summary(), "codec": sampler.settings(),
+           "power": arm_power(rows, n=len(tasks), k=k, target=target_effect, source=f"{purpose} arm (A/A of its own attempts)")}
     (run_dir / "episodes.jsonl").write_text("".join(json.dumps(r, sort_keys=True, default=str) + "\n" for r in rows))
     (run_dir / "metrics.json").write_text(json.dumps(out, indent=1, sort_keys=True, default=str))
     if (ocfg := _observe_cfg(observe)) is not None:
@@ -330,6 +336,32 @@ async def regrade(tasks: Sequence[Any], *, model: str, k: int, run_dir: Path, se
     return out
 
 
+def arm_power(rows: Sequence[Mapping[str, Any]], *, n: int, k: int, target: float = 0.20, source: str = "") -> dict[str, Any]:
+    """``bench.power.power_report`` of one arm's ``episodes.jsonl`` rows for a comparison of ``n`` tasks × ``k`` attempts:
+    per metric (pass@1, mean reward) the A/A noise and the gate."""
+    from crucible.bench.power import power_report
+
+    return power_report(rows, n=n, k=k, target=target, source=source)
+
+
+def read_episode_rows(arm_dir: Path | str) -> list[dict[str, Any]]:
+    p = Path(arm_dir) / "episodes.jsonl"
+    return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.exists() else []
+
+
+def comparison_power(*, n: int, k: int, target: float = 0.20, baseline_rows: Sequence[Mapping[str, Any]] = (),
+                     control_rows: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
+    """The comparison's power stamp (pass@1 is the headline metric; reward beside it): pre-registered from the fresh
+    baseline arm's attempts (the arms not yet run), else from the control arm's (``post_hoc``: the same noise model, read
+    after the fact). ``verdict`` / ``headline`` are pass@1's."""
+    pre = bool(baseline_rows)
+    rows, src = (baseline_rows, "baseline arm (pre-registered)") if pre else (control_rows, "control arm (post hoc)")
+    rep = arm_power(rows, n=n, k=k, target=target, source=src)
+    g = rep["pass"]["gate"]
+    return {"verdict": g["verdict"], "headline": g["headline"], "n_tasks": n, "k": k, "mde": g.get("mde"), "target": target,
+            "preregistered": pre, "source": src, "metrics": rep}
+
+
 def check_protocol(arms: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """The benchmark protocol (2026-10-20): ``selection`` (tasks chosen because the base failed them) and a separate fresh
     ``baseline`` with new seeds (the honest pre-score: selected tasks regress upward on re-test); a ``control`` (the base
@@ -358,23 +390,37 @@ def check_protocol(arms: Mapping[str, Mapping[str, Any]]) -> list[str]:
 
 async def compare(tasks: Sequence[Any], *, model: str, checkpoint: str, run_dir: Path, cap_usd: float, k: int = 8, seed: int = 1000,
                   baseline: Mapping[str, Any] | None = None, selection: Mapping[str, Any] | None = None, n_boot: int = 4000, observe: Any = None,
-                  arm_dirs: Mapping[str, Path | str] | None = None, **kw: Any) -> dict[str, Any]:
+                  arm_dirs: Mapping[str, Path | str] | None = None, target_effect: float = 0.20, **kw: Any) -> dict[str, Any]:
     """The control (base model) and the trained adapter at the same settings and seed on the same tasks, the paired
-    trained − base difference of per-task pass@1 (k attempts each) with its task-clustered bootstrap CI and MDE
-    (``bench.lh_metrics.paired``), and ``check_protocol`` over every arm given (pass the fresh ``baseline`` and the
-    ``selection`` reports when they exist). The cap is split evenly between the two arms run here."""
+    trained − base difference of per-task pass@1 (k attempts each) with its task-clustered bootstrap CI, P(trained >
+    control) and MDE (``bench.lh_metrics.paired``), ``check_protocol`` over every arm given (pass the fresh ``baseline``
+    and the ``selection`` reports when they exist), and the power stamp (``comparison_power``: pre-registered from the
+    baseline arm's ``episodes.jsonl`` in ``arm_dirs["baseline"]`` before the arms run). The cap is split evenly between
+    the two arms run here."""
     from crucible.bench.lh_metrics import paired
 
     run_dir = Path(run_dir)
     ocfg = _observe_cfg(observe)
     kw["observe"] = ocfg if ocfg is not None else False
+    kw["target_effect"] = target_effect
+    base_rows = read_episode_rows(arm_dirs["baseline"]) if arm_dirs and arm_dirs.get("baseline") else []
+    if base_rows:  # pre-registration: the stamp exists before any paid arm runs
+        pre = comparison_power(n=len(tasks), k=k, target=target_effect, baseline_rows=base_rows)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "power.json").write_text(json.dumps(pre, indent=1, sort_keys=True, default=str))
     control = await benchmark(tasks, model=model, checkpoint=None, k=k, run_dir=run_dir / "control", cap_usd=cap_usd / 2, seed=seed, purpose="control", **kw)
     trained = await benchmark(tasks, model=model, checkpoint=checkpoint, k=k, run_dir=run_dir / "trained", cap_usd=cap_usd / 2, seed=seed, purpose="trained", **kw)
     arms = {"control": control, "trained": trained, **({"baseline": baseline} if baseline else {}), **({"selection": selection} if selection else {})}
     problems = check_protocol(arms)
     diff = paired(control["episodes"], trained["episodes"], metric="pass", n_boot=n_boot, seed=seed)
+    power = comparison_power(n=len(tasks), k=k, target=target_effect, baseline_rows=base_rows, control_rows=read_episode_rows(run_dir / "control"))
     strip = lambda a: {k_: v for k_, v in a.items() if k_ != "episodes"}
+    md = diff.get("mean_diff")
+    result = (f"trained - control pass@1 = {md:+.3f}, CI [{diff['ci'][0]:+.3f}, {diff['ci'][1]:+.3f}], P(trained > control) {diff['p_better']:.2f}"
+              if md is not None else "trained - control: no shared task")
+    headline = (power["headline"] + ": " + result) if power["verdict"] != "powered" else result
     out = {"model": model, "checkpoint": checkpoint, "k": k, "seed": seed, "protocol_problems": problems, "settings": control["settings"],
+           "power": power, "headline": headline,
            "pass@1": {"control": control["metrics"]["pass@1"], "trained": trained["metrics"]["pass@1"],
                       **({"baseline": baseline["metrics"]["pass@1"]} if baseline else {}), **({"selection": selection["metrics"]["pass@1"]} if selection else {})},
            "ci": {"control": control["metrics"]["ci"]["pass@1"], "trained": trained["metrics"]["ci"]["pass@1"]},

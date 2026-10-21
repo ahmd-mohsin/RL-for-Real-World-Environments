@@ -18,6 +18,11 @@ One **step**:
    - ``zero_spread`` (``drop_zero_spread``): every member has the same reward: no signal (slime's nonzero-std filter).
    Every drop is a row in ``drops.jsonl``; a step that cannot fill its batch within ``max_groups_per_step`` launches
    stops the run (``too_many_drops``) instead of looping.
+   **Quarantine** (``train.quarantine``, the backend-neutral scheduler rule): a task whose groups are flat (one reward
+   for every member and no Φ spread) for ``quarantine_q`` consecutive steps (default 2) is not sampled for the next
+   ``quarantine_r`` steps (default 3), then retried once; tasks are otherwise sampled round-robin. Every event is a row
+   in ``quarantine.jsonl`` and a ``record("quarantine", ...)``; ``quarantine/active`` is on every step's dashboard row.
+   ``quarantine_q=0`` turns it off.
 3. **Datums** (``datums.build_datums``): outcome advantage over each group's live rollouts, the honesty term composed in,
    M6's per-turn credit, one datum per TITO sequence; ``loss_scale``.
 4. **Update.** ``forward_backward(loss_fn)`` (``importance_sampling`` | ``ppo`` | ``cispo``, ``loss_fn_config`` e.g.
@@ -75,10 +80,13 @@ from crucible.train.bridges.tinker.datums import build_datums, scale
 from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
+from crucible.train.quarantine import QuarantineConfig, TaskQuarantine
 from crucible.train.sinks import Sink, Tracking
 
 LOSSES = ("importance_sampling", "ppo", "cispo")
-RESUMABLE_CHANGES = ("steps", "cap_usd")
+# the quarantine only changes which task is sampled when, never the objective: a resume may change it (and a run made
+# before it existed resumes with it on)
+RESUMABLE_CHANGES = ("steps", "cap_usd", "quarantine_q", "quarantine_r")
 
 
 class TrainerEnv(Protocol):
@@ -112,6 +120,8 @@ class TrainConfig:
     max_staleness: int = 0
     async_groups: int = 0
     drop_zero_spread: bool = True
+    quarantine_q: int = 2  # flat groups on this many consecutive steps quarantine a task (train.quarantine); 0: off
+    quarantine_r: int = 3  # steps a quarantined task is not sampled, then retried once
     max_groups_per_step: int | None = None  # default 3 x groups_per_step
     save_every: int = 1
     ttl_s: int | None = 14 * 86400  # save_state checkpoints and the final sampler weights
@@ -297,6 +307,16 @@ class TinkerTrainer:
         self.drops: dict[str, int] = {}
         self.step_rows: list[dict[str, Any]] = []
         self.groups_seen = 0
+        self.quarantine = TaskQuarantine([str(e.task.task_id) for e in self.envs], QuarantineConfig(config.quarantine_q, config.quarantine_r),
+                                         splits={str(e.task.task_id): str(getattr(e.task, "split", "train") or "train") for e in self.envs})
+        self._q_logged = 0
+
+    def _q_flush(self) -> None:
+        """Quarantine events not logged yet: ``quarantine.jsonl`` and the sinks' ``quarantine`` records."""
+        for e in self.quarantine.events[self._q_logged:]:
+            _append(self.dir / "quarantine.jsonl", e)
+            self.tracking.record("quarantine", e, int(e.get("step") or 0))
+        self._q_logged = len(self.quarantine.events)
 
     def _env(self, task_id: str) -> Any:
         return next(e for e in self.envs if str(e.task.task_id) == task_id)
@@ -318,9 +338,11 @@ class TinkerTrainer:
             _atomic(cp, cfg_doc)
         self.state = json.loads(sp.read_text()) if sp.exists() else {"step": 0, "version": 0, "state_path": None, "sampler_path": None,
                                                                        "objective_id": self.objective_id, "next_group": 0}
-        self.versions = json.loads((self.dir / "versions.json").read_text()) if (self.dir / "versions.json").exists() else {"0": None}
+        self.quarantine.load(self.state.get("quarantine"))
+        self.versions =json.loads((self.dir / "versions.json").read_text()) if (self.dir / "versions.json").exists() else {"0": None}
 
     def _save_state(self) -> None:
+        self.state["quarantine"] = self.quarantine.to_json()
         _atomic(self.dir / "state.json", self.state)
         _atomic(self.dir / "versions.json", self.versions)
 
@@ -416,10 +438,13 @@ class TinkerTrainer:
         t = self.meter.totals
         tok = {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample, "train": t.train}
         now = time.monotonic()
-        self.tracking.log(step_metrics(batch, datums, fb, kl, version=step, sampler_version=self.sampler.version, drops=self.drops,
-                                       usd_step=self.meter.spent - self._last_usd, usd_cum=self.meter.spent, cap_usd=self.cfg.cap_usd,
-                                       tokens={**{k: v - self._last_tokens.get(k, 0) for k, v in tok.items()}, "trained": n_tr},
-                                       train_s=train_s, step_s=(now - self._last_step_t) if self._last_step_t is not None else None), step)
+        m = step_metrics(batch, datums, fb, kl, version=step, sampler_version=self.sampler.version, drops=self.drops,
+                         usd_step=self.meter.spent - self._last_usd, usd_cum=self.meter.spent, cap_usd=self.cfg.cap_usd,
+                         tokens={**{k: v - self._last_tokens.get(k, 0) for k, v in tok.items()}, "trained": n_tr},
+                         train_s=train_s, step_s=(now - self._last_step_t) if self._last_step_t is not None else None)
+        m["quarantine/active"] = float(len(self.quarantine.active(step)))
+        m["quarantine/events"] = float(len(self.quarantine.events))
+        self.tracking.log(m, step)
         self._last_tokens, self._last_usd, self._last_step_t = tok, self.meter.spent, now
 
     async def _checkpoint(self) -> None:
@@ -450,16 +475,20 @@ class TinkerTrainer:
         batch: list[Group] = []
         launched = 0
         gi = int(self.state.get("next_group", 0))
+        cursor = int(self.state.get("cursor", gi))  # round-robin position over the tasks (= the group index before the quarantine)
         try:
             while self.state["step"] < cfg.steps and self.stop is None:
                 need = cfg.groups_per_step - len(batch)
                 extra = cfg.async_groups if self.state["step"] + 1 < cfg.steps else 0
                 while len(pending) < need + extra and launched < cfg.max_launches + extra and not self.meter.exhausted:
-                    env = self.envs[gi % len(self.envs)]
+                    i = self.quarantine.pick(cursor, int(self.state["step"]))
+                    self._q_flush()
+                    env = self.envs[i]
+                    cursor = i + 1
                     pending[asyncio.create_task(self._group(env, gi))] = gi
                     gi += 1
                     launched += 1
-                    self.state["next_group"] = gi
+                    self.state["next_group"], self.state["cursor"] = gi, cursor
                 if not pending:
                     self.stop = "cap" if self.meter.exhausted else "too_many_drops"
                     break
@@ -469,6 +498,13 @@ class TinkerTrainer:
                     g = t.result()
                     self.groups_seen += 1
                     why = self._verdict(g)
+                    if g.masked:
+                        self.quarantine.lost(g.task_id)  # infrastructure: never an observation of the task
+                    elif why != "objective_changed":
+                        self.quarantine.observe(g.task_id, g.rewards(), [float(r.progress["phi_final"]) if isinstance((r.progress or {}).get("phi_final"), int | float)
+                                                                          else None for r in g.records if not r.mask_sample and r.reward is not None],
+                                                int(self.state["step"]))
+                    self._q_flush()
                     if why is None:
                         batch.append(g)
                     else:
@@ -515,7 +551,11 @@ class TinkerTrainer:
                "calls": len(log), "sampled_tokens": samp, "sample_tokens_per_s_per_call": (samp / sum(lat)) if lat and sum(lat) else None,
                "turn_latency_s": {"mean": statistics.fmean(lat), "p50": statistics.median(lat), "max": max(lat)} if lat else None,
                "trained_episodes": eps, "usd_per_episode": (self.meter.spent / max(1, self.groups_seen * self.cfg.group_size)),
-               "wall_s": round(wall_s, 1), "steps_log": self.step_rows, "codec": self.codec.settings() if hasattr(self.codec, "settings") else None}
+               "wall_s": round(wall_s, 1), "steps_log": self.step_rows, "codec": self.codec.settings() if hasattr(self.codec, "settings") else None,
+               "quarantine": {"events": len(self.quarantine.events), "quarantined": sorted({e["task"] for e in self.quarantine.events
+                                                                                            if e["event"] in ("quarantined", "requarantined")}),
+                              "active": self.quarantine.active(int(self.state["step"])),
+                              "q": self.cfg.quarantine_q, "r": self.cfg.quarantine_r}}
         _atomic(self.dir / "summary.json", out)
         self.tracking.summary({k: v for k, v in out.items() if k not in ("steps_log", "versions")})
         return out

@@ -359,11 +359,14 @@ def lint_debug(text: str, *, faulty: set[str], hidden: set[str]) -> list[str]:
     return out
 
 
-def author_debug(rec: Mapping[str, Any], authored: Mapping[str, Any], repo: RepoGit) -> dict[str, Any]:
+def author_debug(rec: Mapping[str, Any], authored: Mapping[str, Any], repo: RepoGit, *, base_dir: Path | None = None) -> dict[str, Any]:
     """The prompt from the builder's bug report ``authored`` = ``{builder, opening, requirements: {milestone id: text},
-    closing}``: one requirement per milestone, the regression requirement when the record has regression tests, the
-    profile's epilogue; then the lint (window lane + ``lint_debug``) and the two-way ledger. ``findings`` is empty when
-    the prompt is publishable."""
+    closing, repro?}``: one requirement per milestone, the regression requirement when the record has regression tests,
+    the reproduction block when the builder gave ``repro`` (``debug_repro``: easing knob K4, executed by gate S7r), the
+    profile's epilogue; then the lint (window lane + ``lint_debug``, and ``debug_repro.lint_repro`` per repro: never a
+    hidden test) and the two-way ledger. ``findings`` is empty when the prompt is publishable. ``base_dir`` (A'): the
+    copied-hidden-line rule then looks only at lines the agent's tree does not show."""
+    from crucible.factory.generators import debug_repro as dr
     from crucible.factory.lanes.executable import REGRESSION_REQ, REGRESSION_TEXT
 
     problems: list[str] = []
@@ -378,17 +381,37 @@ def author_debug(rec: Mapping[str, Any], authored: Mapping[str, Any], repo: Repo
     if not opening:
         problems.append("author.opening is empty")
     text = "\n".join([opening, closing, *[r["text"] for r in reqs]])
-    problems += lint_debug(text, faulty=faulty_names(rec, repo), hidden=hidden_names(rec))
+    faulty, hidden = faulty_names(rec, repo), hidden_names(rec)
+    problems += lint_debug(text, faulty=faulty, hidden=hidden)
+    repros, rp = dr.parse_repros(authored, ids)
+    problems += rp
+    if repros:
+        paths, lines = dr.hidden_paths(rec), dr.hidden_lines(rec, base_dir)
+        for r in repros.values():
+            problems += dr.lint_repro(r, faulty=faulty, hidden=hidden, paths=paths, lines=lines)
+    block = dr.render(repros, {r["milestone"]: r["id"] for r in reqs if r.get("milestone")})
     regress = bool(set(rec.get("p2p") or []) | set(rec.get("collateral") or []))
     if regress:
         reqs.append({"id": REGRESSION_REQ, "milestone": None, "text": REGRESSION_TEXT, "kind": "side_effect_scope"})
-    prompt = compose_prompt(opening, [r for r in reqs if r["id"] != REGRESSION_REQ], closing + (("\n\n" if closing else "") + REGRESSION_TEXT if regress else ""),
-                            heading=HEADING, epilogue=epilogue_for(str(rec.get("lang") or "python")))
+    tail = "\n\n".join(x for x in (block, closing, REGRESSION_TEXT if regress else "") if x)
+    prompt = compose_prompt(opening, [r for r in reqs if r["id"] != REGRESSION_REQ], tail, heading=HEADING, epilogue=epilogue_for(str(rec.get("lang") or "python")))
     spans = {r["id"]: list(loc) for r in reqs if (loc := locate(prompt, r["text"]))}
     _, ledger = window_ledger(rec, reqs, spans, prompt)
     problems += ledger
     return {"prompt": prompt, "requirements": reqs, "spans": spans, "checkset": window_checkset(rec, reqs), "findings": problems,
+            "repro": {m: asdict(r) for m, r in repros.items()}, "repro_status": "unverified" if not repros else "unexecuted",
             "provenance": {"builder": str(authored.get("builder") or ""), "kind": "symptom bug report", "sha256": hashlib.sha256(prompt.encode()).hexdigest()}}
+
+
+def builder_calibration(window_id: str, split: str, records: Mapping[str, Mapping[str, Any]], *, model: str | None = None, per_level: int = 3) -> str:
+    """The calibration block of the builder's brief (``factory.calibration.brief_block``; rl-env-use's drafter
+    calibration, MIT): training tasks the target student found too easy, in band, too hard or unfair, with their measured
+    numbers from the S15 records, this window's own numbers when it is a measured training task, and the easing knobs
+    K1-K6. Held-out records never enter it; a held-out window gets none."""
+    from crucible.factory.calibration import brief_block
+    from crucible.factory.student import TARGET_MODEL
+
+    return brief_block(window_id, split, records, model=model or TARGET_MODEL, per_level=per_level)
 
 
 # ---- intent (00 §7: the task fails for the intended reason) -------------------------------------------------------------------

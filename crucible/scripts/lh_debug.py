@@ -4,6 +4,8 @@
     python scripts/lh_debug.py mine  --repos a,b          # executed fix check at HEAD, interacting groups, A'..B', validate_window
     python scripts/lh_debug.py gates [--ids ...]          # S6, S5, S8, S3, S10 on every built window that reached mutants_valid
     python scripts/lh_debug.py author                     # the builder's bug reports (prompts/<id>.json) through lint + ledger
+    python scripts/lh_debug.py repro [--ids ...]          # S7r: each requirement's `repro` run in the World at A' (shows the bug) and B (passes)
+    python scripts/lh_debug.py brief <id>                 # what the builder reads: calibration (training tasks only, K1-K6), then per milestone
     python scripts/lh_debug.py report                     # funnel per language, candidates, image disk
 
 Everything lives under ``data/debug`` (clones in ``src/``, generator state in ``gen/``, funnel in ``funnel.jsonl``). No
@@ -220,7 +222,10 @@ def cmd_author(args: argparse.Namespace) -> None:
                 continue
             rec = store.window(w)
             repo = RepoGit(ROOT / "gen" / "clones" / rec["repo"]) if (ROOT / "gen" / "clones" / rec["repo"]).exists() else RepoGit(cl[rec["repo"]][1])
-            res = author_debug(rec, json.loads(pf.read_text()), repo)
+            res = author_debug(rec, json.loads(pf.read_text()), repo, base_dir=sd / "tasks" / w / "base")
+            old = ROOT / "repro" / f"{w}.json"  # an executed S7r of this very prompt keeps its status
+            if res.get("repro") and old.exists() and json.loads(old.read_text()).get("prompt_sha256") == res["provenance"]["sha256"]:
+                res["repro_status"] = json.loads(old.read_text())["status"]
             (ROOT / "authored").mkdir(exist_ok=True)
             (ROOT / "authored" / f"{w}.json").write_text(json.dumps(res, indent=1))
             funnel.note("debug", w, "S7", not res["findings"], "; ".join(res["findings"])[:300], lang=rec.get("lang"))
@@ -228,6 +233,51 @@ def cmd_author(args: argparse.Namespace) -> None:
     refused = json.loads((ROOT / "prompt_refusals.json").read_text()) if (ROOT / "prompt_refusals.json").exists() else {}
     for w, why in refused.items():  # the builder found no symptom-only report the hidden checks allow
         funnel.note("debug", w, "S7", False, f"refused by the builder: {why['reason']}", lang=w.split("-")[1])
+
+
+async def repro(args: argparse.Namespace) -> None:
+    """Gate S7r (``generators.debug_repro.s7r``): every authored prompt with a ``repro`` field (or ``--ids``) has each
+    requirement's reproduction run in the task's World at the start tree (it must show the bug) and at the oracle (it
+    must pass). Writes ``repro/<id>.json``, the funnel row ``S7r`` and the authored prompt's ``repro_status``. Needs
+    Docker (the task's World image); no model call."""
+    from crucible.factory.generators.base import Funnel
+    from crucible.factory.generators.debug import debug_sandboxes
+    from crucible.factory.generators.debug_repro import parse_repros, s7r
+    from crucible.factory.lanes.windows import WindowStore
+
+    funnel = Funnel(ROOT / "funnel.jsonl")
+    only = {x for x in args.ids.split(",") if x}
+    for split in ("train", "heldout"):
+        sd = ROOT / "gen" / "store" / split
+        if not (sd / "split.json").exists():
+            continue
+        store = WindowStore(sd, split=split)
+        for w in store.window_ids():
+            pf, af = ROOT / "prompts" / f"{w}.json", ROOT / "authored" / f"{w}.json"
+            if (only and w not in only) or not pf.exists() or not af.exists():
+                continue
+            rec = store.window(w)
+            repros, problems = parse_repros(json.loads(pf.read_text()), [m["id"] for m in rec["milestones"]])
+            authored = json.loads(af.read_text())
+            if not repros and not only:
+                continue
+            if problems or authored.get("findings"):
+                print(f"{w}: run `author` first and clear its findings: {(problems or authored['findings'])[:3]}")
+                continue
+            gen = generator([rec["repo"]], split)
+            gen.sandboxes = debug_sandboxes(parallel=1)
+            task = gen.task(w, authored=authored)
+            res = await s7r(task, repros)
+            res["prompt_sha256"] = (authored.get("provenance") or {}).get("sha256")
+            (ROOT / "repro").mkdir(exist_ok=True)
+            (ROOT / "repro" / f"{w}.json").write_text(json.dumps(res, indent=1, default=str))
+            authored["repro_status"] = res["status"]
+            af.write_text(json.dumps(authored, indent=1))
+            funnel.note("debug", w, "S7r", res["ok"], f"{res['status']}: verified {res['verified']} failed {res['failed']} unverified {res['unverified']}"[:300],
+                        lang=rec.get("lang"))
+            print(f"{w}: S7r {res['status']} verified={res['verified']} failed={res['failed']} unverified={res['unverified']}", flush=True)
+            for mid in res["failed"]:
+                print(f"  {mid}: {res['per_requirement'][mid]['why']}")
 
 
 def cmd_intent(args: argparse.Namespace) -> None:
@@ -288,10 +338,23 @@ def cmd_intent(args: argparse.Namespace) -> None:
         print(json.dumps(r))
 
 
+TARGETING_REPORTS = ("targeting/debug/report.json", "targeting/debug-300/report.json")  # under data/; later runs override earlier ones
+
+
+def calibration_text(window_id: str, split: str, reports: list[str] | None = None) -> str:
+    """The brief's calibration block (``generators.debug.builder_calibration``) from the S15 reports."""
+    from crucible.factory.calibration import load_records
+    from crucible.factory.generators.debug import builder_calibration
+
+    paths = [Path(p) for p in reports] if reports else [ROOT.parent / p for p in TARGETING_REPORTS]
+    return builder_calibration(window_id, split, load_records(paths))
+
+
 def cmd_brief(args: argparse.Namespace) -> None:
-    """What the prompt builder reads for one window (the builder writes ``prompts/<id>.json`` from it): per milestone the
-    fix's message, its source diff (to understand the bug, never to be quoted), and the hidden tests' diff (what a user
-    would observe)."""
+    """What the prompt builder reads for one window (the builder writes ``prompts/<id>.json`` from it): the calibration
+    block (measured training tasks too easy / in band / too hard / unfair for the target student, with their numbers, and
+    the easing knobs K1-K6; never a held-out task), then per milestone the fix's message, its source diff (to understand
+    the bug, never to be quoted), and the hidden tests' diff (what a user would observe)."""
     from crucible.factory.generators.debug import faulty_names, hidden_names, scope
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit, Unit
@@ -303,6 +366,8 @@ def cmd_brief(args: argparse.Namespace) -> None:
         rec = WindowStore(sd, split=split).window(args.id)
         repo = RepoGit(ROOT / "gen" / "clones" / rec["repo"])
         units = {u["sha"]: Unit(**u) for u in rec["units"]}
+        if not args.no_calibration:
+            print(calibration_text(args.id, split, args.targeting) + "\n")
         print(f"# {args.id} ({rec['lang']}, {rec['repo']}, {split}) faulty={sorted(faulty_names(rec, repo))} hidden={sorted(hidden_names(rec))[:12]}")
         with scope(rec["lang"]):
             for m in rec["milestones"]:
@@ -398,10 +463,14 @@ def main() -> None:
     g.add_argument("--redo", action="store_true")
     g.add_argument("--loop", action="store_true")
     sub.add_parser("author")
+    rp = sub.add_parser("repro")
+    rp.add_argument("--ids", default="", help="only these windows (default: every authored prompt with a repro field)")
     sub.add_parser("intent")
     br = sub.add_parser("brief")
     br.add_argument("id")
     br.add_argument("--chars", type=int, default=3000)
+    br.add_argument("--targeting", nargs="*", help="S15 report.json files (default: data/targeting/debug and debug-300; later override earlier)")
+    br.add_argument("--no-calibration", action="store_true")
     sub.add_parser("report")
     args = ap.parse_args()
     if args.cmd == "scout":
@@ -412,6 +481,8 @@ def main() -> None:
         asyncio.run(gates(args))
     elif args.cmd == "author":
         cmd_author(args)
+    elif args.cmd == "repro":
+        asyncio.run(repro(args))
     elif args.cmd == "intent":
         cmd_intent(args)
     elif args.cmd == "brief":

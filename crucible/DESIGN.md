@@ -860,9 +860,19 @@ non-Claude model (difficulty ladder, cross-family roles):
   staleness drop, spread), datums under one credit rule (Dr.GRPO outcome advantage, honesty composed, M6 turn credit,
   one datum per TITO sequence), `importance_sampling` / `ppo` / `cispo`, sampler refresh per step, resume from Tinker state
   with its optimizer, a per-model task band required.
+- **Quarantine** (`train/quarantine.py`, backend-neutral; 2026-10-21, pattern from rl-env-use, MIT): a training task
+  whose groups are flat (one reward, no Φ spread) on 2 consecutive steps is not sampled for 3 steps, then retried with
+  one group; Φ spread without a pass is never quarantined; held-out tasks are refused; every event is logged
+  (`quarantine.jsonl`, W&B `records/quarantine`, `quarantine/active`).
 - **Benchmark**: lh_metrics plus pass@k, pass^k, task-clustered CIs and USD per passing episode; the protocol (selection
   run, fresh baseline on a new seed, base control beside the trained adapter at identical settings, paired difference
-  with its CI) checked by `check_protocol`.
+  with its CI and P(trained > control)) checked by `check_protocol`.
+- **Power** (`bench/power.py`, 09 §6.1; 2026-10-21, pattern from rl-env-use, MIT): A/A noise from each task's attempt
+  halves (even/odd and seeded random halvings), the MDE of a paired comparison of N tasks × k, 2.80 · SE with the trained
+  arm's variance bounded by μ_t(1 − μ_t), and a planner for N. Every arm and every comparison carries the stamp
+  (`powered` / `underpowered` against the targeted +0.20, pre-registered from the fresh baseline); it never blocks, and an
+  underpowered headline says so. On the S15 student arms: a 10-task × 8 benchmark has MDE 0.16 on pass@1 (0.09 on A/A
+  alone): powered for +0.20; +0.15 needs 11-13 tasks, and 15 / 25-27 if the effect varies by 0.2 across tasks.
 - **Equivalence**: on the P6 scripted solvers the Tinker datums carry, token for token, the slime path's per-token
   advantages, and the IS loss is equal.
 - **Two TITO defects found by the live smoke, fixed in shared code**: `EngineLLM` read a call's re-render flag after its
@@ -878,7 +888,8 @@ anywhere else; the layer sits below `workflow`, above `connectors | signals`, so
 - **Projects**: `crucible-factory` (funnels, targeting, intent and verifier cards, the trace audit, findings, spend),
   `crucible-train` (per-step reward, Φ, gates, pass rate, advantages, loss, KL and ratio, staleness, drops, tokens, USD vs
   cap, sampler version; through `TinkerTrainer(sinks=)`), `crucible-bench` (per arm and per comparison: the headline
-  pass@1 per arm with task-clustered CIs as an HTML chart, the paired trained − control difference, `check_protocol`,
+  pass@1 per arm with task-clustered CIs as an HTML chart, the paired trained − control difference, the power stamp
+  (`compare/power`, `bench/power`, tag `power:*`), `check_protocol`,
   pass@k / pass^k, cost per passing episode, per-language / family / skill); a W&B Report template.
 - **Traces**: episode → one call per model turn (prompt summary, output, tool calls, Φ after, milestones gained / lost,
   ΔΦ credit) → one call per tool (arguments, result); the trace audit's verdict (first wrong step, cause, quote) attaches
@@ -1109,6 +1120,14 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   takes `spec_issue` (verdict `spec_defect`, owner the builder). The node World's pnpm runs offline without its pre-run
   install (`node.PNPM_OFFLINE`, recipe `node-5`; h3's `pnpm test` hang). Committed summaries seal held-out issue text and
   verdict reasons.
+- **Easing support (`07` §6.2, 2026-10-21, $0; patterns from rl-env-use, MIT):** the builder's brief opens with a
+  calibration block (`factory/calibration.py`): measured training tasks too easy, in band, too hard and unfair for the
+  student, with pass rate, mean Φ, per-milestone rates and budget stops from the S15 records, plus the knobs K1-K6;
+  held-out records are refused by split, repository and lease, and the text is checked against every held-out id.
+  Gate S7r (`generators/debug_repro.py`, `lh_debug.py repro`): a prompt's optional `repro` per requirement (knob K4) is
+  linted with the leak rules (never a hidden test), shown to the agent, and executed in the task World, where it must
+  show the bug at A' and pass at the oracle; a missing repro is `unverified`, never a failure. The keep rule reports
+  whether its band decision is settled by the attempts run (`targeting.band_power`, a flag).
 
 ## 8. Layer 4: verification and isolation
 

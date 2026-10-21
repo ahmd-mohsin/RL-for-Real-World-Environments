@@ -502,6 +502,9 @@ def test_benchmark_writes_lh_metrics_with_pass_at_k_and_clustered_cis(toy, tmp_p
     rows = [json.loads(x) for x in (tmp_path / "bench" / "episodes.jsonl").read_text().splitlines()]
     assert len(rows) == 3 and all(r["usd"] > 0 for r in rows)  # every dollar attributed to the episode that spent it
     assert sum(r["usd"] for r in rows) == pytest.approx(out["spend"]["usd"], abs=1e-5)
+    g = out["power"]["pass"]["gate"]  # every arm's report carries its A/A noise and the MDE of its own N x k
+    assert g["n_tasks"] == 1 and g["k"] == 3 and g["verdict"] == "underpowered" and "1 tasks < 10" in g["why"]
+    assert out["power"]["pass"]["noise"]["n_tasks"] == 1 and set(out["power"]) == {"pass", "reward"}
 
 
 def test_benchmark_arms_share_one_phase_meter_and_each_reports_its_own_share(toy, tmp_path: Path) -> None:
@@ -573,6 +576,19 @@ def test_compare_pairs_control_and_trained_and_checks_the_protocol(toy, tmp_path
     assert d["mean_diff"] == pytest.approx(1.0) and d["n_tasks"] == 1 and out["settings"]["enable_thinking"] is False
     assert out["arms"]["trained"]["checkpoint"] == path and out["arms"]["control"]["checkpoint"] is None and out["arms"]["control"]["seed"] == 7
     assert out["protocol_problems"] == ["no baseline arm"]  # no fresh baseline was given
+    p = out["power"]  # no baseline arm: the stamp is read from the control arm, post hoc; one task is underpowered
+    assert p["verdict"] == "underpowered" and not p["preregistered"] and out["headline"].startswith("UNDERPOWERED")
+    assert "P(trained > control) 1.00" in out["headline"] and d["p_better"] == pytest.approx(1.0)
+    assert json.loads((tmp_path / "cmp" / "compare.json").read_text())["power"]["verdict"] == "underpowered"
+    # pre-registration: a fresh baseline arm's attempts stamp the comparison before the arms run
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "episodes.jsonl").write_text("".join(json.dumps({"task": f"t{i}", "passed": j == 0, "reward": float(j == 0), "masked": False}) + "\n"
+                                                              for i in range(12) for j in range(8)))
+    fake2 = FakeTinker(responder=ScriptedResponder([toy.sc["fail"], toy.sc["fail"], toy.sc["pass"], toy.sc["pass"]], codec), store={"sampler_paths": {path}})
+    out2 = asyncio.run(compare([toy.task], model=MODEL, checkpoint=path, run_dir=tmp_path / "cmp2", cap_usd=1.0, k=2, seed=8, n_boot=200,
+                               arm_dirs={"baseline": tmp_path / "base"}, **{**kw, "backend": fake2}))
+    assert out2["power"]["preregistered"] and out2["power"]["source"].startswith("baseline")
+    assert json.loads((tmp_path / "cmp2" / "power.json").read_text())["preregistered"] is True
     a = out["arms"]
     sel = {**a["control"], "purpose": "selection", "seed": 3}
     assert check_protocol({"selection": sel, "baseline": {**a["control"], "seed": 3}, "control": a["control"], "trained": a["trained"]}) == [
