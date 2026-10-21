@@ -18,6 +18,7 @@ import asyncio
 import contextvars
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,17 +109,63 @@ class ContextOverflow(LLMError):
     failure_kind = None
 
 
-# Ported from verifiers v1 (MIT) harnesses/utils/compaction.py: provider wordings of a context overflow.
+# Ported from verifiers v1 (MIT) harnesses/utils/compaction.py: provider wordings of a context overflow. Kept for its
+# importers; Crucible's own paths decide with ``is_overflow_text``, which covers every one of them.
 CONTEXT_OVERFLOW_MARKERS = (
     "context_length_exceeded", "exceeds the context window", "reduce the length of the messages", "maximum context length",
     "prompt is too long", "request_too_large", "request entity too large", "exceeds the maximum number of tokens", "maximum prompt length is",
 )
 
+# M2 R-15: one table for every model-calling path (the hosted chat API, the token-in-token-out engine, the RLM). The nine
+# markers caught 2 of 8 provider wordings, the engine path one, and a missed overflow is masked as an outage (or retried
+# to the same overflow) instead of scored. PORT of Prime Agent ``crates/pa-ai/src/utils_inner/overflow.rs:8-55``
+# (3e0893260, MIT, LICENSES/MIT-prime-agent.txt): its 24 provider patterns and its 3 exclusions, verbatim, then the
+# wordings Crucible already matched (verifiers, above) and those of NeMo-Gym's finance_agent and vLLM / SGLang.
+OVERFLOW_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"prompt is too long",  # Anthropic token overflow
+    r"request_too_large",  # Anthropic request byte-size overflow (HTTP 413)
+    r"input is too long for requested model",  # Amazon Bedrock
+    r"exceeds the context window",  # OpenAI (Completions & Responses API)
+    r"input token count.*exceeds the maximum",  # Google (Gemini)
+    r"maximum prompt length is \d+",  # xAI (Grok)
+    r"reduce the length of the messages",  # Groq
+    r"maximum context length is \d+ tokens",  # OpenRouter (all backends)
+    r"exceeds the model's maximum context length",  # LiteLLM
+    r"exceeds the limit of \d+",  # GitHub Copilot
+    r"exceeds the available context size",  # llama.cpp server
+    r"greater than the context length",  # LM Studio
+    r"context window exceeds limit",  # MiniMax
+    r"exceeded model token limit",  # Kimi For Coding
+    r"too large for model with \d+ maximum context length",  # Mistral
+    r"model_context_window_exceeded",  # z.ai non-standard finish_reason surfaced as error text
+    r"combined input and output tokens",  # Prime Inference-style combined ceilings
+    r"accepts at most \d+ combined",  # "accepts at most 1048576 combined tokens"
+    r"reduce the input length or requested output length",  # combined-limit remedy text
+    r"prompt too long; exceeded (?:max )?context length",  # Ollama explicit overflow error
+    r"context[_ ]length[_ ]exceeded",  # Generic fallback
+    r"too many tokens",  # Generic fallback
+    r"token limit exceeded",  # Generic fallback
+    r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)",  # Cerebras: 400/413 with no body
+    # Crucible's own: the verifiers markers not above, NeMo-Gym finance_agent (app.py:71-93), vLLM and SGLang
+    r"maximum context length", r"request entity too large", r"exceeds the maximum number of tokens", r"maximum prompt length is",
+    r"longer than the (?:model's )?(?:maximum )?(?:context|model) length", r"is too long and exceeds limit of \d+",
+))
+NON_OVERFLOW_PATTERNS = tuple(re.compile(p, re.IGNORECASE | re.MULTILINE) for p in (
+    r"^(Throttling error|Service unavailable):",  # AWS Bedrock non-overflow errors
+    r"rate limit",  # Generic rate limiting
+    r"too many requests",  # Generic HTTP 429 style
+))
+
+
+def is_overflow_text(text: str) -> bool:
+    """Whether an error's text says the prompt does not fit the model's context (``OVERFLOW_PATTERNS``), and is not a rate
+    limit or throttle worded like one (``NON_OVERFLOW_PATTERNS``). Callers check the status (a 400 or 413) themselves."""
+    return not any(p.search(text) for p in NON_OVERFLOW_PATTERNS) and any(p.search(text) for p in OVERFLOW_PATTERNS)
+
 
 def is_context_overflow(e: Exception) -> bool:
     status = getattr(e, "status_code", None)
-    details = f"{e} {getattr(e, 'body', '') or ''}".casefold()
-    return status in (400, 413) and any(m in details for m in CONTEXT_OVERFLOW_MARKERS)
+    return status in (400, 413) and is_overflow_text(f"{e} {getattr(e, 'body', '') or ''}")
 
 
 def _parse_arguments(raw: str | None) -> dict[str, Any]:
@@ -460,7 +507,7 @@ class LLMClient:
                 if status == 402 or (status == 429 and "insufficient_quota" in text):
                     raise BudgetExceeded(f"provider refused for credits ({status}): {e}") from e
                 # an overflow in a 200 error body was retried and masked as an outage (M2 audit): it is the policy's overflow
-                if is_context_overflow(e) or (isinstance(e, _NoChoices) and any(m in text for m in CONTEXT_OVERFLOW_MARKERS)):
+                if is_context_overflow(e) or (isinstance(e, _NoChoices) and is_overflow_text(text)):
                     raise ContextOverflow(f"{self.model}: {e}") from e
                 if status is not None and 400 <= status < 500 and status not in (408, 409, 425, 429):  # retrying cannot help
                     raise RequestRejected(f"{self.model} rejected the request ({status}): {e}") from e
@@ -536,7 +583,7 @@ class LLMClient:
                     raise e.__cause__ from None
                 raise
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 400 and "maximum context length" in e.response.text.lower():
+            if e.response.status_code in (400, 413) and is_overflow_text(e.response.text):  # one table for every path (R-15)
                 raise ContextOverflow(f"{self.model}: {e.response.text[:300]}") from e
             raise LLMError(f"{self.model} (tito) failed: {e}") from e
         except httpx.HTTPError as e:

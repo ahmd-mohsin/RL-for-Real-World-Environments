@@ -1603,3 +1603,29 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   builds an `LLMClient` or books spend: 319 passed, 2 skipped; the failures are the 8 known
   `test_sb_claude_builder.py` ones and `test_sampling`'s rollout version (entry 65).
 - **Merge notes.** `_reserve` is now a coroutine returning `(hold, priced estimate)`.
+
+## 71. M2 R-15: one overflow wording table for every model-calling path
+
+- **Item.** R-15 of `docs/research/improvements/2026-10-15/M02-actors.md` (should). PORT of Prime Agent's overflow
+  table (`crates/pa-ai/src/utils_inner/overflow.rs:8-55`, 3e0893260, MIT; notice already in
+  `LICENSES/MIT-prime-agent.txt`; THIRD_PARTY row added). Not changed: the engine's own refusal check in
+  `train/vllm_http.py` (M12's, a 400 from our own engine) and the importers of `CONTEXT_OVERFLOW_MARKERS`
+  (`runtime/agent_evidence.py`, `train/bridges/tinker/backend.py`), which keep the nine markers they had.
+- **Files.** `src/crucible/actors/llm.py` (`OVERFLOW_PATTERNS`, `NON_OVERFLOW_PATTERNS`, `is_overflow_text`,
+  `is_context_overflow`, `_complete_paid`, `_tito_complete`), `src/crucible/actors/rlm/context.py` (`is_overflow`;
+  `_NOT_OVERFLOW` removed), `THIRD_PARTY.md`, `tests/unit/test_overflow_wordings.py` (new).
+- **Public names.** `crucible.actors.llm.OVERFLOW_PATTERNS`, `NON_OVERFLOW_PATTERNS`, `is_overflow_text(text)`.
+  `CONTEXT_OVERFLOW_MARKERS` stays (every one of them is covered by the table).
+- **Behaviour.** The hosted chat path (a 400/413, or a 200 without choices), the token-in-token-out path (a 400 or
+  now 413 from the engine; it checked one wording) and the RLM's `is_overflow` decide with one table: Prime Agent's 24
+  provider patterns, the nine verifiers markers, NeMo-Gym's and SGLang's "longer than the model's context length" and
+  vLLM's "longer than the maximum model length" / "is too long and exceeds limit of N", minus rate-limit and throttle
+  wordings. So SGLang, llama.cpp, LM Studio, Ollama, Bedrock and Cerebras overflows end the episode
+  `context_overflow` (scored) instead of `agent_request_failed` or `provider_unavailable` (masked, the latter retried
+  into the same overflow).
+- **Formats.** none.
+- **Tests.** `test_overflow_wordings.py` (44: one sample per pattern, the old markers covered, four non-overflows, and
+  the probe's nine wordings on the hosted, RLM and engine paths). RLM, M16, M14, Tinker bridge, agent-evidence and actor
+  suites: 394 passed, 2 skipped, 3 xfailed.
+- **Merge notes.** A new provider wording goes into `OVERFLOW_PATTERNS` (with its sample in the test), not into a
+  caller.
