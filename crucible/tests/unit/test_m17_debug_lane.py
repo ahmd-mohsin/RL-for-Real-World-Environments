@@ -163,9 +163,20 @@ def test_subset_is_mines_candidate_of_the_named_fixes(tmp_path: Path, monkeypatc
     assert mined.id == group_id("go", "calc", units) and mined.params["needs"] == {neg: [fmt], fmt: [neg]}
     # named in any order and by prefix, the fixes give mine's candidate: same id (the fixes' hash), same params
     same = asyncio.run(gen.subset("calc", [fmt[:8], neg[:8]]))
-    assert same.id == mined.id and same.params == mined.params and "parent" not in same.params
-    eased = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e1", parent=mined.id))
+    assert same.id == mined.id and same.params == mined.params and "parent" not in same.params and "hide_modes" not in same.params
+    eased = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e1", parent=mined.id, hide="strip"))
     assert eased.id == "db-go-calc-e1" and eased.params["parent"] == mined.id and eased.params["fixes"] == mined.params["fixes"]
+    assert eased.params["hide_modes"] == ["strip"]
+
+
+def test_build_hides_the_tests_in_the_named_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, _ = make_repo(tmp_path)
+    gen = _gen(tmp_path, repo)
+    seen: list[str] = []
+    monkeypatch.setattr(Debug, "synthesize", lambda self, cand, *, mode="revert", extra_hide=None: (seen.append(mode), (None, {}))[1])
+    for params, first in (({}, "revert"), ({"hide_modes": ["strip"]}, "strip")):  # mined: revert first; subset --hide strip: strip only
+        rec = asyncio.run(gen.build(Candidate(f"db-go-calc-{first}", "debug", "calc", params={"lang": "go", **params})))
+        assert rec["stage"] == "source" and seen[-1] == first
 
 
 def test_subset_refuses_what_mine_would_not_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,6 +188,8 @@ def test_subset_refuses_what_mine_would_not_build(tmp_path: Path, monkeypatch: p
                           ([neg, fmt], "no-such-ref", "is not a commit"), ([neg, fmt], "HEAD", "no executed interaction")):
         with pytest.raises(ValueError, match=why):
             asyncio.run(gen.subset("calc", fixes, b=b))
+    with pytest.raises(ValueError, match="not revert or strip"):
+        asyncio.run(gen.subset("calc", [neg, fmt], hide="delete"))
     other = tmp_path / "other"  # a fresh work dir: the evidence above is cached per pool
     other.mkdir()
     monkeypatch.setattr(debug_lane, "fix_check", _fake_fix_check({neg: ["calc_test.go::TestParseNegative"]}))

@@ -163,7 +163,8 @@ async def subset(args: argparse.Namespace) -> None:
     rebuilt from its fixes, or eased by leaving one of them applied. The repository's images are kept for the next build."""
     gen = generator([args.repo], split_of(args.repo))
     try:
-        cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent)
+        cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent,
+                                hide=args.hide)
     except ValueError as e:
         sys.exit(f"[{args.repo}] {e}")
     needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
@@ -413,6 +414,8 @@ def main() -> None:
     su.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE)")
     su.add_argument("--id", default="", help="the task id (default db-<lang>-<repo>-<hash of the fixes>, as mine names it)")
     su.add_argument("--parent", default="", help="the task this one rebuilds or eases, recorded in its window")
+    su.add_argument("--hide", default="", choices=["", "revert", "strip"],
+                    help="how A' hides the fixes' tests (default revert, else strip); strip removes a test a fix changed instead of restoring its old assertions")
     g = sub.add_parser("gates")
     g.add_argument("--ids", default="")
     g.add_argument("--s3-reruns", type=int, default=60)

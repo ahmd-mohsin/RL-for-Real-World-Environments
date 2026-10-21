@@ -666,12 +666,17 @@ class Debug(Rebreak):
         return out_
 
     async def subset(self, name: str, shas: Sequence[str], *, b: str = "HEAD", since: str | None = None, cid: str = "",
-                     parent: str = "") -> Candidate:
+                     parent: str = "", hide: str = "") -> Candidate:
         """The candidate of exactly the fixes ``shas`` (sha prefixes of fix units on B's first-parent path since ``since``)
         at ``b``: ``candidates_for``'s executed check, edges, prober order and params, without its grouping. A mined task is
         rebuilt from its fixes; an eased one (TASKS_CREDIT_AND_EASING §5.5) is its parent's fixes minus the dropped one, which
         stays applied in A'. ``cid`` names it (default the group hash, as mined); ``parent`` is recorded in the window.
+        ``hide`` = ``strip`` builds A' in strip mode only: revert mode restores the old version of a test a fix changed, and
+        an old assertion of the faulty behaviour (go-toml-e1's ``TestMarshalStringEscapes`` expecting ``\\u00FF``) then fails
+        on a correct fix in the agent's own tree.
         ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact."""
+        if hide not in ("", "revert", "strip"):
+            raise ValueError(f"hide {hide!r} is not revert or strip")
         lang = self.langs_of[name]
         with scope(lang):
             from crucible.factory.generators.base import git, out
@@ -701,7 +706,7 @@ class Debug(Rebreak):
                 raise ValueError("no executed interaction at B (no test caught by two reverts)")
             b_date = out(git(repo_dir, "log", "-1", "--format=%cI", b_full))
             return self._candidate(name, lang, g, need, card, b=b_full, b_ref=b_ref, b_date=b_date, since=since, cid=cid,
-                                   **({"parent": parent} if parent else {}))
+                                   **({"parent": parent} if parent else {}), **({"hide_modes": [hide]} if hide else {}))
 
     async def _executed(self, name: str, lang: str, b: str, b_ref: str, fixes: Sequence[Unit]
                         ) -> tuple[list[Unit], dict[str, set[str]], dict[str, Any]]:
@@ -901,7 +906,7 @@ class Debug(Rebreak):
             extra: dict[str, set[str]] = {}
             for _round in range(2):  # round 2: the milestone tests that failed in the agent's own tree are stripped too
                 why = ""
-                for mode in ("revert", "strip"):  # a reverted test hunk can take a helper later tests use: then strip only
+                for mode in cand.params.get("hide_modes") or ("revert", "strip"):  # a reverted test hunk can take a helper later tests use: then strip only
                     win, info = await asyncio.to_thread(self.synthesize, cand, mode=mode, extra_hide=extra)
                     if win is None:
                         self.note(cand.id, "S3_world", False, "fewer than two fixes revert together", lang=lang, **info)
