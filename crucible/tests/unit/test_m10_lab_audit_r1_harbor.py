@@ -183,7 +183,7 @@ class FakeTask:
 
     def report(self, reward: float, infra: dict | None = None) -> GradeReport:
         return GradeReport(task=self.id, tier="full", checks=[], gates={"g": "pass"}, reward=reward, outcome=reward, infra=infra or {"status": "ok"},
-                           trusted=True, elapsed_s=0.0)
+                           trusted=True, elapsed_s=0.0, meta={"kinds": {"g": "outcome"}})
 
     async def grade(self, world, gdir):
         self.graded.append(world.backend.env.current_env())
@@ -345,7 +345,9 @@ async def test_upstream_503_then_nonzero_exit_is_masked_provider_unavailable(tmp
         raise NonZeroAgentExitCodeError("mini-swe-agent exited 1")
 
     env.hooks["run"] = run
-    _s, rows = await env.run(task)
+    # R-1's classification on its own: with the R-5 breakers on, the provider outage pauses the run (the sample waits for the
+    # endpoint to recover, which this fake never does) instead of ending it masked
+    _s, rows = await env.run(task, breaker=None)
     f = _failure(rows[0])
     assert f.kind == "provider_unavailable" and rows[0]["mask_sample"] and f.who != "policy", f
     assert task.graded == []

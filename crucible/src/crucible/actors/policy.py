@@ -586,6 +586,9 @@ class EpisodeResult:
     truncated: bool = False
     model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     observed: list[dict[str, Any]] = field(default_factory=list)  # each observer's on_end summary (e.g. dense progress)
+    # M7 R7: observers that raised ([{"observer", "phase", "error"}]); each is off for the rest of the episode and its
+    # ``observed`` entry is ``{"failed": <error>}``. An observer measures the episode; its fault never ends or masks it
+    observer_failures: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
@@ -610,8 +613,25 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         obs = await world.reset()
     else:
         obs = dict(start_obs) if start_obs else {a: Observation(actor=a, step=world.step_index) for a in policies}
-    for o in observers:
-        await o.on_start(world)
+    observer_failures: list[dict[str, Any]] = []
+    broken: dict[int, str] = {}
+
+    async def observe(i: int, o: Any, phase: str, call: Any) -> Any:
+        """M7 R7: an observer (a progress tracker's subgoal query) that raises is switched off and recorded; it used to
+        escape ``run_episode`` and mask the episode with unknown blame, a mask the policy could choose by its actions."""
+        if i in broken:
+            return None
+        try:
+            return await call()
+        except asyncio.CancelledError:
+            raise
+        except Exception as ex:  # noqa: BLE001 -- recorded in observer_failures; the episode goes on
+            broken[i] = f"{type(ex).__name__}: {ex}"[:500]
+            observer_failures.append({"observer": type(o).__name__, "phase": phase, "error": broken[i]})
+            return None
+
+    for i, o in enumerate(observers):
+        await observe(i, o, "start", lambda o=o: o.on_start(world))
     for p in [*policies.values(), *world.responders.values()]:  # simulated people key per-episode sampling the same way
         if hasattr(p, "begin_episode"):
             p.begin_episode(sample_key or world.episode_id)
@@ -676,8 +696,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 log.setdefault(a, []).append(res.observation)
                 state["steps"] += 1
                 progressed = True
-                for o in observers:
-                    await o.on_step(world, state["steps"], a, action, res)
+                for i, o in enumerate(observers):
+                    await observe(i, o, "step", lambda o=o, a=a, action=action, res=res: o.on_step(world, state["steps"], a, action, res))
                 if after_step is not None:
                     await after_step(state["steps"])
                 if limits.snapshot_every and state["steps"] % limits.snapshot_every == 0:
@@ -705,7 +725,10 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         await asyncio.wait_for(loop(), timeout=limits.timeout_s)
     except TimeoutError:
         state["stop"] = "timeout"
-    observed = [await o.on_end(world) for o in observers]
+    observed = []
+    for i, o in enumerate(observers):
+        got = await observe(i, o, "end", lambda o=o: o.on_end(world))
+        observed.append({"failed": broken[i]} if i in broken else got)
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
     # M10 lab audit R-5 item 3: a provider's Retry-After travels with the policy's failure (``episode_failure`` keeps it)
     failures += [{"kind": p.failure_kind, "reason": p.error, **({"retry_after": ra} if (ra := getattr(p, "retry_after", None)) is not None else {})}
@@ -740,7 +763,7 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     return EpisodeResult(steps=state["steps"], done=state["done"], trace=trace, final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
                          truncated=state["stop"] in TRUNCATING_STOPS, model_calls=calls,
-                         snapshots=series, observed=observed)
+                         snapshots=series, observed=observed, observer_failures=observer_failures)
 
 
 POLICY_STOP_ORDER = ("context_overflow", "too_many_errors", "too_many_compactions", "format_error", "content_filter")

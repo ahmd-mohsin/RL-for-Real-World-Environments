@@ -154,7 +154,7 @@ class Mini:
 
 def plan(ctx: Context) -> Plan:
     m = Mini(ctx)
-    gates = [Gate(g) for g in ("static", "tests", "differential", "fresh", "perf")]
+    gates = [Gate(g, "gate") for g in ("static", "tests", "differential", "fresh", "perf")]
     checks = [Check("static", "static", m.static, tier="fast"), Check("tests", "tests", m.tests_gate, tier="fast"),
               Check("differential", "differential", m.differential, tier="fast"), Check("fresh", "fresh", m.fresh),
               Check("perf", "perf", m.perf, requires=("tests", "differential"))]

@@ -135,7 +135,7 @@ class FakeTask:
         if self.on_grade is not None:
             await self.on_grade()
         return GradeReport(task=self.id, tier="full", checks=[], gates={"g": "pass"}, reward=self.reward, outcome=self.reward,
-                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0)
+                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"kinds": {"g": "outcome"}})
 
 
 class Env:

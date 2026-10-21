@@ -176,3 +176,21 @@ class ProgressTracker:
 
 def read_rows(path: Path) -> list[dict]:
     return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+
+def progress_unavailable(path: Path, why: str) -> dict[str, Any]:
+    """M7 R7: the progress observer raised (``EpisodeResult.observed`` holds ``{"failed": why}``): the episode is graded,
+    and its progress is unmeasured. The rows written before the fault are kept aside as ``progress.failed.jsonl`` (a
+    per-turn ΔΦ that stops part-way would credit the turns before the fault only), so the record has no per-turn credit
+    (M6 R3 trains it outcome-only or refuses the batch). The returned summary is the record's ``progress``."""
+    path = Path(path)
+    if path.exists():
+        path.replace(path.with_name("progress.failed.jsonl"))
+    return {"progress_unavailable": str(why)[:500]}
+
+
+def observed_progress(observed: Any, path: Path) -> dict[str, Any]:
+    """An observer's ``on_end`` summary as the record's ``progress``: itself, or ``progress_unavailable`` after a fault."""
+    if isinstance(observed, dict) and "failed" in observed:
+        return progress_unavailable(path, observed["failed"])
+    return observed

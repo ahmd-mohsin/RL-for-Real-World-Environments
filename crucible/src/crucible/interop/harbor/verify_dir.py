@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -58,6 +59,7 @@ from typing import Any, TypeVar
 from crucible.runtime.gpu import GpuHost, HostTimeout
 from crucible.runtime.grading import unbudgeted
 from crucible.runtime.identity import file_digest, tree_digests
+from crucible.verify.patchio import read_patch, write_patch
 from crucible.verify.runtime.plan import GradeReport
 from crucible.world import lifecycle
 from crucible.world.exec import ExecOut, _run_subprocess
@@ -104,7 +106,13 @@ def export_ref(repo: Path, task_dir: Path, ref: str, dest: Path) -> Path:
     return out
 
 
+_STATUSES = ("pass", "fail", "skip", "infra")
+
+
 def _gates(report: dict) -> dict[str, str]:
+    """Gate statuses of a ``report.json``: a Harbor-style dict (``{"pass": bool}`` / ``{"skipped": true}``) or bool, or the
+    status string Crucible's own grader kit writes (``GradeReport.to_dict``: pass / fail / skip / infra; M7 R6: those
+    were dropped, so a kit report lost its gates on the round trip)."""
     out = {}
     for g, v in (report.get("gates") or {}).items():
         if isinstance(v, dict) and "pass" in v:
@@ -113,7 +121,41 @@ def _gates(report: dict) -> dict[str, str]:
             out[g] = "skip"
         elif isinstance(v, bool):
             out[g] = "pass" if v else "fail"
+        elif isinstance(v, str) and v in _STATUSES:
+            out[g] = v
     return out
+
+
+_REWARD_NAMES = {"reward.json": re.compile(r"\breward\.json\b"), "reward.txt": re.compile(r"\breward\.txt\b")}
+
+
+def declared_reward_file(task_dir: Path, command: str = "", *, max_files: int = 5000, max_bytes: int = 2_000_000) -> str | None:
+    """The one reward file a task's verifier writes (M7 R5), read statically from the verifier command and every text
+    under ``tests/``: ``reward.txt`` or ``reward.json`` when exactly one of the names appears, else None (both, as
+    Crucible's grading kit writes, or neither, a computed path: Harbor's precedence applies)."""
+    seen: set[str] = set()
+    texts = [command]
+    root = Path(task_dir) / "tests"
+    if root.is_dir():
+        for n, f in enumerate(sorted(root.rglob("*"))):
+            if n >= max_files:
+                break
+            try:
+                if f.is_file() and not f.is_symlink() and f.stat().st_size <= max_bytes:
+                    texts.append(f.read_text(errors="replace"))
+            except OSError:
+                continue
+    for t in texts:
+        seen |= {name for name, rx in _REWARD_NAMES.items() if rx.search(t)}
+    return next(iter(seen)) if len(seen) == 1 else None
+
+
+def _kinds(report: dict, gates: dict[str, str]) -> dict[str, str]:
+    """Each gate's kind (M7 R6): what the kit's report declares (``meta.kinds``); a gate it does not declare, as every
+    gate of a foreign grader, is an outcome (a Harbor test's pass or fail is a correctness check, not a stated rule)."""
+    meta = report.get("meta") if isinstance(report.get("meta"), dict) else {}
+    declared = meta.get("kinds") if isinstance(meta.get("kinds"), dict) else {}
+    return {g: str(declared[g]) if declared.get(g) in ("gate", "outcome", "score") else "outcome" for g in gates}
 
 
 def _resolve_env(env: dict) -> dict[str, str]:
@@ -159,6 +201,13 @@ class HarborDirTask:
         # M10 lab audit R-3: what one control grade may take (``grading.control_budget`` raises the harness's budget to it):
         # grade_patch's run, plus the image inspect and the host put/get
         self.control_timeout_s = self.timeout + 300.0
+        # M7 R3: the oracle (``solution/model.patch``) passes the task's tests, so its control must score full marks
+        # (``grading.control_passed``): a grader that runs but cannot apply it (a CRLF or Latin-1 patch read as text) scored
+        # 0 and still "passed", turning a repeated failure into the answer's 0. A perf task keeps no floor (contention can
+        # keep an honest oracle below 1.0, ``control_passed``'s docstring)
+        self.control_min_outcome: float | None = None if perf else 1.0
+        # M7 R5: the reward file the task's own tests write (None: both or neither are named, Harbor's precedence applies)
+        self.reward_file = declared_reward_file(self.dir, self.command)
         venv = v.get("environment") or {}
         env = self.cfg.get("environment") or {}
         self.gpus = int(venv.get("gpus") or env.get("gpus") or 0)
@@ -177,6 +226,7 @@ class HarborDirTask:
         test_sh = self.dir / "tests" / "test.sh"
         kit = (self.dir / "tests" / "crucible" / "verify" / "runtime").is_dir() or (test_sh.exists() and "crucible_verify" in test_sh.read_text(errors="replace"))
         self.trust_mask = kit if trust_mask is None else trust_mask
+        self.kit = kit  # Crucible's grading kit writes both reward files (M7 R5)
 
     def digest(self) -> str:
         """The task directory's content (R-2): ``core.ids.tree_digest``, so the digest does not depend on Harbor being installed."""
@@ -261,7 +311,7 @@ class HarborDirTask:
         key = f"grades/{uuid.uuid4().hex[:12]}"
         art = gdir / "stage" / "artifacts"
         art.mkdir(parents=True, exist_ok=True)
-        (art / "model.patch").write_text(patch)
+        write_patch(art / "model.patch", patch)  # M7 R3: the collected bytes
         (gdir / "stage" / "verifier").mkdir(exist_ok=True)
         name = f"crucible-hgrade-{uuid.uuid4().hex[:10]}"
         envfile = None
@@ -383,6 +433,19 @@ class HarborDirTask:
             return self._masked(kind, why, t0)
         from crucible.interop.harbor.rewards import parse_reward_dir, scalar_reward
 
+        planted = self._planted(local)
+        if planted is not None:
+            shutil.rmtree(gdir / "stage", ignore_errors=True)
+            return GradeReport(task=self.id, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra={"status": "ok"}, trusted=True,
+                               elapsed_s=round(time.monotonic() - t0, 2),
+                               meta={"report": report, "rc": p.rc, "kinds": {},
+                                     "failure": {"kind": "crucible:policy_misbehavior", "reason": planted},
+                                     "flags": [{"rule": "reward_file_planted", "category": "grader_tampering", "seq": None, "evidence": planted}]})
+        if self.reward_file is None and not self.kit and all((local / n).exists() for n in ("reward.json", "reward.txt")):
+            # M7 R5: a test whose reward path is not named statically, and both files present: one may be the code under
+            # test's (Harbor reads reward.json first, so a planted one decided the grade). Which is unknowable here; the
+            # control decides (an oracle run writes one file: the patch's own 0; one that writes both: the task's mask)
+            return self._masked("reward_file_invalid", f"both reward.json and reward.txt are present and the task's tests name neither (rc {p.rc})", t0)
         rewards, problem = parse_reward_dir(local)
         reward = None
         if rewards is not None:
@@ -394,15 +457,34 @@ class HarborDirTask:
                 # turn into a number, which a patch can cause (the tests compute it, or the code under test writes it):
                 # graded again, then decided by the control. Harbor's name stays in the reason
                 kind = "non_finite_reward"
-            return self._masked("no_reward_json" if kind == "RewardFileNotFoundError" else kind, f"{problem} (rc {p.rc})", t0)
+            else:
+                # M7 R5: the code under test runs in this container with /logs/verifier writable, so a missing, empty,
+                # unparseable or ambiguous reward file may be its doing: graded again, then decided by the control (an
+                # oracle whose tests write a reward makes it the patch's own 0; an oracle without one blames the task).
+                # Harbor's name stays in the reason
+                kind = "reward_file_invalid"
+            return self._masked(kind, f"{problem} (rc {p.rc})", t0)
         gates = _gates(report if isinstance(report, dict) else {})
         shutil.rmtree(gdir / "stage", ignore_errors=True)
         return GradeReport(task=self.id, tier="full", checks=[], gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
-                           elapsed_s=round(time.monotonic() - t0, 2), meta={"report": report, "rc": p.rc})
+                           elapsed_s=round(time.monotonic() - t0, 2), meta={"report": report, "rc": p.rc, "kinds": _kinds(report if isinstance(report, dict) else {}, gates)})
+
+    def _planted(self, local: Path) -> str | None:
+        """M7 R5: the reward file the task's tests do not write, present after the run: the code under test wrote it (the
+        test's own file is read; Harbor reads ``reward.json`` before ``reward.txt``, so a planted ``reward.json`` decided
+        the grade). What this does not close: a background process of the candidate's that rewrites the declared file
+        after the test's last write runs as the same user in the same container; only a verifier user the candidate
+        cannot act as (``[verifier].user``, which maps to ``docker run --user``, or Harbor's rewardkit Worker) closes it."""
+        if self.reward_file is None:
+            return None
+        other = local / ("reward.json" if self.reward_file == "reward.txt" else "reward.txt")
+        if not (other.exists() or other.is_symlink()):
+            return None
+        return f"{other.name} is present, but the task's tests write only {self.reward_file}: written by the code under test"
 
     async def grade_control(self, workdir: Path) -> GradeReport | None:
         """M10 lab audit R-3: the task's control (``runtime.grading.settle``): the oracle patch graded exactly as a
         collected patch is (``grade_patch``, a fresh container of the same image). None without one."""
         if not self.oracle_patch.is_file():
             return None
-        return await self.grade_patch(self.oracle_patch.read_text(), Path(workdir))
+        return await self.grade_patch(read_patch(self.oracle_patch), Path(workdir))

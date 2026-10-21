@@ -55,6 +55,7 @@ from typing import Any
 from crucible.interop.harbor.inplace import HarborInPlaceTask
 from crucible.interop.harbor.verify_dir import HarborDirTask
 from crucible.runtime.gpu import GpuHost
+from crucible.verify.patchio import decode
 
 PATCH = "/logs/artifacts/model.patch"
 MAX_PATCH_BYTES = 64 << 20  # M10 lab audit R-1: the patch crosses the exec pipe and is held in memory
@@ -335,7 +336,7 @@ class HarborPatchTask(HarborInPlaceTask):
                         raise CollectError(f"no regular, non-symlink {PATCH} of at most {MAX_PATCH_BYTES} bytes after the collect hooks "
                                            f"(rc {rc}: {out[-300:]})", kind="missing")
                     try:
-                        return _payload(body).decode("utf-8", errors="replace")
+                        return decode(_payload(body))  # M7 R3: lossless (CRLF, Latin-1), never U+FFFD
                     except (ValueError, binascii.Error) as e:
                         raise CollectError(f"{PATCH} read returned verdict 0 but a body that is not the framed base64 of the patch "
                                            f"(the container's own tools, P23): {e}", kind="missing") from e
@@ -367,3 +368,8 @@ class HarborPatchTask(HarborInPlaceTask):
         """M10 lab audit R-3: the grading container's control budget (``HarborDirTask.control_timeout_s``), never the
         in-place one it would inherit."""
         return getattr(self.grader, "control_timeout_s", None)
+
+    @property
+    def control_min_outcome(self):
+        """M7 R3: the grading container's control floor (``HarborDirTask.control_min_outcome``)."""
+        return getattr(self.grader, "control_min_outcome", None)

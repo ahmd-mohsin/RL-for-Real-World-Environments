@@ -36,11 +36,23 @@ async def a1_oracle(t: Any, ctx: AcceptContext) -> Out:
     if fps and start == fps[0]:
         reasons.append("the oracle does not change the state (gold check)")
     noop, _ = await ctx.grade(t, "noop", t.noop(), run=0)
-    outcome = sorted({c.gate for c in getattr(t, "checks", []) if getattr(c, "gate_kind", "gate") in ("outcome", "score")})
+    # M7 R6: the grade declares each gate's kind, and that is what credit reads; the check list (``CheckSpec.gate_kind``)
+    # is a description of it, so a disagreement is the task's defect, not a reason to skip the gold check
+    try:
+        kinds = noop.gate_kinds()
+    except ValueError as e:
+        kinds = {}
+        reasons.append(f"the grade does not declare its gates' kinds: {e}")
+    stated = {c.gate: c.gate_kind for c in getattr(t, "checks", []) if getattr(c, "gate_kind", None) is not None}
+    # outcome vs score is the same for credit (neither is a hard rule); hard vs not is what per-turn credit reads (M6 R2)
+    disagree = {g: {"checks": k, "grade": kinds[g]} for g, k in stated.items() if g in kinds and (k == "gate") != (kinds[g] == "gate")}
+    if disagree:
+        reasons.append(f"the check list's gate kinds disagree with the grade's: {disagree}")
+    outcome = sorted(g for g, k in kinds.items() if k in ("outcome", "score"))
     false_at_start = [g for g in outcome if noop.gates.get(g) != "pass"]
     if outcome and not false_at_start:
         reasons.append("no outcome gate is false at the start state (gold check)")
-    m: dict = {"rewards": rewards, "replay_identical": len(set(fps)) == 1, "outcome_gates_false_at_start": false_at_start,
+    m: dict = {"rewards": rewards, "replay_identical": len(set(fps)) == 1, "outcome_gates_false_at_start": false_at_start, "gate_kinds": kinds,
                "declared_env": _caps(t, "declared_env"), "grade_seconds": [r.elapsed_s for r, _ in grades]}
     facts = _caps(t, "facts") or {}
     for fact, cap in (("perf_bars", "perf_bars"), ("fresh_gates", "fresh_gates")):

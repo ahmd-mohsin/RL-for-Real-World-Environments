@@ -144,10 +144,10 @@ def test_adversarial_probe_is_refused_at_every_limit(tmp_path):
     assert "running" in p["root_lines"]["ADV-LIST"]
 
 
-@pytest.mark.xfail(strict=True, reason="D1 (07-campaign.md): runtime.record.credit_from_progress zips actions and progress rows by "
-                                       "position; a child's rlm.finish adds a 'done' action with no World step, so every later root "
-                                       "call is credited with a neighbour's ΔΦ (rows carry tool_call_id; map by it)")
 def test_record_credit_matches_exact_attribution_with_children():
+    """D1 (07-campaign.md), fixed by M7 R7: ``credit_from_progress`` zipped actions and progress rows by position, and a
+    child's ``rlm.finish`` adds a 'done' action with no World step, so every later root call was credited with a
+    neighbour's ΔΦ; rows are joined by ``tool_call_id`` now."""
     r = _run("none", 1)
     assert r["credit"]["telescopes"]
     assert r["credit"]["exact_vs_record_mismatched_calls"] == 0, r["credit"]["mismatch_examples"]

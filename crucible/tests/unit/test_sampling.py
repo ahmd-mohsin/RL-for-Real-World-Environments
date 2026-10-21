@@ -70,7 +70,7 @@ def test_a_turn_records_its_calls_sampling_not_the_runs_declaration():
     first, second = ro.turns
     assert (first.sampling.temperature, first.sampling.top_p) == (0.7, 0.9) and second.sampling == SamplingParams()
     assert first.sampling.truncated and not first.candidates_valid()  # top_p 0.9 needs candidate sets
-    assert ro.schema_ == "crucible.rollout/v1.1"
+    assert ro.schema_ == RolloutRecord.SCHEMA  # the current rollout version (v1.1 typed sampling; v1.2 added gate_kinds)
 
 
 def test_the_trainer_refuses_an_unrecorded_or_different_temperature():

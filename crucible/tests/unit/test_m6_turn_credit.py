@@ -367,8 +367,9 @@ def test_grade_report_kinds_and_the_record_round_trip():
     from crucible.runtime.record import build
     from crucible.verify.runtime.plan import GradeReport
 
+    # M7 R6: every gate declares its kind (an undeclared one raises: test_m7_hardening U5)
     rep = GradeReport(task="t", tier="full", checks=[], gates={"rule": "pass", "t1": "fail", "x": "fail"}, reward=0.0, outcome=0.0,
-                      infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"kinds": {"t1": "outcome"}})
+                      infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"kinds": {"rule": "gate", "t1": "outcome", "x": "gate"}})
     assert rep.gate_kinds() == {"rule": "gate", "t1": "outcome", "x": "gate"}
     rec = RunRecord(run_id="r", task="t", world="w", policy="p", started_at="2026-01-01T00:00:00Z", steps=1, outcome="completed", reward=0.0,
                     attempt="r-a1", meta={"harness": "h", "gates": rep.gate_bits(), "gate_kinds": rep.gate_kinds()})

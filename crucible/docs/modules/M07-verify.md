@@ -80,7 +80,65 @@ Two layers:
 - Kit plans for tasks 01, 01v2 and 02. Their B.10 holes are recorded; they need grader-owned builds of the doctest suites (task01) and root-free candidate execution (task02).
 - Seed re-versioning: the task04 consumer `PCLConfig.cmake` flag injection, the KinFu headroom, and the task03/04 instruction sentences that are unenforced or looser than the grader (A7).
 - A Harbor-run end-to-end check of the flat `reward.json` (M11).
-- From the audit: the patch is still decoded as text (non-UTF-8 context lines), two-level `##` macro pastes,
+- From the audit: two-level `##` macro pastes,
   `kill_cohort` survivors still mask, no `adversarial_inputs` pattern, `judge_item` has no production caller, and the
   masked-mean metric (`interop/harbor/metrics.py`) is not yet wired into the M11 export. Re-run the task04 GPU golden
   after the perf changes.
+
+## The policy never chooses its grade (2026-10-20, M7 R1-R7)
+
+Seven changes, each measured before and after through the real code paths
+(`docs/research/improvements/2026-10-14/M07-verify.md` §7 has the numbers).
+
+- **R1, quiesce before the in-place reward writer.** The M10 lab audit R-2 fix was in; its tests never collected
+  (`CONNECT_ERROR` used before its definition, fixed on main), the 503 test waited on the R-5 breakers (it now runs
+  with `breaker=None`), and `runtime/breaker.py` read `opened_at or now`, so a key opened at clock 0.0 was never
+  quarantined (now an explicit `None` test).
+- **R4, an exposure is a read, not a name.** `core/agent_events.py` `grader_reads`: a `grader_files` probe is an
+  exposure (`crucible:answer_exposed`, a task-blamed mask) only when the call read or ran a grader file (`cat`, `grep`,
+  `head`, `sed -n`, `git -C /solution diff`, `find … -exec cat`, `… | xargs cat`, a script's `.read()`, `bash
+  /tests/test.sh`, a file-read tool) and got output, and the file is not one the episode wrote itself. `ls /tests/`,
+  `find / -name reward.txt`, a comment, a write: recorded (`data.probes`, `probe_ran`), graded on their merits. The
+  policy cannot choose the mask: echoing fake test source or planting `/tests/x` and reading it back exposes nothing.
+- **R6, every gate declares its kind.** `Gate.kind` has no default; `Plan` refuses a kind outside gate / outcome /
+  score; `GradeReport.gate_kinds()` raises on a graded report with an undeclared gate (a masked one is never credited).
+  Kinds by provenance: a rule the instruction states is a `gate` (coding task01/02/03 `static`, `install`; task04
+  `static`, `binary`; the factory's path checks), every correctness, consumer, incident, build or perf check an
+  `outcome` (task04 `perf` a `score` in record mode; the factory's `m_correct`, `m_faster`, `m_bar`). The unapplied
+  patch report (`verify/runtime/run.py`) fails hard gates only and declares kinds; Harbor `report.json` keeps the kit's
+  string statuses and lifts `meta.kinds` (a foreign gate is an outcome). The M9 gold check (A1) reads the grade's
+  kinds and fails a check list that disagrees on hard vs not (finance_ap's said `gate` for its outcome: fixed, and A1's
+  gold check now runs on it).
+- **R7, observers measure, never mask.** `run_episode` switches off an observer that raises and records it
+  (`EpisodeResult.observer_failures`, `observed[i] = {"failed": …}`); the native and workspace harnesses and
+  `world_env` then record `progress = {"progress_unavailable": …}` and set the partial `progress.jsonl` aside
+  (`progress.failed.jsonl`), so no ΔΦ is trained from it. `credit_from_progress` joins a row to the call listing
+  `tool:<tool_call_id>`, message and done rows in order, a `context_compact` call gets none; streams without ids and
+  RLM calls keep the positional pairing. This also fixed M16 campaign D1 (a child's `rlm.finish` shifted every later
+  root call's ΔΦ).
+- **R3, patches are bytes.** `verify/patchio.py` (`surrogateescape`): collection (`_run_subprocess_raw`), the stored
+  `artifacts/model.patch`, the re-grade, the imported patch, the Harbor container read, the separate verifier's write
+  and the oracle control all keep every byte (CRLF, Latin-1). A grader that writes a patch with `write_text` now raises
+  on a non-UTF-8 patch instead of grading corrupted text. `HarborDirTask` (and `HarborPatchTask`) declare
+  `control_min_outcome = 1.0` (none for a perf task), so an oracle that grades cleanly but scores 0 fails its control.
+- **R2, only the answer can fail the check.** `math_equal`: math-verify availability first, one child per CPU at a
+  time, the deadline starts when the child reports it started, a child that dies without a verdict is
+  `CheckerUnavailable` (answer-sensitive: the control decides). Numbers: commas only in grouped thousands, integers
+  compare exactly, a non-finite or too-large number is no answer. Multiple choice: a leading letter followed by a
+  non-alphanumeric is the answer, except the articles "A" / "I" before a lowercase word. `output_regex` lists are tried
+  in turn, a captured option text maps to its letter. `load_tasks(..., grading_mode=...)`: a NeMo-Gym multiple-choice
+  row with no mode anywhere is refused. Every boxed, answer-colon and multiple-choice task gets a control completion in
+  its parser's format, and a judge criterion without one is refused; `CheckerSpec.max_chars` (8192) scores a longer
+  answer 0 before a judge is called.
+- **R5, the separate verifier's reward file.** `HarborDirTask.reward_file`: the one file the task's tests name
+  (`declared_reward_file`, the verifier command and every text under `tests/`). The other file present after the run
+  is the candidate's: scored 0, `crucible:policy_misbehavior`, flag `reward_file_planted` (the workspace harness now
+  takes a grade's flags and verdicts, as the native harness does). With nothing declared, both files present, or a
+  missing, empty, unparseable or ambiguous file, is `reward_file_invalid`: graded again and decided by the oracle
+  control. **Open:** a background process that keeps rewriting the declared file after the test's write, and a planted
+  file when the test writes none; same user, same container. Only a verifier user the candidate cannot act as
+  (`[verifier].user` → `docker run --user`, or Harbor's rewardkit Worker) closes it; the M13 import's oracle control is
+  where to validate `verifier.user` per task set.
+
+Tests: `tests/unit/test_m7_hardening.py` (U1-U22), `tests/redteam/test_m7_separate_verifier_docker.py` (U23-U27 and
+the Harbor directory byte cases).

@@ -36,6 +36,8 @@ CMAKE_CUDA = r"LANGUAGES[^)]*\bCUDA\b|enable_language\s*\(\s*CUDA|CUDAToolkit|CU
 SKIP = ("third_party", ".git", "docs")  # tests/ is replaced by the hidden suite: pruned, never scanned
 
 
+KINDS = {"static": "gate"}  # M7 R6: "instruction:pure ..." is a stated rule; the seed's own tests (test.sh) are outcomes
+
 def rules(version: str, *, frozen_base: str | None = None) -> RuleSet:
     return RuleSet(forbid=[Rule("cuda_language", CUDA_LANGUAGE, suffixes=SOURCE_EXT), Rule("vendor_intrinsics", VENDOR, suffixes=SOURCE_EXT),
                            Rule("emulator", EMULATOR[version], suffixes=SOURCE_EXT), Rule("host_algorithm", HOST_ALGO, suffixes=SOURCE_EXT, roots=("src", "include")),
@@ -52,4 +54,4 @@ def plan(ctx: Context) -> Plan:
         r = scan(Path(c.candidate), rules(version, frozen_base=base))
         return Verdict(r["pass"], {"violations": r["violations"][:50], "count": r["count"]})
 
-    return Plan(f"task01{'v2' if version == 'v2' else ''}:static", [Gate("static")], [Check("static", "static", static, tier="fast")])
+    return Plan(f"task01{'v2' if version == 'v2' else ''}:static", [Gate("static", KINDS["static"])], [Check("static", "static", static, tier="fast")])

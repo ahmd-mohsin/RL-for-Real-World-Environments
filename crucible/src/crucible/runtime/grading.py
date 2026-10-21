@@ -88,7 +88,9 @@ HANDOFF_REF = "handoff_ref.json"
 # attempt, and (R-3 item 2) one that repeats on the same work is what a control grade decides. A patch-mode non-finite
 # reward arrives as a masked report: ``HarborDirTask.grade_patch`` names it ``non_finite_reward`` (a NaN or infinite
 # reward file, or the kit's own non-finite mask)
-ANSWER_SENSITIVE = frozenset({"verifier_timeout", "VerifierTimeoutError", "check_infra", "non_finite_reward"})
+# M7 R5: ``reward_file_invalid``, a separate verifier's missing, empty, unparseable or ambiguous reward file (the code under
+# test can plant or empty it: an empty planted ``reward.json`` masked the patch's own 0)
+ANSWER_SENSITIVE = frozenset({"verifier_timeout", "VerifierTimeoutError", "check_infra", "non_finite_reward", "reward_file_invalid"})
 # M10 lab audit R-3 review round 3: the most a grade's answer-dependent host checks (``unbudgeted(answer=True)``) may hold
 # the scoring budget, per ``grade_in_place`` call (read at call time, so a test can lower it)
 HOLD_CAP_S = 600.0

@@ -98,7 +98,11 @@ async def test_checkers():
     assert await CheckerSpec("json_subset").score({"a": 1}, {"a": 2}) == 0.0
     assert 0.9 < weighted_seq_match("the cat sat", "the cat sat.") <= 1.0
     assert await CheckerSpec("mcq").score("b", "B") == 1.0
-    assert await CheckerSpec("math").score("0.5", r"\frac{1}{2}") == 1.0  # equal numbers need no SymPy
+    if math_verify_available():
+        assert await CheckerSpec("math").score("0.5", r"\frac{1}{2}") == 1.0  # equal numbers need no SymPy
+    else:  # M7 R2 (D3): no answer passes while others mask (the control would pass); a math task is refused at load
+        with pytest.raises(CheckerUnavailable):
+            await CheckerSpec("math").score("0.5", r"\frac{1}{2}")
     if math_verify_available():
         assert await CheckerSpec("math").score(r"\sqrt{2}/2", r"\frac{1}{\sqrt{2}}") == 1.0
         assert await CheckerSpec("math").score("x+1", "x+2") == 0.0
@@ -116,12 +120,13 @@ NEMO_ROWS = [
      "options": [{"A": "Paris"}, {"B": "London"}, {"C": "Berlin"}, {"D": "Madrid"}], "expected_answer": "A", "uuid": "q1"},
     {"responses_create_params": {"input": "What is 6*7?"}, "expected_answer": "42", "uuid": "q2", "parser": "boxed", "criteria": [{"id": "c", "checker": "numeric"}]},
 ]
+NEMO_MODE = "strict_single_letter_boxed"  # the benchmark config's mode for these rows ("Answer with a boxed letter."; M7 R2: required)
 VF_ROWS = [{"question": "Name the largest planet.", "answer": "Jupiter", "info": {"source": "toy"}},
            {"prompt": [{"role": "user", "content": "Spell cat backwards"}], "answer": "tac"}]
 
 
 def test_row_shapes():
-    t1, t2 = load_tasks(NEMO_ROWS, dataset="nemo")
+    t1, t2 = load_tasks(NEMO_ROWS, dataset="nemo", grading_mode=NEMO_MODE)
     assert t1.parser.kind == "mcq" and t1.options == OPTS and t1.system == "Answer with a boxed letter." and t1.instruction == "Capital of France?"
     assert t1.criteria[0].checker.kind == "mcq" and t1.id == "nemo/q1@1"
     assert t2.parser.kind == "boxed" and t2.criteria[0].checker.kind == "numeric"
@@ -134,7 +139,7 @@ def test_row_shapes():
     with pytest.raises(ValueError, match="judge"):
         SingleTurnTask("t/x@1", "q", "a", criteria=[{"id": "j", "checker": {"kind": "judge", "judge": "gpt"}}])
     with pytest.raises(ValueError, match="duplicate"):
-        load_tasks([NEMO_ROWS[0], NEMO_ROWS[0]], dataset="nemo")
+        load_tasks([NEMO_ROWS[0], NEMO_ROWS[0]], dataset="nemo", grading_mode=NEMO_MODE)
 
 
 async def _run(tmp_path, tasks, pol, rid="st"):
@@ -150,7 +155,7 @@ GOLD = {"nemo/q1@1": r"Paris is the capital. \boxed{A}", "nemo/q2@1": r"6*7 = \b
 
 
 async def test_end_to_end_gold_wrong_unformatted(tmp_path):
-    tasks = load_tasks(NEMO_ROWS, dataset="nemo")
+    tasks = load_tasks(NEMO_ROWS, dataset="nemo", grading_mode=NEMO_MODE)
     recs = await _run(tmp_path, tasks, answer_policy(lambda t: GOLD[t.id]), "gold")
     assert {k: r["reward"] for k, r in recs.items()} == {"nemo/q1@1": 1.0, "nemo/q2@1": 1.0}
     recs = await _run(tmp_path, tasks, answer_policy(lambda t: r"\boxed{B}" if "q1" in t.id else r"\boxed{41}"), "wrong")

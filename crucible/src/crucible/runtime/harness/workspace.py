@@ -35,8 +35,9 @@ from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.grading import answer_sensitive, decided, deciding_record, grade_in_place, grade_summary, grading_window, seen_before, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
-from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, episode_sidecar, probed, save_episode
+from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, _take_findings, episode_sidecar, probed, save_episode
 from crucible.runtime.infra import StageFailure, boundary, episode_failure
+from crucible.verify.patchio import read_patch, write_patch
 from crucible.world.exec import _run_subprocess
 
 
@@ -85,7 +86,7 @@ class WorkspaceHarness(NativeHarness):
         res = HarnessResult(stop="regraded")
         t: dict[str, float] = {}
         meta = json.loads((prior / "record.json").read_text()).get("meta") or {} if (prior / "record.json").exists() else {}
-        patch = (prior / "artifacts" / "model.patch").read_text()
+        patch = read_patch(prior / "artifacts" / "model.patch")  # M7 R3: the stored bytes, CR and all
         try:
             # M10 lab audit R-3 review round 2: the answer-sensitive grades the deciding attempt already ran on this patch, so
             # a repeat here is decided by the control (an answer-sensitive failure graded once was left regradable)
@@ -115,7 +116,7 @@ class WorkspaceHarness(NativeHarness):
         # the window bounds the PerfGuard slot's wait too; it is opened again once the slot is held (graded)
         grading_window(attempt, attempt.task, budget_s=self.scoring_budget_s, control_s=self.control_timeout_s)
         (attempt.dir / "artifacts").mkdir(exist_ok=True)
-        (attempt.dir / "artifacts" / "model.patch").write_text(c.patch)
+        write_patch(attempt.dir / "artifacts" / "model.patch", c.patch)
         res.artifacts["patch"] = "artifacts/model.patch"
         res.tree_changed = c.tree_changed
         res.regradable = attempt.regradable = True
@@ -159,6 +160,7 @@ class WorkspaceHarness(NativeHarness):
         t["verification"] = time.monotonic() - t0
         write_reports(attempt.dir / "verifier", reps)
         res.grade = {**res.grade, **grade_summary(reps, f)}
+        _take_findings(reps, res)  # M7 R5: the grade's flags and a policy verdict (as the native harness takes them)
         if f is not None:
             raise StageFailure(f)
         res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()
@@ -211,8 +213,10 @@ class WorkspaceHarness(NativeHarness):
                 side = episode_sidecar(self.sidecar, attempt)  # M17 checkpoint credit (opt-in; None = off, nothing changes)
                 ep = await run_episode(world, probed(policies, side, world), limits=self.limits, observers=[side] if side is not None else (),
                                        sample_key=attempt.id)
-                if side is not None:
-                    res.grade["progress"] = ep.observed[0]
+                if side is not None:  # M7 R7: a sidecar that raised leaves the episode graded, its progress unavailable
+                    from crucible.verify.progress import observed_progress
+
+                    res.grade["progress"] = observed_progress(ep.observed[0], attempt.dir / "progress.jsonl")
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
             save_episode(attempt, ep, res, self.id, policies)

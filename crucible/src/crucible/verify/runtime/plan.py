@@ -75,10 +75,15 @@ class Check:
     cost: str = "cheap"
 
 
+GATE_KINDS = ("gate", "outcome", "score")
+
+
 @dataclass
 class Gate:
     id: str
-    kind: str = "gate"  # "gate" | "outcome"
+    # "gate" (a rule the instruction states: a failure zeroes the reward and the attempt's per-turn credit), "outcome"
+    # (task success) or "score" (a graded bar). No default (M7 R6): a silent default was a silent credit decision (M6 R2)
+    kind: str
     description: str = ""
 
 
@@ -99,10 +104,16 @@ class GradeReport:
         return {g: int(s == "pass") for g, s in self.gates.items()}
 
     def gate_kinds(self) -> dict[str, str]:
-        """Per gate: ``"gate"`` (a hard rule) or the declared kind of an outcome or score check (``meta["kinds"]``). An
-        undeclared gate is a hard rule, as in ``reward_json``. Records carry this beside ``gate_bits()`` so per-turn credit
-        can tell a broken rule from an unmet outcome (M6 R2)."""
+        """Per gate: ``"gate"`` (a hard rule) or the declared kind of an outcome or score check (``meta["kinds"]``).
+        Records carry this beside ``gate_bits()`` so per-turn credit can tell a broken rule from an unmet outcome (M6 R2).
+
+        M7 R6: every gate of a graded report must be declared; an undeclared one raises, naming it, instead of being read
+        as a hard rule (which zeroed an honest outcome's per-turn credit). A masked report is never credited, so it returns
+        what it has, an undeclared gate read as a hard rule as before."""
         kinds = self.meta.get("kinds") or {}
+        missing = [g for g in self.gates if g not in kinds]
+        if missing and (self.infra or {}).get("status", "ok") == "ok":
+            raise ValueError(f"{self.task}: gates {missing} declare no kind (meta['kinds']: 'gate', 'outcome' or 'score')")
         return {g: str(kinds.get(g, "gate")) for g in self.gates}
 
     def failing_gates(self) -> list[str]:
@@ -151,6 +162,9 @@ class Plan:
         ids = [g.id for g in self.gates]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate gate ids")
+        bad = {g.id: g.kind for g in self.gates if g.kind not in GATE_KINDS}
+        if bad:
+            raise ValueError(f"gates with an unknown kind {bad}: each is one of {list(GATE_KINDS)}")
         cids = [c.id for c in self.checks]
         if len(set(cids)) != len(cids):
             raise ValueError("duplicate check ids")

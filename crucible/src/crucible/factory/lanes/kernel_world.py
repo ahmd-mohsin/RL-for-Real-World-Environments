@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.factory.lanes import kernel_plan as kp
+from crucible.verify.patchio import write_patch
 
 BASE_FROM = "nvidia/cuda:12.8.1-devel-ubuntu24.04"
 LEGACY_FROM = "nvidia/cuda:11.8.0-devel-ubuntu22.04"
@@ -264,7 +265,7 @@ class DockerBackend:
         kit = self.kit()
         with tempfile.TemporaryDirectory(prefix="ck-grade-") as td:
             t = Path(td)
-            (t / "patch").write_text(patch)
+            write_patch(t / "patch", patch)  # M7 R3: the patch's bytes (a collected patch may hold any)
             (t / "kspec.json").write_text(json.dumps(K.kspec(window, legacy_dir="/k/legacy")))
             out = t / "out"
             out.mkdir()
