@@ -1067,6 +1067,20 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
 - **First run (CPU, about 11 h):** 98 repositories scouted, 56 mined, 1,379 fix units, 571 real fixes, 44 interacting
   groups, 13 candidates through every CPU gate and S7 in Go, TypeScript, Python and Rust (3 held out); Java built, no
   candidate. Yield is limited by reverts that no longer apply, rare interactions and coarse table tests (`07` §5).
+- **Targeting, S15 (`07` §6, `scripts/lh_debug_target.py`; $201 on Tinker, 2026-10-20):** the target student
+  Qwen3.6-35B-A3B (k = 8) and the two frontier solvers (k = 2) in exactly the RL environment (`factory.tinker.benchmark`:
+  `make_env`, the task's World, the hidden verifier, thinking off, 150 tool calls), one hard Tinker cap for the phase
+  (`benchmark(meter=)`); every failing student episode gets the deterministic facts, the first wrong step, the
+  honest-trace checks (`traceaudit.honest_trace_facts`: STATUS over-claims, claimed-but-unrun tests, protected or hidden
+  paths), the GLM-5.3 auditor's and GLM-5.3-Flash judge's labels with seeded controls, and its intent skill
+  (`generators.debug.failure_skill`); the contract's keep rule is `targeting.keep_verdict` (training: pass rate in
+  [0.1, 0.6], >= 70% on-intent skill gap, a frontier pass; benchmark: < 0.3, same conditions; an open World issue sends
+  the task back). Builder-intent requests come from training tasks only. Result: no task kept: the 150-call budget binds
+  (67 of 104 student and 21 of 52 frontier episodes stop there, routed as `budget`; DeepSeek solves a "hard" task 2/2
+  at 300 calls), echo is too easy, h3 has an open World issue. Fixed on the way: two path-check false positives (heredoc
+  bodies, `go mod init`) with re-grading of stored episodes (`factory.tinker.regrade`), the node policy World
+  (`langs.runtime.policy_world`), concurrent-arm accounting, the benchmark policy id the family guard reads, the judges'
+  quote retry (`AuditConfig.quote_retries`), a `world_fault` fact for World tools that lack a command.
 
 ## 8. Layer 4: verification and isolation
 

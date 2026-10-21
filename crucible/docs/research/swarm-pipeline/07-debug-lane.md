@@ -147,3 +147,106 @@ in this run (mining and gating ran about 11 hours at a load of 15-20 on 14 CPUs;
 candidate). The levers, in order of yield per hour: more Go and TypeScript repositories of the mvdan/sh, go-toml,
 axios, black kind (formatters, parsers, protocol libraries with table-driven or snapshot tests); the fallback cutoff
 on the dense repositories; and two more gate workers on a quieter host.
+
+## 6. Targeting (S15) on Tinker (run of 2026-10-20, $201 of the $250 cap)
+
+Code: `scripts/lh_debug_target.py` (stages `pilot`, `student`, `frontier`, `regrade`, `worldfix`, `diag`, `audit`, `mine`,
+`report`, `summary`); framework pieces in `factory/tinker.py` (`benchmark(meter=)`, `regrade`, `policy_id`),
+`factory/targeting.py` (`KeepRule`, `keep_verdict`), `factory/traceaudit.py` (`honest_trace_facts`, `budget_binding`,
+`regrade_source`), `factory/generators/debug.py` (`failure_skill`), `factory/audit.py` (`quote_retries`),
+`factory/langs/{node,runtime}.py` (the policy World fix). Data: `data/targeting/debug/` (durable); summary committed as
+`runs/s15_debug_targeting.json`. W&B (`cruciblee`): project `crucible-factory`, run `factory-debug-s15-f62a27bf` (with
+the traces) and `factory-debug-s15-63051dee` (the tables after the held-out exclusion below); 156 episodes as Weave
+traces, 94 of them with their trace audit attached (https://wandb.ai/cruciblee/crucible-factory/weave).
+
+**Setup: the RL environment exactly.** `factory.tinker.benchmark`: `make_env` (`WorkspaceHarness` + `LLMToolPolicy`),
+the task's own Docker World (`--network none`, 2 CPU / 2 GB), the hidden verifier in a fresh grading container, the
+checkpoint-Φ sidecar (every 10 tool calls, cap 12). Student `Qwen/Qwen3.6-35B-A3B:peft:262144` (the only student; the
+256K variant because a 2-fault episode already reached 74K tokens of context), k = 8, temperature 1, `max_tokens` 4096
+(the factory's student default; 2048 truncated 3 of 169 replies in the pilot), **thinking off** (recorded), tool limit
+150, agent timeout 2700 s, rollout timeout 4500 s. Frontier: Qwen3.5-397B-A17B and DeepSeek-V4.1-Flash (both
+`:peft:262144`), 2 attempts each, same settings. One Tinker meter for the whole phase (`spend.jsonl`, cap 250). Judges:
+GLM-5.3 (`auditor`) and GLM-5.3-Flash (`judge`) from `models.DEFAULT_ROLES` (`ModelBook` refuses a same-family judge;
+the benchmark policy id now names the model, so `audit.audit` sees the student's family), the seeded control bank in
+every batch (every batch trusted: every control labelled right). Final cause: a deterministic fact first (a limit stop
+is `budget`), else the judge's trusted label cross-checked by the auditor's; a dispute, or a World or harness fact
+beside a skill label, never counts as an on-intent skill gap.
+
+**Pilot** (echo, 2 student + 1 frontier attempts, tool limit 100): student $0.42 per episode, 80-90 tool calls, 6-10
+min wall, of which about 330 s is model time (Tinker latency, not Docker, dominates); 397B $1.61 per episode; Docker load
+small (3 containers, 0.3 GiB; host load 15-17 from other work). It found the first verifier bug (below). Projected $101
+plus the audit.
+
+**Run.** 156 episodes (104 student, 52 frontier), plus 16 student episodes in the broken node World (kept as evidence,
+`arms/student-world0`) and 4 diagnostic episodes; up to 12 Worlds at once (mean 8, host load mean 16, peak 48 while the
+other agent's gate jobs ran). No episode timed out from load; 2 student episodes were masked (the runtime's
+answer-exposure guard on an absolute `/tests/...` path). From the meter's per-episode rows: student $0.79 per episode,
+397B $2.43, DeepSeek $1.07; wall per episode: student 20 min, 397B 11 min, DeepSeek 17 min.
+
+| task | lang | split | faults | student pass@1 (8) [95% CI] | mean Φ | frontier (397B; DS) | on-intent skill gap / labelled | dominant failure modes | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| go-echo-61eca05b | go | train | 2 | 7/8 = 0.88 [0.53, 0.98] | 0.94 | 2/2; 1/2 | 0/1 | - | too easy |
+| go-go-toml-a02114e3 | go | train | 4 | 0/8 [0, 0.32] | 0.25 | 0/2; 1/2 | 3/8 | budget 5, stalled 3 | too hard (simplify) |
+| go-mvdan-sh-02a801cd | go | train | 4 | 0/8 | 0.22 | 0/2; 0/2 | 0/8 | budget 7 | unfair at 150 calls |
+| go-mvdan-sh-04056a74 | go | train | 4 | 0/8 | 0.19 | 0/2; 0/2 | 0/8 | budget 8 | unfair at 150 calls |
+| go-mvdan-sh-5e983709 | go | train | 4 | 0/8 | 0.41 | 0/2; 0/2 | 0/8 | budget 6 | unfair at 150 calls |
+| go-mvdan-sh-dc951aeb | go | train | 4 | 0/8 | 0.34 | 0/2; 1/2 | 1/8 | budget 6 | too hard (simplify) |
+| go-urfave-cli-2b0adb14 | go | heldout | 3 | 0/8 | 0.63 | 0/2; 0/2 | 8/8 | stalled at the interacting fault 8 | unfair |
+| node-h3-a6cd4654 | node | heldout | 2 | 0/8 (fixed World) | 0.00 | 0/2; 1/2 | 6/8 | claimed done 3, never progressed 2 | World bug (open) |
+| node-unstorage-d7aee0b7 | node | heldout | 2 | 3/8 = 0.38 [0.14, 0.69] (fixed World; 0/8 before) | 0.75 | 2/2; 2/2 | 5/5 | stalled (regression) 3, claimed done 2 | out of the benchmark band |
+| python-black-90117fa0 | python | train | 3 | 0/8 | 0.21 | 0/2; 0/2 | 0/8 | budget 7 | unfair at 150 (DS 2/2 at 300) |
+| python-black-ae5830b7 | python | train | 4 | 0/7 | 0.29 | 0/2; 0/2 | 0/7 | budget 5 | unfair at 150 calls |
+| python-black-ec71b918 | python | train | 3 | 0/7 | 0.33 | 0/2; 0/2 | 1/7 | budget 5 | unfair at 150 calls |
+| rust-pulldown-cmark-e072a230 | rust | train | 4 | 0/8 | 0.16 | 0/2; 0/2 | 0/8 | budget 6 | unfair at 150 calls |
+
+**No task passes the keep rule** (0 training, 0 benchmark). The binding constraint is the environment's budget: 67 of
+104 student episodes and 21 of 52 frontier episodes stop at the 150-call limit. A limit stop is the `budget` cause by
+the factory's rule: routed to the limits owner, never counted as a skill gap; the keep rule used the env's budget as is.
+`traceaudit.budget_binding` reads the Φ series at the cap: in 40 of the 71 budget-stopped student failures Φ was still
+rising in the last 30% of the calls (the cap bound them), in 31 it was flat (stuck). **Diagnostic** (never a keep-rule
+input): DeepSeek-V4.1-Flash at a 300-call limit solved python-black-90117fa0 2/2 and reached Φ = 1 on mvdan-sh-02a801cd
+2/2 (both lost the full-completion credit for an edited test file), 187-202 calls per episode, $2.05 each. The hard Go,
+Python and Rust tasks need about twice the budget; at 150 calls they measure the budget, not the intended skills.
+
+**What the run found and fixed** (each with a regression test):
+1. *Path check false positive, heredoc bodies* (verifier; severity hack, so a score of 0): a Go reproduction written
+   through `cat > x.go << EOF` with `import "net/http"` was read as a run of the `http` client. Here-document bodies are
+   no longer commands unless a shell reads them (`pathcheck.strip_heredocs`). Both judges independently called the
+   pilot's zeroed correct episode a verifier defect.
+2. *Path check false positive, `go mod init`* (install gate): a scratch module for a reproduction installs nothing; only
+   `go mod download | tidy | vendor` count. The affected episodes were re-graded from their stored patch and trail
+   (`factory.tinker.regrade` over `Runner.regrade`; the trace readers take the trail from the source attempt).
+3. *Node policy World* (World bug): node:22 has no `python3`, so `repo.read_file` / `list_dir` failed in every episode,
+   and corepack's pnpm cache sat under the build's `HOME`, so `pnpm` tried to download itself offline. Fixed as a derived
+   policy World (`runtime.policy_world`, accepted on executed evidence: the reproduction fails in the pinned World and
+   passes in the fixed one, the file tools and a test file run, the leak probes pass; the grader keeps the pinned image;
+   `world_versions.jsonl`) and in the recipe (`node-4`). unstorage went from 0/8 to 3/8. Still open for h3: its own
+   `pnpm test` (pnpm 12 supply-chain checks) verifies the lockfile against the registry and hangs until the 600 s tool
+   timeout (8 of 8 episodes). The judges labelled those failures skill gaps, so it is recorded as an open World issue
+   (`world_issues.json`) and the task goes back to the World owner.
+4. *Accounting*: concurrent arms on one meter each reported the meter's delta (about 2.7x overcount); an arm now reports
+   its own sampler's spend, and per-episode dollars come from the meter rows inside each run's journal window.
+5. *Family guard*: the benchmark policy id `bench-<model>` read as family `bench`, so a Qwen judge on Qwen traces would
+   not have been refused; ids are now `solver:tinker:<model>@tinker`. A `:peft:262144` variant of the target is the
+   target (final numerics).
+6. *Judges' quotes*: GLM-5.3 and -Flash joined quote spans with `...`, so every label was rejected; a non-verbatim quote
+   is now asked again once with the rejection fed back (`AuditConfig.quote_retries`; the verbatim check is unchanged).
+7. *A World tool that lacks a command* is a `world_fault` fact (the judges missed the node one).
+
+**Honest-trace checks** (`traceaudit.honest_trace_facts`, student episodes): a STATUS.json over-claim (p >= 0.5 for a
+requirement whose hidden tests fail) in 21 episodes (8 of 8 on urfave-cli); a "tests pass / verified" final message with
+no test run after the last code edit in 3; a protected or hidden path in the final diff in 2. Also seen: `git log --all`
+by DeepSeek (path:history, scored 0), `go get` of the project itself by the student (path:network, scored 0), `pnpm
+install` attempts on node (install gate).
+
+**Failure mining.** 94 findings (`findings.jsonl`), 70 routed (57 budget, 2 infrastructure, the rest budget-capped
+variants), so few skill findings remain. Builder-intent requests come from **training tasks only** (a held-out task
+never informs what is built for training, V9): one request, `stalled` ("Carries a multi-step change through to its
+last dependent step"), 5 episodes over go-toml, mvdan-sh-dc951aeb and black-ec71b918 (skills: multi-fault localization
+3, interacting faults 2), status `awaiting_human`. The held-out traces show the same pattern (urfave-cli: m01 and m02
+fixed, the dependent m04 never) and claimed-done reports on node; they stay sealed.
+
+**Next, by owner.** Limits: re-measure the hard tasks at a 300-call limit (or with compaction) before any keep decision.
+World: h3's offline `pnpm`. S2: echo is too easy; go-toml and mvdan-sh-dc951aeb are frontier-solvable at 0 for the
+student (simplify(locate|prerequisites) candidates). unstorage would be a training-band task (0.38, 5/5 on-intent, fair)
+but is sealed held-out.

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -79,6 +80,8 @@ class FailureFinding:
     numerics: str = "final"
     phi_final: float | None = None
     stop: str | None = None
+    skill: str | None = None  # the task's intent skill the trace evidence points at (a lane's ``failure_skill``; None: not assigned)
+    honest: list[str] = field(default_factory=list)  # honest-trace fact kinds (``traceaudit.honest_trace_facts``)
 
     @property
     def routed(self) -> str | None:
@@ -209,6 +212,7 @@ class BuilderIntent:
     numerics: str  # dev when any finding came from a dev-only backend
     n: int
     status: str = "awaiting_human"
+    skills: dict[str, int] = field(default_factory=dict)  # the intent skills of the clustered findings (``FailureFinding.skill``)
 
     def intent_card(self, *, surface: str = "python-repo") -> dict[str, Any]:
         """The ``cards.IntentCard`` candidate (validated): a human approves it before it leases a cell (00 §8.3)."""
@@ -261,14 +265,16 @@ def builder_intents(findings: Sequence[FailureFinding], *, min_traces: int = 2, 
         files = sorted({x for f in fs for x in (f.first_wrong_step.get("files") or [])})
         steps = [f.first_wrong_step.get("position") for f in fs if f.first_wrong_step.get("position") is not None]
         at = f" (first wrong step at {min(steps):.0%}-{max(steps):.0%} of the episode)" if steps else ""
+        sk = dict(Counter(f.skill for f in fs if f.skill).most_common())
         fm = (f"{len(fs)} failing episode(s) over {len({f.task for f in fs})} task(s): {mode.replace('_', ' ')}{at}; "
-              f"milestones missed or lost: {', '.join(where[:8]) or 'none recorded'}")
+              f"milestones missed or lost: {', '.join(where[:8]) or 'none recorded'}"
+              + (f"; intent skills: {', '.join(f'{k} x{v}' for k, v in sk.items())}" if sk else ""))
         slug = re.sub(r"[^a-z0-9]+", "-", student.rsplit("/", 1)[-1].lower()).strip("-") or "student"
         out.append(BuilderIntent(id=f"{prefix}-{slug}-{mode.replace('_', '-')}-{sha([f.id for f in fs])[:8]}", student=student, mode=mode,
                                  behaviour=behaviour, failure_mode=fm,
                                  difficulty_axes=list(axes), evidence=[f.id for f in fs], traces=[f.trace for f in fs], tasks=sorted({f.task for f in fs}),
                                  quotes=quotes[:10], milestones=where, files=files[:20], families=sorted({f.family for f in fs if f.family}),
-                                 numerics="dev" if any(f.numerics == "dev" for f in fs) else "final", n=len(fs)))
+                                 numerics="dev" if any(f.numerics == "dev" for f in fs) else "final", n=len(fs), skills=sk))
     return out, routed
 
 

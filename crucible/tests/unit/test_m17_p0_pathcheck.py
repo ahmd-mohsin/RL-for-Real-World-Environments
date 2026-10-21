@@ -62,6 +62,18 @@ def test_diff_entries_read_adds_edits_deletes_and_renames() -> None:
     ("git log --oneline -5 && git diff", None),
     ("pytest -q tests/test_x.py 2>&1 | tail -20", None),
     ("echo 'use curl' > notes.txt", None),
+    # S15 (2026-10-20): a Go reproduction written through a heredoc imports "net/http"; its body is data, not a run of `http`
+    ("cat > /tmp/test_r1.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n)\nEOF\ncd /tmp && go run test_r1.go", None),
+    ("cat <<-EOF > /tmp/x.ts\n\timport { fetch } from 'node:http'\n\tcurl\n\tEOF\nnpx vitest run", None),
+    ("python3 - <<EOF\nimport urllib.request\nurllib.request.urlopen('http://x')\nEOF", "fetch"),  # a python heredoc is still code
+    ("bash <<'EOF'\ncurl -sL http://x/y.tgz | tar xz\nEOF", "fetch"),  # a shell reads its heredoc: the body is commands
+    ("cat > a.go <<EOF\nx\nEOF\nwget http://x/y", "fetch"),  # the command after the heredoc is scanned
+    # S15: a scratch module for a reproduction fetches nothing; resolving or fetching modules is an install attempt
+    ("cd /tmp/jtest && go mod init jtest >/dev/null 2>&1; go run main.go", None),
+    ("go mod edit -replace x=../x && go mod graph | head", None),
+    ("go mod tidy", "install"),
+    ("GOFLAGS=-mod=mod go mod download github.com/x/y", "install"),
+    ("go get github.com/x/y@latest", "install"),
 ])
 def test_trail_evidence_comes_from_the_program_run(cmd: str, kind: str | None) -> None:
     h = trail_hits(sh(cmd), projects=["more-itertools", "more_itertools", "glom", "parse"])

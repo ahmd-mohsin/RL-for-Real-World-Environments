@@ -201,7 +201,14 @@ def metrics(episodes: Sequence[Any], *, k: int, usd_total: float) -> dict[str, A
     return base
 
 
-PURPOSES = ("selection", "baseline", "control", "trained", "smoke")
+def policy_id(model: str, checkpoint: str | None = None) -> str:
+    """A benchmark arm's policy id: ``solver:tinker:<model>@tinker`` (base) or ``...@tinker-adapter`` (sampler weights).
+    ``audit.policy_model`` / ``factory.student.student_model_of`` read the model back, so the family rule and the
+    dev-numerics check see it."""
+    return f"solver:tinker:{model}@tinker{'-adapter' if checkpoint else ''}"
+
+
+PURPOSES = ("selection", "baseline", "control", "trained", "smoke", "fairness")  # fairness: S15's frontier solvers (a strong solver passes)
 
 
 def arm_settings(*, model: str, k: int, temperature: float, max_tokens: int, enable_thinking: bool, tool_limit: int | None, timeouts: Timeouts | None,
@@ -217,12 +224,18 @@ def arm_settings(*, model: str, k: int, temperature: float, max_tokens: int, ena
 async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Path, cap_usd: float, checkpoint: str | None = None, backend: Any = None,
                     codec: Any = None, temperature: float = 1.0, max_tokens: int = 1024, enable_thinking: bool = False, phi_checkpoint: Any = None,
                     tool_limit: int | None = None, timeouts: Timeouts | None = None, concurrency: int = 4, system: str | None = None,
-                    seed: int = 0, purpose: str = "baseline", observe: Any = None, meta: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+                    seed: int = 0, purpose: str = "baseline", observe: Any = None, meta: Mapping[str, Mapping[str, Any]] | None = None,
+                    meter: Any = None) -> dict[str, Any]:
     """``k`` attempts per task of ``model`` (``checkpoint``: sampler weights, None = the base model). ``seed`` is the run's
     seed (attempt seeds derive from it; a fresh baseline uses a seed the selection run did not); ``purpose`` labels the
-    arm in the benchmark protocol (``check_protocol``). The report records the arm's settings (``arm_settings``)."""
+    arm in the benchmark protocol (``check_protocol``). The report records the arm's settings (``arm_settings``).
+    ``meter``: a ``SpendMeter`` shared with other arms (one hard cap over a whole phase, e.g. S15 targeting's student and
+    frontier arms); None = this arm's own meter at ``cap_usd`` (``run_dir/spend.jsonl``). ``usd_total`` is then this arm's
+    own spend (its sampler's bookings: arms running concurrently on one meter never count each other's calls);
+    per-episode USD comes from the meter's episode attribution either way."""
     from crucible.bench.lh_metrics import LHEpisode
     from crucible.core.schema.rollout import RolloutRecord
+    from crucible.factory.traceaudit import regrade_source
     from crucible.runtime.infra import RetryRule
     from crucible.runtime.run import Runner
     from crucible.train.bridges.tinker.sampler import TinkerSampler
@@ -232,7 +245,8 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
         raise ValueError(f"purpose is one of {PURPOSES}")
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
-    meter = SpendMeter(cap_usd, path=run_dir / "spend.jsonl")
+    shared = meter is not None
+    meter = meter if shared else SpendMeter(cap_usd, path=run_dir / "spend.jsonl")
     sampler = await TinkerSampler(_backend(backend), model, meter=meter, codec=_codec(model, enable_thinking, codec), path=checkpoint).start()
     llm = sampler.llm()
     episodes, rows = [], []
@@ -240,32 +254,42 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
     for t in tasks:
         env = make_env(t, checkpoint=phi_checkpoint, tool_limit=tool_limit, timeouts=timeouts)
         harness = getattr(env.harness, "id", type(env.harness).__name__)
-        pol = sampler.policy_ref(pid=f"bench-{sampler.model.name.replace('/', '_').replace(':', '_')}", temperature=temperature, max_tokens=max_tokens,
+        # the factory's policy-id form (``solver:<provider>:<model>@<backend>``): the trace audit reads the model and its family
+        # from it (``audit.policy_model``), so a same-family auditor is refused; ``bench-<model>`` read as family "bench"
+        pol = sampler.policy_ref(pid=policy_id(sampler.model.name, checkpoint), temperature=temperature, max_tokens=max_tokens,
                                  system=system, llm=llm, **env.policy_kwargs())
         rid = f"bench-{purpose}-s{seed}-{t.task_id}"
         spec = env.run_spec(run_id=rid, policies=[pol], k=k, concurrency=concurrency, retry=RetryRule(max_attempts=2), breaker=None, run_seed=seed,
                             sampling={"temperature": temperature, "max_tokens": max_tokens})
         await Runner(run_dir / "rollouts").run(spec)
         for adir in sorted((run_dir / "rollouts" / rid / "samples").glob("*/a*")):
-            if not (adir / "rollout.json").exists():
+            src = regrade_source(adir)  # a re-graded attempt (``regrade``): its own grade, the agent attempt's rollout
+            if not (src / "rollout.json").exists():
                 continue
             if adir.name[1:].isdigit() and (adir.parent / f"a{int(adir.name[1:]) + 1}").exists():
-                continue  # a retried attempt: the later one counts
-            ro = RolloutRecord.model_validate_json((adir / "rollout.json").read_text())
+                continue  # a retried or re-graded attempt: the later one counts
+            ro = RolloutRecord.model_validate_json((src / "rollout.json").read_text())
+            if src != adir:
+                rec = json.loads((adir / "record.json").read_text())
+                ro.reward, ro.mask_sample = rec.get("reward"), bool(rec.get("mask_sample"))
             spend = sampler.per_episode.get(ro.rollout_id) or sampler.per_episode.get(adir.parent.name)
             masked = ro.mask_sample or ro.reward is None
             ep = LHEpisode.from_progress(str(t.task_id), ro.progress or {}, passed=not masked and float(ro.reward) >= 1.0 - 1e-9, masked=masked,
                                          hack=_hack(ro), tokens=sum(len(x.completion_token_ids or []) for x in ro.turns),
                                          cost_usd=spend.usd if spend else 0.0)
             episodes.append(ep)
-            rows.append({"task": str(t.task_id), "rollout": ro.rollout_id, "reward": ro.reward, "masked": masked, "passed": ep.passed,
-                         "final_phi": ep.final_phi, "usd": round(ep.cost_usd, 6), "failure": ro.failure_kind, "turns": len(ro.turns), "stop": ro.stop})
+            rec_meta = (json.loads((adir / "record.json").read_text()).get("meta") or {}) if (adir / "record.json").exists() else {}
+            rep_meta = (json.loads((adir / "verifier" / "report.json").read_text()).get("meta") or {}) if (adir / "verifier" / "report.json").exists() else {}
+            rows.append({"task": str(t.task_id), "rollout": ro.rollout_id, "attempt": f"{adir.parent.name}/{adir.name}", "reward": ro.reward, "masked": masked,
+                         "passed": ep.passed, "final_phi": ep.final_phi, "milestones": rep_meta.get("milestones"), "gates": rec_meta.get("gates"),
+                         "regraded_from": src.name if src != adir else None, "usd": round(ep.cost_usd, 6), "failure": ro.failure_kind,
+                         "turns": len(ro.turns), "stop": ro.stop})
     settings = arm_settings(model=sampler.model.name, k=k, temperature=temperature, max_tokens=max_tokens, enable_thinking=enable_thinking,
                             tool_limit=tool_limit, timeouts=timeouts, system=system, harness=harness, context=sampler.model.context,
                             codec=(sampler.settings().get("codec") if isinstance(sampler.settings().get("codec"), dict) else None))
     out = {"model": sampler.model.name, "checkpoint": checkpoint, "purpose": purpose, "seed": seed, "k": k, "temperature": temperature,
            "enable_thinking": enable_thinking, "tasks": [str(t.task_id) for t in tasks], "settings": settings,
-           "metrics": metrics(episodes, k=k, usd_total=meter.spent), "spend": meter.summary(), "codec": sampler.settings()}
+           "metrics": metrics(episodes, k=k, usd_total=sampler.usd if shared else meter.spent), "spend": meter.summary(), "codec": sampler.settings()}
     (run_dir / "episodes.jsonl").write_text("".join(json.dumps(r, sort_keys=True, default=str) + "\n" for r in rows))
     (run_dir / "metrics.json").write_text(json.dumps(out, indent=1, sort_keys=True, default=str))
     if (ocfg := _observe_cfg(observe)) is not None:
@@ -273,6 +297,36 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
 
         out["observe"] = log_benchmark(out, run_dir, task_meta=meta or task_meta(tasks), cfg=ocfg)
     out["episodes"] = episodes  # LHEpisode objects for ``compare`` (not in metrics.json; episodes.jsonl has the rows)
+    return out
+
+
+async def regrade(tasks: Sequence[Any], *, model: str, k: int, run_dir: Path, select: Any, checkpoint: str | None = None, codec: Any = None,
+                  temperature: float = 1.0, max_tokens: int = 1024, enable_thinking: bool = False, phi_checkpoint: Any = None, tool_limit: int | None = None,
+                  timeouts: Timeouts | None = None, concurrency: int = 4, system: str | None = None, seed: int = 0, purpose: str = "baseline",
+                  max_regrades: int = 2) -> dict[str, Any]:
+    """Re-grade a ``benchmark`` arm's stored episodes after a verifier or path-check fix (``Runner.regrade``: the stored
+    patch and the agent's own trail, no agent and no model call). The run spec is rebuilt exactly as ``benchmark`` built
+    it (same policy id and config, harness, k, seed, sampling), so the Runner accepts it as the same run; ``select(record)``
+    picks the samples (``RunRecord``: e.g. a failed ``path:*`` gate). The newest terminal row of a sample wins; the agent's
+    attempt keeps its trail (``traceaudit.load_bundle`` and ``observe.traces`` read a re-graded attempt's trail from its
+    source). Returns ``{task: RunSummary as a dict}``."""
+    from crucible.runtime.infra import RetryRule
+    from crucible.runtime.run import Runner
+    from crucible.train.bridges.tinker.sampler import TinkerSampler
+    from crucible.train.bridges.tinker.spend import SpendMeter
+
+    sampler = TinkerSampler(None, model, meter=SpendMeter(0.0), codec=_codec(model, enable_thinking, codec), path=checkpoint)  # never started
+    llm = sampler.llm()
+    out: dict[str, Any] = {}
+    for t in tasks:
+        env = make_env(t, checkpoint=phi_checkpoint, tool_limit=tool_limit, timeouts=timeouts)
+        pol = sampler.policy_ref(pid=policy_id(sampler.model.name, checkpoint), temperature=temperature, max_tokens=max_tokens, system=system, llm=llm,
+                                 **env.policy_kwargs())
+        rid = f"bench-{purpose}-s{seed}-{t.task_id}"
+        spec = env.run_spec(run_id=rid, policies=[pol], k=k, concurrency=concurrency, retry=RetryRule(max_attempts=2), breaker=None, run_seed=seed,
+                            sampling={"temperature": temperature, "max_tokens": max_tokens})
+        s = await Runner(Path(run_dir) / "rollouts").regrade(spec, select=select, max_regrades=max_regrades)
+        out[str(t.task_id)] = {"regraded": s.attempts, "terminal": s.terminal, "pass_at_1": s.pass_at_1, "mean_reward": s.mean_reward}
     return out
 
 
