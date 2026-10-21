@@ -24,10 +24,17 @@ passes ``uid`` and ``session_id`` to ``run``):
   ``extra_fields["crucible_credit_fallback"]`` is ``"no_turn_credit"`` (``"timeout"`` after the rendezvous timed out;
   ``"legacy_worker"`` on ``use_v1: false``, which trains the scalar reward only), with one warning per process (M6 R3; a
   raise here would mask every sample of the step instead);
-- the record becomes one ``AgentLoopOutput`` per (actor, segment) sequence (``bridges.common.flatten``); a masked or
-  token-incomplete rollout becomes one placeholder row with no trainable token (``response_mask=[0]``): verl keeps the
-  session (no failure status, so the uid group is not evicted, ``agent_loop_tq.py:131-150``) and ``crucible_delta`` leaves
-  it out of the group mean. The legacy worker (no ``session_id``) gets the final sequence only.
+- the record becomes one ``AgentLoopOutput`` per (actor, segment) sequence (``bridges.common.flatten``). A masked or
+  token-incomplete session never fails (a failure status evicts the whole uid group, ``agent_loop_tq.py:131-150``); how it
+  reaches verl depends on the trainer and the estimator (``adapters.verl_mask_route``, checked when verl builds the loop
+  for a sample, so the first rollout of a refused configuration fails; M11 lab audit R-1): under ``crucible_delta`` it is
+  one placeholder row with no trainable token (``response_mask=[0]``, reward 0.0), which ``crucible_delta`` leaves out of
+  the group mean (verl's reported score mean still counts its 0.0); under any other estimator on v1 it is ``[]`` (v1 skips
+  it, so the 0.0 never joins a stock group mean); the legacy worker is refused unless the estimator is ``crucible_delta``,
+  also when an entrypoint runs it under ``use_v1: true``. Every row's ``min/max_global_steps`` is an int on v1
+  (``adapters.stamp_verl_steps``): v1's metrics step converts them with ``dtype=int`` after the actor update
+  (``trainer_base.py:1901-1902``), so a None lost the step. Every row records the route in
+  ``extra_fields["crucible_mask_route"]``. The legacy worker (no ``session_id``) gets the final sequence only.
 
 Truncated sampling is refused: with ``rollout.top_p < 1`` or ``top_k > 0`` verl returns no candidate sets, and Crucible's
 trainer-side checks (``Turn.candidates_valid``) need them.
@@ -47,7 +54,7 @@ from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutp
 
 from crucible.core import env as knobs
 from crucible.core.schema.rollout import RolloutRecord, full_prompts
-from crucible.train.bridges.adapters import verl_agent_loop_output
+from crucible.train.bridges.adapters import VERL_ESTIMATOR, cfg_get, stamp_verl_steps, verl_agent_loop_output, verl_mask_route
 from crucible.train.bridges.common import flatten, untrainable
 from crucible.train.bridges.verl_bridge import token_rewards
 from crucible.train.engine import GenResult
@@ -147,6 +154,8 @@ class CrucibleAgentLoop(AgentLoopBase):
         if top_p < 1.0 or (top_k is not None and int(top_k) > 0):
             raise ValueError(f"crucible_agent: rollout.top_p={top_p}, top_k={top_k}: truncated sampling needs per-token candidate sets, "
                              "which verl's TokenOutput does not return; train with top_p=1, top_k=-1")
+        # M11 lab audit R-1: raises for the legacy trainer under a stock estimator, and for v1_drop with filter_groups
+        self.mask_route = verl_mask_route(self.config)
 
     def _rollout(self) -> Callable:
         key = self.rollout_spec
@@ -183,21 +192,31 @@ class CrucibleAgentLoop(AgentLoopBase):
                 return v
         return 0
 
-    def placeholder(self, records: list[RolloutRecord], why: str) -> CrucibleAgentLoopOutput:
+    def placeholder(self, records: list[RolloutRecord], why: str, *, route: str, global_steps: Any = None) -> CrucibleAgentLoopOutput:
+        """One row with no trainable token for a masked session (only under ``crucible_delta``: ``verl_mask_route``). Its step
+        tags are the trainer's current step (``global_steps``), never None on v1 (``adapters.stamp_verl_steps``)."""
         prompt: list[int] = []
         for r in records:
             if r.turns:
                 prompt = full_prompts(r).get(r.turns[0].call_id) or []
                 break
         pad = self._pad()
+        extra = {"min_global_steps": None, "max_global_steps": None, "reward_extra_info": {}, "turn_scores": [], "tool_rewards": [],
+                 "crucible_masked": why, "crucible_mask_route": route}
+        stamp_verl_steps([extra], global_steps)
         return CrucibleAgentLoopOutput(prompt_ids=prompt or [pad], response_ids=[pad], response_mask=[0], response_logprobs=[0.0],
-                                       reward_score=0.0, num_turns=0, metrics={}, crucible_token_rewards=[0.0],
-                                       extra_fields={"min_global_steps": None, "max_global_steps": None, "reward_extra_info": {},
-                                                     "turn_scores": [], "tool_rewards": [], "crucible_masked": why})
+                                       reward_score=0.0, num_turns=0, metrics={}, crucible_token_rewards=[0.0], extra_fields=extra)
 
     async def run(self, sampling_params: dict[str, Any], **kwargs: Any) -> AgentLoopOutput | list[AgentLoopOutput]:
         uid = str(kwargs.get("uid", uuid4().hex))
         v1 = "session_id" in kwargs
+        steps = kwargs.get("global_steps")  # v1 passes the batch's step to every session (agent_loop_tq.py:86-130,217)
+        if not v1 and self.mask_route == "v1_drop":
+            # the legacy worker under use_v1: true (one_step_off_policy runs it so): it has no skip channel, so a masked session
+            # would reach the stock estimator's group mean as a placeholder's 0.0 (M11 lab audit R-1)
+            raise ValueError(f"crucible_agent: verl's legacy agent-loop worker with algorithm.adv_estimator="
+                             f"{_get(_get(self.config, 'algorithm'), 'adv_estimator')!r}: a masked session cannot be skipped there; "
+                             f"use algorithm.adv_estimator={VERL_ESTIMATOR}")
         session = int(kwargs.get("session_id", 0))
         rid = f"verl:{uid}:{session}:{uuid4().hex[:8]}"
         why = "masked"
@@ -233,20 +252,20 @@ class CrucibleAgentLoop(AgentLoopBase):
         if not v1 and outs:
             plen = int(_get(self.rollout_config, "prompt_length", 0) or 0)
             if plen and len(outs[-1].prompt_ids) > plen:  # the legacy worker pads prompts to prompt_length (agent_loop.py:774-779)
-                return self.placeholder(records, f"prompt of {len(outs[-1].prompt_ids)} tokens > rollout.prompt_length {plen}")
+                return self.placeholder(records, f"prompt of {len(outs[-1].prompt_ids)} tokens > rollout.prompt_length {plen}",
+                                        route="legacy_placeholder", global_steps=steps)
             return outs[-1]
         if not outs:
-            outs = [self.placeholder(records, why)]
+            if self.mask_route == "v1_drop":  # v1 only (a legacy call refused above): a stock estimator would count a placeholder's 0.0
+                _warn_once("v1_drop", "crucible_agent: masked sessions send no row to verl (algorithm.adv_estimator is not %s): "
+                           "they are out of the group mean and of verl's reported means; first: %s: %s", VERL_ESTIMATOR, rid, why)
+                logger.info("crucible_agent %s: %s; no row (route v1_drop)", rid, why)
+                return []
+            outs = [self.placeholder(records, why, route="v1_placeholder" if v1 else "legacy_placeholder", global_steps=steps)]
+        for o in outs:
+            o.extra_fields.setdefault("crucible_mask_route", self.mask_route if v1 else "legacy_placeholder")
+        stamp_verl_steps([o.extra_fields for o in outs], steps)  # frozen-actor sequences: no sampled token, no version
         return outs if v1 else outs[-1]
 
 
-def _get(cfg: Any, key: str, default: Any = None) -> Any:
-    if isinstance(cfg, dict):
-        return cfg.get(key, default)
-    getter = getattr(cfg, "get", None)
-    if callable(getter):
-        try:
-            return getter(key, default)
-        except Exception:  # noqa: BLE001, S110 - a structured config without the key: fall back to the attribute
-            pass
-    return getattr(cfg, key, default)
+_get = cfg_get

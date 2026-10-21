@@ -25,6 +25,7 @@ import logging
 import shutil
 import tempfile
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -231,6 +232,11 @@ class World:
         self.responders: dict[str, Responder] = {}
         self.inboxes: dict[str, list[Inbound]] = {a.id: [] for a in spec.actors}
         self.done: set[str] = set()
+        # the pre-grade cut (M11 lab audit R-2, ``cut_policy``): the actors cut, the ones the cut itself made done, and every
+        # step one of them tried after it (refused, a ``late_call`` trace event)
+        self._cut: set[str] = set()
+        self._cut_added: set[str] = set()
+        self.late_calls: list[dict[str, Any]] = []
         self.tool_counts: dict[str, int] = {}  # LimitsSpec.tool_quota pattern -> calls used this episode
         self.step_index = 0
         self.log: list[TraceEvent] = []
@@ -651,6 +657,8 @@ class World:
         texts = instruction if isinstance(instruction, dict) else {a.id: instruction for a in self.spec.policy_actors}
         for a in self.spec.policy_actors:
             self.done.discard(a.id)
+        self._cut.clear()  # a new task step is the policy's again (M11 lab audit R-2)
+        self._cut_added.clear()
         self.instructions.update(texts)
         self._log("state", None, "task_step", data={"name": name, "index": index})
         return {a.id: self._observe(a.id, [], first=True) for a in self.spec.policy_actors}
@@ -694,6 +702,10 @@ class World:
         if spec.kind != "policy":
             raise WorldError(f"{actor!r} is not a policy actor")
         if actor in self.done:
+            if actor in self._cut:  # M11 lab audit R-2: a policy call after the pre-grade cut, refused and recorded
+                what = action.function_name if isinstance(action, ToolCall) else type(action).__name__.lower()
+                self.late_call(actor, what)
+                raise WorldError(f"{actor!r} was cut before grading: late call {what!r} refused")
             raise WorldError(f"{actor!r} already declared done")
         self.step_index += 1
         results: list[ToolResult] = []
@@ -988,6 +1000,37 @@ class World:
         return evs[:upto] if upto is not None else evs
 
     # ------------------------------------------------------------------ state
+    async def cut_policy(self, actors: Iterable[str] | None = None) -> list[str]:
+        """The pre-grade cut (M11 lab audit R-2): ``actors`` (default: every policy actor) are done from here, so ``step``
+        refuses them, and each refused call is recorded in ``late_calls`` (a ``late_call`` trace event, never replayed).
+        Taken under the step lock, so a step already in flight ends before the grade reads state. ``lift_cut`` reopens the
+        World for another episode. An outside agent (an A2A harness, an agentenv run) has no turn loop that stops at the
+        episode's end: without the cut it kept calling tools during its grade (grading takes no step lock)."""
+        async with self._step_lock:
+            ids = list(actors) if actors is not None else [a.id for a in self.spec.policy_actors]
+            self._cut_added.update(a for a in ids if a not in self.done)
+            self.done.update(ids)
+            self._cut.update(ids)
+            self._log("state", None, "policy_cut", data={"actors": ids})
+        return ids
+
+    def lift_cut(self) -> None:
+        """Undo ``cut_policy`` for a World that serves another episode: an actor that declared done itself stays done."""
+        self.done.difference_update(self._cut_added)
+        self._cut.clear()
+        self._cut_added.clear()
+
+    @property
+    def cut(self) -> frozenset[str]:
+        """The actors ``cut_policy`` cut (empty when no cut is in force)."""
+        return frozenset(self._cut)
+
+    def late_call(self, actor: str, what: str) -> None:
+        """Record a policy call refused after the cut (``late_calls`` and a ``late_call`` trace event)."""
+        late = {"actor": actor, "action": what, "at": self._now()}
+        self.late_calls.append(late)
+        self._log("state", actor, "late_call", data=late)
+
     async def quiesce(self) -> dict | None:
         """Verification boundary: stop every process the policy left behind (no-op without isolation)."""
         rep = await self.backend.quiesce()
@@ -1062,6 +1105,8 @@ class World:
         for a, msgs in ref.inboxes.items():
             self.inboxes[a] = [Inbound.model_validate(m) for m in msgs]
         self.done = set(ref.done)
+        self._cut.clear()  # a restored state is another episode's: the cut and its late calls were this one's
+        self._cut_added.clear()
         self.tool_counts = dict(ref.tool_counts)
         for a, st in ref.actors.items():
             if a in self.responders:

@@ -49,6 +49,12 @@ M10 lab audit R-4: the harness id is ``name@version#<12 hex>`` over what produce
 prices and the grading policy stay out of the id. ``identity_config()`` is the document a resume compares: it holds ``agent_url``
 too (a remote agent is what the run measures: another one is refused unless the drift is accepted); the grading budgets are operational.
 
+M11 lab audit R-2: before the grade, the pre-grade cut (``agentenv.cut``): right after the agent's terminal reply is read,
+every policy actor is done in the World (a later tool call through the proxy is refused and recorded as a ``late_call``),
+the World is quiesced, and the A2A task is cancelled in every terminal state (``timeout`` and ``unreachable`` were already
+cancelled). ``quiesce.json`` records it with the late calls, which also raise the non-scoring flag ``policy_late_call``.
+The agent kept its tools until the World closed, so a hung agent could change the state it was graded on.
+
 Grading is the task's own (``task.grade(world, dir)``), graded in place exactly as for the native harness (M10 lab audit
 R-3): a failed grade is graded again inside the attempt before the World closes (``runtime.grading.grade_in_place``),
 the attempt then ends terminal-masked (never an agent re-run), and a repeated answer-sensitive failure (a hang, a checker
@@ -74,6 +80,7 @@ import httpx
 
 from crucible.core.schema.run import Failure
 from crucible.core.schema.usage import Usage, finish_fields
+from crucible.interop.agentenv.cut import late_call_flag, pre_grade_cut, receipt, survived_flag
 from crucible.runtime.agent_evidence import (
     DRAIN_S,
     PROXY_APIS,
@@ -89,7 +96,7 @@ from crucible.runtime.grading import grade_in_place, grade_summary, grading_wind
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.harness.native import LIMIT_STOPS, _keep_tries
 from crucible.runtime.identity import factory_ref, harness_digest
-from crucible.runtime.infra import LimitPolicy, StageFailure, boundary
+from crucible.runtime.infra import LimitPolicy, StageFailure, boundary, failure
 
 FAILED_STATES = {"failed", "canceled", "rejected"}  # the agent's own failure reports (``_outcome`` classifies each by evidence)
 PROTOCOL = "agent_env.a2a_agent.protocol"
@@ -253,6 +260,17 @@ class A2AHarness:
         status = task.get("status") or {}
         return task_id, str(status.get("state") or ""), proto.TerminalResponse.from_message(status.get("message") or {}), None
 
+    @staticmethod
+    async def _cancel(url: str, task_id: str) -> bool:
+        """Ask the agent to cancel its task (M11 lab audit R-2: every terminal state, best effort; a finished task's cancel
+        is refused by the agent, which is fine). True when the request was sent: agentenv's helper swallows the agent's
+        answer (``protocol.py:207-212``), so it is not proof that the agent stopped."""
+        try:
+            await _protocol().cancel_a2a_task(url, task_id)
+            return True
+        except Exception:  # noqa: BLE001 -- the agent may already be gone
+            return False
+
     def _liveness_supported(self) -> bool:
         """Whether the installed agentenv can tell a dead agent from a slow one (recorded on every attempt)."""
         try:
@@ -301,6 +319,8 @@ class A2AHarness:
         t: dict[str, float] = {}
         res = HarnessResult()
         world = served = key = None
+        cut: dict[str, Any] | None = None  # the pre-grade cut (M11 lab audit R-2) and the World it cut
+        cut_world: Any = None
         path: Path | None = None  # the session's capture log, known before its key exists (spend settles on every exit)
         end: AgentEnd | None = None
         try:
@@ -354,6 +374,19 @@ class A2AHarness:
                     # its work was graded. The outer finally's unregister stays (idempotent)
                     if self.capture is not None and key is not None:
                         self.capture.unregister(key)
+                # M11 lab audit R-2: the cut, before the trajectory fetch and the capture drain give a surviving agent time
+                # to act: every policy actor (an outside call steps as the default actor), then quiesce, then cancel
+                cut_world = world
+                cut = await pre_grade_cut(world)
+                cut["a2a_state"] = state
+                if state not in ("timeout", "unreachable"):  # _ask (or agentenv's poll) cancelled those already
+                    cut["a2a_cancel_sent"] = await self._cancel(url, task_id)
+                if cut["survived"]:  # the policy's processes resisted the kill: scored, flagged (agentenv.cut)
+                    res.flags.append(survived_flag(cut))
+                    raise StageFailure(failure("crucible:policy_misbehavior", "agent", f"policy processes survived the pre-grade quiesce: "
+                                                                                       f"{cut['quiesce_error']}", mask=False, blame="policy"))
+                if cut["quiesce_error"]:
+                    raise cut["exception"]  # the boundary classifies a quiesce that could not run
                 res.artifacts["a2a_reply"] = "a2a_reply.txt"
                 # scrubbed like the native harness's records (H2 V14: a provider-echoed key reached these files)
                 (attempt.dir / "a2a_reply.txt").write_text(scrub_secrets(term.response_text or "") if term is not None else "")
@@ -444,6 +477,16 @@ class A2AHarness:
         finally:
             if self.capture is not None and key is not None:
                 self.capture.unregister(key)
+            if cut is not None:
+                try:  # after the grade: the late calls it saw are in the receipt (M11 lab audit R-2)
+                    doc = receipt(cut_world, cut, attempt.dir / "quiesce.json")
+                    res.artifacts["quiesce"] = "quiesce.json"
+                    res.grade["quiesce"] = {k: doc[k] for k in ("actor_done", "quiesced", "a2a_state", "gateway")} | {"late_calls": len(doc["late_calls"])}
+                    flag = late_call_flag(doc)
+                    if flag is not None:
+                        res.flags.append(flag)
+                except Exception:  # noqa: BLE001, S110 -- the receipt never overrides a result
+                    pass
             if path is not None:
                 try:
                     self._settle_spend(res, path)

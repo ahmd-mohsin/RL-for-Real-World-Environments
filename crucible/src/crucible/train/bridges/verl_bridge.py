@@ -44,9 +44,10 @@ from typing import Any
 
 import torch
 
+from crucible.train.bridges.adapters import VERL_ESTIMATOR, cfg_get
 from crucible.train.bridges.common import TrainSeq
 
-ESTIMATOR = "crucible_delta"
+ESTIMATOR = VERL_ESTIMATOR
 AGENT_LOOP = "crucible_agent"
 
 
@@ -68,18 +69,7 @@ def token_rewards(s: TrainSeq, *, turn_credit: dict[str, float] | None = None, l
     return r
 
 
-def _cfg_get(config: Any, key: str, default: Any = None) -> Any:
-    if config is None:
-        return default
-    if isinstance(config, dict):
-        return config.get(key, default)
-    getter = getattr(config, "get", None)
-    if callable(getter):
-        try:
-            return getter(key, default)
-        except Exception:  # noqa: BLE001, S110 - a dataclass config without the key
-            pass
-    return getattr(config, key, default)
+_cfg_get = cfg_get
 
 
 def crucible_delta(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: Any = None, config: Any = None, **_: Any):
