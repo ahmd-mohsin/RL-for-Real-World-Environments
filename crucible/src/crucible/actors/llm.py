@@ -173,6 +173,7 @@ class Spend:
     uncertain_usd: float = 0.0  # calls whose cost could not be read (blank usage in tolerant mode): an upper-bound estimate
     blank_usage_calls: int = 0
     unpriced_calls: int = 0  # calls booked at the fallback price (no provider cost, no configured price)
+    budget_waits: int = 0  # calls that waited for money held by calls in flight before they could start (M2 R-2)
 
 
 UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a hosted model with no price anywhere
@@ -262,7 +263,10 @@ class LLMClient:
         self.policy_version: int | str | None = self.provider.policy_version
         self.spend = Spend()
         self._reserved = 0.0  # USD held by calls in flight (the hard budget counts them: see ``_reserve``)
+        self._holds = 0  # calls in flight holding money: a call waits on them only while there are some
         self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
+        self._overrun = 1.0  # the largest cost / priced worst case seen: holds scale by it (a stale price, a long prompt)
+        self._settled = asyncio.Event()  # set (and replaced) whenever a call releases its hold: calls waiting on money wake
         self._client = None
         self.window_tokens: int | None = None  # the model's context window once resolved (``context_window``)
         self.window_source: str | None = None  # where it came from: "config", "models" or "unknown"; None = not resolved yet
@@ -381,12 +385,18 @@ class LLMClient:
                                sampling=d.get("sampling") or self._sent(temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra))
         if self.cache_mode == "replay":
             raise LLMError(f"cache miss in replay mode for {self.model} (key {key[:12]})")
-        hold = self._reserve(messages, max_tokens)
+        hold, priced = await self._reserve(messages, max_tokens)
         try:
-            return await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
-                                             seed=seed, extra=extra, sample_key=sample_key)
+            r = await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
+                                          seed=seed, extra=extra, sample_key=sample_key)
+            if priced > 0 and r.cost_usd > priced:
+                self._overrun = max(self._overrun, r.cost_usd / priced)
+            return r
         finally:
             self._reserved -= hold
+            self._holds -= 1
+            settled, self._settled = self._settled, asyncio.Event()
+            settled.set()
 
     @staticmethod
     def _cached(path: Path) -> dict[str, Any] | None:
@@ -400,16 +410,31 @@ class LLMClient:
             return None
         return d if isinstance(d, dict) and isinstance(d.get("text"), str) else None
 
-    def _reserve(self, messages: list[dict[str, Any]], max_tokens: int) -> float:
-        """Check the budget and hold this call's worst-case cost until it settles. A check of money already spent let
-        40 concurrent calls through a 0.05 USD budget and spend 0.40 (M2 audit): calls in flight now count. The hold is
-        the configured price of the prompt plus ``max_tokens``, else the largest single call seen so far."""
+    async def _reserve(self, messages: list[dict[str, Any]], max_tokens: int) -> tuple[float, float]:
+        """Check the budget and hold this call's worst-case cost until it settles; returns (hold, priced worst case). A
+        check of money already spent let 40 concurrent calls through a 0.05 USD budget and spend 0.40 (M2 audit): calls in
+        flight count. The hold is the configured price of the prompt plus ``max_tokens``, times the largest overrun seen
+        (``_overrun``), else, unpriced, the largest single call seen so far.
+
+        M2 R-2 (PATTERN: repo2rlenv's budget waits only on pressure from holds that can still settle, Apache-2.0): only a
+        call whose own estimate does not fit beside the money already spent is refused (``credits_exhausted`` stops the
+        run). One that fits but for what calls in flight hold waits for them to settle: the dearest call's cost floored
+        every hold, so after one 0.20 USD call 5 of 16 cheap calls stopped the run with 91% of the budget unused."""
         p, _ = self._prices()
-        est = max((_approx_tokens(messages) / 1e6 * p[0] + max_tokens / 1e6 * p[1]) if p else 0.0, self._max_seen)
-        if self.spend.usd >= self.budget_usd or self.spend.usd + self._reserved + est > self.budget_usd + 1e-12:
-            raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent, {self._reserved:.4f} held by calls in flight)")
-        self._reserved += est
-        return est
+        priced = (_approx_tokens(messages) / 1e6 * p[0] + max_tokens / 1e6 * p[1]) if p else 0.0
+        est = priced * self._overrun if p else self._max_seen
+        waited = False
+        while True:
+            if self.spend.usd >= self.budget_usd or self.spend.usd + est > self.budget_usd + 1e-12:
+                raise BudgetExceeded(f"LLM budget {self.budget_usd:.4f} USD exhausted ({self.spend.usd:.4f} spent, {est:.4f} needed by this call)")
+            if not self._holds or self.spend.usd + self._reserved + est <= self.budget_usd + 1e-12:
+                self._reserved += est
+                self._holds += 1
+                return est, priced
+            if not waited:  # pressure: calls in flight hold the rest (so one of them will settle and wake this one)
+                waited = True
+                self.spend.budget_waits += 1
+            await self._settled.wait()
 
     async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
         if self.provider.tito:

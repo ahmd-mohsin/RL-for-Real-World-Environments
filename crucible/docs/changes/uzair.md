@@ -1579,3 +1579,27 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   has a space).
 - **Merge notes.** Training data: episodes that stalled at the output limit are now `truncated`, so `overlong_filter`
   drops them, single-turn samples cut at `max_tokens` included (M12).
+
+## 70. M2 R-2: a budget hold prices its own call; pressure waits instead of failing
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), narrowed: no new
+  `crucible:budget_pressure` kind and no wait timeout. A call waits only while calls in flight hold money, and each of
+  them settles (its hold is released in a `finally`), so the wait is bounded by their own timeouts. Not taken: naming
+  the cap's source (local or provider) in the run's stop reason (`runtime/run.py`, M10's). Pattern from repo2rlenv's
+  campaign budget (waits only on pressure from holds that can settle; Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/llm.py` (`LLMClient._reserve`, `complete`, `_overrun`, `_holds`, `_settled`,
+  `Spend.budget_waits`), `tests/unit/test_budget_holds.py` (new).
+- **Public names.** `Spend.budget_waits` (calls that waited for money held by calls in flight).
+- **Behaviour.** A priced call holds its own worst case (prompt estimate plus `max_tokens` at the configured price)
+  times the largest cost/estimate ratio seen so far (a stale price or a prompt the chars/4 estimate undercounts), no
+  longer floored at the dearest call so far; an unpriced one still holds the dearest call seen. `BudgetExceeded`
+  (`credits_exhausted`, which stops the run) is raised only when the money already spent plus this call's own hold
+  exceeds the budget; when it fits but for what calls in flight hold, the call waits until one settles and checks again.
+  So after one 0.20 USD call, 16 cheap concurrent calls all run (5 stopped the run before), 30 calls on a 0.004 USD
+  budget all run (21 were refused by holds alone), and AUD-D12's cap still holds under concurrency.
+- **Formats.** none.
+- **Tests.** `test_budget_holds.py` (4: one dear call no longer inflates later holds; pressure waits; true exhaustion
+  raises at once with a call in flight; a provider dearer than its price scales later holds). Every unit file that
+  builds an `LLMClient` or books spend: 319 passed, 2 skipped; the failures are the 8 known
+  `test_sb_claude_builder.py` ones and `test_sampling`'s rollout version (entry 65).
+- **Merge notes.** `_reserve` is now a coroutine returning `(hold, priced estimate)`.
