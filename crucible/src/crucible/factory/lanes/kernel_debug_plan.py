@@ -52,7 +52,13 @@ from crucible.verify.runtime.trusted import CandidateError, InfraError
 
 CUDA = os.environ.get("CRUCIBLE_CUDA_HOME", "/usr/local/cuda")
 SANITIZER = f"{CUDA}/bin/compute-sanitizer"
-POOL_CAP = 3000
+POOL_CAP = 1000
+CHUNK = 96  # cases per harness run: dumps hold every output twice (GPU and CPU), a whole pool would be gigabytes
+MAX_DUMP = 200 << 20  # a reference chunk above this is split in two (the candidate's dump stays bounded by safe_read)
+
+
+class _DumpTooBig(Exception):
+    pass
 
 
 def pool_sample(pool: list[str], first: list[str], cap: int = POOL_CAP) -> list[str]:
@@ -74,12 +80,15 @@ class KDGrader:
         self.base = Path(ctx.params.get("base_tree") or "/k/base")
         self.hooks = Path(ctx.params.get("hooks_dir") or "/k/hooks")
         self.mode = str(ctx.params.get("mode") or "grade")
+        self.pool_cap = int(ctx.params.get("pool_cap") or POOL_CAP)  # pool mode: 0 = every case of the pool (the S1 sweep of the start)
+        self.pool_seeds = str(ctx.params.get("pool_seeds") or "all")  # pool mode: "fixed" = the spec's fixed seeds only
         self.work = ctx.work
         self.exe: Path | None = None
         self.lib_dir: Path | None = None
         self.refs: dict[tuple, list] = {}
         self.fresh: int | None = None
         self.gpu = kp.gpu_name()
+        self.pool_seen: dict[int, dict[str, dict]] = {}  # pool mode: seed -> case -> comparison (milestones share ops)
 
     # -- the grader's tree and build
     def assemble(self) -> Path:
@@ -110,11 +119,21 @@ class KDGrader:
         src = self.assemble()
         bld = self.t.udir(self.work / "kd_build")
         jobs = str(max(2, min(32, (os.cpu_count() or 4))))
-        cfg = self.t.run(["cmake", "-S", src, "-B", bld, "-G", "Ninja", *kh.cmake_cuda([self.arch])], cwd=bld, timeout=1800, candidate=True)
+        nvcc = Path(CUDA) / "bin" / "nvcc"
+        if not nvcc.is_file():  # the grader's toolkit, not the candidate's code: never a 0
+            raise InfraError(f"no CUDA compiler at {nvcc}")
+        # the compiler is named: the trusted runner's PATH has no toolkit directory, and CMake would score its absence
+        # static libraries: sealing removes the build's symlinks, so shared libraries' SONAME links would be gone
+        flags, env = [*kh.cmake_cuda([self.arch]), f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DBUILD_SHARED_LIBS=OFF", *(self.spec.get("cmake_extra") or [])], {}
+        if self.ctx.params.get("ccache"):  # the bundle's gate runs (the grader's own patches) only, never a task grade
+            flags += kh.cmake_ccache()
+            env = {"CCACHE_DIR": str(self.ctx.params["ccache"]), "CCACHE_BASEDIR": str(self.work), "CCACHE_NOHASHDIR": "1", "CCACHE_UMASK": "000",
+                   "CCACHE_MAXSIZE": "30G"}
+        cfg = self.t.run(["cmake", "-S", src, "-B", bld, "-G", "Ninja", *flags], cwd=bld, timeout=1800, candidate=True, env=env)
         if cfg.rc != 0:
             self.t.seal(bld)
             return Verdict(False, {"stage": "configure", "rc": cfg.rc, "log": cfg.log[-2000:]})
-        r = self.t.run(["cmake", "--build", bld, "--target", kh.TARGET, "-j", jobs], cwd=bld, timeout=5400, candidate=True)
+        r = self.t.run(["cmake", "--build", bld, "--target", kh.TARGET, "-j", jobs], cwd=bld, timeout=5400, candidate=True, env=env)
         self.t.seal(bld)
         exe = bld / "bin" / kh.TARGET
         ok = r.rc == 0 and not r.timed_out and exe.is_file()
@@ -152,21 +171,30 @@ class KDGrader:
         os.chmod(f, 0o644)
         return f
 
-    def run_ref(self, tag: str, cases: list[str], seed: int, *, mode: str = "test", reps: int = 0, dump: bool = True) -> dict:
+    def run_ref(self, tag: str, cases: list[str], seed: int, *, mode: str = "test", reps: int = 0, dump: bool = True, cache: bool = True) -> dict:
         key = (tag, tuple(cases), seed, mode, reps)
-        if key in self.refs:
+        if cache and key in self.refs:
             return self.refs[key]
         d = self.t.private(self.work / "ref" / f"{tag}-{seed}-{mode}-{reps}")
         cf = self._cases_file(d, cases)
         dump_f = d / "ref.dump" if dump else None
-        r = self.t.run([self.ref / "bin" / kh.TARGET, mode, "-b", "CUDA0"], cwd=d, env=self._env(seed, cf, dump_f, reps=reps), timeout=3600)
+        # the reference's libraries sit next to it (its build directory, which the RPATH names, is gone)
+        env = {**self._env(seed, cf, dump_f, reps=reps), "LD_LIBRARY_PATH": str(self.ref / "bin")}
+        r = self.t.run([self.ref / "bin" / kh.TARGET, mode, "-b", "CUDA0"], cwd=d, env=env, timeout=3600)
         if r.timed_out:
             raise InfraError(f"the reference timed out on {tag}")
+        if dump_f and dump_f.exists() and dump_f.stat().st_size > MAX_DUMP:
+            dump_f.unlink()
+            raise _DumpTooBig(tag)
         recs = kh.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
-        res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc}
-        if dump and cases and not recs:
+        if dump_f:
+            dump_f.unlink(missing_ok=True)
+        res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc, "crashed": kh.crashed_case(r.stdout) if r.rc else None}
+        # pool mode: a chunk whose cases this backend does not support at all leaves no output, and those cases leave the pool
+        if dump and cases and not recs and not res["crashed"] and not (self.mode == "pool" and res["status"] and set(res["status"].values()) <= {"not supported"}):
             raise InfraError(f"the reference produced no output for {tag} (rc {r.rc}): {r.log[-300:]}")
-        self.refs[key] = res
+        if cache:
+            self.refs[key] = res
         return res
 
     def run_cand(self, tag: str, cases: list[str], seed: int, *, mode: str = "test", reps: int = 0, dump: bool = True, wrap: list | None = None,
@@ -174,20 +202,23 @@ class KDGrader:
         d = self.t.udir(self.work / "cand" / f"{tag}-{seed}-{mode}-{reps}-{len(wrap or [])}")
         cf = self._cases_file(d, cases)
         dump_f = d / "cand.dump" if dump else None
-        env = self._env(seed, cf, dump_f, reps=reps)
+        env = {**self._env(seed, cf, dump_f, reps=reps), "LD_LIBRARY_PATH": str(self.lib_dir)}
         if launches:
             env["CUDA_INJECTION64_PATH"] = str(self.hooks / "libcrucible_launch.so")
             env["CRUCIBLE_LAUNCH_LOG"] = str(d / "launches.tsv")
         r = self.t.run([*(wrap or []), self.exe, mode, "-b", "CUDA0"], cwd=d, env=env, timeout=timeout, candidate=True)
         self.t.seal(d)
         recs = kh.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
+        if dump_f:
+            dump_f.unlink(missing_ok=True)
         n_launch = sum(kp.read_launches(d / "launches.tsv").values()) if launches else None
         return {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "launches": n_launch}, r
 
     # -- checks
     def cases_of(self, m: dict) -> list[str]:
         if self.mode == "pool":
-            return pool_sample(list(m.get("case_pool") or []), list(m.get("cases_added") or []))
+            pool = list(m.get("case_pool") or [])
+            return pool_sample(pool, list(m.get("cases_added") or []), cap=self.pool_cap or len(pool) + len(m.get("cases_added") or []))
         cases = list(m.get("cases") or [])
         if not cases:
             raise InfraError(f"milestone {m['id']} has no calibrated cases (run the GPU calibration first)")
@@ -197,29 +228,69 @@ class KDGrader:
         if self.fresh is None:
             self.fresh = draw_seed(self.ctx) & 0x7FFFFFFF
         fixed = list((self.spec.get("seeds") or {}).get("fixed") or [7])
+        if self.mode == "pool" and self.pool_seeds == "fixed":
+            return fixed
         extra = [(self.fresh * 2654435761 + k) & 0x7FFFFFFF for k in range(1, int(m.get("repeat") or 1))]
         return [*fixed, self.fresh, *extra]
+
+    def _pair(self, tag: str, cases: list[str], seed: int) -> dict:
+        """The reference, then the candidate, on one chunk of cases (outputs compared outside the candidate's process and
+        dropped right after); a chunk whose reference output is too large is halved."""
+        try:
+            ref = self.run_ref(tag, cases, seed, cache=False)
+        except _DumpTooBig:
+            if len(cases) == 1:
+                if self.mode == "pool":  # calibration: a case too large to compare leaves the pool
+                    return {"cmp": {cases[0]: {"pass": False, "infra": "reference output too large"}}, "launches": 0, "rc": [], "timed_out": False}
+                raise InfraError(f"one case's reference output is over {MAX_DUMP} bytes: {cases[0]}") from None
+            h = len(cases) // 2
+            a, b = self._pair(f"{tag}a", cases[:h], seed), self._pair(f"{tag}b", cases[h:], seed)
+            return {"cmp": {**a["cmp"], **b["cmp"]}, "launches": None if None in (a["launches"], b["launches"]) else a["launches"] + b["launches"],
+                    "rc": a["rc"] + b["rc"], "timed_out": a["timed_out"] or b["timed_out"]}
+        if ref["crashed"] in cases:  # the reference died on one case: that case leaves (no reference), the rest run again
+            done = {x["case"] for x in ref["recs"]}
+            rest = [c for c in cases if c not in done and c != ref["crashed"]]
+            head = [c for c in cases if c in done]
+            parts = [p for p in (self._pair(f"{tag}h", head, seed) if head else None, self._pair(f"{tag}r", rest, seed) if rest else None) if p]
+            cmp = {k: v for p in parts for k, v in p["cmp"].items()}
+            cmp[ref["crashed"]] = {"pass": False, "infra": "the reference crashed on this case"}
+            return {"cmp": cmp, "launches": None if any(p["launches"] is None for p in parts) else sum(p["launches"] for p in parts),
+                    "rc": [rc for p in parts for rc in p["rc"]], "timed_out": any(p["timed_out"] for p in parts)}
+        # a candidate that takes ten times the reference's wall time plus a minute on a correctness chunk is hung (a faulty
+        # kernel that never returns): the chunk fails instead of holding the GPU for the default hour
+        cand, r = self.run_cand(tag, cases, seed, timeout=max(120.0, 10 * float(ref.get("wall_s") or 0) + 60))
+        return {"cmp": kh.compare_dumps(cand["recs"], ref["recs"], cases=cases), "launches": cand["launches"], "rc": [r.rc], "timed_out": r.timed_out}
 
     def golden(self, m: dict) -> Verdict:
         cases = self.cases_of(m)
         detail, ok, per_case = {}, True, {}
         for seed in self.seeds(m):
-            ref = self.run_ref(m["id"], cases, seed)
-            cand, r = self.run_cand(m["id"], cases, seed)
-            cmp = kh.compare_dumps(cand["recs"], ref["recs"], cases=cases)
+            seen = self.pool_seen.setdefault(seed, {}) if self.mode == "pool" else {}
+            todo = [c for c in cases if c not in seen]  # pool mode: a case another milestone ran on this seed is not rerun
+            parts = [self._pair(f"{m['id']}-c{i}", todo[i:i + CHUNK], seed) for i in range(0, len(todo), CHUNK)]
+            cmp = {k: v for p in parts for k, v in p["cmp"].items()}
+            if self.mode == "pool":
+                seen.update(cmp)
+                cmp = {c: seen[c] for c in cases if c in seen}
+            launches = None if any(p["launches"] is None for p in parts) else sum(p["launches"] for p in parts)
+            rcs, timed_out = [rc for p in parts for rc in p["rc"]], any(p["timed_out"] for p in parts)
+            if self.mode == "pool":  # calibration: a case B's own backend skips (not supported) leaves the pool, it is no evidence
+                skipped = [k for k, v in cmp.items() if v.get("infra")]
+                cmp = {k: v for k, v in cmp.items() if not v.get("infra")}
+                detail["reference_skipped"] = detail.get("reference_skipped", 0) + len(skipped)
             if any(v.get("infra") for v in cmp.values()):
                 raise InfraError(f"reference missing cases for {m['id']}: {[k for k, v in cmp.items() if v.get('infra')][:3]}")
             fails = {k: v for k, v in cmp.items() if not v["pass"]}
             for k, v in cmp.items():
                 per_case.setdefault(k, []).append(bool(v["pass"]))
-            launch_ok = cand["launches"] is None or cand["launches"] >= max(1, len(cases) - len(fails))
-            detail[f"seed{'_fresh' if seed == self.fresh else ''}_{seed}"] = {"failed": len(fails), "cases": len(cases), "launches": cand["launches"],
-                                                                               "rc": r.rc, "examples": dict(list(fails.items())[:4])}
-            ok &= not fails and launch_ok and not r.timed_out
+            # pool mode reruns no case another milestone ran: the launch evidence belongs to the grade, not the calibration
+            launch_ok = self.mode == "pool" or launches is None or launches >= max(1, len(cases) - len(fails))
+            detail[f"seed{'_fresh' if seed == self.fresh else ''}_{seed}"] = {"failed": len(fails), "cases": len(cases), "launches": launches,
+                                                                               "rc": sorted(set(rcs)), "examples": dict(list(fails.items())[:4])}
+            ok &= not fails and launch_ok and not timed_out
             if not launch_ok:
                 detail["launch_error"] = "fewer kernel launches than cases: an op ran off the GPU"
-        if self.mode == "pool":
-            detail["per_case"] = {k: all(v) for k, v in per_case.items()}
+        detail["per_case"] = {k: all(v) for k, v in per_case.items()}  # the calibration's input (pool) and its stability check (grade)
         return Verdict(ok, {**detail, "seed_revealed_after_run": True})
 
     def sanitize(self, m: dict, tool: str) -> Verdict:
@@ -227,7 +298,9 @@ class KDGrader:
         wrap = [SANITIZER, "--tool", tool, "--error-exitcode", "97", "--print-limit", "30", *(["--leak-check", "no"] if tool == "memcheck" else [])]
         _c, r = self.run_cand(f"{m['id']}-{tool}", cases, 7, dump=False, wrap=wrap, launches=False, timeout=7200)
         clean, summary = kp.sanitizer_clean(r.rc, r.log)
-        return Verdict(clean, {"tool": tool, "rc": r.rc, "summary": summary, "cases": len(cases)})
+        if not summary and "COMPUTE-SANITIZER" not in r.log:  # the tool never started (the grader's toolkit): not the candidate's fault
+            raise InfraError(f"compute-sanitizer did not start (rc {r.rc}): {r.log[-300:]}")
+        return Verdict(clean, {"tool": tool, "rc": r.rc, "summary": summary, "cases": len(cases), "log": "" if clean else r.log[-1500:]})
 
     def perf(self, m: dict) -> Verdict:
         bars = (self.spec.get("perf_bars") or {}).get(self.gpu) or {}

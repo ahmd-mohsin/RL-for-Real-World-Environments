@@ -162,3 +162,36 @@ def test_gpu_calibration_math():
     assert ok["ok"] and ok["bar"] == pytest.approx(1.0 + max(3 * (1.01 - 0.99) / 0.99, 0.05), abs=1e-3)
     assert not g.perf_bar([1.0, 1.2], 1.25)["ok"]  # noise eats the headroom: no valid bar
     assert g.cp_upper(0, 60) < 0.05 and g.cp_upper(3, 60) > 0.05
+
+
+def test_host_seeding_verdict():
+    g = load_gpu_runner()
+    s1 = [{"case": "A", "out": b"1", "ref": b"x"}]
+    s2 = [{"case": "A", "out": b"2", "ref": b"y"}]
+    assert g.seeding_verdict(s1, list(s1), s2, {"A": "OK"}, ["A"])["ok"]
+    assert not g.seeding_verdict(s1, s2, s2, {"A": "OK"}, ["A"])["same_seed_identical"]  # the same seed must repeat exactly
+    assert not g.seeding_verdict(s1, list(s1), list(s1), {"A": "OK"}, ["A"])["new_seed_differs"]  # a new seed must change the inputs
+    assert not g.seeding_verdict(s1, list(s1), s2, {"A": "FAIL"}, ["A"])["cpu_reference_ok"]
+    assert not g.seeding_verdict([], [], [], {}, ["A"])["ok"]
+
+
+def test_partial_mutant_whitespace_equivalence_and_pool_reuse(tmp_path):
+    g = load_gpu_runner()
+    a = "--- a/x.cu\n+++ b/x.cu\n@@ -1 +1 @@\n-  int i = 0;\n+  int  i = 0;\n"
+    b = "--- a/x.cu\n+++ b/x.cu\n@@ -1 +1 @@\n-  int i = 0;\n+int i = 0;\n"
+    c = "--- a/x.cu\n+++ b/x.cu\n@@ -1 +1 @@\n-  int i = 0;\n+  int i = 1;\n"
+    assert g.added_lines(a) == g.added_lines(b) != g.added_lines(c)
+    # a pool grade is reused only for the same patch, spec and tag (its key is written next to the report)
+    d = tmp_path / "t"
+    (d / "grades" / "cal-oracle").mkdir(parents=True)
+    patch, spec = d / "oracle.patch", d / "kdspec.pooled.json"
+    patch.write_text(c)
+    spec.write_text("{}")
+    import hashlib
+
+    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec.read_bytes(), b"cal-oracle", b"True", b""])).hexdigest()
+    out = d / "grades" / "cal-oracle"
+    (out / "inputs.sha256").write_text(key)
+    (out / "report.json").write_text('{"gates": {"build": "pass"}, "checks": []}')
+    (out / "crucible_reward.json").write_text('{"reward": 1.0, "infra": {"status": "ok"}}')
+    assert g.grade(d, patch, spec, "docker", "120", "cal-oracle", pool=True)["reward"] == 1.0  # no container started

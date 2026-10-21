@@ -1046,6 +1046,17 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
   (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
   and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
+- **GPU calibration rules (lab 5090 run):** S1 executed starts with a sweep of A' (every fault in) over every case of every
+  pool on the fixed seeds; the cases it fails join the 1,000-case sample the rest of the calibration grades; if A' passes
+  every pool case and every sanitizer check, no fault shows on this GPU and the task drops; a milestone owns the pool cases its single revert
+  breaks (or, when the revert does not apply at B, the cases its fix alone repairs); the oracle is re-graded three times on
+  the calibrated cases with fresh seeds and any case B fails leaves (input-sensitive); half-fix mutants are graded over
+  the pool: one that breaks cases adds them to its milestone, one that is whitespace-only or breaks nothing is recorded as
+  equivalent on the op tests and leaves S8, as does one that does not build. The grader builds statically (sealing removes
+  symlinks), names nvcc, splits outputs into chunks of 96 cases, and drops a case the reference crashes on; gate runs share
+  a ccache (task grades never do); x86-only CPU gates (ik_llama.cpp) run on the GPU host first (`cpu_host.json`).
+  The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
+  under the same program name (a program that prints its argv[0] failed the oracle).
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):
@@ -1086,6 +1097,18 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   bodies, `go mod init`) with re-grading of stored episodes (`factory.tinker.regrade`), the node policy World
   (`langs.runtime.policy_world`), concurrent-arm accounting, the benchmark policy id the family guard reads, the judges'
   quote retry (`AuditConfig.quote_retries`), a `world_fault` fact for World tools that lack a command.
+- **Env budget 300 tool calls (`generators.debug.ENV_BUDGET`, user decision 2026-10-20):** the keep rule, the benchmark
+  and RL run debug tasks at 300 calls (agent 5400 s, rollout 9000 s, Φ every 20 calls, cap 15). Every phase records
+  `settings.env_budget`, and a re-measurement uses fresh seeds so its trace keys are new. S15 at 300 (`07` §6.1, $326
+  of $450, 11 of 15 tasks before the user stopped it): still no task kept. The budget no longer binds the frontier
+  (0 of 54 limit stops, against 21 of 52), and binds the student less (24 of 88, against 67 of 104).
+  black-90117fa0 enters the band (1/8, a frontier pass) but stays budget-bound (6 of 8 at the limit). Two held-out
+  excelize tasks are spec defects: a hidden milestone also checks reverted fixes that have no milestone and that the
+  report never describes. The judges, who never see hidden tests, labelled those failures skill gaps.
+  `generators.debug.disclosure_check` grades B without the silent units through the task's own grader. The keep rule
+  takes `spec_issue` (verdict `spec_defect`, owner the builder). The node World's pnpm runs offline without its pre-run
+  install (`node.PNPM_OFFLINE`, recipe `node-5`; h3's `pnpm test` hang). Committed summaries seal held-out issue text and
+  verdict reasons.
 
 ## 8. Layer 4: verification and isolation
 

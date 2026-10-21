@@ -64,11 +64,15 @@ def images_of(wdir: Path) -> tuple[str, str]:
     return BASE_TAG, LEGACY_TAG
 
 
-def ensure_images() -> None:
+def ensure_images(needed: set[str] | None = None) -> None:
+    """The images the selected windows name (``needed``; every image when None), built from the bundle's Dockerfiles:
+    on a shared disk only what this run uses is built."""
     pairs = [(BASE_TAG, HERE / "Dockerfile.base"), (LEGACY_TAG, HERE / "Dockerfile.legacy")]
     if (HERE / "images.json").exists():  # every image a window names, with its Dockerfile in the bundle
         pairs = [(tag, HERE / df) for tag, df in json.loads((HERE / "images.json").read_text()).items()]
     for tag, df in pairs:
+        if needed is not None and tag not in needed:
+            continue
         if sh(["docker", "image", "inspect", tag], timeout=60).returncode != 0:
             p = sh(["docker", "build", "-t", tag, "-"], input=df.read_text(), timeout=7200)
             if p.returncode != 0:
@@ -204,8 +208,10 @@ def main() -> int:
     ap.add_argument("--flake", type=int, default=60)
     ap.add_argument("--only", nargs="*")
     a = ap.parse_args()
-    ensure_images()
-    build_launch_lib()
+    chosen = [w for w in json.loads((HERE / "index.json").read_text()) if not a.only or w["id"] in a.only]
+    ensure_images({t for w in chosen for t in images_of(HERE / "windows" / w["id"])})
+    for w in chosen:
+        build_launch_lib(images_of(HERE / "windows" / w["id"])[0])
     for w in json.loads((HERE / "index.json").read_text()):
         if a.only and w["id"] not in a.only:
             continue

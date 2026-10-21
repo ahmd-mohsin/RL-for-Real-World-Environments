@@ -229,15 +229,17 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
 
     out = Path(a.out) if a.out else ROOT / "gpu_bundle" / "migration"
     lh_kernel.cmd_stage_gpu(ap.Namespace(store=str(MIG / "store"), out=str(out)))
-    images = {kw.BASE_TAG: "Dockerfile.base", kw.LEGACY_TAG: "Dockerfile.legacy", kdm.CUDA13_TAG: "Dockerfile.cuda13"}
+    # on the GPU host every image carries this lane's tag (shared machine: only crucible-lh-k images are created and
+    # removed); the 12.8 image is the main bundle's (same Dockerfile, so whichever bundle runs first builds it once)
+    base, legacy = "crucible-lh-k:base-12.8.1", "crucible-lh-k:legacy-11.8.0"
+    images = {base: "Dockerfile.base", legacy: "Dockerfile.legacy", kdm.CUDA13_TAG: "Dockerfile.cuda13"}
+    (out / "Dockerfile.base").write_text(kw.dockerfile(kw.BASE_FROM, extra=("ccache",)))
     (out / "Dockerfile.cuda13").write_text(kw.dockerfile(kdm.CUDA13_FROM))
     jdump(out / "images.json", images)
     for w in windows():
         d = out / "windows" / w["id"]
         if d.is_dir():
-            g = kdm.GENERATIONS[w["generation"]]
-            jdump(d / "images.json", {"base": g["world"] if w["generation"] == "cuda13" else kw.BASE_TAG,
-                                     "legacy": kw.BASE_TAG if w["generation"] == "cuda13" else kw.LEGACY_TAG})
+            jdump(d / "images.json", {"base": kdm.CUDA13_TAG if w["generation"] == "cuda13" else base, "legacy": base if w["generation"] == "cuda13" else legacy})
     print(f"migration bundle in {out}")
 
 
@@ -257,6 +259,37 @@ def migration_intent(w: dict[str, Any]) -> dict[str, Any]:
             "targets": {"student": kd.STUDENT, "train_band": [0.10, 0.60], "benchmark_max": 0.30, "fairness": "a strong solver passes (S13)"}}
 
 
+def migration_gpu_verdict(res: dict[str, Any]) -> tuple[str | None, str]:
+    """(the first GPU gate a window failed, or None; why) from ``stage_gpu.py``'s result."""
+    if not res.get("originals") or not all(v for k, v in res["originals"].items() if not k.startswith("_")):
+        return "gpu_reference", f"an original does not build with the older toolkit: {res.get('originals')}"
+    if not res.get("S5_oracle"):
+        return "S5_oracle", f"oracle reward {(res.get('oracle') or {}).get('reward')}, gates {(res.get('oracle') or {}).get('gates')}"
+    if not res.get("S8_floors"):
+        return "S8_floors", "a floor scores above 0"
+    if not all((res.get("S8_mutants_killed") or {}).values()):
+        return "S8_mutants", "a fault mutant passes every milestone: " + ", ".join(k for k, v in res["S8_mutants_killed"].items() if not v)
+    if (res.get("flake") or {}).get("cp_upper", 1.0) > 0.05:
+        return "S10_flake", f"flake {res.get('flake')}"
+    return None, ""
+
+
+def cmd_ingest_gpu(a: argparse.Namespace) -> None:
+    """The migration bundle's GPU results (``results/<window>.json``) into the windows: ``gates.gpu[<GPU>]``."""
+    bundle = Path(a.bundle) if a.bundle else ROOT / "gpu_bundle" / "migration"
+    for w in windows():
+        p = bundle / "results" / f"{w['id']}.json"
+        if not p.exists():
+            continue
+        res = json.loads(p.read_text())
+        failed, why = migration_gpu_verdict(res)
+        w.setdefault("gates", {}).setdefault("gpu", {})[res.get("gpu") or "unknown"] = {
+            "at": res.get("at"), "arch": res.get("arch"), "originals": res.get("originals"), "S5_oracle": res.get("S5_oracle"), "S8_floors": res.get("S8_floors"),
+            "S8_mutants_killed": res.get("S8_mutants_killed"), "flake": res.get("flake"), "failed_gate": failed, "why": why, "pass": failed is None}
+        jdump(MIG / "store" / "windows" / f"{w['id']}.json", w)
+        print(w["id"], "gpu", "pass" if failed is None else f"{failed}: {why}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -274,8 +307,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--ids", nargs="*")
     s = sub.add_parser("stage-gpu")
     s.add_argument("--out")
+    s = sub.add_parser("ingest-gpu")
+    s.add_argument("--bundle")
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu}[a.cmd](a)
     return 0
 
 

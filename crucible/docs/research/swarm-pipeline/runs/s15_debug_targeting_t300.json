@@ -1,0 +1,1284 @@
+{
+ "builder_intents": [
+  {
+   "behaviour": "Carries a multi-step change through to its last dependent step",
+   "failure_mode": "28 failing episode(s) over 6 task(s): stalled (first wrong step at 13%-99% of the episode); milestones missed or lost: m01, m02, m03, m04; intent skills: interacting_faults x18, multi_fault_localization x9, reproduce_from_report x1",
+   "id": "bi-debug-qwen3-6-35b-a3b-peft-262144-stalled-db0dc60d",
+   "mode": "stalled",
+   "n": 28,
+   "quotes": [
+    "DecodeError: key=[A], msg=toml: cannot store a table in a string",
+    "R2 Table into []int: toml: cannot store a table in a int\n  Key: [A]",
+    "Commented Inner table:\n# [Inner]\n#   Items = [\n#     'a',\n#     'b',\n#     'c'\n#   ]",
+    "Error: toml: cannot store a table in a string\nType: *toml.DecodeError\n  Key: [] (len=0)\nRow: 1, Col: 1",
+    "[failing hidden tests] ['marshaler_test.go::TestMarshalInvalidUTF8ReplacementCharacter',",
+    "test_r2_test.go:63: Error: toml: cannot store a table in a int",
+    "unmarshaler_test.go::TestIssue806_TableErrorContext/table_into_string_field",
+    "qt.Check(t, qt.Equals(f.End().Offset(), uint(10)))",
+    "\"\\\"$( (foo) )\\\"\\n\"",
+    "GIVE_UP: Ran out of time on R4 - the heredoc inline comment duplication in nested blocks could not be fully diagnosed and fixed."
+   ],
+   "skills": {
+    "interacting_faults": 18,
+    "multi_fault_localization": 9,
+    "reproduce_from_report": 1
+   },
+   "status": "awaiting_human",
+   "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "tasks": [
+    "db-go-go-toml-a02114e3",
+    "db-go-mvdan-sh-02a801cd",
+    "db-go-mvdan-sh-04056a74",
+    "db-go-mvdan-sh-5e983709",
+    "db-go-mvdan-sh-dc951aeb",
+    "db-python-black-ae5830b7"
+   ]
+  },
+  {
+   "behaviour": "Checks its own work against the request before it reports the work done",
+   "failure_mode": "2 failing episode(s) over 2 task(s): claimed done without progress (first wrong step at 0%-0% of the episode); milestones missed or lost: m01, m02, m03, m04; intent skills: reproduce_from_report x2",
+   "id": "bi-debug-qwen3-6-35b-a3b-peft-262144-claimed-done-without-progress-6861e5a4",
+   "mode": "claimed_done_without_progress",
+   "n": 2,
+   "quotes": [
+    "unmarshaler_test.go::TestIssue806_TableErrorContext/table_into_string_field",
+    "printer_test.go:1342: program was broken: 1:1: reached EOF without matching `$(` with `)`"
+   ],
+   "skills": {
+    "reproduce_from_report": 2
+   },
+   "status": "awaiting_human",
+   "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "tasks": [
+    "db-go-go-toml-a02114e3",
+    "db-go-mvdan-sh-5e983709"
+   ]
+  },
+  {
+   "behaviour": "Finds where a requested change belongs in an unfamiliar codebase and makes its first step pass",
+   "failure_mode": "2 failing episode(s) over 1 task(s): never progressed (first wrong step at 33%-56% of the episode); milestones missed or lost: m03; intent skills: interacting_faults x2",
+   "id": "bi-debug-qwen3-6-35b-a3b-peft-262144-never-progressed-55c08969",
+   "mode": "never_progressed",
+   "n": 2,
+   "quotes": [
+    "-    )  # type: ignore\n+    )",
+    "1 failed, 575 passed in 27.32s"
+   ],
+   "skills": {
+    "interacting_faults": 2
+   },
+   "status": "awaiting_human",
+   "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "tasks": [
+    "db-python-black-90117fa0"
+   ]
+  }
+ ],
+ "cap": 450.0,
+ "carried_over": {
+  "db-go-echo-61eca05b": {
+   "n": 8,
+   "passes": 7,
+   "tool_limit": 150,
+   "verdict": "too_easy"
+  },
+  "db-go-urfave-cli-2b0adb14": {
+   "n": 8,
+   "passes": 0,
+   "tool_limit": 150,
+   "verdict": "unfair"
+  },
+  "db-node-h3-a6cd4654": {
+   "n": 8,
+   "passes": 0,
+   "tool_limit": 150,
+   "verdict": "world_bug"
+  },
+  "db-node-unstorage-d7aee0b7": {
+   "n": 8,
+   "passes": 3,
+   "tool_limit": 150,
+   "verdict": "out_of_band"
+  },
+  "db-python-black-ec71b918": {
+   "n": 7,
+   "passes": 0,
+   "tool_limit": 150,
+   "verdict": "unfair"
+  },
+  "db-rust-pulldown-cmark-e072a230": {
+   "n": 8,
+   "passes": 0,
+   "tool_limit": 150,
+   "verdict": "unfair"
+  }
+ },
+ "date": "2026-10-20",
+ "issues": {
+  "db-go-excelize-65be17e3": {
+   "date": "2026-10-20",
+   "kind": "spec_defect",
+   "owner": "builder (S2) / the debug lane's strip mode",
+   "status": "open"
+  },
+  "db-go-excelize-824ac2ce": {
+   "date": "2026-10-20",
+   "kind": "spec_defect",
+   "owner": "builder (S2) / the debug lane's strip mode",
+   "status": "open"
+  },
+  "db-node-h3-a6cd4654": {
+   "date": "2026-10-20",
+   "kind": "world_bug",
+   "owner": "world",
+   "status": "fixed"
+  }
+ },
+ "load": {
+  "containers_mine": {
+   "max": 18.0,
+   "mean": 10.64,
+   "p50": 11.0
+  },
+  "containers_other": {
+   "max": 0.0,
+   "mean": 0.0,
+   "p50": 0.0
+  },
+  "cpu_pct_mine": {
+   "max": 1073.1,
+   "mean": 286.35,
+   "p50": 251.8
+  },
+  "load1": {
+   "max": 35.65,
+   "mean": 9.68,
+   "p50": 8.07
+  },
+  "mem_gib_mine": {
+   "max": 5.98,
+   "mean": 0.64,
+   "p50": 0.4
+  },
+  "samples": 229
+ },
+ "per_arm": {
+  "Qwen_Qwen3.5-397B-A17B": {
+   "episodes": 28,
+   "masked": 0,
+   "passes": 3,
+   "stops": {
+    "agent_done": 28
+   },
+   "tool_calls_mean": 131.5,
+   "usd": 84.314,
+   "usd_per_episode": 3.0112,
+   "wall_s_per_episode": 814.9
+  },
+  "deepseek-ai_DeepSeek-V4.1-Flash": {
+   "episodes": 26,
+   "masked": 0,
+   "passes": 6,
+   "stops": {
+    "agent_done": 26
+   },
+   "tool_calls_mean": 183.2,
+   "usd": 53.27,
+   "usd_per_episode": 2.0488,
+   "wall_s_per_episode": 1609.9
+  },
+  "student": {
+   "episodes": 88,
+   "masked": 1,
+   "passes": 11,
+   "stops": {
+    "agent_done": 63,
+    "crucible:answer_exposed": 1,
+    "max_steps": 24
+   },
+   "tool_calls_mean": 207.9,
+   "usd": 151.393,
+   "usd_per_episode": 1.7204,
+   "wall_s_per_episode": 1658.1
+  }
+ },
+ "phase": "S15 targeting, debug lane",
+ "regrade": {},
+ "routed": {
+  "infra:env_flake:env_flake": 1,
+  "limits:budget:budget": 17,
+  "limits:lost_progress:budget": 3,
+  "limits:world_fault:budget": 3,
+  "world:world_fault:skill_gap": 1
+ },
+ "settings": {
+  "agent_s": 5400.0,
+  "checkpoint_cap": 15,
+  "checkpoint_every": 20,
+  "containers": "crucible-lh-d-s15-*",
+  "enable_thinking": false,
+  "env_budget": {
+   "agent_s": 5400.0,
+   "checkpoint_cap": 15,
+   "checkpoint_every": 20,
+   "is_lane_budget": true,
+   "lane": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "decided": "2026-10-20",
+    "rollout_s": 9000.0,
+    "tool_limit": 300
+   },
+   "rollout_s": 9000.0,
+   "tool_limit": 300
+  },
+  "frontier": [
+   "Qwen/Qwen3.5-397B-A17B:peft:262144",
+   "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"
+  ],
+  "frontier_k": 2,
+  "grade_parallel": 2,
+  "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+  "k": 8,
+  "max_tokens": 4096,
+  "rollout_s": 9000.0,
+  "seed_offset": 300,
+  "slots": 10,
+  "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+  "temperature": 1.0,
+  "tool_limit": 300,
+  "world": "task World image, --network none, 2 CPU / 2 GB"
+ },
+ "spend_by_model": {
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": 84.3141,
+  "Qwen/Qwen3.6-35B-A3B:peft:262144": 165.9396,
+  "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144": 54.1441,
+  "zai-org/GLM-5.3-Flash:peft:262144": 3.8845,
+  "zai-org/GLM-5.3:peft:262144": 17.8257
+ },
+ "spend_total": 326.1081,
+ "tasks": [
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {
+     "binding": 1
+    },
+    "student": {}
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 0
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 4
+    },
+    "n": 4,
+    "ok": true,
+    "on_intent": 4,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 3,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     true
+    ]
+   },
+   "honest": {
+    "claimed_unrun_tests": 1,
+    "status_overclaim": 3
+   },
+   "keep": {
+    "fair": true,
+    "flags": [],
+    "intent_share": 1.0,
+    "keep": false,
+    "labelled": 4,
+    "on_intent": 4,
+    "verdict": "out_of_band",
+    "why": "out_of_band (held out: details sealed under data/targeting)"
+   },
+   "lang": "go",
+   "level": "medium",
+   "masked": 1,
+   "mean_phi": 0.4286,
+   "modes": {
+    "claimed_done_without_progress/reproduce_from_report": 3,
+    "env_flake": 1,
+    "never_progressed/multi_fault_localization": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.1582,
+    0.7495
+   ],
+   "pass_rate": 0.4286,
+   "passes": 3,
+   "per_milestone": {
+    "m01": 0.4286,
+    "m02": 0.4286,
+    "m03": 0.4286
+   },
+   "previous": null,
+   "split": "heldout",
+   "stops": {
+    "agent_done": 7,
+    "crucible:answer_exposed": 1
+   },
+   "task": "db-go-carbon-93371b6f",
+   "tool_limit": 300,
+   "turns_mean": 108.4,
+   "usd": 7.0873,
+   "usd_per_episode": 0.8859
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {}
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 0
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 1
+    },
+    "n": 1,
+    "ok": null,
+    "on_intent": 1,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 2,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     true,
+     true
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     true,
+     false
+    ]
+   },
+   "honest": {},
+   "keep": {
+    "fair": true,
+    "flags": [],
+    "intent_share": 1.0,
+    "keep": false,
+    "labelled": 1,
+    "on_intent": 1,
+    "verdict": "too_easy",
+    "why": "too_easy (held out: details sealed under data/targeting)"
+   },
+   "lang": "go",
+   "level": "easy",
+   "masked": 0,
+   "mean_phi": 1.0,
+   "modes": {
+    "never_progressed/regression_safety": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.5291,
+    0.9776
+   ],
+   "pass_rate": 0.875,
+   "passes": 7,
+   "per_milestone": {
+    "m01": 1.0,
+    "m02": 1.0
+   },
+   "previous": null,
+   "split": "heldout",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-go-carbon-a783fb3a",
+   "tool_limit": 300,
+   "turns_mean": 59.6,
+   "usd": 1.7754,
+   "usd_per_episode": 0.2219
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "stuck": 1
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 1
+   },
+   "cause": {
+    "labels": {
+     "budget": 1,
+     "skill_gap": 7
+    },
+    "n": 8,
+    "ok": true,
+    "on_intent": 7,
+    "skill_gap_share": 0.875,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 3,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {},
+   "keep": {
+    "fair": false,
+    "flags": [],
+    "intent_share": 0.875,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 7,
+    "verdict": "spec_defect",
+    "why": "spec_defect (held out: details sealed under data/targeting)"
+   },
+   "lang": "go",
+   "level": "medium",
+   "masked": 0,
+   "mean_phi": 0.6667,
+   "modes": {
+    "budget": 1,
+    "stalled/interacting_faults": 7
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 1.0,
+    "m03": 1.0,
+    "m04": 0.0
+   },
+   "previous": null,
+   "split": "heldout",
+   "stops": {
+    "agent_done": 7,
+    "max_steps": 1
+   },
+   "task": "db-go-excelize-65be17e3",
+   "tool_limit": 300,
+   "turns_mean": 166.9,
+   "usd": 6.9888,
+   "usd_per_episode": 0.8736
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {}
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 0
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 8
+    },
+    "n": 8,
+    "ok": true,
+    "on_intent": 8,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 2,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {},
+   "keep": {
+    "fair": false,
+    "flags": [],
+    "intent_share": 1.0,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 8,
+    "verdict": "spec_defect",
+    "why": "spec_defect (held out: details sealed under data/targeting)"
+   },
+   "lang": "go",
+   "level": "easy",
+   "masked": 0,
+   "mean_phi": 0.5,
+   "modes": {
+    "never_progressed/interacting_faults": 1,
+    "stalled/interacting_faults": 7
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m03": 1.0,
+    "m04": 0.0
+   },
+   "previous": null,
+   "split": "heldout",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-go-excelize-824ac2ce",
+   "tool_limit": 300,
+   "turns_mean": 114.6,
+   "usd": 3.7416,
+   "usd_per_episode": 0.4677
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "binding": 1
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 0
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 8
+    },
+    "n": 8,
+    "ok": true,
+    "on_intent": 8,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     true,
+     true
+    ]
+   },
+   "honest": {
+    "claimed_unrun_tests": 1,
+    "status_overclaim": 8
+   },
+   "keep": {
+    "fair": true,
+    "flags": [
+     "simplify(locate|prerequisites): the student never passes and a frontier solver does"
+    ],
+    "intent_share": 1.0,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 8,
+    "verdict": "too_hard",
+    "why": "pass rate 0.00 outside [0.1, 0.6]"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.4688,
+   "modes": {
+    "claimed_done_without_progress/reproduce_from_report": 1,
+    "stalled/interacting_faults": 2,
+    "stalled/multi_fault_localization": 5
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 0.625,
+    "m02": 0.0,
+    "m03": 0.75,
+    "m04": 0.5
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      true,
+      false
+     ]
+    },
+    "mean_phi": 0.25,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "too_hard"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-go-go-toml-a02114e3",
+   "tool_limit": 300,
+   "turns_mean": 193.5,
+   "usd": 13.0451,
+   "usd_per_episode": 1.6306
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "binding": 6,
+     "stuck": 2
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 5
+   },
+   "cause": {
+    "labels": {
+     "budget": 5,
+     "skill_gap": 3
+    },
+    "n": 8,
+    "ok": false,
+    "on_intent": 3,
+    "skill_gap_share": 0.375,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "status_overclaim": 4
+   },
+   "keep": {
+    "fair": false,
+    "flags": [
+     "budget-bound: 5 of 8 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 3/3)"
+    ],
+    "intent_share": 0.375,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 3,
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.375,
+   "modes": {
+    "budget": 4,
+    "lost_progress": 1,
+    "stalled/interacting_faults": 3
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 0.625,
+    "m02": 0.875,
+    "m03": 0.0,
+    "m04": 0.0
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      false
+     ]
+    },
+    "mean_phi": 0.2188,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "unfair"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 3,
+    "max_steps": 5
+   },
+   "task": "db-go-mvdan-sh-02a801cd",
+   "tool_limit": 300,
+   "turns_mean": 297.6,
+   "usd": 23.0577,
+   "usd_per_episode": 2.8822
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "binding": 4,
+     "stuck": 2
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 4
+   },
+   "cause": {
+    "labels": {
+     "budget": 4,
+     "skill_gap": 4
+    },
+    "n": 8,
+    "ok": false,
+    "on_intent": 4,
+    "skill_gap_share": 0.5,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "claimed_unrun_tests": 1,
+    "status_overclaim": 3
+   },
+   "keep": {
+    "fair": false,
+    "flags": [
+     "budget-bound: 4 of 8 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 4/4)"
+    ],
+    "intent_share": 0.5,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 4,
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.3438,
+   "modes": {
+    "budget": 1,
+    "stalled/interacting_faults": 2,
+    "stalled/multi_fault_localization": 1,
+    "stalled/reproduce_from_report": 1,
+    "world_fault": 3
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 0.875,
+    "m02": 0.125,
+    "m03": 0.375,
+    "m04": 0.0
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      false
+     ]
+    },
+    "mean_phi": 0.1875,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "unfair"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 4,
+    "max_steps": 4
+   },
+   "task": "db-go-mvdan-sh-04056a74",
+   "tool_limit": 300,
+   "turns_mean": 290.4,
+   "usd": 18.5288,
+   "usd_per_episode": 2.3161
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {
+     "stuck": 1
+    },
+    "student": {
+     "binding": 4
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 2
+   },
+   "cause": {
+    "labels": {
+     "budget": 2,
+     "skill_gap": 6
+    },
+    "n": 8,
+    "ok": true,
+    "on_intent": 5,
+    "skill_gap_share": 0.75,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "status_overclaim": 7
+   },
+   "keep": {
+    "fair": false,
+    "flags": [],
+    "intent_share": 0.625,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 5,
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.4062,
+   "modes": {
+    "budget": 1,
+    "claimed_done_without_progress/reproduce_from_report": 1,
+    "lost_progress": 1,
+    "stalled/interacting_faults": 3,
+    "stalled/multi_fault_localization": 1,
+    "world_fault": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 0.75,
+    "m02": 0.25,
+    "m03": 0.625,
+    "m04": 0.0
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      false
+     ]
+    },
+    "mean_phi": 0.4062,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "unfair"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 6,
+    "max_steps": 2
+   },
+   "task": "db-go-mvdan-sh-5e983709",
+   "tool_limit": 300,
+   "turns_mean": 266.2,
+   "usd": 17.6539,
+   "usd_per_episode": 2.2067
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "binding": 1,
+     "stuck": 1
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 0
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 8
+    },
+    "n": 8,
+    "ok": true,
+    "on_intent": 8,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "status_overclaim": 8
+   },
+   "keep": {
+    "fair": false,
+    "flags": [],
+    "intent_share": 1.0,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 8,
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.4375,
+   "modes": {
+    "stalled/interacting_faults": 7,
+    "stalled/multi_fault_localization": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 0.875,
+    "m02": 0.875,
+    "m03": 0.0,
+    "m04": 0.0
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      true
+     ]
+    },
+    "mean_phi": 0.3438,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "too_hard"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-go-mvdan-sh-dc951aeb",
+   "tool_limit": 300,
+   "turns_mean": 212.9,
+   "usd": 12.9664,
+   "usd_per_episode": 1.6208
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {
+     "stuck": 1
+    },
+    "student": {
+     "binding": 6,
+     "stuck": 1
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 6
+   },
+   "cause": {
+    "labels": {
+     "budget": 5,
+     "skill_gap": 2
+    },
+    "n": 7,
+    "ok": false,
+    "on_intent": 2,
+    "skill_gap_share": 0.2857,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 3,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     true,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "claimed_unrun_tests": 1,
+    "status_overclaim": 3
+   },
+   "keep": {
+    "fair": true,
+    "flags": [
+     "budget-bound: 5 of 7 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 2/2)"
+    ],
+    "intent_share": 0.2857,
+    "keep": false,
+    "labelled": 7,
+    "on_intent": 2,
+    "verdict": "off_intent",
+    "why": "on-intent skill-gap share 0.29 < 0.7"
+   },
+   "lang": "python",
+   "level": "medium",
+   "masked": 0,
+   "mean_phi": 0.5,
+   "modes": {
+    "budget": 4,
+    "lost_progress": 1,
+    "never_progressed/interacting_faults": 2
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0224,
+    0.4709
+   ],
+   "pass_rate": 0.125,
+   "passes": 1,
+   "per_milestone": {
+    "m01": 0.625,
+    "m02": 0.75,
+    "m03": 0.25
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      false
+     ]
+    },
+    "mean_phi": 0.2083,
+    "n": 8,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "unfair"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 2,
+    "max_steps": 6
+   },
+   "task": "db-python-black-90117fa0",
+   "tool_limit": 300,
+   "turns_mean": 296.5,
+   "usd": 24.4685,
+   "usd_per_episode": 3.0586
+  },
+  {
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {
+     "stuck": 2
+    },
+    "student": {
+     "binding": 5,
+     "stuck": 2
+    }
+   },
+   "budget_stops": {
+    "frontier": 0,
+    "student": 6
+   },
+   "cause": {
+    "labels": {
+     "budget": 6,
+     "skill_gap": 2
+    },
+    "n": 8,
+    "ok": false,
+    "on_intent": 2,
+    "skill_gap_share": 0.25,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "faults": 4,
+   "frontier": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     false,
+     false
+    ]
+   },
+   "honest": {
+    "status_overclaim": 2
+   },
+   "keep": {
+    "fair": false,
+    "flags": [
+     "budget-bound: 6 of 8 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 2/2)"
+    ],
+    "intent_share": 0.25,
+    "keep": false,
+    "labelled": 8,
+    "on_intent": 2,
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "python",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.4688,
+   "modes": {
+    "budget": 6,
+    "stalled/interacting_faults": 1,
+    "stalled/multi_fault_localization": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0,
+    0.3244
+   ],
+   "pass_rate": 0.0,
+   "passes": 0,
+   "per_milestone": {
+    "m01": 1.0,
+    "m02": 0.125,
+    "m03": 0.625,
+    "m04": 0.125
+   },
+   "previous": {
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      false,
+      false
+     ]
+    },
+    "mean_phi": 0.2857,
+    "n": 7,
+    "passes": 0,
+    "tool_limit": 150,
+    "verdict": "unfair"
+   },
+   "split": "train",
+   "stops": {
+    "agent_done": 2,
+    "max_steps": 6
+   },
+   "task": "db-python-black-ae5830b7",
+   "tool_limit": 300,
+   "turns_mean": 292.4,
+   "usd": 22.0792,
+   "usd_per_episode": 2.7599
+  }
+ ],
+ "verdicts": {
+  "off_intent": 1,
+  "out_of_band": 1,
+  "spec_defect": 2,
+  "too_easy": 1,
+  "too_hard": 1,
+  "unfair": 5
+ }
+}

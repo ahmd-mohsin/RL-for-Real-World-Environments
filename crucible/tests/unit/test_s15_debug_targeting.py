@@ -5,6 +5,11 @@ Everything in memory: no Docker, no model."""
 
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 
 from crucible.factory.audit import cross_family_problems, policy_model
@@ -225,3 +230,114 @@ def test_benchmark_policy_id_names_the_model_and_its_family() -> None:
     # a Tinker context variant of the target is the target (final numerics), a dev stand-in is not
     assert not is_dev_policy(pid) and numerics_of(pid) == "final"
     assert is_dev_policy("solver:tinker:Qwen/Qwen3.5-4B@tinker")
+
+
+# ---- S15 at 300 tool calls: the lane's env budget, the h3 World, distinct run ids ------------------------------------------
+def _target_script() -> Any:
+    p = Path(__file__).resolve().parents[2] / "scripts" / "lh_debug_target.py"
+    spec = importlib.util.spec_from_file_location("lh_debug_target_t", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_lane_env_budget_is_300_calls_with_scaled_timeouts_and_phi_cadence() -> None:
+    from crucible.factory.envs import Timeouts
+    from crucible.factory.generators.debug import ENV_BUDGET
+
+    b = ENV_BUDGET
+    assert b.tool_limit == 300 and b.decided == "2026-10-20"
+    # proportional to the 150-call run (2700 / 4500 s, Phi every 10 calls)
+    assert (b.agent_s, b.rollout_s) == (2700.0 * 2, 4500.0 * 2) and b.checkpoint_every == 10 * 2
+    Timeouts(agent_s=b.agent_s, rollout_s=b.rollout_s)  # grading fits between the two
+    # the periodic Phi points reach the last 30% of the budget, which traceaudit.budget_binding reads (the end has its own slot)
+    assert (b.checkpoint_cap - 1) * b.checkpoint_every >= 0.9 * b.tool_limit
+    # at 150 calls the cap of 12 stopped the periodic points at call 110: at 300 calls the same cap would stop them at 37%
+    assert (12 - 1) * 10 < 0.4 * b.tool_limit
+
+
+def test_the_targeting_script_runs_under_the_lane_budget_and_records_it() -> None:
+    t = _target_script()
+    a = t.parse_args(["report"])
+    assert (a.tool_limit, a.agent_s, a.rollout_s, a.ckpt_every, a.ckpt_cap, a.seed_offset) == (300, 5400.0, 9000.0, 20, 15, 0)
+    eb = t.env_budget(a)
+    assert eb["is_lane_budget"] and eb["tool_limit"] == 300 and eb["lane"]["tool_limit"] == 300
+    assert not t.env_budget(t.parse_args(["report", "--tool-limit", "150"]))["is_lane_budget"]
+
+
+def test_node_world_pnpm_is_offline_without_its_pre_run_install() -> None:
+    from crucible.factory import langs
+    from crucible.factory.langs.node import PNPM_OFFLINE
+    from crucible.factory.langs.runtime import policy_world_dockerfile
+
+    node = langs.get("node")
+    assert node.recipe == "node-5"
+    assert "pnpm_config_verify_deps_before_run=false" in PNPM_OFFLINE and "pnpm_config_offline=true" in PNPM_OFFLINE
+    df = policy_world_dockerfile("crucible-lh-d:node-h3-x", node)
+    assert df is not None and df.startswith("FROM crucible-lh-d:node-h3-x\n") and f"ENV {PNPM_OFFLINE}\n" in df
+    # the recipe sets it after the dependency install (the build itself installs online, once)
+    rec = node.dockerfile(Path("."), {"manager": "pnpm", "project": "h3"})
+    assert rec.index(PNPM_OFFLINE) > rec.index("pnpm install --frozen-lockfile")
+
+
+def test_a_spec_defect_sends_the_task_back_to_its_builder_whatever_the_labels() -> None:
+    """S15 at 300 calls: every excelize episode (student and frontier) failed one milestone whose table test also checks a
+    reverted fix the report never describes; both judges labelled the failures skill gaps (they never see the hidden
+    tests). An executed disclosure check records a spec defect, and the keep rule sends the task to its builder."""
+    ev = {"split": "heldout", "passes": 0, "n": 8, "on_intent": 8, "labelled": 8, "frontier": {"ds": [True, False]}}
+    assert keep_verdict(**ev)["verdict"] == "bench"
+    v = keep_verdict(**ev, spec_issue="m04 needs the undisclosed VALUE fault")
+    assert v["verdict"] == "spec_defect" and not v["keep"] and "builder" in v["why"]
+    assert keep_verdict(**ev, world_issue="pnpm hangs offline", spec_issue="x")["verdict"] == "world_bug"  # the World first
+
+
+def test_disclosure_check_finds_a_milestone_that_needs_a_silent_fault() -> None:
+    """B without the silent unit (a reverted fix with no milestone) is graded through the task's own grader: the milestone
+    whose table test also checks that fix fails, so its report must describe the fix."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from crucible.factory.generators.debug import disclosure_check, silent_units
+
+    units = [{"sha": "u1", "subject": "fix PERCENTILE.EXC"}, {"sha": "u2", "subject": "fix nested func args"}, {"sha": "u3", "subject": "fix COUNT"}]
+    window = {"units": units, "milestones": [{"id": "m01", "unit": "u1", "tests": ["a"]}, {"id": "m02", "unit": "u3", "requires": ["m01"], "tests": ["b"]}]}
+    graded: list[list[str]] = []
+
+    async def grade(steps: list[dict[str, Any]]) -> tuple[Any, str]:
+        got = [s["arguments"]["unit"] for s in steps]
+        graded.append(got)
+        ms = {"m01": "u1" in got, "m02": "u3" in got and "u2" in got}  # m02's table test also checks u2's behaviour
+        return SimpleNamespace(infra={"status": "ok"}, meta={"milestones": ms, "apply_errors": []}), "fp"
+
+    task = SimpleNamespace(task_id="db-go-x", window=window, grade=grade,
+                           oracle=[{"function_name": "apply_unit", "arguments": {"unit": u["sha"], "patch": "p"}} for u in units])
+    assert [u["sha"] for u in silent_units(window)] == ["u2"]
+    r = asyncio.run(disclosure_check(task))
+    assert graded == [["u1", "u3"]] and r["measured"] and r["needs"] == {"m02": ["fix nested func args"]}
+    # every fix has a milestone: nothing to grade
+    w2 = {**window, "units": [units[0], units[2]]}
+    assert asyncio.run(disclosure_check(SimpleNamespace(task_id="y", window=w2, grade=grade, oracle=[])))["needs"] == {} and len(graded) == 1
+    # a simplified start (the oracle as files): unmeasured, never a verdict
+    t3 = SimpleNamespace(task_id="z", window=window, grade=grade, oracle=[{"function_name": "apply_files", "arguments": {"files": {}}}])
+    assert asyncio.run(disclosure_check(t3))["measured"] is False
+
+
+def test_the_committed_summary_seals_held_out_details() -> None:
+    t = _target_script()
+    s = {"tasks": [{"task": "db-go-x", "split": "heldout", "keep": {"verdict": "spec_defect", "why": "m04 TestHidden needs fix Y", "flags": ["f"]}},
+                   {"task": "db-go-y", "split": "train", "keep": {"verdict": "too_hard", "why": "pass rate 0.00", "flags": ["g"]}}],
+         "issues": {"db-go-x": {"kind": "spec_defect", "status": "open", "owner": "builder", "issue": "TestHidden checks fix Y", "fix_needed": "z"}}}
+    out = t.sealed(s)
+    assert "TestHidden" not in json.dumps(out) and out["tasks"][0]["keep"]["verdict"] == "spec_defect"
+    assert out["tasks"][1]["keep"]["why"] == "pass rate 0.00" and out["issues"]["db-go-x"] == {"kind": "spec_defect", "status": "open", "owner": "builder"}
+    assert "TestHidden" in json.dumps(s)  # the local copy keeps everything
+
+
+def test_a_re_measurement_never_reuses_an_earlier_phases_run_ids() -> None:
+    """The Weave trace key is ``<run id>/<sample>/<attempt>`` and the run id is ``bench-<purpose>-s<seed>-<task>``: a
+    second phase on the same tasks and seeds would be skipped as already exported (and its audits attached to the first
+    phase's traces). ``--seed-offset`` gives every arm fresh samples and distinct run ids."""
+    t = _target_script()
+    a = t.parse_args(["report", "--seed-offset", "300"])
+    seeds = {t.SEEDS["student"] + a.seed_offset, *(t.SEEDS[m] + a.seed_offset for m in t.FRONTIER)}
+    assert seeds.isdisjoint({t.SEEDS["student"], *(t.SEEDS[m] for m in t.FRONTIER)}) and len(seeds) == 3
