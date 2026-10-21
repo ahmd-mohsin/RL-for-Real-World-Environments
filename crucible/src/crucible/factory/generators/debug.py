@@ -18,7 +18,8 @@ test files that the profile's definition diff proposes (added or changed by the 
 a file (titles built at run time), every test of that file the revert catches is owned: the executed fail-to-pass set is
 the truth, the text only proposes. A compiled language counts only ``failed`` tests: a revert that stops a test file
 from building (a removed API) is not a behavioural fault. Interactions, grouping and the prober's executed edges are
-rebreak's (``interaction_edges``, ``group_fixes``).
+rebreak's (``interaction_edges``, ``group_fixes``). ``Debug.subset`` takes a named list of fixes instead of a group: a
+mined task rebuilt, or eased by leaving one of its fixes applied in A'.
 
 **The start tree** (``synthesize``). A' = B with every fix of the group reverted: source **and test data** (fixtures,
 snapshots, golden files: the expected output is the fix), newest first, 3-way; the tests each fix added or changed are
@@ -76,6 +77,7 @@ from crucible.factory.generators.rebreak import (
     fix_units,
     group_fixes,
     interaction_edges,
+    order_fixes,
 )
 from crucible.factory.lanes.executable import is_test_path
 from crucible.factory.lanes.windows import (
@@ -567,6 +569,11 @@ def intent_cards() -> list[Any]:
 
 
 # ---- the generator ------------------------------------------------------------------------------------------------------------
+def group_id(lang: str, name: str, group: Sequence[Unit]) -> str:
+    """A mined candidate's id: the hash of its fix shas in prober order, so the same fixes at any B give the same id."""
+    return f"db-{lang}-{name}-{hashlib.sha256('|'.join(u.sha for u in group).encode()).hexdigest()[:8]}"
+
+
 class Debug(Rebreak):
     """The debugging lane over local clones (``Generator``): ``clones`` name -> path, ``langs`` name -> profile name."""
 
@@ -644,6 +651,62 @@ class Debug(Rebreak):
 
     async def _groups_at(self, name: str, lang: str, b: str, b_ref: str, b_date: str, fixes: list[Unit], since: str,
                          stats: dict[str, int]) -> list[Candidate]:
+        kept, need, card = await self._executed(name, lang, b, b_ref, fixes)
+        repo = RepoGit(self.clones[name])
+        funcs = {u.sha: lang_changed_functions(repo, u, profile_of(lang)) for u in kept}
+        stats["kept"] += len(kept)
+        stats["interacting_fixes"] += len(need)
+        out_: list[Candidate] = []
+        for g in group_fixes(kept, funcs, need=need, max_size=self.max_size):
+            if not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
+                self.note(group_id(lang, name, g), "S1_executed", False, "no executed interaction at B (no test caught by two reverts)", lang=lang,
+                          fixes=[u.sha[:10] for u in g])
+                continue
+            out_.append(self._candidate(name, lang, g, need, card, b=b, b_ref=b_ref, b_date=b_date, since=since))
+        return out_
+
+    async def subset(self, name: str, shas: Sequence[str], *, b: str = "HEAD", since: str | None = None, cid: str = "",
+                     parent: str = "") -> Candidate:
+        """The candidate of exactly the fixes ``shas`` (sha prefixes of fix units on B's first-parent path since ``since``)
+        at ``b``: ``candidates_for``'s executed check, edges, prober order and params, without its grouping. A mined task is
+        rebuilt from its fixes; an eased one (TASKS_CREDIT_AND_EASING §5.5) is its parent's fixes minus the dropped one, which
+        stays applied in A'. ``cid`` names it (default the group hash, as mined); ``parent`` is recorded in the window.
+        ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact."""
+        lang = self.langs_of[name]
+        with scope(lang):
+            from crucible.factory.generators.base import git, out
+
+            repo_dir = self.clones[name]
+            since = since or self.since
+            r = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{b}^{{commit}}", check=False)
+            if r.returncode != 0:
+                raise ValueError(f"B {b!r} is not a commit of {name}")
+            b_full, head = out(r), out(git(repo_dir, "rev-parse", "HEAD"))
+            pool = await asyncio.to_thread(fix_units, repo_dir, b_full, since=since)
+            picked: list[Unit] = []
+            for s in shas:
+                hits = [u for u in pool if u.sha.startswith(s)]
+                if len(hits) != 1:
+                    raise ValueError(f"{s}: {'no' if not hits else 'more than one'} fix unit on B's first-parent path since {since}")
+                if hits[0] not in picked:
+                    picked.append(hits[0])
+            if len(picked) < 2:
+                raise ValueError("a task needs at least two fixes")
+            b_ref = "HEAD" if b_full == head else "pinned"
+            kept, need, card = await self._executed(name, lang, b_full, b_ref, picked)
+            if lost := [u.sha[:10] for u in picked if u not in kept]:
+                raise ValueError(f"not a real fix at B (no test of its own fails when it alone is reverted): {lost}")
+            g = order_fixes(sorted(picked, key=pool.index), need)
+            if not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
+                raise ValueError("no executed interaction at B (no test caught by two reverts)")
+            b_date = out(git(repo_dir, "log", "-1", "--format=%cI", b_full))
+            return self._candidate(name, lang, g, need, card, b=b_full, b_ref=b_ref, b_date=b_date, since=since, cid=cid,
+                                   **({"parent": parent} if parent else {}))
+
+    async def _executed(self, name: str, lang: str, b: str, b_ref: str, fixes: Sequence[Unit]
+                        ) -> tuple[list[Unit], dict[str, set[str]], dict[str, Any]]:
+        """``fix_check`` of ``fixes`` at B (cached per pool): the real fixes the lease allows, their executed interaction
+        edges and B's World card. Every fix's source record joins ``records``."""
         repo = RepoGit(self.clones[name])
         work = self.root / "work" / name / b[:10]
         work.mkdir(parents=True, exist_ok=True)
@@ -668,26 +731,17 @@ class Debug(Rebreak):
                 self.note(f"{lang}/{name}:{u.sha[:10]}", "S1_executed", ok, ev.get("why") or rec.lease.get("reason", ""), lang=lang, b_ref=b_ref)
             if ok:
                 kept.append(u)
-        funcs = {u.sha: lang_changed_functions(repo, u, profile_of(lang)) for u in kept}
-        need = interaction_edges({u.sha: evid[u.sha] for u in kept})
-        stats["kept"] += len(kept)
-        stats["interacting_fixes"] += len(need)
+        return kept, interaction_edges({u.sha: evid[u.sha] for u in kept}), card
+
+    def _candidate(self, name: str, lang: str, g: Sequence[Unit], need: Mapping[str, set[str]], card: Mapping[str, Any], *, b: str, b_ref: str,
+                   b_date: str, since: str, cid: str = "", **params: Any) -> Candidate:
         recs = {r.sha: r for r in self.records if r.repo == name and r.evidence.get("b") == b}
-        out_: list[Candidate] = []
-        tags = version_tags(self.clones[name])
-        for g in group_fixes(kept, funcs, need=need, max_size=self.max_size):
-            cid = f"db-{lang}-{name}-{hashlib.sha256('|'.join(u.sha for u in g).encode()).hexdigest()[:8]}"
-            inter = any(need.get(u.sha, set()) & {x.sha for x in g} for u in g)
-            if not inter:
-                self.note(cid, "S1_executed", False, "no executed interaction at B (no test caught by two reverts)", lang=lang, fixes=[u.sha[:10] for u in g])
-                continue
-            out_.append(Candidate(cid, NAME, name, sources=[recs[u.sha].to_json() for u in g],
-                                  params={"lang": lang, "b": b, "b_ref": b_ref, "b_date": b_date, "b_version": None, "fixes": [u.sha for u in g],
-                                          "image_b": card.get("image"), "tags": len(tags), "cutoff": since,
-                                          "fix_dates": {u.sha: u.date for u in g},
-                                          "contamination": "post-release" if min(u.date[:10] for u in g) >= SINCE else "fallback",
-                                          "needs": {u.sha: sorted(need.get(u.sha, set()) & {x.sha for x in g}) for u in g}}))
-        return out_
+        return Candidate(cid or group_id(lang, name, g), NAME, name, sources=[recs[u.sha].to_json() for u in g],
+                         params={"lang": lang, "b": b, "b_ref": b_ref, "b_date": b_date, "b_version": None, "fixes": [u.sha for u in g],
+                                 "image_b": card.get("image"), "tags": len(version_tags(self.clones[name])), "cutoff": since,
+                                 "fix_dates": {u.sha: u.date for u in g},
+                                 "contamination": "post-release" if min(u.date[:10] for u in g) >= SINCE else "fallback",
+                                 "needs": {u.sha: sorted(need.get(u.sha, set()) & {x.sha for x in g}) for u in g}, **params})
 
     def synthesize(self, cand: Candidate, *, mode: str = "revert", extra_hide: Mapping[str, set[str]] | None = None
                    ) -> tuple[Window | None, dict[str, Any]]:
@@ -882,6 +936,7 @@ class Debug(Rebreak):
                      for m in rec.get("milestones") or [] if m.get("requires")]
             rec[NAME] = {**info, "b": cand.params["b"], "source_repo": cand.repo, "interacting": edges,
                          **{k: cand.params.get(k) for k in ("cutoff", "contamination", "fix_dates")},
+                         **({"parent": cand.params["parent"]} if cand.params.get("parent") else {}),
                          "fix_milestones": {f["sha"]: by_unit.get(f["unit"]) for f in info["fixes"]}, "sources": [s["id"] for s in cand.sources]}
             if rec.get("milestones"):
                 rec[NAME]["intent"] = task_intent(rec, faulty_names(rec, RepoGit(Path(win.repo_dir))))

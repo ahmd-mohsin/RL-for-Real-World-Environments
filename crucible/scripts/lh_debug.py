@@ -2,6 +2,7 @@
 
     python scripts/lh_debug.py scout                      # licence, language, fix units since 2025-09-01 per clone (no Docker)
     python scripts/lh_debug.py mine  --repos a,b          # executed fix check at HEAD, interacting groups, A'..B', validate_window
+    python scripts/lh_debug.py subset --repo a --fixes s1,s2,s3 [--b B] [--id ID --parent P]   # one task of exactly these fixes
     python scripts/lh_debug.py gates [--ids ...]          # S6, S5, S8, S3, S10 on every built window that reached mutants_valid
     python scripts/lh_debug.py author                     # the builder's bug reports (prompts/<id>.json) through lint + ledger
     python scripts/lh_debug.py report                     # funnel per language, candidates, image disk
@@ -155,6 +156,20 @@ async def mine(args: argparse.Namespace) -> None:
             gen = generator(mine_repos, split, max_pool=args.max_pool)
             sem = asyncio.Semaphore(args.parallel)
             await asyncio.gather(*[mine_one(gen, n, args.since or None, sem) for n in mine_repos])
+
+
+async def subset(args: argparse.Namespace) -> None:
+    """The task of exactly ``--fixes`` at ``--b`` (``Debug.subset``), built as ``mine`` builds a group: a mined task
+    rebuilt from its fixes, or eased by leaving one of them applied. The repository's images are kept for the next build."""
+    gen = generator([args.repo], split_of(args.repo))
+    try:
+        cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent)
+    except ValueError as e:
+        sys.exit(f"[{args.repo}] {e}")
+    needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
+    print(f"[{args.repo}] {cand.id}: fixes {[s[:10] for s in cand.params['fixes']]}, executed edges {needs}", flush=True)
+    rec = await gen.build(cand)
+    print(f"[{args.repo}] {cand.id}: {rec.get('stage')} {rec.get('reason', '')[:160]}", flush=True)
 
 
 async def gates(args: argparse.Namespace) -> None:
@@ -391,6 +406,13 @@ def main() -> None:
     m.add_argument("--parallel", type=int, default=2)
     m.add_argument("--max-pool", type=int, default=40)
     m.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE; FALLBACK_SINCE is the marked fallback)")
+    su = sub.add_parser("subset")
+    su.add_argument("--repo", required=True)
+    su.add_argument("--fixes", required=True, help="the fix shas (prefixes) reverted together, comma-separated")
+    su.add_argument("--b", default="HEAD", help="B, the oracle commit (default the clone's HEAD)")
+    su.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE)")
+    su.add_argument("--id", default="", help="the task id (default db-<lang>-<repo>-<hash of the fixes>, as mine names it)")
+    su.add_argument("--parent", default="", help="the task this one rebuilds or eases, recorded in its window")
     g = sub.add_parser("gates")
     g.add_argument("--ids", default="")
     g.add_argument("--s3-reruns", type=int, default=60)
@@ -408,6 +430,8 @@ def main() -> None:
         cmd_scout(args)
     elif args.cmd == "mine":
         asyncio.run(mine(args))
+    elif args.cmd == "subset":
+        asyncio.run(subset(args))
     elif args.cmd == "gates":
         asyncio.run(gates(args))
     elif args.cmd == "author":
